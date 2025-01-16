@@ -1,7 +1,7 @@
 pub mod dapps;
 pub mod login;
 pub mod wallet;
-pub mod theme;
+//pub mod theme;
 pub mod panels;
 pub mod widgets;
 
@@ -21,7 +21,6 @@ use eframe::egui::{
     widgets::Image,
     widget_text::WidgetText,
     Sense,
-    epaint::text::LayoutJob,
     vec2,
 };
 use zeus_eth::alloy_primitives::{ Address, utils::format_units };
@@ -84,13 +83,6 @@ pub fn currency_value(chain_id: u64, owner: Address, currency: &Currency) -> Str
 
 pub fn rich_text(text: impl Into<String>) -> RichText {
     RichText::new(text).size(15.0).family(roboto_regular()).color(Color32::WHITE)
-}
-
-pub fn widget_text(text: impl Into<String>, font_size: f32) -> WidgetText {
-    let font = FontId::new(font_size, roboto_regular());
-    WidgetText::LayoutJob(
-        LayoutJob::simple_singleline(text.into(), font, theme::PRIMARY_TEXT_COLOR)
-    )
 }
 
 pub fn button(text: impl Into<WidgetText>) -> Button<'static> {

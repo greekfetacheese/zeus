@@ -1,19 +1,26 @@
-use eframe::egui::{ vec2, Align, Grid, Align2, Window, Frame, Margin, Layout, Ui };
+use eframe::egui::{ Align, Grid, Layout, Ui };
 
 use crate::core::data::APP_DATA;
 use crate::gui::{ GUI, ui::{ WalletUi, ChainSelect, rich_text, button, img_button } };
 use egui_theme::Theme;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
-    ui.horizontal(|ui| {
+    ui.vertical(|ui| {
+        // Chain selection
+        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let clicked = gui.profile_area.chain_select.show(ui, &gui.theme, gui.icons.clone());
+            if clicked {
+                // if we select a new chain update the necessary state
+                let chain = gui.profile_area.chain_select.chain.id();
+                gui.swap_ui.default_currency_in(chain);
+                gui.swap_ui.default_currency_out(chain);
+            }
+        });
+
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             gui.profile_area.show(ui, &gui.theme);
         });
     });
-
-    // if a new chain is selected, update the necessary state
-    gui.swap_ui.default_currency_in(gui.profile_area.chain_select.chain.id());
-    gui.swap_ui.default_currency_out(gui.profile_area.chain_select.chain.id());
 }
 
 pub struct ProfileArea {
@@ -57,7 +64,6 @@ impl ProfileArea {
             icons = data.icons.clone().unwrap();
         }
 
-        // let frame = Frame::none().outer_margin(Margin::same(10.0)).inner_margin(Margin::same(10.0));
         let frame = theme.frame2;
 
         frame.show(ui, |ui| {
@@ -66,11 +72,6 @@ impl ProfileArea {
 
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 15.0;
-
-                // show the chain select
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    self.chain_select.show(ui, theme, icons.clone());
-                });
 
                 // Show the current wallet, if clicked open the wallet_ui
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

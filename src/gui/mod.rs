@@ -3,7 +3,6 @@ pub mod utils;
 pub mod window;
 
 use eframe::egui::{Ui, Context};
-use ui::theme;
 use std::sync::{Arc, RwLock};
 
 use egui_theme::{Theme, ThemeKind, ThemeEditor};

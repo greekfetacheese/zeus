@@ -34,13 +34,17 @@ impl ChainSelect {
         self
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, icons: Arc<Icons>) {
+    /// Show the ComboBox
+    /// 
+    /// Returns true if the chain was changed
+    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, icons: Arc<Icons>) -> bool {
         let mut selected_chain = self.chain.clone();
         let supported_chains = ChainId::supported_chains();
         bg_color_on_idle(ui, Color32::TRANSPARENT);
         window_fill(ui, theme.colors.bg_color);
 
         let icon = icons.chain_icon(&selected_chain.id());
+        let mut clicked = false;
 
         ui.add(icon);
         ComboBox::from_id_salt(self.id)
@@ -52,9 +56,11 @@ impl ChainSelect {
 
                     if value.clicked() {
                         self.chain = selected_chain.clone();
+                        clicked = true;
                     }
                 }
             });
+            clicked
     }
 }
 

@@ -1,4 +1,4 @@
-use egui::{ vec2, Align, Color32, FontId, Frame, Grid, Layout, Margin, Rounding, Stroke, TextEdit, Ui };
+use egui::{ vec2, Align, Color32, FontId, Grid, Layout, TextEdit, Ui };
 use crate::core::data::{ APP_DATA, ZEUS_DB };
 use crate::assets::icons::Icons;
 use crate::gui::ui::*;
@@ -259,16 +259,10 @@ impl SwapUi {
 
             let button = img_button(icon, symbol_text).min_size(vec2(50.0, 25.0)).sense(Sense::click());
 
-            ui.scope(|ui| {
-                // remove the border from the button
-                theme::inactive_border_color(ui, 0.0, Color32::WHITE);
-                theme::on_hover_border_color(ui, 0.0, Color32::WHITE);
-
                 if ui.add(button).clicked() {
                     token_selection.currency_direction = in_or_out;
                     token_selection.open = true;
                 }
-            });
         });
     }
 }
