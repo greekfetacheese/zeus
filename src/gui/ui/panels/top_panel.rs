@@ -5,24 +5,38 @@ use crate::gui::{ GUI, ui::{ WalletUi, ChainSelect, rich_text, button, img_butto
 use egui_theme::Theme;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
-    ui.vertical(|ui| {
-        // Chain selection
-        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let clicked = gui.profile_area.chain_select.show(ui, &gui.theme, gui.icons.clone());
-            if clicked {
-                // if we select a new chain update the necessary state
-                let chain = gui.profile_area.chain_select.chain.id();
-                gui.swap_ui.default_currency_in(chain);
-                gui.swap_ui.default_currency_out(chain);
-            }
-        });
+    let frame = gui.theme.frame2;
 
-        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            gui.profile_area.show(ui, &gui.theme);
+    frame.show(ui, |ui| {
+        ui.set_width(gui.profile_area.size.0);
+        ui.set_height(gui.profile_area.size.1);
+
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 20.0;
+
+            // Chain selection
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                let clicked = gui.profile_area.chain_select.show(ui, &gui.theme, gui.icons.clone());
+                if clicked {
+                    // if we select a new chain update the necessary state
+                    let chain = gui.profile_area.chain_select.chain.clone();
+                    gui.swap_ui.default_currency_in(chain.id());
+                    gui.swap_ui.default_currency_out(chain.id());
+
+                    // update the chain id in the app data
+                    let mut data = APP_DATA.write().unwrap();
+                    data.chain_id = chain;
+                }
+            });
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                gui.profile_area.show(ui, &gui.theme);
+            });
         });
     });
 }
 
+// ! Rename to something else?
 pub struct ProfileArea {
     pub open: bool,
     pub main_ui: bool,
@@ -47,11 +61,11 @@ impl ProfileArea {
             return;
         }
 
-        self.main_ui(ui, theme);
+        self.main_ui(ui);
         self.wallet_ui.show(ui, theme);
     }
 
-    pub fn main_ui(&mut self, ui: &mut Ui, theme: &Theme) {
+    pub fn main_ui(&mut self, ui: &mut Ui) {
         if !self.main_ui {
             return;
         }
@@ -64,40 +78,26 @@ impl ProfileArea {
             icons = data.icons.clone().unwrap();
         }
 
-        let frame = theme.frame2;
+        ui.vertical(|ui| {
+           // ui.spacing_mut().item_spacing.y = 15.0;
 
-        frame.show(ui, |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical(|ui| {
-                ui.spacing_mut().item_spacing.y = 15.0;
-
-                // Show the current wallet, if clicked open the wallet_ui
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.vertical_centered(|ui| {
-                        Grid::new("profile_grid")
-                            .min_row_height(30.0)
-                            .show(ui, |ui| {
-                                let text = rich_text(wallet.name).size(16.0);
-                                if ui.add(img_button(icons.right_arrow(), text)).clicked() {
-                                    self.wallet_ui.open = !self.wallet_ui.open;
-                                }
-                            });
+            // Show the current wallet, if clicked open the wallet_ui
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                Grid::new("profile_grid")
+                    .min_row_height(30.0)
+                    .show(ui, |ui| {
+                        let text = rich_text(wallet.name).size(16.0);
+                        if ui.add(img_button(icons.right_arrow(), text)).clicked() {
+                            self.wallet_ui.open = !self.wallet_ui.open;
+                        }
                     });
-                });
+            });
 
-                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.label(rich_text("Assets Value:"));
-                    // TODO: Calculate the total value of a wallet
-                    ui.label(rich_text("$100,000,00"));
-                });
-
-                // update the chain_id
-                {
-                    let mut data = APP_DATA.write().unwrap();
-                    data.chain_id = self.chain_select.chain.clone();
-                }
+            // Assets Value
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                ui.label(rich_text("Assets Value:"));
+                // TODO: Calculate the total value of a wallet
+                ui.label(rich_text("$100,000,00"));
             });
         });
     }
