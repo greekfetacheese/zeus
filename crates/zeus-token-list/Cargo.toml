@@ -1,0 +1,20 @@
+[package]
+name = "zeus-token-list"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0.216", features = ["derive"] }
+serde_json = "1.0.117"
+tokio = { version = "1.35.1", features = ["full"] }
+reqwest = "0.12.9"
+image = "0.25.1"
+anyhow = "1.0.44"
+
+[[bin]]
+name = "download_icons"
+path = "src/bin/download_icons.rs"
+
+[[bin]]
+name = "extract_icon_data"
+path = "src/bin/extract_icon_data.rs"

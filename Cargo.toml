@@ -1,13 +1,50 @@
-workspace = { members = ["crates/zeus-gui", "crates/zeus-backend", "crates/zeus-chain", "crates/zeus-core", "crates/zeus-shared-types"] }
+[workspace]
+resolver = "2"
+members = ["crates/ncrypt", "crates/egui-theme", "crates/zeus-token-list"]
+
 [package]
-name = "Zeus"
+name = "zeus-desktop"
 authors = ["Michalis Molfetas"]
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "zeus-desktop"
 
 [dependencies]
-eframe = {version = "0.28.1", features = ["wgpu"]}
-egui_extras = {version = "0.28.1", features = ["svg", "image"]}
-zeus-gui = { path = "crates/zeus-gui" }
+
+# GUI
+eframe = {version = "0.30.0", features = ["wgpu"]}
+egui = {version = "0.30.0", features = ["serde"]}
+egui_extras = {version = "0.30.0", features = ["svg", "image"]}
+image = "0.25.1"
+
+egui-theme = { path = "crates/egui-theme" }
+
+zeus-token-list = { path = "crates/zeus-token-list" }
+
+# Eth
+zeus-eth = { path = "crates/zeus-eth" }
+
+# Alloy
+alloy-transport-http = {version = "0.3.1", features = ["reqwest"]}
+
+# Crypto
+ncrypt = { path = "crates/ncrypt" }
+
+# Tracing
+tracing = "0.1.40"
+tracing-subscriber = {version = "0.3.18", features = ["env-filter", "fmt"]}
+tracing-appender = "0.2.3"
+
+# Async
+tokio = { version = "1.35.1", features = ["full"] }
+reqwest = "0.12.9"
+
+
+# Misc
+anyhow = "1.0.44"
+serde = "1.0.203"
+serde_json = "1.0.117"
+lazy_static = "1.4.0"
+
+[features]
+default = []

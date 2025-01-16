@@ -1,0 +1,231 @@
+use eframe::egui::{ Ui, ComboBox, Align2, Window, Frame, ScrollArea, Color32, Grid, vec2 };
+use std::sync::Arc;
+use crate::gui::ui::{ button, img_button, rich_text, currency_balance, currency_price, currency_value };
+use crate::assets::icons::Icons;
+use crate::core::{ user::wallet::Wallet, data::{ APP_DATA, ZEUS_DB } };
+use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
+
+use zeus_eth::ChainId;
+
+pub mod token_selection;
+pub mod send_crypto;
+
+pub use token_selection::TokenSelectionWindow;
+pub use send_crypto::SendCrypto;
+
+/// A ComboBox to select a chain
+pub struct ChainSelect {
+    pub id: &'static str,
+    pub chain: ChainId,
+    pub width: f32,
+}
+
+impl ChainSelect {
+    pub fn new(id: &'static str) -> Self {
+        Self {
+            id,
+            chain: ChainId::new(1).unwrap(),
+            width: 200.0,
+        }
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, icons: Arc<Icons>) {
+        let mut selected_chain = self.chain.clone();
+        let supported_chains = ChainId::supported_chains();
+        bg_color_on_idle(ui, Color32::TRANSPARENT);
+        window_fill(ui, theme.colors.bg_color);
+
+        let icon = icons.chain_icon(&selected_chain.id());
+
+        ui.add(icon);
+        ComboBox::from_id_salt(self.id)
+            .width(self.width)
+            .selected_text(rich_text(selected_chain.name()).size(16.0))
+            .show_ui(ui, |ui| {
+                for chain in supported_chains {
+                    let value = ui.selectable_value(&mut selected_chain, chain.clone(), rich_text(chain.name()));
+
+                    if value.clicked() {
+                        self.chain = selected_chain.clone();
+                    }
+                }
+            });
+    }
+}
+
+/// A ComboBox to select a wallet
+pub struct WalletSelect {
+    pub id: &'static str,
+    pub wallet: Wallet,
+    pub width: f32,
+}
+
+impl WalletSelect {
+    pub fn new(id: &'static str) -> Self {
+        Self {
+            id,
+            wallet: Wallet::new_rng(String::new()),
+            width: 200.0,
+        }
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    pub fn show(&mut self, ui: &mut Ui) {
+        let wallets;
+        {
+            let data = APP_DATA.read().unwrap();
+            wallets = data.profile.wallets.clone();
+            if self.wallet.name.is_empty() {
+                self.wallet = data.profile.current_wallet.clone();
+            }
+        }
+
+        ComboBox::from_id_salt(self.id)
+            .selected_text(rich_text(self.wallet.name.clone()))
+            .width(self.width)
+            .show_ui(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 10.0;
+
+                for wallet in wallets {
+                    let value = ui.selectable_value(&mut self.wallet, wallet.clone(), rich_text(wallet.name.clone()));
+
+                    // update the wallet
+                    if value.clicked() {
+                        self.wallet = wallet.clone();
+                    }
+                }
+            });
+    }
+}
+
+/// Simple window diplaying a message, for example an error
+#[derive(Default)]
+pub struct MsgWindow {
+    pub open: bool,
+    pub title: String,
+    pub message: String,
+}
+
+impl MsgWindow {
+    /// Open the window with this title and message
+    pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
+        self.open = true;
+        self.title = title.into();
+        self.message = msg.into();
+    }
+
+    pub fn show(&mut self, ui: &mut Ui) {
+        if !self.open {
+            return;
+        }
+
+        let title = rich_text(self.title.clone()).size(20.0);
+        let msg = rich_text(&self.message).size(16.0);
+        let ok = button(rich_text("Ok"));
+
+        Window::new(title)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .collapsible(false)
+            .frame(Frame::window(ui.style()))
+            .show(ui.ctx(), |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.set_min_size(vec2(300.0, 100.0));
+                    ui.scope(|ui| {
+                        ui.spacing_mut().item_spacing.y = 20.0;
+
+                        ui.label(msg);
+
+                        if ui.add(ok).clicked() {
+                            self.open = false;
+                        }
+                    });
+                });
+            });
+    }
+}
+
+pub struct PortfolioUi {
+    pub open: bool,
+}
+
+impl PortfolioUi {
+    pub fn new() -> Self {
+        Self {
+            open: true,
+        }
+    }
+
+    pub fn show(&mut self, ui: &mut Ui, icons: Arc<Icons>) {
+        if !self.open {
+            return;
+        }
+
+        let chain_id;
+        let owner;
+        {
+            let app_data = APP_DATA.read().unwrap();
+            chain_id = app_data.chain_id.id();
+            owner = app_data.profile.wallet_address();
+        }
+
+        let portfolio;
+        {
+            let db = ZEUS_DB.read().unwrap();
+            portfolio = db.get_portfolio(chain_id, owner);
+        }
+        let currencies = portfolio.currencies();
+
+        ui.vertical_centered_justified(|ui| {
+            ui.set_width(600.0);
+            ui.set_height(550.0);
+
+            ScrollArea::vertical()
+                .show(ui, |ui| {
+                    Grid::new("currency_grid")
+                        .min_col_width(50.0)
+                        .spacing((150.0, 20.0))
+                        .show(ui, |ui| {
+                            // Header
+                            ui.label(rich_text("Token").size(18.0));
+                            ui.label(rich_text("Price").size(18.0));
+                            ui.label(rich_text("Balance").size(18.0));
+                            ui.label(rich_text("Value").size(18.0));
+
+                            ui.end_row();
+
+                            for currency in currencies {
+                                let icon = if currency.is_native() {
+                                    icons.currency_icon(chain_id)
+                                } else {
+                                    let token = currency.erc20().unwrap();
+                                    icons.token_icon(token.address, chain_id)
+                                };
+
+                                let token = img_button(icon, rich_text(currency.symbol()).size(15.0)).min_size(
+                                    vec2(30.0, 25.0)
+                                );
+
+                                // Add each label into a grid cell
+                                ui.add(token);
+                                ui.label(rich_text(currency_price(chain_id, currency)).size(15.0));
+                                ui.label(rich_text(currency_balance(chain_id, owner, currency)).size(15.0));
+                                ui.label(rich_text(currency_value(chain_id, owner, currency)).size(15.0));
+
+                                // move to the next row
+                                ui.end_row();
+                            }
+                        });
+                });
+        });
+    }
+}

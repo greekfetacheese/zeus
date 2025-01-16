@@ -1,5 +1,6 @@
 /target
-/db
+/data
 /logs
-profile.data
-rpc.json
+/old
+/crates/zeus-token-list/token-icons.json
+/crates/zeus-token-list/icons
