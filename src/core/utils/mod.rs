@@ -33,11 +33,7 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
 pub fn on_startup() -> Result<(), anyhow::Error> {
     if let Ok(db) = ZeusDB::load_from_file() {
         let mut old_db = ZEUS_DB.write().unwrap();
-        old_db.token_balance = db.token_balance;
-        old_db.eth_balance = db.eth_balance;
-        old_db.currency = db.currency;
-        old_db.portfolios = db.portfolios;
-        old_db.token_price = db.token_price;
+        *old_db = db;
     } else {
         let mut db = ZEUS_DB.write().unwrap();
         db.load_default_currencies()?;

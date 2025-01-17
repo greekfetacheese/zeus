@@ -4,7 +4,7 @@ use crate::gui::SHARED_GUI;
 use ncrypt::EncryptedInfo;
 
 // Shortcuts for functions that may fail but we need to show an error message
-// These functions are only called on a seperate thread so we dont lock the SHARED_GUI
+// These functions are only called on a seperate thread so we dont block or panic the main thread
 
 pub fn import_wallet(profile: &mut Profile, name: String, key: String) {
     match profile.import_wallet(name, key) {

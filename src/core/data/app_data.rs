@@ -55,6 +55,7 @@ impl RpcProviders {
         Ok(())
     }
 
+    // ! Need to change this, its very bad
     /// Get an rpc provider based on the chain_id
     pub fn get(&self, chain_id: u64) -> Result<Rpc, anyhow::Error> {
         let rpc_opt = self.rpc.iter().find(|rpc| rpc.chain_id == chain_id);

@@ -95,7 +95,7 @@ impl WalletUi {
                 ui.set_height(self.window_size().1);
 
                 self.main_ui(theme, ui);
-                self.add_wallet_ui(theme, ui);
+                self.add_wallet_ui(ui);
                 self.import_wallet_ui(theme, ui);
                 self.generate_wallet_ui(theme, ui);
 
@@ -126,8 +126,6 @@ impl WalletUi {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let close_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             if ui.add(close_button).clicked() {
                 self.open = false;
             }
@@ -141,8 +139,6 @@ impl WalletUi {
             let add_wallet_button = img_button(icons.add_wallet_icon(), "").min_size(vec2(30.0, 25.0));
             ui.scope(|ui| {
                 bg_color_on_idle(ui, Color32::TRANSPARENT);
-                bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-                bg_color_on_click(ui, theme.colors.widget_bg_color_click);
                 if ui.add(add_wallet_button).clicked() {
                     self.add_wallet = true;
                     self.main_ui = false;
@@ -205,7 +201,7 @@ impl WalletUi {
         });
     }
 
-    pub fn add_wallet_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn add_wallet_ui(&mut self, ui: &mut Ui) {
         if !self.add_wallet {
             return;
         }
@@ -220,8 +216,6 @@ impl WalletUi {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.set_max_width(30.0);
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             let back_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             if ui.add(back_button).clicked() {
                 self.add_wallet = false;
@@ -263,8 +257,6 @@ impl WalletUi {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.set_max_width(30.0);
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             let back_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             if ui.add(back_button).clicked() {
                 self.imported_key.zeroize();
@@ -337,8 +329,6 @@ impl WalletUi {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.set_max_width(30.0);
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             let back_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             if ui.add(back_button).clicked() {
                 self.generate_wallet = false;

@@ -1,6 +1,7 @@
 pub mod ui;
 pub mod utils;
 pub mod window;
+pub mod app;
 
 use eframe::egui::{Ui, Context};
 use std::sync::{Arc, RwLock};

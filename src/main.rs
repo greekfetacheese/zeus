@@ -1,6 +1,6 @@
 //#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use core::ZeusApp;
+use gui::app::ZeusApp;
 use eframe::egui;
 
 pub mod core;

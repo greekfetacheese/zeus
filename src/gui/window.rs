@@ -1,4 +1,4 @@
-use eframe::egui::{self, CentralPanel, Frame, Mesh, Stroke, UiBuilder, Color32, ViewportCommand};
+use eframe::egui::{self, CentralPanel, Frame, Stroke, UiBuilder, Color32, ViewportCommand};
 
 pub const WIDTH: f32 = 1440.0;
 pub const HEIGHT: f32 = 900.0;

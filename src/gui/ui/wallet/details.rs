@@ -1,6 +1,6 @@
 use eframe::egui::{ vec2, Align, Align2, Frame, Layout, Ui, Window };
 use egui::Color32;
-use egui_theme::{ Theme, utils::{ border_on_idle, border_on_hover, bg_color_on_click, bg_color_on_hover, bg_color_on_idle } };
+use egui_theme::{ Theme, utils::{ border_on_idle, border_on_hover, bg_color_on_idle } };
 use crate::core::{ data::app_data::APP_DATA, user::wallet::Wallet };
 use crate::gui::{ self, ui::{ rich_text, button, img_button, text_edit_single, text_edit_multi }, SHARED_GUI };
 use ncrypt::{ prelude::Credentials, zeroize::Zeroize };
@@ -63,8 +63,6 @@ impl WalletDetails {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.set_max_width(30.0);
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             let back_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             if ui.add(back_button).clicked() {
                 self.open = false;
@@ -180,8 +178,6 @@ impl WalletDetails {
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.set_max_width(30.0);
             bg_color_on_idle(ui, Color32::TRANSPARENT);
-            bg_color_on_hover(ui, theme.colors.widget_bg_color_hover);
-            bg_color_on_click(ui, theme.colors.widget_bg_color_click);
             let back_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
             if ui.add(back_button).clicked() {
                 self.verify_credentials_ui = false;
