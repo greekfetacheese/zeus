@@ -23,7 +23,7 @@ use crate::core::utils::RT;
 use crate::gui::ui::{ button, img_button, currency_balance, rich_text };
 use crate::gui::{SHARED_GUI, ui::dapps::uniswap::swap::InOrOut};
 use crate::assets::icons::Icons;
-use crate::core::{ data::app_data::APP_DATA, utils::fetch };
+use crate::core::{ZeusCtx, utils::fetch};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::defi::currency::Currency;
 
@@ -73,21 +73,13 @@ impl TokenSelectionWindow {
     }
 
     /// Show This [TokenSelectionWindow]
-    pub fn show(&mut self, ui: &mut Ui, icons: Arc<Icons>, currencies: &Vec<Currency>) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, currencies: &Vec<Currency>, ui: &mut Ui) {
         if !self.open {
             return;
         }
 
-        let chain_id;
-        let owner;
-        {
-            let app_data = APP_DATA.read().unwrap();
-            chain_id = app_data.chain_id.id();
-            owner = app_data.profile.wallet_address();
-        }
-
-        ui.scope(|ui| {
-
+        let chain_id = ctx.chain().id();
+        let owner = ctx.wallet().key.address();
        
         Window::new(rich_text("Select Token").size(18.0))
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -152,7 +144,7 @@ impl TokenSelectionWindow {
                                                 ui.with_layout(
                                                     Layout::right_to_left(Align::Min),
                                                     |ui| {
-                                                        let balance = currency_balance(chain_id, owner, currency);
+                                                        let balance = currency_balance(ctx.clone(), owner, currency);
                                                         ui.label(rich_text(balance).size(15.0));
                                                     }
                                                 );
@@ -189,7 +181,7 @@ impl TokenSelectionWindow {
                                                 ui.with_layout(
                                                     Layout::right_to_left(Align::Min),
                                                     |ui| {
-                                                        let balance = currency_balance(chain_id, owner, currency);
+                                                        let balance = currency_balance(ctx.clone(), owner, currency);
                                                         ui.label(rich_text(balance).size(15.0));
                                                     }
                                                 );
@@ -210,7 +202,7 @@ impl TokenSelectionWindow {
                             ui.vertical_centered(|ui| {
                                 if ui.add(add_token_button).clicked() {
                                     RT.spawn(async move {
-                                        let token = match fetch::get_erc20_token(address, chain_id).await {
+                                        let token = match fetch::get_erc20_token(ctx, address, chain_id).await {
                                             Ok(token) => token,
                                             Err(e) => {
                                                 let mut gui = SHARED_GUI.write().unwrap();
@@ -231,6 +223,5 @@ impl TokenSelectionWindow {
                         }
                     });
             });
-        });
     }
 }

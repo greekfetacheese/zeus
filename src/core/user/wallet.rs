@@ -3,9 +3,7 @@ use ncrypt::zeroize::Zeroize;
 
 use zeus_eth::alloy_primitives::hex::encode;
 use zeus_eth::alloy_signer::k256::ecdsa::SigningKey;
-use zeus_eth::alloy_signer_local::{LocalSigner, PrivateKeySigner};
-
-
+use zeus_eth::alloy_signer_local::{ LocalSigner, PrivateKeySigner };
 
 /// User Wallet
 #[derive(Clone, PartialEq)]
@@ -22,7 +20,37 @@ pub struct Wallet {
     pub key: LocalSigner<SigningKey>,
 }
 
-impl Wallet {  
+impl Drop for Wallet {
+    fn drop(&mut self) {
+        self.erase_key();
+    }
+}
+
+impl Wallet {
+    /// Erase the wallet's key from memory
+    pub fn erase_key(&mut self) {
+        unsafe {
+            // Get a mutable pointer to the key
+            let key_ptr: *mut LocalSigner<SigningKey> = &mut self.key;
+
+            // Convert the key to a byte slice
+            let key_bytes: &mut [u8] = std::slice::from_raw_parts_mut(
+                key_ptr as *mut u8,
+                std::mem::size_of::<LocalSigner<SigningKey>>()
+            );
+
+            // Zeroize the byte slice
+            key_bytes.zeroize();
+        }
+    }
+
+    /// Is the key erased?
+    pub fn is_key_erased(&self) -> bool {
+        let mut key_bytes = self.key.to_bytes();
+        let erased = key_bytes.iter().all(|&b| b == 0);
+        key_bytes.zeroize();
+        erased
+    }
 
     /// Return the wallet's key in string format
     pub fn key_string(&self) -> String {
@@ -59,15 +87,12 @@ impl Wallet {
         self.key.address().to_string()
     }
 
-
     /// Get the wallet address truncated
     pub fn address_truncated(&self) -> String {
         let address = self.key.address().to_string();
         format!("{}...{}", &address[..6], &address[36..])
     }
-
 }
-
 
 /// Helper struct to serialize [Wallet] in JSON
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
@@ -76,6 +101,12 @@ pub struct WalletData {
     pub notes: String,
     pub hidden: bool,
     pub key: String,
+}
+
+impl Drop for WalletData {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
 }
 
 impl WalletData {
@@ -102,5 +133,27 @@ impl WalletData {
     /// Deserialize from slice
     pub fn from_slice(data: &[u8]) -> Result<Self, anyhow::Error> {
         Ok(serde_json::from_slice::<WalletData>(data)?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Wallet;
+
+    #[test]
+    fn test_key_erase() {
+        let mut wallet = Wallet::new_rng("Test Wallet".to_string());
+        let key_str = wallet.key_string();
+        let original_key = wallet.key.clone();
+        println!("Key: {}", key_str);
+        assert!(!wallet.is_key_erased());
+
+        wallet.erase_key();
+        let erased_key_str = wallet.key_string();
+        let erased_key = wallet.key.clone();
+        println!("Erased Key: {}", erased_key_str);
+
+        assert_ne!(original_key, erased_key);
+        assert!(wallet.is_key_erased());
     }
 }

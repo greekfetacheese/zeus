@@ -1,6 +1,6 @@
-pub mod data;
 pub mod user;
 pub mod utils;
+pub mod context;
 
-pub use data::{ZEUS_DB, ZEUS_DB_FILE};
-pub use user::Profile;
+pub use user::{Profile, wallet::Wallet};
+pub use context::ZeusCtx;

@@ -1,7 +1,9 @@
 use eframe::egui::{ vec2, Align, Align2, Frame, Layout, Ui, Window };
 use egui::Color32;
+use std::sync::Arc;
 use egui_theme::{ Theme, utils::{ border_on_idle, border_on_hover, bg_color_on_idle } };
-use crate::core::{ data::app_data::APP_DATA, user::wallet::Wallet };
+use crate::core::{ Wallet, ZeusCtx };
+use crate::assets::icons::Icons;
 use crate::gui::{ self, ui::{ rich_text, button, img_button, text_edit_single, text_edit_multi }, SHARED_GUI };
 use ncrypt::{ prelude::Credentials, zeroize::Zeroize };
 
@@ -35,7 +37,7 @@ impl WalletDetails {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, parent_open: &mut bool) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, parent_open: &mut bool, ui: &mut Ui) {
         if !self.open {
             return;
         }
@@ -43,20 +45,14 @@ impl WalletDetails {
         ui.set_width(self.size.0);
         ui.set_height(self.size.1);
 
-        self.main_ui(ui, theme, parent_open);
+        self.main_ui(ctx.clone(), icons.clone(), theme, parent_open, ui);
         self.view_key(ui);
-        self.verify_credentials(ui, theme);
+        self.verify_credentials(ctx, icons, theme, ui);
     }
 
-    fn main_ui(&mut self, ui: &mut Ui, theme: &Theme, parent_open: &mut bool) {
+    fn main_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, parent_open: &mut bool, ui: &mut Ui) {
         if !self.main_ui {
             return;
-        }
-
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
         }
 
         // Go back button
@@ -70,7 +66,7 @@ impl WalletDetails {
             }
         });
 
-        let width = ui.available_width() * 8.0 / 10.0;
+        let width = (ui.available_width() * 8.0) / 10.0;
         let frame = theme.frame2;
 
         ui.vertical_centered(|ui| {
@@ -105,7 +101,7 @@ impl WalletDetails {
                     border_on_idle(ui, 1.0, Color32::WHITE);
                     border_on_hover(ui, 1.0, theme.colors.border_color_hover);
                     if ui.add(text_edit_multi(&mut self.wallet.notes).desired_rows(2)).changed() {
-                       // println!("Notes: {:?}", self.wallet.notes);
+                        // println!("Notes: {:?}", self.wallet.notes);
                     }
                 });
             });
@@ -163,15 +159,9 @@ impl WalletDetails {
             });
     }
 
-    fn verify_credentials(&mut self, ui: &mut Ui, theme: &Theme) {
+    fn verify_credentials(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.verify_credentials_ui {
             return;
-        }
-
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
         }
 
         // Go back button
@@ -207,12 +197,9 @@ impl WalletDetails {
 
             let confirm_button = button(rich_text("Confirm"));
             if ui.add(confirm_button).clicked() {
-                let mut profile;
-                {
-                    let data = APP_DATA.read().unwrap();
-                    profile = data.profile.clone();
-                }
+                let mut profile = ctx.profile();
                 profile.credentials = self.credentials.clone();
+
                 std::thread::spawn(move || {
                     let dir = gui::utils::get_profile_dir();
 

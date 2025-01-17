@@ -1,7 +1,6 @@
 pub mod dapps;
 pub mod login;
 pub mod wallet;
-//pub mod theme;
 pub mod panels;
 pub mod widgets;
 
@@ -10,8 +9,7 @@ pub use login::{ LoginUi, RegisterUi };
 pub use wallet::WalletUi;
 pub use widgets::*;
 
-use crate::core::data::db::ZEUS_DB;
-use crate::assets::fonts::roboto_regular;
+
 use eframe::egui::{
     FontId,
     Button,
@@ -23,6 +21,8 @@ use eframe::egui::{
     Sense,
     vec2,
 };
+use crate::assets::fonts::roboto_regular;
+use crate::core::ZeusCtx;
 use zeus_eth::alloy_primitives::{ Address, utils::format_units };
 use zeus_eth::defi::currency::Currency;
 use zeus_eth::defi::utils::common_addr::native_wrapped_token;
@@ -32,19 +32,17 @@ use tracing::error;
 
 /// Return a [String] that displays the formatted balance of the selected currency
 // TODO: Use something like numformat to deal with very large numbers
-pub fn currency_balance(chain_id: u64, owner: Address, currency: &Currency) -> String {
+pub fn currency_balance(ctx: ZeusCtx, owner: Address, currency: &Currency) -> String {
     let balance_text;
 
     if currency.is_native() {
-        let db = ZEUS_DB.read().unwrap();
-        let balance = db.get_eth_balance(chain_id, owner);
+        let balance = ctx.get_eth_balance(owner);
         balance_text = format_units(balance, currency.decimals().clone()).unwrap_or(
             "0.0".to_string()
         );
     } else {
-        let db = ZEUS_DB.read().unwrap();
         let currency = currency.erc20().unwrap();
-        let balance = db.get_token_balance(chain_id, owner, currency.address);
+        let balance = ctx.get_token_balance(owner, currency.address);
         balance_text = format_units(balance, currency.decimals).unwrap_or("0.0".to_string());
     }
 
@@ -52,32 +50,28 @@ pub fn currency_balance(chain_id: u64, owner: Address, currency: &Currency) -> S
 }
 
 /// Return the USD price of a token in String format
-pub fn currency_price(chain_id: u64, currency: &Currency) -> String {
+pub fn currency_price(ctx: ZeusCtx, currency: &Currency) -> String {
     let price;
+    let chain = ctx.chain().id();
 
     if currency.is_native() {
-        let address = if let Ok(address) = native_wrapped_token(chain_id) {
+        let address = if let Ok(address) = native_wrapped_token(chain) {
             address
         } else {
-            error!("Failed to get native wrapped token address for {}", chain_id);
+            error!("Failed to get native wrapped token address for chain id {}", chain);
             return "0.0".to_string();
         };
-        let db = ZEUS_DB.read().unwrap();
-        price = db.get_price(chain_id, address);
+        price = ctx.get_token_price(address);
     } else {
-        let db = ZEUS_DB.read().unwrap();
         let currency = currency.erc20().unwrap();
-        price = db.get_price(chain_id, currency.address);
+        price = ctx.get_token_price(currency.address);
     }
 
     format!("{:.2}", price)
 }
 
 /// Return the USD Value of a token in String format
-pub fn currency_value(chain_id: u64, owner: Address, currency: &Currency) -> String {
-    let price = currency_price(chain_id, currency).parse::<f64>().unwrap_or(0.0);
-    let balance = currency_balance(chain_id, owner, currency).parse::<f64>().unwrap_or(0.0);
-
+pub fn currency_value(price: f64, balance: f64) -> String {
     format!("{:.2}", price * balance)
 }
 

@@ -1,7 +1,7 @@
 use egui::{ vec2, Align, Color32, FontId, Grid, Layout, TextEdit, Ui };
-use crate::core::data::{ APP_DATA, ZEUS_DB };
 use crate::assets::icons::Icons;
 use crate::gui::ui::*;
+use crate::core::ZeusCtx;
 use zeus_eth::defi::currency::{ erc20::ERC20Token, native::NativeCurrency, Currency };
 use egui_theme::Theme;
 use std::sync::Arc;
@@ -90,28 +90,26 @@ impl SwapUi {
         self.currency_out = Currency::from_erc20(erc);
     }
 
-    pub fn show(&mut self, ui: &mut Ui, icons: Arc<Icons>, theme: &Theme, token_selection: &mut TokenSelectionWindow) {
+    pub fn show(
+        &mut self,
+        ctx: ZeusCtx,
+        icons: Arc<Icons>,
+        theme: &Theme,
+        token_selection: &mut TokenSelectionWindow,
+        ui: &mut Ui
+    ) {
         if !self.open {
             return;
         }
         ui.label("Swap UI");
 
-        let chain_id;
-        let owner;
-        let currencies;
-        {
-            let app_data = APP_DATA.read().unwrap();
-            chain_id = app_data.chain_id.id();
-            owner = app_data.profile.wallet_address();
-
-            let db = ZEUS_DB.read().unwrap();
-            currencies = db.get_currency(chain_id);
-        }
+        let chain_id = ctx.chain().id();
+        let owner = ctx.wallet().key.address();
+        let currencies = ctx.get_currencies();
 
         let sell_text = rich_text("Sell").size(23.0);
         let buy_text = rich_text("Buy").size(23.0);
 
-       // let frame = theme.frame2.fill(Color32::from_rgba_premultiplied(24, 23, 23, 173)).rounding(Rounding::same(10.0));
         let frame = theme.frame2;
 
         ui.vertical_centered_justified(|ui| {
@@ -151,7 +149,7 @@ impl SwapUi {
                             self.token_button(ui, chain_id, icons.clone(), InOrOut::In, token_selection);
                             ui.add_space(10.0);
 
-                            let balance = currency_balance(chain_id, owner, &self.currency_in);
+                            let balance = currency_balance(ctx.clone(), owner, &self.currency_in);
                             let balance_text = rich_text(balance.clone());
                             ui.label(balance_text);
                             ui.add_space(5.0);
@@ -188,7 +186,7 @@ impl SwapUi {
 
                             self.token_button(ui, chain_id, icons.clone(), InOrOut::Out, token_selection);
                             ui.add_space(10.0);
-                            let balance = currency_balance(chain_id, owner, &self.currency_out);
+                            let balance = currency_balance(ctx.clone(), owner, &self.currency_out);
                             let balance_text = rich_text(balance.clone());
                             ui.label(balance_text);
 
@@ -201,7 +199,7 @@ impl SwapUi {
                         });
                     });
 
-                    token_selection.show(ui, icons, &currencies);
+                    token_selection.show(ctx, icons, &currencies, ui);
 
                     let selected_currency = token_selection.get_currency();
                     let direction = token_selection.get_currency_direction();
@@ -259,10 +257,10 @@ impl SwapUi {
 
             let button = img_button(icon, symbol_text).min_size(vec2(50.0, 25.0)).sense(Sense::click());
 
-                if ui.add(button).clicked() {
-                    token_selection.currency_direction = in_or_out;
-                    token_selection.open = true;
-                }
+            if ui.add(button).clicked() {
+                token_selection.currency_direction = in_or_out;
+                token_selection.open = true;
+            }
         });
     }
 }

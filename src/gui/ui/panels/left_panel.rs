@@ -21,12 +21,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
     if ui.add(home_button).clicked() {
         gui.swap_ui.open = false;
         gui.portofolio.open = true;
+        gui.send_crypto.open = false;
     }
 
     let swap_button = button(rich_text("Swap").size(21.0));
     if ui.add(swap_button).clicked() {
         gui.swap_ui.open = true;
         gui.portofolio.open = false;
+        gui.send_crypto.open = false;
     }
     
     let send_button = button(rich_text("Send").size(21.0));
@@ -34,7 +36,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.swap_ui.open = false;
         gui.portofolio.open = false;
         gui.send_crypto.open = true;
-        println!("Send clicked");
     }
 
 

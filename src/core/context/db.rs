@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::Arc,
     str::FromStr
 };
 
@@ -10,11 +10,7 @@ use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::defi::currency::{Currency, native::NativeCurrency, erc20::ERC20Token};
 use zeus_eth::prelude::{UniswapV2Pool, UniswapV3Pool};
 use zeus_token_list::{ETHEREUM, OPTIMISM, BASE, ARBITRUM, BINANCE_SMART_CHAIN, tokens::UniswapToken};
-use lazy_static::lazy_static;
 
-lazy_static! {
-    pub static ref ZEUS_DB: Arc<RwLock<ZeusDB>> = Arc::new(RwLock::new(ZeusDB::default()));
-}
 
 pub const ZEUS_DB_FILE: &str = "zeus_db.json";
 
@@ -65,7 +61,7 @@ pub struct ZeusDB {
     pub eth_balance: EthBalances,
 
     #[serde(with = "serde_helpers")]
-    pub currency: Currencies,
+    pub currencies: Currencies,
 
     #[serde(with = "serde_helpers")]
     pub portfolios: Portfolios,
@@ -116,16 +112,16 @@ impl ZeusDB {
         self.eth_balance.insert(key, balance);
     }
 
-    pub fn get_currency(&self, chain_id: u64) -> Arc<Vec<Currency>> {
-        self.currency.get(&chain_id).cloned().unwrap_or_default()
+    pub fn get_currencies(&self, chain_id: u64) -> Arc<Vec<Currency>> {
+        self.currencies.get(&chain_id).cloned().unwrap_or_default()
     }
 
     pub fn insert_currency(&mut self, chain_id: u64, currency: Currency) {
-        if let Some(currencies_arc) = self.currency.get_mut(&chain_id) {
+        if let Some(currencies_arc) = self.currencies.get_mut(&chain_id) {
             let currencies = Arc::make_mut(currencies_arc);
             currencies.push(currency);
         } else {
-            self.currency.insert(chain_id, Arc::new(vec![currency]));
+            self.currencies.insert(chain_id, Arc::new(vec![currency]));
         }
     }
 

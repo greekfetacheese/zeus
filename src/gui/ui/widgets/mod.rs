@@ -2,7 +2,7 @@ use eframe::egui::{ Ui, ComboBox, Align2, Window, Frame, ScrollArea, Color32, Gr
 use std::sync::Arc;
 use crate::gui::ui::{ button, img_button, rich_text, currency_balance, currency_price, currency_value };
 use crate::assets::icons::Icons;
-use crate::core::{ user::wallet::Wallet, data::{ APP_DATA, ZEUS_DB } };
+use crate::core::{ Wallet, ZeusCtx };
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
 use zeus_eth::ChainId;
@@ -11,7 +11,7 @@ pub mod token_selection;
 pub mod send_crypto;
 
 pub use token_selection::TokenSelectionWindow;
-pub use send_crypto::SendCrypto;
+pub use send_crypto::SendCryptoUi;
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {
@@ -35,7 +35,7 @@ impl ChainSelect {
     }
 
     /// Show the ComboBox
-    /// 
+    ///
     /// Returns true if the chain was changed
     pub fn show(&mut self, ui: &mut Ui, theme: &Theme, icons: Arc<Icons>) -> bool {
         let mut selected_chain = self.chain.clone();
@@ -60,7 +60,7 @@ impl ChainSelect {
                     }
                 }
             });
-            clicked
+        clicked
     }
 }
 
@@ -85,14 +85,10 @@ impl WalletSelect {
         self
     }
 
-    pub fn show(&mut self, ui: &mut Ui) {
-        let wallets;
-        {
-            let data = APP_DATA.read().unwrap();
-            wallets = data.profile.wallets.clone();
-            if self.wallet.name.is_empty() {
-                self.wallet = data.profile.current_wallet.clone();
-            }
+    pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
+        let wallets = ctx.profile().wallets.clone();
+        if self.wallet.name.is_empty() {
+            self.wallet = ctx.wallet();
         }
 
         ComboBox::from_id_salt(self.id)
@@ -171,67 +167,61 @@ impl PortfolioUi {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, icons: Arc<Icons>) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) {
         if !self.open {
             return;
         }
 
-        let chain_id;
-        let owner;
-        {
-            let app_data = APP_DATA.read().unwrap();
-            chain_id = app_data.chain_id.id();
-            owner = app_data.profile.wallet_address();
-        }
+        let chain_id = ctx.chain().id();
+        let owner = ctx.wallet().key.address();
+        let portfolio = ctx.get_portfolio(owner);
 
-        let portfolio;
-        {
-            let db = ZEUS_DB.read().unwrap();
-            portfolio = db.get_portfolio(chain_id, owner);
-        }
         let currencies = portfolio.currencies();
 
         ui.vertical_centered_justified(|ui| {
             ui.set_width(600.0);
             ui.set_height(550.0);
 
-            ScrollArea::vertical()
-                .show(ui, |ui| {
-                    Grid::new("currency_grid")
-                        .min_col_width(50.0)
-                        .spacing((150.0, 20.0))
-                        .show(ui, |ui| {
-                            // Header
-                            ui.label(rich_text("Token").size(18.0));
-                            ui.label(rich_text("Price").size(18.0));
-                            ui.label(rich_text("Balance").size(18.0));
-                            ui.label(rich_text("Value").size(18.0));
+            ScrollArea::vertical().show(ui, |ui| {
+                Grid::new("currency_grid")
+                    .min_col_width(50.0)
+                    .spacing((150.0, 20.0))
+                    .show(ui, |ui| {
+                        // Header
+                        ui.label(rich_text("Token").size(18.0));
+                        ui.label(rich_text("Price").size(18.0));
+                        ui.label(rich_text("Balance").size(18.0));
+                        ui.label(rich_text("Value").size(18.0));
 
+                        ui.end_row();
+
+                        for currency in currencies {
+                            let icon = if currency.is_native() {
+                                icons.currency_icon(chain_id)
+                            } else {
+                                let token = currency.erc20().unwrap();
+                                icons.token_icon(token.address, chain_id)
+                            };
+
+                            let token = img_button(icon, rich_text(currency.symbol()).size(15.0)).min_size(
+                                vec2(30.0, 25.0)
+                            );
+
+                            let price = currency_price(ctx.clone(), currency);
+                            let balance = currency_balance(ctx.clone(), owner, currency);
+                            let value = currency_value(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
+
+                            // Add each label into a grid cell
+                            ui.add(token);
+                            ui.label(rich_text(price));
+                            ui.label(rich_text(balance));
+                            ui.label(rich_text(value));
+
+                            // move to the next row
                             ui.end_row();
-
-                            for currency in currencies {
-                                let icon = if currency.is_native() {
-                                    icons.currency_icon(chain_id)
-                                } else {
-                                    let token = currency.erc20().unwrap();
-                                    icons.token_icon(token.address, chain_id)
-                                };
-
-                                let token = img_button(icon, rich_text(currency.symbol()).size(15.0)).min_size(
-                                    vec2(30.0, 25.0)
-                                );
-
-                                // Add each label into a grid cell
-                                ui.add(token);
-                                ui.label(rich_text(currency_price(chain_id, currency)).size(15.0));
-                                ui.label(rich_text(currency_balance(chain_id, owner, currency)).size(15.0));
-                                ui.label(rich_text(currency_value(chain_id, owner, currency)).size(15.0));
-
-                                // move to the next row
-                                ui.end_row();
-                            }
-                        });
-                });
+                        }
+                    });
+            });
         });
     }
 }

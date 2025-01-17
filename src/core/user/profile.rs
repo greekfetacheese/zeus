@@ -157,6 +157,12 @@ impl Profile {
         dir: &PathBuf,
         argon: Argon2Params
     ) -> Result<(), anyhow::Error> {
+        // ! make sure we dont accidentally erased any of the wallet keys
+        for wallet in self.wallets.iter() {
+            if wallet.is_key_erased() {
+                return Err(anyhow!("Wallet key is erased"));
+            }
+        }
         let profile_data = self.serialize()?.as_bytes().to_vec();
         let encrypted_data = encrypt_data(argon, profile_data, self.credentials.clone())?;
         std::fs::write(dir, encrypted_data)?;
@@ -272,5 +278,5 @@ mod tests {
         assert_eq!(key_2, original_key2);
 
         fs::remove_file("profile_test.data").unwrap();
-    }
+    }   
 }

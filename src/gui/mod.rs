@@ -7,6 +7,7 @@ use eframe::egui::{Ui, Context};
 use std::sync::{Arc, RwLock};
 
 use egui_theme::{Theme, ThemeKind, ThemeEditor};
+use crate::core::context::ZeusCtx;
 use crate::assets::icons::Icons;
 use lazy_static::lazy_static;
 
@@ -15,6 +16,8 @@ lazy_static! {
 }
 
 pub struct GUI {
+
+    pub ctx: ZeusCtx,
 
     pub theme: Theme,
 
@@ -34,7 +37,7 @@ pub struct GUI {
 
     pub portofolio: ui::PortfolioUi,
 
-    pub send_crypto: ui::SendCrypto,
+    pub send_crypto: ui::SendCryptoUi,
 
     pub msg_window: ui::MsgWindow,
 
@@ -45,11 +48,12 @@ pub struct GUI {
 impl GUI {
     pub fn new(icons: Arc<Icons>, theme: Theme) -> Self {
         let token_selection = ui::TokenSelectionWindow::new();
-        let send_crypto = ui::SendCrypto::new();
+        let send_crypto = ui::SendCryptoUi::new();
 
         let wallet_select = ui::WalletSelect::new("wallet_select_1").width(100.0);
 
         Self {
+            ctx: ZeusCtx::new(),
             theme,
             editor: ThemeEditor::new(),
             icons,
@@ -66,7 +70,7 @@ impl GUI {
     }
 
     pub fn show_top_panel(&mut self, ui: &mut Ui) {
-        ui::panels::top_panel::show(ui, self);
+        ui::panels::top_panel::show(self, ui);
     }
 
     pub fn show_left_panel(&mut self, ui: &mut Ui) {

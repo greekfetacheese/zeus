@@ -1,8 +1,7 @@
 use eframe::egui::Ui;
 use egui_theme::{ Theme, utils::{ border_on_idle, border_on_click, border_on_hover } };
-use crate::core::{ user::profile::Profile, data::app_data::APP_DATA };
-use crate::gui::SHARED_GUI;
-use crate::gui::ui::{ button, rich_text, text_edit_single };
+use crate::core::ZeusCtx;
+use crate::gui::{SHARED_GUI, utils::get_profile_dir, ui::{ button, rich_text, text_edit_single }};
 use ncrypt::prelude::{ Argon2Params, Credentials };
 
 
@@ -17,7 +16,7 @@ impl LoginUi {
         }
     }
 
-    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
 
         ui.vertical_centered(|ui| {
             border_on_idle(ui, 1.0, theme.colors.border_color_idle);
@@ -51,22 +50,11 @@ impl LoginUi {
             let button = button(rich_text("Unlock").size(16.0));
 
             if ui.add(button).clicked() {
-                let mut profile;
-                {
-                    let app_data = APP_DATA.read().unwrap();
-                    profile = app_data.profile.clone();
-                }
+                let mut profile = ctx.profile();
                 profile.credentials = self.credentials.clone();
 
                 std::thread::spawn(move || {
-                    let dir = match Profile::profile_dir() {
-                        Ok(dir) => dir,
-                        Err(e) => {
-                            let mut gui = SHARED_GUI.write().unwrap();
-                            gui.open_msg_window("Failed to unlock profile", e.to_string());
-                            return;
-                        }
-                    };
+                    let dir = get_profile_dir();
                     match profile.decrypt_and_load(&dir) {
                         Ok(_) => {
                             let mut gui = SHARED_GUI.write().unwrap();
@@ -75,9 +63,10 @@ impl LoginUi {
                             gui.profile_area.open = true;
                             gui.wallet_select.wallet = profile.current_wallet.clone();
 
-                            let mut app_data = APP_DATA.write().unwrap();
-                            app_data.logged_in = true;
-                            app_data.profile = profile;
+                            ctx.write(|ctx| {
+                                ctx.profile = profile;
+                                ctx.logged_in = true;
+                            });
                         }
                         Err(e) => {
                             let mut gui = SHARED_GUI.write().unwrap();
@@ -105,11 +94,7 @@ impl RegisterUi {
         }
     }
 
-    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-        self.main_ui(theme, ui);
-    }
-
-    pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
         if !self.main_ui_open {
             return;
         }
@@ -150,23 +135,11 @@ impl RegisterUi {
                 let button = button(rich_text("Create").size(16.0));
 
                 if ui.add(button).clicked() {
-                    let mut profile;
-                    {
-                        let app_data = APP_DATA.read().unwrap();
-                        profile = app_data.profile.clone();
-                    }
-
+                    let mut profile = ctx.profile();
                     profile.credentials = self.credentials.clone();
 
                     std::thread::spawn(move || {
-                        let dir = match Profile::profile_dir() {
-                            Ok(dir) => dir,
-                            Err(e) => {
-                                let mut gui = SHARED_GUI.write().unwrap();
-                                gui.open_msg_window("Failed to create profile", e.to_string());
-                                return;
-                            }
-                        };
+                        let dir = get_profile_dir();
                         match profile.encrypt_and_save(&dir, Argon2Params::very_fast()) {
                             Ok(_) => {
                                 let mut gui = SHARED_GUI.write().unwrap();
@@ -175,10 +148,11 @@ impl RegisterUi {
                                 gui.portofolio.open = true;
                                 gui.profile_area.open = true;
 
-                                let mut app_data = APP_DATA.write().unwrap();
-                                app_data.profile_exists = true;
-                                app_data.logged_in = true;
-                                app_data.profile = profile;
+                                ctx.write(|ctx| {
+                                ctx.profile_exists = true;
+                                ctx.logged_in = true;
+                                ctx.profile = profile;
+                                });
                             }
                             Err(e) => {
                                 let mut gui = SHARED_GUI.write().unwrap();

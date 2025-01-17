@@ -7,8 +7,10 @@ use egui_theme::{
     Theme,
     utils::{ border_on_idle, border_on_hover, bg_color_on_idle, bg_color_on_click, bg_color_on_hover, border_on_click },
 };
-use crate::{ core::{ data::app_data::APP_DATA, user::wallet::Wallet }, gui };
-use crate::gui::{ ui::{ rich_text, button, img_button, text_edit_single }, SHARED_GUI };
+use std::sync::Arc;
+use crate::core::{Wallet, ZeusCtx};
+use crate::assets::icons::Icons;
+use crate::gui::{ self, ui::{ rich_text, button, img_button, text_edit_single }, SHARED_GUI };
 use ncrypt::zeroize::Zeroize;
 
 /// Ui to manage the wallets
@@ -79,7 +81,7 @@ impl WalletUi {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.open {
             return;
         }
@@ -94,13 +96,13 @@ impl WalletUi {
                 ui.set_width(self.window_size().0);
                 ui.set_height(self.window_size().1);
 
-                self.main_ui(theme, ui);
-                self.add_wallet_ui(ui);
-                self.import_wallet_ui(theme, ui);
-                self.generate_wallet_ui(theme, ui);
+                self.main_ui(ctx.clone(), icons.clone(), theme, ui);
+                self.add_wallet_ui(icons.clone(), ui);
+                self.import_wallet_ui(ctx.clone(), icons.clone(), theme, ui);
+                self.generate_wallet_ui(ctx.clone(), icons.clone(), theme, ui);
 
                 let mut main_ui = self.main_ui;
-                self.wallet_details.show(ui, theme, &mut main_ui);
+                self.wallet_details.show(ctx, icons, theme, &mut main_ui, ui);
                 self.main_ui = main_ui;
             });
     }
@@ -108,20 +110,15 @@ impl WalletUi {
     /// This is the first Ui we show to the user when this [WalletUi] is open.
     ///
     /// We can see, manage and add new wallets.
-    pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn main_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.main_ui {
             return;
         }
 
-        let current_wallet;
-        let wallets;
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            current_wallet = data.get_wallet().clone();
-            wallets = data.profile.wallets.clone();
-            icons = data.icons.clone().unwrap();
-        }
+        let profile = ctx.profile();
+        let current_wallet = profile.current_wallet.clone();
+        let wallets = profile.wallets.clone();
+        drop(profile);
 
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let close_button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
@@ -152,7 +149,7 @@ impl WalletUi {
 
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                     ui.radio_value(&mut true, true, "");
-                    self.wallet_name_and_address(ui, &current_wallet);
+                    self.wallet_name_and_address(icons.clone(), &current_wallet, ui);
                 });
             });
 
@@ -185,31 +182,25 @@ impl WalletUi {
                             ui.set_height(40.0);
                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                               ui.radio_value(&mut checked, true, "");
-                            self.wallet_name_and_address(ui, wallet);
+                            self.wallet_name_and_address(icons.clone(), wallet, ui);
                              });
                         });
                     }
 
                     if checked {
-                        {
-                            let mut data = APP_DATA.write().unwrap();
-                            data.profile.current_wallet = wallet.clone();
-                        }
+                        // change wallet
+                        ctx.write(|ctx| {
+                            ctx.profile.current_wallet = wallet.clone();
+                        });
                     }
                 }
             });
         });
     }
 
-    pub fn add_wallet_ui(&mut self, ui: &mut Ui) {
+    pub fn add_wallet_ui(&mut self, icons: Arc<Icons>, ui: &mut Ui) {
         if !self.add_wallet {
             return;
-        }
-
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
         }
 
         // Go back button
@@ -242,15 +233,9 @@ impl WalletUi {
         });
     }
 
-    pub fn import_wallet_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn import_wallet_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.import_wallet {
             return;
-        }
-
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
         }
 
         // Go back button
@@ -283,16 +268,12 @@ impl WalletUi {
             let import_button = button(rich_text("Import").size(16.0));
 
             if ui.add(import_button).clicked() {
-                let mut profile;
-                {
-                    let app_data = APP_DATA.read().unwrap();
-                    profile = app_data.profile.clone();
-                }
-
                 let name = self.wallet_name.clone();
                 let key = self.imported_key.clone();
 
                 std::thread::spawn(move || {
+                    let mut profile = ctx.profile();
+
                     gui::utils::import_wallet(&mut profile, name, key);
                     let dir = gui::utils::get_profile_dir();
                     let info = gui::utils::get_encrypted_info(&dir);
@@ -315,15 +296,9 @@ impl WalletUi {
         });
     }
 
-    pub fn generate_wallet_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+    pub fn generate_wallet_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.generate_wallet {
             return;
-        }
-
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
         }
 
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -350,23 +325,20 @@ impl WalletUi {
             });
 
             if ui.add(generate_button).clicked() {
-                let mut profile;
-                {
-                    let app_data = APP_DATA.read().unwrap();
-                    profile = app_data.profile.clone();
-                }
-
                 let wallet_name = self.wallet_name.clone();
 
                 std::thread::spawn(move || {
+                    let mut profile = ctx.profile();
+
                     gui::utils::new_wallet(&mut profile, wallet_name);
                     let dir = gui::utils::get_profile_dir();
                     let info = gui::utils::get_encrypted_info(&dir);
 
                     match profile.encrypt_and_save(&dir, info.argon2_params) {
                         Ok(_) => {
-                            let mut app_data = APP_DATA.write().unwrap();
-                            app_data.profile = profile;
+                            ctx.write(|ctx| {
+                                ctx.profile = profile;
+                            });
 
                             let mut gui = SHARED_GUI.write().unwrap();
                             gui.open_msg_window("Wallet created successfully", "");
@@ -382,12 +354,7 @@ impl WalletUi {
     }
 
     /// Show the wallet name and its address and the trash icon
-    pub fn wallet_name_and_address(&mut self, ui: &mut Ui, wallet: &Wallet) {
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            icons = data.icons.clone().unwrap();
-        }
+    pub fn wallet_name_and_address(&mut self, icons: Arc<Icons>, wallet: &Wallet, ui: &mut Ui) {
 
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
         Grid::new(format!("wallet_{}_grid", wallet.name))

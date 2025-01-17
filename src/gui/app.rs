@@ -3,26 +3,21 @@ use std::sync::Arc;
 use std::path::PathBuf;
 
 use egui::Frame;
-use egui_theme::{Theme, ThemeKind};
-use crate::assets::{icons::Icons, fonts::get_fonts};
-use crate::gui::{GUI, SHARED_GUI};
-use crate::core::{data::APP_DATA, utils::on_startup};
-use eframe::{egui::{self}, CreationContext};
+use egui_theme::{ Theme, ThemeKind };
+use crate::assets::{ icons::Icons, fonts::get_fonts };
+use crate::gui::{ GUI, SHARED_GUI };
+use eframe::{ egui::{ self }, CreationContext };
 use crate::gui::window::window_frame;
-
-
 
 pub struct ZeusApp {
     pub on_startup: bool,
 }
 
-impl ZeusApp
-
-{
+impl ZeusApp {
     pub fn new(cc: &CreationContext) -> Self {
         let ctx = cc.egui_ctx.clone();
-         
-        let ctx_clone = ctx.clone(); 
+
+        let ctx_clone = ctx.clone();
         std::thread::spawn(move || {
             request_repaint(ctx_clone);
         });
@@ -36,21 +31,16 @@ impl ZeusApp
             let theme = Theme::new(ThemeKind::Midnight);
             theme
         };
-        
+
         ctx.set_style(theme.style.clone());
-        ctx.set_fonts(get_fonts());  
+        ctx.set_fonts(get_fonts());
 
         // Load the icons
         let icons = Icons::new(&cc.egui_ctx).unwrap();
         let icons = Arc::new(icons);
 
-        {
-            let mut data = APP_DATA.write().unwrap();
-            data.icons = Some(icons.clone());
-        }
+        let gui = GUI::new(icons.clone(), theme.clone());
 
-        let gui = GUI::new(icons, theme);
-        
         // Update the shared GUI with the current GUI state
         let mut shared_gui = SHARED_GUI.write().unwrap();
 
@@ -62,93 +52,76 @@ impl ZeusApp
         }
     }
 
-    fn start_up(&mut self, ctx: egui::Context) {
+    fn start_up(&mut self, ctx: &egui::Context) {
         if self.on_startup {
+            let ctx = ctx.clone();
 
-            {
-                let gui = SHARED_GUI.read().unwrap();
-                ctx.set_style(gui.theme.style.clone());
-            }
+            let gui = SHARED_GUI.read().unwrap();
+            ctx.set_style(gui.theme.style.clone());
 
-            std::thread::spawn(move || {
-            match on_startup() {
-                Ok(_) => {},
-                Err(e) => {
-                    let mut gui = SHARED_GUI.write().unwrap();
-                    gui.open_msg_window("Failed to load important data", e.to_string());
-                }
-            }
-        });
             self.on_startup = false;
         }
     }
-
 }
 
-impl eframe::App for ZeusApp
-
-{
+impl eframe::App for ZeusApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         egui::Rgba::TRANSPARENT.to_array()
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.start_up(ctx.clone());
+        self.start_up(ctx);
 
+        let mut gui = SHARED_GUI.write().unwrap();
 
-        let logged_in;
         let bg_frame;
-        {
-            let app_data = APP_DATA.read().unwrap();
-            logged_in = app_data.logged_in;
-
-            let gui = SHARED_GUI.read().unwrap();
-            bg_frame = Frame::none().fill(gui.theme.colors.bg_color);
-        }
+        bg_frame = Frame::none().fill(gui.theme.colors.bg_color);
 
         window_frame(ctx, "Zeus", bg_frame.clone(), |ui| {
-
-            {
-                let gui = SHARED_GUI.read().unwrap();
-                egui_theme::utils::apply_theme_changes(&gui.theme, ui);
-            }
+            egui_theme::utils::apply_theme_changes(&gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
-            egui::TopBottomPanel::top("top_panel")
+            egui::TopBottomPanel
+                ::top("top_panel")
                 .exact_height(200.0)
                 .frame(bg_frame.clone())
                 .show_inside(ui, |ui| {
-                    if logged_in {
-                    let mut gui = SHARED_GUI.write().unwrap();
-                    gui.show_top_panel(ui);
+                    if gui.ctx.logged_in() {
+                        gui.show_top_panel(ui);
                     }
                 });
 
             // Paint the Ui that belongs to the left panel
-            egui::SidePanel::left("left_panel")
+            egui::SidePanel
+                ::left("left_panel")
                 .exact_width(100.0)
                 .frame(bg_frame.clone())
                 .show_inside(ui, |ui| {
-                    if logged_in {
-                    let mut gui = SHARED_GUI.write().unwrap();
-                    gui.show_left_panel(ui);
+                    if gui.ctx.logged_in() {
+                        gui.show_left_panel(ui);
                     }
                 });
 
-            egui::SidePanel::right("right_panel")
+            egui::SidePanel
+                ::right("right_panel")
                 .exact_width(100.0)
                 .frame(bg_frame.clone())
-                .show_inside(ui, |_ui| {
-                    // nothing for now just occupy the space
-                });
+                .show_inside(
+                    ui,
+                    |_ui| {
+                        // nothing for now just occupy the space
+                    }
+                );
 
             // Paint the Ui that belongs to the central panel
-            egui::CentralPanel::default().frame(bg_frame.clone()).show_inside(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    let mut gui = SHARED_GUI.write().unwrap();
-                    gui.show_central_panel(ui);
+            egui::CentralPanel
+                ::default()
+                .frame(bg_frame.clone())
+                .show_inside(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        gui.show_central_panel(ui);
+                    });
                 });
-            });
         });
     }
 }

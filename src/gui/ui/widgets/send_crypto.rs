@@ -1,13 +1,13 @@
 use eframe::egui::{ Ui, Color32, FontId, ScrollArea, Vec2b, TextEdit, Layout, Align };
 
 use std::sync::Arc;
+use crate::core::ZeusCtx;
 use crate::assets::{ icons::Icons, fonts::roboto_regular };
 use crate::gui::ui::{ rich_text, widgets::{ ChainSelect, WalletSelect } };
 use egui_theme::Theme;
-use crate::core::data::APP_DATA;
 use zeus_eth::ChainId;
 
-pub struct SendCrypto {
+pub struct SendCryptoUi {
     pub open: bool,
     pub chain: ChainId,
     pub chain_select: ChainSelect,
@@ -17,7 +17,7 @@ pub struct SendCrypto {
     pub recipient: String,
 }
 
-impl SendCrypto {
+impl SendCryptoUi {
     pub fn new() -> Self {
         Self {
             open: false,
@@ -30,12 +30,11 @@ impl SendCrypto {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, icons: Arc<Icons>) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.open {
             return;
         }
 
-        // theme::outter_frame().show(ui, |ui| {
         ui.set_width(400.0);
         ui.set_height(200.0);
 
@@ -53,7 +52,7 @@ impl SendCrypto {
         });
 
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            self.wallet_select.show(ui);
+            self.wallet_select.show(ctx.clone(), ui);
         });
 
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -61,13 +60,13 @@ impl SendCrypto {
         });
 
         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            self.search_contacts(ui);
+            self.search_contacts(ctx, ui);
         });
 
         //  });
     }
 
-    fn search_contacts(&mut self, ui: &mut Ui) {
+    fn search_contacts(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
         let font = FontId::new(18.0, roboto_regular());
 
         let res = ui.add(
@@ -86,19 +85,15 @@ impl SendCrypto {
             self.contact_search_open = true;
         }
 
-        self.contact_search_area(ui);
+        self.contact_search_results(ctx, ui);
     }
 
-    fn contact_search_area(&mut self, ui: &mut Ui) {
+    fn contact_search_results(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
         if !self.contact_search_open {
             return;
         }
 
-        let contacts;
-        {
-            let data = APP_DATA.read().unwrap();
-            contacts = data.profile.contacts.clone();
-        }
+        let contacts = ctx.profile().contacts.clone();
 
         ScrollArea::vertical()
             .auto_shrink(Vec2b::new(false, false))

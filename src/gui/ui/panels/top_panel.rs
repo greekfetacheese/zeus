@@ -1,11 +1,14 @@
 use eframe::egui::{ Align, Grid, Layout, Ui };
-
-use crate::core::data::APP_DATA;
+use std::sync::Arc;
+use crate::core::ZeusCtx;
+use crate::assets::icons::Icons;
 use crate::gui::{ GUI, ui::{ WalletUi, ChainSelect, rich_text, button, img_button } };
 use egui_theme::Theme;
 
-pub fn show(ui: &mut Ui, gui: &mut GUI) {
+pub fn show(gui: &mut GUI, ui: &mut Ui) {
     let frame = gui.theme.frame2;
+    let ctx = gui.ctx.clone();
+    let icons = gui.icons.clone();
 
     frame.show(ui, |ui| {
         ui.set_width(gui.profile_area.size.0);
@@ -23,14 +26,15 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
                     gui.swap_ui.default_currency_in(chain.id());
                     gui.swap_ui.default_currency_out(chain.id());
 
-                    // update the chain id in the app data
-                    let mut data = APP_DATA.write().unwrap();
-                    data.chain_id = chain;
+                    // update the chain
+                    ctx.write(|ctx| {
+                        ctx.chain = chain.clone();
+                    });
                 }
             });
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                gui.profile_area.show(ui, &gui.theme);
+                gui.profile_area.show(ctx, icons, &gui.theme, ui);
             });
         });
     });
@@ -56,27 +60,21 @@ impl ProfileArea {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
         if !self.open {
             return;
         }
 
-        self.main_ui(ui);
-        self.wallet_ui.show(ui, theme);
+        self.main_ui(ctx.clone(), icons.clone(), ui);
+        self.wallet_ui.show(ctx, icons, theme, ui);
     }
 
-    pub fn main_ui(&mut self, ui: &mut Ui) {
+    pub fn main_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) {
         if !self.main_ui {
             return;
         }
 
-        let wallet;
-        let icons;
-        {
-            let data = APP_DATA.read().unwrap();
-            wallet = data.get_wallet().clone();
-            icons = data.icons.clone().unwrap();
-        }
+        let wallet = ctx.wallet();
 
         ui.vertical(|ui| {
            // ui.spacing_mut().item_spacing.y = 15.0;
@@ -86,7 +84,7 @@ impl ProfileArea {
                 Grid::new("profile_grid")
                     .min_row_height(30.0)
                     .show(ui, |ui| {
-                        let text = rich_text(wallet.name).size(16.0);
+                        let text = rich_text(wallet.name.clone()).size(16.0);
                         if ui.add(img_button(icons.right_arrow(), text)).clicked() {
                             self.wallet_ui.open = !self.wallet_ui.open;
                         }
@@ -131,11 +129,7 @@ impl ContactsUi {
             }
         });
 
-        let contacts;
-        {
-            let data = APP_DATA.read().unwrap();
-            contacts = data.profile.contacts.clone();
-        }
+        
 
         ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing.y = 20.0;
