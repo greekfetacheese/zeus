@@ -1,5 +1,4 @@
-use egui::{ vec2, Align, Align2, Color32, Frame, Grid, Layout, Rect, Response, ScrollArea, Ui, Window };
-use zeus_eth::alloy_rpc_types::serde_helpers::quantity::vec;
+use egui::{ vec2, Align, Align2, Color32, Frame, Grid, Layout, ScrollArea, Ui, Window };
 use std::sync::Arc;
 use std::str::FromStr;
 use crate::core::user::Contact;
@@ -124,11 +123,10 @@ pub struct ContactsUi {
     pub add_contact: bool,
     pub delete_contact: bool,
     pub edit_contact: bool,
+    pub contact_to_add: Contact,
     pub contact_to_delete: Option<Contact>,
     pub contact_to_edit: Option<Contact>,
-    pub contact_name: String,
-    pub contact_address: String,
-    pub contact_note: String,
+    pub old_contact: Option<Contact>,
     pub size: (f32, f32),
 }
 
@@ -140,11 +138,10 @@ impl ContactsUi {
             add_contact: false,
             delete_contact: false,
             edit_contact: false,
+            contact_to_add: Contact::default(),
             contact_to_delete: None,
             contact_to_edit: None,
-            contact_name: String::new(),
-            contact_address: String::new(),
-            contact_note: String::new(),
+            old_contact: None,
             size: (300.0, 140.0),
         }
     }
@@ -162,8 +159,9 @@ impl ContactsUi {
             .frame(Frame::window(ui.style()))
             .show(ui.ctx(), |ui| {
                 self.main_ui(ctx.clone(), icons.clone(), theme, ui);
-                self.add_contact_ui(ctx.clone(), icons, theme, ui);
-                self.delete_contact_ui(ctx, ui);
+                self.add_contact_ui(ctx.clone(), icons.clone(), theme, ui);
+                self.delete_contact_ui(ctx.clone(), ui);
+                self.edit_contact_ui(ctx, icons, theme, ui);
             });
     }
 
@@ -213,12 +211,20 @@ impl ContactsUi {
                             bg_color_on_click(ui, Color32::TRANSPARENT);
                             bg_color_on_hover(ui, Color32::TRANSPARENT);
 
-                            let res = ui.add(img_button(icons.trash(), "").min_size((16.0, 16.0).into()));
+                            let delete_res = ui.add(img_button(icons.trash(), "").min_size((16.0, 16.0).into()));
+                            let edit_res = ui.add(img_button(icons.edit(), "").min_size((16.0, 16.0).into()));
 
-                            if res.clicked() {
+                            if delete_res.clicked() {
                                 self.main_ui = false;
                                 self.delete_contact = true;
                                 self.contact_to_delete = Some(contact.clone());
+                            }
+
+                            if edit_res.clicked() {
+                                self.main_ui = false;
+                                self.edit_contact = true;
+                                self.contact_to_edit = Some(contact.clone());
+                                self.old_contact = Some(contact.clone());
                             }
                         });
                     });
@@ -249,10 +255,10 @@ impl ContactsUi {
             ui.label(rich_text("Are you sure you want to delete this contact?"));
             ui.label(rich_text(&contact.name));
             ui.label(rich_text(&contact.address_short()));
-            
+
             let res_delete = ui.add(button(rich_text("Delete")));
             let res_cancel = ui.add(button(rich_text("Cancel")));
-            
+
             if res_cancel.clicked() {
                 self.delete_contact = false;
                 self.main_ui = true;
@@ -315,31 +321,27 @@ impl ContactsUi {
                 border_on_click(ui, 1.0, theme.colors.border_color_click);
 
                 ui.label(rich_text("Name:"));
-                ui.text_edit_singleline(&mut self.contact_name);
+                ui.text_edit_singleline(&mut self.contact_to_add.name);
 
                 ui.label(rich_text("Address:"));
-                ui.text_edit_singleline(&mut self.contact_address);
-
-                ui.label(rich_text("Note:"));
-                ui.text_edit_singleline(&mut self.contact_note);
+                ui.text_edit_singleline(&mut self.contact_to_add.address);
             });
 
             if ui.add(button(rich_text("Add"))).clicked() {
-                let address = self.contact_address.clone();
-                let name = self.contact_name.clone();
-                let note = self.contact_note.clone();
+                let contact = self.contact_to_add.clone();
                 let mut profile = ctx.profile();
                 std::thread::spawn(move || {
-                    let address = match Address::from_str(&address) {
+                    // make sure the address is valid
+                    let _ = match Address::from_str(&contact.address) {
                         Ok(address) => address,
                         Err(e) => {
                             let mut gui = SHARED_GUI.write().unwrap();
-                            gui.open_msg_window("Invalid Address", &format!("{}", e));
+                            gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
                             return;
                         }
                     };
 
-                    match profile.add_contact(name, address, note) {
+                    match profile.add_contact(contact) {
                         Ok(_) => {}
                         Err(e) => {
                             let mut gui = SHARED_GUI.write().unwrap();
@@ -353,10 +355,8 @@ impl ContactsUi {
                     match profile.encrypt_and_save(&dir, info.argon2_params) {
                         Ok(_) => {
                             let mut gui = SHARED_GUI.write().unwrap();
-                            gui.open_msg_window("Contact Added", "Contact has been added successfully");
-                            gui.profile_area.contacts_ui.contact_name.clear();
-                            gui.profile_area.contacts_ui.contact_address.clear();
-                            gui.profile_area.contacts_ui.contact_note.clear();
+                            gui.open_msg_window("Contact has been added successfully", "");
+                            gui.profile_area.contacts_ui.contact_to_add = Contact::default();
                         }
                         Err(e) => {
                             let mut gui = SHARED_GUI.write().unwrap();
@@ -369,6 +369,104 @@ impl ContactsUi {
                     });
                 });
             }
+        });
+    }
+
+    fn edit_contact_ui(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+        if !self.edit_contact {
+            return;
+        }
+
+        ui.vertical_centered(|ui| {
+            ui.spacing_mut().item_spacing.y = 20.0;
+
+            // Go back button
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                let button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
+                bg_color_on_idle(ui, Color32::TRANSPARENT);
+                if ui.add(button).clicked() {
+                    self.edit_contact = false;
+                    self.main_ui = true;
+                }
+            });
+
+            // should not happen
+            if self.contact_to_edit.is_none() {
+                ui.label(rich_text("No contact to edit"));
+                if ui.add(button(rich_text("Close"))).clicked() {
+                    self.edit_contact = false;
+                    return;
+                }
+            }
+
+            let mut contact = self.contact_to_edit.clone().unwrap();
+            ui.scope(|ui| {
+                border_on_idle(ui, 1.0, theme.colors.border_color_idle);
+                border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+                border_on_click(ui, 1.0, theme.colors.border_color_click);
+
+                ui.label(rich_text("Name:"));
+                ui.text_edit_singleline(&mut contact.name);
+
+                ui.label(rich_text("Address:"));
+                ui.text_edit_singleline(&mut contact.address);
+            });
+
+            self.contact_to_edit = Some(contact.clone());
+
+            if ui.add(button(rich_text("Save"))).clicked() {
+                let old_contact = self.old_contact.clone().unwrap();
+                let new_contact = self.contact_to_edit.clone().unwrap();
+
+                std::thread::spawn(move || {
+                    // make sure the address is valid
+                    let _ = match Address::from_str(&contact.address) {
+                        Ok(address) => address,
+                        Err(e) => {
+                            let mut gui = SHARED_GUI.write().unwrap();
+                            gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                            return;
+                        }
+                    };
+
+                    let mut profile = ctx.profile();
+                    profile.remove_contact(old_contact.address.clone());
+                    match profile.add_contact(new_contact) {
+                        Ok(_) => {}
+                        Err(e) => {
+                            let mut gui = SHARED_GUI.write().unwrap();
+                            gui.open_msg_window("Failed to edit contact", &format!("{}", e));
+                            return;
+                        }
+                    }
+
+                    let dir = utils::get_profile_dir();
+                    let info = utils::get_encrypted_info(&dir);
+                    {
+                        let mut gui = SHARED_GUI.write().unwrap();
+                        gui.loading_window.msg = "Encrypting profile...".to_string();
+                        gui.loading_window.open = true;
+                    }
+                    match profile.encrypt_and_save(&dir, info.argon2_params) {
+                        Ok(_) => {
+                            let mut gui = SHARED_GUI.write().unwrap();
+                            gui.profile_area.contacts_ui.contact_to_edit = None;
+                            gui.profile_area.contacts_ui.edit_contact = false;
+                            gui.profile_area.contacts_ui.main_ui = true;
+                            gui.loading_window.open = false;
+                        }
+                        Err(e) => {
+                            let mut gui = SHARED_GUI.write().unwrap();
+                            gui.open_msg_window("Profile encryption failed", &format!("{}", e));
+                            gui.loading_window.open = false;
+                            return;
+                        }
+                    }
+                    ctx.write(|ctx| {
+                        ctx.profile = profile;
+                    });
+                });
+            }          
         });
     }
 }

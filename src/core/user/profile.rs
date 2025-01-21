@@ -11,12 +11,12 @@ pub const PROFILE_FILE: &str = "profile.data";
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Contact {
     pub name: String,
-    pub address: Address,
+    pub address: String,
     pub notes: String,
 }
 
 impl Contact {
-    pub fn new(name: String, address: Address, notes: String) -> Self {
+    pub fn new(name: String, address: String, notes: String) -> Self {
         Self {
             name,
             address,
@@ -25,8 +25,7 @@ impl Contact {
     }
 
     pub fn address_short(&self) -> String {
-        let address = self.address.to_string();
-        format!("{}...{}", &address[..6], &address[36..])
+        format!("{}...{}", &self.address[..6], &self.address[36..])
     }
 
     /// Serialize to JSON String
@@ -210,19 +209,18 @@ impl Profile {
         Ok(serialized)
     }
 
-    pub fn add_contact(&mut self, name: String, address: Address, notes: String) -> Result<(), anyhow::Error> {
+    pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
         // make sure name and address are unique
-        if self.contacts.iter().any(|c| c.name == name) {
-            return Err(anyhow!("Contact with name {} already exists", name));
-        } else if self.contacts.iter().any(|c| c.address == address) {
-            return Err(anyhow!("Contact with address {} already exists", address));
+        if self.contacts.iter().any(|c| c.name == contact.name) {
+            return Err(anyhow!("Contact with name {} already exists", contact.name));
+        } else if self.contacts.iter().any(|c| c.address == contact.address) {
+            return Err(anyhow!("Contact with address {} already exists", contact.address));
         }
-        let contact = Contact::new(name, address, notes);
         self.contacts.push(contact);
         Ok(())
     }
 
-    pub fn remove_contact(&mut self, address: Address) {
+    pub fn remove_contact(&mut self, address: String) {
         self.contacts.retain(|c| c.address != address);
     }
 

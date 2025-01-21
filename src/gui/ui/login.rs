@@ -54,6 +54,11 @@ impl LoginUi {
                 profile.credentials = self.credentials.clone();
 
                 std::thread::spawn(move || {
+                    {
+                        let mut gui = SHARED_GUI.write().unwrap();
+                        gui.loading_window.msg = "Unlocking profile...".to_string();
+                        gui.loading_window.open = true;
+                    }
                     let dir = get_profile_dir();
                     match profile.decrypt_and_load(&dir) {
                         Ok(_) => {
@@ -62,6 +67,7 @@ impl LoginUi {
                             gui.portofolio.open = true;
                             gui.profile_area.open = true;
                             gui.wallet_select.wallet = profile.current_wallet.clone();
+                            gui.loading_window.open = false;
 
                             ctx.write(|ctx| {
                                 ctx.profile = profile;
@@ -71,6 +77,7 @@ impl LoginUi {
                         Err(e) => {
                             let mut gui = SHARED_GUI.write().unwrap();
                             gui.open_msg_window("Failed to unlock profile", e.to_string());
+                            gui.loading_window.open = false;
                         }
                     };
                 });
@@ -139,6 +146,11 @@ impl RegisterUi {
                     profile.credentials = self.credentials.clone();
 
                     std::thread::spawn(move || {
+                        {
+                            let mut gui = SHARED_GUI.write().unwrap();
+                            gui.loading_window.msg = "Creating profile...".to_string();
+                            gui.loading_window.open = true;
+                        }
                         let dir = get_profile_dir();
                         match profile.encrypt_and_save(&dir, Argon2Params::very_fast()) {
                             Ok(_) => {
@@ -147,6 +159,7 @@ impl RegisterUi {
                                 gui.register.credentials.erase();
                                 gui.portofolio.open = true;
                                 gui.profile_area.open = true;
+                                gui.loading_window.open = false;
 
                                 ctx.write(|ctx| {
                                 ctx.profile_exists = true;
@@ -157,6 +170,7 @@ impl RegisterUi {
                             Err(e) => {
                                 let mut gui = SHARED_GUI.write().unwrap();
                                 gui.open_msg_window("Failed to create profile", e.to_string());
+                                gui.loading_window.open = false;
                             }
                         };
                     });

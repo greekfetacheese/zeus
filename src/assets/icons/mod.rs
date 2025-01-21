@@ -76,6 +76,7 @@ pub struct MiscIcons {
     pub arrow_back: TextureHandle,
     pub contact: TextureHandle,
     pub trash: TextureHandle,
+    pub edit: TextureHandle,
 }
 
 impl Icons {
@@ -105,6 +106,7 @@ impl Icons {
         let arrow_back = load_image(include_bytes!("misc/resized/arrow-back.png"))?;
         let contact = load_image(include_bytes!("misc/resized/contact.png"))?;
         let trash = load_image(include_bytes!("misc/resized/trash.png"))?;
+        let edit = load_image(include_bytes!("misc/resized/edit.png"))?;
 
         let texture_options = TextureOptions::default();
 
@@ -134,6 +136,7 @@ impl Icons {
             contact: ctx.load_texture("contact", contact, texture_options),
             arrow_back: ctx.load_texture("arrow_back", arrow_back, texture_options),
             trash: ctx.load_texture("trash", trash, texture_options),
+            edit: ctx.load_texture("edit", edit, texture_options),
         };
 
         Ok(Self {
@@ -234,6 +237,10 @@ impl Icons {
 
     pub fn trash(&self) -> Image<'static> {
         Image::new(&self.misc.trash).sense(Sense::click())
+    }
+
+    pub fn edit(&self) -> Image<'static> {
+        Image::new(&self.misc.edit).sense(Sense::click())
     }
 }
 

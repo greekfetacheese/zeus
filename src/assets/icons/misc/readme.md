@@ -7,3 +7,4 @@ arrow2 https://www.svgrepo.com/svg/535159/arrow-right-from-bracket
 contact book https://www.svgrepo.com/svg/487232/contact-book
 
 trash https://www.svgrepo.com/svg/533020/trash-list-alt
+edit https://www.svgrepo.com/svg/522527/edit-3

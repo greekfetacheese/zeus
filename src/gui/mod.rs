@@ -17,6 +17,8 @@ lazy_static! {
 
 pub struct GUI {
 
+    pub egui_ctx: Context,
+
     pub ctx: ZeusCtx,
 
     pub theme: Theme,
@@ -41,18 +43,21 @@ pub struct GUI {
 
     pub msg_window: ui::MsgWindow,
 
+    pub loading_window: ui::LoadingWindow,
+
     pub profile_area: ui::panels::top_panel::ProfileArea
 
 }
 
 impl GUI {
-    pub fn new(icons: Arc<Icons>, theme: Theme) -> Self {
+    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
         let token_selection = ui::TokenSelectionWindow::new();
         let send_crypto = ui::SendCryptoUi::new();
 
         let wallet_select = ui::WalletSelect::new("wallet_select_1").width(100.0);
 
         Self {
+            egui_ctx,
             ctx: ZeusCtx::new(),
             theme,
             editor: ThemeEditor::new(),
@@ -65,6 +70,7 @@ impl GUI {
             portofolio: ui::PortfolioUi::new(),
             send_crypto,
             msg_window: ui::MsgWindow::default(),
+            loading_window: ui::LoadingWindow::new(),
             profile_area: ui::panels::top_panel::ProfileArea::new()
         }
     }
@@ -90,6 +96,6 @@ impl GUI {
 impl Default for GUI {
     fn default() -> Self {
         let icons = Arc::new(Icons::new(&Context::default()).unwrap());
-        GUI::new(icons, Theme::new(ThemeKind::Midnight))
+        GUI::new(icons, Theme::new(ThemeKind::Midnight), Context::default())
     }
 }

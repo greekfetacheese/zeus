@@ -18,12 +18,14 @@ impl ZeusApp {
         let ctx = cc.egui_ctx.clone();
 
         let ctx_clone = ctx.clone();
+        /* 
         std::thread::spawn(move || {
             request_repaint(ctx_clone);
         });
+        */
 
         let path_exists = PathBuf::from("zeus-theme.json").exists();
-        let theme = if path_exists {
+        let mut theme = if path_exists {
             let path = PathBuf::from("zeus-theme.json");
             let theme = Theme::from_custom(path).unwrap();
             theme
@@ -32,6 +34,7 @@ impl ZeusApp {
             theme
         };
 
+        theme.style.animation_time = 0.5;
         ctx.set_style(theme.style.clone());
         ctx.set_fonts(get_fonts());
 
@@ -39,13 +42,14 @@ impl ZeusApp {
         let icons = Icons::new(&cc.egui_ctx).unwrap();
         let icons = Arc::new(icons);
 
-        let gui = GUI::new(icons.clone(), theme.clone());
+        let gui = GUI::new(icons.clone(), theme.clone(), ctx_clone);
 
         // Update the shared GUI with the current GUI state
         let mut shared_gui = SHARED_GUI.write().unwrap();
 
         shared_gui.icons = gui.icons.clone();
         shared_gui.theme = gui.theme.clone();
+        shared_gui.egui_ctx = gui.egui_ctx.clone();
 
         Self {
             on_startup: true,
@@ -126,6 +130,7 @@ impl eframe::App for ZeusApp {
     }
 }
 
+/* 
 /// Request repaint every 32ms (30 FPS) only if the Viewport is not minimized.
 fn request_repaint(ctx: egui::Context) {
     let duration = Duration::from_millis(32);
@@ -139,3 +144,4 @@ fn request_repaint(ctx: egui::Context) {
         std::thread::sleep(duration);
     }
 }
+    */

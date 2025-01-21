@@ -44,6 +44,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.editor.open = true;
     }
 
+    if ui.add(button(rich_text("Loading Window"))).clicked() {
+        gui.loading_window.msg = "Loading...".to_string();
+        gui.loading_window.open = !gui.loading_window.open;
+    }
+
 
     
 });

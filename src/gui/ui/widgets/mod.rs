@@ -1,4 +1,5 @@
-use eframe::egui::{ Ui, ComboBox, Align2, Window, Frame, ScrollArea, Color32, Grid, vec2 };
+use eframe::egui::{ Ui, ComboBox, Align2, Window, Spinner, Frame, ScrollArea, Color32, Grid, vec2 };
+use egui::Vec2;
 use std::sync::Arc;
 use crate::gui::ui::{ button, img_button, rich_text, currency_balance, currency_price, currency_value };
 use crate::assets::icons::Icons;
@@ -86,7 +87,7 @@ impl WalletSelect {
     }
 
     pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
-        let wallets = ctx.profile().wallets.clone();
+        let wallets = ctx.profile().wallets;
         if self.wallet.name.is_empty() {
             self.wallet = ctx.wallet();
         }
@@ -105,6 +106,46 @@ impl WalletSelect {
                         self.wallet = wallet.clone();
                     }
                 }
+            });
+    }
+}
+
+/// Window to indicate a loading state
+pub struct LoadingWindow {
+    pub open: bool,
+    pub msg: String,
+    pub size: (f32, f32),
+    pub anchor: (Align2, Vec2),
+}
+
+impl LoadingWindow {
+    pub fn new() -> Self {
+        Self {
+            open: false,
+            msg: String::new(),
+            size: (150.0, 100.0),
+            anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
+        }
+    }
+
+    pub fn show(&mut self, ui: &mut Ui) {
+        if !self.open {
+            return;
+        }
+
+        Window::new("Loading")
+            .title_bar(false)
+            .resizable(false)
+            .anchor(self.anchor.0, self.anchor.1)
+            .collapsible(false)
+            .frame(Frame::window(ui.style()))
+            .show(ui.ctx(), |ui| {
+                ui.set_width(self.size.0);
+                ui.set_height(self.size.1);
+                ui.vertical_centered(|ui| {
+                ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
+                ui.label(rich_text(&self.msg));
+                });
             });
     }
 }

@@ -3,6 +3,7 @@ use crate::gui::GUI;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
     gui.msg_window.show(ui);
+    gui.loading_window.show(ui);
 
     let ctx = gui.ctx.clone();
 
