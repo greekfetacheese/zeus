@@ -6,8 +6,8 @@ use ncrypt::EncryptedInfo;
 // Shortcuts for functions that may fail but we need to show an error message
 // These functions are only called on a seperate thread so we dont block or panic the main thread
 
-pub fn import_wallet(profile: &mut Profile, name: String, key: String) {
-    match profile.import_wallet(name, key) {
+pub fn new_wallet_from_key(profile: &mut Profile, name: String, key: String) {
+    match profile.new_wallet_from_key(name, key) {
         Ok(_) => {}
         Err(e) => {
             {
@@ -19,8 +19,8 @@ pub fn import_wallet(profile: &mut Profile, name: String, key: String) {
     }
 }
 
-pub fn new_wallet(profile: &mut Profile, name: String) {
-    match profile.new_wallet(name) {
+pub fn new_wallet_rng(profile: &mut Profile, name: String) {
+    match profile.new_wallet_rng(name) {
         Ok(_) => {}
         Err(e) => {
             {

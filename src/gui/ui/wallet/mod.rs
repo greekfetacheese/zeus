@@ -273,8 +273,7 @@ impl WalletUi {
 
                 std::thread::spawn(move || {
                     let mut profile = ctx.profile();
-
-                    gui::utils::import_wallet(&mut profile, name, key);
+                    gui::utils::new_wallet_from_key(&mut profile, name, key);
                     let dir = gui::utils::get_profile_dir();
                     let info = gui::utils::get_encrypted_info(&dir);
 
@@ -329,8 +328,7 @@ impl WalletUi {
 
                 std::thread::spawn(move || {
                     let mut profile = ctx.profile();
-
-                    gui::utils::new_wallet(&mut profile, wallet_name);
+                    gui::utils::new_wallet_rng(&mut profile, wallet_name);
                     let dir = gui::utils::get_profile_dir();
                     let info = gui::utils::get_encrypted_info(&dir);
 

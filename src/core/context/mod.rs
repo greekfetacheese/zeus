@@ -15,10 +15,12 @@ impl ZeusCtx {
         Self(Arc::new(RwLock::new(ZeusContext::new())))
     }
 
+    /// Shared access to the context
     pub fn read<R>(&self, reader: impl FnOnce(&ZeusContext) -> R) -> R {
         reader(&self.0.read().unwrap())
     }
 
+    /// Exclusive mutable access to the context
     pub fn write<R>(&self, writer: impl FnOnce(&mut ZeusContext) -> R) -> R {
         writer(&mut self.0.write().unwrap())
     }

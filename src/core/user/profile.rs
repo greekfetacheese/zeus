@@ -24,6 +24,11 @@ impl Contact {
         }
     }
 
+    pub fn address_short(&self) -> String {
+        let address = self.address.to_string();
+        format!("{}...{}", &address[..6], &address[36..])
+    }
+
     /// Serialize to JSON String
     pub fn serialize(&self) -> Result<String, anyhow::Error> {
         Ok(serde_json::to_string(self)?)
@@ -96,14 +101,13 @@ impl Default for Profile {
             credentials: Credentials::default(),
             wallets,
             current_wallet: wallet,
-            contacts: Vec::new()
+            contacts: Vec::new(),
         }
     }
 }
 
 impl Profile {
-    /// Import a wallet from a private key
-    pub fn import_wallet(&mut self, mut name: String, key: String) -> Result<(), anyhow::Error> {
+    pub fn new_wallet_from_key(&mut self, mut name: String, key: String) -> Result<(), anyhow::Error> {
         if !name.is_empty() {
             if self.wallet_name_exists(&name) {
                 return Err(anyhow!("Wallet with name {} already exists", name));
@@ -119,8 +123,7 @@ impl Profile {
         Ok(())
     }
 
-    /// Create a new random wallet and add it to the profile
-    pub fn new_wallet(&mut self, mut name: String) -> Result<(), anyhow::Error> {
+    pub fn new_wallet_rng(&mut self, mut name: String) -> Result<(), anyhow::Error> {
         if !name.is_empty() {
             if self.wallet_name_exists(&name) {
                 return Err(anyhow!("Wallet with name {} already exists", name));
@@ -134,7 +137,6 @@ impl Profile {
         Ok(())
     }
 
-    /// Generate a new wallet name
     pub fn generate_wallet_name(&self) -> String {
         let mut starter_number = 1;
         loop {
@@ -150,13 +152,10 @@ impl Profile {
     pub fn wallet_name_exists(&self, name: &str) -> bool {
         self.wallets.iter().any(|w| w.name == name)
     }
+    
 
     /// Encrypt the profile and save it to a file
-    pub fn encrypt_and_save(
-        &self,
-        dir: &PathBuf,
-        argon: Argon2Params
-    ) -> Result<(), anyhow::Error> {
+    pub fn encrypt_and_save(&self, dir: &PathBuf, argon: Argon2Params) -> Result<(), anyhow::Error> {
         // ! make sure we dont accidentally erased any of the wallet keys
         for wallet in self.wallets.iter() {
             if wallet.is_key_erased() {
@@ -167,6 +166,12 @@ impl Profile {
         let encrypted_data = encrypt_data(argon, profile_data, self.credentials.clone())?;
         std::fs::write(dir, encrypted_data)?;
         Ok(())
+    }
+
+    pub fn decrypt(&self, dir: &PathBuf) -> Result<Vec<u8>, anyhow::Error> {
+        let encrypted_data = std::fs::read(dir)?;
+        let decrypted_data = decrypt_data(encrypted_data, self.credentials.clone())?;
+        Ok(decrypted_data)
     }
 
     /// Decrypt and load the profile
@@ -190,23 +195,12 @@ impl Profile {
         Ok(())
     }
 
-    pub fn decrypt(&self, dir: &PathBuf) -> Result<Vec<u8>, anyhow::Error> {
-        let encrypted_data = std::fs::read(dir)?;
-        let decrypted_data = decrypt_data(encrypted_data, self.credentials.clone())?;
-        Ok(decrypted_data)
-    }
-
     /// Store all data to [ProfileData] and serialize it to a JSON string
     pub fn serialize(&self) -> Result<String, anyhow::Error> {
         let mut wallet_data = Vec::new();
         for wallet in self.wallets.iter() {
             let key = wallet.key_string();
-            let data = WalletData::new(
-                wallet.name.clone(),
-                wallet.notes.clone(),
-                wallet.hidden,
-                key
-            );
+            let data = WalletData::new(wallet.name.clone(), wallet.notes.clone(), wallet.hidden, key);
             wallet_data.push(data);
         }
 
@@ -214,6 +208,22 @@ impl Profile {
         let serialized = profile_data.serialize()?;
 
         Ok(serialized)
+    }
+
+    pub fn add_contact(&mut self, name: String, address: Address, notes: String) -> Result<(), anyhow::Error> {
+        // make sure name and address are unique
+        if self.contacts.iter().any(|c| c.name == name) {
+            return Err(anyhow!("Contact with name {} already exists", name));
+        } else if self.contacts.iter().any(|c| c.address == address) {
+            return Err(anyhow!("Contact with address {} already exists", address));
+        }
+        let contact = Contact::new(name, address, notes);
+        self.contacts.push(contact);
+        Ok(())
+    }
+
+    pub fn remove_contact(&mut self, address: Address) {
+        self.contacts.retain(|c| c.address != address);
     }
 
     /// Get the current wallet address
@@ -246,11 +256,7 @@ mod tests {
         let original_key1 = wallet_1.key_string();
         let original_key2 = wallet_2.key_string();
 
-        let credentials = Credentials::new(
-            "test".to_string(),
-            "password".to_string(),
-            "password".to_string()
-        );
+        let credentials = Credentials::new("test".to_string(), "password".to_string(), "password".to_string());
 
         let mut profile = Profile {
             credentials,
@@ -278,5 +284,5 @@ mod tests {
         assert_eq!(key_2, original_key2);
 
         fs::remove_file("profile_test.data").unwrap();
-    }   
+    }
 }
