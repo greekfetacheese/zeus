@@ -78,8 +78,17 @@ pub struct ThemeColors {
     /// Background color for the entire app
     pub bg_color: Color32,
 
+    /// Highlight something
+    pub highlight: Color32,
+
+    /// An overlay color, used for example when a window is open to darken the background
+    pub overlay_color: Color32,
+
     /// Text color
     pub text_color: Color32,
+
+    /// Secondary text color
+    pub text_secondary: Color32,
 
     /// Widget background color for inactive widgets (no hover or clicks)
     ///

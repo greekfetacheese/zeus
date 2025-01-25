@@ -57,3 +57,33 @@ pub fn get_encrypted_info(dir: &PathBuf) -> EncryptedInfo {
         }
     }
 }
+
+pub fn verify_credentials(profile: &mut Profile) -> bool {
+    let dir = get_profile_dir();
+    open_loading("Verifying credentials...".to_string());
+
+    match profile.decrypt_zero(&dir) {
+        Ok(_) => {
+            let mut gui = SHARED_GUI.write().unwrap();
+            gui.loading_window.open = false;
+            return true;
+        }
+        Err(e) => {
+            let mut gui = SHARED_GUI.write().unwrap();
+            gui.loading_window.open = false;
+            gui.open_msg_window("Invalid Credentials", e.to_string());
+            return false;
+        }
+}
+}
+
+pub fn open_loading(msg: String) {
+    let mut gui = SHARED_GUI.write().unwrap();
+    gui.loading_window.msg = msg;
+    gui.loading_window.open = true;
+}
+
+pub fn close_loading() {
+    let mut gui = SHARED_GUI.write().unwrap();
+    gui.loading_window.open = false;
+}

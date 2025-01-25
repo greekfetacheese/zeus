@@ -4,6 +4,7 @@ pub mod window;
 pub mod app;
 
 use eframe::egui::{Ui, Context};
+use egui::vec2;
 use std::sync::{Arc, RwLock};
 
 use egui_theme::{Theme, ThemeKind, ThemeEditor};
@@ -22,6 +23,9 @@ pub struct GUI {
     pub ctx: ZeusCtx,
 
     pub theme: Theme,
+
+    /// True if there is any [egui::Window] open
+    pub show_overlay: bool,
 
     pub editor: ThemeEditor,
 
@@ -45,8 +49,9 @@ pub struct GUI {
 
     pub loading_window: ui::LoadingWindow,
 
-    pub profile_area: ui::panels::top_panel::ProfileArea
+    pub profile_area: ui::panels::top_panel::ProfileAreaUi,
 
+    pub settings: ui::SettingsUi,
 }
 
 impl GUI {
@@ -55,11 +60,13 @@ impl GUI {
         let send_crypto = ui::SendCryptoUi::new();
 
         let wallet_select = ui::WalletSelect::new("wallet_select_1").width(100.0);
+        let msg_window = ui::MsgWindow::new(Some(theme.colors.bg_color));
 
         Self {
             egui_ctx,
             ctx: ZeusCtx::new(),
             theme,
+            show_overlay: false,
             editor: ThemeEditor::new(),
             icons,
             token_selection,
@@ -69,9 +76,10 @@ impl GUI {
             register: ui::RegisterUi::new(),
             portofolio: ui::PortfolioUi::new(),
             send_crypto,
-            msg_window: ui::MsgWindow::default(),
+            msg_window,
             loading_window: ui::LoadingWindow::new(),
-            profile_area: ui::panels::top_panel::ProfileArea::new()
+            profile_area: ui::panels::top_panel::ProfileAreaUi::new(),
+            settings: ui::SettingsUi::new(),
         }
     }
 

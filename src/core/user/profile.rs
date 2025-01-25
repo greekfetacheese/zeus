@@ -173,6 +173,15 @@ impl Profile {
         Ok(decrypted_data)
     }
 
+    /// Same as [Self::decrypt()] but make sure we zero out the decrypted data
+    /// 
+    /// Useful for verifying credentials
+    pub fn decrypt_zero(&self, dir: &PathBuf) -> Result<(), anyhow::Error> {
+        let mut decrypted_data = self.decrypt(dir)?;
+        decrypted_data.zeroize();
+        Ok(())
+    }
+
     /// Decrypt and load the profile
     pub fn decrypt_and_load(&mut self, dir: &PathBuf) -> Result<(), anyhow::Error> {
         let decrypted_data = self.decrypt(dir)?;
@@ -222,6 +231,10 @@ impl Profile {
 
     pub fn remove_contact(&mut self, address: String) {
         self.contacts.retain(|c| c.address != address);
+    }
+
+    pub fn remove_wallet(&mut self, wallet: Wallet) {
+        self.wallets.retain(|w| w != &wallet);
     }
 
     /// Get the current wallet address

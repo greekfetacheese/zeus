@@ -14,6 +14,9 @@ use super::super::{ Theme, ThemeKind, ThemeColors, FrameVisuals };
 /// Hex: #252323
 pub const BLACK: Color32 = Color32::from_rgba_premultiplied(37, 35, 35, 255);
 
+/// Hex: #1F1D1D
+pub const OVERLAY: Color32 = Color32::from_rgba_premultiplied(31, 29, 29, 255);
+
 /// Hex: #141415
 pub const RAISIN_BLACK: Color32 = Color32::from_rgba_premultiplied(40, 40, 42, 255);
 
@@ -56,6 +59,9 @@ fn style() -> Style {
 fn colors() -> ThemeColors {
     ThemeColors {
         bg_color: BLACK,
+        highlight: Color32::from_gray(25),
+        text_secondary: Color32::from_gray(150),
+        overlay_color: OVERLAY,
         widget_bg_color_idle: MAGENTA_HAZE,
         widget_bg_color_click: DARK_PURPLE,
         widget_bg_color_hover: BYZANTIUM,
@@ -88,14 +94,14 @@ fn frame2() -> Frame {
     Frame {
         inner_margin: Margin::same(10.0),
         outer_margin: Margin::same(10.0),
-        rounding: Rounding::same(30.0),
+        rounding: Rounding::same(10.0),
         shadow: Shadow {
             offset: (0.0, 0.0).into(),
             blur: 0.0,
             spread: 0.0,
             color: Color32::TRANSPARENT,
         },
-        fill: RAISIN_BLACK,
+        fill: Color32::from_rgba_premultiplied(24, 22, 22, 173),
         stroke: Stroke::NONE,
     }
 }

@@ -1,5 +1,4 @@
-use eframe::egui::{ Ui, ComboBox, Align2, Window, Spinner, Frame, ScrollArea, Color32, Grid, vec2 };
-use egui::Vec2;
+use eframe::egui::{ Ui, ComboBox, Align2, Window, Spinner, Frame, ScrollArea, Color32, Grid, vec2, Vec2 };
 use std::sync::Arc;
 use crate::gui::ui::{ button, img_button, rich_text, currency_balance, currency_price, currency_value };
 use crate::assets::icons::Icons;
@@ -86,12 +85,16 @@ impl WalletSelect {
         self
     }
 
-    pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
+    /// Show the ComboBox
+    /// 
+    /// Returns true if the wallet was changed
+    pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) -> bool {
         let wallets = ctx.profile().wallets;
         if self.wallet.name.is_empty() {
             self.wallet = ctx.wallet();
         }
 
+        let mut clicked = false;
         ComboBox::from_id_salt(self.id)
             .selected_text(rich_text(self.wallet.name.clone()))
             .width(self.width)
@@ -100,13 +103,14 @@ impl WalletSelect {
 
                 for wallet in wallets {
                     let value = ui.selectable_value(&mut self.wallet, wallet.clone(), rich_text(wallet.name.clone()));
-
-                    // update the wallet
+                    
                     if value.clicked() {
+                        clicked = true;
                         self.wallet = wallet.clone();
                     }
                 }
             });
+        clicked
     }
 }
 
@@ -156,9 +160,20 @@ pub struct MsgWindow {
     pub open: bool,
     pub title: String,
     pub message: String,
+    pub bg_color: Option<Color32>,
 }
 
 impl MsgWindow {
+
+    pub fn new(color: Option<Color32>) -> Self {
+        Self {
+            open: false,
+            title: String::new(),
+            message: String::new(),
+            bg_color: color,
+        }
+    }
+
     /// Open the window with this title and message
     pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
         self.open = true;
@@ -175,11 +190,17 @@ impl MsgWindow {
         let msg = rich_text(&self.message).size(16.0);
         let ok = button(rich_text("Ok"));
 
+        let frame = if let Some(color) = self.bg_color {
+            Frame::window(ui.style()).fill(color)
+        } else {
+            Frame::window(ui.style())
+        };
+
         Window::new(title)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .collapsible(false)
-            .frame(Frame::window(ui.style()))
+            .frame(frame)
             .show(ui.ctx(), |ui| {
                 ui.vertical_centered(|ui| {
                     ui.set_min_size(vec2(300.0, 100.0));

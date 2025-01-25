@@ -121,6 +121,9 @@ impl ThemeEditor {
                 ui.label("Background Color");
                 color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
 
+                ui.label("Overlay Color");
+                color_edit_button_srgba(ui, &mut theme.colors.overlay_color, Alpha::OnlyBlend);
+
                 ui.label("Text Color");
                 color_edit_button_srgba(ui, &mut theme.colors.text_color, Alpha::OnlyBlend);
 

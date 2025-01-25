@@ -3,11 +3,13 @@ pub mod login;
 pub mod wallet;
 pub mod panels;
 pub mod widgets;
+pub mod settings;
 
 pub use dapps::uniswap::swap::SwapUi;
-pub use login::{ LoginUi, RegisterUi };
+pub use login::{ CredentialsForm, LoginUi, RegisterUi };
 pub use wallet::WalletUi;
 pub use widgets::*;
+pub use settings::SettingsUi;
 
 
 use eframe::egui::{
@@ -76,7 +78,7 @@ pub fn currency_value(price: f64, balance: f64) -> String {
 }
 
 pub fn rich_text(text: impl Into<String>) -> RichText {
-    RichText::new(text).size(15.0).family(roboto_regular()).color(Color32::WHITE)
+    RichText::new(text).size(15.0)
 }
 
 pub fn button(text: impl Into<WidgetText>) -> Button<'static> {

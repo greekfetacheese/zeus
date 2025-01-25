@@ -24,9 +24,9 @@ impl ZeusApp {
         });
         */
 
-        let path_exists = PathBuf::from("zeus-theme.json").exists();
+        let path_exists = PathBuf::from("my-custom-theme.json").exists();
         let mut theme = if path_exists {
-            let path = PathBuf::from("zeus-theme.json");
+            let path = PathBuf::from("my-custom-theme.json");
             let theme = Theme::from_custom(path).unwrap();
             theme
         } else {
@@ -78,8 +78,13 @@ impl eframe::App for ZeusApp {
 
         let mut gui = SHARED_GUI.write().unwrap();
 
-        let bg_frame;
-        bg_frame = Frame::none().fill(gui.theme.colors.bg_color);
+        let bg_color = if gui.show_overlay {
+            gui.theme.colors.overlay_color
+        } else {
+            gui.theme.colors.bg_color
+        };
+
+        let bg_frame = Frame::none().fill(bg_color);
 
         window_frame(ctx, "Zeus", bg_frame.clone(), |ui| {
             egui_theme::utils::apply_theme_changes(&gui.theme, ui);
@@ -88,6 +93,8 @@ impl eframe::App for ZeusApp {
             egui::TopBottomPanel
                 ::top("top_panel")
                 .exact_height(200.0)
+                .resizable(false)
+                .show_separator_line(false)
                 .frame(bg_frame.clone())
                 .show_inside(ui, |ui| {
                     if gui.ctx.logged_in() {
@@ -99,6 +106,8 @@ impl eframe::App for ZeusApp {
             egui::SidePanel
                 ::left("left_panel")
                 .exact_width(100.0)
+                .resizable(false)
+                .show_separator_line(false)
                 .frame(bg_frame.clone())
                 .show_inside(ui, |ui| {
                     if gui.ctx.logged_in() {
@@ -108,7 +117,9 @@ impl eframe::App for ZeusApp {
 
             egui::SidePanel
                 ::right("right_panel")
+                .resizable(false)
                 .exact_width(100.0)
+                .show_separator_line(false)
                 .frame(bg_frame.clone())
                 .show_inside(
                     ui,

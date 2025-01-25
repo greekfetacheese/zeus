@@ -17,39 +17,46 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
     utils::no_border_on_click(ui);
 
 
-    let home_button = button(rich_text("Home").size(21.0));
-    if ui.add(home_button).clicked() {
+    let home = button(rich_text("Home").size(21.0));
+    if ui.add(home).clicked() {
         gui.swap_ui.open = false;
-        gui.portofolio.open = true;
         gui.send_crypto.open = false;
+        gui.settings.open = false;
+        gui.portofolio.open = true;
+
     }
 
-    let swap_button = button(rich_text("Swap").size(21.0));
-    if ui.add(swap_button).clicked() {
-        gui.swap_ui.open = true;
+    let swap = button(rich_text("Swap").size(21.0));
+    if ui.add(swap).clicked() {
         gui.portofolio.open = false;
         gui.send_crypto.open = false;
+        gui.settings.open = false;
+        gui.swap_ui.open = true;
     }
     
-    let send_button = button(rich_text("Send").size(21.0));
-    if ui.add(send_button).clicked() {
+    let send = button(rich_text("Send").size(21.0));
+    if ui.add(send).clicked() {
         gui.swap_ui.open = false;
         gui.portofolio.open = false;
+        gui.settings.open = false;
         gui.send_crypto.open = true;
     }
+
+    let settings = button(rich_text("Settings").size(21.0));
+    if ui.add(settings).clicked() {
+        gui.portofolio.open = false;
+        gui.swap_ui.open = false;
+        gui.send_crypto.open = false;
+        gui.settings.open = true;
+    }
+
+
 
 
 
     if ui.add(button(rich_text("Theme Editor").size(20.0))).clicked() {
         gui.editor.open = true;
     }
-
-    if ui.add(button(rich_text("Loading Window"))).clicked() {
-        gui.loading_window.msg = "Loading...".to_string();
-        gui.loading_window.open = !gui.loading_window.open;
-    }
-
-
     
 });
 }

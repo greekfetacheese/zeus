@@ -2,6 +2,7 @@ use eframe::egui::Ui;
 use crate::gui::GUI;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
+    should_show_overlay(gui);
     gui.msg_window.show(ui);
     gui.loading_window.show(ui);
 
@@ -27,10 +28,28 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
     gui.portofolio.show(ctx.clone(), icons.clone(), ui);
     gui.swap_ui.show(ctx.clone(), icons.clone(), theme, token_selection, ui);
-    gui.send_crypto.show(ctx, icons, &gui.theme, ui);
+    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
+    gui.send_crypto.show(ctx.clone(), icons.clone(), theme, ui);
+
+    gui.profile_area.wallet_ui.add_wallet_ui.show(ctx.clone(), theme, ui);
+    gui.profile_area.wallet_ui.wallet_details.show(ctx.clone(), theme, ui);
 
     let theme = gui.editor.show(&mut gui.theme, ui);
     if let Some(theme) = theme {
         gui.theme = theme;
+    }
+}
+
+fn should_show_overlay(gui: &mut GUI) {
+    if gui.settings.credentials.open {
+        gui.show_overlay = true;
+    } else if gui.msg_window.open {
+        gui.show_overlay = true;
+    } else if gui.loading_window.open {
+        gui.show_overlay = true;
+    } else if gui.settings.contacts_ui.open {
+        gui.show_overlay = true;
+    } else {
+        gui.show_overlay = false;
     }
 }
