@@ -13,7 +13,7 @@ pub fn native_wrapped_token(chain_id: u64) -> Result<Address, anyhow::Error> {
         // BSC Mainnet
         56 => Ok(wbnb(chain_id)?),
         // OP Base
-        8453 => Ok(wbnb(chain_id)?),
+        8453 => Ok(weth(chain_id)?),
         // Arbitrum
         42161 => Ok(weth(chain_id)?),
         _ => Err(anyhow!("Unsupported chain id: {}", chain_id)),
@@ -27,6 +27,8 @@ pub fn weth(chain_id: u64) -> Result<Address, anyhow::Error> {
         1 => Ok(address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")),
         // Optimism
         10 => Ok(address!("4200000000000000000000000000000000000006")),
+        // BSC
+        56 => Ok(address!("2170Ed0880ac9A755fd29B2688956BD959F933F8")),
         // OP Base
         8453 => Ok(address!("4200000000000000000000000000000000000006")),
         // Arbitrum

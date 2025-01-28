@@ -6,6 +6,7 @@ use alloy_contract::private::Network;
 use alloy_provider::Provider;
 use alloy_transport::Transport;
 use super::common_addr::*;
+use crate::{ETH, BASE, BSC, OPTIMISM, ARBITRUM};
 
 
 // Ethereum mainnet
@@ -20,8 +21,11 @@ const ETH_BTC_FEED: Address = address!("Ac559F25B1619171CbC396a50854A3240b6A4e99
 // Binance Smart Chain
 const BNB_USD_FEED: Address = address!("0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE");
 
-// OP Base
+// Base
 const BASE_ETH_USD_FEED: Address = address!("71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70");
+
+// Optimism
+const OP_ETH_USD_FEED: Address = address!("13e3Ee699D1909E989722E753853AE30b17e08c5");
 
 // Arbitrum
 const ARB_ETH_USD_FEED: Address = address!("639Fe6ab55C921f74e7fac1ee960C0B6293ba612");
@@ -45,9 +49,10 @@ where
     N: Network,
 {
     let feed = match chain_id {
-        1 => ETH_USD_FEED,
-        8453 => BASE_ETH_USD_FEED,
-        42161 => ARB_ETH_USD_FEED,
+        ETH => ETH_USD_FEED,
+        BASE => BASE_ETH_USD_FEED,
+        ARBITRUM => ARB_ETH_USD_FEED,
+        OPTIMISM => OP_ETH_USD_FEED,
         _ => return Err(anyhow::anyhow!("Unsupported chain id {}", chain_id)),
     };
 
@@ -100,7 +105,7 @@ where
 {
     let mut price = 0.0;
 
-    if chain_id == 1 || chain_id == 10 || chain_id == 42161 {
+    if chain_id == ETH || chain_id == OPTIMISM || chain_id == ARBITRUM {
         if token == usdc(chain_id)? {
             price = 1.0;
         } else if token == usdt(chain_id)? {
@@ -110,7 +115,7 @@ where
         } else if token == weth(chain_id)? {
             price = get_eth_price(client, block_id, chain_id).await?;
         }
-    } else if chain_id == 8453 {
+    } else if chain_id == BASE {
         // USDT not available on Base
         if token == usdc(chain_id)? {
             price = 1.0;
@@ -119,7 +124,7 @@ where
         } else if token == weth(chain_id)? {
             price = get_eth_price(client, block_id, chain_id).await?;
         }
-    } else if chain_id == 56 {
+    } else if chain_id == BSC {
         if token == usdc(chain_id)? {
             price = 1.0;
         } else if token == usdt(chain_id)? {

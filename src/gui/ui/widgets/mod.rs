@@ -59,7 +59,7 @@ impl ChainSelect {
                         clicked = true;
                     }
                 }
-            });
+        });
         clicked
     }
 }

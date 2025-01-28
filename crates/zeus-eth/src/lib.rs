@@ -19,8 +19,6 @@ pub use alloy_transport;
 pub use alloy_pubsub;
 pub use alloy_network;
 pub use alloy_contract;
-
-// Revm
 pub use revm;
 
 pub const ETH: u64 = 1;

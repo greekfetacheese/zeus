@@ -22,6 +22,12 @@ sol! {
 
 sol! {
     #[sol(rpc)]
+    IGetV2PoolsReserves,
+    "src/utils/batch_request/abi/GetV2PoolsReserves.json",
+}
+
+sol! {
+    #[sol(rpc)]
     IGetV3Pools,
     "src/utils/batch_request/abi/GetV3Pools.json",
 }
@@ -47,6 +53,16 @@ sol! {
         string name;
         uint256 totalSupply;
         uint8 decimals;
+    }
+}
+
+sol! {
+    #[derive(Debug)]
+    struct V2PoolReserves {
+        address pool;
+        uint112 reserve0;
+        uint112 reserve1;
+        uint32 blockTimestampLast;
     }
 }
 
@@ -122,6 +138,10 @@ pub async fn get_erc20_info<T, P, N>(
 
 
 /// Retrieve all V3 pools for tokenA and tokenB based on the fee tiers (if they exist)
+/// 
+/// For any possible pool that does not exist the values will be 0
+/// 
+/// If no pools exists it will still return a vector with zero values
 pub async fn get_v3_pools<T, P, N>(
     client: P,
     token_a: Address,
@@ -135,6 +155,24 @@ pub async fn get_v3_pools<T, P, N>(
     let res = deployer.call_raw().await?;
 
     let data = <Vec<V3Pool> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
+    
+    Ok(data)
+}
+
+/// Get the reserves for the given v2 pools, if block is None, then the latest block is used
+pub async fn get_v2_pool_reserves<T, P, N>(
+    client: P,
+    block: Option<BlockId>,
+    pools: Vec<Address>
+)
+    -> Result<Vec<V2PoolReserves>, anyhow::Error>
+    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+{
+    let block = block.unwrap_or(BlockId::latest());
+    let deployer = IGetV2PoolsReserves::deploy_builder(client, pools).block(block);
+    let res = deployer.call_raw().await?;
+
+    let data = <Vec<V2PoolReserves> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V2 pool reserves: {:?}", e))?;
     
     Ok(data)
 }
@@ -223,6 +261,24 @@ mod tests {
         println!("=== V3 Pairs Test ===");
         for pair in pairs {
             println!("Pair: {:?}, Fee: {}", pair.pool, pair.fee);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_v2_pool_reserves() {
+        let url = "wss://eth.merkle.io";
+        let ws_connect = WsConnect::new(url);
+        let client = ProviderBuilder::new().on_ws(ws_connect).await.unwrap();
+
+        let pool = address!("0d4a11d5EEaaC28EC3F61d100daF4d40471f1852");
+
+        let reserves = get_v2_pool_reserves(client, None, vec![pool]).await.unwrap();
+
+        assert_eq!(reserves.len(), 1);
+
+        println!("=== V2 Pool Reserves Test ===");
+        for reserve in reserves {
+            println!("Pool: {:?}, Reserves: {}, {}", reserve.pool, reserve.reserve0, reserve.reserve1);
         }
     }
 

@@ -11,19 +11,16 @@ use eframe::egui::{
     Window,
     Color32,
     Frame,
-    FontId,
-    Stroke
 };
 
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::assets::fonts::roboto_regular;
 use crate::core::utils::RT;
 use crate::gui::ui::{ button, img_button, currency_balance, rich_text };
-use crate::gui::{SHARED_GUI, ui::dapps::uniswap::swap::InOrOut};
+use crate::gui::{ SHARED_GUI, ui::dapps::uniswap::swap::InOrOut };
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::fetch};
+use crate::core::{ ZeusCtx, utils::fetch };
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::defi::currency::Currency;
 
@@ -42,7 +39,6 @@ pub struct TokenSelectionWindow {
 
     /// Currency direction, this only applies if we try to select a token from a SwapUi
     pub currency_direction: InOrOut,
-
 }
 
 impl TokenSelectionWindow {
@@ -63,6 +59,7 @@ impl TokenSelectionWindow {
         &self.currency_direction
     }
 
+    /// Get the selected currency if any
     pub fn get_currency(&self) -> Option<&Currency> {
         self.selected_currency.as_ref()
     }
@@ -73,15 +70,19 @@ impl TokenSelectionWindow {
     }
 
     /// Show This [TokenSelectionWindow]
-    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, currencies: &Vec<Currency>, ui: &mut Ui) {
-        if !self.open {
-            return;
-        }
-
-        let chain_id = ctx.chain().id();
-        let owner = ctx.wallet().key.address();
-       
+    pub fn show(
+        &mut self,
+        ctx: ZeusCtx,
+        chain_id: u64,
+        owner: Address,
+        icons: Arc<Icons>,
+        currencies: &Vec<Currency>,
+        ui: &mut Ui
+    ) {
+        let mut open = self.open;
+        let mut close_window = false;
         Window::new(rich_text("Select Token").size(18.0))
+            .open(&mut open)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .resizable(false)
             .collapsible(false)
@@ -91,26 +92,13 @@ impl TokenSelectionWindow {
             .show(ui.ctx(), |ui| {
                 ui.set_min_size(vec2(200.0, 130.0));
 
-                ui.visuals_mut().extreme_bg_color = Color32::TRANSPARENT;
-                ui.visuals_mut().window_fill = Color32::from_rgba_premultiplied(20, 17, 15, 255);
-                ui.visuals_mut().widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-                ui.visuals_mut().widgets.hovered.weak_bg_fill = Color32::from_rgba_premultiplied(37, 35, 35, 140);
-                ui.visuals_mut().button_frame = true;
-
-
                 ui.vertical_centered(|ui| {
-                    let font = FontId::new(18.0, roboto_regular());
-                    ui.scope(|ui| {
-                    ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(255, 255, 255, 71));
-                    ui.add(
-                        TextEdit::singleline(&mut self.search_query)
-                            .hint_text(rich_text("Search tokens by symbol or address"))
-                            .min_size((200.0, 30.0).into()).text_color(Color32::WHITE)
-                            .font(font)
-                            .frame(true)
-                    );
-                    ui.add_space(15.0);
-                    });
+                        ui.add(
+                            TextEdit::singleline(&mut self.search_query)
+                                .hint_text(rich_text("Search tokens by symbol or address"))
+                                .min_size((200.0, 30.0).into())
+                        );
+                        ui.add_space(15.0);
                 });
 
                 ScrollArea::vertical()
@@ -126,28 +114,20 @@ impl TokenSelectionWindow {
                                             let symbol = format!("({})", native.symbol.clone());
 
                                             let icon = icons.currency_icon(chain_id);
-                                            let button = img_button(icon, name).sense(
-                                                Sense::click()
-                                            );
+                                            let button = img_button(icon, name).sense(Sense::click());
 
                                             ui.horizontal(|ui| {
-                                                ui.scope(|ui| {
-                                                ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::WHITE);
-                                            
+                                                egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
                                                 if ui.add(button).clicked() {
                                                     self.selected_currency = Some(currency.clone());
-                                                    self.open = false;
+                                                    close_window = true;
                                                 }
 
                                                 ui.label(rich_text(symbol));
-                                            });
-                                                ui.with_layout(
-                                                    Layout::right_to_left(Align::Min),
-                                                    |ui| {
-                                                        let balance = currency_balance(ctx.clone(), owner, currency);
-                                                        ui.label(rich_text(balance).size(15.0));
-                                                    }
-                                                );
+                                                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                                    let balance = currency_balance(ctx.clone(), owner, currency);
+                                                    ui.label(rich_text(balance).size(15.0));
+                                                });
                                             });
 
                                             ui.add_space(5.0);
@@ -163,28 +143,20 @@ impl TokenSelectionWindow {
                                             let symbol = format!("({})", token.symbol.clone());
 
                                             let icon = icons.token_icon(token.address, chain_id);
-                                            let button = img_button(icon, name).sense(
-                                                Sense::click()
-                                            );
+                                            let button = img_button(icon, name).sense(Sense::click());
 
                                             ui.horizontal(|ui| {
-                                                ui.scope(|ui| {
-                                                ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::new(1.0, Color32::WHITE);
-                                            
+                                                egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
                                                 if ui.add(button).clicked() {
                                                     self.selected_currency = Some(currency.clone());
-                                                    self.open = false;
+                                                    close_window = true;
                                                 }
 
-                                                    ui.label(rich_text(symbol));
-                                            });
-                                                ui.with_layout(
-                                                    Layout::right_to_left(Align::Min),
-                                                    |ui| {
-                                                        let balance = currency_balance(ctx.clone(), owner, currency);
-                                                        ui.label(rich_text(balance).size(15.0));
-                                                    }
-                                                );
+                                                ui.label(rich_text(symbol));
+                                                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                                    let balance = currency_balance(ctx.clone(), owner, currency);
+                                                    ui.label(rich_text(balance).size(15.0));
+                                                });
                                             });
 
                                             ui.add_space(5.0);
@@ -217,11 +189,15 @@ impl TokenSelectionWindow {
                                     });
 
                                     // close the token selection window
-                                    self.open = false;
+                                    close_window = true;
                                 }
                             });
                         }
                     });
             });
+        if close_window {
+            open = false;
+        }
+        self.open = open;
     }
 }

@@ -45,6 +45,10 @@ impl ZeusCtx {
         self.read(|ctx| ctx.get_client())
     }
 
+    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
+        self.read(|ctx| ctx.get_client_with_id(id))
+    }
+
     pub fn wallet(&self) -> Wallet {
         self.read(|ctx| ctx.wallet())
     }
@@ -65,8 +69,8 @@ impl ZeusCtx {
         self.read(|ctx| ctx.db.get_eth_balance(ctx.chain.id(), owner))
     }
 
-    pub fn get_currencies(&self) -> Arc<Vec<Currency>> {
-        self.read(|ctx| ctx.db.get_currencies(ctx.chain.id()))
+    pub fn get_currencies(&self, chain: u64) -> Arc<Vec<Currency>> {
+        self.read(|ctx| ctx.db.get_currencies(chain))
     }
 
     pub fn get_portfolio(&self, owner: Address) -> Arc<Portfolio> {
@@ -138,6 +142,12 @@ impl ZeusContext {
 
     pub fn get_client(&self) -> Result<HttpClient, anyhow::Error> {
         let rpc = self.providers.get(self.chain.id())?;
+        let client = get_http_client(&rpc.url)?;
+        Ok(client)
+    }
+
+    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
+        let rpc = self.providers.get(id)?;
         let client = get_http_client(&rpc.url)?;
         Ok(client)
     }

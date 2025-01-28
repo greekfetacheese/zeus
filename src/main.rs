@@ -7,7 +7,7 @@ pub mod core;
 pub mod assets;
 pub mod gui;
 
-use core::utils::tracing::*;
+use core::utils::trace::*;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {

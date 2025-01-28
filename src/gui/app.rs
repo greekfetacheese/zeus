@@ -1,28 +1,24 @@
-use std::time::Duration;
 use std::sync::Arc;
 use std::path::PathBuf;
 
 use egui::Frame;
 use egui_theme::{ Theme, ThemeKind };
 use crate::assets::{ icons::Icons, fonts::get_fonts };
+use crate::core::utils::{RT, sync_token_usd_prices};
+use crate::core::ZeusCtx;
 use crate::gui::{ GUI, SHARED_GUI };
 use eframe::{ egui::{ self }, CreationContext };
 use crate::gui::window::window_frame;
 
 pub struct ZeusApp {
     pub on_startup: bool,
+    pub ctx: ZeusCtx,
 }
 
 impl ZeusApp {
     pub fn new(cc: &CreationContext) -> Self {
         let ctx = cc.egui_ctx.clone();
-
         let ctx_clone = ctx.clone();
-        /* 
-        std::thread::spawn(move || {
-            request_repaint(ctx_clone);
-        });
-        */
 
         let path_exists = PathBuf::from("my-custom-theme.json").exists();
         let mut theme = if path_exists {
@@ -53,15 +49,21 @@ impl ZeusApp {
 
         Self {
             on_startup: true,
+            ctx: gui.ctx.clone(),
         }
     }
 
-    fn start_up(&mut self, ctx: &egui::Context) {
+    fn start_up(&mut self, ctx: &egui::Context, zeus_ctx: ZeusCtx) {
         if self.on_startup {
             let ctx = ctx.clone();
 
             let gui = SHARED_GUI.read().unwrap();
             ctx.set_style(gui.theme.style.clone());
+
+            RT.spawn(async move {
+                // Sync the token prices
+                sync_token_usd_prices(zeus_ctx).await.unwrap();
+            });
 
             self.on_startup = false;
         }
@@ -74,7 +76,7 @@ impl eframe::App for ZeusApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.start_up(ctx);
+        self.start_up(ctx, self.ctx.clone());
 
         let mut gui = SHARED_GUI.write().unwrap();
 

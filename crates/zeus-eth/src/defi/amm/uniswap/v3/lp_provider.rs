@@ -227,7 +227,7 @@ where
     let volume = args.pool.get_volume_from_logs(logs)?;
 
     let state =
-        UniswapV3Pool::fetch_state(args.pool.address, client.clone(), Some(fork_block.clone()))
+        UniswapV3Pool::fetch_state(client.clone(), args.pool.address, Some(fork_block.clone()))
             .await?;
     pool.update_state(state);
 
@@ -430,7 +430,7 @@ where
     let earned1 = format_units(amount1, args.pool.token1.decimals)?.parse::<f64>()?;
 
     // get the current usd price of token0 and token1
-    let state = UniswapV3Pool::fetch_state(args.pool.address, client.clone(), None).await?;
+    let state = UniswapV3Pool::fetch_state(client.clone(), args.pool.address, None).await?;
     pool.update_state(state);
 
     let (latest_token0_usd, latest_token1_usd) = pool.tokens_usd(client.clone(), None).await?;
@@ -559,7 +559,7 @@ where
         let task = tokio::spawn(async move {
             let _permit = semaphore.acquire_owned().await.unwrap();
             let block_id = BlockId::number(block);
-            let state = UniswapV3Pool::fetch_state(pool_address, client, Some(block_id)).await?;
+            let state = UniswapV3Pool::fetch_state(client, pool_address, Some(block_id)).await?;
 
             let mut pool = pool.lock().await;
             pool.update_state(state);

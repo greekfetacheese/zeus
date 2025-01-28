@@ -1,7 +1,7 @@
 pub mod fee_math;
 pub mod lp_provider;
 
-use alloy_primitives::{ Address, I256, U256, utils::format_units };
+use alloy_primitives::{ Address, I256, U256, utils::{parse_units, format_units} };
 use alloy_rpc_types::{ BlockId, Log };
 
 use alloy_contract::private::Network;
@@ -15,7 +15,7 @@ use std::str::FromStr;
 use uniswap_v3_math::tick_math::*;
 
 use crate::defi::amm::{ DexKind, consts::* };
-use crate::defi::utils::common_addr::*;
+use crate::defi::utils::{ common_addr::*, is_common_paired_token };
 use crate::defi::utils::chain_link::get_token_price;
 use crate::utils::{ logs::events::SwapData, batch_request };
 use crate::defi::currency::erc20::ERC20Token;
@@ -118,11 +118,7 @@ impl UniswapV3Pool {
         dex: DexKind
     ) -> Self {
         // reorder tokens
-        let (token0, token1) = if token0.address < token1.address {
-            (token0, token1)
-        } else {
-            (token1, token0)
-        };
+        let (token0, token1) = if token0.address < token1.address { (token0, token1) } else { (token1, token0) };
 
         Self {
             chain_id,
@@ -175,12 +171,7 @@ impl UniswapV3Pool {
 
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
-    pub async fn fetch_state<T, P, N>(
-        pool: Address,
-        client: P,
-        block: Option<BlockId>
-    )
-        -> Result<State, anyhow::Error>
+    pub async fn fetch_state<T, P, N>(client: P, pool: Address, block: Option<BlockId>) -> Result<State, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let pool_data = batch_request::get_v3_pool_data(client.clone(), block, vec![pool]).await?;
@@ -211,10 +202,7 @@ impl UniswapV3Pool {
         let mut ticks_map = HashMap::new();
         ticks_map.insert(tick, ticks_info);
 
-        let tick_spacing: i32 = data.tickSpacing
-            .to_string()
-            .parse()
-            .context("Failed to parse tick spacing")?;
+        let tick_spacing: i32 = data.tickSpacing.to_string().parse().context("Failed to parse tick spacing")?;
 
         Ok(State {
             liquidity: data.liquidity,
@@ -237,11 +225,7 @@ impl UniswapV3Pool {
         let zero_for_one = token_in == self.token0.address;
 
         // Set sqrt_price_limit_x_96 to the max or min sqrt price in the pool depending on zero_for_one
-        let sqrt_price_limit_x_96 = if zero_for_one {
-            MIN_SQRT_RATIO + U256_1
-        } else {
-            MAX_SQRT_RATIO - U256_1
-        };
+        let sqrt_price_limit_x_96 = if zero_for_one { MIN_SQRT_RATIO + U256_1 } else { MAX_SQRT_RATIO - U256_1 };
 
         // Initialize a mutable state state struct to hold the dynamic simulated state of the pool
         let mut current_state = CurrentState {
@@ -264,22 +248,19 @@ impl UniswapV3Pool {
             };
 
             // Get the next tick from the current tick
-            (step.tick_next, step.initialized) =
-                uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
-                    &state.tick_bitmap,
-                    current_state.tick,
-                    state.tick_spacing,
-                    zero_for_one
-                )?;
+            (step.tick_next, step.initialized) = uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
+                &state.tick_bitmap,
+                current_state.tick,
+                state.tick_spacing,
+                zero_for_one
+            )?;
 
             // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
             // Note: this could be removed as we are clamping in the batch contract
             step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
 
             // Get the next sqrt price from the input amount
-            step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(
-                step.tick_next
-            )?;
+            step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(step.tick_next)?;
 
             // Target spot price
             let swap_target_sqrt_ratio = if zero_for_one {
@@ -305,10 +286,9 @@ impl UniswapV3Pool {
                 )?;
 
             // Decrement the amount remaining to be swapped and amount received from the step
-            current_state.amount_specified_remaining =
-                current_state.amount_specified_remaining.overflowing_sub(
-                    I256::from_raw(step.amount_in.overflowing_add(step.fee_amount).0)
-                ).0;
+            current_state.amount_specified_remaining = current_state.amount_specified_remaining.overflowing_sub(
+                I256::from_raw(step.amount_in.overflowing_add(step.fee_amount).0)
+            ).0;
 
             current_state.amount_calculated -= I256::from_raw(step.amount_out);
 
@@ -337,17 +317,11 @@ impl UniswapV3Pool {
                     };
                 }
                 // Increment the current tick
-                current_state.tick = if zero_for_one {
-                    step.tick_next.wrapping_sub(1)
-                } else {
-                    step.tick_next
-                };
+                current_state.tick = if zero_for_one { step.tick_next.wrapping_sub(1) } else { step.tick_next };
                 // If the current_state sqrt price is not equal to the step sqrt price, then we are not on the same tick.
                 // Update the current_state.tick to the tick at the current_state.sqrt_price_x_96
             } else if current_state.sqrt_price_x_96 != step.sqrt_price_start_x_96 {
-                current_state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(
-                    current_state.sqrt_price_x_96
-                )?;
+                current_state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(current_state.sqrt_price_x_96)?;
             }
         }
 
@@ -356,11 +330,7 @@ impl UniswapV3Pool {
         Ok(amount_out)
     }
 
-    pub fn simulate_swap_mut(
-        &mut self,
-        token_in: Address,
-        amount_in: U256
-    ) -> Result<U256, anyhow::Error> {
+    pub fn simulate_swap_mut(&mut self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
         let mut state = self.state.clone().ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
         if amount_in.is_zero() {
@@ -370,11 +340,7 @@ impl UniswapV3Pool {
         let zero_for_one = token_in == self.token0.address;
 
         // Set sqrt_price_limit_x_96 to the max or min sqrt price in the pool depending on zero_for_one
-        let sqrt_price_limit_x_96 = if zero_for_one {
-            MIN_SQRT_RATIO + U256_1
-        } else {
-            MAX_SQRT_RATIO - U256_1
-        };
+        let sqrt_price_limit_x_96 = if zero_for_one { MIN_SQRT_RATIO + U256_1 } else { MAX_SQRT_RATIO - U256_1 };
 
         // Initialize a mutable state state struct to hold the dynamic simulated state of the pool
         let mut current_state = CurrentState {
@@ -397,22 +363,19 @@ impl UniswapV3Pool {
             };
 
             // Get the next tick from the current tick
-            (step.tick_next, step.initialized) =
-                uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
-                    &state.tick_bitmap,
-                    current_state.tick,
-                    state.tick_spacing,
-                    zero_for_one
-                )?;
+            (step.tick_next, step.initialized) = uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
+                &state.tick_bitmap,
+                current_state.tick,
+                state.tick_spacing,
+                zero_for_one
+            )?;
 
             // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
             // Note: this could be removed as we are clamping in the batch contract
             step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
 
             // Get the next sqrt price from the input amount
-            step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(
-                step.tick_next
-            )?;
+            step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(step.tick_next)?;
 
             // Target spot price
             let swap_target_sqrt_ratio = if zero_for_one {
@@ -438,10 +401,9 @@ impl UniswapV3Pool {
                 )?;
 
             // Decrement the amount remaining to be swapped and amount received from the step
-            current_state.amount_specified_remaining =
-                current_state.amount_specified_remaining.overflowing_sub(
-                    I256::from_raw(step.amount_in.overflowing_add(step.fee_amount).0)
-                ).0;
+            current_state.amount_specified_remaining = current_state.amount_specified_remaining.overflowing_sub(
+                I256::from_raw(step.amount_in.overflowing_add(step.fee_amount).0)
+            ).0;
 
             current_state.amount_calculated -= I256::from_raw(step.amount_out);
 
@@ -470,17 +432,11 @@ impl UniswapV3Pool {
                     };
                 }
                 // Increment the current tick
-                current_state.tick = if zero_for_one {
-                    step.tick_next.wrapping_sub(1)
-                } else {
-                    step.tick_next
-                };
+                current_state.tick = if zero_for_one { step.tick_next.wrapping_sub(1) } else { step.tick_next };
                 // If the current_state sqrt price is not equal to the step sqrt price, then we are not on the same tick.
                 // Update the current_state.tick to the tick at the current_state.sqrt_price_x_96
             } else if current_state.sqrt_price_x_96 != step.sqrt_price_start_x_96 {
-                current_state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(
-                    current_state.sqrt_price_x_96
-                )?;
+                current_state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(current_state.sqrt_price_x_96)?;
             }
         }
 
@@ -518,43 +474,41 @@ impl UniswapV3Pool {
 
     /// Get the usd values of token0 and token1 at a given block
     /// If block is None, the latest block is used
-    pub async fn tokens_usd<T, P, N>(
-        &self,
-        client: P,
-        block: Option<BlockId>
-    )
-        -> Result<(f64, f64), anyhow::Error>
+    pub async fn tokens_usd<T, P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
-        // find a known token that we can get its usd value
-        let mut token0_usd = get_token_price(
-            client.clone(),
-            block.clone(),
-            self.chain_id,
-            self.token0.address
-        ).await?;
-        let mut token1_usd = get_token_price(
-            client,
-            block,
-            self.chain_id,
-            self.token1.address
-        ).await?;
+        // token0 is known
+        if is_common_paired_token(&self.token0) {
+            let price0 = get_token_price(client.clone(), block, self.chain_id, self.token0.address).await?;
 
-        // case 1 token0 is unknown
-        if token0_usd == 0.0 && token1_usd != 0.0 {
-            let p_in_token1 = self.calculate_price(self.token0.address)?;
-            let p_in_usd = p_in_token1 * token1_usd;
-            token0_usd = p_in_usd;
+            // 1 unit of token0
+            let unit = parse_units("1", self.token0.decimals)?.get_absolute();
+
+            // amount of token1 received for 1 unit of token0
+            let amount_out = self.simulate_swap(self.token0.address, unit)?;
+            let amount_out = format_units(amount_out, self.token1.decimals)?;
+
+            // price of token1 in usd
+            let price1 = price0 / amount_out.parse::<f64>()?;
+
+            Ok((price0, price1))
+        } else if is_common_paired_token(&self.token1) {
+            let price1 = get_token_price(client.clone(), block, self.chain_id, self.token1.address).await?;
+
+            // 1 unit of token1
+            let unit = parse_units("1", self.token1.decimals)?.get_absolute();
+
+            // amount of token0 received for 1 unit of token1
+            let amount_out = self.simulate_swap(self.token1.address, unit)?;
+            let amount_out = format_units(amount_out, self.token0.decimals)?;
+
+            // price of token0 in usd
+            let price0 = price1 / amount_out.parse::<f64>()?;
+
+            Ok((price0, price1))
+        } else {
+            anyhow::bail!("Could not determine a common paired token");
         }
-
-        // case 2 token1 is unknown
-        if token1_usd == 0.0 && token0_usd != 0.0 {
-            let p_in_token0 = self.calculate_price(self.token1.address)?;
-            let p_in_usd = p_in_token0 * token0_usd;
-            token1_usd = p_in_usd;
-        }
-
-        Ok((token0_usd, token1_usd))
     }
 
     /// Does pair support getting values in usd
@@ -663,7 +617,7 @@ impl UniswapV3Pool {
 
 #[cfg(test)]
 mod tests {
-    use crate::prelude::{ ERC20Token, usdc, weth };
+    use crate::prelude::{ ERC20Token, weth };
     use alloy_primitives::{ address, utils::{ parse_units, format_units } };
     use alloy_provider::{ ProviderBuilder, WsConnect };
     use super::*;
@@ -675,48 +629,38 @@ mod tests {
         let client = ProviderBuilder::new().on_ws(ws_connect).await.unwrap();
 
         let weth = ERC20Token::new(client.clone(), weth(1).unwrap(), 1).await.unwrap();
-        let usdc = ERC20Token::new(client.clone(), usdc(1).unwrap(), 1).await.unwrap();
+        let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+        let uni = ERC20Token::new(client.clone(), uni_addr, 1).await.unwrap();
 
-        let pool_address = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
-        let mut pool = UniswapV3Pool::new(
-            1,
-            pool_address,
-            500,
-            weth.clone(),
-            usdc.clone(),
-            DexKind::Uniswap
-        );
+        let pool_address = address!("1d42064Fc4Beb5F8aAF85F4617AE8b3b5B8Bd801");
+        let mut pool = UniswapV3Pool::new(1, pool_address, 3000, weth.clone(), uni.clone(), DexKind::Uniswap);
 
-        let pool_state = UniswapV3Pool::fetch_state(
-            pool_address,
-            client.clone(),
-            None
-        ).await.unwrap();
+        let pool_state = UniswapV3Pool::fetch_state(client.clone(), pool_address, None).await.unwrap();
         pool.update_state(pool_state);
 
         let amount_in = parse_units("1", weth.decimals).unwrap().get_absolute();
         let amount_out = pool.simulate_swap(weth.address, amount_in).unwrap();
 
-        let amount_out = format_units(amount_out, usdc.decimals).unwrap();
+        let amount_out = format_units(amount_out, uni.decimals).unwrap();
         let amount_in = format_units(amount_in, weth.decimals).unwrap();
 
         println!("=== V3 Swap Test ===");
-        println!("Swapped {} {} For {} {}", amount_in, weth.symbol, amount_out, usdc.symbol);
+        println!("Swapped {} {} For {} {}", amount_in, weth.symbol, amount_out, uni.symbol);
         println!("=== Tokens Price Test ===");
 
         let (token0_usd, token1_usd) = pool.tokens_usd(client.clone(), None).await.unwrap();
         println!("{} Price: ${}", pool.token0.symbol, token0_usd);
         println!("{} Price: ${}", pool.token1.symbol, token1_usd);
 
-        assert_eq!(pool.token0.address, usdc.address);
+        assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);
 
         pool.toggle();
         assert_eq!(pool.token0.address, weth.address);
-        assert_eq!(pool.token1.address, usdc.address);
+        assert_eq!(pool.token1.address, uni.address);
 
         pool.reorder();
-        assert_eq!(pool.token0.address, usdc.address);
+        assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);
     }
 }

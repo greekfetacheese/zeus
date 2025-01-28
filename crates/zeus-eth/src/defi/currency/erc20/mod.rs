@@ -7,6 +7,8 @@ use alloy_transport::Transport;
 
 use crate::abi::erc20::ERC20;
 use crate::utils::batch_request;
+use crate::defi::utils::common_addr;
+use crate::{ BSC, BASE, ARBITRUM, OPTIMISM };
 use serde::{ Deserialize, Serialize };
 use std::str::FromStr;
 
@@ -26,12 +28,7 @@ pub struct ERC20Token {
 
 impl ERC20Token {
     /// Create a new ERC20Token by retrieving the token information from the blockchain
-    pub async fn new<T, P, N>(
-        client: P,
-        address: Address,
-        chain_id: u64
-    )
-        -> Result<Self, anyhow::Error>
+    pub async fn new<T, P, N>(client: P, address: Address, chain_id: u64) -> Result<Self, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let erc20 = batch_request::get_erc20_info(client, address, chain_id).await?;
@@ -61,13 +58,7 @@ impl ERC20Token {
         Ok(b.balance)
     }
 
-    pub async fn allowance<T, P, N>(
-        &self,
-        owner: Address,
-        spender: Address,
-        client: P
-    )
-        -> Result<U256, anyhow::Error>
+    pub async fn allowance<T, P, N>(&self, owner: Address, spender: Address, client: P) -> Result<U256, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let contract = ERC20::new(self.address, client);
@@ -159,10 +150,44 @@ impl ERC20Token {
         Ok(t)
     }
 
+    /// Default weth instance (ETH)
     pub fn weth() -> ERC20Token {
         ERC20Token::default()
     }
 
+    /// WETH (BSC)
+    pub fn weth_bsc() -> ERC20Token {
+        let mut weth = ERC20Token::default();
+        weth.address = common_addr::weth(BSC).unwrap();
+        weth.chain_id = BSC;
+        weth
+    }
+
+    /// WETH (Optimism)
+    pub fn weth_op() -> ERC20Token {
+        let mut weth = ERC20Token::default();
+        weth.address = common_addr::weth(OPTIMISM).unwrap();
+        weth.chain_id = OPTIMISM;
+        weth
+    }
+
+    /// WETH (BASE)
+    pub fn weth_base() -> ERC20Token {
+        let mut weth = ERC20Token::default();
+        weth.address = common_addr::weth(BASE).unwrap();
+        weth.chain_id = BASE;
+        weth
+    }
+
+    /// WETH (Arbitrum)
+    pub fn weth_arbitrum() -> ERC20Token {
+        let mut weth = ERC20Token::default();
+        weth.address = common_addr::weth(ARBITRUM).unwrap();
+        weth.chain_id = ARBITRUM;
+        weth
+    }
+
+    /// Default USDC instance (ETH)
     pub fn usdc() -> ERC20Token {
         ERC20Token {
             chain_id: 1,
@@ -170,6 +195,133 @@ impl ERC20Token {
             address: Address::from_str("0xA0b86991c6218b36c1d19d4a2e9eb0ce3606eb48").unwrap(),
             decimals: 6,
             symbol: "USDC".to_string(),
+            total_supply: U256::ZERO,
+            icon: None,
+        }
+    }
+
+    /// USDC (Optimism)
+    pub fn usdc_op() -> ERC20Token {
+        let mut usdc = ERC20Token::usdc();
+        usdc.address = common_addr::usdc(OPTIMISM).unwrap();
+        usdc.chain_id = OPTIMISM;
+        usdc
+    }
+
+    /// USDC (BSC)
+    pub fn usdc_bsc() -> ERC20Token {
+        let mut usdc = ERC20Token::usdc();
+        usdc.address = common_addr::usdc(BSC).unwrap();
+        usdc.chain_id = BSC;
+        usdc
+    }
+
+    /// USDC (BASE)
+    pub fn usdc_base() -> ERC20Token {
+        let mut usdc = ERC20Token::usdc();
+        usdc.address = common_addr::usdc(BASE).unwrap();
+        usdc.chain_id = BASE;
+        usdc
+    }
+
+    /// USDC (Arbitrum)
+    pub fn usdc_arbitrum() -> ERC20Token {
+        let mut usdc = ERC20Token::usdc();
+        usdc.address = common_addr::usdc(ARBITRUM).unwrap();
+        usdc.chain_id = ARBITRUM;
+        usdc
+    }
+
+    /// Default USDT instance (ETH)
+    pub fn usdt() -> ERC20Token {
+        ERC20Token {
+            chain_id: 1,
+            name: "Tether USD".to_string(),
+            address: Address::from_str("0xdAC17F958D2ee523a2206206994597C13D831ec7").unwrap(),
+            decimals: 6,
+            symbol: "USDT".to_string(),
+            total_supply: U256::ZERO,
+            icon: None,
+        }
+    }
+
+    /// USDT (Optimism)
+    pub fn usdt_op() -> ERC20Token {
+        let mut usdt = ERC20Token::usdt();
+        usdt.address = common_addr::usdt(OPTIMISM).unwrap();
+        usdt.chain_id = OPTIMISM;
+        usdt
+    }
+
+    /// USDT (BSC)
+    pub fn usdt_bsc() -> ERC20Token {
+        let mut usdt = ERC20Token::usdt();
+        usdt.address = common_addr::usdt(BSC).unwrap();
+        usdt.chain_id = BSC;
+        usdt
+    }
+
+    /// USDT (Arbitrum)
+    pub fn usdt_arbitrum() -> ERC20Token {
+        let mut usdt = ERC20Token::usdt();
+        usdt.address = common_addr::usdt(ARBITRUM).unwrap();
+        usdt.chain_id = ARBITRUM;
+        usdt
+    }
+
+    /// Default DAI instance (ETH)
+    pub fn dai() -> ERC20Token {
+        ERC20Token {
+            chain_id: 1,
+            name: "Dai Stablecoin".to_string(),
+            address: Address::from_str("0x6B175474E89094C44Da98b954EedeAC495271d0F").unwrap(),
+            decimals: 18,
+            symbol: "DAI".to_string(),
+            total_supply: U256::ZERO,
+            icon: None,
+        }
+    }
+
+    /// DAI (Optimism)
+    pub fn dai_op() -> ERC20Token {
+        let mut dai = ERC20Token::dai();
+        dai.address = common_addr::dai(OPTIMISM).unwrap();
+        dai.chain_id = OPTIMISM;
+        dai
+    }
+
+    /// DAI (BSC)
+    pub fn dai_bsc() -> ERC20Token {
+        let mut dai = ERC20Token::dai();
+        dai.address = common_addr::dai(BSC).unwrap();
+        dai.chain_id = BSC;
+        dai
+    }
+
+    /// DAI (BASE)
+    pub fn dai_base() -> ERC20Token {
+        let mut dai = ERC20Token::dai();
+        dai.address = common_addr::dai(BASE).unwrap();
+        dai.chain_id = BASE;
+        dai
+    }
+
+    /// DAI (Arbitrum)
+    pub fn dai_arbitrum() -> ERC20Token {
+        let mut dai = ERC20Token::dai();
+        dai.address = common_addr::dai(ARBITRUM).unwrap();
+        dai.chain_id = ARBITRUM;
+        dai
+    }
+
+    /// Default WBNB instance (BSC)
+    pub fn wbnb() -> ERC20Token {
+        ERC20Token {
+            chain_id: 56,
+            name: "Wrapped BNB".to_string(),
+            address: Address::from_str("0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c").unwrap(),
+            decimals: 18,
+            symbol: "WBNB".to_string(),
             total_supply: U256::ZERO,
             icon: None,
         }
