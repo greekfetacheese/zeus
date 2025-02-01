@@ -1,6 +1,6 @@
 use std::any;
 
-use alloy_primitives::utils::{format_units, parse_units};
+use alloy_primitives::utils::{ format_units, parse_units };
 use alloy_primitives::{ Address, U256 };
 use alloy_rpc_types::BlockId;
 
@@ -15,7 +15,7 @@ use crate::defi::currency::erc20::ERC20Token;
 use crate::defi::utils::chain_link::get_token_price;
 
 use crate::defi::amm::{ DexKind, consts::* };
-use crate::defi::utils::{common_addr::*, is_common_paired_token};
+use crate::defi::utils::is_base_token;
 
 /// Represents a Uniswap V2 Pool
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,16 +25,24 @@ pub struct UniswapV2Pool {
     pub token0: ERC20Token,
     pub token1: ERC20Token,
     pub dex: DexKind,
-    #[serde(skip)]
-    state: Option<State>,
+    pub state: Option<V2State>,
 }
 
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct State {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct V2State {
     pub reserve0: U256,
     pub reserve1: U256,
     pub block: u64,
+}
+
+impl V2State {
+    pub fn new(reserve0: U256, reserve1: U256, block: u64) -> Self {
+        Self {
+            reserve0,
+            reserve1,
+            block,
+        }
+    }
 }
 
 impl UniswapV2Pool {
@@ -52,6 +60,7 @@ impl UniswapV2Pool {
         }
     }
 
+    /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
     pub async fn from<T, P, N>(
         client: P,
         chain_id: u64,
@@ -62,12 +71,7 @@ impl UniswapV2Pool {
         -> Result<Self, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
-        let factory = if dex.is_uniswap() {
-            uniswap_v2_factory(chain_id)?
-        } else {
-            pancakeswap_v2_factory(chain_id)?
-        };
-        
+        let factory = dex.factory(chain_id)?;
         let address = factory::v2::get_pair(client, factory, token0.address, token1.address).await?;
         if address.is_zero() {
             anyhow::bail!("Pair not found");
@@ -75,12 +79,14 @@ impl UniswapV2Pool {
         Ok(Self::new(chain_id, address, token0, token1, dex))
     }
 
-    pub fn is_uniswap(&self) -> bool {
-        self.dex == DexKind::Uniswap
+    /// Serialize the pool to a json string
+    pub fn to_string(&self) -> Result<String, anyhow::Error> {
+        Ok(serde_json::to_string(self)?)
     }
 
-    pub fn is_pancakeswap(&self) -> bool {
-        self.dex == DexKind::PancakeSwap
+    /// Deserialize the pool from a json string
+    pub fn from_string(data: &str) -> Result<Self, anyhow::Error> {
+        Ok(serde_json::from_str(data)?)
     }
 
     /// Switch the tokens in the pool
@@ -96,12 +102,12 @@ impl UniswapV2Pool {
     }
 
     /// Return a reference to the state of this pool
-    pub fn state(&self) -> Option<&State> {
+    pub fn state(&self) -> Option<&V2State> {
         self.state.as_ref()
     }
 
     /// Update the state for this pool
-    pub fn update_state(&mut self, state: State) {
+    pub fn update_state(&mut self, state: V2State) {
         self.state = Some(state);
     }
 
@@ -115,14 +121,19 @@ impl UniswapV2Pool {
 
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
-    pub async fn fetch_state<T, P, N>(client: P, pool: Address, block: Option<BlockId>) -> Result<State, anyhow::Error>
+    pub async fn fetch_state<T, P, N>(
+        client: P,
+        pool: Address,
+        block: Option<BlockId>
+    )
+        -> Result<V2State, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let reserves = v2::get_reserves(pool, client, block).await?;
         let reserve0 = U256::from(reserves.0);
         let reserve1 = U256::from(reserves.1);
 
-        Ok(State {
+        Ok(V2State {
             reserve0,
             reserve1,
             block: reserves.2 as u64,
@@ -200,13 +211,29 @@ impl UniswapV2Pool {
         }
     }
 
+    /// Token0 USD price but we need to know the usd price of token1
+    pub fn token0_price(&self, token1_price: f64) -> Result<f64, anyhow::Error> {
+        let unit = parse_units("1", self.token1.decimals)?.get_absolute();
+        let amount_out = self.simulate_swap(self.token1.address, unit)?;
+        let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
+        Ok(token1_price / amount_out)
+    }
+
+    /// Token1 USD price but we need to know the usd price of token0
+    pub fn token1_price(&self, token0_price: f64) -> Result<f64, anyhow::Error> {
+        let unit = parse_units("1", self.token0.decimals)?.get_absolute();
+        let amount_out = self.simulate_swap(self.token0.address, unit)?;
+        let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
+        Ok(token0_price / amount_out)
+    }
+
     /// Get the usd value of token0 and token1 at a given block
     /// If block is None, the latest block is used
     pub async fn tokens_usd<T, P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         // token0 is known
-        if is_common_paired_token(&self.token0) {
+        if is_base_token(&self.token0) {
             let price0 = get_token_price(client.clone(), block, self.chain_id, self.token0.address).await?;
 
             // 1 unit of token0
@@ -220,7 +247,7 @@ impl UniswapV2Pool {
             let price1 = price0 / amount_out.parse::<f64>()?;
 
             Ok((price0, price1))
-        } else if is_common_paired_token(&self.token1) {
+        } else if is_base_token(&self.token1) {
             let price1 = get_token_price(client.clone(), block, self.chain_id, self.token1.address).await?;
 
             // 1 unit of token1
@@ -237,33 +264,6 @@ impl UniswapV2Pool {
         } else {
             anyhow::bail!("Could not determine a common paired token");
         }
-    }
-
-    /// Does pair support getting values in usd
-    ///
-    /// We check if at least one of the tokens is a stable coin or WETH
-    pub fn supports_usd(&self) -> Result<bool, anyhow::Error> {
-        let b =
-            self.token0.address == weth(self.chain_id)? ||
-            self.token1.address == weth(self.chain_id)? ||
-            self.token0.address == usdc(self.chain_id)? ||
-            self.token1.address == usdc(self.chain_id)? ||
-            self.token0.address == usdt(self.chain_id)? ||
-            self.token1.address == usdt(self.chain_id)? ||
-            self.token0.address == dai(self.chain_id)? ||
-            self.token1.address == dai(self.chain_id)?;
-
-        Ok(b)
-    }
-
-    /// Return the factory address for this pool
-    pub fn factory(&self) -> Result<Address, anyhow::Error> {
-        let address = match self.dex {
-            DexKind::Uniswap => uniswap_v2_factory(self.chain_id)?,
-            DexKind::PancakeSwap => pancakeswap_v2_factory(self.chain_id)?,
-        };
-
-        Ok(address)
     }
 }
 
@@ -366,7 +366,7 @@ mod tests {
         let uni = ERC20Token::new(client.clone(), uni_addr, 1).await.unwrap();
 
         let pool_address = address!("d3d2E2692501A5c9Ca623199D38826e513033a17");
-        let mut pool = UniswapV2Pool::new(1, pool_address, weth.clone(), uni.clone(), DexKind::Uniswap);
+        let mut pool = UniswapV2Pool::new(1, pool_address, weth.clone(), uni.clone(), DexKind::UniswapV2);
 
         let state = UniswapV2Pool::fetch_state(client.clone(), pool_address, None).await.unwrap();
         pool.update_state(state);
@@ -385,6 +385,9 @@ mod tests {
         println!("{} Price: ${}", pool.token0.symbol, token0_usd);
         println!("{} Price: ${}", pool.token1.symbol, token1_usd);
 
+        let token0_price = pool.token0_price(token1_usd).unwrap();
+        println!("{} Price: ${}", pool.token0.symbol, token0_price);
+
         assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);
 
@@ -395,5 +398,8 @@ mod tests {
         pool.reorder();
         assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);
+
+        let pool_str = pool.to_string().expect("Failed to serialize pool");
+        let _pool = UniswapV2Pool::from_string(&pool_str).expect("Failed to deserialize pool");
     }
 }

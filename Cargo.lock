@@ -7952,6 +7952,7 @@ dependencies = [
  "egui",
  "egui-theme",
  "egui_extras",
+ "futures",
  "image",
  "lazy_static",
  "ncrypt",

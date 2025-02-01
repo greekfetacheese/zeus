@@ -84,8 +84,19 @@ impl ChainId {
             ChainId::Optimism(_) => 2000,
             ChainId::BinanceSmartChain(_) => 3000,
             ChainId::Base(_) => 2000,
-            // Arbitrum doesnt have a fixed block time but on average its 250ms (based on arbscan)
+            // Arbitrum doesnt have a fixed block time but lets assume on average its 250ms (based on arbscan)
             ChainId::Arbitrum(_) => 250,
+        }
+    }
+
+    /// Block gas limit
+    pub fn block_gas_limit(&self) -> u64 {
+        match self {
+            ChainId::Ethereum(_) => 30_000_000,
+            ChainId::Optimism(_) => 60_000_000,
+            ChainId::BinanceSmartChain(_) => 140_000_000,
+            ChainId::Base(_) => 264_000_000,
+            ChainId::Arbitrum(_) => 32_000_000,
         }
     }
 

@@ -463,6 +463,7 @@ where
         BlockTime::Block(_) => {
             // TODO
         }
+        _ => panic!("Not implemented"),
     }
 
     let result = PositionResult {

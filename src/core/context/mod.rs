@@ -2,7 +2,7 @@ use std::sync::{ Arc, RwLock };
 use providers::{ RpcProviders, Rpc };
 use crate::core::{ Profile, Wallet, user::Portfolio, utils::{ HttpClient, get_http_client } };
 use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::prelude::{Currency, ChainId, UniswapV2Pool, UniswapV3Pool};
+use zeus_eth::prelude::{Currency, ERC20Token, ChainId, UniswapV2Pool, UniswapV3Pool, is_base_token};
 
 pub mod providers;
 pub mod db;
@@ -77,16 +77,39 @@ impl ZeusCtx {
         self.read(|ctx| ctx.db.get_portfolio(ctx.chain.id(), owner))
     }
 
-    pub fn get_token_price(&self, token: Address) -> f64 {
-        self.read(|ctx| ctx.db.get_price(ctx.chain.id(), token))
+    pub fn get_token_price(&self, token: &ERC20Token ) -> f64 {
+        if is_base_token(token) {
+            self.read(|ctx| ctx.db.price_watcher.get_base_token_price(token))
+        } else {
+            self.read(|ctx| ctx.db.price_watcher.get_token_price(token))
+        }
     }
 
-    pub fn get_v2_pool(&self, token_a: Address, token_b: Address) -> Option<UniswapV2Pool> {
-        self.read(|ctx| ctx.db.get_v2_pool(ctx.chain.id(), token_a, token_b))
+    pub fn get_v2_pool(&self, chain: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
+        self.read(|ctx| ctx.db.price_watcher.get_v2_pool(chain, token0, token1))
     }
 
-    pub fn get_v3_pool(&self, fee: u32, token_a: Address, token_b: Address) -> Option<UniswapV3Pool> {
-        self.read(|ctx| ctx.db.get_v3_pool(ctx.chain.id(), fee, token_a, token_b))
+    pub fn get_v3_pool(&self, chain: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
+        self.read(|ctx| ctx.db.price_watcher.get_v3_pool(chain, fee, token0, token1))
+    }
+
+    pub fn add_v2_pools(&self, pools: Vec<UniswapV2Pool>) {
+        self.write(|ctx| ctx.db.price_watcher.add_v2_pools(pools));
+    }
+
+    pub fn add_v3_pools(&self, pools: Vec<UniswapV3Pool>) {
+        self.write(|ctx| ctx.db.price_watcher.add_v3_pools(pools));
+    }
+
+    /// Get all possible v3 pools based on the given tokens and fee tiers
+    pub fn get_v3_pools(&self, chain: u64, fees: &[u32], token_a: Address, token_b: Address) -> Vec<UniswapV3Pool> {
+        let mut pools = Vec::new();
+        for fee in fees {
+            if let Some(pool) = self.get_v3_pool(chain, *fee, token_a, token_b) {
+                pools.push(pool);
+            }
+        }
+        pools
     }
 }
 

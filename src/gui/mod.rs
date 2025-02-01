@@ -52,6 +52,8 @@ pub struct GUI {
     pub profile_area: ui::panels::top_panel::ProfileAreaUi,
 
     pub settings: ui::SettingsUi,
+
+    pub data_inspection: bool,
 }
 
 impl GUI {
@@ -80,6 +82,7 @@ impl GUI {
             loading_window: ui::LoadingWindow::new(),
             profile_area: ui::panels::top_panel::ProfileAreaUi::new(),
             settings: ui::SettingsUi::new(),
+            data_inspection: false,
         }
     }
 

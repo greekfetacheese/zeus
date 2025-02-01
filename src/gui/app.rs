@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use egui::Frame;
 use egui_theme::{ Theme, ThemeKind };
 use crate::assets::{ icons::Icons, fonts::get_fonts };
-use crate::core::utils::{RT, sync_token_usd_prices};
+use crate::core::utils::{RT, sync_pools};
 use crate::core::ZeusCtx;
 use crate::gui::{ GUI, SHARED_GUI };
 use eframe::{ egui::{ self }, CreationContext };
@@ -60,10 +60,18 @@ impl ZeusApp {
             let gui = SHARED_GUI.read().unwrap();
             ctx.set_style(gui.theme.style.clone());
 
+            /* 
             RT.spawn(async move {
-                // Sync the token prices
-                sync_token_usd_prices(zeus_ctx).await.unwrap();
+                match sync_pools(zeus_ctx).await {
+                    Ok(_) => {
+                        tracing::info!("Synced all the pools");
+                    }
+                    Err(e) => {
+                        tracing::error!("Error syncing pools: {:?}", e);
+                    }
+                }
             });
+            */
 
             self.on_startup = false;
         }

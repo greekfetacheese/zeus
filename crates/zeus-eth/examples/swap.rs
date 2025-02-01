@@ -22,7 +22,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let usdc = ERC20Token::new(client.clone(), usdc(chain_id)?, chain_id).await?;
     let pool_address = address!("b4e16d0168e52d35cacd2c6185b44281ec28c9dc");
 
-    let mut pool = UniswapV2Pool::new(chain_id, pool_address, weth.clone(), usdc.clone(), DexKind::Uniswap);
+    let mut pool = UniswapV2Pool::new(chain_id, pool_address, weth.clone(), usdc.clone(), DexKind::UniswapV2);
 
     // populate the pool state based on the latest block
     let state = UniswapV2Pool::fetch_state(client.clone(), pool.address, None).await?;

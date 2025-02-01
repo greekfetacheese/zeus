@@ -1,21 +1,22 @@
 // ! Commonly used addresses
 
 use alloy_primitives::{address, Address};
+use crate::defi::currency::erc20::ERC20Token;
 use anyhow::anyhow;
 
-/// Return the address of the Native wrapped token on the given chain id.
-pub fn native_wrapped_token(chain_id: u64) -> Result<Address, anyhow::Error> {
+/// Return the Native wrapped token on the given chain id.
+pub fn native_wrapped_token(chain_id: u64) -> Result<ERC20Token, anyhow::Error> {
     match chain_id {
         // ETH Mainnet
-        1 => Ok(weth(chain_id)?),
+        1 => Ok(ERC20Token::weth()),
         // Optimism
-        10 => Ok(weth(chain_id)?),
+        10 => Ok(ERC20Token::weth_op()),
         // BSC Mainnet
-        56 => Ok(wbnb(chain_id)?),
+        56 => Ok(ERC20Token::wbnb()),
         // OP Base
-        8453 => Ok(weth(chain_id)?),
+        8453 => Ok(ERC20Token::weth_base()),
         // Arbitrum
-        42161 => Ok(weth(chain_id)?),
+        42161 => Ok(ERC20Token::weth_arbitrum()),
         _ => Err(anyhow!("Unsupported chain id: {}", chain_id)),
     }
 }

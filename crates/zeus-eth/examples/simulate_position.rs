@@ -20,7 +20,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let token0 = ERC20Token::new(client.clone(), wst_eth, chain_id).await?;
     let token1 = ERC20Token::new(client.clone(), weth, chain_id).await?;
 
-    let pool = UniswapV3Pool::new(chain_id, pool_address, 100, token0, token1, DexKind::Uniswap);
+    let pool = UniswapV3Pool::new(chain_id, pool_address, 100, token0, token1, DexKind::UniswapV3);
 
     let position = PositionArgs {
         lower_range: 1.1062672693587939,

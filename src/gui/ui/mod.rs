@@ -57,16 +57,16 @@ pub fn currency_price(ctx: ZeusCtx, currency: &Currency) -> String {
     let chain = ctx.chain().id();
 
     if currency.is_native() {
-        let address = if let Ok(address) = native_wrapped_token(chain) {
-            address
+        let wrapped_token = if let Ok(wrapped_token) = native_wrapped_token(chain) {
+            wrapped_token
         } else {
             error!("Failed to get native wrapped token address for chain id {}", chain);
             return "0.0".to_string();
         };
-        price = ctx.get_token_price(address);
+        price = ctx.get_token_price(&wrapped_token);
     } else {
         let currency = currency.erc20().unwrap();
-        price = ctx.get_token_price(currency.address);
+        price = ctx.get_token_price(&currency);
     }
 
     format!("{:.2}", price)

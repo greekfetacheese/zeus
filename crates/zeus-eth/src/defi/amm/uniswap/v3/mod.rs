@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use uniswap_v3_math::tick_math::*;
 
-use crate::defi::amm::{ DexKind, consts::* };
-use crate::defi::utils::{ common_addr::*, is_common_paired_token };
+use crate::{abi::uniswap::factory, defi::amm::{ consts::*, DexKind }, utils::batch_request::V3PoolData};
+use crate::defi::utils::is_base_token;
 use crate::defi::utils::chain_link::get_token_price;
 use crate::utils::{ logs::events::SwapData, batch_request };
 use crate::defi::currency::erc20::ERC20Token;
@@ -33,8 +33,7 @@ pub struct UniswapV3Pool {
     pub token0: ERC20Token,
     pub token1: ERC20Token,
     pub dex: DexKind,
-    #[serde(skip)]
-    state: Option<State>,
+    pub state: Option<V3State>,
 }
 
 /// Represents the volume of a pool that occured at some point
@@ -57,9 +56,9 @@ impl PoolVolume {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
-pub struct State {
+pub struct V3State {
     pub liquidity: u128,
     pub sqrt_price: U256,
     pub tick: i32,
@@ -67,6 +66,43 @@ pub struct State {
     pub tick_bitmap: HashMap<i16, U256>,
     pub ticks: HashMap<i32, TickInfo>,
     pub pool_tick: PoolTick,
+}
+
+impl V3State {
+    pub fn new(pool_data: V3PoolData) -> Result<Self, anyhow::Error> {
+        let mut tick_bitmap_map = HashMap::new();
+        tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
+
+        let ticks_info = TickInfo {
+            liquidity_gross: pool_data.liquidityGross,
+            liquidity_net: pool_data.liquidityNet,
+            initialized: pool_data.initialized,
+        };
+
+        let block = 0;
+        let tick: i32 = pool_data.tick.to_string().parse()?;
+
+        let pool_tick = PoolTick {
+            tick,
+            liquidity_net: pool_data.liquidityNet,
+            block,
+        };
+
+        let mut ticks_map = HashMap::new();
+        ticks_map.insert(tick, ticks_info);
+
+        let tick_spacing: i32 = pool_data.tickSpacing.to_string().parse()?;
+
+        Ok(Self {
+            liquidity: pool_data.liquidity,
+            sqrt_price: U256::from(pool_data.sqrtPrice),
+            tick,
+            tick_spacing,
+            tick_bitmap: tick_bitmap_map,
+            ticks: ticks_map,
+            pool_tick,
+        })
+    }
 }
 
 #[allow(dead_code)]
@@ -90,7 +126,7 @@ struct StepComputations {
     pub fee_amount: U256,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct TickInfo {
     liquidity_gross: u128,
@@ -98,7 +134,7 @@ pub struct TickInfo {
     initialized: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolTick {
     pub tick: i32,
     pub liquidity_net: i128,
@@ -131,12 +167,35 @@ impl UniswapV3Pool {
         }
     }
 
-    pub fn is_uniswap(&self) -> bool {
-        self.dex == DexKind::Uniswap
+    pub async fn from<T, P, N>(
+        client: P,
+        chain_id: u64,
+        fee: u32,
+        token0: ERC20Token,
+        token1: ERC20Token,
+        dex: DexKind
+    )
+        -> Result<Self, anyhow::Error>
+        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    {
+        
+        let factory = dex.factory(chain_id)?;
+        let address = factory::v3::get_pool(client, factory, token0.address, token1.address, fee).await?;
+        if address.is_zero() {
+            anyhow::bail!("Pair not found");
+        }
+        Ok(Self::new(chain_id, address, fee, token0, token1, dex))
+        
     }
 
-    pub fn is_pancakeswap(&self) -> bool {
-        self.dex == DexKind::PancakeSwap
+    /// Serialize the pool to a json string
+    pub fn to_string(&self) -> Result<String, anyhow::Error> {
+        Ok(serde_json::to_string(self)?)
+    }
+
+    /// Deserialize the pool from a json string
+    pub fn from_string(data: &str) -> Result<Self, anyhow::Error> {
+        Ok(serde_json::from_str(data)?)
     }
 
     /// Switch the tokens in the pool
@@ -152,12 +211,12 @@ impl UniswapV3Pool {
     }
 
     /// Return a reference to the state of this pool
-    pub fn state(&self) -> Option<&State> {
+    pub fn state(&self) -> Option<&V3State> {
         self.state.as_ref()
     }
 
     /// Update the state for this pool
-    pub fn update_state(&mut self, state: State) {
+    pub fn update_state(&mut self, state: V3State) {
         self.state = Some(state);
     }
 
@@ -171,10 +230,10 @@ impl UniswapV3Pool {
 
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
-    pub async fn fetch_state<T, P, N>(client: P, pool: Address, block: Option<BlockId>) -> Result<State, anyhow::Error>
+    pub async fn fetch_state<T, P, N>(client: P, pool: Address, block: Option<BlockId>) -> Result<V3State, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
-        let pool_data = batch_request::get_v3_pool_data(client.clone(), block, vec![pool]).await?;
+        let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool]).await?;
         let data = pool_data
             .get(0)
             .cloned()
@@ -204,7 +263,7 @@ impl UniswapV3Pool {
 
         let tick_spacing: i32 = data.tickSpacing.to_string().parse().context("Failed to parse tick spacing")?;
 
-        Ok(State {
+        Ok(V3State {
             liquidity: data.liquidity,
             sqrt_price: U256::from(data.sqrtPrice),
             tick,
@@ -472,13 +531,29 @@ impl UniswapV3Pool {
         }
     }
 
+    /// Token0 USD price but we need to know the usd price of token1
+    pub fn token0_price(&self, token1_price: f64) -> Result<f64, anyhow::Error> {
+        let unit = parse_units("1", self.token1.decimals)?.get_absolute();
+        let amount_out = self.simulate_swap(self.token1.address, unit)?;
+        let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
+        Ok(token1_price / amount_out)
+    }
+
+    /// Token1 USD price but we need to know the usd price of token0
+    pub fn token1_price(&self, token0_price: f64) -> Result<f64, anyhow::Error> {
+        let unit = parse_units("1", self.token0.decimals)?.get_absolute();
+        let amount_out = self.simulate_swap(self.token0.address, unit)?;
+        let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
+        Ok(token0_price / amount_out)
+    }
+
     /// Get the usd values of token0 and token1 at a given block
     /// If block is None, the latest block is used
     pub async fn tokens_usd<T, P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         // token0 is known
-        if is_common_paired_token(&self.token0) {
+        if is_base_token(&self.token0) {
             let price0 = get_token_price(client.clone(), block, self.chain_id, self.token0.address).await?;
 
             // 1 unit of token0
@@ -492,7 +567,7 @@ impl UniswapV3Pool {
             let price1 = price0 / amount_out.parse::<f64>()?;
 
             Ok((price0, price1))
-        } else if is_common_paired_token(&self.token1) {
+        } else if is_base_token(&self.token1) {
             let price1 = get_token_price(client.clone(), block, self.chain_id, self.token1.address).await?;
 
             // 1 unit of token1
@@ -509,33 +584,6 @@ impl UniswapV3Pool {
         } else {
             anyhow::bail!("Could not determine a common paired token");
         }
-    }
-
-    /// Does pair support getting values in usd
-    ///
-    /// We check if at least one of the tokens is a stable coin or WETH
-    pub fn supports_usd(&self) -> Result<bool, anyhow::Error> {
-        let b =
-            self.token0.address == weth(self.chain_id)? ||
-            self.token1.address == weth(self.chain_id)? ||
-            self.token0.address == usdc(self.chain_id)? ||
-            self.token1.address == usdc(self.chain_id)? ||
-            self.token0.address == usdt(self.chain_id)? ||
-            self.token1.address == usdt(self.chain_id)? ||
-            self.token0.address == dai(self.chain_id)? ||
-            self.token1.address == dai(self.chain_id)?;
-
-        Ok(b)
-    }
-
-    /// Return the factory address for this pool
-    pub fn factory(&self) -> Result<Address, anyhow::Error> {
-        let address = match self.dex {
-            DexKind::Uniswap => uniswap_v3_factory(self.chain_id)?,
-            DexKind::PancakeSwap => pancakeswap_v3_factory(self.chain_id)?,
-        };
-
-        Ok(address)
     }
 
     /// Get the volume of the pool
@@ -633,7 +681,7 @@ mod tests {
         let uni = ERC20Token::new(client.clone(), uni_addr, 1).await.unwrap();
 
         let pool_address = address!("1d42064Fc4Beb5F8aAF85F4617AE8b3b5B8Bd801");
-        let mut pool = UniswapV3Pool::new(1, pool_address, 3000, weth.clone(), uni.clone(), DexKind::Uniswap);
+        let mut pool = UniswapV3Pool::new(1, pool_address, 3000, weth.clone(), uni.clone(), DexKind::UniswapV3);
 
         let pool_state = UniswapV3Pool::fetch_state(client.clone(), pool_address, None).await.unwrap();
         pool.update_state(pool_state);
@@ -662,5 +710,8 @@ mod tests {
         pool.reorder();
         assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);
+
+        let pool_str = pool.to_string().expect("Failed to serialize pool");
+        let _pool = UniswapV3Pool::from_string(&pool_str).expect("Failed to deserialize pool");
     }
 }

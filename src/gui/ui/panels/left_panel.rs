@@ -1,7 +1,8 @@
-use eframe::egui::{Ui, Color32};
+use eframe::egui::{Ui, Window, Align2, Color32};
 
 use crate::gui::{GUI, ui::{rich_text, button}};
 use egui_theme::utils;
+use zeus_eth::ChainId;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
     ui.vertical_centered(|ui| {
@@ -57,6 +58,55 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
     if ui.add(button(rich_text("Theme Editor").size(20.0))).clicked() {
         gui.editor.open = true;
     }
+
+    if ui.add(button(rich_text("Data Insp").size(20.0))).clicked() {
+        gui.data_inspection = true;
+    }
+
+    show_data_insp(gui, ui);
     
 });
+}
+
+fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
+    let mut open = gui.data_inspection;
+
+    Window::new("Data Inspection")
+        .open(&mut open)
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .scroll([false, true])
+        .show(ui.ctx(), |ui| {
+            ui.set_width(400.0);
+            ui.set_height(400.0);
+            ui.vertical_centered(|ui| {
+                ui.spacing_mut().item_spacing.y = 10.0;
+
+                let ctx = gui.ctx.clone();
+                let v2_pools = ctx.read(|ctx| ctx.db.price_watcher.v2_pools()).into_values();
+                let v3_pools = ctx.read(|ctx| ctx.db.price_watcher.v3_pools()).into_values();
+
+                ui.label(rich_text("V2 Pools"));
+
+                for pool in v2_pools {
+                    let chain = ChainId::new(pool.chain_id).unwrap();
+                    ui.label(rich_text(format!("Pair: {}-{}", pool.token0.symbol, pool.token1.symbol)));
+                    ui.label(rich_text(format!("Pool Address: {}", pool.address.to_string())));
+                    ui.label(rich_text(format!("DEX: {}", pool.dex.to_str())));
+                    ui.label(rich_text(format!("Chain: {}", chain.name())));
+                }
+
+                ui.label(rich_text("V3 Pools"));
+                for pool in v3_pools {
+                    let chain = ChainId::new(pool.chain_id).unwrap();
+                    ui.label(rich_text(format!("Pair: {}-{}", pool.token0.symbol, pool.token1.symbol)));
+                    ui.label(rich_text(format!("Pool Address: {}", pool.address.to_string())));
+                    ui.label(rich_text(format!("DEX: {}", pool.dex.to_str())));
+                    ui.label(rich_text(format!("Chain: {}", chain.name())));
+                }
+
+                
+            });
+        });
+
+    gui.data_inspection = open;
 }

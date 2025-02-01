@@ -1,4 +1,4 @@
-use alloy_sol_types::{sol, SolValue};
+use alloy_sol_types::{ sol, SolValue };
 use alloy_primitives::Address;
 use alloy_rpc_types::BlockId;
 
@@ -34,8 +34,8 @@ sol! {
 
 sol! {
     #[sol(rpc)]
-    IGetUniswapV3PoolData,
-    "src/utils/batch_request/abi/GetUniswapV3PoolData.json",
+    IGetV3State,
+    "src/utils/batch_request/abi/GetV3State.json",
 }
 
 sol! {
@@ -69,15 +69,16 @@ sol! {
 sol! {
     #[derive(Debug)]
     struct V3Pool {
+        address addr;
+        address token0;
+        address token1;
         uint24 fee;
-        address pool;
     }
 }
 
-
 sol! {
     #[derive(Debug)]
-    struct PoolData {
+    struct V3PoolData {
         address pool;
         uint128 liquidity;
         uint160 sqrtPrice;
@@ -105,23 +106,22 @@ pub async fn get_erc20_balance<T, P, N>(
     let deployer = IGetErc20Balance::deploy_builder(client, tokens, owner).block(block);
     let res = deployer.call_raw().await?;
 
-    let data = <Vec<TokenBalance> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode token balances: {:?}", e))?;
+    let data = <Vec<TokenBalance> as SolValue>
+        ::abi_decode(&res, false)
+        .map_err(|e| anyhow!("Failed to decode token balances: {:?}", e))?;
     Ok(data)
 }
 
 /// Get the ERC20 token info
-pub async fn get_erc20_info<T, P, N>(
-    client: P,
-    token: Address,
-    chain_id: u64
-)
-    -> Result<ERC20Token, anyhow::Error>
+pub async fn get_erc20_info<T, P, N>(client: P, token: Address, chain_id: u64) -> Result<ERC20Token, anyhow::Error>
     where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
 {
     let deployer = IGetERC20::deploy_builder(client, token);
     let res = deployer.call_raw().await?;
 
-    let data = <ERC20Info as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+    let data = <ERC20Info as SolValue>
+        ::abi_decode(&res, false)
+        .map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
     Ok(ERC20Token {
         address: token,
@@ -130,17 +130,14 @@ pub async fn get_erc20_info<T, P, N>(
         name: data.name,
         decimals: data.decimals,
         total_supply: data.totalSupply,
-        icon: None
+        icon: None,
     })
 }
 
-
-
-
 /// Retrieve all V3 pools for tokenA and tokenB based on the fee tiers (if they exist)
-/// 
+///
 /// For any possible pool that does not exist the values will be 0
-/// 
+///
 /// If no pools exists it will still return a vector with zero values
 pub async fn get_v3_pools<T, P, N>(
     client: P,
@@ -154,12 +151,16 @@ pub async fn get_v3_pools<T, P, N>(
     let deployer = IGetV3Pools::deploy_builder(client, factory, token_a, token_b);
     let res = deployer.call_raw().await?;
 
-    let data = <Vec<V3Pool> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
-    
+    let data = <Vec<V3Pool> as SolValue>
+        ::abi_decode(&res, false)
+        .map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
+
     Ok(data)
 }
 
 /// Get the reserves for the given v2 pools, if block is None, then the latest block is used
+/// 
+/// To avoid the `CreateContractSizeLimit` EVM error, a safe limit of 100 pools should work for all chains
 pub async fn get_v2_pool_reserves<T, P, N>(
     client: P,
     block: Option<BlockId>,
@@ -172,26 +173,32 @@ pub async fn get_v2_pool_reserves<T, P, N>(
     let deployer = IGetV2PoolsReserves::deploy_builder(client, pools).block(block);
     let res = deployer.call_raw().await?;
 
-    let data = <Vec<V2PoolReserves> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V2 pool reserves: {:?}", e))?;
-    
+    let data = <Vec<V2PoolReserves> as SolValue>
+        ::abi_decode(&res, false)
+        .map_err(|e| anyhow!("Failed to decode V2 pool reserves: {:?}", e))?;
+
     Ok(data)
 }
 
-/// Retrieve the pool data for the given pools, if block is None, then the latest block is used
-pub async fn get_v3_pool_data<T, P, N>(
+/// Retrieve the state for the  given v3 pools, if block is None, then the latest block is used
+/// 
+/// To avoid the `CreateContractSizeLimit` EVM error, a safe limit of 60 pools should work for all chains
+pub async fn get_v3_state<T, P, N>(
     client: P,
     block: Option<BlockId>,
     pools: Vec<Address>
 )
-    -> Result<Vec<PoolData>, anyhow::Error>
+    -> Result<Vec<V3PoolData>, anyhow::Error>
     where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
 {
     let block = block.unwrap_or(BlockId::latest());
-    let deployer = IGetUniswapV3PoolData::deploy_builder(client, pools).block(block);
+    let deployer = IGetV3State::deploy_builder(client, pools).block(block);
     let res = deployer.call_raw().await?;
 
-    let data = <Vec<PoolData> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
-    
+    let data = <Vec<V3PoolData> as SolValue>
+        ::abi_decode(&res, false)
+        .map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
+
     Ok(data)
 }
 
@@ -199,6 +206,7 @@ pub async fn get_v3_pool_data<T, P, N>(
 mod tests {
     use crate::prelude::{ ERC20Token, usdc, weth };
     use alloy_primitives::address;
+    use alloy_transport_http::reqwest::Url;
     use alloy_provider::{ ProviderBuilder, WsConnect };
     use super::*;
     use alloy_signer_local::PrivateKeySigner;
@@ -260,7 +268,7 @@ mod tests {
 
         println!("=== V3 Pairs Test ===");
         for pair in pairs {
-            println!("Pair: {:?}, Fee: {}", pair.pool, pair.fee);
+            println!("Pair: {:?}, Fee: {}", pair.addr, pair.fee);
         }
     }
 
@@ -283,14 +291,83 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_v3_pool_data() {
-        let url = "wss://eth.merkle.io";
-        let ws_connect = WsConnect::new(url);
-        let client = ProviderBuilder::new().on_ws(ws_connect).await.unwrap();
+    async fn test_v2_reserves_limit() {
+        // ETH
+        let url = Url::parse("https://eth.merkle.io").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        // UNI-WETH
+        let pool = address!("0d4a11d5EEaaC28EC3F61d100daF4d40471f1852");
+        let mut pools = Vec::new();
+        for _ in 0..100 {
+            pools.push(pool);
+        }
+
+        let reserves = get_v2_pool_reserves(client.clone(), None, pools).await.expect("ETH Chain limit test failed");
+        assert_eq!(reserves.len(), 100);
+
+        // BSC
+        let url = Url::parse("https://bscrpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("40aF5B1db9A6760ED8708Df63353b97BA446E1B4");
+        let mut pools = Vec::new();
+        for _ in 0..100 {
+            pools.push(pool);
+        }
+
+        let reserves = get_v2_pool_reserves(client.clone(), None, pools).await.expect("BSC Chain limit test failed");
+        assert_eq!(reserves.len(), 100);
+
+        // Base
+        let url = Url::parse("https://base.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("88A43bbDF9D098eEC7bCEda4e2494615dfD9bB9C");
+        let mut pools = Vec::new();
+        for _ in 0..100 {
+            pools.push(pool);
+        }
+
+        let reserves = get_v2_pool_reserves(client.clone(), None, pools).await.expect("Base Chain limit test failed");
+        assert_eq!(reserves.len(), 100);
+
+        // Optimism
+        let url = Url::parse("https://optimism.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("2865158C18b46f04faFd61E8E8E31035444fF457");
+        let mut pools = Vec::new();
+        for _ in 0..100 {
+            pools.push(pool);
+        }
+
+        let reserves = get_v2_pool_reserves(client.clone(), None, pools).await.unwrap();
+        assert_eq!(reserves.len(), 100);
+
+        // Arbitrum
+        let url = Url::parse("https://arbitrum.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("92FF6f2101416A5e57DdfC082De22b62DB46fBe3");
+        let mut pools = Vec::new();
+        for _ in 0..100 {
+            pools.push(pool);
+        }
+
+        let reserves = get_v2_pool_reserves(client.clone(), None, pools).await.expect("Arbitrum Chain limit test failed");
+        assert_eq!(reserves.len(), 100);
+    }
+
+
+    #[tokio::test]
+    async fn test_v3_state() {
+        let url = Url::parse("https://eth.merkle.io").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
 
         let pool = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
 
-        let data = get_v3_pool_data(client, None, vec![pool]).await.unwrap();
+        let data = get_v3_state(client, None, vec![pool]).await.unwrap();
 
         assert_eq!(data.len(), 1);
 
@@ -299,4 +376,73 @@ mod tests {
             println!("Pool Data: {:?}", pool);
         }
     }
+
+    #[tokio::test]
+    async fn test_v3_state_limit() {
+        // ETH
+        let url = Url::parse("https://eth.merkle.io").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
+        let mut pools = Vec::new();
+        for _ in 0..60 {
+            pools.push(pool);
+        }
+
+        let data = get_v3_state(client.clone(), None, pools).await.expect("ETH Chain limit test failed");
+        assert_eq!(data.len(), 60);
+
+        // BSC
+        let url = Url::parse("https://bscrpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("0f338Ec12d3f7C3D77A4B9fcC1f95F3FB6AD0EA6");
+        let mut pools = Vec::new();
+        for _ in 0..60 {
+            pools.push(pool);
+        }
+
+        let data = get_v3_state(client.clone(), None, pools).await.expect("BSC Chain limit test failed");
+        assert_eq!(data.len(), 60);
+
+        // Base
+        let url = Url::parse("https://base.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("d0b53D9277642d899DF5C87A3966A349A798F224");
+        let mut pools = Vec::new();
+        for _ in 0..60 {
+            pools.push(pool);
+        }
+
+        let data = get_v3_state(client.clone(), None, pools).await.expect("Base Chain limit test failed");
+        assert_eq!(data.len(), 60);
+
+        // Optimism
+        let url = Url::parse("https://optimism.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("1fb3cf6e48F1E7B10213E7b6d87D4c073C7Fdb7b");
+        let mut pools = Vec::new();
+        for _ in 0..60 {
+            pools.push(pool);
+        }
+
+        let data = get_v3_state(client.clone(), None, pools).await.expect("Optimism Chain limit test failed");
+        assert_eq!(data.len(), 60);
+
+        // Arbitrum
+        let url = Url::parse("https://arbitrum.llamarpc.com").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let pool = address!("C6962004f452bE9203591991D15f6b388e09E8D0");
+        let mut pools = Vec::new();
+        for _ in 0..60 {
+            pools.push(pool);
+        }
+
+        let data = get_v3_state(client.clone(), None, pools).await.expect("Arbitrum Chain limit test failed");
+        assert_eq!(data.len(), 60);
+}
+
 }
