@@ -2,8 +2,8 @@ use std::str::FromStr;
 use ncrypt::zeroize::Zeroize;
 
 use zeus_eth::alloy_primitives::hex::encode;
-use zeus_eth::alloy_signer::k256::ecdsa::SigningKey;
-use zeus_eth::alloy_signer_local::{ LocalSigner, PrivateKeySigner };
+use alloy_signer::k256::ecdsa::SigningKey;
+use alloy_signer_local::{ LocalSigner, PrivateKeySigner };
 
 /// User Wallet
 #[derive(Clone, PartialEq)]

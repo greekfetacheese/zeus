@@ -1,5 +1,5 @@
 use zeus_eth::alloy_primitives::Address;
-use zeus_eth::defi::currency::Currency;
+use zeus_eth::currency::Currency;
 
 pub mod wallet;
 pub mod profile;

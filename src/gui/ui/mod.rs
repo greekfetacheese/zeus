@@ -15,7 +15,6 @@ pub use settings::SettingsUi;
 use eframe::egui::{
     FontId,
     Button,
-    Color32,
     RichText,
     TextEdit,
     widgets::Image,
@@ -26,8 +25,7 @@ use eframe::egui::{
 use crate::assets::fonts::roboto_regular;
 use crate::core::ZeusCtx;
 use zeus_eth::alloy_primitives::{ Address, utils::format_units };
-use zeus_eth::defi::currency::Currency;
-use zeus_eth::defi::utils::common_addr::native_wrapped_token;
+use zeus_eth::currency::{Currency, erc20::ERC20Token};
 use tracing::error;
 
 // ** HELPER FUNCTIONS **
@@ -57,16 +55,11 @@ pub fn currency_price(ctx: ZeusCtx, currency: &Currency) -> String {
     let chain = ctx.chain().id();
 
     if currency.is_native() {
-        let wrapped_token = if let Ok(wrapped_token) = native_wrapped_token(chain) {
-            wrapped_token
-        } else {
-            error!("Failed to get native wrapped token address for chain id {}", chain);
-            return "0.0".to_string();
-        };
-        price = ctx.get_token_price(&wrapped_token);
+        let wrapped_token = ERC20Token::native_wrapped_token(chain);
+        price = ctx.get_token_price(&wrapped_token).unwrap_or(0.0);
     } else {
         let currency = currency.erc20().unwrap();
-        price = ctx.get_token_price(&currency);
+        price = ctx.get_token_price(&currency).unwrap_or(0.0);
     }
 
     format!("{:.2}", price)
@@ -74,6 +67,9 @@ pub fn currency_price(ctx: ZeusCtx, currency: &Currency) -> String {
 
 /// Return the USD Value of a token in String format
 pub fn currency_value(price: f64, balance: f64) -> String {
+    if price == 0.0 || balance == 0.0 {
+        return "0.00".to_string();
+    }
     format!("{:.2}", price * balance)
 }
 

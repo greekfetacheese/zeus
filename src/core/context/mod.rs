@@ -2,7 +2,10 @@ use std::sync::{ Arc, RwLock };
 use providers::{ RpcProviders, Rpc };
 use crate::core::{ Profile, Wallet, user::Portfolio, utils::{ HttpClient, get_http_client } };
 use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::prelude::{Currency, ERC20Token, ChainId, UniswapV2Pool, UniswapV3Pool, is_base_token};
+use zeus_eth::{types::ChainId, currency::{Currency, erc20::ERC20Token}};
+use zeus_eth::amm::{pool_manager::PoolStateManagerHandle, uniswap::{v2::pool::UniswapV2Pool, v3::pool::UniswapV3Pool}};
+
+use super::utils::pool_data_dir;
 
 pub mod providers;
 pub mod db;
@@ -23,6 +26,19 @@ impl ZeusCtx {
     /// Exclusive mutable access to the context
     pub fn write<R>(&self, writer: impl FnOnce(&mut ZeusContext) -> R) -> R {
         writer(&mut self.0.write().unwrap())
+    }
+
+    pub fn pool_manager(&self) -> PoolStateManagerHandle {
+        self.read(|ctx| ctx.pool_manager.clone())
+    }
+
+    pub fn save_pool_data(&self) -> Result<(), anyhow::Error> {
+        let data = self.read(|ctx| ctx.pool_manager.to_string().ok());
+        if let Some(data) = data {
+            let dir = pool_data_dir()?;
+            std::fs::write(dir, data)?;
+        }
+        Ok(())
     }
 
     pub fn profile_exists(&self) -> bool {
@@ -77,28 +93,26 @@ impl ZeusCtx {
         self.read(|ctx| ctx.db.get_portfolio(ctx.chain.id(), owner))
     }
 
-    pub fn get_token_price(&self, token: &ERC20Token ) -> f64 {
-        if is_base_token(token) {
-            self.read(|ctx| ctx.db.price_watcher.get_base_token_price(token))
-        } else {
-            self.read(|ctx| ctx.db.price_watcher.get_token_price(token))
-        }
+    pub fn get_token_price(&self, token: &ERC20Token ) -> Option<f64> {
+        self.read(|ctx| ctx.pool_manager.get_token_price(token))
     }
 
+    /// Get the v2 pool for the given tokens, token order does not matter
     pub fn get_v2_pool(&self, chain: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
-        self.read(|ctx| ctx.db.price_watcher.get_v2_pool(chain, token0, token1))
+        self.read(|ctx| ctx.pool_manager.get_v2_pool(chain, token0, token1))
     }
 
+    /// Get the v3 pool for the given tokens, token order does not matter
     pub fn get_v3_pool(&self, chain: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
-        self.read(|ctx| ctx.db.price_watcher.get_v3_pool(chain, fee, token0, token1))
+        self.read(|ctx| ctx.pool_manager.get_v3_pool(chain, fee, token0, token1))
     }
 
     pub fn add_v2_pools(&self, pools: Vec<UniswapV2Pool>) {
-        self.write(|ctx| ctx.db.price_watcher.add_v2_pools(pools));
+        self.write(|ctx| ctx.pool_manager.add_v2_pools(pools));
     }
 
     pub fn add_v3_pools(&self, pools: Vec<UniswapV3Pool>) {
-        self.write(|ctx| ctx.db.price_watcher.add_v3_pools(pools));
+        self.write(|ctx| ctx.pool_manager.add_v3_pools(pools));
     }
 
     /// Get all possible v3 pools based on the given tokens and fee tiers
@@ -131,6 +145,12 @@ pub struct ZeusContext {
     pub logged_in: bool,
 
     pub db: db::ZeusDB,
+
+    pub db_exists: bool,
+
+    pub pool_manager: PoolStateManagerHandle,
+
+    pub pool_manager_exists: bool,
 }
 
 impl ZeusContext {
@@ -144,13 +164,24 @@ impl ZeusContext {
         let profile_exists = Profile::exists().expect("Failed to read data directory");
         let rpc = providers.get(1).expect("Failed to find provider");
 
+        let mut db_exists = false;
         let db = if let Ok(db) = db::ZeusDB::load_from_file() {
+            db_exists = true;
             db
         } else {
             let mut db = db::ZeusDB::default();
             db.load_default_currencies().unwrap();
             db
         };
+
+        let pool_dir = pool_data_dir().unwrap().exists();
+        let mut pool_manager = PoolStateManagerHandle::default();
+        if pool_dir {
+            let dir = pool_data_dir().unwrap();
+            let data = std::fs::read(dir).unwrap();
+            let manager = PoolStateManagerHandle::from_slice(&data).unwrap();
+            pool_manager = manager;
+        }
 
         Self {
             providers,
@@ -160,6 +191,9 @@ impl ZeusContext {
             profile_exists,
             logged_in: false,
             db,
+            db_exists,
+            pool_manager,
+            pool_manager_exists: pool_dir,
         }
     }
 

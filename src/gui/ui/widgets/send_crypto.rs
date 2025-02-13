@@ -1,12 +1,13 @@
 use eframe::egui::{ Ui, Color32, Window, Id, RichText, ScrollArea, Vec2, Frame, TextEdit, Layout, Align, vec2, Align2 };
+use zeus_eth::currency::erc20::ERC20Token;
 
 use std::sync::Arc;
 use crate::core::ZeusCtx;
 use crate::assets::icons::Icons;
 use crate::gui::ui::img_button;
-use crate::gui::ui::{ rich_text, widgets::{ ChainSelect, WalletSelect, TokenSelectionWindow } };
+use crate::gui::ui::{ currency_balance, currency_value, rich_text, widgets::{ ChainSelect, WalletSelect, TokenSelectionWindow } };
 use egui_theme::Theme;
-use zeus_eth::{ ChainId, prelude::{ Currency, NativeCurrency } };
+use zeus_eth::{ types::ChainId, currency::{ Currency, native::NativeCurrency } };
 
 pub struct SendCryptoUi {
     pub open: bool,
@@ -27,7 +28,7 @@ impl SendCryptoUi {
             chain: ChainId::new(1).unwrap(),
             chain_select: ChainSelect::new("chain_select_2"),
             wallet_select: WalletSelect::new("wallet_select_2"),
-            token: Currency::from_native(NativeCurrency::from_chain_id(1)),
+            token: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
             amount: String::new(),
             contact_search_open: false,
             search_query: String::new(),
@@ -64,8 +65,8 @@ impl SendCryptoUi {
                 ui.vertical(|ui| {
                     ui.label(rich_text("CHAIN").color(theme.colors.text_secondary).size(12.0));
                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    self.chain_select.show(ui, theme, icons.clone());
-                });
+                        self.chain_select.show(ui, theme, icons.clone());
+                    });
                 });
 
                 // From Wallet
@@ -98,9 +99,7 @@ impl SendCryptoUi {
                                 .max_height(200.0)
                                 .show(ui, |ui| {
                                     ui.set_width(300.0);
-                                    TextEdit::singleline(&mut self.search_query)
-                                    .hint_text("Search contacts")
-                                    .show(ui);
+                                    TextEdit::singleline(&mut self.search_query).hint_text("Search contacts").show(ui);
 
                                     ui.separator();
 
@@ -145,12 +144,8 @@ impl SendCryptoUi {
                         }
 
                         // Balance display
-                        // TODO
-                        ui.label(
-                            RichText::new(format!("Balance: 0"))
-                                .color(theme.colors.text_secondary)
-                                .size(12.0)
-                        );
+                        let balance = currency_balance(ctx.clone(), owner, &self.token);
+                        ui.label(RichText::new(format!("Balance: {}", balance)).color(theme.colors.text_secondary).size(12.0));
                     });
                 });
 
@@ -165,19 +160,21 @@ impl SendCryptoUi {
                     );
 
                     // USD Value
-                    // TODO
-                    ui.label(
-                        RichText::new(format!("≈ $0.00"))
-                            .color(theme.colors.text_secondary)
-                            .size(12.0)
-                    );
+                    let token = if self.token.is_native() {
+                        ERC20Token::native_wrapped_token(self.chain_select.chain.id())
+                    } else {
+                        self.token.erc20().cloned().unwrap()
+                    };
+                    let price = ctx.get_token_price(&token).unwrap_or(0.0);
+                    let amount: f64 = self.amount.parse().unwrap_or(0.0);
+                    let value = currency_value(price, amount);
+                    ui.label(RichText::new(format!("≈ ${}", value)).color(theme.colors.text_secondary).size(12.0));
                 });
 
                 // Send Button
                 ui.horizontal(|ui| {
-                   
                     if ui.button("Send").clicked() {
-                       // TODO
+                        // TODO
                     }
                 });
             });
@@ -196,6 +193,4 @@ impl SendCryptoUi {
         let button = img_button(icon, self.token.symbol());
         ui.add(button)
     }
-
-
 }

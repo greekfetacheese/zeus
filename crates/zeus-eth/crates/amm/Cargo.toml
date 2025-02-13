@@ -1,0 +1,26 @@
+[package]
+name = "amm"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+currency = { path = "../currency" }
+abi = { path = "../abi" }
+utils = { path = "../utils" }
+types = { path = "../types" }
+
+uniswap_v3_math = { git = "https://github.com/0xKitsune/uniswap-v3-math.git", branch = "main" }
+
+alloy-primitives = "0.8.20"
+
+alloy-rpc-types = "=0.9.2"
+alloy-contract = "=0.9.2"
+alloy-provider = "=0.9.2"
+alloy-transport = "=0.9.2"
+
+tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
+serde = "1.0.217"
+serde_json = "1.0.138"
+anyhow = "1.0.95"
+tracing = "0.1.41"
+url = "2.5.4"

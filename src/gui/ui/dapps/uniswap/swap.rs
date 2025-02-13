@@ -2,7 +2,7 @@ use egui::{ vec2, Align, Color32, FontId, Grid, Layout, TextEdit, Ui };
 use crate::assets::icons::Icons;
 use crate::gui::ui::*;
 use crate::core::ZeusCtx;
-use zeus_eth::defi::currency::{ erc20::ERC20Token, native::NativeCurrency, Currency };
+use zeus_eth::currency::{ erc20::ERC20Token, native::NativeCurrency, Currency };
 use egui_theme::Theme;
 use std::sync::Arc;
 
@@ -38,9 +38,9 @@ pub struct SwapUi {
 
 impl SwapUi {
     pub fn new() -> Self {
-        let currency_in = NativeCurrency::from_chain_id(1);
-        let currency_in = Currency::from_native(currency_in);
-        let currency_out = Currency::from_erc20(ERC20Token::default());
+        let currency = NativeCurrency::from_chain_id(1).unwrap();
+        let currency_in = Currency::from_native(currency);
+        let currency_out = Currency::from_erc20(ERC20Token::native_wrapped_token(1));
         Self {
             open: false,
             currency_in,
@@ -80,14 +80,13 @@ impl SwapUi {
 
     /// Give a default input currency based on the selected chain id
     pub fn default_currency_in(&mut self, id: u64) {
-        let native = NativeCurrency::from_chain_id(id);
+        let native = NativeCurrency::from_chain_id(id).unwrap_or_default();
         self.currency_in = Currency::from_native(native);
     }
 
     /// Give a default output currency based on the selected chain id
     pub fn default_currency_out(&mut self, id: u64) {
-        let erc = ERC20Token::default();
-        self.currency_out = Currency::from_erc20(erc);
+        self.currency_out = Currency::from_erc20(ERC20Token::native_wrapped_token(id));
     }
 
     pub fn show(

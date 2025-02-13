@@ -5,7 +5,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ Wallet, ZeusCtx };
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
-use zeus_eth::ChainId;
+use zeus_eth::types::ChainId;
 
 pub mod token_selection;
 pub mod send_crypto;

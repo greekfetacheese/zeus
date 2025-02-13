@@ -66,7 +66,7 @@ impl Default for RpcProviders {
         let base = Rpc::new("https://base.llamarpc.com", 8453, true);
         let op = Rpc::new("https://optimism.llamarpc.com", 10, true);
         let arbitrum = Rpc::new("https://arbitrum.llamarpc.com", 42161, true);
-        let bsc = Rpc::new("https://binance.llamarpc.com", 56, true);
+        let bsc = Rpc::new("https://bsc.drpc.org", 56, true);
 
         RpcProviders { rpc: vec![eth, base, op, arbitrum, bsc] }
     }

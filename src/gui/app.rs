@@ -1,13 +1,12 @@
 use std::sync::Arc;
 use std::path::PathBuf;
 
-use egui::Frame;
+use eframe::{ egui::{ self, Frame }, CreationContext };
 use egui_theme::{ Theme, ThemeKind };
 use crate::assets::{ icons::Icons, fonts::get_fonts };
-use crate::core::utils::{RT, sync_pools};
+use crate::core::utils::{ RT, update };
 use crate::core::ZeusCtx;
 use crate::gui::{ GUI, SHARED_GUI };
-use eframe::{ egui::{ self }, CreationContext };
 use crate::gui::window::window_frame;
 
 pub struct ZeusApp {
@@ -54,27 +53,13 @@ impl ZeusApp {
     }
 
     fn start_up(&mut self, ctx: &egui::Context, zeus_ctx: ZeusCtx) {
-        if self.on_startup {
-            let ctx = ctx.clone();
+        let ctx = ctx.clone();
+        let gui = SHARED_GUI.read().unwrap();
+        ctx.set_style(gui.theme.style.clone());
 
-            let gui = SHARED_GUI.read().unwrap();
-            ctx.set_style(gui.theme.style.clone());
-
-            /* 
-            RT.spawn(async move {
-                match sync_pools(zeus_ctx).await {
-                    Ok(_) => {
-                        tracing::info!("Synced all the pools");
-                    }
-                    Err(e) => {
-                        tracing::error!("Error syncing pools: {:?}", e);
-                    }
-                }
-            });
-            */
-
-            self.on_startup = false;
-        }
+        RT.spawn(async move {
+            update(zeus_ctx).await;
+        });
     }
 }
 
@@ -84,15 +69,14 @@ impl eframe::App for ZeusApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.start_up(ctx, self.ctx.clone());
+        if self.on_startup {
+            self.start_up(ctx, self.ctx.clone());
+            self.on_startup = false;
+        }
 
         let mut gui = SHARED_GUI.write().unwrap();
 
-        let bg_color = if gui.show_overlay {
-            gui.theme.colors.overlay_color
-        } else {
-            gui.theme.colors.bg_color
-        };
+        let bg_color = if gui.show_overlay { gui.theme.colors.overlay_color } else { gui.theme.colors.bg_color };
 
         let bg_frame = Frame::none().fill(bg_color);
 

@@ -3,8 +3,8 @@ use std::{ collections::HashMap, sync::Arc, str::FromStr };
 use crate::core::user::Portfolio;
 use crate::core::utils::data_dir;
 use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::defi::currency::{ Currency, native::NativeCurrency, erc20::ERC20Token };
-use zeus_eth::prelude::MarketPriceWatcherHandle;
+use zeus_eth::currency::{ Currency, native::NativeCurrency, erc20::ERC20Token };
+use zeus_eth::types;
 use zeus_token_list::{ ETHEREUM, OPTIMISM, BASE, ARBITRUM, BINANCE_SMART_CHAIN, tokens::UniswapToken };
 
 pub const ZEUS_DB_FILE: &str = "zeus_db.json";
@@ -43,7 +43,6 @@ pub struct ZeusDB {
     #[serde(with = "serde_helpers")]
     pub portfolios: Portfolios,
 
-    pub price_watcher: MarketPriceWatcherHandle,
 }
 
 impl Default for ZeusDB {
@@ -53,7 +52,6 @@ impl Default for ZeusDB {
             eth_balance: Default::default(),
             currencies: Default::default(),
             portfolios: Default::default(),
-            price_watcher: MarketPriceWatcherHandle::new(),
         }
     }
 }
@@ -125,21 +123,21 @@ impl ZeusDB {
         // Native Currencies
 
         // Ethereum
-        let eth_native = NativeCurrency::from_chain_id(1);
-        self.insert_currency(1, Currency::from_native(eth_native.clone()));
+        let eth_native = NativeCurrency::from_chain_id(types::ETH)?;
+        self.insert_currency(types::ETH, Currency::from_native(eth_native.clone()));
 
         // Binance Smart Chain
-        let bnb_native = NativeCurrency::from_chain_id(56);
-        self.insert_currency(56, Currency::from_native(bnb_native));
+        let bnb_native = NativeCurrency::from_chain_id(types::BSC)?;
+        self.insert_currency(types::BSC, Currency::from_native(bnb_native));
 
         // Optimism
-        self.insert_currency(10, Currency::from_native(eth_native.clone()));
+        self.insert_currency(types::OPTIMISM, Currency::from_native(eth_native.clone()));
 
         // Base Network
-        self.insert_currency(8453, Currency::from_native(eth_native.clone()));
+        self.insert_currency(types::BASE, Currency::from_native(eth_native.clone()));
 
         // Arbitrum
-        self.insert_currency(42161, Currency::from_native(eth_native));
+        self.insert_currency(types::ARBITRUM, Currency::from_native(eth_native));
 
         // Load the default token list
         let mut default_tokens: Vec<ERC20Token> = Vec::new();
@@ -157,7 +155,6 @@ impl ZeusDB {
                 name: token.name,
                 decimals: token.decimals,
                 total_supply: U256::ZERO,
-                icon: None,
             };
             default_tokens.push(erc20);
         }
@@ -170,7 +167,6 @@ impl ZeusDB {
                 name: token.name,
                 decimals: token.decimals,
                 total_supply: U256::ZERO,
-                icon: None,
             };
             default_tokens.push(erc20);
         }
@@ -183,7 +179,6 @@ impl ZeusDB {
                 name: token.name,
                 decimals: token.decimals,
                 total_supply: U256::ZERO,
-                icon: None,
             };
             default_tokens.push(erc20);
         }
@@ -196,7 +191,6 @@ impl ZeusDB {
                 name: token.name,
                 decimals: token.decimals,
                 total_supply: U256::ZERO,
-                icon: None,
             };
             default_tokens.push(erc20);
         }
@@ -209,7 +203,6 @@ impl ZeusDB {
                 name: token.name,
                 decimals: token.decimals,
                 total_supply: U256::ZERO,
-                icon: None,
             };
             default_tokens.push(erc20);
         }

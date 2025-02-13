@@ -22,7 +22,7 @@ use crate::gui::{ SHARED_GUI, ui::dapps::uniswap::swap::InOrOut };
 use crate::assets::icons::Icons;
 use crate::core::{ ZeusCtx, utils::fetch };
 use zeus_eth::alloy_primitives::Address;
-use zeus_eth::defi::currency::Currency;
+use zeus_eth::currency::Currency;
 
 /// A simple window that allows the user to select a token
 /// based on the a list of [Currency] we pass to it
