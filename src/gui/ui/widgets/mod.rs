@@ -1,11 +1,33 @@
-use eframe::egui::{ Ui, ComboBox, Align2, Window, Spinner, Frame, ScrollArea, Color32, Grid, vec2, Vec2 };
+use eframe::egui::{
+    Ui,
+    ComboBox,
+    RichText,
+    Layout,
+    Align,
+    Align2,
+    Window,
+    Spinner,
+    Frame,
+    ScrollArea,
+    Color32,
+    Grid,
+    vec2,
+    Vec2,
+};
 use std::sync::Arc;
-use crate::gui::ui::{ button, img_button, rich_text, currency_balance, currency_price, currency_value };
+use crate::gui::ui::{
+    button,
+    rich_text,
+    currency_balance,
+    currency_price,
+    currency_value,
+    currency_value_f64,
+};
 use crate::assets::icons::Icons;
-use crate::core::{ Wallet, ZeusCtx };
+use crate::core::{ Wallet, ZeusCtx, user::Portfolio };
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
-use zeus_eth::types::ChainId;
+use zeus_eth::{ currency::Currency, types::ChainId };
 
 pub mod token_selection;
 pub mod send_crypto;
@@ -59,7 +81,7 @@ impl ChainSelect {
                         clicked = true;
                     }
                 }
-        });
+            });
         clicked
     }
 }
@@ -86,7 +108,7 @@ impl WalletSelect {
     }
 
     /// Show the ComboBox
-    /// 
+    ///
     /// Returns true if the wallet was changed
     pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) -> bool {
         let wallets = ctx.profile().wallets;
@@ -103,7 +125,7 @@ impl WalletSelect {
 
                 for wallet in wallets {
                     let value = ui.selectable_value(&mut self.wallet, wallet.clone(), rich_text(wallet.name.clone()));
-                    
+
                     if value.clicked() {
                         clicked = true;
                         self.wallet = wallet.clone();
@@ -147,8 +169,8 @@ impl LoadingWindow {
                 ui.set_width(self.size.0);
                 ui.set_height(self.size.1);
                 ui.vertical_centered(|ui| {
-                ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
-                ui.label(rich_text(&self.msg));
+                    ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
+                    ui.label(rich_text(&self.msg));
                 });
             });
     }
@@ -164,7 +186,6 @@ pub struct MsgWindow {
 }
 
 impl MsgWindow {
-
     pub fn new(color: Option<Color32>) -> Self {
         Self {
             open: false,
@@ -229,7 +250,7 @@ impl PortfolioUi {
         }
     }
 
-    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) {
+    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, token_selection: &mut TokenSelectionWindow, ui: &mut Ui) {
         if !self.open {
             return;
         }
@@ -237,53 +258,187 @@ impl PortfolioUi {
         let chain_id = ctx.chain().id();
         let owner = ctx.wallet().key.address();
         let portfolio = ctx.get_portfolio(owner);
-
         let currencies = portfolio.currencies();
+        let all_currencies = ctx.get_currencies(chain_id);
 
         ui.vertical_centered_justified(|ui| {
-            ui.set_width(600.0);
-            ui.set_height(550.0);
+            ui.set_width(ui.available_width() * 0.8);
 
-            ScrollArea::vertical().show(ui, |ui| {
-                Grid::new("currency_grid")
-                    .min_col_width(50.0)
-                    .spacing((150.0, 20.0))
+            ui.spacing_mut().item_spacing = Vec2::new(16.0, 20.0);
+
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("+ Add Token").clicked() {
+                        token_selection.open = true;
+                    }
+                });
+            });
+
+            // Total Value
+            ui.vertical(|ui| {
+                Frame::group(ui.style())
+                    .inner_margin(16.0)
+                    .fill(ui.style().visuals.extreme_bg_color)
                     .show(ui, |ui| {
-                        // Header
-                        ui.label(rich_text("Token").size(18.0));
-                        ui.label(rich_text("Price").size(18.0));
-                        ui.label(rich_text("Balance").size(18.0));
-                        ui.label(rich_text("Value").size(18.0));
-
-                        ui.end_row();
-
-                        for currency in currencies {
-                            let icon = if currency.is_native() {
-                                icons.currency_icon(chain_id)
-                            } else {
-                                let token = currency.erc20().unwrap();
-                                icons.token_icon(token.address, chain_id)
-                            };
-
-                            let token = img_button(icon, rich_text(currency.symbol()).size(15.0)).min_size(
-                                vec2(30.0, 25.0)
+                        ui.vertical_centered(|ui| {
+                            ui.label(RichText::new("Total Portfolio Value").color(Color32::GRAY).size(14.0));
+                            ui.add_space(8.0);
+                            ui.label(
+                                RichText::new(format!("${:.2}", self.total_value(ctx.clone())))
+                                    .heading()
+                                    .size(32.0)
                             );
-
-                            let price = currency_price(ctx.clone(), currency);
-                            let balance = currency_balance(ctx.clone(), owner, currency);
-                            let value = currency_value(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
-
-                            // Add each label into a grid cell
-                            ui.add(token);
-                            ui.label(rich_text(price));
-                            ui.label(rich_text(balance));
-                            ui.label(rich_text(value));
-
-                            // move to the next row
-                            ui.end_row();
-                        }
+                        });
                     });
             });
+
+            // Token List
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+
+                    let column_widths = [
+                        ui.available_width() * 0.2, // Asset
+                        ui.available_width() * 0.2, // Price
+                        ui.available_width() * 0.2, // Balance
+                        ui.available_width() * 0.2, // Value
+                       // ui.available_width() * 0.1, // 24h price change
+                        ui.available_width() * 0.1, // Remove button
+                    ];
+
+                    // Center the grid within the available space
+                    ui.horizontal(|ui| {
+                        ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
+
+                        Grid::new("currency_grid")
+                            .num_columns(5)
+                            .spacing([20.0, 30.0]) // Horizontal and vertical spacing
+                            .show(ui, |ui| {
+                                // Header
+                                ui.label(RichText::new("Asset").strong().size(15.0));
+
+                                ui.label(RichText::new("Price").strong().size(15.0));
+
+                                ui.label(RichText::new("Balance").strong().size(15.0));
+
+                                ui.label(RichText::new("Value").strong().size(15.0));
+
+                               // ui.label(RichText::new("24h").strong().size(15.0));
+
+                                ui.end_row();
+
+                                // Token Rows
+                                for currency in currencies {
+                                    self.token(ctx.clone(), icons.clone(), currency, ui, column_widths[0]);
+                                    self.price(ctx.clone(), currency, ui, column_widths[1]);
+                                    self.balance(ctx.clone(), currency, ui, column_widths[2]);
+                                    self.value(ctx.clone(), currency, ui, column_widths[3]);
+                                   // self.change_24h(ui, column_widths[4]);
+                                    self.remove_currency(ctx.clone(), currency, ui, column_widths[4]);
+                                    ui.end_row();
+                                }
+                            });
+                    });
+
+                    // Token selection
+                    token_selection.show(ctx.clone(), chain_id, owner, icons.clone(), &all_currencies, ui);
+                    let currency = token_selection.get_currency().cloned();
+
+                    if let Some(currency) = currency {
+                        token_selection.reset();
+                        ctx.write(|ctx| {
+                            let portfolio = ctx.db.get_portfolio_mut(chain_id, owner);
+                            if portfolio.is_none() {
+                                let portfolio = Portfolio::new(vec![currency.clone()], owner);
+                                ctx.db.insert_portfolio(chain_id, owner, portfolio);
+                            } else {
+                                let portfolio = portfolio.unwrap();
+                                portfolio.add_currency(currency.clone());
+                            }
+                        });
+                        let _ = ctx.save_db();
+                    }
+                });
         });
+    }
+
+    fn token(&self, ctx: ZeusCtx, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
+        let icon = if currency.is_native() {
+            icons.currency_icon(ctx.chain().id())
+        } else {
+            let token = currency.erc20().unwrap();
+            icons.token_icon(token.address, ctx.chain().id())
+        };
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            ui.add(icon);
+            ui.label(RichText::new(currency.symbol()).strong()).on_hover_text(currency.name());
+        });
+    }
+
+    fn price(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+        let price = currency_price(ctx.clone(), currency);
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            ui.label(format!("${}", price));
+        });
+    }
+
+    fn balance(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+        let balance = currency_balance(ctx.clone(), ctx.wallet().key.address(), currency);
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            ui.label(balance);
+        });
+    }
+
+    fn value(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+        let price = currency_price(ctx.clone(), currency);
+        let balance = currency_balance(ctx.clone(), ctx.wallet().key.address(), currency);
+        let value = currency_value(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            ui.label(RichText::new(format!("${:.2}", value)).color(Color32::GRAY).size(12.0));
+        });
+    }
+
+    #[allow(dead_code)]
+    fn change_24h(&self, ui: &mut Ui, width: f32) {
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            ui.label(RichText::new("12.4%").color(Color32::from_rgb(0, 200, 0)).size(12.0)); // Replace with real data
+        });
+    }
+
+    fn remove_currency(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+        ui.horizontal(|ui| {
+            ui.set_width(width);
+            if ui.button("X").clicked() {
+                ctx.write(|ctx| {
+                    let owner = ctx.wallet().key.address();
+                    let chain = ctx.chain.id();
+                    let portfolio = ctx.db.get_portfolio_mut(chain, owner);
+                    if let Some(portfolio) = portfolio {
+                        portfolio.remove_currency(currency);
+                        let _ = ctx.db.save_to_file();
+                    }
+                })
+            }
+        });
+    }
+
+    fn total_value(&self, ctx: ZeusCtx) -> f64 {
+        let owner = ctx.wallet().key.address();
+        let portfolio = ctx.get_portfolio(owner);
+        let currencies = portfolio.currencies();
+        let mut total = 0.0;
+        for currency in currencies {
+            let price = currency_price(ctx.clone(), currency);
+            let balance = currency_balance(ctx.clone(), owner, currency);
+            let value = currency_value_f64(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
+            total += value;
+        }
+        total
     }
 }

@@ -1,12 +1,12 @@
 pub mod dapps;
-pub mod login;
+pub mod auth;
 pub mod wallet;
 pub mod panels;
 pub mod widgets;
 pub mod settings;
 
 pub use dapps::uniswap::swap::SwapUi;
-pub use login::{ CredentialsForm, LoginUi, RegisterUi };
+pub use auth::{ CredentialsForm, LoginUi, RegisterUi };
 pub use wallet::WalletUi;
 pub use widgets::*;
 pub use settings::SettingsUi;
@@ -26,7 +26,7 @@ use crate::assets::fonts::roboto_regular;
 use crate::core::ZeusCtx;
 use zeus_eth::alloy_primitives::{ Address, utils::format_units };
 use zeus_eth::currency::{Currency, erc20::ERC20Token};
-use tracing::error;
+
 
 // ** HELPER FUNCTIONS **
 
@@ -71,6 +71,13 @@ pub fn currency_value(price: f64, balance: f64) -> String {
         return "0.00".to_string();
     }
     format!("{:.2}", price * balance)
+}
+
+pub fn currency_value_f64(price: f64, balance: f64) -> f64 {
+    if price == 0.0 || balance == 0.0 {
+        return 0.0;
+    }
+    price * balance
 }
 
 pub fn rich_text(text: impl Into<String>) -> RichText {

@@ -47,6 +47,13 @@ impl Currency {
         }
     }
 
+    pub fn chain_id(&self) -> u64 {
+        match self {
+            Self::Native(native) => native.chain_id,
+            Self::ERC20(erc20) => erc20.chain_id,
+        }
+    }
+
     pub fn symbol(&self) -> &String {
         match self {
             Self::Native(native) => &native.symbol,

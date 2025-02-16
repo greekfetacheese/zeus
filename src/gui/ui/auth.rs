@@ -1,7 +1,7 @@
 use eframe::egui::Ui;
 use egui_theme::{ Theme, utils::{ border_on_idle, border_on_click, border_on_hover } };
-use crate::core::ZeusCtx;
-use crate::gui::{ SHARED_GUI, utils::get_profile_dir, ui::{ button, rich_text, text_edit_single } };
+use crate::{core::ZeusCtx, gui::utils};
+use crate::gui::{ SHARED_GUI, utils::{get_profile_dir, get_encrypted_info}, ui::{ button, rich_text, text_edit_single } };
 use ncrypt::prelude::{ Argon2Params, Credentials };
 
 pub struct CredentialsForm {
@@ -95,16 +95,15 @@ impl LoginUi {
             profile.credentials = self.credentials_form.credentials.clone();
 
             std::thread::spawn(move || {
-                {
-                    let mut gui = SHARED_GUI.write().unwrap();
-                    gui.loading_window.msg = "Unlocking profile...".to_string();
-                    gui.loading_window.open = true;
-                }
+                utils::open_loading("Unlocking profile...".to_string());
+                
                 let dir = get_profile_dir();
+                let info = get_encrypted_info(&dir);
                 match profile.decrypt_and_load(&dir) {
                     Ok(_) => {
                         let mut gui = SHARED_GUI.write().unwrap();
                         gui.login.credentials_form.erase();
+                        gui.settings.encryption_settings.argon_params = info.argon2_params.clone();
                         gui.portofolio.open = true;
                         gui.profile_area.open = true;
                         gui.wallet_select.wallet = profile.current_wallet.clone();
@@ -158,7 +157,7 @@ impl RegisterUi {
                         gui.loading_window.open = true;
                     }
                     let dir = get_profile_dir();
-                    match profile.encrypt_and_save(&dir, Argon2Params::very_fast()) {
+                    match profile.encrypt_and_save(&dir, Argon2Params::balanced()) {
                         Ok(_) => {
                             let mut gui = SHARED_GUI.write().unwrap();
                             gui.wallet_select.wallet = profile.current_wallet.clone();

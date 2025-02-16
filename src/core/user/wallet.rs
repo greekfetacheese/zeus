@@ -44,7 +44,6 @@ impl Wallet {
         }
     }
 
-    /// Is the key erased?
     pub fn is_key_erased(&self) -> bool {
         let mut key_bytes = self.key.to_bytes();
         let erased = key_bytes.iter().all(|&b| b == 0);

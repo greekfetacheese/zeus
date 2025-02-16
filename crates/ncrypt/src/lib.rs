@@ -99,7 +99,7 @@ impl Argon2Params {
         Self {
             m_cost: 64_000,
             t_cost: 3,
-            p_cost: 8,
+            p_cost: 1,
             hash_length: 64,
         }
     }
@@ -108,7 +108,7 @@ impl Argon2Params {
         Self {
             m_cost: 128_000,
             t_cost: 15,
-            p_cost: 2,
+            p_cost: 1,
             hash_length: 64,
         }
     }
@@ -117,7 +117,7 @@ impl Argon2Params {
         Self {
             m_cost: 256_000,
             t_cost: 20,
-            p_cost: 8,
+            p_cost: 1,
             hash_length: 64,
         }
     }
@@ -126,7 +126,7 @@ impl Argon2Params {
         Self {
             m_cost: 512_000,
             t_cost: 20,
-            p_cost: 8,
+            p_cost: 1,
             hash_length: 64,
         }
     }
@@ -135,7 +135,7 @@ impl Argon2Params {
         Self {
             m_cost: 1024_000,
             t_cost: 30,
-            p_cost: 8,
+            p_cost: 1,
             hash_length: 64,
         }
     }

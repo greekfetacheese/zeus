@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use crate::core::utils::RT;
 use crate::gui::ui::{ button, img_button, currency_balance, rich_text };
-use crate::gui::{ SHARED_GUI, ui::dapps::uniswap::swap::InOrOut };
+use crate::gui::{ utils, SHARED_GUI, ui::dapps::uniswap::swap::InOrOut };
 use crate::assets::icons::Icons;
 use crate::core::{ ZeusCtx, utils::fetch };
 use zeus_eth::alloy_primitives::Address;
@@ -174,11 +174,14 @@ impl TokenSelectionWindow {
                             ui.vertical_centered(|ui| {
                                 if ui.add(add_token_button).clicked() {
                                     RT.spawn(async move {
+                                        utils::open_loading("Retrieving token...".to_string());
+
                                         let token = match fetch::get_erc20_token(ctx, address, chain_id).await {
                                             Ok(token) => token,
                                             Err(e) => {
                                                 let mut gui = SHARED_GUI.write().unwrap();
                                                 gui.open_msg_window("Failed to fetch token", e.to_string());
+                                                gui.loading_window.open = false;
                                                 return;
                                             }
                                         };

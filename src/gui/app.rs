@@ -58,7 +58,7 @@ impl ZeusApp {
         ctx.set_style(gui.theme.style.clone());
 
         RT.spawn(async move {
-            update(zeus_ctx).await;
+           // update(zeus_ctx).await;
         });
     }
 }
@@ -70,7 +70,7 @@ impl eframe::App for ZeusApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.on_startup {
-            self.start_up(ctx, self.ctx.clone());
+           self.start_up(ctx, self.ctx.clone());
             self.on_startup = false;
         }
 

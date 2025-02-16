@@ -4,7 +4,6 @@ use crate::core::{ Profile, Wallet, user::Portfolio, utils::{ HttpClient, get_ht
 use zeus_eth::alloy_primitives::{ Address, U256 };
 use zeus_eth::{types::ChainId, currency::{Currency, erc20::ERC20Token}};
 use zeus_eth::amm::{pool_manager::PoolStateManagerHandle, uniswap::{v2::pool::UniswapV2Pool, v3::pool::UniswapV3Pool}};
-
 use super::utils::pool_data_dir;
 
 pub mod providers;

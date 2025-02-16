@@ -109,14 +109,14 @@ impl ZeusDB {
         self.portfolios.get(&key).cloned().unwrap_or_default()
     }
 
+    pub fn get_portfolio_mut(&mut self, chain_id: u64, owner: Address) -> Option<&mut Portfolio> {
+            let key = (chain_id, owner);
+            self.portfolios.get_mut(&key).map(|arc| Arc::make_mut(arc))
+        }
+
     pub fn insert_portfolio(&mut self, chain_id: u64, owner: Address, portfolio: Portfolio) {
         let key = (chain_id, owner);
-        if let Some(portfolio_arc) = self.portfolios.get_mut(&key) {
-            let portfolio_mut = Arc::make_mut(portfolio_arc);
-            *portfolio_mut = portfolio;
-        } else {
-            self.portfolios.insert((chain_id, owner), Arc::new(portfolio));
-        }
+        self.portfolios.insert(key, Arc::new(portfolio));
     }
 
     pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {

@@ -26,7 +26,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.portofolio.open = false;
     }
 
-    gui.portofolio.show(ctx.clone(), icons.clone(), ui);
+    gui.portofolio.show(ctx.clone(), icons.clone(), token_selection, ui);
     gui.swap_ui.show(ctx.clone(), icons.clone(), theme, token_selection, ui);
     gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
     gui.send_crypto.show(ctx.clone(), icons.clone(), theme, token_selection, ui);

@@ -30,8 +30,8 @@ impl Portfolio {
         self.currencies.push(currency);
     }
 
-    pub fn remove_currency(&mut self, currency: Currency) {
-        self.currencies.retain(|c| c != &currency);
+    pub fn remove_currency(&mut self, currency: &Currency) {
+        self.currencies.retain(|c| c != currency);
     }
 
     pub fn currencies(&self) -> &Vec<Currency> {

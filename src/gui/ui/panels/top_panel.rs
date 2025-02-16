@@ -85,12 +85,6 @@ impl ProfileAreaUi {
                     });
             });
 
-            // Assets Value
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.label(rich_text("Assets Value:"));
-                // TODO: Calculate the total value of a wallet
-                ui.label(rich_text("$100,000,00"));
-            });
         });
     }
 }
