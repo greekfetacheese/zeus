@@ -1,7 +1,6 @@
 use crate::core::ZeusCtx;
 use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::{currency::{Currency, erc20::ERC20Token}, amm::{uniswap::{v2::pool::UniswapV2Pool, v3::pool::UniswapV3Pool}, DexKind}};
-use zeus_eth::utils::batch_request;
+use zeus_eth::{currency::{Currency, ERC20Token}, amm::{UniswapV2Pool, UniswapV3Pool}};
 
 
 
@@ -38,32 +37,10 @@ pub async fn get_erc20_token(ctx: ZeusCtx, token_address: Address, chain_id: u64
 pub async fn get_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<Vec<UniswapV2Pool>, anyhow::Error> {
     let chain = token.chain_id;
     let client = ctx.get_client_with_id(chain)?;
-    let dex_kinds = DexKind::all(chain);
-    let base_tokens = ERC20Token::base_tokens(chain);
+    let pool_manager = ctx.pool_manager();
 
-    let mut pools = Vec::new();
-    for base_token in base_tokens {
-        if base_token.address == token.address {
-            continue;
-        }
-
-        for dex in &dex_kinds {
-            if dex.is_pancakeswap_v3() || dex.is_uniswap_v3() {
-                continue;
-            }
-            tracing::info!(
-                "Getting v2 pool for: {}-{} on: {} Chain Id: {}",
-                token.symbol,
-                base_token.symbol,
-                dex.to_str(),
-                chain
-            );
-            let pool = UniswapV2Pool::from(client.clone(), chain, token.clone(), base_token.clone(), *dex).await;
-            if let Ok(pool) = pool {
-                pools.push(pool);
-            }
-        }
-    }
+    pool_manager.get_v2_pools_for_token(client, token.clone()).await?;
+    let pools = ctx.get_v2_pools(token);
 
     Ok(pools)
 }
@@ -76,54 +53,10 @@ pub async fn get_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
 pub async fn get_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<Vec<UniswapV3Pool>, anyhow::Error> {
     let chain = token.chain_id;
     let client = ctx.get_client_with_id(chain)?;
-    let dex_kinds = DexKind::all(chain);
-    let base_tokens = ERC20Token::base_tokens(chain);
+    let pool_manager = ctx.pool_manager();
 
-    let mut pools = Vec::new();
-    for base_token in &base_tokens {
-        if base_token.address == token.address {
-            continue;
-        }
+    pool_manager.get_v3_pools_for_token(client, token.clone()).await?;
+    let pools = ctx.get_v3_pools(token);
 
-
-        for dex in &dex_kinds {
-            if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
-                continue;
-            }
-
-            let factory = dex.factory(chain)?;
-            tracing::info!(
-                "Getting v3 pools for: {}-{} on: {} with factory {} Chain Id: {}",
-                token.address,
-                base_token.address,
-                dex.to_str(),
-                factory,
-                chain
-            );
-            let v3_pools = batch_request::get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
-            pools.extend(v3_pools);
-        }
-    }
-
-
-    let mut pool_result = Vec::new();
-    for base_token in base_tokens {
-        if base_token.address == token.address {
-            continue;
-        }
-
-        for dex in &dex_kinds {
-            if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
-                continue;
-            }
-            for pool in &pools {
-                if !pool.addr.is_zero() {
-                    let fee: u32 = pool.fee.to_string().parse()?;
-                    pool_result.push(UniswapV3Pool::new(chain, pool.addr, fee, token.clone(), base_token.clone(), *dex));
-                }
-            }
-        }
-    }
-
-    Ok(pool_result)
+    Ok(pools)
 }

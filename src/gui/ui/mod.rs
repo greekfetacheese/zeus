@@ -30,6 +30,25 @@ use zeus_eth::currency::{Currency, erc20::ERC20Token};
 
 // ** HELPER FUNCTIONS **
 
+/// Calculate the total value of a wallet in USD
+pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
+    let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+    if portfolio.currencies.is_empty() {
+        return 0.0;
+    }
+
+    let currencies = portfolio.currencies();
+    let mut value = 0.0;
+
+    for currency in currencies {
+        let usd_price: f64 =  currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
+        let balance: f64 = currency_balance(ctx.clone(), owner, currency).parse().unwrap_or(0.0);
+        value += currency_value_f64(usd_price, balance);
+    }
+
+    value
+}
+
 /// Return a [String] that displays the formatted balance of the selected currency
 // TODO: Use something like numformat to deal with very large numbers
 pub fn currency_balance(ctx: ZeusCtx, owner: Address, currency: &Currency) -> String {

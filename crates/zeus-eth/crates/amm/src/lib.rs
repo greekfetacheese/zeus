@@ -10,6 +10,9 @@ pub mod consts;
 pub mod sync;
 pub mod pool_manager;
 
+pub use uniswap::v2::pool::UniswapV2Pool;
+pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
+
 /// Enum to define in which DEX a pool belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum DexKind {

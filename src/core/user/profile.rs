@@ -7,43 +7,12 @@ use std::path::PathBuf;
 
 pub const PROFILE_FILE: &str = "profile.data";
 
-/// Saved contact by the user
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Contact {
-    pub name: String,
-    pub address: String,
-    pub notes: String,
-}
 
-impl Contact {
-    pub fn new(name: String, address: String, notes: String) -> Self {
-        Self {
-            name,
-            address,
-            notes,
-        }
-    }
-
-    pub fn address_short(&self) -> String {
-        format!("{}...{}", &self.address[..6], &self.address[36..])
-    }
-
-    /// Serialize to JSON String
-    pub fn serialize(&self) -> Result<String, anyhow::Error> {
-        Ok(serde_json::to_string(self)?)
-    }
-
-    /// Deserialize from slice
-    pub fn from_slice(data: &[u8]) -> Result<Self, anyhow::Error> {
-        Ok(serde_json::from_slice::<Contact>(data)?)
-    }
-}
 
 /// Helper struct to serialize [Profile] in JSON
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProfileData {
     pub wallets: Vec<WalletData>,
-    pub contacts: Vec<Contact>,
 }
 
 impl Drop for ProfileData {
@@ -53,10 +22,9 @@ impl Drop for ProfileData {
 }
 
 impl ProfileData {
-    pub fn new(wallets: Vec<WalletData>, contacts: Vec<Contact>) -> Self {
+    pub fn new(wallets: Vec<WalletData>) -> Self {
         Self {
             wallets,
-            contacts,
         }
     }
 
@@ -88,8 +56,6 @@ pub struct Profile {
 
     /// The current selected wallet from the GUI
     pub current_wallet: Wallet,
-
-    pub contacts: Vec<Contact>,
 }
 
 impl Default for Profile {
@@ -100,7 +66,6 @@ impl Default for Profile {
             credentials: Credentials::default(),
             wallets,
             current_wallet: wallet,
-            contacts: Vec::new(),
         }
     }
 }
@@ -193,7 +158,6 @@ impl Profile {
         }
 
         self.wallets = wallets;
-        self.contacts = profile_data.contacts.clone();
 
         // if there is at least 1 wallet available, set the current wallet to the first one
         if !self.wallets.is_empty() {
@@ -212,25 +176,10 @@ impl Profile {
             wallet_data.push(data);
         }
 
-        let profile_data = ProfileData::new(wallet_data, self.contacts.clone());
+        let profile_data = ProfileData::new(wallet_data);
         let serialized = profile_data.serialize()?;
 
         Ok(serialized)
-    }
-
-    pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
-        // make sure name and address are unique
-        if self.contacts.iter().any(|c| c.name == contact.name) {
-            return Err(anyhow!("Contact with name {} already exists", contact.name));
-        } else if self.contacts.iter().any(|c| c.address == contact.address) {
-            return Err(anyhow!("Contact with address {} already exists", contact.address));
-        }
-        self.contacts.push(contact);
-        Ok(())
-    }
-
-    pub fn remove_contact(&mut self, address: String) {
-        self.contacts.retain(|c| c.address != address);
     }
 
     pub fn remove_wallet(&mut self, wallet: Wallet) {
@@ -273,7 +222,6 @@ mod tests {
             credentials,
             wallets: vec![wallet_1.clone(), wallet_2],
             current_wallet: wallet_1,
-            contacts: Vec::new(),
         };
 
         let argon_2 = Argon2Params::very_fast();

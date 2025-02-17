@@ -4,7 +4,7 @@ use zeus_eth::currency::Currency;
 pub mod wallet;
 pub mod profile;
 
-pub use profile::{Contact, Profile, PROFILE_FILE};
+pub use profile::{Profile, PROFILE_FILE};
 
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

@@ -1,9 +1,10 @@
 use std::sync::{ Arc, RwLock };
+use db::Contact;
 use providers::{ RpcProviders, Rpc };
 use crate::core::{ Profile, Wallet, user::Portfolio, utils::{ HttpClient, get_http_client } };
 use zeus_eth::alloy_primitives::{ Address, U256 };
 use zeus_eth::{types::ChainId, currency::{Currency, erc20::ERC20Token}};
-use zeus_eth::amm::{pool_manager::PoolStateManagerHandle, uniswap::{v2::pool::UniswapV2Pool, v3::pool::UniswapV3Pool}};
+use zeus_eth::amm::{pool_manager::PoolStateManagerHandle, uniswap::{v2::pool::UniswapV2Pool, v3::pool::{FEE_TIERS, UniswapV3Pool}}};
 use super::utils::pool_data_dir;
 
 pub mod providers;
@@ -88,8 +89,12 @@ impl ZeusCtx {
         self.read(|ctx| ctx.db.get_currencies(chain))
     }
 
-    pub fn get_portfolio(&self, owner: Address) -> Arc<Portfolio> {
-        self.read(|ctx| ctx.db.get_portfolio(ctx.chain.id(), owner))
+    pub fn get_portfolio(&self, chain: u64, owner: Address) -> Option<Arc<Portfolio>> {
+        self.read(|ctx| ctx.db.get_portfolio(chain, owner))
+    }
+
+    pub fn contacts(&self) -> Vec<Contact> {
+        self.read(|ctx| ctx.db.contacts.clone())
     }
 
     pub fn get_token_price(&self, token: &ERC20Token ) -> Option<f64> {
@@ -114,11 +119,36 @@ impl ZeusCtx {
         self.write(|ctx| ctx.pool_manager.add_v3_pools(pools));
     }
 
-    /// Get all possible v3 pools based on the given tokens and fee tiers
-    pub fn get_v3_pools(&self, chain: u64, fees: &[u32], token_a: Address, token_b: Address) -> Vec<UniswapV3Pool> {
+    /// Get all v3 pools that include the given token and [FEE_TIERS]
+    pub fn get_v3_pools(&self, token: ERC20Token) -> Vec<UniswapV3Pool> {
+        let base_tokens = ERC20Token::base_tokens(token.chain_id);
         let mut pools = Vec::new();
-        for fee in fees {
-            if let Some(pool) = self.get_v3_pool(chain, *fee, token_a, token_b) {
+
+        for base_token in base_tokens {
+            if base_token.address == token.address {
+                continue;
+            }
+
+            for fee in FEE_TIERS {
+                if let Some(pool) = self.get_v3_pool(token.chain_id, fee, base_token.address, token.address) {
+                    pools.push(pool);
+                }
+            }
+        }
+        pools
+    }
+
+    /// Get all v2 pools for the given pair
+    pub fn get_v2_pools(&self, token: ERC20Token) -> Vec<UniswapV2Pool> {
+        let base_tokens = ERC20Token::base_tokens(token.chain_id);
+        let mut pools = Vec::new();
+
+        for base_token in base_tokens {
+            if base_token.address == token.address {
+                continue;
+            }
+
+            if let Some(pool) = self.get_v2_pool(token.chain_id, base_token.address, token.address) {
                 pools.push(pool);
             }
         }

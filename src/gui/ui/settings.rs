@@ -1,7 +1,7 @@
 use egui::{ vec2, Align2, Align, ScrollArea, Slider, Label, Layout, Color32, Frame, Ui, Grid, Window };
 use std::sync::Arc;
 use std::str::FromStr;
-use crate::core::{ ZeusCtx, user::Contact };
+use crate::core::{ ZeusCtx, context::db::Contact };
 use crate::assets::icons::Icons;
 use crate::gui::{ SHARED_GUI, utils, ui::{ CredentialsForm, rich_text, button, img_button } };
 use egui_theme::{
@@ -365,7 +365,7 @@ impl ContactsUi {
                 ui.set_width(self.size.0);
                 ui.set_height(self.size.1);
 
-                let contacts = ctx.profile().contacts;
+                let contacts = ctx.contacts();
 
                 ui.vertical_centered(|ui| {
                     ui.spacing_mut().item_spacing.y = 10.0;
@@ -485,34 +485,12 @@ impl ContactsUi {
                     }
 
                     if res_delete.clicked() {
-                        let address = contact.address;
-                        let mut profile = ctx.profile();
-                        profile.remove_contact(address);
-                        let dir = utils::get_profile_dir();
-                        let info = utils::get_encrypted_info(&dir);
-                        utils::open_loading("Encrypting profile...".to_string());
-
-                        std::thread::spawn(move || {
-                            match profile.encrypt_and_save(&dir, info.argon2_params) {
-                                Ok(_) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Contact Removed", "");
-                                    gui.settings.contacts_ui.main_ui = true;
-                                    gui.settings.contacts_ui.delete_contact = false;
-                                    gui.settings.contacts_ui.contact_to_delete = None;
-                                }
-                                Err(e) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Profile encryption failed", &format!("{}", e));
-                                    gui.settings.contacts_ui.main_ui = true;
-                                    gui.settings.contacts_ui.delete_contact = false;
-                                    return;
-                                }
-                            }
-                            ctx.write(|ctx| {
-                                ctx.profile = profile;
-                            });
+                        ctx.write(|ctx| {
+                            ctx.db.remove_contact(contact.address);
                         });
+                        self.delete_contact = false;
+                        self.main_ui = true;
+                        self.contact_to_delete = None;
                     }
                 });
             });
@@ -559,7 +537,7 @@ impl ContactsUi {
 
                     if ui.add(button(rich_text("Add"))).clicked() {
                         let contact = self.contact_to_add.clone();
-                        let mut profile = ctx.profile();
+
                         std::thread::spawn(move || {
                             // make sure the address is valid
                             let _ = match Address::from_str(&contact.address) {
@@ -571,34 +549,23 @@ impl ContactsUi {
                                 }
                             };
 
-                            match profile.add_contact(contact) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Failed to add contact", &format!("{}", e));
-                                    return;
-                                }
-                            }
-
-                            let dir = utils::get_profile_dir();
-                            let info = utils::get_encrypted_info(&dir);
-                            utils::open_loading("Encrypting profile...".to_string());
-
-                            match profile.encrypt_and_save(&dir, info.argon2_params) {
-                                Ok(_) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Contact has been added successfully", "");
-                                    gui.settings.contacts_ui.contact_to_add = Contact::default();
-                                }
-                                Err(e) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Profile encryption failed", &format!("{}", e));
-                                    return;
-                                }
-                            }
                             ctx.write(|ctx| {
-                                ctx.profile = profile;
+                                match ctx.db.add_contact(contact) {
+                                    Ok(_) => {
+                                        let mut gui = SHARED_GUI.write().unwrap();
+                                        gui.settings.contacts_ui.contact_to_add = Contact::default();
+                                        gui.settings.contacts_ui.add_contact = false;
+                                        gui.settings.contacts_ui.main_ui = true;
+                                    }
+                                    Err(e) => {
+                                        let mut gui = SHARED_GUI.write().unwrap();
+                                        gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                                        return;
+                                    }
+                                }
                             });
+
+                            utils::save_db(ctx);
                         });
                     }
                 });
@@ -671,39 +638,24 @@ impl ContactsUi {
                                 }
                             };
 
-                            let mut profile = ctx.profile();
-                            profile.remove_contact(old_contact.address.clone());
-                            match profile.add_contact(new_contact) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Failed to edit contact", &format!("{}", e));
-                                    return;
-                                }
-                            }
-
-                            let dir = utils::get_profile_dir();
-                            let info = utils::get_encrypted_info(&dir);
-                            utils::open_loading("Encrypting profile...".to_string());
-
-                            match profile.encrypt_and_save(&dir, info.argon2_params) {
-                                Ok(_) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.settings.contacts_ui.contact_to_edit = None;
-                                    gui.settings.contacts_ui.edit_contact = false;
-                                    gui.settings.contacts_ui.main_ui = true;
-                                    gui.loading_window.open = false;
-                                }
-                                Err(e) => {
-                                    let mut gui = SHARED_GUI.write().unwrap();
-                                    gui.open_msg_window("Profile encryption failed", &format!("{}", e));
-                                    gui.loading_window.open = false;
-                                    return;
-                                }
-                            }
                             ctx.write(|ctx| {
-                                ctx.profile = profile;
+                                ctx.db.remove_contact(old_contact.address.clone());
+                                match ctx.db.add_contact(new_contact) {
+                                    Ok(_) => {
+                                        let mut gui = SHARED_GUI.write().unwrap();
+                                        gui.settings.contacts_ui.contact_to_edit = None;
+                                        gui.settings.contacts_ui.edit_contact = false;
+                                        gui.settings.contacts_ui.main_ui = true;
+                                        gui.loading_window.open = false;
+                                    }
+                                    Err(e) => {
+                                        let mut gui = SHARED_GUI.write().unwrap();
+                                        gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                                        return;
+                                    }
+                                }
                             });
+                            utils::save_db(ctx);
                         });
                     }
                 });

@@ -10,11 +10,12 @@ use alloy_provider::Provider;
 use alloy_transport::Transport;
 
 use crate::uniswap::{ v2::pool::{ PoolReserves, UniswapV2Pool }, v3::pool::{ V3PoolState, UniswapV3Pool } };
+use crate::DexKind;
 use currency::erc20::ERC20Token;
 use utils::{
     is_base_token,
     price_feed::get_base_token_price,
-    batch_request::{ get_v2_pool_reserves, get_v3_state, V2PoolReserves, V3PoolData },
+    batch_request::{ get_v2_pool_reserves, get_v3_pools, get_v3_state, V2PoolReserves, V3PoolData },
 };
 
 use serde::{ Deserialize, Serialize };
@@ -113,8 +114,18 @@ impl PoolStateManagerHandle {
         self.write(|manager| manager.remove_v3_pool(chain_id, fee, token0, token1))
     }
 
+    /// Update everything in the manager
+    pub async fn update<T, P, N>(&self, client: P, chain: u64, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
+        where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+    {
+        self.update_pool_state(client.clone(), chain).await?;
+        self.update_base_token_prices(client.clone(), tokens).await?;
+        self.calculate_prices()?;
+        Ok(())
+    }
+
     /// Update the state of all the pools for the given chain
-    pub async fn update_state<T, P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
+    pub async fn update_pool_state<T, P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
     {
         let v2_pool_map = self.read(|manager| manager.v2_pools.clone());
@@ -165,6 +176,114 @@ impl PoolStateManagerHandle {
     {
         let prices = PoolStateManager::fetch_base_token_prices(client, tokens).await?;
         self.write(|manager| manager.update_base_token_prices(prices));
+        Ok(())
+    }
+
+    /// Get all the possible v2 pools for the given token based on:
+    ///
+    /// - The token's chain id
+    /// - All the possible [DexKind] for the chain
+    /// - Base Tokens [ERC20Token::base_tokens()]
+    pub async fn get_v2_pools_for_token<T, P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    {
+        let base_tokens = ERC20Token::base_tokens(token.chain_id);
+        let dex_kinds = DexKind::all(token.chain_id);
+
+        let mut pools = Vec::new();
+        for base_token in base_tokens {
+            if base_token.address == token.address {
+                continue;
+            }
+
+            for dex in &dex_kinds {
+                if dex.is_pancakeswap_v3() || dex.is_uniswap_v3() {
+                    continue;
+                }
+
+                tracing::info!(
+                    "Getting v2 pool for: {}-{} on: {} Chain Id: {}",
+                    token.symbol,
+                    base_token.symbol,
+                    dex.to_str(),
+                    token.chain_id
+                );
+
+                let pool = UniswapV2Pool::from(
+                    client.clone(),
+                    token.chain_id,
+                    token.clone(),
+                    base_token.clone(),
+                    *dex
+                ).await;
+                if let Ok(pool) = pool {
+                    pools.push(pool);
+                }
+            }
+        }
+        self.add_v2_pools(pools);
+        Ok(())
+    }
+
+    /// Get all the possible v3 pools for the given token based on:
+    ///
+    /// - The token's chain id
+    /// - All the possible [DexKind] for the chain
+    /// - Base Tokens [ERC20Token::base_tokens()]
+    pub async fn get_v3_pools_for_token<T, P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    {
+        let base_tokens = ERC20Token::base_tokens(token.chain_id);
+        let dex_kinds = DexKind::all(token.chain_id);
+
+        let mut pools = Vec::new();
+
+        for base_token in &base_tokens {
+            if base_token.address == token.address {
+                continue;
+            }
+
+            for dex in &dex_kinds {
+                if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
+                    continue;
+                }
+
+                let factory = dex.factory(token.chain_id)?;
+                tracing::info!(
+                    "Getting v3 pools for: {}-{} on: {} with factory {} Chain Id: {}",
+                    token.address,
+                    base_token.address,
+                    dex.to_str(),
+                    factory,
+                    token.chain_id
+                );
+                let v3_pools = get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
+                pools.extend(v3_pools);
+            }
+        }
+
+        let mut pool_result = Vec::new();
+        for base_token in base_tokens {
+            if base_token.address == token.address {
+                continue;
+            }
+
+            for dex in &dex_kinds {
+                if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
+                    continue;
+                }
+                for pool in &pools {
+                    if !pool.addr.is_zero() {
+                        let fee: u32 = pool.fee.to_string().parse()?;
+                        pool_result.push(
+                            UniswapV3Pool::new(token.chain_id, pool.addr, fee, token.clone(), base_token.clone(), *dex)
+                        );
+                    }
+                }
+            }
+        }
+
+        self.add_v3_pools(pool_result);
         Ok(())
     }
 

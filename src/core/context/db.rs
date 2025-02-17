@@ -6,6 +6,7 @@ use zeus_eth::alloy_primitives::{ Address, U256 };
 use zeus_eth::currency::{ Currency, native::NativeCurrency, erc20::ERC20Token };
 use zeus_eth::types;
 use zeus_token_list::{ ETHEREUM, OPTIMISM, BASE, ARBITRUM, BINANCE_SMART_CHAIN, tokens::UniswapToken };
+use anyhow::anyhow;
 
 pub const ZEUS_DB_FILE: &str = "zeus_db.json";
 
@@ -29,6 +30,39 @@ pub type Currencies = HashMap<u64, Arc<Vec<Currency>>>;
 /// Key: (chain_id, owner)
 pub type Portfolios = HashMap<(u64, Address), Arc<Portfolio>>;
 
+
+/// Saved contact by the user
+#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Contact {
+    pub name: String,
+    pub address: String,
+    pub notes: String,
+}
+
+impl Contact {
+    pub fn new(name: String, address: String, notes: String) -> Self {
+        Self {
+            name,
+            address,
+            notes,
+        }
+    }
+
+    pub fn address_short(&self) -> String {
+        format!("{}...{}", &self.address[..6], &self.address[36..])
+    }
+
+    /// Serialize to JSON String
+    pub fn serialize(&self) -> Result<String, anyhow::Error> {
+        Ok(serde_json::to_string(self)?)
+    }
+
+    /// Deserialize from slice
+    pub fn from_slice(data: &[u8]) -> Result<Self, anyhow::Error> {
+        Ok(serde_json::from_slice::<Contact>(data)?)
+    }
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ZeusDB {
     #[serde(with = "serde_helpers")]
@@ -43,6 +77,7 @@ pub struct ZeusDB {
     #[serde(with = "serde_helpers")]
     pub portfolios: Portfolios,
 
+    pub contacts: Vec<Contact>,
 }
 
 impl Default for ZeusDB {
@@ -52,6 +87,7 @@ impl Default for ZeusDB {
             eth_balance: Default::default(),
             currencies: Default::default(),
             portfolios: Default::default(),
+            contacts: Default::default(),
         }
     }
 }
@@ -104,9 +140,9 @@ impl ZeusDB {
         }
     }
 
-    pub fn get_portfolio(&self, chain_id: u64, owner: Address) -> Arc<Portfolio> {
+    pub fn get_portfolio(&self, chain_id: u64, owner: Address) -> Option<Arc<Portfolio>> {
         let key = (chain_id, owner);
-        self.portfolios.get(&key).cloned().unwrap_or_default()
+        self.portfolios.get(&key).cloned()
     }
 
     pub fn get_portfolio_mut(&mut self, chain_id: u64, owner: Address) -> Option<&mut Portfolio> {
@@ -117,6 +153,21 @@ impl ZeusDB {
     pub fn insert_portfolio(&mut self, chain_id: u64, owner: Address, portfolio: Portfolio) {
         let key = (chain_id, owner);
         self.portfolios.insert(key, Arc::new(portfolio));
+    }
+
+    pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
+        // make sure name and address are unique
+        if self.contacts.iter().any(|c| c.name == contact.name) {
+            return Err(anyhow!("Contact with name {} already exists", contact.name));
+        } else if self.contacts.iter().any(|c| c.address == contact.address) {
+            return Err(anyhow!("Contact with address {} already exists", contact.address));
+        }
+        self.contacts.push(contact);
+        Ok(())
+    }
+    
+    pub fn remove_contact(&mut self, address: String) {
+        self.contacts.retain(|c| c.address != address);
     }
 
     pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {

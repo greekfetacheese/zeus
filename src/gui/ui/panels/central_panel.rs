@@ -49,6 +49,8 @@ fn should_show_overlay(gui: &mut GUI) {
         gui.show_overlay = true;
     } else if gui.settings.contacts_ui.open {
         gui.show_overlay = true;
+    } else if gui.settings.encryption_settings.open {
+        gui.show_overlay = true;
     } else {
         gui.show_overlay = false;
     }

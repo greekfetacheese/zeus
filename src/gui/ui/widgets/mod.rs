@@ -19,9 +19,9 @@ use crate::gui::ui::{
     button,
     rich_text,
     currency_balance,
+    wallet_value,
     currency_price,
     currency_value,
-    currency_value_f64,
 };
 use crate::assets::icons::Icons;
 use crate::core::{ Wallet, ZeusCtx, user::Portfolio };
@@ -257,9 +257,10 @@ impl PortfolioUi {
 
         let chain_id = ctx.chain().id();
         let owner = ctx.wallet().key.address();
-        let portfolio = ctx.get_portfolio(owner);
+        let portfolio = ctx.get_portfolio(chain_id, owner).unwrap_or_default();
+ 
         let currencies = portfolio.currencies();
-        let all_currencies = ctx.get_currencies(chain_id);
+        let portfolio_value = wallet_value(ctx.clone(), chain_id, owner);
 
         ui.vertical_centered_justified(|ui| {
             ui.set_width(ui.available_width() * 0.8);
@@ -284,7 +285,7 @@ impl PortfolioUi {
                             ui.label(RichText::new("Total Portfolio Value").color(Color32::GRAY).size(14.0));
                             ui.add_space(8.0);
                             ui.label(
-                                RichText::new(format!("${:.2}", self.total_value(ctx.clone())))
+                                RichText::new(format!("${:.2}", portfolio_value))
                                     .heading()
                                     .size(32.0)
                             );
@@ -342,6 +343,7 @@ impl PortfolioUi {
                     });
 
                     // Token selection
+                    let all_currencies = ctx.get_currencies(chain_id);
                     token_selection.show(ctx.clone(), chain_id, owner, icons.clone(), &all_currencies, ui);
                     let currency = token_selection.get_currency().cloned();
 
@@ -426,19 +428,5 @@ impl PortfolioUi {
                 })
             }
         });
-    }
-
-    fn total_value(&self, ctx: ZeusCtx) -> f64 {
-        let owner = ctx.wallet().key.address();
-        let portfolio = ctx.get_portfolio(owner);
-        let currencies = portfolio.currencies();
-        let mut total = 0.0;
-        for currency in currencies {
-            let price = currency_price(ctx.clone(), currency);
-            let balance = currency_balance(ctx.clone(), owner, currency);
-            let value = currency_value_f64(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
-            total += value;
-        }
-        total
     }
 }

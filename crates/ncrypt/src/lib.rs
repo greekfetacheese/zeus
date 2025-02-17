@@ -18,7 +18,7 @@ pub fn extract_metadata(encrypted_data: &[u8]) -> Result<Vec<u8>, anyhow::Error>
     Ok(encrypted_data[metadata_start..metadata_end].to_vec())
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct EncryptedInfo {
     pub password_salt: String,
     pub username_salt: String,
@@ -39,6 +39,16 @@ impl EncryptedInfo {
             cipher_nonce,
             argon2_params,
         }
+    }
+
+    pub fn from_encrypted_data(data: &[u8]) -> Result<Self, anyhow::Error> {
+        let metadata = extract_metadata(data)?;
+
+        let info: EncryptedInfo = bincode
+            ::deserialize(&metadata)
+            .map_err(|e| anyhow!("Deserialization failed {}", e))?;
+
+        Ok(info)
     }
 
     pub fn from_file(dir: &std::path::PathBuf) -> Result<Self, anyhow::Error> {

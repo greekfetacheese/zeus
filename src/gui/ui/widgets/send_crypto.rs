@@ -93,7 +93,7 @@ impl SendCryptoUi {
 
                     // Integrated contact search dropdown
                     if self.contact_search_open {
-                        let contacts = ctx.profile().contacts.clone();
+                        let contacts = ctx.contacts();
                         Frame::menu(ui.style()).show(ui, |ui| {
                             ScrollArea::vertical()
                                 .max_height(200.0)

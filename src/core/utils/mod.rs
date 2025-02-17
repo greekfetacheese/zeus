@@ -30,7 +30,6 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
     Ok(dir)
 }
 
-
 /// Pool data directory
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
     let dir = data_dir()?.join("pool_data.json");
@@ -62,12 +61,14 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
             let mut retry = 0;
             let mut v2_pools = None;
             let mut v3_pools = None;
-            
+
             while v2_pools.is_none() && retry < MAX_RETRY {
                 match fetch::get_v2_pools_for_token(ctx.clone(), token.clone()).await {
-                    Ok(pools) => v2_pools = Some(pools),
-                    Err(e) => tracing::error!("Error getting v2 pools: {:?}", e)
-                };
+                    Ok(pools) => {
+                        v2_pools = Some(pools);
+                    }
+                    Err(e) => tracing::error!("Error getting v2 pools: {:?}", e),
+                }
                 retry += 1;
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
@@ -75,9 +76,11 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
             retry = 0;
             while v3_pools.is_none() && retry < MAX_RETRY {
                 match fetch::get_v3_pools_for_token(ctx.clone(), token.clone()).await {
-                    Ok(pools) => v3_pools = Some(pools),
-                    Err(e) => tracing::error!("Error getting v3 pools: {:?}", e)
-                };
+                    Ok(pools) => {
+                        v3_pools = Some(pools);
+                    }
+                    Err(e) => tracing::error!("Error getting v3 pools: {:?}", e),
+                }
                 retry += 1;
                 std::thread::sleep(std::time::Duration::from_secs(1));
             }
@@ -91,7 +94,6 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
                 tracing::info!("Got {} v3 pools for: {}", v3_pools.len(), token.symbol);
                 ctx.add_v3_pools(v3_pools);
             }
-
         }
     }
 
@@ -100,6 +102,7 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
     Ok(())
 }
 
+/// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
     const INTERVAL: u64 = 600;
     update_price_manager(ctx.clone()).await;
@@ -117,17 +120,27 @@ pub async fn update(ctx: ZeusCtx) {
 }
 
 pub async fn update_price_manager(ctx: ZeusCtx) {
-    let pool_manager = ctx.pool_manager();
+    const INTERVAL: u64 = 600;
 
-    for chain in SUPPORTED_CHAINS {
-        let client = ctx.get_client_with_id(chain).unwrap();
+    let mut time_passed = std::time::Instant::now();
 
-        let base_tokens = ERC20Token::base_tokens(chain);
-        let res = pool_manager.update_base_token_prices(client.clone(), base_tokens).await;
-        if let Err(e) = res {
-            tracing::error!("Error updating base token prices: {:?}", e);
+    loop {
+        if time_passed.elapsed().as_secs() > INTERVAL {
+            let pool_manager = ctx.pool_manager();
+
+            for chain in SUPPORTED_CHAINS {
+                let client = ctx.get_client_with_id(chain).unwrap();
+                let base_tokens = ERC20Token::base_tokens(chain);
+                let res = pool_manager.update(client.clone(), chain, base_tokens).await;
+                if let Err(e) = res {
+                    tracing::error!("Error updating pool manager: {:?}", e);
+                }
+            }
+            time_passed = std::time::Instant::now();
+
+            ctx.save_pool_data().unwrap();
+            tracing::info!("Pool State Manager updated");
         }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
-    ctx.save_pool_data().unwrap();
-    tracing::info!("Pool State Manager updated");
 }
