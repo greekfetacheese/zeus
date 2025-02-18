@@ -12,9 +12,9 @@ default-run = "zeus-desktop"
 [dependencies]
 
 # GUI
-eframe = {version = "0.30.0", features = ["wgpu"]}
-egui = {version = "0.30.0", features = ["serde"]}
-egui_extras = {version = "0.30.0", features = ["svg", "image"]}
+eframe = {version = "0.31.0", features = ["wgpu"]}
+egui = {version = "0.31.0", features = ["serde"]}
+egui_extras = {version = "0.31.0", features = ["svg", "image"]}
 egui-theme = { path = "crates/egui-theme" }
 image = "0.25.1"
 
