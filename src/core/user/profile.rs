@@ -1,4 +1,4 @@
-use ncrypt::prelude::{ Zeroize, decrypt_data, encrypt_data, Argon2Params, Credentials };
+use ncrypt_me::{ zeroize::Zeroize, decrypt_data, encrypt_data, Argon2Params, Credentials };
 use zeus_eth::alloy_primitives::Address;
 use crate::core::utils::data_dir;
 use super::wallet::{ Wallet, WalletData };

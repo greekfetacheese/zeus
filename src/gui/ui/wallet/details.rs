@@ -6,7 +6,7 @@ use crate::gui::{
     ui::{ rich_text, button, text_edit_multi, CredentialsForm },
     SHARED_GUI,
 };
-use ncrypt::zeroize::Zeroize;
+use ncrypt_me::zeroize::Zeroize;
 
 pub struct ViewKeyUi {
     pub open: bool,

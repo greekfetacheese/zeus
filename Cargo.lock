@@ -4115,15 +4115,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "ncrypt"
-version = "1.0.0"
+name = "ncrypt-me"
+version = "0.1.0"
+source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#62eb545af3a406e0c4925f4bff46ede851b99ec5"
 dependencies = [
- "anyhow",
  "argon2",
  "bincode",
  "chacha20poly1305",
  "serde",
  "serde_json",
+ "thiserror 2.0.6",
  "zeroize",
 ]
 
@@ -7746,7 +7747,7 @@ dependencies = [
  "futures",
  "image",
  "lazy_static",
- "ncrypt",
+ "ncrypt-me",
  "reqwest",
  "serde",
  "serde_json",

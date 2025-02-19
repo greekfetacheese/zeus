@@ -9,7 +9,7 @@ use egui_theme::{
     utils::{ bg_color_on_idle, bg_color_on_hover, border_on_idle, border_on_hover, border_on_click },
 };
 use zeus_eth::alloy_primitives::Address;
-use ncrypt::Argon2Params;
+use ncrypt_me::Argon2Params;
 
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.

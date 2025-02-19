@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use crate::core::user::Profile;
 use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
-use ncrypt::EncryptedInfo;
+use ncrypt_me::EncryptedInfo;
 
 // Shortcuts for functions that may fail but we need to show an error message
 // These functions are only called on a seperate thread so we dont block or panic the main thread

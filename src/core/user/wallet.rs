@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use ncrypt::zeroize::Zeroize;
+use ncrypt_me::zeroize::Zeroize;
 
 use zeus_eth::alloy_primitives::hex::encode;
 use alloy_signer::k256::ecdsa::SigningKey;

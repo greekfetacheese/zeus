@@ -2,7 +2,7 @@ use eframe::egui::Ui;
 use egui_theme::{ Theme, utils::{ border_on_idle, border_on_click, border_on_hover } };
 use crate::{core::ZeusCtx, gui::utils};
 use crate::gui::{ SHARED_GUI, utils::{get_profile_dir, get_encrypted_info}, ui::{ button, rich_text, text_edit_single } };
-use ncrypt::prelude::{ Argon2Params, Credentials };
+use ncrypt_me::{ Argon2Params, Credentials };
 
 pub struct CredentialsForm {
     pub open: bool,

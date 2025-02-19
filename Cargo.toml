@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ncrypt", "crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth"]
+members = ["crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth"]
 
 [package]
 name = "zeus-desktop"
@@ -30,7 +30,7 @@ alloy-signer = "0.11.0"
 alloy-signer-local = "0.11.0"
 
 # Crypto
-ncrypt = { path = "crates/ncrypt" }
+ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
 
 # Tracing
 tracing = "0.1.40"

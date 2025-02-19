@@ -6,7 +6,7 @@ use egui_theme::{
 };
 use crate::core::ZeusCtx;
 use crate::gui::{ self, ui::{ rich_text, button, text_edit_single }, SHARED_GUI };
-use ncrypt::zeroize::Zeroize;
+use ncrypt_me::zeroize::Zeroize;
 
 pub struct AddWalletUi {
     pub open: bool,
