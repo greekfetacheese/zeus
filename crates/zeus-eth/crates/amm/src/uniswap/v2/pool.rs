@@ -1,7 +1,7 @@
 use alloy_primitives::{ utils::{ format_units, parse_units }, Address, U256 };
 use alloy_rpc_types::BlockId;
 
-use crate::DexKind;
+use crate::{DexKind, minimum_liquidity};
 use abi::uniswap::v2;
 use currency::erc20::ERC20Token;
 use utils::{ is_base_token, price_feed::get_base_token_price };
@@ -22,6 +22,12 @@ pub struct UniswapV2Pool {
     pub token1: ERC20Token,
     pub dex: DexKind,
     pub state: Option<PoolReserves>,
+
+    /// Base token USD price
+    pub base_usd: f64,
+
+    /// Quote token USD price
+    pub quote_usd: f64,
 }
 
 /// Represents the state of a Uniswap V2 Pool
@@ -64,6 +70,8 @@ impl UniswapV2Pool {
             token1,
             dex,
             state: None,
+            base_usd: 0.0,
+            quote_usd: 0.0,
         }
     }
 
@@ -114,6 +122,36 @@ impl UniswapV2Pool {
 
     pub fn is_token1(&self, token: Address) -> bool {
         self.token1.address == token
+    }
+
+    /// Does this pool have enough liquidity
+    pub fn enough_liquidity(&self) -> bool {
+        let base_token = self.base_token();
+        let reserve = if self.is_token0(base_token.address) {
+            self.state.as_ref().map(|state| state.reserve0).unwrap_or(U256::ZERO)
+        } else {
+            self.state.as_ref().map(|state| state.reserve1).unwrap_or(U256::ZERO)
+        };
+        let threshold = minimum_liquidity(base_token);
+        reserve >= threshold
+    }
+
+    /// See [is_base_token]
+    pub fn base_token(&self) -> ERC20Token {
+        if is_base_token(self.chain_id, self.token0.address) {
+            self.token0.clone()
+        } else {
+            self.token1.clone()
+        }
+    }
+
+    /// Anything that is not [is_base_token]
+    pub fn quote_token(&self) -> ERC20Token {
+        if is_base_token(self.chain_id, self.token0.address) {
+            self.token1.clone()
+        } else {
+            self.token0.clone()
+        }
     }
 
     /// Fetch the state of the pool at a given block
@@ -168,6 +206,29 @@ impl UniswapV2Pool {
             Ok(amount_out)
         }
     }
+
+    /// Calculate quote token price
+    pub fn caluclate_quote_price(&mut self, base_usd: f64) -> f64 {
+        if base_usd == 0.0 {
+            return 0.0;
+        }
+
+        let base_token = self.base_token();
+
+        let unit = parse_units("1", base_token.decimals).unwrap().get_absolute();
+        let amount_out = self.simulate_swap(base_token.address, unit).unwrap();
+        let amount_out = format_units(amount_out, base_token.decimals).unwrap().parse::<f64>().unwrap();
+
+        if amount_out == 0.0 {
+            return 0.0;
+        }
+
+        let quote_price = base_usd / amount_out;
+        self.quote_usd = quote_price;
+        quote_price
+    }
+    
+
 
     /// Token0 USD price but we need to know the usd price of token1
     pub fn token0_price(&self, token1_price: f64) -> Result<f64, anyhow::Error> {
@@ -275,6 +336,10 @@ mod tests {
         let (token0_usd, token1_usd) = pool.tokens_usd(client.clone(), None).await.unwrap();
         println!("{} Price: ${}", pool.token0.symbol, token0_usd);
         println!("{} Price: ${}", pool.token1.symbol, token1_usd);
+
+        println!("=== Quote Price Test ===");
+        let quote_price = pool.caluclate_quote_price(token1_usd);
+        println!("{} Price: ${}", pool.quote_token().symbol, quote_price);
 
         assert_eq!(pool.token0.address, uni.address);
         assert_eq!(pool.token1.address, weth.address);

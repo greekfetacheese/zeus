@@ -14,17 +14,15 @@ use eframe::egui::{
     vec2,
     Vec2,
 };
+use zeus_eth::currency::ERC20Token;
 use std::sync::Arc;
-use crate::gui::ui::{
-    button,
-    rich_text,
-    currency_balance,
-    wallet_value,
-    currency_price,
-    currency_value,
-};
+
+use crate::gui::ui::{ button, rich_text, currency_balance, wallet_value, currency_price, currency_value };
 use crate::assets::icons::Icons;
 use crate::core::{ Wallet, ZeusCtx, user::Portfolio };
+use crate::core::utils::{ RT, fetch };
+use crate::gui::SHARED_GUI;
+
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
 use zeus_eth::{ currency::Currency, types::ChainId };
@@ -241,12 +239,14 @@ impl MsgWindow {
 
 pub struct PortfolioUi {
     pub open: bool,
+    pub show_spinner: bool,
 }
 
 impl PortfolioUi {
     pub fn new() -> Self {
         Self {
             open: true,
+            show_spinner: false,
         }
     }
 
@@ -258,7 +258,7 @@ impl PortfolioUi {
         let chain_id = ctx.chain().id();
         let owner = ctx.wallet().key.address();
         let portfolio = ctx.get_portfolio(chain_id, owner).unwrap_or_default();
- 
+
         let currencies = portfolio.currencies();
         let portfolio_value = wallet_value(ctx.clone(), chain_id, owner);
 
@@ -272,6 +272,14 @@ impl PortfolioUi {
                     if ui.button("+ Add Token").clicked() {
                         token_selection.open = true;
                     }
+
+                    if ui.button("Update Prices").clicked() {
+                        self.update_prices(ctx.clone());
+                    }
+
+                    if self.show_spinner {
+                        ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
+                    }
                 });
             });
 
@@ -284,11 +292,7 @@ impl PortfolioUi {
                         ui.vertical_centered(|ui| {
                             ui.label(RichText::new("Total Portfolio Value").color(Color32::GRAY).size(14.0));
                             ui.add_space(8.0);
-                            ui.label(
-                                RichText::new(format!("${:.2}", portfolio_value))
-                                    .heading()
-                                    .size(32.0)
-                            );
+                            ui.label(RichText::new(format!("${:.2}", portfolio_value)).heading().size(32.0));
                         });
                     });
             });
@@ -304,7 +308,7 @@ impl PortfolioUi {
                         ui.available_width() * 0.2, // Price
                         ui.available_width() * 0.2, // Balance
                         ui.available_width() * 0.2, // Value
-                       // ui.available_width() * 0.1, // 24h price change
+                        // ui.available_width() * 0.1, // 24h price change
                         ui.available_width() * 0.1, // Remove button
                     ];
 
@@ -314,7 +318,7 @@ impl PortfolioUi {
 
                         Grid::new("currency_grid")
                             .num_columns(5)
-                            .spacing([20.0, 30.0]) // Horizontal and vertical spacing
+                            .spacing([20.0, 30.0])
                             .show(ui, |ui| {
                                 // Header
                                 ui.label(RichText::new("Asset").strong().size(15.0));
@@ -325,7 +329,7 @@ impl PortfolioUi {
 
                                 ui.label(RichText::new("Value").strong().size(15.0));
 
-                               // ui.label(RichText::new("24h").strong().size(15.0));
+                                // ui.label(RichText::new("24h").strong().size(15.0));
 
                                 ui.end_row();
 
@@ -335,7 +339,7 @@ impl PortfolioUi {
                                     self.price(ctx.clone(), currency, ui, column_widths[1]);
                                     self.balance(ctx.clone(), currency, ui, column_widths[2]);
                                     self.value(ctx.clone(), currency, ui, column_widths[3]);
-                                   // self.change_24h(ui, column_widths[4]);
+                                    // self.change_24h(ui, column_widths[4]);
                                     self.remove_currency(ctx.clone(), currency, ui, column_widths[4]);
                                     ui.end_row();
                                 }
@@ -349,17 +353,7 @@ impl PortfolioUi {
 
                     if let Some(currency) = currency {
                         token_selection.reset();
-                        ctx.write(|ctx| {
-                            let portfolio = ctx.db.get_portfolio_mut(chain_id, owner);
-                            if portfolio.is_none() {
-                                let portfolio = Portfolio::new(vec![currency.clone()], owner);
-                                ctx.db.insert_portfolio(chain_id, owner, portfolio);
-                            } else {
-                                let portfolio = portfolio.unwrap();
-                                portfolio.add_currency(currency.clone());
-                            }
-                        });
-                        let _ = ctx.save_db();
+                        self.add_currency(ctx.clone(), currency);
                     }
                 });
         });
@@ -411,6 +405,66 @@ impl PortfolioUi {
             ui.set_width(width);
             ui.label(RichText::new("12.4%").color(Color32::from_rgb(0, 200, 0)).size(12.0)); // Replace with real data
         });
+    }
+
+    fn update_prices(&mut self, ctx: ZeusCtx) {
+        self.show_spinner = true;
+        RT.spawn(async move {
+            let pool_manager = ctx.pool_manager();
+            let chain = ctx.chain().id();
+            let client = ctx.get_client_with_id(chain).unwrap();
+            let tokens = ERC20Token::base_tokens(chain);
+
+            match pool_manager.update(client, chain, tokens).await {
+                Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
+                Err(e) => tracing::error!("Error updating prices: {:?}", e),
+            }
+            let mut gui = SHARED_GUI.write().unwrap();
+            gui.portofolio.show_spinner = false;
+            let _ = ctx.save_pool_data();
+        });
+    }
+
+    fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
+        let chain_id = ctx.chain().id();
+        let owner = ctx.wallet().key.address();
+        ctx.write(|ctx| {
+            let portfolio = ctx.db.get_portfolio_mut(chain_id, owner);
+            if portfolio.is_none() {
+                let portfolio = Portfolio::new(vec![currency.clone()], owner);
+                ctx.db.insert_portfolio(chain_id, owner, portfolio);
+            } else {
+                let portfolio = portfolio.unwrap();
+                portfolio.add_currency(currency.clone());
+            }
+        });
+        let _ = ctx.save_db();
+
+        let token = if currency.is_native() {
+            ERC20Token::native_wrapped_token(currency.chain_id())
+        } else {
+            currency.erc20().cloned().unwrap()
+        };
+
+        let v2_pools = ctx.get_v2_pools(token.clone());
+        let v3_pools = ctx.get_v3_pools(token.clone());
+
+        if v2_pools.is_empty() {
+            let token = token.clone();
+            let ctx = ctx.clone();
+            RT.spawn(async move {
+                let _ = fetch::get_v2_pools_for_token(ctx.clone(), token.clone()).await;
+            });
+        }
+
+        if v3_pools.is_empty() {
+            let token = token.clone();
+            let ctx = ctx.clone();
+            RT.spawn(async move {
+                let _ = fetch::get_v3_pools_for_token(ctx.clone(), token.clone()).await;
+            });
+        }
+        let _ = ctx.save_pool_data();
     }
 
     fn remove_currency(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {

@@ -104,19 +104,9 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
 
 /// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
-    const INTERVAL: u64 = 600;
-    update_price_manager(ctx.clone()).await;
-
-    let mut time_passed = std::time::Instant::now();
-
-    loop {
-        if time_passed.elapsed().as_secs() > INTERVAL {
-            update_price_manager(ctx.clone()).await;
-            time_passed = std::time::Instant::now();
-        }
-
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
+    RT.spawn(async move {
+        update_price_manager(ctx.clone()).await;
+    });
 }
 
 pub async fn update_price_manager(ctx: ZeusCtx) {

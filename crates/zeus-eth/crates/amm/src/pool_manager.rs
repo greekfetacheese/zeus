@@ -13,9 +13,8 @@ use crate::uniswap::{ v2::pool::{ PoolReserves, UniswapV2Pool }, v3::pool::{ V3P
 use crate::DexKind;
 use currency::erc20::ERC20Token;
 use utils::{
-    is_base_token,
     price_feed::get_base_token_price,
-    batch_request::{ get_v2_pool_reserves, get_v3_pools, get_v3_state, V2PoolReserves, V3PoolData },
+    batch_request::{ V3Pool2, get_v2_pool_reserves, get_v3_pools, get_v3_state, V2PoolReserves, V3PoolData },
 };
 
 use serde::{ Deserialize, Serialize };
@@ -439,30 +438,50 @@ impl PoolStateManager {
     }
 
     pub fn calculate_prices(&mut self) -> Result<(), anyhow::Error> {
-        for pool in self.v2_pools.values() {
-            if is_base_token(pool.chain_id, pool.token0.address) {
-                let token0_usd = self.token_prices.get(&(pool.chain_id, pool.token0.address)).cloned().unwrap_or(0.0);
-                let token1_price = pool.token1_price(token0_usd).unwrap_or(0.0);
-                self.token_prices.insert((pool.chain_id, pool.token1.address), token1_price);
-            } else if is_base_token(pool.chain_id, pool.token1.address) {
-                let token1_usd = self.token_prices.get(&(pool.chain_id, pool.token1.address)).cloned().unwrap_or(0.0);
-                let token0_price = pool.token0_price(token1_usd).unwrap_or(0.0);
-                self.token_prices.insert((pool.chain_id, pool.token0.address), token0_price);
+        let mut prices: HashMap<(u64, Address), Vec<f64>> = HashMap::new();
+
+        for (_, pool) in self.v2_pools.iter_mut() {
+            if !pool.enough_liquidity() {
+                continue;
             }
+
+            let quote = pool.quote_token();
+            let base_token = pool.base_token();
+            let base_price = self.token_prices.get(&(base_token.chain_id, base_token.address)).cloned().unwrap_or(0.0);
+            pool.base_usd = base_price;
+
+            let quote_price = pool.caluclate_quote_price(base_price);
+            if quote_price == 0.0 {
+                continue;
+            }
+            prices.entry((pool.chain_id, quote.address)).or_insert_with(Vec::new).push(quote_price);
         }
 
-        for pool in self.v3_pools.values() {
-            if is_base_token(pool.chain_id, pool.token0.address) {
-                let token0_usd = self.token_prices.get(&(pool.chain_id, pool.token0.address)).cloned().unwrap_or(0.0);
-
-                let token1_price = pool.token1_price(token0_usd).unwrap_or(0.0);
-                self.token_prices.insert((pool.chain_id, pool.token1.address), token1_price);
-            } else if is_base_token(pool.chain_id, pool.token1.address) {
-                let token1_usd = self.token_prices.get(&(pool.chain_id, pool.token1.address)).cloned().unwrap_or(0.0);
-                let token0_price = pool.token0_price(token1_usd).unwrap_or(0.0);
-                self.token_prices.insert((pool.chain_id, pool.token0.address), token0_price);
+         
+        for (_, pool) in self.v3_pools.iter_mut() {
+            if !pool.enough_liquidity() {
+                continue;
             }
+
+            let quote = pool.quote_token();
+            let base_token = pool.base_token();
+            let base_price = self.token_prices.get(&(base_token.chain_id, base_token.address)).cloned().unwrap_or(0.0);
+            pool.base_usd = base_price;
+
+            let quote_price = pool.caluclate_quote_price(base_price);
+            if quote_price == 0.0 {
+                continue;
+            }
+            prices.entry((pool.chain_id, quote.address)).or_insert_with(Vec::new).push(quote_price);
         }
+        
+
+        // calculate the average price
+        for ((chain_id, token), prices) in prices {
+            let price = prices.iter().sum::<f64>() / prices.len() as f64;
+            self.token_prices.insert((chain_id, token), price);
+        }
+
         Ok(())
     }
 
@@ -551,10 +570,10 @@ impl PoolStateManager {
             v2_tasks.push(task);
         }
 
-        let v3_addresses: Vec<Address> = v3_pools
+        let pools: Vec<UniswapV3Pool> = v3_pools
             .iter()
             .filter(|p| p.chain_id == chain_id)
-            .map(|p| p.address)
+            .map(|p| p.clone())
             .collect();
 
         let v3_data = Arc::new(Mutex::new(Vec::new()));
@@ -562,20 +581,27 @@ impl PoolStateManager {
         let delay = Arc::new(Mutex::new(0));
         let retry = Arc::new(Mutex::new(0));
 
-        for chunk in v3_addresses.chunks(BATCH_SIZE_2) {
-            let chunk_clone = chunk.to_vec();
+        for pool in pools.chunks(BATCH_SIZE_2) {
             let client = client.clone();
             let semaphore = semaphore.clone();
             let v3_data = v3_data.clone();
             let delay = delay.clone();
             let retry = retry.clone();
 
+            let mut pools2 = Vec::new();
+            for pool in pool {
+                pools2.push(V3Pool2 {
+                    pool: pool.address,
+                    base_token: pool.base_token().address,
+                });
+            }
+
             let task = tokio::spawn({
                 async move {
                     let mut got_it = false;
                     while !got_it && *retry.lock().await < MAX_RETRY {
                         let _permit = semaphore.acquire().await?;
-                        let data_res = get_v3_state(client.clone(), None, chunk_clone.clone()).await;
+                        let data_res = get_v3_state(client.clone(), None, pools2.clone()).await;
                         match data_res {
                             Ok(data) => {
                                 v3_data.lock().await.extend(data);

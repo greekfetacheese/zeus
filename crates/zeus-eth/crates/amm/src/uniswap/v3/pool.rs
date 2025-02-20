@@ -5,10 +5,10 @@ use alloy_contract::private::Network;
 use alloy_provider::Provider;
 use alloy_transport::Transport;
 
-use crate::DexKind;
+use crate::{ DexKind, minimum_liquidity };
 use abi::uniswap::v3;
 use currency::erc20::ERC20Token;
-use utils::{ batch_request, is_base_token, price_feed::get_base_token_price };
+use utils::{ batch_request::{ self, V3Pool2 }, is_base_token, price_feed::get_base_token_price };
 
 use std::collections::HashMap;
 
@@ -27,6 +27,14 @@ pub struct UniswapV3Pool {
     pub token1: ERC20Token,
     pub dex: DexKind,
     pub state: Option<V3PoolState>,
+
+    /// Base token USD price
+    pub base_usd: f64,
+
+    /// Quote token USD price
+    pub quote_usd: f64,
+
+    pub base_token_liquidity: U256,
 }
 
 /// The state of a Uniswap V3 Pool
@@ -56,10 +64,7 @@ pub struct PoolTick {
 }
 
 impl V3PoolState {
-    pub fn new(
-        pool_data: batch_request::V3PoolData,
-        block: Option<BlockId>
-    ) -> Result<Self, anyhow::Error> {
+    pub fn new(pool_data: batch_request::V3PoolData, block: Option<BlockId>) -> Result<Self, anyhow::Error> {
         let mut tick_bitmap_map = HashMap::new();
         tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
@@ -107,11 +112,7 @@ impl UniswapV3Pool {
         token1: ERC20Token,
         dex: DexKind
     ) -> Self {
-        let (token0, token1) = if token0.address < token1.address {
-            (token0, token1)
-        } else {
-            (token1, token0)
-        };
+        let (token0, token1) = if token0.address < token1.address { (token0, token1) } else { (token1, token0) };
 
         Self {
             chain_id,
@@ -121,6 +122,9 @@ impl UniswapV3Pool {
             token1,
             dex,
             state: None,
+            base_usd: 0.0,
+            quote_usd: 0.0,
+            base_token_liquidity: U256::ZERO,
         }
     }
 
@@ -136,13 +140,7 @@ impl UniswapV3Pool {
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let factory = dex.factory(chain_id)?;
-        let address = v3::factory::get_pool(
-            client,
-            factory,
-            token0.address,
-            token1.address,
-            fee
-        ).await?;
+        let address = v3::factory::get_pool(client, factory, token0.address, token1.address, fee).await?;
         if address.is_zero() {
             anyhow::bail!("Pair not found");
         }
@@ -179,17 +177,37 @@ impl UniswapV3Pool {
         self.token1.address == token
     }
 
+    /// Does this pool have enough liquidity
+    pub fn enough_liquidity(&self) -> bool {
+        let threshold = minimum_liquidity(self.base_token());
+        self.base_token_liquidity >= threshold
+    }
+
+    /// See [is_base_token]
+    pub fn base_token(&self) -> ERC20Token {
+        if is_base_token(self.chain_id, self.token0.address) { self.token0.clone() } else { self.token1.clone() }
+    }
+
+    /// Anything that is not [is_base_token]
+    pub fn quote_token(&self) -> ERC20Token {
+        if is_base_token(self.chain_id, self.token0.address) { self.token1.clone() } else { self.token0.clone() }
+    }
+
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
     pub async fn fetch_state<T, P, N>(
         client: P,
-        pool: Address,
+        pool: UniswapV3Pool,
         block: Option<BlockId>
     )
         -> Result<V3PoolState, anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
-        let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool]).await?;
+        let address = pool.address;
+        let base_token = pool.base_token().address;
+        let pool2 = V3Pool2 { pool: address, base_token };
+
+        let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool2]).await?;
         let data = pool_data
             .get(0)
             .cloned()
@@ -204,11 +222,7 @@ impl UniswapV3Pool {
         Ok(amount_out)
     }
 
-    pub fn simulate_swap_mut(
-        &mut self,
-        token_in: Address,
-        amount_in: U256
-    ) -> Result<U256, anyhow::Error> {
+    pub fn simulate_swap_mut(&mut self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
         let (amount_out, current_state) = super::calculate_swap(&self, token_in, amount_in)?;
 
         // update the state of the pool
@@ -220,6 +234,27 @@ impl UniswapV3Pool {
         self.update_state(state);
 
         Ok(amount_out)
+    }
+
+    /// Calculate quote token price
+    pub fn caluclate_quote_price(&mut self, base_usd: f64) -> f64 {
+        if base_usd == 0.0 {
+            return 0.0;
+        }
+
+        let base_token = self.base_token();
+
+        let unit = parse_units("1", base_token.decimals).unwrap().get_absolute();
+        let amount_out = self.simulate_swap(base_token.address, unit).unwrap_or(U256::ZERO);
+        let amount_out = format_units(amount_out, base_token.decimals).unwrap().parse::<f64>().unwrap();
+
+        if amount_out == 0.0 {
+            return 0.0;
+        }
+
+        let quote_price = base_usd / amount_out;
+        self.quote_usd = quote_price;
+        quote_price
     }
 
     /// Calculate the price of token in terms of quote token
@@ -252,31 +287,16 @@ impl UniswapV3Pool {
 
     /// Get the usd values of token0 and token1 at a given block
     /// If block is None, the latest block is used
-    pub async fn tokens_usd<T, P, N>(
-        &self,
-        client: P,
-        block: Option<BlockId>
-    )
-        -> Result<(f64, f64), anyhow::Error>
+    pub async fn tokens_usd<T, P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
         where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
     {
         let chain = self.chain_id;
         if is_base_token(chain, self.token0.address) {
-            let price0 = get_base_token_price(
-                client.clone(),
-                chain,
-                self.token0.address,
-                block
-            ).await?;
+            let price0 = get_base_token_price(client.clone(), chain, self.token0.address, block).await?;
             let price1 = self.token1_price(price0)?;
             Ok((price0, price1))
         } else if is_base_token(chain, self.token1.address) {
-            let price1 = get_base_token_price(
-                client.clone(),
-                chain,
-                self.token1.address,
-                block
-            ).await?;
+            let price1 = get_base_token_price(client.clone(), chain, self.token1.address, block).await?;
             let price0 = self.token0_price(price1)?;
             Ok((price0, price1))
         } else {

@@ -1,5 +1,6 @@
-use alloy_primitives::Address;
+use alloy_primitives::{Address, U256, utils::parse_units};
 use utils::address;
+use currency::ERC20Token;
 use types::ChainId;
 use anyhow::bail;
 
@@ -12,6 +13,20 @@ pub mod pool_manager;
 
 pub use uniswap::v2::pool::UniswapV2Pool;
 pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
+
+
+
+/// Minimum liquidity required for a pool to able to swap
+// TODO: This should be based on a USD value
+pub fn minimum_liquidity(token: ERC20Token) -> U256 {
+    if token.is_weth() {
+        parse_units("40", token.decimals).unwrap().get_absolute()
+    } else if token.is_wbnb() {
+        parse_units("200", token.decimals).unwrap().get_absolute()
+    } else {
+        parse_units("100_000", token.decimals).unwrap().get_absolute()
+    }
+}
 
 /// Enum to define in which DEX a pool belongs to
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

@@ -366,6 +366,34 @@ impl ERC20Token {
     }
 }
 
+// ** Helpers
+impl ERC20Token {
+
+    pub fn is_weth(&self) -> bool {
+        self.address == weth(self.chain_id).unwrap_or_default()
+    }
+
+    pub fn is_usdc(&self) -> bool {
+        self.address == usdc(self.chain_id).unwrap_or_default()
+    }
+
+    pub fn is_usdt(&self) -> bool {
+        self.address == usdt(self.chain_id).unwrap_or_default()
+    }
+
+    pub fn is_dai(&self) -> bool {
+        self.address == dai(self.chain_id).unwrap_or_default()
+    }
+
+    pub fn is_wbnb(&self) -> bool {
+        self.address == wbnb(self.chain_id).unwrap_or_default()
+    }
+
+    pub fn is_stablecoin(&self) -> bool {
+        self.is_usdc() || self.is_usdt() || self.is_dai()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use url::Url;

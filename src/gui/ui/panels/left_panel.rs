@@ -89,8 +89,12 @@ fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
                 ui.label(rich_text("V2 Pools"));
 
                 for pool in v2_pools {
-                    let price0 = ctx.get_token_price(&pool.token0).unwrap_or(0.0);
-                    let price1 = ctx.get_token_price(&pool.token1).unwrap_or(0.0);
+                    let (price0, price1) = if pool.base_token().address == pool.token0.address {
+                        (pool.base_usd, pool.quote_usd)
+                    } else {
+                        (pool.quote_usd, pool.base_usd)
+                    };
+
 
                     let chain = ChainId::new(pool.chain_id).unwrap();
                     ui.label(rich_text(format!("Pair: {}-{}", pool.token0.symbol, pool.token1.symbol)));
