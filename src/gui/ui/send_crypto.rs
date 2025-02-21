@@ -1,19 +1,46 @@
-use eframe::egui::{ Ui, Color32, Window, Id, RichText, ScrollArea, Vec2, Frame, TextEdit, Layout, Align, vec2, Align2 };
+use eframe::egui::{
+    Ui,
+    Color32,
+    Window,
+    Id,
+    RichText,
+    ScrollArea,
+    Vec2,
+    Frame,
+    TextEdit,
+    Layout,
+    Align,
+    vec2,
+    Align2,
+    Response,
+};
 use zeus_eth::currency::erc20::ERC20Token;
 
 use std::sync::Arc;
+use std::str::FromStr;
+use crate::core::utils::{RT, send_crypto};
 use crate::core::ZeusCtx;
 use crate::assets::icons::Icons;
 use crate::gui::ui::img_button;
-use crate::gui::ui::{ currency_balance, currency_value, rich_text, widgets::{ ChainSelect, WalletSelect, TokenSelectionWindow } };
+use crate::gui::ui::{
+    TokenSelectionWindow,
+    currency_balance,
+    currency_value,
+    rich_text,
+    misc::{ ChainSelect, WalletSelect },
+};
+use crate::gui::SHARED_GUI;
 use egui_theme::Theme;
 use zeus_eth::{ types::ChainId, currency::{ Currency, native::NativeCurrency } };
+use zeus_eth::alloy_primitives::{ Address, U256, utils::parse_units };
+
 
 pub struct SendCryptoUi {
     pub open: bool,
     pub chain: ChainId,
     pub chain_select: ChainSelect,
     pub wallet_select: WalletSelect,
+    pub priority_fee: String,
     pub token: Currency,
     pub amount: String,
     pub contact_search_open: bool,
@@ -28,6 +55,7 @@ impl SendCryptoUi {
             chain: ChainId::new(1).unwrap(),
             chain_select: ChainSelect::new("chain_select_2"),
             wallet_select: WalletSelect::new("wallet_select_2"),
+            priority_fee: "1".to_string(),
             token: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
             amount: String::new(),
             contact_search_open: false,
@@ -145,7 +173,9 @@ impl SendCryptoUi {
 
                         // Balance display
                         let balance = currency_balance(ctx.clone(), owner, &self.token);
-                        ui.label(RichText::new(format!("Balance: {}", balance)).color(theme.colors.text_secondary).size(12.0));
+                        ui.label(
+                            RichText::new(format!("Balance: {}", balance)).color(theme.colors.text_secondary).size(12.0)
+                        );
                     });
                 });
 
@@ -158,6 +188,13 @@ impl SendCryptoUi {
                             .font(egui::FontId::proportional(20.0))
                             .desired_width(200.0)
                     );
+
+                    // Priority Fee
+                    ui.horizontal(|ui| {
+                        ui.label(rich_text("Priority Fee").color(theme.colors.text_secondary).size(12.0));
+                        ui.add(TextEdit::singleline(&mut self.priority_fee).desired_width(50.0));
+                        ui.label(rich_text("Gwei").color(theme.colors.text_secondary).size(12.0));
+                    });
 
                     // USD Value
                     let token = if self.token.is_native() {
@@ -174,13 +211,13 @@ impl SendCryptoUi {
                 // Send Button
                 ui.horizontal(|ui| {
                     if ui.button("Send").clicked() {
-                        // TODO
+                        self.send(ctx.clone());
                     }
                 });
             });
     }
 
-    fn token_button(&mut self, icons: Arc<Icons>, ui: &mut Ui) -> egui::Response {
+    fn token_button(&mut self, icons: Arc<Icons>, ui: &mut Ui) -> Response {
         let icon;
         let chain = self.chain_select.chain.id();
         if self.token.is_native() {
@@ -192,5 +229,26 @@ impl SendCryptoUi {
 
         let button = img_button(icon, self.token.symbol());
         ui.add(button)
+    }
+
+    fn send(&self, ctx: ZeusCtx) {
+        let from = self.wallet_select.wallet.clone();
+        let to = Address::from_str(&self.recipient).unwrap_or(Address::ZERO);
+        let amount = U256::from_str(&self.amount).unwrap_or_default();
+        let currency = self.token.clone();
+        let chain = self.chain_select.chain.id();
+        let fee = self.priority_fee.clone();
+
+        RT.spawn(async move {
+           match send_crypto(ctx, from, to, currency, amount, fee, chain).await {
+                Ok(_) => {
+                     // TODO
+                },
+                Err(e) => {
+                     let mut gui = SHARED_GUI.write().unwrap();
+                     gui.msg_window.open("Transaction Error", &e.to_string());
+                }
+           }
+        });
     }
 }

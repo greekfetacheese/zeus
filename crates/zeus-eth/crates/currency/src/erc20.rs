@@ -3,9 +3,7 @@ use abi::alloy_rpc_types::BlockId;
 use types::{ ChainId, ETH, ARBITRUM, BASE, BSC, OPTIMISM };
 use utils::{ batch_request, address::{ weth, wbnb, usdt, usdc, dai } };
 
-use abi::alloy_contract::private::Network;
-use abi::alloy_provider::Provider;
-use abi::alloy_transport::Transport;
+use abi::alloy_contract::private::{ Network, Provider };
 
 use serde::{ Serialize, Deserialize };
 
@@ -35,13 +33,8 @@ impl Default for ERC20Token {
 
 impl ERC20Token {
     /// Create a new ERC20Token by retrieving the token information from the blockchain
-    pub async fn new<T, P, N>(
-        client: P,
-        token: Address,
-        chain_id: u64
-    )
-        -> Result<Self, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn new<P, N>(client: P, token: Address, chain_id: u64) -> Result<Self, anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let info = batch_request::get_erc20_info(client, token).await?;
 
@@ -74,27 +67,21 @@ impl ERC20Token {
     }
 
     /// - `block` If None the latest block is used.
-    pub async fn balance_of<T, P, N>(
+    pub async fn balance_of<P, N>(
         &self,
         client: P,
         owner: Address,
         block: Option<BlockId>
     )
         -> Result<U256, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let balance = abi::erc20::balance_of(self.address, owner, client, block).await?;
         Ok(balance)
     }
 
-    pub async fn allowance<T, P, N>(
-        &self,
-        client: P,
-        owner: Address,
-        spender: Address
-    )
-        -> Result<U256, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn allowance<P, N>(&self, client: P, owner: Address, spender: Address) -> Result<U256, anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let allowance = abi::erc20::allowance(self.address, owner, spender, client).await?;
         Ok(allowance)
@@ -164,8 +151,7 @@ impl ERC20Token {
     pub fn base_tokens(chain_id: u64) -> Vec<ERC20Token> {
         let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum(1));
         match chain {
-            ChainId::Ethereum(_) =>
-                vec![ERC20Token::weth(), ERC20Token::usdc(), ERC20Token::usdt(), ERC20Token::dai()],
+            ChainId::Ethereum(_) => vec![ERC20Token::weth(), ERC20Token::usdc(), ERC20Token::usdt(), ERC20Token::dai()],
             ChainId::Optimism(_) =>
                 vec![
                     ERC20Token::weth_optimism(),
@@ -173,8 +159,7 @@ impl ERC20Token {
                     ERC20Token::usdt_optimism(),
                     ERC20Token::dai_optimism()
                 ],
-            ChainId::Base(_) =>
-                vec![ERC20Token::weth_base(), ERC20Token::usdc_base(), ERC20Token::dai_base()],
+            ChainId::Base(_) => vec![ERC20Token::weth_base(), ERC20Token::usdc_base(), ERC20Token::dai_base()],
             ChainId::Arbitrum(_) =>
                 vec![
                     ERC20Token::weth_arbitrum(),
@@ -183,12 +168,7 @@ impl ERC20Token {
                     ERC20Token::dai_arbitrum()
                 ],
             ChainId::BinanceSmartChain(_) =>
-                vec![
-                    ERC20Token::wbnb(),
-                    ERC20Token::usdc_bsc(),
-                    ERC20Token::usdt_bsc(),
-                    ERC20Token::dai_bsc()
-                ],
+                vec![ERC20Token::wbnb(), ERC20Token::usdc_bsc(), ERC20Token::usdt_bsc(), ERC20Token::dai_bsc()],
         }
     }
 
@@ -368,7 +348,6 @@ impl ERC20Token {
 
 // ** Helpers
 impl ERC20Token {
-
     pub fn is_weth(&self) -> bool {
         self.address == weth(self.chain_id).unwrap_or_default()
     }

@@ -1,11 +1,12 @@
 use std::sync::{ Arc, RwLock };
 use db::Contact;
 use providers::{ RpcProviders, Rpc };
-use crate::core::{ Profile, Wallet, user::Portfolio, utils::{ HttpClient, get_http_client } };
+use crate::core::{ Profile, Wallet, user::Portfolio };
 use zeus_eth::alloy_primitives::{ Address, U256 };
 use zeus_eth::{types::ChainId, currency::{Currency, erc20::ERC20Token}};
 use zeus_eth::amm::{pool_manager::PoolStateManagerHandle, uniswap::{v2::pool::UniswapV2Pool, v3::pool::{FEE_TIERS, UniswapV3Pool}}};
 use super::utils::pool_data_dir;
+use zeus_eth::utils::client::{get_http_client, HttpClient};
 
 pub mod providers;
 pub mod db;

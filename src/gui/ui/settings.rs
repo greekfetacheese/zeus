@@ -167,7 +167,7 @@ impl SettingsUi {
             .resizable(false)
             .collapsible(false)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .frame(Frame::none())
+            .frame(Frame::new())
             .show(ui.ctx(), |ui| {
                 ui.set_width(self.size.0);
                 ui.set_height(self.size.1);
@@ -181,7 +181,7 @@ impl SettingsUi {
 
                     let size = vec2(self.size.0, 50.0);
                     let credentials = button(rich_text("Change your Credentials").size(17.0))
-                        .rounding(5.0)
+                        .corner_radius(5)
                         .min_size(size);
                     if ui.add(credentials).clicked() {
                         *open = false;
@@ -189,14 +189,14 @@ impl SettingsUi {
                     }
 
                     let encryption_settings = button(rich_text("Encryption Settings").size(17.0))
-                        .rounding(5.0)
+                        .corner_radius(5)
                         .min_size(size);
                     if ui.add(encryption_settings).clicked() {
                         *open = false;
                         self.encryption_settings.open = true;
                     }
 
-                    let contacts = button(rich_text("Contacts").size(17.0)).rounding(5.0).min_size(size);
+                    let contacts = button(rich_text("Contacts").size(17.0)).corner_radius(5).min_size(size);
                     if ui.add(contacts).clicked() {
                         *open = false;
                         self.contacts_ui.open = true;

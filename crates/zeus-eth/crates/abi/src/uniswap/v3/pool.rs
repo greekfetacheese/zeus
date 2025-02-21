@@ -2,9 +2,7 @@ use alloy_sol_types::{ sol, SolCall };
 use alloy_rpc_types::BlockId;
 use alloy_primitives::{ Address, Bytes, FixedBytes, Signed, Uint, U256 };
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 use std::str::FromStr;
 use anyhow::Context;
@@ -110,8 +108,8 @@ sol! {
 }
 
 /// Return the factory address that created this pool
-pub async fn factory<T, P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn factory<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let factory = contract.factory().call().await?;
@@ -119,8 +117,8 @@ pub async fn factory<T, P, N>(pool_address: Address, client: P) -> Result<Addres
 }
 
 /// Return the fee of this pool
-pub async fn fee<T, P, N>(pool_address: Address, client: P) -> Result<u32, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn fee<P, N>(pool_address: Address, client: P) -> Result<u32, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let fee = contract.fee().call().await?;
@@ -129,13 +127,13 @@ pub async fn fee<T, P, N>(pool_address: Address, client: P) -> Result<u32, anyho
 }
 
 /// Return the feeGrowthGlobal0X128 of this pool
-pub async fn fee_growth_global0_x128<T, P, N>(
+pub async fn fee_growth_global0_x128<P, N>(
     pool_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV3Pool::new(pool_address, client);
@@ -144,13 +142,13 @@ pub async fn fee_growth_global0_x128<T, P, N>(
 }
 
 /// Return the feeGrowthGlobal1X128 of this pool
-pub async fn fee_growth_global1_x128<T, P, N>(
+pub async fn fee_growth_global1_x128<P, N>(
     pool_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV3Pool::new(pool_address, client);
@@ -159,13 +157,8 @@ pub async fn fee_growth_global1_x128<T, P, N>(
 }
 
 /// Return the liquidity of this pool
-pub async fn liquidity<T, P, N>(
-    pool_address: Address,
-    client: P,
-    block_id: Option<BlockId>
-)
-    -> Result<u128, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn liquidity<P, N>(pool_address: Address, client: P, block_id: Option<BlockId>) -> Result<u128, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV3Pool::new(pool_address, client);
@@ -174,12 +167,8 @@ pub async fn liquidity<T, P, N>(
 }
 
 /// Return the maxLiquidityPerTick of this pool
-pub async fn max_liquidity_per_tick<T, P, N>(
-    pool_address: Address,
-    client: P
-)
-    -> Result<u128, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn max_liquidity_per_tick<P, N>(pool_address: Address, client: P) -> Result<u128, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let max_liquidity_per_tick = contract.maxLiquidityPerTick().call().await?;
@@ -187,14 +176,14 @@ pub async fn max_liquidity_per_tick<T, P, N>(
 }
 
 /// Return the observations of this pool
-pub async fn observations<T, P, N>(
+pub async fn observations<P, N>(
     pool_address: Address,
     index: U256,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(u32, i128, U256, bool), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV3Pool::new(pool_address, client);
@@ -203,27 +192,20 @@ pub async fn observations<T, P, N>(
     let tick_cumulative = observations.tickCumulative.into_raw();
     let tick_cumulative: i128 = tick_cumulative.as_limbs()[0] as i128;
 
-    let seconds_per_liquidity_cumulative_x128 = U256::from(
-        observations.secondsPerLiquidityCumulativeX128
-    );
+    let seconds_per_liquidity_cumulative_x128 = U256::from(observations.secondsPerLiquidityCumulativeX128);
 
-    Ok((
-        observations.blockTimestamp,
-        tick_cumulative,
-        seconds_per_liquidity_cumulative_x128,
-        observations.initialized,
-    ))
+    Ok((observations.blockTimestamp, tick_cumulative, seconds_per_liquidity_cumulative_x128, observations.initialized))
 }
 
 /// Returns the cumulative tick and liquidity as of each timestamp `secondsAgo` from the current block timestamp
-pub async fn observe<T, P, N>(
+pub async fn observe<P, N>(
     pool_address: Address,
     seconds_ago: Vec<u32>,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(Vec<Signed<56, 1>>, Vec<Uint<160, 3>>), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -236,14 +218,14 @@ pub async fn observe<T, P, N>(
 }
 
 /// Returns the information about a position by the position's key
-pub async fn positions<T, P, N>(
+pub async fn positions<P, N>(
     pool_address: Address,
     key: FixedBytes<32>,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(u128, U256, U256, u128, u128), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -260,13 +242,13 @@ pub async fn positions<T, P, N>(
 }
 
 /// Return the protocol fees of this pool
-pub async fn protocol_fees<T, P, N>(
+pub async fn protocol_fees<P, N>(
     pool_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(u128, u128), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -277,13 +259,13 @@ pub async fn protocol_fees<T, P, N>(
 }
 
 /// Return the slot0 of this pool
-pub async fn slot0<T, P, N>(
+pub async fn slot0<P, N>(
     pool_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(U256, i32, u16, u16, u16, u8, bool), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -294,7 +276,7 @@ pub async fn slot0<T, P, N>(
 }
 
 /// Return the snapshotCumulativesInside of this pool
-pub async fn snapshot_cumulatives_inside<T, P, N>(
+pub async fn snapshot_cumulatives_inside<P, N>(
     pool_address: Address,
     tick_lower: i32,
     tick_upper: i32,
@@ -302,14 +284,10 @@ pub async fn snapshot_cumulatives_inside<T, P, N>(
     block_id: Option<BlockId>
 )
     -> Result<(i64, U256, u32), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
-    let tick_lower: Signed<24, 1> = Signed::from_str(&tick_lower.to_string()).context(
-        "Failed to parse tick lower"
-    )?;
-    let tick_upper: Signed<24, 1> = Signed::from_str(&tick_upper.to_string()).context(
-        "Failed to parse tick upper"
-    )?;
+    let tick_lower: Signed<24, 1> = Signed::from_str(&tick_lower.to_string()).context("Failed to parse tick lower")?;
+    let tick_upper: Signed<24, 1> = Signed::from_str(&tick_upper.to_string()).context("Failed to parse tick upper")?;
 
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -323,26 +301,20 @@ pub async fn snapshot_cumulatives_inside<T, P, N>(
         .to_string()
         .parse()
         .context("Failed to parse tick cumulative inside")?;
-    let seconds_per_liquidity_inside_x128 = U256::from(
-        snapshot_cumulatives_inside.secondsPerLiquidityInsideX128
-    );
+    let seconds_per_liquidity_inside_x128 = U256::from(snapshot_cumulatives_inside.secondsPerLiquidityInsideX128);
 
-    Ok((
-        tick_cumulative_inside,
-        seconds_per_liquidity_inside_x128,
-        snapshot_cumulatives_inside.secondsInside,
-    ))
+    Ok((tick_cumulative_inside, seconds_per_liquidity_inside_x128, snapshot_cumulatives_inside.secondsInside))
 }
 
 /// Return the tickBitmap of this pool
-pub async fn tick_bitmap<T, P, N>(
+pub async fn tick_bitmap<P, N>(
     pool_address: Address,
     word_position: i16,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -352,8 +324,8 @@ pub async fn tick_bitmap<T, P, N>(
 }
 
 /// Return the tickSpacing of this pool
-pub async fn tick_spacing<T, P, N>(pool_address: Address, client: P) -> Result<i32, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn tick_spacing<P, N>(pool_address: Address, client: P) -> Result<i32, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let tick_spacing = contract.tickSpacing().call().await?;
@@ -363,14 +335,14 @@ pub async fn tick_spacing<T, P, N>(pool_address: Address, client: P) -> Result<i
 }
 
 /// Look up information about a specific tick in this pool
-pub async fn ticks<T, P, N>(
+pub async fn ticks<P, N>(
     pool_address: Address,
     tick: i32,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(u128, i128, U256, U256, i64, U256, u32, bool), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
 
@@ -383,9 +355,9 @@ pub async fn ticks<T, P, N>(
         .context("Failed to parse tick cumulative outside")?;
 
     let seconds_per_liquidity_outside_x128 = tick_info._5.to_string();
-    let seconds_per_liquidity_outside_x128 = U256::from_str(
-        &seconds_per_liquidity_outside_x128
-    ).context("Failed to parse seconds per liquidity outside x128")?;
+    let seconds_per_liquidity_outside_x128 = U256::from_str(&seconds_per_liquidity_outside_x128).context(
+        "Failed to parse seconds per liquidity outside x128"
+    )?;
     Ok((
         tick_info._0,
         tick_info._1,
@@ -399,8 +371,8 @@ pub async fn ticks<T, P, N>(
 }
 
 /// Return the token0 of this pool
-pub async fn token0<T, P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn token0<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let token0 = contract.token0().call().await?;
@@ -408,8 +380,8 @@ pub async fn token0<T, P, N>(pool_address: Address, client: P) -> Result<Address
 }
 
 /// Return the token1 of this pool
-pub async fn token1<T, P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn token1<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV3Pool::new(pool_address, client);
     let token1 = contract.token1().call().await?;
@@ -487,16 +459,9 @@ pub fn encode_slot0() -> Bytes {
 }
 
 /// Encode the function with signature `snapshotCumulativeInside(int24,int24)` and selector `0xe5e5c519`
-pub fn encode_snapshot_cumulatives_inside(
-    tick_lower: i32,
-    tick_upper: i32
-) -> Result<Bytes, anyhow::Error> {
-    let tick_lower: Signed<24, 1> = Signed::from_str(&tick_lower.to_string()).context(
-        "Failed to parse tick lower"
-    )?;
-    let tick_upper: Signed<24, 1> = Signed::from_str(&tick_upper.to_string()).context(
-        "Failed to parse tick upper"
-    )?;
+pub fn encode_snapshot_cumulatives_inside(tick_lower: i32, tick_upper: i32) -> Result<Bytes, anyhow::Error> {
+    let tick_lower: Signed<24, 1> = Signed::from_str(&tick_lower.to_string()).context("Failed to parse tick lower")?;
+    let tick_upper: Signed<24, 1> = Signed::from_str(&tick_upper.to_string()).context("Failed to parse tick upper")?;
     let abi = IUniswapV3Pool::snapshotCumulativeInsideCall {
         tickLower: tick_lower,
         tickUpper: tick_upper,
@@ -541,11 +506,5 @@ pub fn encode_token1() -> Bytes {
 
 pub fn decode_positions(data: &Bytes) -> Result<(u128, U256, U256, u128, u128), anyhow::Error> {
     let abi = IUniswapV3Pool::positionsCall::abi_decode_returns(data, true)?;
-    Ok((
-        abi.liquidity,
-        abi.feeGrowthInside0LastX128,
-        abi.feeGrowthInside1LastX128,
-        abi.tokensOwed0,
-        abi.tokensOwed1,
-    ))
+    Ok((abi.liquidity, abi.feeGrowthInside0LastX128, abi.feeGrowthInside1LastX128, abi.tokensOwed0, abi.tokensOwed1))
 }

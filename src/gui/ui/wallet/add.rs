@@ -68,13 +68,13 @@ impl AddWalletUi {
                     let size = vec2(ui.available_width() * 0.5, 50.0);
 
                     // From private key
-                    let button1 = button(rich_text("From Private Key").heading()).rounding(5.0).min_size(size);
+                    let button1 = button(rich_text("From Private Key").heading()).corner_radius(5).min_size(size);
                     if ui.add(button1).clicked() {
                         clicked1 = true;
                     }
 
                     // Generate new wallet
-                    let button2 = button(rich_text("Generate New Wallet").heading()).rounding(5.0).min_size(size);
+                    let button2 = button(rich_text("Generate New Wallet").heading()).corner_radius(5).min_size(size);
                     if ui.add(button2).clicked() {
                         clicked2 = true;
                     }

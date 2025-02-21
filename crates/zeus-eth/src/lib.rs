@@ -3,8 +3,6 @@ pub use alloy_primitives;
 pub use alloy_provider;
 pub use alloy_rpc_types;
 pub use alloy_sol_types;
-pub use alloy_transport;
-
 
 pub use abi;
 pub use amm;

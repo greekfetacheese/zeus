@@ -5,9 +5,7 @@ use std::time::Duration;
 use std::sync::{ Arc, RwLock };
 use tokio::{ sync::{ Mutex, Semaphore }, task::JoinHandle };
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 use crate::uniswap::{ v2::pool::{ PoolReserves, UniswapV2Pool }, v3::pool::{ V3PoolState, UniswapV3Pool } };
 use crate::DexKind;
@@ -114,8 +112,8 @@ impl PoolStateManagerHandle {
     }
 
     /// Update everything in the manager
-    pub async fn update<T, P, N>(&self, client: P, chain: u64, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+    pub async fn update<P, N>(&self, client: P, chain: u64, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         self.update_pool_state(client.clone(), chain).await?;
         self.update_base_token_prices(client.clone(), tokens).await?;
@@ -124,8 +122,8 @@ impl PoolStateManagerHandle {
     }
 
     /// Update the state of all the pools for the given chain
-    pub async fn update_pool_state<T, P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+    pub async fn update_pool_state<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let v2_pool_map = self.read(|manager| manager.v2_pools.clone());
         let v3_pool_map = self.read(|manager| manager.v3_pools.clone());
@@ -143,7 +141,7 @@ impl PoolStateManagerHandle {
     }
 
     /// Update the state for the given pools for the given chain
-    pub async fn update_state_for_pools<T, P, N>(
+    pub async fn update_state_for_pools<P, N>(
         &self,
         client: P,
         chain: u64,
@@ -151,7 +149,7 @@ impl PoolStateManagerHandle {
         v3_pools: Vec<UniswapV3Pool>
     )
         -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let concurrency = self.read(|manager| manager.concurrency);
         let (v2_reserves, v3_state) = PoolStateManager::fetch_state(
@@ -165,13 +163,8 @@ impl PoolStateManagerHandle {
     }
 
     /// Update the base token prices for the given tokens
-    pub async fn update_base_token_prices<T, P, N>(
-        &self,
-        client: P,
-        tokens: Vec<ERC20Token>
-    )
-        -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn update_base_token_prices<P, N>(&self, client: P, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let prices = PoolStateManager::fetch_base_token_prices(client, tokens).await?;
         self.write(|manager| manager.update_base_token_prices(prices));
@@ -183,8 +176,8 @@ impl PoolStateManagerHandle {
     /// - The token's chain id
     /// - All the possible [DexKind] for the chain
     /// - Base Tokens [ERC20Token::base_tokens()]
-    pub async fn get_v2_pools_for_token<T, P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn get_v2_pools_for_token<P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let base_tokens = ERC20Token::base_tokens(token.chain_id);
         let dex_kinds = DexKind::all(token.chain_id);
@@ -229,8 +222,8 @@ impl PoolStateManagerHandle {
     /// - The token's chain id
     /// - All the possible [DexKind] for the chain
     /// - Base Tokens [ERC20Token::base_tokens()]
-    pub async fn get_v3_pools_for_token<T, P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn get_v3_pools_for_token<P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let base_tokens = ERC20Token::base_tokens(token.chain_id);
         let dex_kinds = DexKind::all(token.chain_id);
@@ -457,7 +450,6 @@ impl PoolStateManager {
             prices.entry((pool.chain_id, quote.address)).or_insert_with(Vec::new).push(quote_price);
         }
 
-         
         for (_, pool) in self.v3_pools.iter_mut() {
             if !pool.enough_liquidity() {
                 continue;
@@ -474,11 +466,10 @@ impl PoolStateManager {
             }
             prices.entry((pool.chain_id, quote.address)).or_insert_with(Vec::new).push(quote_price);
         }
-        
 
         // calculate the average price
         for ((chain_id, token), prices) in prices {
-            let price = prices.iter().sum::<f64>() / prices.len() as f64;
+            let price = prices.iter().sum::<f64>() / (prices.len() as f64);
             self.token_prices.insert((chain_id, token), price);
         }
 
@@ -495,12 +486,8 @@ impl PoolStateManager {
 // * Fetchers
 
 impl PoolStateManager {
-    pub async fn fetch_base_token_prices<T, P, N>(
-        client: P,
-        tokens: Vec<ERC20Token>
-    )
-        -> Result<TokenPrices, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn fetch_base_token_prices<P, N>(client: P, tokens: Vec<ERC20Token>) -> Result<TokenPrices, anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let mut prices = HashMap::new();
         for token in tokens {
@@ -510,7 +497,7 @@ impl PoolStateManager {
         Ok(prices)
     }
 
-    pub async fn fetch_state<T, P, N>(
+    pub async fn fetch_state<P, N>(
         client: P,
         chain_id: u64,
         concurrency: u8,
@@ -518,7 +505,7 @@ impl PoolStateManager {
         v3_pools: Vec<UniswapV3Pool>
     )
         -> Result<(Vec<V2PoolReserves>, Vec<V3PoolData>), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         const BATCH_SIZE: usize = 100;
         const BATCH_SIZE_2: usize = 10;

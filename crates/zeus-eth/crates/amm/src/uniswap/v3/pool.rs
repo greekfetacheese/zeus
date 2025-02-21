@@ -1,9 +1,7 @@
 use alloy_primitives::{ Address, U256, utils::{ parse_units, format_units } };
 use alloy_rpc_types::BlockId;
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 use crate::{ DexKind, minimum_liquidity };
 use abi::uniswap::v3;
@@ -128,7 +126,7 @@ impl UniswapV3Pool {
         }
     }
 
-    pub async fn from<T, P, N>(
+    pub async fn from<P, N>(
         client: P,
         chain_id: u64,
         fee: u32,
@@ -137,7 +135,7 @@ impl UniswapV3Pool {
         dex: DexKind
     )
         -> Result<Self, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let factory = dex.factory(chain_id)?;
         let address = v3::factory::get_pool(client, factory, token0.address, token1.address, fee).await?;
@@ -195,13 +193,13 @@ impl UniswapV3Pool {
 
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
-    pub async fn fetch_state<T, P, N>(
+    pub async fn fetch_state<P, N>(
         client: P,
         pool: UniswapV3Pool,
         block: Option<BlockId>
     )
         -> Result<V3PoolState, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let address = pool.address;
         let base_token = pool.base_token().address;
@@ -287,8 +285,8 @@ impl UniswapV3Pool {
 
     /// Get the usd values of token0 and token1 at a given block
     /// If block is None, the latest block is used
-    pub async fn tokens_usd<T, P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn tokens_usd<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let chain = self.chain_id;
         if is_base_token(chain, self.token0.address) {

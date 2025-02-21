@@ -1,14 +1,12 @@
 use alloy_primitives::{ utils::{ format_units, parse_units }, Address, U256 };
 use alloy_rpc_types::BlockId;
 
-use crate::{DexKind, minimum_liquidity};
+use crate::{ DexKind, minimum_liquidity };
 use abi::uniswap::v2;
 use currency::erc20::ERC20Token;
 use utils::{ is_base_token, price_feed::get_base_token_price };
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 use serde::{ Deserialize, Serialize };
 use anyhow::bail;
@@ -50,18 +48,8 @@ impl PoolReserves {
 
 impl UniswapV2Pool {
     /// Tokens are re-ordered as per the Uniswap protocol
-    pub fn new(
-        chain_id: u64,
-        address: Address,
-        token0: ERC20Token,
-        token1: ERC20Token,
-        dex: DexKind
-    ) -> Self {
-        let (token0, token1) = if token0.address < token1.address {
-            (token0, token1)
-        } else {
-            (token1, token0)
-        };
+    pub fn new(chain_id: u64, address: Address, token0: ERC20Token, token1: ERC20Token, dex: DexKind) -> Self {
+        let (token0, token1) = if token0.address < token1.address { (token0, token1) } else { (token1, token0) };
 
         Self {
             chain_id,
@@ -76,7 +64,7 @@ impl UniswapV2Pool {
     }
 
     /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
-    pub async fn from<T, P, N>(
+    pub async fn from<P, N>(
         client: P,
         chain_id: u64,
         token0: ERC20Token,
@@ -84,7 +72,7 @@ impl UniswapV2Pool {
         dex: DexKind
     )
         -> Result<Self, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let factory = dex.factory(chain_id)?;
         let address = v2::factory::get_pair(client, factory, token0.address, token1.address).await?;
@@ -128,9 +116,15 @@ impl UniswapV2Pool {
     pub fn enough_liquidity(&self) -> bool {
         let base_token = self.base_token();
         let reserve = if self.is_token0(base_token.address) {
-            self.state.as_ref().map(|state| state.reserve0).unwrap_or(U256::ZERO)
+            self.state
+                .as_ref()
+                .map(|state| state.reserve0)
+                .unwrap_or(U256::ZERO)
         } else {
-            self.state.as_ref().map(|state| state.reserve1).unwrap_or(U256::ZERO)
+            self.state
+                .as_ref()
+                .map(|state| state.reserve1)
+                .unwrap_or(U256::ZERO)
         };
         let threshold = minimum_liquidity(base_token);
         reserve >= threshold
@@ -138,31 +132,23 @@ impl UniswapV2Pool {
 
     /// See [is_base_token]
     pub fn base_token(&self) -> ERC20Token {
-        if is_base_token(self.chain_id, self.token0.address) {
-            self.token0.clone()
-        } else {
-            self.token1.clone()
-        }
+        if is_base_token(self.chain_id, self.token0.address) { self.token0.clone() } else { self.token1.clone() }
     }
 
     /// Anything that is not [is_base_token]
     pub fn quote_token(&self) -> ERC20Token {
-        if is_base_token(self.chain_id, self.token0.address) {
-            self.token1.clone()
-        } else {
-            self.token0.clone()
-        }
+        if is_base_token(self.chain_id, self.token0.address) { self.token1.clone() } else { self.token0.clone() }
     }
 
     /// Fetch the state of the pool at a given block
     /// If block is None, the latest block is used
-    pub async fn fetch_state<T, P, N>(
+    pub async fn fetch_state<P, N>(
         client: P,
         pool: Address,
         block: Option<BlockId>
     )
         -> Result<PoolReserves, anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let reserves = v2::pool::get_reserves(pool, client, block).await?;
         let reserve0 = U256::from(reserves.0);
@@ -181,11 +167,7 @@ impl UniswapV2Pool {
         }
     }
 
-    pub fn simulate_swap_mut(
-        &mut self,
-        token_in: Address,
-        amount_in: U256
-    ) -> Result<U256, anyhow::Error> {
+    pub fn simulate_swap_mut(&mut self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
         let mut state = self.state.clone().ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
         if self.token0.address == token_in {
@@ -227,8 +209,6 @@ impl UniswapV2Pool {
         self.quote_usd = quote_price;
         quote_price
     }
-    
-
 
     /// Token0 USD price but we need to know the usd price of token1
     pub fn token0_price(&self, token1_price: f64) -> Result<f64, anyhow::Error> {
@@ -251,7 +231,7 @@ impl UniswapV2Pool {
         if token0_price == 0.0 {
             return Ok(0.0);
         }
-        
+
         let unit = parse_units("1", self.token0.decimals)?.get_absolute();
         let amount_out = self.simulate_swap(self.token0.address, unit)?;
         if amount_out == U256::ZERO {
@@ -264,33 +244,18 @@ impl UniswapV2Pool {
 
     /// Get the usd value of token0 and token1 at a given block
     /// If block is None, the latest block is used
-    pub async fn tokens_usd<T, P, N>(
-        &self,
-        client: P,
-        block: Option<BlockId>
-    )
-        -> Result<(f64, f64), anyhow::Error>
-        where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    pub async fn tokens_usd<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
+        where P: Provider<(), N> + Clone + 'static, N: Network
     {
         let chain_id = self.chain_id;
 
         // token0 is known
         if is_base_token(chain_id, self.token0.address) {
-            let price0 = get_base_token_price(
-                client.clone(),
-                chain_id,
-                self.token0.address,
-                block
-            ).await?;
+            let price0 = get_base_token_price(client.clone(), chain_id, self.token0.address, block).await?;
             let price1 = self.token1_price(price0)?;
             Ok((price0, price1))
         } else if is_base_token(chain_id, self.token1.address) {
-            let price1 = get_base_token_price(
-                client.clone(),
-                chain_id,
-                self.token1.address,
-                block
-            ).await?;
+            let price1 = get_base_token_price(client.clone(), chain_id, self.token1.address, block).await?;
             let price0 = self.token0_price(price1)?;
             Ok((price0, price1))
         } else {
@@ -298,7 +263,6 @@ impl UniswapV2Pool {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

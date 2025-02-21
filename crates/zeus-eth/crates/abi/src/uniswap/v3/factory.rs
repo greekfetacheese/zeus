@@ -1,9 +1,7 @@
 use alloy_sol_types::{ sol, SolCall };
 use alloy_primitives::{ Address, Bytes, Uint };
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 sol! {
     #[sol(rpc)]
@@ -32,21 +30,16 @@ sol! {
     }
     }
 
-pub async fn owner<T, P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn owner<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV3Factory::new(factory, client);
     let owner = factory.owner().call().await?;
     Ok(owner._0)
 }
 
-pub async fn fee_amount_tick_spacing<T, P, N>(
-    client: P,
-    factory: Address,
-    fee: u32
-)
-    -> Result<i32, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn fee_amount_tick_spacing<P, N>(client: P, factory: Address, fee: u32) -> Result<i32, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV3Factory::new(factory, client);
     let tick_spacing = factory.feeAmountTickSpacing(Uint::from(fee)).call().await?;
@@ -54,7 +47,7 @@ pub async fn fee_amount_tick_spacing<T, P, N>(
     Ok(tick_spacing as i32)
 }
 
-pub async fn get_pool<T, P, N>(
+pub async fn get_pool<P, N>(
     client: P,
     factory: Address,
     token0: Address,
@@ -62,7 +55,7 @@ pub async fn get_pool<T, P, N>(
     fee: u32
 )
     -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV3Factory::new(factory, client);
     let pool = factory.getPool(token0, token1, Uint::from(fee)).call().await?;

@@ -17,7 +17,7 @@ use eframe::egui::{
 use zeus_eth::currency::ERC20Token;
 use std::sync::Arc;
 
-use crate::gui::ui::{ button, rich_text, currency_balance, wallet_value, currency_price, currency_value };
+use crate::gui::ui::{ TokenSelectionWindow, button, rich_text, currency_balance, wallet_value, currency_price, currency_value };
 use crate::assets::icons::Icons;
 use crate::core::{ Wallet, ZeusCtx, user::Portfolio };
 use crate::core::utils::{ RT, fetch };
@@ -27,11 +27,7 @@ use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
 use zeus_eth::{ currency::Currency, types::ChainId };
 
-pub mod token_selection;
-pub mod send_crypto;
 
-pub use token_selection::TokenSelectionWindow;
-pub use send_crypto::SendCryptoUi;
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {

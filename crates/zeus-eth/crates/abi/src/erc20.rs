@@ -2,9 +2,7 @@ use alloy_rpc_types::BlockId;
 use alloy_sol_types::{ sol, SolCall };
 use alloy_primitives::{ Address, Bytes, U256 };
 
-use alloy_provider::Provider;
-use alloy_transport::Transport;
-use alloy_contract::private::Network;
+use alloy_contract::private::{ Network, Provider };
 
 sol! {
     #[sol(rpc)]
@@ -24,14 +22,14 @@ sol! {
 }
 }
 
-pub async fn balance_of<T, P, N>(
+pub async fn balance_of<P, N>(
     token: Address,
     owner: Address,
     client: P,
     block: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block.unwrap_or(BlockId::latest());
     let contract = IERC20::new(token, client);
@@ -39,46 +37,40 @@ pub async fn balance_of<T, P, N>(
     Ok(b.balance)
 }
 
-pub async fn allowance<T, P, N>(
-    token: Address,
-    owner: Address,
-    spender: Address,
-    client: P
-)
-    -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn allowance<P, N>(token: Address, owner: Address, spender: Address, client: P) -> Result<U256, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IERC20::new(token, client);
     let a = contract.allowance(owner, spender).call().await?;
     Ok(a._0)
 }
 
-pub async fn symbol<T, P, N>(token: Address, client: P) -> Result<String, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn symbol<P, N>(token: Address, client: P) -> Result<String, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IERC20::new(token, client);
     let s = contract.symbol().call().await?;
     Ok(s._0)
 }
 
-pub async fn name<T, P, N>(token: Address, client: P) -> Result<String, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn name<P, N>(token: Address, client: P) -> Result<String, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IERC20::new(token, client);
     let n = contract.name().call().await?;
     Ok(n._0)
 }
 
-pub async fn decimals<T, P, N>(token: Address, client: P) -> Result<u8, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn decimals<P, N>(token: Address, client: P) -> Result<u8, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IERC20::new(token, client);
     let d = contract.decimals().call().await?;
     Ok(d._0)
 }
 
-pub async fn total_supply<T, P, N>(token: Address, client: P) -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn total_supply<P, N>(token: Address, client: P) -> Result<U256, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IERC20::new(token, client);
     let t = contract.totalSupply().call().await?;

@@ -69,10 +69,10 @@ impl Currency {
         }
     }
 
-    pub fn decimals(&self) -> &u8 {
+    pub fn decimals(&self) -> u8 {
         match self {
-            Self::Native(native) => &native.decimals,
-            Self::ERC20(erc20) => &erc20.decimals,
+            Self::Native(native) => native.decimals,
+            Self::ERC20(erc20) => erc20.decimals,
         }
     }
 }

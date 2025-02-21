@@ -2,14 +2,18 @@ pub mod dapps;
 pub mod auth;
 pub mod wallet;
 pub mod panels;
-pub mod widgets;
+pub mod misc;
 pub mod settings;
+pub mod send_crypto;
+pub mod token_selection;
 
 pub use dapps::uniswap::swap::SwapUi;
 pub use auth::{ CredentialsForm, LoginUi, RegisterUi };
 pub use wallet::WalletUi;
-pub use widgets::*;
+pub use misc::*;
 pub use settings::SettingsUi;
+pub use send_crypto::SendCryptoUi;
+pub use token_selection::TokenSelectionWindow;
 
 
 use eframe::egui::{

@@ -3,9 +3,8 @@ use alloy_primitives::Address;
 use alloy_rpc_types::BlockId;
 
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{Network, Provider};
+
 
 use anyhow::anyhow;
 pub use crate::batch_request::GetV3State::V3Pool2;
@@ -107,14 +106,16 @@ sol! {
 
 
 /// Get the balance for the given ERC20 tokens for the owner at the given block, if block is None the latest block is used
-pub async fn get_erc20_balance<T, P, N>(
+pub async fn get_erc20_balance<P, N>(
     client: P,
     block: Option<BlockId>,
     owner: Address,
     tokens: Vec<Address>
 )
     -> Result<Vec<TokenBalance>, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let block = block.unwrap_or(BlockId::latest());
     let deployer = IGetErc20Balance::deploy_builder(client, tokens, owner).block(block);
@@ -128,8 +129,10 @@ pub async fn get_erc20_balance<T, P, N>(
 
 
 /// Get the ERC20 token info
-pub async fn get_erc20_info<T, P, N>(client: P, token: Address) -> Result<ERC20Info, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn get_erc20_info<P, N>(client: P, token: Address) -> Result<ERC20Info, anyhow::Error>
+    where
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let deployer = IGetERC20::deploy_builder(client, token);
     let res = deployer.call_raw().await?;
@@ -147,14 +150,16 @@ pub async fn get_erc20_info<T, P, N>(client: P, token: Address) -> Result<ERC20I
 /// For any possible pool that does not exist the values will be 0
 ///
 /// If no pools exists it will still return a vector with zero values
-pub async fn get_v3_pools<T, P, N>(
+pub async fn get_v3_pools<P, N>(
     client: P,
     token_a: Address,
     token_b: Address,
     factory: Address
 )
     -> Result<Vec<V3Pool>, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let deployer = IGetV3Pools::deploy_builder(client, factory, token_a, token_b);
     let res = deployer.call_raw().await?;
@@ -170,13 +175,15 @@ pub async fn get_v3_pools<T, P, N>(
 /// Get the reserves for the given v2 pools, if block is None, then the latest block is used
 /// 
 /// To avoid the `CreateContractSizeLimit` EVM error, a safe limit of 100 pools should work for all chains
-pub async fn get_v2_pool_reserves<T, P, N>(
+pub async fn get_v2_pool_reserves<P, N>(
     client: P,
     block: Option<BlockId>,
     pools: Vec<Address>
 )
     -> Result<Vec<V2PoolReserves>, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let block = block.unwrap_or(BlockId::latest());
     let deployer = IGetV2PoolsReserves::deploy_builder(client, pools).block(block);
@@ -193,13 +200,15 @@ pub async fn get_v2_pool_reserves<T, P, N>(
 /// Retrieve the state for the  given v3 pools, if block is None, then the latest block is used
 /// 
 /// To avoid the `CreateContractSizeLimit` EVM error, a safe limit of 10 pools should work for all chains
-pub async fn get_v3_state<T, P, N>(
+pub async fn get_v3_state<P, N>(
     client: P,
     block: Option<BlockId>,
     pools: Vec<V3Pool2>
 )
     -> Result<Vec<V3PoolData>, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let block = block.unwrap_or(BlockId::latest());
     let deployer = IGetV3State::deploy_builder(client, pools).block(block);

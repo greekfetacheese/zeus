@@ -1,9 +1,7 @@
 use alloy_sol_types::{ sol, SolCall };
 use alloy_primitives::{ Address, Bytes, U256 };
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 sol! {
     #[sol(rpc)]
@@ -21,51 +19,46 @@ sol! {
     }
 }
 
-pub async fn fee_to<T, P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn fee_to<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV2Factory::new(factory, client);
     let fee_to = factory.feeTo().call().await?;
     Ok(fee_to._0)
 }
 
-pub async fn fee_to_setter<T, P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn fee_to_setter<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV2Factory::new(factory, client);
     let fee_to_setter = factory.feeToSetter().call().await?;
     Ok(fee_to_setter._0)
 }
 
-pub async fn get_pair<T, P, N>(
+pub async fn get_pair<P, N>(
     client: P,
     factory: Address,
     token0: Address,
     token1: Address
 )
     -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV2Factory::new(factory, client);
     let pair = factory.getPair(token0, token1).call().await?;
     Ok(pair.pair)
 }
 
-pub async fn all_pairs<T, P, N>(
-    client: P,
-    factory: Address,
-    index: U256
-)
-    -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn all_pairs<P, N>(client: P, factory: Address, index: U256) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV2Factory::new(factory, client);
     let pair = factory.allPairs(index).call().await?;
     Ok(pair.pair)
 }
 
-pub async fn all_pairs_length<T, P, N>(client: P, factory: Address) -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn all_pairs_length<P, N>(client: P, factory: Address) -> Result<U256, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let factory = IUniswapV2Factory::new(factory, client);
     let length = factory.allPairsLength().call().await?;

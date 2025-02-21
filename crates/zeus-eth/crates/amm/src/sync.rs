@@ -1,18 +1,13 @@
 use alloy_rpc_types::Log;
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 use std::sync::Arc;
 use tokio::{ sync::{ Mutex, Semaphore }, task::JoinHandle };
 
 use crate::{ DexKind, uniswap::{ v2::pool::UniswapV2Pool, v3::pool::UniswapV3Pool } };
 use currency::erc20::ERC20Token;
-use abi::{
-    alloy_sol_types::SolEvent,
-    uniswap::{ v2::factory::IUniswapV2Factory, v3::factory::IUniswapV3Factory },
-};
+use abi::{ alloy_sol_types::SolEvent, uniswap::{ v2::factory::IUniswapV2Factory, v3::factory::IUniswapV3Factory } };
 
 use serde::{ Deserialize, Serialize };
 
@@ -37,7 +32,7 @@ impl Checkpoint {
 }
 
 /// Synced Pools along with the checkpoint
-/// 
+///
 /// If you are going to save them in a file, you probably want to use this struct
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncedPools {
@@ -47,11 +42,7 @@ pub struct SyncedPools {
 }
 
 impl SyncedPools {
-    pub fn new(
-        checkpoint: Checkpoint,
-        v2_pools: Vec<UniswapV2Pool>,
-        v3_pools: Vec<UniswapV3Pool>
-    ) -> Self {
+    pub fn new(checkpoint: Checkpoint, v2_pools: Vec<UniswapV2Pool>, v3_pools: Vec<UniswapV3Pool>) -> Self {
         Self { checkpoint, v2_pools, v3_pools }
     }
 }
@@ -75,32 +66,22 @@ pub struct SyncConfig {
 }
 
 impl SyncConfig {
-    pub fn new(
-        chain_id: u64,
-        dex: Vec<DexKind>,
-        concurrency: usize,
-        from_block: Option<BlockTime>
-    ) -> Self {
+    pub fn new(chain_id: u64, dex: Vec<DexKind>, concurrency: usize, from_block: Option<BlockTime>) -> Self {
         Self { chain_id, dex, concurrency, from_block }
     }
 }
 
 /// Sync pools from the given checkpoint
-pub async fn sync_from_checkpoint<T, P, N>(
+pub async fn sync_from_checkpoint<P, N>(
     client: P,
     concurrency: usize,
     checkpoint: Checkpoint
 )
     -> Result<SyncedPools, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let from_block = BlockTime::Block(checkpoint.block);
-    let config = SyncConfig::new(
-        checkpoint.chain_id,
-        vec![checkpoint.dex],
-        concurrency,
-        Some(from_block)
-    );
+    let config = SyncConfig::new(checkpoint.chain_id, vec![checkpoint.dex], concurrency, Some(from_block));
 
     let synced = sync_pools(client, config).await?;
 
@@ -113,25 +94,16 @@ pub async fn sync_from_checkpoint<T, P, N>(
     Ok(synced)
 }
 
-
 /// Sync pools with the given configuration
 ///
 /// See [SyncConfig]
-pub async fn sync_pools<T, P, N>(
-    client: P,
-    config: SyncConfig
-)
-    -> Result<Vec<SyncedPools>, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+pub async fn sync_pools<P, N>(client: P, config: SyncConfig) -> Result<Vec<SyncedPools>, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let chain = client.get_chain_id().await?;
 
     if chain != config.chain_id {
-        anyhow::bail!(
-            "Chain ID mismatch, your Chain Id {}, but client returned: {}",
-            config.chain_id,
-            chain
-        );
+        anyhow::bail!("Chain ID mismatch, your Chain Id {}, but client returned: {}", config.chain_id, chain);
     }
 
     let semaphore = Arc::new(Semaphore::new(config.concurrency));
@@ -172,7 +144,7 @@ pub async fn sync_pools<T, P, N>(
     Ok(Arc::try_unwrap(results).unwrap().into_inner())
 }
 
-async fn do_sync_pools<T, P, N>(
+async fn do_sync_pools<P, N>(
     client: P,
     chain_id: u64,
     dex: DexKind,
@@ -180,7 +152,7 @@ async fn do_sync_pools<T, P, N>(
     from_block: Option<BlockTime>
 )
     -> Result<SyncedPools, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone + 'static, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let dex = dex;
     let factory = dex.factory(chain_id)?;
@@ -200,14 +172,7 @@ async fn do_sync_pools<T, P, N>(
 
     let synced_block = client.get_block_number().await?;
 
-    let logs = get_logs_for(
-        client.clone(),
-        chain_id,
-        vec![factory],
-        events,
-        from_block,
-        concurrency
-    ).await?;
+    let logs = get_logs_for(client.clone(), chain_id, vec![factory], events, from_block, concurrency).await?;
 
     let semaphore = Arc::new(Semaphore::new(concurrency));
     let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
@@ -275,16 +240,14 @@ async fn do_sync_pools<T, P, N>(
     }
 }
 
-
-
-async fn v2_pool_from_log<T, P, N>(
+async fn v2_pool_from_log<P, N>(
     client: P,
     chain_id: u64,
     dex: DexKind,
     log: &Log
 )
     -> Result<UniswapV2Pool, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let IUniswapV2Factory::PairCreated { token0, token1, pair, .. } = log.log_decode()?.inner.data;
 
@@ -304,17 +267,16 @@ async fn v2_pool_from_log<T, P, N>(
     Ok(pool)
 }
 
-async fn v3_pool_from_log<T, P, N>(
+async fn v3_pool_from_log<P, N>(
     client: P,
     chain_id: u64,
     dex: DexKind,
     log: &Log
 )
     -> Result<UniswapV3Pool, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
-    let IUniswapV3Factory::PoolCreated { token0, token1, pool, fee, .. } =
-        log.log_decode()?.inner.data;
+    let IUniswapV3Factory::PoolCreated { token0, token1, pool, fee, .. } = log.log_decode()?.inner.data;
 
     let token0_erc = if let Some(token) = ERC20Token::base_token(chain_id, token0) {
         token

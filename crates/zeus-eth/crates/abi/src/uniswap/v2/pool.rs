@@ -2,9 +2,7 @@ use alloy_sol_types::{ SolCall, sol };
 use alloy_primitives::{ Address, Bytes, U256 };
 use alloy_rpc_types::BlockId;
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{ Network, Provider };
 
 sol! {
 
@@ -66,8 +64,8 @@ sol! {
 }
 
 /// Return the factory address that created this pair
-pub async fn factory<T, P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn factory<P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV2Pair::new(pair_address, client);
     let factory = contract.factory().call().await?;
@@ -76,13 +74,13 @@ pub async fn factory<T, P, N>(pair_address: Address, client: P) -> Result<Addres
 
 /// * `block_id` - The block id to query the reserves
 /// If None, the latest block will be used
-pub async fn get_reserves<T, P, N>(
+pub async fn get_reserves<P, N>(
     pair_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<(U256, U256, u32), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV2Pair::new(pair_address, client);
@@ -93,13 +91,8 @@ pub async fn get_reserves<T, P, N>(
 }
 
 /// Return the last k value of this pair
-pub async fn k_last<T, P, N>(
-    pair_address: Address,
-    client: P,
-    block_id: Option<BlockId>
-)
-    -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn k_last<P, N>(pair_address: Address, client: P, block_id: Option<BlockId>) -> Result<U256, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV2Pair::new(pair_address, client);
@@ -108,13 +101,13 @@ pub async fn k_last<T, P, N>(
 }
 
 /// Return the price0CumulativeLast of this pair
-pub async fn price0_cumulative_last<T, P, N>(
+pub async fn price0_cumulative_last<P, N>(
     pair_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV2Pair::new(pair_address, client);
@@ -123,13 +116,13 @@ pub async fn price0_cumulative_last<T, P, N>(
 }
 
 /// Return the price1CumulativeLast of this pair
-pub async fn price1_cumulative_last<T, P, N>(
+pub async fn price1_cumulative_last<P, N>(
     pair_address: Address,
     client: P,
     block_id: Option<BlockId>
 )
     -> Result<U256, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let block = block_id.unwrap_or(BlockId::latest());
     let contract = IUniswapV2Pair::new(pair_address, client);
@@ -138,8 +131,8 @@ pub async fn price1_cumulative_last<T, P, N>(
 }
 
 /// Return the address of token0
-pub async fn token0<T, P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn token0<P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV2Pair::new(pair_address, client);
     let token0 = contract.token0().call().await?;
@@ -147,8 +140,8 @@ pub async fn token0<T, P, N>(pair_address: Address, client: P) -> Result<Address
 }
 
 /// Return the address of token1
-pub async fn token1<T, P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn token1<P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV2Pair::new(pair_address, client);
     let token1 = contract.token1().call().await?;
@@ -156,13 +149,8 @@ pub async fn token1<T, P, N>(pair_address: Address, client: P) -> Result<Address
 }
 
 /// Make a burn call to this pair
-pub async fn burn<T, P, N>(
-    pair_address: Address,
-    to: Address,
-    client: P
-)
-    -> Result<(), anyhow::Error>
-    where T: Transport + Clone, P: Provider<T, N> + Clone, N: Network
+pub async fn burn<P, N>(pair_address: Address, to: Address, client: P) -> Result<(), anyhow::Error>
+    where P: Provider<(), N> + Clone + 'static, N: Network
 {
     let contract = IUniswapV2Pair::new(pair_address, client);
     contract.burn(to).call().await?;

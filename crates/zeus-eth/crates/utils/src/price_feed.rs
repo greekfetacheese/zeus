@@ -5,10 +5,7 @@ use types::ChainId;
 use super::address::*;
 use anyhow::bail;
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
-
+use alloy_contract::private::{Network, Provider};
 
 sol!(
     #[sol(rpc)]
@@ -21,14 +18,13 @@ sol!(
 /// Get the ETH price on supported chains
 /// 
 /// - `block_id` The block to query the price at. If None, the latest block is used.
-pub async fn get_eth_price<T, P, N>(
+pub async fn get_eth_price<P, N>(
     client: P,
     chain_id: u64,
     block_id: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
 where
-    T: Transport + Clone,
-    P: Provider<T, N> + Clone,
+    P: Provider<(), N> + Clone + 'static,
     N: Network,
 {
     let chain = ChainId::new(chain_id)?;
@@ -55,13 +51,12 @@ where
 /// Get the BNB price on the Binance Smart Chain
 /// 
 /// - `block_id` The block to query the price at. If None, the latest block is used.
-pub async fn get_bnb_price<T, P, N>(
+pub async fn get_bnb_price<P, N>(
     client: P,
     block_id: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
 where
-    T: Transport + Clone,
-    P: Provider<T, N> + Clone,
+    P: Provider<(), N> + Clone + 'static,
     N: Network,
 {
     let block_id = block_id.unwrap_or(BlockId::latest());
@@ -77,15 +72,14 @@ where
 
 
 /// Get the USD price of a base token
-pub async fn get_base_token_price<T, P, N>(
+pub async fn get_base_token_price<P, N>(
     client: P,
     chain_id: u64,
     token: Address,
     block: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
-where 
-    T: Transport + Clone,
-    P: Provider<T, N> + Clone,
+where
+    P: Provider<(), N> + Clone + 'static,
     N: Network,
 {
     let chain = ChainId::new(chain_id)?;

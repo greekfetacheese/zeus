@@ -1,13 +1,12 @@
 pub mod address;
 pub mod price_feed;
 pub mod batch_request;
+pub mod client;
 
 use alloy_primitives::Address;
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 
-use alloy_contract::private::Network;
-use alloy_provider::Provider;
-use alloy_transport::Transport;
+use alloy_contract::private::{Network, Provider};
 
 use types::BlockTime;
 use std::sync::Arc;
@@ -36,7 +35,7 @@ pub fn is_base_token(chain: u64, token: Address) -> bool {
 /// - `block_time` The block time to go back from the latest block (eg. 1 day etc..)
 /// 
 /// - `concurrency` The number of concurrent requests to make to the RPC, set 1 for no concurrency
-pub async fn get_logs_for<T, P, N>(
+pub async fn get_logs_for<P, N>(
     client: P,
     chain_id: u64,
     target_address: Vec<Address>,
@@ -45,9 +44,8 @@ pub async fn get_logs_for<T, P, N>(
     concurrency: usize,
 ) -> Result<Vec<Log>, anyhow::Error>
 where
-    T: Transport + Clone,
-    P: Provider<T, N> + Clone + 'static,
-    N: Network,
+    P: Provider<(), N> + Clone + 'static,
+    N: Network
 {
     let latest_block = client.get_block_number().await?;
     let from_block = block_time.go_back(chain_id, latest_block)?;
