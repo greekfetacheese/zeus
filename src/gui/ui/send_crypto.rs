@@ -32,7 +32,7 @@ use crate::gui::ui::{
 use crate::gui::SHARED_GUI;
 use egui_theme::Theme;
 use zeus_eth::{ types::ChainId, currency::{ Currency, native::NativeCurrency } };
-use zeus_eth::alloy_primitives::{ Address, U256, utils::parse_units };
+use zeus_eth::alloy_primitives::{ Address, U256 };
 
 
 pub struct SendCryptoUi {

@@ -371,6 +371,7 @@ impl PortfolioUi {
 
     fn price(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
         let price = currency_price(ctx.clone(), currency);
+        //println!("Price for {}: {}", currency.symbol(), price);
         ui.horizontal(|ui| {
             ui.set_width(width);
             ui.label(format!("${}", price));
@@ -408,10 +409,13 @@ impl PortfolioUi {
         RT.spawn(async move {
             let pool_manager = ctx.pool_manager();
             let chain = ctx.chain().id();
+            let owner = ctx.profile().wallet_address();
             let client = ctx.get_client_with_id(chain).unwrap();
-            let tokens = ERC20Token::base_tokens(chain);
 
-            match pool_manager.update(client, chain, tokens).await {
+            let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+            let tokens = portfolio.erc20_tokens();
+
+            match pool_manager.update_minimal(client, chain, tokens).await {
                 Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
                 Err(e) => tracing::error!("Error updating prices: {:?}", e),
             }

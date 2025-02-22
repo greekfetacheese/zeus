@@ -11,7 +11,7 @@ use crate::core::utils::tx::{send_tx, TxType, TxParams};
 use zeus_eth::{
     types::*,
     alloy_primitives::{Address, U256, utils::parse_units},
-    currency::{Currency, ERC20Token},
+    currency::Currency,
 };
 
 pub mod trace;
@@ -72,7 +72,7 @@ pub async fn send_crypto(
     let miner_tip = U256::from(fee);
 
     let tx_type = TxType::Transfer(amount, currency);
-    let params = TxParams::transfer(tx_type, sender, to, chain, miner_tip);
+    let params = TxParams::transfer(tx_type, sender.key.clone(), to, chain, miner_tip);
     
     let _receipt = send_tx(client.clone(), params).await?;
 
@@ -156,8 +156,7 @@ pub async fn update_price_manager(ctx: ZeusCtx) {
 
             for chain in SUPPORTED_CHAINS {
                 let client = ctx.get_client_with_id(chain).unwrap();
-                let base_tokens = ERC20Token::base_tokens(chain);
-                let res = pool_manager.update(client.clone(), chain, base_tokens).await;
+                let res = pool_manager.update(client.clone(), chain).await;
                 if let Err(e) = res {
                     tracing::error!("Error updating pool manager: {:?}", e);
                 }

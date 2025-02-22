@@ -1,5 +1,5 @@
 use zeus_eth::alloy_primitives::Address;
-use zeus_eth::currency::Currency;
+use zeus_eth::currency::{Currency, ERC20Token};
 
 pub mod wallet;
 pub mod profile;
@@ -32,6 +32,17 @@ impl Portfolio {
 
     pub fn remove_currency(&mut self, currency: &Currency) {
         self.currencies.retain(|c| c != currency);
+    }
+
+    /// Return all the ERC20 tokens in the portfolio
+    pub fn erc20_tokens(&self) -> Vec<ERC20Token> {
+        let mut tokens = Vec::new();
+        for currency in &self.currencies {
+            if currency.is_erc20() {
+                tokens.push(currency.erc20().cloned().unwrap());
+            }
+        }
+        tokens
     }
 
     pub fn currencies(&self) -> &Vec<Currency> {

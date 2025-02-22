@@ -1,5 +1,5 @@
 use zeus_eth::{
-    wallet::SafeWallet,
+    wallet::{SafeSigner, SafeWallet},
     alloy_contract::private::Provider,
     alloy_primitives::{ Address, Bytes, U256, utils::{ format_ether, parse_units } },
     alloy_network::{ Ethereum, TransactionBuilder },
@@ -8,7 +8,6 @@ use zeus_eth::{
     currency::Currency,
     types::ChainId,
 };
-use crate::core::user::wallet::Wallet;
 use anyhow::anyhow;
 
 
@@ -25,7 +24,7 @@ pub enum TxType {
 #[derive(Clone)]
 pub struct TxParams {
     pub tx_type: TxType,
-    pub signer: Wallet,
+    pub signer: SafeSigner,
     pub recipient: Option<Address>,
     pub chain: u64,
     /// Priority fee in Gwei
@@ -35,7 +34,7 @@ pub struct TxParams {
 impl TxParams {
     pub fn new(
         tx_type: TxType,
-        signer: Wallet,
+        signer: SafeSigner,
         recipient: Option<Address>,
         chain: u64,
         miner_tip: U256,
@@ -51,7 +50,7 @@ impl TxParams {
 
     pub fn transfer(
         tx_type: TxType,
-        signer: Wallet,
+        signer: SafeSigner,
         recipient: Address,
         chain: u64,
         miner_tip: U256,
@@ -69,10 +68,7 @@ impl TxParams {
 fn has_funds(chain: ChainId, gas_cost: U256, balance: U256) -> Result<(), anyhow::Error> {
     let symbol = chain.coin_symbol();
     let gas_cost = format_ether(gas_cost);
-    println!("Estimated gas cost: {} {}", gas_cost, symbol);
-
     let balance = format_ether(balance);
-    println!("Current balance: {} {}", balance, symbol);
 
     if balance < gas_cost {
         return Err(
@@ -101,11 +97,11 @@ pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceip
     }
 
 
-    let nonce = client.get_transaction_count(params.signer.key.inner().address()).await?;
+    let nonce = client.get_transaction_count(params.signer.inner().address()).await?;
     let mut tx = build_tx(params.clone())?;
     tx.set_nonce(nonce);
 
-    let signer = SafeWallet::from(params.signer.key.clone());
+    let signer = SafeWallet::from(params.signer.clone());
 
     let tx_envelope = tx.clone().build(&signer.inner()).await?;
 
@@ -113,7 +109,7 @@ pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceip
     let base_fee = calculate_next_block_base_fee(block.unwrap());
     let gas_used = client.estimate_gas(&tx).await?;
     let gas_cost = U256::from(gas_used * base_fee);
-    let balance = client.get_balance(params.signer.key.inner().address()).await?;
+    let balance = client.get_balance(params.signer.inner().address()).await?;
     has_funds(chain, gas_cost, balance)?;
 
     let receipt = client
@@ -146,13 +142,14 @@ fn build_tx(params: TxParams) -> Result<TransactionRequest, anyhow::Error> {
             };
 
             TransactionRequest::default()
-                .with_from(params.signer.key.inner().address())
+                .with_from(params.signer.inner().address())
                 .with_to(to)
                 .with_chain_id(params.chain)
                 .with_value(amount)
                 .with_gas_limit(gas_limit)
                 .with_input(call_data)
                 .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
+                .max_fee_per_gas(params.miner_tip.to::<u128>())
         }
         _ => todo!(),
     };
