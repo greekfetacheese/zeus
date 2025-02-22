@@ -43,6 +43,13 @@ impl ChainId {
             .collect()
     }
 
+    pub fn coin_symbol(&self) -> &str {
+        match self {
+            ChainId::BinanceSmartChain(_) => "BNB",
+            _ => "ETH",
+        }
+    }
+
     pub fn id(&self) -> u64 {
         match self {
             ChainId::Ethereum(id) => *id,

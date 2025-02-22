@@ -162,7 +162,7 @@ impl SendCryptoUi {
                         }
 
                         let chain = self.chain_select.chain.id();
-                        let owner = self.wallet_select.wallet.key.address();
+                        let owner = self.wallet_select.wallet.key.inner().address();
                         let currencies = ctx.get_currencies(chain);
                         token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
 

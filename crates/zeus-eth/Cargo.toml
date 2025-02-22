@@ -14,6 +14,7 @@ currency = { path = "crates/currency"}
 revm-utils = { path = "crates/revm-utils"}
 types = { path = "crates/types"}
 utils = { path = "crates/utils"}
+wallet = { path = "crates/wallet"}
 
 # External dependencies
 alloy-sol-types = {version = "0.8.20", features = ["json"]}
@@ -23,7 +24,7 @@ alloy-primitives = "0.8.20"
 alloy-rpc-types = "=0.11.1"
 alloy-contract = "=0.11.1"
 alloy-provider = "=0.11.1"
-#alloy-transport = "=0.11.1"
+alloy-network = "=0.11.1"
 
 uniswap_v3_math = { git = "https://github.com/0xKitsune/uniswap-v3-math.git", branch = "main" }
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}

@@ -7,7 +7,7 @@ use zeus_eth::{currency::{Currency, ERC20Token}, amm::{UniswapV2Pool, UniswapV3P
 /// Get the ERC20 Token from the blockchain and update the db
 pub async fn get_erc20_token(ctx: ZeusCtx, token_address: Address, chain_id: u64) -> Result<ERC20Token, anyhow::Error> {
     let client = ctx.get_client_with_id(chain_id)?;
-    let owner = ctx.wallet().key.address();
+    let owner = ctx.wallet().key.inner().address();
 
     let token = ERC20Token::new(client.clone(), token_address, chain_id).await?;
 

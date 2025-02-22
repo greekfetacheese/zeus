@@ -1,54 +1,18 @@
 use ncrypt_me::{ zeroize::Zeroize, decrypt_data, encrypt_data, Argon2Params, Credentials };
 use zeus_eth::alloy_primitives::Address;
 use crate::core::utils::data_dir;
-use super::wallet::{ Wallet, WalletData };
+use super::wallet::Wallet;
 use anyhow::anyhow;
 use std::path::PathBuf;
 
 pub const PROFILE_FILE: &str = "profile.data";
 
 
-
-/// Helper struct to serialize [Profile] in JSON
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct ProfileData {
-    pub wallets: Vec<WalletData>,
-}
-
-impl Drop for ProfileData {
-    fn drop(&mut self) {
-        self.erase();
-    }
-}
-
-impl ProfileData {
-    pub fn new(wallets: Vec<WalletData>) -> Self {
-        Self {
-            wallets,
-        }
-    }
-
-    /// Erase the wallets from memory by zeroing out the keys
-    pub fn erase(&mut self) {
-        for wallet in self.wallets.iter_mut() {
-            wallet.key.zeroize();
-        }
-    }
-
-    /// Serialize to JSON String
-    pub fn serialize(&self) -> Result<String, anyhow::Error> {
-        Ok(serde_json::to_string(self)?)
-    }
-
-    /// Deserialize from slice
-    pub fn from_slice(data: &[u8]) -> Result<Self, anyhow::Error> {
-        Ok(serde_json::from_slice::<ProfileData>(data)?)
-    }
-}
-
 /// Main user profile struct
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Profile {
+
+    #[serde(skip)]
     pub credentials: Credentials,
 
     /// The wallets of the profile
@@ -126,7 +90,7 @@ impl Profile {
                 return Err(anyhow!("Wallet key is erased"));
             }
         }
-        let profile_data = self.serialize()?.as_bytes().to_vec();
+        let profile_data = serde_json::to_vec(self)?;
         let encrypted_data = encrypt_data(argon, profile_data, self.credentials.clone())?;
         std::fs::write(dir, encrypted_data)?;
         Ok(())
@@ -150,36 +114,12 @@ impl Profile {
     /// Decrypt and load the profile
     pub fn decrypt_and_load(&mut self, dir: &PathBuf) -> Result<(), anyhow::Error> {
         let decrypted_data = self.decrypt(dir)?;
-        let profile_data = ProfileData::from_slice(&decrypted_data)?;
+        let profile: Profile = serde_json::from_slice(&decrypted_data)?;
 
-        let mut wallets = Vec::new();
-        for wallet in &profile_data.wallets {
-            wallets.push(wallet.to_wallet()?);
-        }
-
-        self.wallets = wallets;
-
-        // if there is at least 1 wallet available, set the current wallet to the first one
-        if !self.wallets.is_empty() {
-            self.current_wallet = self.wallets[0].clone();
-        }
+        self.wallets = profile.wallets;
+        self.current_wallet = profile.current_wallet;
 
         Ok(())
-    }
-
-    /// Store all data to [ProfileData] and serialize it to a JSON string
-    pub fn serialize(&self) -> Result<String, anyhow::Error> {
-        let mut wallet_data = Vec::new();
-        for wallet in self.wallets.iter() {
-            let key = wallet.key_string();
-            let data = WalletData::new(wallet.name.clone(), wallet.notes.clone(), wallet.hidden, key);
-            wallet_data.push(data);
-        }
-
-        let profile_data = ProfileData::new(wallet_data);
-        let serialized = profile_data.serialize()?;
-
-        Ok(serialized)
     }
 
     pub fn remove_wallet(&mut self, wallet: Wallet) {
@@ -188,7 +128,7 @@ impl Profile {
 
     /// Get the current wallet address
     pub fn wallet_address(&self) -> Address {
-        self.current_wallet.key.address()
+        self.current_wallet.key.inner().address()
     }
 
     /// Is a profile exists at the data directory

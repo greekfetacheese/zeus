@@ -568,13 +568,14 @@ dependencies = [
 
 [[package]]
 name = "alloy-signer"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c613222abd016e03ba548f41db938a2c99108b59c0c66ca105eab1b7a2e6b40a"
+checksum = "f96b3526fdd779a4bd0f37319cfb4172db52a7ac24cdbb8804b72091c18e1701"
 dependencies = [
  "alloy-primitives",
  "async-trait",
  "auto_impl",
+ "either",
  "elliptic-curve",
  "k256",
  "thiserror 2.0.11",
@@ -582,9 +583,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-signer-local"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39163b956c81e8fd9605194d6b5b92dd93b0e0252810e69f9a4cebe3a8614f46"
+checksum = "fe8f78cd6b7501c7e813a1eb4a087b72d23af51f5bb66d4e948dc840bdd207d8"
 dependencies = [
  "alloy-consensus",
  "alloy-network",
@@ -6162,6 +6163,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "alloy-contract",
+ "alloy-network",
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
@@ -6225,6 +6227,17 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
+]
+
+[[package]]
+name = "wallet"
+version = "0.1.0"
+dependencies = [
+ "alloy-network",
+ "alloy-signer-local",
+ "serde",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]
@@ -7323,6 +7336,7 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "alloy-contract",
+ "alloy-network",
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
@@ -7339,6 +7353,7 @@ dependencies = [
  "uniswap_v3_math",
  "url",
  "utils",
+ "wallet",
 ]
 
 [[package]]

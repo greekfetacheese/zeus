@@ -103,7 +103,7 @@ impl SwapUi {
         ui.label("Swap UI");
 
         let chain_id = ctx.chain().id();
-        let owner = ctx.wallet().key.address();
+        let owner = ctx.wallet().key.inner().address();
         let currencies = ctx.get_currencies(chain_id);
 
         let sell_text = rich_text("Sell").size(23.0);
@@ -198,7 +198,7 @@ impl SwapUi {
                         });
                     });
 
-                    let owner = ctx.wallet().key.address();
+                    let owner = ctx.wallet().key.inner().address();
                     let chain_id = ctx.chain().id();
                     token_selection.show(ctx, chain_id, owner, icons, &currencies, ui);
 

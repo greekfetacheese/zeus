@@ -6,23 +6,24 @@ use lazy_static::lazy_static;
 use super::{ Wallet, ZeusCtx };
 use anyhow::anyhow;
 
-use alloy_network::{TransactionBuilder, EthereumWallet};
+
+use crate::core::utils::tx::{send_tx, TxType, TxParams};
 use zeus_eth::{
     types::*,
-    alloy_provider::Provider,
     alloy_primitives::{Address, U256, utils::parse_units},
     currency::{Currency, ERC20Token},
-    alloy_rpc_types::TransactionRequest,
 };
 
 pub mod trace;
+pub mod fetch;
+pub mod tx;
 
 lazy_static! {
     pub static ref RT: Runtime = Runtime::new().unwrap();
 }
 
 
-pub mod fetch;
+
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -69,46 +70,11 @@ pub async fn send_crypto(
     };
 
     let miner_tip = U256::from(fee);
-    let from = sender.key.address();
-    let nonce = client.get_transaction_count(from).await?;
 
-    let tx = if currency.is_native() {
-        let amount = parse_units(&amount.to_string(), currency.decimals())?.get_absolute();
-
-        TransactionRequest::default()
-            .with_from(from)
-            .with_to(to)
-            .with_chain_id(chain)
-            .with_value(amount)
-            .with_nonce(nonce)
-            .with_gas_limit(21_000)
-            .with_max_priority_fee_per_gas(miner_tip.to::<u128>())
-            .with_max_fee_per_gas(miner_tip.to::<u128>())
-    } else {
-        let token = currency.erc20().unwrap();
-        let amount = parse_units(&amount.to_string(), token.decimals)?.get_absolute();
-        let call_data = token.encode_transfer(to, amount);
-
-        TransactionRequest::default()
-            .with_from(from)
-            .with_to(token.address)
-            .with_chain_id(chain)
-            .with_value(U256::ZERO)
-            .with_nonce(nonce)
-            .with_gas_limit(100_000)
-            .with_max_priority_fee_per_gas(miner_tip.to::<u128>())
-            .with_max_fee_per_gas(miner_tip.to::<u128>())
-            .with_input(call_data)
-    };
-
-    let signer = EthereumWallet::new(sender.key.clone());
-    let tx_envelope = tx.build(&signer).await?;
+    let tx_type = TxType::Transfer(amount, currency);
+    let params = TxParams::transfer(tx_type, sender, to, chain, miner_tip);
     
-    let receipt = client
-        .send_tx_envelope(tx_envelope).await?
-        .with_required_confirmations(2)
-        .with_timeout(Some(std::time::Duration::from_secs(30)))
-        .get_receipt().await?;
+    let _receipt = send_tx(client.clone(), params).await?;
 
     Ok(())
 }

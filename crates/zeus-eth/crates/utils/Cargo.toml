@@ -12,7 +12,7 @@ alloy-primitives = "0.8.20"
 alloy-rpc-types = "=0.11.1"
 alloy-contract = "=0.11.1"
 alloy-provider = "=0.11.1"
-#alloy-transport = "=0.11.1"
+alloy-network = "=0.11.1"
 
 anyhow = "1.0.95"
 

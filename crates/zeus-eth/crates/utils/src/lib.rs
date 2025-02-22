@@ -2,6 +2,7 @@ pub mod address;
 pub mod price_feed;
 pub mod batch_request;
 pub mod client;
+pub mod block;
 
 use alloy_primitives::Address;
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};

@@ -252,7 +252,7 @@ impl PortfolioUi {
         }
 
         let chain_id = ctx.chain().id();
-        let owner = ctx.wallet().key.address();
+        let owner = ctx.wallet().key.inner().address();
         let portfolio = ctx.get_portfolio(chain_id, owner).unwrap_or_default();
 
         let currencies = portfolio.currencies();
@@ -378,7 +378,7 @@ impl PortfolioUi {
     }
 
     fn balance(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
-        let balance = currency_balance(ctx.clone(), ctx.wallet().key.address(), currency);
+        let balance = currency_balance(ctx.clone(), ctx.wallet().key.inner().address(), currency);
         ui.horizontal(|ui| {
             ui.set_width(width);
             ui.label(balance);
@@ -387,7 +387,7 @@ impl PortfolioUi {
 
     fn value(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
         let price = currency_price(ctx.clone(), currency);
-        let balance = currency_balance(ctx.clone(), ctx.wallet().key.address(), currency);
+        let balance = currency_balance(ctx.clone(), ctx.wallet().key.inner().address(), currency);
         let value = currency_value(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
         ui.horizontal(|ui| {
             ui.set_width(width);
@@ -423,7 +423,7 @@ impl PortfolioUi {
 
     fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
         let chain_id = ctx.chain().id();
-        let owner = ctx.wallet().key.address();
+        let owner = ctx.wallet().key.inner().address();
         ctx.write(|ctx| {
             let portfolio = ctx.db.get_portfolio_mut(chain_id, owner);
             if portfolio.is_none() {
@@ -468,7 +468,7 @@ impl PortfolioUi {
             ui.set_width(width);
             if ui.button("X").clicked() {
                 ctx.write(|ctx| {
-                    let owner = ctx.wallet().key.address();
+                    let owner = ctx.wallet().key.inner().address();
                     let chain = ctx.chain.id();
                     let portfolio = ctx.db.get_portfolio_mut(chain, owner);
                     if let Some(portfolio) = portfolio {
