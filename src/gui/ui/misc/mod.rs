@@ -213,6 +213,7 @@ impl MsgWindow {
 
         Window::new(title)
             .resizable(false)
+            .movable(true)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
             .collapsible(false)
             .frame(frame)

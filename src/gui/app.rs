@@ -25,7 +25,7 @@ impl ZeusApp {
             let theme = Theme::from_custom(path).unwrap();
             theme
         } else {
-            let theme = Theme::new(ThemeKind::Midnight);
+            let theme = Theme::new(ThemeKind::Mocha);
             theme
         };
 
@@ -78,7 +78,7 @@ impl eframe::App for ZeusApp {
 
         let bg_color = if gui.show_overlay { gui.theme.colors.overlay_color } else { gui.theme.colors.bg_color };
 
-        let bg_frame = Frame::none().fill(bg_color);
+        let bg_frame = Frame::new().fill(bg_color);
 
         window_frame(ctx, "Zeus", bg_frame.clone(), |ui| {
             egui_theme::utils::apply_theme_changes(&gui.theme, ui);

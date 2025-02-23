@@ -107,6 +107,7 @@ impl ThemeEditor {
         ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing.y = 20.0;
 
+             
             CollapsingHeader::new("Theme Frames").show(ui, |ui| {
                 CollapsingHeader::new("Frame 1").show(ui, |ui| {
                     self.frame_settings(&mut theme.frame1, &mut theme.frame1_visuals, ui);
@@ -116,10 +117,14 @@ impl ThemeEditor {
                     self.frame_settings(&mut theme.frame2, &mut theme.frame2_visuals, ui);
                 });
             });
+            
 
             CollapsingHeader::new("Theme Colors").show(ui, |ui| {
                 ui.label("Background Color");
                 color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
+
+                ui.label("Highlight Color");
+                color_edit_button_srgba(ui, &mut theme.colors.highlight, Alpha::OnlyBlend);
 
                 ui.label("Overlay Color");
                 color_edit_button_srgba(ui, &mut theme.colors.overlay_color, Alpha::OnlyBlend);

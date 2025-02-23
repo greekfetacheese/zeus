@@ -10,7 +10,8 @@ pub use editor::ThemeEditor;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeKind {
-    Midnight,
+    /// https://catppuccin.com/palette/
+    Mocha,
 
     /// A custom theme
     Custom,
@@ -19,13 +20,13 @@ pub enum ThemeKind {
 impl ThemeKind {
     pub fn to_str(&self) -> &str {
         match self {
-            ThemeKind::Midnight => "Midnight",
+            ThemeKind::Mocha => "Mocha",
             ThemeKind::Custom => "Custom",
         }
     }
 
     pub fn to_vec() -> Vec<Self> {
-        vec![Self::Midnight]
+        vec![{Self::Mocha}]
     }
 }
 
@@ -46,7 +47,7 @@ impl Theme {
     /// Use [Theme::from_custom()] instead
     pub fn new(kind: ThemeKind) -> Self {
         let theme = match kind {
-            ThemeKind::Midnight => themes::midnight::theme(),
+            ThemeKind::Mocha => themes::mocha::theme(),
             ThemeKind::Custom => panic!("{}", PANIC_MSG),
         };
 

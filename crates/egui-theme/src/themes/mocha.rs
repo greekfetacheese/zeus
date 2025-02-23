@@ -2,7 +2,6 @@ use egui::{
     style::{ Selection, WidgetVisuals, Widgets },
     Color32,
     Frame,
-    Margin,
     CornerRadius,
     Shadow,
     Stroke,
@@ -11,31 +10,45 @@ use egui::{
 };
 use super::super::{ Theme, ThemeKind, ThemeColors, FrameVisuals };
 
-/// Hex: #252323
-pub const BLACK: Color32 = Color32::from_rgba_premultiplied(37, 35, 35, 255);
+/// Main background
+const BASE: Color32 = Color32::from_rgb(30, 30, 46);      // #1E1E2E
 
-/// Hex: #1F1D1D
-pub const OVERLAY: Color32 = Color32::from_rgba_premultiplied(31, 29, 29, 255);
+/// Overlays
+const MANTLE: Color32 = Color32::from_rgb(24, 24, 37);    // #181825
 
-/// Hex: #141415
-pub const RAISIN_BLACK: Color32 = Color32::from_rgba_premultiplied(40, 40, 42, 255);
+/// secondary backgrounds, e.g., sidebar, windows
+const SURFACE0: Color32 = Color32::from_rgb(49, 50, 68);  // #313244
 
-/// Hex: #3B1C32
-pub const DARK_PURPLE: Color32 = Color32::from_rgba_premultiplied(59, 28, 50, 255);
+/// Widget when idle (at rest)
+const SURFACE1: Color32 = Color32::from_rgb(69, 71, 90);  // #45475A
 
-/// Hex: #8F2872
-pub const BYZANTIUM: Color32 = Color32::from_rgba_premultiplied(143, 40, 114, 255);
+/// Widget when hovered
+const SURFACE2: Color32 = Color32::from_rgb(88, 91, 112); // #585B70
 
-/// Hex: #A64D79
-pub const MAGENTA_HAZE: Color32 = Color32::from_rgba_premultiplied(166, 77, 121, 255);
+/// Idle borders
+const OVERLAY0: Color32 = Color32::from_rgb(108, 112, 134); // #6C7086
 
-/// Hex: #F6F4F0
-pub const WHITE: Color32 = Color32::from_rgba_premultiplied(246, 244, 240, 255);
+/// Hover borders
+const OVERLAY1: Color32 = Color32::from_rgb(127, 132, 156); // #7F849C
+
+/// Primary text
+const TEXT: Color32 = Color32::from_rgb(205, 214, 244);   // #CDD6F4
+
+/// Secondary text
+const SUBTEXT1: Color32 = Color32::from_rgb(186, 194, 222); // #BAC2DE
+
+/// Widget on click, focus
+const BLUE: Color32 = Color32::from_rgb(137, 180, 250);   // #89B4FA
+
+/// Highlight
+const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
+
+
 
 /// Return this theme
 pub fn theme() -> Theme {
     Theme {
-        kind: ThemeKind::Midnight,
+        kind: ThemeKind::Mocha,
         style: style(),
         colors: colors(),
         frame1: frame1(),
@@ -44,6 +57,7 @@ pub fn theme() -> Theme {
         frame2_visuals: frame2_visuals(),
     }
 }
+
 
 /// Return the style for this theme
 fn style() -> Style {
@@ -58,69 +72,59 @@ fn style() -> Style {
 /// Return the theme colors for this theme
 fn colors() -> ThemeColors {
     ThemeColors {
-        bg_color: BLACK,
-        highlight: Color32::from_gray(25),
-        text_secondary: Color32::from_gray(150),
-        overlay_color: OVERLAY,
-        widget_bg_color_idle: MAGENTA_HAZE,
-        widget_bg_color_click: DARK_PURPLE,
-        widget_bg_color_hover: BYZANTIUM,
-        widget_bg_color_open: DARK_PURPLE,
-        text_color: WHITE,
-        border_color_idle: BYZANTIUM,
-        border_color_click: MAGENTA_HAZE,
-        border_color_hover: MAGENTA_HAZE,
-        border_color_open: DARK_PURPLE,
+        bg_color: BASE,
+        highlight: LAVENDER,
+        text_color: TEXT,
+        text_secondary: SUBTEXT1,
+        overlay_color: MANTLE,
+        widget_bg_color_idle: SURFACE1,
+        widget_bg_color_click: BLUE,
+        widget_bg_color_hover: SURFACE2,
+        widget_bg_color_open: SURFACE2,
+        border_color_idle: OVERLAY0,
+        border_color_click: BLUE,
+        border_color_hover: OVERLAY1,
+        border_color_open: OVERLAY1,
     }
 }
 
+// Frames that can be used to highlight something or create a border around a widget
+
 fn frame1() -> Frame {
     Frame {
-        inner_margin: Margin::same(10),
-        outer_margin: Margin::same(10),
         corner_radius: CornerRadius::same(10),
-        shadow: Shadow {
-            offset: (0, 0).into(),
-            blur: 5,
-            spread: 0,
-            color: Color32::from_rgba_premultiplied(0, 0, 0, 128),
-        },
-        fill: MAGENTA_HAZE,
+        fill: SURFACE1,
         stroke: Stroke::NONE,
+        shadow: Shadow::default(),
+        ..Default::default()
     }
 }
 
 fn frame2() -> Frame {
     Frame {
-        inner_margin: Margin::same(10),
-        outer_margin: Margin::same(10),
         corner_radius: CornerRadius::same(10),
-        shadow: Shadow {
-            offset: (0, 0).into(),
-            blur: 0,
-            spread: 0,
-            color: Color32::TRANSPARENT,
-        },
-        fill: Color32::from_rgba_premultiplied(24, 22, 22, 173),
+        fill: SURFACE2,
         stroke: Stroke::NONE,
+        shadow: Shadow::default(),
+        ..Default::default()
     }
 }
 
 fn frame1_visuals() -> FrameVisuals {
     FrameVisuals {
-        bg_on_hover: BYZANTIUM,
-        bg_on_click: DARK_PURPLE,
-        border_on_hover: (0.0, MAGENTA_HAZE),
-        border_on_click: (1.0, MAGENTA_HAZE),
+        bg_on_hover: SURFACE2,
+        bg_on_click: BLUE,
+        border_on_hover: (1.0, OVERLAY1),
+        border_on_click: (1.0, BLUE),
     }
 }
 
 fn frame2_visuals() -> FrameVisuals {
     FrameVisuals {
-        bg_on_hover: BYZANTIUM,
-        bg_on_click: DARK_PURPLE,
-        border_on_hover: (0.0, BYZANTIUM),
-        border_on_click: (0.0, MAGENTA_HAZE),
+        bg_on_hover: SURFACE2,
+        bg_on_click: BLUE,
+        border_on_hover: (1.0, OVERLAY1),
+        border_on_click: (1.0, BLUE),
     }
 }
 
@@ -128,19 +132,19 @@ fn frame2_visuals() -> FrameVisuals {
 fn visuals(widgets: Widgets) -> Visuals {
     Visuals {
         dark_mode: true,
-        override_text_color: Some(WHITE),
+        override_text_color: Some(TEXT),
         widgets,
         selection: Selection {
-            bg_fill: MAGENTA_HAZE,
+            bg_fill: LAVENDER,
             stroke: Stroke {
                 width: 1.0,
-                color: MAGENTA_HAZE,
+                color: LAVENDER,
             },
         },
-        hyperlink_color: MAGENTA_HAZE,
-        faint_bg_color: MAGENTA_HAZE,
-        extreme_bg_color: BLACK,
-        code_bg_color: MAGENTA_HAZE,
+        hyperlink_color: LAVENDER,
+        faint_bg_color: MANTLE,
+        extreme_bg_color: BASE, // This also affects the background of the TextEdit
+        code_bg_color: MANTLE,
         warn_fg_color: Color32::RED,
         error_fg_color: Color32::RED,
         window_corner_radius: CornerRadius::same(10),
@@ -150,11 +154,11 @@ fn visuals(widgets: Widgets) -> Visuals {
             spread: 0,
             color: Color32::TRANSPARENT,
         },
-        window_fill: RAISIN_BLACK,
+        window_fill: SURFACE0,
         window_stroke: Stroke::NONE,
         window_highlight_topmost: true,
         menu_corner_radius: CornerRadius::same(10),
-        panel_fill: DARK_PURPLE,
+        panel_fill: SURFACE1,
         popup_shadow: Shadow {
             offset: (0, 0).into(),
             blur: 0,
@@ -167,79 +171,83 @@ fn visuals(widgets: Widgets) -> Visuals {
     }
 }
 
+
 /// Return the widget visuals for this theme
 fn widgets(colors: ThemeColors) -> Widgets {
     let noninteractive = WidgetVisuals {
-        bg_fill: DARK_PURPLE,
-        weak_bg_fill: DARK_PURPLE,
-        bg_stroke: Stroke {
-            width: 0.0,
-            color: WHITE,
-        },
-        corner_radius: CornerRadius::same(10),
-        fg_stroke: Stroke {
-            width: 1.0,
-            color: WHITE,
-        },
-        expansion: 0.0,
-    };
-
-    let inactive = WidgetVisuals {
-        bg_fill: MAGENTA_HAZE,
+        bg_fill: SURFACE1,
         weak_bg_fill: colors.widget_bg_color_idle,
         bg_stroke: Stroke {
             width: 0.0,
-            color: WHITE,
+            color: TEXT,
         },
         corner_radius: CornerRadius::same(10),
         fg_stroke: Stroke {
             width: 1.0,
-            color: WHITE,
+            color: TEXT,
         },
         expansion: 0.0,
     };
 
+    // idle
+    let inactive = WidgetVisuals {
+        bg_fill: SURFACE1,
+        weak_bg_fill: colors.widget_bg_color_idle,
+        bg_stroke: Stroke {
+            width: 0.0,
+            color: TEXT,
+        },
+        corner_radius: CornerRadius::same(10),
+        fg_stroke: Stroke {
+            width: 1.0,
+            color: TEXT,
+        },
+        expansion: 0.0,
+    };
+
+
     let hovered = WidgetVisuals {
-        bg_fill: BYZANTIUM,
+        bg_fill: SURFACE2,
         weak_bg_fill: colors.widget_bg_color_hover,
         bg_stroke: Stroke {
             width: 0.0,
-            color: MAGENTA_HAZE,
+            color: TEXT,
         },
         corner_radius: CornerRadius::same(10),
         fg_stroke: Stroke {
             width: 1.0,
-            color: WHITE,
+            color: TEXT,
         },
         expansion: 0.0,
     };
 
+    // on click
     let active = WidgetVisuals {
-        bg_fill: MAGENTA_HAZE,
+        bg_fill: SURFACE1,
         weak_bg_fill: colors.widget_bg_color_click,
         bg_stroke: Stroke {
             width: 1.0,
-            color: WHITE,
+            color: BLUE,
         },
         corner_radius: CornerRadius::same(10),
         fg_stroke: Stroke {
             width: 1.0,
-            color: WHITE,
+            color: BLUE,
         },
         expansion: 0.0,
     };
 
     let open = WidgetVisuals {
-        bg_fill: DARK_PURPLE,
+        bg_fill: SURFACE2,
         weak_bg_fill: colors.widget_bg_color_open,
         bg_stroke: Stroke {
             width: 0.0,
-            color: WHITE,
+            color: TEXT,
         },
         corner_radius: CornerRadius::same(10),
         fg_stroke: Stroke {
             width: 0.0,
-            color: WHITE,
+            color: TEXT,
         },
         expansion: 0.0,
     };

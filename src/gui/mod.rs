@@ -106,6 +106,6 @@ impl GUI {
 impl Default for GUI {
     fn default() -> Self {
         let icons = Arc::new(Icons::new(&Context::default()).unwrap());
-        GUI::new(icons, Theme::new(ThemeKind::Midnight), Context::default())
+        GUI::new(icons, Theme::new(ThemeKind::Mocha), Context::default())
     }
 }

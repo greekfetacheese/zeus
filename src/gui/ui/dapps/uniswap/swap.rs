@@ -1,4 +1,4 @@
-use egui::{ vec2, Align, Color32, FontId, Grid, Layout, TextEdit, Ui };
+use egui::{ vec2, Align, Align2, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window };
 use crate::assets::icons::Icons;
 use crate::gui::ui::*;
 use crate::core::ZeusCtx;
@@ -109,8 +109,17 @@ impl SwapUi {
         let sell_text = rich_text("Sell").size(23.0);
         let buy_text = rich_text("Buy").size(23.0);
 
-        let frame = theme.frame2;
+        let frame = theme.frame2.fill(Color32::TRANSPARENT);
 
+        let mut open = self.open;
+        Window::new("Swap_ui")
+        .open(&mut open)
+        .title_bar(false)
+        .resizable(false)
+        .movable(false)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+        .frame(Frame::window(ui.style()))
+        .show(ui.ctx(), |ui| {
         ui.vertical_centered_justified(|ui| {
             ui.set_width(500.0);
             ui.set_height(550.0);
@@ -134,16 +143,16 @@ impl SwapUi {
                         });
 
                         ui.scope(|ui| {
-                            egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
-                            egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-                            egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
+                           // egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
+                           // egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+                           // egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
                             self.amount_field(ui, InOrOut::In);
                         });
 
                         ui.scope(|ui| {
                             ui.set_max_width(30.0);
                             ui.set_max_height(20.0);
-                            egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
+                           // egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                             self.token_button(ui, chain_id, icons.clone(), InOrOut::In, token_selection);
                             ui.add_space(10.0);
@@ -172,16 +181,16 @@ impl SwapUi {
                         });
 
                         ui.scope(|ui| {
-                            egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
-                            egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-                            egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
+                           // egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
+                           // egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+                          //  egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
                             self.amount_field(ui, InOrOut::Out);
                         });
 
                         ui.scope(|ui| {
                             ui.set_max_width(30.0);
                             ui.set_max_height(20.0);
-                            egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
+                           // egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                             self.token_button(ui, chain_id, icons.clone(), InOrOut::Out, token_selection);
                             ui.add_space(10.0);
@@ -211,6 +220,8 @@ impl SwapUi {
                     }
                 });
         });
+    });
+        self.open = open;
     }
 
     /// Creates the amount field
@@ -226,9 +237,7 @@ impl SwapUi {
         let field = TextEdit::singleline(amount)
             .font(font)
             .min_size(vec2(100.0, 30.0))
-            .text_color(Color32::WHITE)
-            .hint_text(hint)
-            .frame(true);
+            .hint_text(hint);
 
         ui.add(field);
     }

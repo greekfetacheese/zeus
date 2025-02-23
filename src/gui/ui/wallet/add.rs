@@ -1,4 +1,4 @@
-use eframe::egui::{ vec2, Vec2, Frame, Window, Ui };
+use eframe::egui::{ vec2, Vec2, Frame, Window, TextEdit, Ui };
 use egui::{ Align2, Color32 };
 use egui_theme::{
     Theme,
@@ -94,7 +94,7 @@ impl AddWalletUi {
         self.main_ui = open;
     }
 
-    pub fn import_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+    pub fn import_wallet_ui(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
         let mut open = self.import_wallet;
         let mut clicked = false;
         Window::new("Import Wallet")
@@ -111,16 +111,16 @@ impl AddWalletUi {
                     ui.spacing_mut().item_spacing.y = 20.0;
 
                     ui.scope(|ui| {
-                        border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                        border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+                       // border_on_idle(ui, 1.0, theme.colors.border_color_idle);
+                       // border_on_hover(ui, 1.0, theme.colors.border_color_hover);
 
                         // Wallet Name
                         ui.label(rich_text("Wallet Name (Optional)"));
-                        ui.add(text_edit_single(&mut self.wallet_name));
+                        ui.add(TextEdit::singleline(&mut self.wallet_name).min_size(vec2(150.0, 25.0)));
 
                         // Private Key
                         ui.label(rich_text("Private Key"));
-                        ui.add(text_edit_single(&mut self.imported_key).password(true));
+                        ui.add(TextEdit::singleline(&mut self.imported_key).min_size(vec2(150.0, 25.0)).password(true));
                     });
 
                     // Import Button

@@ -205,7 +205,7 @@ impl SettingsUi {
             });
     }
 
-    fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+    fn change_credentials_ui(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
         let title = if self.verified_credentials { "New Credentials" } else { "Verify Your Credentials" };
 
         let mut open = self.credentials.open;
@@ -224,7 +224,7 @@ impl SettingsUi {
 
                     if !self.verified_credentials {
                         self.credentials.confrim_password = false;
-                        self.credentials.show(theme, ui);
+                        self.credentials.show(ui);
                         ui.add_space(15.0);
 
                         let verify = button(rich_text("Verify").size(16.0));
@@ -257,7 +257,7 @@ impl SettingsUi {
 
                     if self.verified_credentials {
                         self.credentials.confrim_password = true;
-                        self.credentials.show(theme, ui);
+                        self.credentials.show(ui);
                         ui.add_space(15.0);
 
                         let save = button(rich_text("Save").size(16.0));
