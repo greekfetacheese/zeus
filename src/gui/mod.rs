@@ -62,6 +62,7 @@ impl GUI {
 
         let wallet_select = ui::WalletSelect::new("wallet_select_1").width(100.0);
         let msg_window = ui::MsgWindow::new(Some(theme.colors.bg_color));
+        let loading_window = ui::LoadingWindow::new(theme.colors.bg_color);
 
         Self {
             egui_ctx,
@@ -78,7 +79,7 @@ impl GUI {
             portofolio: ui::PortfolioUi::new(),
             send_crypto,
             msg_window,
-            loading_window: ui::LoadingWindow::new(),
+            loading_window,
             profile_area: ui::panels::top_panel::ProfileAreaUi::new(),
             settings: ui::SettingsUi::new(),
             data_inspection: false,

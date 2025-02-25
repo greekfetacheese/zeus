@@ -75,7 +75,7 @@ pub fn get_encrypted_info(dir: &PathBuf) -> EncryptedInfo {
 
 pub fn verify_credentials(profile: &mut Profile) -> bool {
     let dir = get_profile_dir();
-    open_loading("Verifying credentials...".to_string());
+    open_loading(false, "Verifying credentials...".to_string());
 
     match profile.decrypt_zero(&dir) {
         Ok(_) => {
@@ -92,13 +92,12 @@ pub fn verify_credentials(profile: &mut Profile) -> bool {
 }
 }
 
-pub fn open_loading(msg: String) {
+pub fn open_loading(use_bg_color: bool, msg: String) {
     let mut gui = SHARED_GUI.write().unwrap();
-    gui.loading_window.msg = msg;
-    gui.loading_window.open = true;
+    gui.loading_window.open(use_bg_color, msg);
 }
 
 pub fn close_loading() {
     let mut gui = SHARED_GUI.write().unwrap();
-    gui.loading_window.open = false;
+    gui.loading_window.reset();
 }

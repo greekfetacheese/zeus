@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use eframe::{ egui::{ self, Frame }, CreationContext };
 use egui_theme::{ Theme, ThemeKind };
 use crate::assets::{ icons::Icons, fonts::get_fonts };
-use crate::core::utils::{ RT, update };
+use crate::core::utils::RT;
 use crate::core::ZeusCtx;
 use crate::gui::{ GUI, SHARED_GUI };
 use crate::gui::window::window_frame;

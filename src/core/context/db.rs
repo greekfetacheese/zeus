@@ -2,10 +2,19 @@ use std::{ collections::HashMap, sync::Arc, str::FromStr };
 
 use crate::core::user::Portfolio;
 use crate::core::utils::data_dir;
-use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::currency::{ Currency, native::NativeCurrency, erc20::ERC20Token };
-use zeus_eth::types;
-use zeus_token_list::{ ETHEREUM, OPTIMISM, BASE, ARBITRUM, BINANCE_SMART_CHAIN, tokens::UniswapToken };
+use zeus_eth::{
+    alloy_primitives::{ Address, U256 },
+    currency::{ erc20::ERC20Token, native::NativeCurrency, Currency },
+    types,
+};
+use zeus_token_list::{
+    ETHEREUM,
+    OPTIMISM,
+    BASE,
+    ARBITRUM,
+    BINANCE_SMART_CHAIN,
+    tokens::UniswapToken,
+};
 use anyhow::anyhow;
 
 pub const ZEUS_DB_FILE: &str = "zeus_db.json";
@@ -112,7 +121,13 @@ impl ZeusDB {
         self.token_balance.get(&key).cloned().unwrap_or_default()
     }
 
-    pub fn insert_token_balance(&mut self, chain_id: u64, owner: Address, token: Address, balance: U256) {
+    pub fn insert_token_balance(
+        &mut self,
+        chain_id: u64,
+        owner: Address,
+        token: Address,
+        balance: U256
+    ) {
         let key = (chain_id, owner, token);
         self.token_balance.insert(key, balance);
     }
@@ -146,9 +161,9 @@ impl ZeusDB {
     }
 
     pub fn get_portfolio_mut(&mut self, chain_id: u64, owner: Address) -> Option<&mut Portfolio> {
-            let key = (chain_id, owner);
-            self.portfolios.get_mut(&key).map(|arc| Arc::make_mut(arc))
-        }
+        let key = (chain_id, owner);
+        self.portfolios.get_mut(&key).map(|arc| Arc::make_mut(arc))
+    }
 
     pub fn insert_portfolio(&mut self, chain_id: u64, owner: Address, portfolio: Portfolio) {
         let key = (chain_id, owner);
@@ -165,10 +180,10 @@ impl ZeusDB {
         self.contacts.push(contact);
         Ok(())
     }
-    
+
     pub fn remove_contact(&mut self, address: String) {
         self.contacts.retain(|c| c.address != address);
-    }
+    }           
 
     pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {
         // Native Currencies
@@ -283,7 +298,10 @@ mod serde_helpers {
     }
 
     pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
-        where D: Deserializer<'de>, K: DeserializeOwned + std::cmp::Eq + std::hash::Hash, V: DeserializeOwned
+        where
+            D: Deserializer<'de>,
+            K: DeserializeOwned + std::cmp::Eq + std::hash::Hash,
+            V: DeserializeOwned
     {
         let stringified_map: HashMap<String, V> = HashMap::deserialize(deserializer)?;
         stringified_map
@@ -297,7 +315,6 @@ mod serde_helpers {
 }
 
 mod tests {
-
     #[test]
     fn db_serde_test() {
         let mut db = super::ZeusDB::default();

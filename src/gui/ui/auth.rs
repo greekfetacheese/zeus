@@ -109,7 +109,7 @@ impl LoginUi {
                         profile.credentials = self.credentials_form.credentials.clone();
 
                         std::thread::spawn(move || {
-                            utils::open_loading("Unlocking profile...".to_string());
+                            utils::open_loading(true, "Unlocking profile...".to_string());
 
                             let dir = get_profile_dir();
                             let info = get_encrypted_info(&dir);

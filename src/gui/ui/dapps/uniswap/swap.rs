@@ -1,7 +1,7 @@
 use egui::{ vec2, Align, Align2, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window };
 use crate::assets::icons::Icons;
 use crate::gui::ui::*;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::currency_balance};
 use zeus_eth::currency::{ erc20::ERC20Token, native::NativeCurrency, Currency };
 use egui_theme::Theme;
 use std::sync::Arc;

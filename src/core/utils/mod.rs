@@ -1,28 +1,20 @@
 use tokio::runtime::Runtime;
-
-
 use std::path::PathBuf;
 use lazy_static::lazy_static;
-use super::{ Wallet, ZeusCtx };
-use anyhow::anyhow;
-
-
-use crate::core::utils::tx::{send_tx, TxType, TxParams};
+use crate::core::ZeusCtx;
 use zeus_eth::{
-    types::*,
-    alloy_primitives::{Address, U256, utils::parse_units},
-    currency::Currency,
+    alloy_primitives::{Address, utils::format_units},
+    currency::{Currency, ERC20Token},
 };
 
 pub mod trace;
-pub mod fetch;
+pub mod eth;
 pub mod tx;
+pub mod update;
 
 lazy_static! {
     pub static ref RT: Runtime = Runtime::new().unwrap();
 }
-
-
 
 
 /// Zeus data directory
@@ -43,129 +35,71 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
 }
 
 
-
-pub async fn send_crypto(
-    ctx: ZeusCtx,
-    sender: Wallet,
-    to: Address,
-    currency: Currency,
-    amount: U256,
-    fee: String,
-    chain: u64
-) -> Result<(), anyhow::Error> {
-    let client = ctx.get_client_with_id(chain)?;
-
-    if to.is_zero() {
-        return Err(anyhow!("Invalid recipient address"));
+/// Calculate the total value of a wallet in USD
+pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
+    let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+    if portfolio.currencies.is_empty() {
+        return 0.0;
     }
 
-    if amount.is_zero() {
-        return Err(anyhow!("Amount cannot be 0"));
+    let currencies = portfolio.currencies();
+    let mut value = 0.0;
+
+    for currency in currencies {
+        let usd_price: f64 =  currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
+        let balance: f64 = currency_balance(ctx.clone(), owner, currency).parse().unwrap_or(0.0);
+        value += currency_value_f64(usd_price, balance);
     }
 
-    let fee = if fee.is_empty() {
-        parse_units("1", "gwei")?.get_absolute()
+    value
+}
+
+/// Return a [String] that displays the formatted balance of the selected currency
+// TODO: Use something like numformat to deal with very large numbers
+pub fn currency_balance(ctx: ZeusCtx, owner: Address, currency: &Currency) -> String {
+    let balance_text;
+
+    if currency.is_native() {
+        let balance = ctx.get_eth_balance(owner);
+        balance_text = format_units(balance, currency.decimals().clone()).unwrap_or(
+            "0.0".to_string()
+        );
     } else {
-        parse_units(&fee, "gwei")?.get_absolute()
-    };
-
-    let miner_tip = U256::from(fee);
-
-    let tx_type = TxType::Transfer(amount, currency);
-    let params = TxParams::transfer(tx_type, sender.key.clone(), to, chain, miner_tip);
-    
-    let _receipt = send_tx(client.clone(), params).await?;
-
-    Ok(())
-}
-
-/// Sync all the V2 & V3 pools for all the tokens
-pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Error> {
-    const MAX_RETRY: usize = 5;
-
-    for chain in chains {
-        let currencies = ctx.get_currencies(chain);
-
-        for currency in &*currencies {
-            if currency.is_native() {
-                continue;
-            }
-
-            let token = currency.erc20().unwrap();
-            let ctx = ctx.clone();
-
-            let mut retry = 0;
-            let mut v2_pools = None;
-            let mut v3_pools = None;
-
-            while v2_pools.is_none() && retry < MAX_RETRY {
-                match fetch::get_v2_pools_for_token(ctx.clone(), token.clone()).await {
-                    Ok(pools) => {
-                        v2_pools = Some(pools);
-                    }
-                    Err(e) => tracing::error!("Error getting v2 pools: {:?}", e),
-                }
-                retry += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-
-            retry = 0;
-            while v3_pools.is_none() && retry < MAX_RETRY {
-                match fetch::get_v3_pools_for_token(ctx.clone(), token.clone()).await {
-                    Ok(pools) => {
-                        v3_pools = Some(pools);
-                    }
-                    Err(e) => tracing::error!("Error getting v3 pools: {:?}", e),
-                }
-                retry += 1;
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
-
-            if let Some(v2_pools) = v2_pools {
-                tracing::info!("Got {} v2 pools for: {}", v2_pools.len(), token.symbol);
-                ctx.add_v2_pools(v2_pools);
-            }
-
-            if let Some(v3_pools) = v3_pools {
-                tracing::info!("Got {} v3 pools for: {}", v3_pools.len(), token.symbol);
-                ctx.add_v3_pools(v3_pools);
-            }
-        }
+        let currency = currency.erc20().unwrap();
+        let balance = ctx.get_token_balance(owner, currency.address);
+        balance_text = format_units(balance, currency.decimals).unwrap_or("0.0".to_string());
     }
 
-    ctx.save_pool_data()?;
-
-    Ok(())
+    format!("{:.4}", balance_text)
 }
 
-/// Update the necceary data
-pub async fn update(ctx: ZeusCtx) {
-    RT.spawn(async move {
-        update_price_manager(ctx.clone()).await;
-    });
-}
+/// Return the USD price of a token in String format
+pub fn currency_price(ctx: ZeusCtx, currency: &Currency) -> String {
+    let price;
+    let chain = ctx.chain().id();
 
-pub async fn update_price_manager(ctx: ZeusCtx) {
-    const INTERVAL: u64 = 600;
-
-    let mut time_passed = std::time::Instant::now();
-
-    loop {
-        if time_passed.elapsed().as_secs() > INTERVAL {
-            let pool_manager = ctx.pool_manager();
-
-            for chain in SUPPORTED_CHAINS {
-                let client = ctx.get_client_with_id(chain).unwrap();
-                let res = pool_manager.update(client.clone(), chain).await;
-                if let Err(e) = res {
-                    tracing::error!("Error updating pool manager: {:?}", e);
-                }
-            }
-            time_passed = std::time::Instant::now();
-
-            ctx.save_pool_data().unwrap();
-            tracing::info!("Pool State Manager updated");
-        }
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    if currency.is_native() {
+        let wrapped_token = ERC20Token::native_wrapped_token(chain);
+        price = ctx.get_token_price(&wrapped_token).unwrap_or(0.0);
+    } else {
+        let currency = currency.erc20().unwrap();
+        price = ctx.get_token_price(&currency).unwrap_or(0.0);
     }
+
+    format!("{:.2}", price)
+}
+
+/// Return the USD Value of a token in String format
+pub fn currency_value(price: f64, balance: f64) -> String {
+    if price == 0.0 || balance == 0.0 {
+        return "0.00".to_string();
+    }
+    format!("{:.2}", price * balance)
+}
+
+pub fn currency_value_f64(price: f64, balance: f64) -> f64 {
+    if price == 0.0 || balance == 0.0 {
+        return 0.0;
+    }
+    price * balance
 }

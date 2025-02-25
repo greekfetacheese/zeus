@@ -1,4 +1,3 @@
-use eframe::egui::Sense;
 use eframe::egui::{
     emath::Vec2b,
     vec2,
@@ -11,18 +10,17 @@ use eframe::egui::{
     Window,
     Color32,
     Frame,
+    Sense
 };
 
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
-use crate::core::utils::RT;
-use crate::gui::ui::{ button, img_button, currency_balance, rich_text };
-use crate::gui::{ utils, SHARED_GUI, ui::dapps::uniswap::swap::InOrOut };
+use crate::core::utils::{RT, eth, currency_balance};
+use crate::gui::ui::{button, img_button, rich_text, dapps::uniswap::swap::InOrOut};
+use crate::gui::{utils, SHARED_GUI};
 use crate::assets::icons::Icons;
-use crate::core::{ ZeusCtx, utils::fetch };
-use zeus_eth::alloy_primitives::Address;
-use zeus_eth::currency::Currency;
+use crate::core::ZeusCtx;
+use zeus_eth::{alloy_primitives::Address, currency::Currency};
 
 /// A simple window that allows the user to select a token
 /// based on the a list of [Currency] we pass to it
@@ -214,10 +212,10 @@ impl TokenSelectionWindow {
                             ui.vertical_centered(|ui| {
                                 if ui.add(add_token_button).clicked() {
                                     RT.spawn(async move {
-                                        utils::open_loading("Retrieving token...".to_string());
+                                        utils::open_loading(true, "Retrieving token...".to_string());
 
                                         let token = match
-                                            fetch::get_erc20_token(ctx, address, chain_id).await
+                                            eth::get_erc20_token(ctx, address, chain_id).await
                                         {
                                             Ok(token) => token,
                                             Err(e) => {

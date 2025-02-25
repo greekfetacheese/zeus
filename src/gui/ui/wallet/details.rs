@@ -294,7 +294,7 @@ impl DeleteWalletUi {
 
                 let dir = gui::utils::get_profile_dir();
                 let params = gui::utils::get_encrypted_info(&dir);
-                gui::utils::open_loading("Encrypting profile...".to_string());
+                gui::utils::open_loading(true, "Encrypting profile...".to_string());
                 match profile.encrypt_and_save(&dir, params.argon2_params) {
                     Ok(_) => {
                         let mut gui = SHARED_GUI.write().unwrap();

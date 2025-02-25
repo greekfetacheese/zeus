@@ -14,18 +14,16 @@ use eframe::egui::{
     vec2,
     Vec2,
 };
-use zeus_eth::currency::ERC20Token;
 use std::sync::Arc;
 
-use crate::gui::ui::{ TokenSelectionWindow, button, rich_text, currency_balance, wallet_value, currency_price, currency_value };
+use crate::gui::ui::{ TokenSelectionWindow, button, rich_text};
 use crate::assets::icons::Icons;
-use crate::core::{ Wallet, ZeusCtx, user::Portfolio };
-use crate::core::utils::{ RT, fetch };
+use crate::core::{ user::Portfolio, utils::{currency_balance, currency_price, currency_value, eth, wallet_value, RT}, Wallet, ZeusCtx };
 use crate::gui::SHARED_GUI;
 
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
 
-use zeus_eth::{ currency::Currency, types::ChainId };
+use zeus_eth::{ currency::{Currency, ERC20Token}, types::ChainId };
 
 
 
@@ -136,16 +134,32 @@ pub struct LoadingWindow {
     pub msg: String,
     pub size: (f32, f32),
     pub anchor: (Align2, Vec2),
+    pub bg_color: Color32,
+    pub use_bg_color: bool,
 }
 
 impl LoadingWindow {
-    pub fn new() -> Self {
+    pub fn new(bg_color: Color32) -> Self {
         Self {
             open: false,
             msg: String::new(),
             size: (150.0, 100.0),
             anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
+            bg_color,
+            use_bg_color: false,
         }
+    }
+
+    pub fn open(&mut self, use_bg_color: bool, msg: impl Into<String>) {
+        self.open = true;
+        self.use_bg_color = use_bg_color;
+        self.msg = msg.into();
+    }
+
+    pub fn reset(&mut self) {
+        self.open = false;
+        self.use_bg_color = false;
+        self.msg = String::new();
     }
 
     pub fn show(&mut self, ui: &mut Ui) {
@@ -153,12 +167,18 @@ impl LoadingWindow {
             return;
         }
 
+        let frame = if self.use_bg_color {
+            Frame::window(ui.style()).fill(self.bg_color)
+        } else {
+            Frame::window(ui.style())
+        };
+
         Window::new("Loading")
             .title_bar(false)
             .resizable(false)
             .anchor(self.anchor.0, self.anchor.1)
             .collapsible(false)
-            .frame(Frame::window(ui.style()))
+            .frame(frame)
             .show(ui.ctx(), |ui| {
                 ui.set_width(self.size.0);
                 ui.set_height(self.size.1);
@@ -454,7 +474,7 @@ impl PortfolioUi {
             let token = token.clone();
             let ctx = ctx.clone();
             RT.spawn(async move {
-                let _ = fetch::get_v2_pools_for_token(ctx.clone(), token.clone()).await;
+                let _ = eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await;
             });
         }
 
@@ -462,7 +482,7 @@ impl PortfolioUi {
             let token = token.clone();
             let ctx = ctx.clone();
             RT.spawn(async move {
-                let _ = fetch::get_v3_pools_for_token(ctx.clone(), token.clone()).await;
+                let _ = eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await;
             });
         }
         let _ = ctx.save_pool_data();

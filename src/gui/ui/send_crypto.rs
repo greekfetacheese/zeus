@@ -14,26 +14,25 @@ use eframe::egui::{
     Align2,
     Response,
 };
-use zeus_eth::currency::erc20::ERC20Token;
 
 use std::sync::Arc;
 use std::str::FromStr;
-use crate::core::utils::{RT, send_crypto};
-use crate::core::ZeusCtx;
-use crate::assets::icons::Icons;
-use crate::gui::ui::img_button;
-use crate::gui::ui::{
-    TokenSelectionWindow,
-    currency_balance,
-    currency_value,
-    rich_text,
-    misc::{ ChainSelect, WalletSelect },
-};
-use crate::gui::SHARED_GUI;
-use egui_theme::Theme;
-use zeus_eth::{ types::ChainId, currency::{ Currency, native::NativeCurrency } };
-use zeus_eth::alloy_primitives::{ Address, U256 };
 
+use crate::core::{ ZeusCtx, utils::{ RT, currency_balance, currency_value, eth::send_crypto } };
+
+use crate::assets::icons::Icons;
+use crate::gui::{
+    SHARED_GUI,
+    utils::open_loading,
+    ui::{ img_button, TokenSelectionWindow, rich_text, misc::{ ChainSelect, WalletSelect } },
+};
+use egui_theme::Theme;
+
+use zeus_eth::{
+    alloy_primitives::{ Address, U256 },
+    currency::{ Currency, ERC20Token, NativeCurrency },
+    types::ChainId,
+};
 
 pub struct SendCryptoUi {
     pub open: bool,
@@ -127,20 +126,28 @@ impl SendCryptoUi {
                                 .max_height(200.0)
                                 .show(ui, |ui| {
                                     ui.set_width(300.0);
-                                    TextEdit::singleline(&mut self.search_query).hint_text("Search contacts").show(ui);
+                                    TextEdit::singleline(&mut self.search_query)
+                                        .hint_text("Search contacts")
+                                        .show(ui);
 
                                     ui.separator();
 
                                     for contact in contacts
                                         .iter()
-                                        .filter(|c| c.name.to_lowercase().contains(&self.search_query.to_lowercase())) {
+                                        .filter(|c|
+                                            c.name
+                                                .to_lowercase()
+                                                .contains(&self.search_query.to_lowercase())
+                                        ) {
                                         ui.horizontal(|ui| {
                                             if ui.selectable_label(false, &contact.name).clicked() {
                                                 self.recipient = contact.address.clone();
                                                 self.contact_search_open = false;
                                             }
                                             ui.label(
-                                                RichText::new(contact.address_short()).color(Color32::GRAY).size(12.0)
+                                                RichText::new(contact.address_short())
+                                                    .color(Color32::GRAY)
+                                                    .size(12.0)
                                             );
                                         });
                                     }
@@ -164,7 +171,14 @@ impl SendCryptoUi {
                         let chain = self.chain_select.chain.id();
                         let owner = self.wallet_select.wallet.key.inner().address();
                         let currencies = ctx.get_currencies(chain);
-                        token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
+                        token_selection.show(
+                            ctx.clone(),
+                            chain,
+                            owner,
+                            icons.clone(),
+                            &currencies,
+                            ui
+                        );
 
                         if let Some(currency) = token_selection.get_currency() {
                             self.token = currency.clone();
@@ -174,7 +188,9 @@ impl SendCryptoUi {
                         // Balance display
                         let balance = currency_balance(ctx.clone(), owner, &self.token);
                         ui.label(
-                            RichText::new(format!("Balance: {}", balance)).color(theme.colors.text_secondary).size(12.0)
+                            RichText::new(format!("Balance: {}", balance))
+                                .color(theme.colors.text_secondary)
+                                .size(12.0)
                         );
                     });
                 });
@@ -191,7 +207,9 @@ impl SendCryptoUi {
 
                     // Priority Fee
                     ui.horizontal(|ui| {
-                        ui.label(rich_text("Priority Fee").color(theme.colors.text_secondary).size(12.0));
+                        ui.label(
+                            rich_text("Priority Fee").color(theme.colors.text_secondary).size(12.0)
+                        );
                         ui.add(TextEdit::singleline(&mut self.priority_fee).desired_width(50.0));
                         ui.label(rich_text("Gwei").color(theme.colors.text_secondary).size(12.0));
                     });
@@ -205,7 +223,11 @@ impl SendCryptoUi {
                     let price = ctx.get_token_price(&token).unwrap_or(0.0);
                     let amount: f64 = self.amount.parse().unwrap_or(0.0);
                     let value = currency_value(price, amount);
-                    ui.label(RichText::new(format!("≈ ${}", value)).color(theme.colors.text_secondary).size(12.0));
+                    ui.label(
+                        RichText::new(format!("≈ ${}", value))
+                            .color(theme.colors.text_secondary)
+                            .size(12.0)
+                    );
                 });
 
                 // Send Button
@@ -240,15 +262,19 @@ impl SendCryptoUi {
         let fee = self.priority_fee.clone();
 
         RT.spawn(async move {
-           match send_crypto(ctx, from, to, currency, amount, fee, chain).await {
+            open_loading(true, "Sending Transaction...".into());
+            match send_crypto(ctx, from, to, currency, amount, fee, chain).await {
                 Ok(_) => {
-                     // TODO
-                },
-                Err(e) => {
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.msg_window.open("Transaction Error", &e.to_string());
+                    let mut gui = SHARED_GUI.write().unwrap();
+                    gui.loading_window.reset();
+                    gui.msg_window.open("Transaction Sent", "");
                 }
-           }
+                Err(e) => {
+                    let mut gui = SHARED_GUI.write().unwrap();
+                    gui.loading_window.reset();
+                    gui.msg_window.open("Transaction Error", &e.to_string());
+                }
+            }
         });
     }
 }

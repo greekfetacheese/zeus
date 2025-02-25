@@ -1,6 +1,48 @@
-use crate::core::ZeusCtx;
-use zeus_eth::alloy_primitives::{ Address, U256 };
-use zeus_eth::{currency::{Currency, ERC20Token}, amm::{UniswapV2Pool, UniswapV3Pool}};
+use crate::core::{ZeusCtx, Wallet};
+
+use super::tx::{send_tx, TxType, TxParams};
+use zeus_eth::{
+    alloy_primitives::{Address, U256, utils::parse_units},
+    currency::{Currency, ERC20Token},
+    amm::{UniswapV2Pool, UniswapV3Pool}
+};
+
+use anyhow::anyhow;
+
+pub async fn send_crypto(
+    ctx: ZeusCtx,
+    sender: Wallet,
+    to: Address,
+    currency: Currency,
+    amount: U256,
+    fee: String,
+    chain: u64
+) -> Result<(), anyhow::Error> {
+    let client = ctx.get_client_with_id(chain)?;
+
+    if to.is_zero() {
+        return Err(anyhow!("Invalid recipient address"));
+    }
+
+    if amount.is_zero() {
+        return Err(anyhow!("Amount cannot be 0"));
+    }
+
+    let fee = if fee.is_empty() {
+        parse_units("1", "gwei")?.get_absolute()
+    } else {
+        parse_units(&fee, "gwei")?.get_absolute()
+    };
+
+    let miner_tip = U256::from(fee);
+
+    let tx_type = TxType::Transfer(amount, currency);
+    let params = TxParams::transfer(tx_type, sender.key.clone(), to, chain, miner_tip);
+    
+    let _receipt = send_tx(client.clone(), params).await?;
+
+    Ok(())
+}
 
 
 
