@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use eframe::{ egui::{ self, Frame }, CreationContext };
 use egui_theme::{ Theme, ThemeKind };
-use crate::assets::{ icons::Icons, fonts::get_fonts };
+use crate::assets::icons::Icons;
 use crate::core::utils::RT;
 use crate::core::ZeusCtx;
 use crate::gui::{ GUI, SHARED_GUI };
@@ -31,7 +31,6 @@ impl ZeusApp {
 
         theme.style.animation_time = 0.5;
         ctx.set_style(theme.style.clone());
-        ctx.set_fonts(get_fonts());
 
         // Load the icons
         let icons = Icons::new(&cc.egui_ctx).unwrap();

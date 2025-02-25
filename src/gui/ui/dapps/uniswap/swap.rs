@@ -226,7 +226,7 @@ impl SwapUi {
 
     /// Creates the amount field
     fn amount_field(&mut self, ui: &mut Ui, in_or_out: InOrOut) {
-        let font = FontId::new(23.0, roboto_regular());
+        let font = FontId::proportional(23.0);
         let hint = rich_text("0").size(23.0);
 
         let amount = match in_or_out {

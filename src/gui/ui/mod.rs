@@ -26,8 +26,6 @@ use eframe::egui::{
     Sense,
     vec2,
 };
-use crate::assets::fonts::roboto_regular;
-
 
 
 
@@ -44,11 +42,11 @@ pub fn img_button(image: Image<'static>, text: impl Into<WidgetText>) -> Button<
 }
 
 pub fn text_edit_single(text: &mut String) -> TextEdit {
-    let font = FontId::new(15.0, roboto_regular());
+    let font = FontId::proportional(15.0);
     TextEdit::singleline(text).min_size(vec2(150.0, 25.0)).font(font)
 }
 
 pub fn text_edit_multi(text: &mut String) -> TextEdit {
-    let font = FontId::new(15.0, roboto_regular());
+    let font = FontId::proportional(15.0);
     TextEdit::multiline(text).min_size(vec2(150.0, 25.0)).font(font)
 }
