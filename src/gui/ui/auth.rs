@@ -120,7 +120,7 @@ impl LoginUi {
                                     gui.settings.encryption_settings.argon_params =
                                         info.argon2_params.clone();
                                     gui.portofolio.open = true;
-                                    gui.profile_area.open = true;
+                                    gui.top_left_area.open = true;
                                     gui.wallet_select.wallet = profile.current_wallet.clone();
                                     gui.loading_window.open = false;
 
@@ -195,7 +195,7 @@ impl RegisterUi {
                                         gui.wallet_select.wallet = profile.current_wallet.clone();
                                         gui.register.credentials_form.erase();
                                         gui.portofolio.open = true;
-                                        gui.profile_area.open = true;
+                                        gui.top_left_area.open = true;
                                         gui.loading_window.open = false;
 
                                         ctx.write(|ctx| {

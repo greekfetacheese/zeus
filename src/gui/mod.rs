@@ -36,6 +36,8 @@ pub struct GUI {
 
     pub wallet_select: ui::WalletSelect,
 
+    pub wallet_ui: ui::WalletUi,
+
     pub login: ui::LoginUi,
 
     pub register: ui::RegisterUi,
@@ -48,7 +50,7 @@ pub struct GUI {
 
     pub loading_window: ui::LoadingWindow,
 
-    pub profile_area: ui::panels::top_panel::ProfileAreaUi,
+    pub top_left_area: ui::panels::top_panel::TopLeftArea,
 
     pub settings: ui::SettingsUi,
 
@@ -63,6 +65,7 @@ impl GUI {
         let wallet_select = ui::WalletSelect::new("wallet_select_1").width(100.0);
         let msg_window = ui::MsgWindow::new(Some(theme.colors.bg_color));
         let loading_window = ui::LoadingWindow::new(theme.colors.bg_color);
+        let wallet_ui = ui::WalletUi::new();
 
         Self {
             egui_ctx,
@@ -73,6 +76,7 @@ impl GUI {
             icons,
             token_selection,
             wallet_select,
+            wallet_ui,
             swap_ui: ui::SwapUi::new(),
             login: ui::LoginUi::new(),
             register: ui::RegisterUi::new(),
@@ -80,7 +84,7 @@ impl GUI {
             send_crypto,
             msg_window,
             loading_window,
-            profile_area: ui::panels::top_panel::ProfileAreaUi::new(),
+            top_left_area: ui::panels::top_panel::TopLeftArea::new(),
             settings: ui::SettingsUi::new(),
             data_inspection: false,
         }

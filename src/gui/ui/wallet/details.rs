@@ -73,17 +73,17 @@ impl ViewKeyUi {
                 if ok {
                     let mut gui = SHARED_GUI.write().unwrap();
                     // erase the credentials form
-                    gui.profile_area.wallet_ui.wallet_details.view_key_ui.credentials_form.erase();
+                    gui.wallet_ui.wallet_details.view_key_ui.credentials_form.erase();
                     // set the key from the current wallet from the wallet details ui
-                    gui.profile_area.wallet_ui.wallet_details.view_key_ui.key =
-                        gui.profile_area.wallet_ui.wallet_details.wallet.key_string();
+                    gui.wallet_ui.wallet_details.view_key_ui.key =
+                        gui.wallet_ui.wallet_details.wallet.key_string();
 
                     // show the key
-                    gui.profile_area.wallet_ui.wallet_details.view_key_ui.open = true;
-                    gui.profile_area.wallet_ui.wallet_details.view_key_ui.verified_credentials = true;
+                    gui.wallet_ui.wallet_details.view_key_ui.open = true;
+                    gui.wallet_ui.wallet_details.view_key_ui.verified_credentials = true;
 
                     // close the verify credentials ui
-                    gui.profile_area.wallet_ui.wallet_details.view_key_ui.credentials_form.open = false;
+                    gui.wallet_ui.wallet_details.view_key_ui.credentials_form.open = false;
                 } else {
                     let mut gui = SHARED_GUI.write().unwrap();
                     gui.open_msg_window("Failed to verify credentials", "Please try again".to_string());
@@ -222,16 +222,16 @@ impl DeleteWalletUi {
                 if ok {
                     let mut gui = SHARED_GUI.write().unwrap();
                     // credentials are verified
-                    gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.verified_credentials = true;
+                    gui.wallet_ui.wallet_details.delete_wallet_ui.verified_credentials = true;
 
                     // close the verify credentials ui
-                    gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.credentials_form.open = false;
+                    gui.wallet_ui.wallet_details.delete_wallet_ui.credentials_form.open = false;
 
                     // open the delete wallet ui
-                    gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.open = true;
+                    gui.wallet_ui.wallet_details.delete_wallet_ui.open = true;
 
                     // erase the credentials form
-                    gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.credentials_form.erase();
+                    gui.wallet_ui.wallet_details.delete_wallet_ui.credentials_form.erase();
                 } else {
                     let mut gui = SHARED_GUI.write().unwrap();
                     gui.open_msg_window("Failed to verify credentials", "Please try again".to_string());
@@ -299,8 +299,8 @@ impl DeleteWalletUi {
                     Ok(_) => {
                         let mut gui = SHARED_GUI.write().unwrap();
                         gui.loading_window.open = false;
-                        gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.wallet_to_delete = None;
-                        gui.profile_area.wallet_ui.wallet_details.delete_wallet_ui.verified_credentials = false;
+                        gui.wallet_ui.wallet_details.delete_wallet_ui.wallet_to_delete = None;
+                        gui.wallet_ui.wallet_details.delete_wallet_ui.verified_credentials = false;
                         gui.open_msg_window("Wallet Deleted", "");
                     }
                     Err(e) => {
@@ -330,14 +330,14 @@ pub struct WalletDetailsUi {
 }
 
 impl WalletDetailsUi {
-    pub fn new() -> Self {
+    pub fn new(size: (f32, f32), offset: Vec2, align: Align2) -> Self {
         Self {
             open: false,
             view_key_ui: ViewKeyUi::new(),
             delete_wallet_ui: DeleteWalletUi::new(),
             wallet: Wallet::new_rng("I should not be here".to_string()),
-            size: (300.0, 400.0),
-            anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
+            size,
+            anchor: (align, offset),
         }
     }
 
@@ -376,10 +376,6 @@ impl WalletDetailsUi {
                     if res.clicked() {
                         ui.ctx().copy_text(self.wallet.address());
                     }
-
-                    // Wallet Value
-                    // TODO: Calculate the value of the wallet
-                    ui.label(rich_text("$100,000,00").size(12.0));
 
                         // View Key
                         let view_key = rich_text("View Key");

@@ -3,17 +3,25 @@ pub mod add;
 pub use details::WalletDetailsUi;
 pub use add::AddWalletUi;
 
-use eframe::egui::{ vec2, Align, Vec2, Frame, Sense, Label, Layout, Window, ScrollArea, Ui };
-use egui::{ Align2, Color32 };
-use egui_theme::{
-    Theme,
-    utils::{ frame_it, bg_color_on_idle },
+use eframe::egui::{
+    vec2,
+    Align,
+    Align2,
+    Color32,
+    Vec2,
+    Frame,
+    Sense,
+    Label,
+    Layout,
+    Window,
+    ScrollArea,
+    Ui,
 };
+use egui_theme::{ Theme, utils::{ frame_it, bg_color_on_idle } };
 use std::sync::Arc;
-use crate::core::{Wallet, ZeusCtx};
+use crate::core::{ Wallet, ZeusCtx, utils::wallet_value };
 use crate::assets::icons::Icons;
 use crate::gui::ui::{ rich_text, button, img_button, text_edit_single };
-
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -29,15 +37,15 @@ pub struct WalletUi {
 impl WalletUi {
     pub fn new() -> Self {
         let size = (400.0, 400.0);
-        let offset = vec2(0.0, 150.0);
-        let align = Align2::LEFT_TOP;
+        let offset = vec2(0.0, 0.0);
+        let align = Align2::CENTER_CENTER;
 
         Self {
             open: false,
             main_ui: true,
-            add_wallet_ui: AddWalletUi::new(),
+            add_wallet_ui: AddWalletUi::new(size, offset, align),
             search_query: String::new(),
-            wallet_details: WalletDetailsUi::new(),
+            wallet_details: WalletDetailsUi::new(size, offset, align),
             size,
             anchor: (align, offset),
         }
@@ -49,6 +57,8 @@ impl WalletUi {
         }
 
         self.main_ui(ctx.clone(), icons.clone(), theme, ui);
+        self.add_wallet_ui.show(ctx.clone(), theme, ui);
+        self.wallet_details.show(ctx.clone(), theme, ui);
     }
 
     /// This is the first Ui we show to the user when this [WalletUi] is open.
@@ -63,54 +73,53 @@ impl WalletUi {
         let current_wallet = &profile.current_wallet;
         let wallets = &profile.wallets;
 
-        let mut open = self.open;
-        Window::new("Current Wallet")
-            .open(&mut open)
+        Window::new("wallet_main_ui")
+            .title_bar(false)
             .resizable(false)
             .collapsible(false)
             .anchor(self.anchor.0, self.anchor.1)
             .frame(Frame::window(ui.style()))
             .show(ui.ctx(), |ui| {
-                ui.set_width(360.0);
+                ui.set_width(self.size.0);
+                ui.set_height(self.size.1);
                 ui.spacing_mut().item_spacing = Vec2::new(8.0, 12.0);
 
                 ui.vertical_centered(|ui| {
-                    ui.scope(|ui| {
-                        if ui.add(button(rich_text("Add Wallet").small())).clicked() {
-                            self.add_wallet_ui.open = true;
-                            self.add_wallet_ui.main_ui = true;
-                        }
-                    });
+                    if ui.add(button(rich_text("Add Wallet").small())).clicked() {
+                        self.add_wallet_ui.open = true;
+                        self.add_wallet_ui.main_ui = true;
+                    }
+                    ui.label(rich_text("Selected Wallet").size(14.0));
                     self.wallet(ctx.clone(), icons.clone(), theme, current_wallet, true, ui);
-                });
-                ui.separator();
 
-                // Search bar
-                ui.horizontal(|ui| {
+                    // Search bar
                     ui.add_space(8.0);
                     ui.add(
                         text_edit_single(&mut self.search_query)
                             .hint_text("Search...")
-                            .desired_width(ui.available_width() * 0.8)
+                            .desired_width(ui.available_width() * 0.7)
                     );
                     ui.add_space(8.0);
-                });
 
-                // Wallet list
-                ScrollArea::vertical().show(ui, |ui| {
-                    for wallet in wallets.iter().filter(|w| w != &current_wallet) {
-                        if
-                            self.search_query.is_empty() ||
-                            wallet.name.to_lowercase().contains(&self.search_query.to_lowercase())
-                        {
-                            self.wallet(ctx.clone(), icons.clone(), theme, wallet, false, ui);
+                    // Wallet list
+                    ScrollArea::vertical().show(ui, |ui| {
+                        ui.set_width(ui.available_width());
 
-                            ui.add_space(4.0);
+                        for wallet in wallets.iter().filter(|w| w != &current_wallet) {
+                            if
+                                self.search_query.is_empty() ||
+                                wallet.name
+                                    .to_lowercase()
+                                    .contains(&self.search_query.to_lowercase())
+                            {
+                                self.wallet(ctx.clone(), icons.clone(), theme, wallet, false, ui);
+
+                                ui.add_space(4.0);
+                            }
                         }
-                    }
+                    });
                 });
             });
-        self.open = open;
     }
 
     /// Show a wallet
@@ -124,14 +133,18 @@ impl WalletUi {
         ui: &mut Ui
     ) {
         let bg_color = if is_current { theme.colors.overlay_color } else { Color32::TRANSPARENT };
-        let stroke = if is_current { (0.0, Color32::TRANSPARENT) } else { (1.0, theme.colors.text_secondary) };
+        let stroke = if is_current {
+            (0.0, Color32::TRANSPARENT)
+        } else {
+            (1.0, theme.colors.text_secondary)
+        };
 
         let mut frame = Frame::group(ui.style()).inner_margin(8.0).fill(bg_color).stroke(stroke);
 
         let visuals = theme.frame1_visuals.clone();
 
         let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
-            ui.set_width(ui.available_width());
+            ui.set_width(ui.available_width() * 0.9);
 
             ui.horizontal(|ui| {
                 // Wallet info column
@@ -156,15 +169,27 @@ impl WalletUi {
 
                     // Address and balance
                     ui.horizontal(|ui| {
-                        let res = ui.selectable_label(false, rich_text(wallet.address_truncated()).size(12.0));
+                        let res = ui.selectable_label(
+                            false,
+                            rich_text(wallet.address_truncated()).size(12.0)
+                        );
                         if res.clicked() {
                             // Copy the address to the clipboard
                             ui.ctx().copy_text(wallet.address());
                         }
 
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            // TODO: Calculate the total value of a wallet
-                            ui.label(rich_text("$100,000.00").color(theme.colors.text_secondary).size(12.0));
+                            let chain = ctx.chain();
+                            let value = wallet_value(
+                                ctx.clone(),
+                                chain.id(),
+                                wallet.key.inner().address()
+                            );
+                            ui.label(
+                                rich_text(format!("${}", value))
+                                    .color(theme.colors.text_secondary)
+                                    .size(12.0)
+                            );
                         });
                     });
                 });

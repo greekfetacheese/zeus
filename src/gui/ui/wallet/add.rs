@@ -1,9 +1,6 @@
 use eframe::egui::{ vec2, Vec2, Frame, Window, TextEdit, Ui };
 use egui::{ Align2, Color32 };
-use egui_theme::{
-    Theme,
-    utils::{ border_on_idle, border_on_hover, bg_color_on_idle },
-};
+use egui_theme::{ Theme, utils::{ border_on_idle, border_on_hover, bg_color_on_idle } };
 use crate::core::ZeusCtx;
 use crate::gui::{ self, ui::{ rich_text, button, text_edit_single }, SHARED_GUI };
 use ncrypt_me::zeroize::Zeroize;
@@ -20,11 +17,7 @@ pub struct AddWalletUi {
 }
 
 impl AddWalletUi {
-    pub fn new() -> Self {
-        let size = (400.0, 400.0);
-        let offset = vec2(0.0, 0.0);
-        let align = Align2::CENTER_CENTER;
-
+    pub fn new(size: (f32, f32), offset: Vec2, align: Align2) -> Self {
         Self {
             open: false,
             main_ui: true,
@@ -68,13 +61,17 @@ impl AddWalletUi {
                     let size = vec2(ui.available_width() * 0.5, 50.0);
 
                     // From private key
-                    let button1 = button(rich_text("From Private Key").heading()).corner_radius(5).min_size(size);
+                    let button1 = button(rich_text("From Private Key").heading())
+                        .corner_radius(5)
+                        .min_size(size);
                     if ui.add(button1).clicked() {
                         clicked1 = true;
                     }
 
                     // Generate new wallet
-                    let button2 = button(rich_text("Generate New Wallet").heading()).corner_radius(5).min_size(size);
+                    let button2 = button(rich_text("Generate New Wallet").heading())
+                        .corner_radius(5)
+                        .min_size(size);
                     if ui.add(button2).clicked() {
                         clicked2 = true;
                     }
@@ -111,16 +108,22 @@ impl AddWalletUi {
                     ui.spacing_mut().item_spacing.y = 20.0;
 
                     ui.scope(|ui| {
-                       // border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                       // border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+                        // border_on_idle(ui, 1.0, theme.colors.border_color_idle);
+                        // border_on_hover(ui, 1.0, theme.colors.border_color_hover);
 
                         // Wallet Name
                         ui.label(rich_text("Wallet Name (Optional)"));
-                        ui.add(TextEdit::singleline(&mut self.wallet_name).min_size(vec2(150.0, 25.0)));
+                        ui.add(
+                            TextEdit::singleline(&mut self.wallet_name).min_size(vec2(150.0, 25.0))
+                        );
 
                         // Private Key
                         ui.label(rich_text("Private Key"));
-                        ui.add(TextEdit::singleline(&mut self.imported_key).min_size(vec2(150.0, 25.0)).password(true));
+                        ui.add(
+                            TextEdit::singleline(&mut self.imported_key)
+                                .min_size(vec2(150.0, 25.0))
+                                .password(true)
+                        );
                     });
 
                     // Import Button
@@ -145,14 +148,14 @@ impl AddWalletUi {
                 match profile.encrypt_and_save(&dir, info.argon2_params) {
                     Ok(_) => {
                         let mut gui = SHARED_GUI.write().unwrap();
-                        gui.profile_area.wallet_ui.add_wallet_ui.imported_key.zeroize();
-                        gui.profile_area.wallet_ui.add_wallet_ui.wallet_name.clear();
+                        gui.wallet_ui.add_wallet_ui.imported_key.zeroize();
+                        gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                         gui.loading_window.open = false;
                         gui.open_msg_window("Wallet imported successfully", "");
                     }
                     Err(e) => {
                         let mut gui = SHARED_GUI.write().unwrap();
-                        gui.profile_area.wallet_ui.add_wallet_ui.imported_key.zeroize();
+                        gui.wallet_ui.add_wallet_ui.imported_key.zeroize();
                         gui.loading_window.open = false;
                         gui.open_msg_window("Failed to save profile", e.to_string());
                         return;
@@ -213,7 +216,7 @@ impl AddWalletUi {
                 match profile.encrypt_and_save(&dir, info.argon2_params) {
                     Ok(_) => {
                         let mut gui = SHARED_GUI.write().unwrap();
-                        gui.profile_area.wallet_ui.add_wallet_ui.wallet_name.clear();
+                        gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                         gui.loading_window.open = false;
                         gui.open_msg_window("Wallet generated successfully", "");
                     }

@@ -60,20 +60,26 @@ impl ChainSelect {
         let icon = icons.chain_icon(&selected_chain.id());
         let mut clicked = false;
 
-        ui.add(icon);
-        ComboBox::from_id_salt(self.id)
-            .width(self.width)
-            .selected_text(rich_text(selected_chain.name()).size(16.0))
-            .show_ui(ui, |ui| {
-                for chain in supported_chains {
-                    let value = ui.selectable_value(&mut selected_chain, chain.clone(), rich_text(chain.name()));
-
-                    if value.clicked() {
-                        self.chain = selected_chain.clone();
-                        clicked = true;
+        // hack to keep the icon centered relative to the combo box
+        Grid::new("chain_select")
+            .show(ui, |ui| {
+                ui.add(icon);
+                ComboBox::from_id_salt(self.id)
+                .width(self.width)
+                .selected_text(rich_text(selected_chain.name()).size(16.0))
+                .show_ui(ui, |ui| {
+                    for chain in supported_chains {
+                        let value = ui.selectable_value(&mut selected_chain, chain.clone(), rich_text(chain.name()));
+    
+                        if value.clicked() {
+                            self.chain = selected_chain.clone();
+                            clicked = true;
+                        }
                     }
-                }
+                });
+                ui.end_row();
             });
+
         clicked
     }
 }
@@ -81,6 +87,7 @@ impl ChainSelect {
 /// A ComboBox to select a wallet
 pub struct WalletSelect {
     pub id: &'static str,
+    /// Selected Wallet
     pub wallet: Wallet,
     pub width: f32,
 }
@@ -104,9 +111,7 @@ impl WalletSelect {
     /// Returns true if the wallet was changed
     pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) -> bool {
         let wallets = ctx.profile().wallets;
-        if self.wallet.name.is_empty() {
-            self.wallet = ctx.wallet();
-        }
+        self.wallet = ctx.profile().current_wallet.clone();
 
         let mut clicked = false;
         ComboBox::from_id_salt(self.id)

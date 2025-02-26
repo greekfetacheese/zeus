@@ -23,8 +23,17 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.swap_ui.open = false;
         gui.send_crypto.open = false;
         gui.settings.open = false;
+        gui.wallet_ui.open = false;
         gui.portofolio.open = true;
+    }
 
+    let wallets = button(rich_text("Wallets").size(21.0));
+    if ui.add(wallets).clicked() {
+        gui.portofolio.open = false;
+        gui.swap_ui.open = false;
+        gui.send_crypto.open = false;
+        gui.settings.open = false;
+        gui.wallet_ui.open = true;
     }
 
     let swap = button(rich_text("Swap").size(21.0));
@@ -32,6 +41,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.portofolio.open = false;
         gui.send_crypto.open = false;
         gui.settings.open = false;
+        gui.wallet_ui.open = false;
         gui.swap_ui.open = true;
     }
     
@@ -40,6 +50,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.swap_ui.open = false;
         gui.portofolio.open = false;
         gui.settings.open = false;
+        gui.wallet_ui.open = false;
         gui.send_crypto.open = true;
     }
 
@@ -48,22 +59,22 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
         gui.portofolio.open = false;
         gui.swap_ui.open = false;
         gui.send_crypto.open = false;
+        gui.wallet_ui.open = false;
         gui.settings.open = true;
     }
-
-
-
-
 
     if ui.add(button(rich_text("Theme Editor").size(20.0))).clicked() {
         gui.editor.open = true;
     }
 
+
+    /*
     if ui.add(button(rich_text("Data Insp").size(20.0))).clicked() {
         gui.data_inspection = true;
     }
+     */
 
-    show_data_insp(gui, ui);
+   // show_data_insp(gui, ui);
     
 });
 }
