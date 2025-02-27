@@ -1,28 +1,33 @@
-use zeus_eth::alloy_primitives::Address;
-use zeus_eth::currency::{Currency, ERC20Token};
+use zeus_eth::{alloy_primitives::Address, currency::{ Currency, ERC20Token }};
 
 pub mod wallet;
 pub mod profile;
 
-pub use profile::{Profile, PROFILE_FILE};
+pub use profile::{ Profile, PROFILE_FILE };
 
-
+/// Currencies that the user owns,
+/// 
+/// since we dont have access to any 3rd party indexers to auto populate this data
+/// 
+/// the user has to add them manually
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Portfolio {
-
     /// The currencies that we have in the portofolio
     pub currencies: Vec<Currency>,
 
     /// The owner of the portfolio
     pub owner: Address,
 
+    /// USD value
+    pub value: f64
 }
 
 impl Portfolio {
     pub fn new(currencies: Vec<Currency>, owner: Address) -> Self {
         Self {
             currencies,
-            owner
+            owner,
+            value: 0.0
         }
     }
 

@@ -94,15 +94,6 @@ sol! {
         bool initialized;
     }
 }
-/* 
-sol! {
-    #[derive(Debug)]
-    struct V3Pool2 {
-        address pool;
-        address base_token;
-    }
-}
-*/
 
 
 /// Get the balance for the given ERC20 tokens for the owner at the given block, if block is None the latest block is used
@@ -245,6 +236,24 @@ mod tests {
         let balances = get_erc20_balance(client, None, owner, tokens).await.unwrap();
 
         assert_eq!(balances.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_erc20_balance_limit() {
+        let url = Url::parse("https://eth.merkle.io").unwrap();
+        let client = ProviderBuilder::new().on_http(url);
+
+        let weth = address::weth(1).unwrap();
+        let owner = Address::ZERO;
+
+        let mut tokens = Vec::new();
+        for _ in 0..200 {
+            tokens.push(weth);
+        }
+
+        let balances = get_erc20_balance(client, None, owner, tokens).await.unwrap();
+
+        assert_eq!(balances.len(), 200);
     }
 
     #[tokio::test]

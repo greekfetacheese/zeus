@@ -4,10 +4,8 @@ use std::path::PathBuf;
 use eframe::{ egui::{ self, Frame }, CreationContext };
 use egui_theme::{ Theme, ThemeKind };
 use crate::assets::icons::Icons;
-use crate::core::utils::RT;
-use crate::core::ZeusCtx;
-use crate::gui::{ GUI, SHARED_GUI };
-use crate::gui::window::window_frame;
+use crate::core::{utils::{RT, update}, ZeusCtx};
+use crate::gui::{ window::window_frame, GUI, SHARED_GUI };
 
 pub struct ZeusApp {
     pub on_startup: bool,
@@ -57,7 +55,7 @@ impl ZeusApp {
         ctx.set_style(gui.theme.style.clone());
 
         RT.spawn(async move {
-           // update(zeus_ctx).await;
+          // update::update(zeus_ctx).await;
         });
     }
 }
@@ -133,19 +131,3 @@ impl eframe::App for ZeusApp {
         });
     }
 }
-
-/* 
-/// Request repaint every 32ms (30 FPS) only if the Viewport is not minimized.
-fn request_repaint(ctx: egui::Context) {
-    let duration = Duration::from_millis(32);
-
-    loop {
-        let is_minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
-
-        if !is_minimized {
-            ctx.request_repaint();
-        }
-        std::thread::sleep(duration);
-    }
-}
-    */

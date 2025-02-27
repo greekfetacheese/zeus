@@ -94,6 +94,18 @@ impl ZeusCtx {
         self.read(|ctx| ctx.db.get_portfolio(chain, owner))
     }
 
+    pub fn get_portfolio_value(&self, chain: u64, owner: Address) -> f64 {
+        self.read(|ctx| ctx.db.get_portfolio(chain, owner).map(|p| p.value).unwrap_or(0.0))
+    }
+
+    pub fn update_portfolio_value(&self, chain: u64, owner: Address, value: f64) {
+        self.write(|ctx| {
+            if let Some(portfolio) = ctx.db.get_portfolio_mut(chain, owner) {
+                portfolio.value = value;
+            }
+        })
+    }
+
     pub fn contacts(&self) -> Vec<Contact> {
         self.read(|ctx| ctx.db.contacts.clone())
     }
@@ -176,11 +188,10 @@ pub struct ZeusContext {
 
     pub db: db::ZeusDB,
 
-    pub db_exists: bool,
-
     pub pool_manager: PoolStateManagerHandle,
 
-    pub pool_manager_exists: bool,
+    pub pool_data_syncing: bool,
+
 }
 
 impl ZeusContext {
@@ -190,18 +201,17 @@ impl ZeusContext {
             providers.rpc = loaded_providers.rpc;
         }
 
-        // This should not panic
         let profile_exists = Profile::exists().expect("Failed to read data directory");
         let rpc = providers.get(1).expect("Failed to find provider");
 
-        let mut db_exists = false;
-        let db = if let Ok(db) = db::ZeusDB::load_from_file() {
-            db_exists = true;
-            db
-        } else {
-            let mut db = db::ZeusDB::default();
-            db.load_default_currencies().unwrap();
-            db
+        let db = match db::ZeusDB::load_from_file() {
+            Ok(db) => db,
+            Err(e) => {
+                tracing::error!("Failed to load db: {:?}", e);
+                let mut db = db::ZeusDB::default();
+                db.load_default_currencies().unwrap();
+                db
+            }
         };
 
         let pool_dir = pool_data_dir().unwrap().exists();
@@ -221,9 +231,8 @@ impl ZeusContext {
             profile_exists,
             logged_in: false,
             db,
-            db_exists,
             pool_manager,
-            pool_manager_exists: pool_dir,
+            pool_data_syncing: true,
         }
     }
 

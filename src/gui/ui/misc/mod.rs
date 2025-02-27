@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use crate::gui::ui::{ TokenSelectionWindow, button, rich_text};
 use crate::assets::icons::Icons;
-use crate::core::{ user::Portfolio, utils::{currency_balance, currency_price, currency_value, eth, wallet_value, RT}, Wallet, ZeusCtx };
+use crate::core::{ user::Portfolio, utils::{currency_balance, currency_price, currency_value, eth, RT}, Wallet, ZeusCtx };
 use crate::gui::SHARED_GUI;
 
 use egui_theme::{ Theme, utils::{ window_fill, bg_color_on_idle } };
@@ -280,9 +280,7 @@ impl PortfolioUi {
         let chain_id = ctx.chain().id();
         let owner = ctx.wallet().key.inner().address();
         let portfolio = ctx.get_portfolio(chain_id, owner).unwrap_or_default();
-
         let currencies = portfolio.currencies();
-        let portfolio_value = wallet_value(ctx.clone(), chain_id, owner);
 
         ui.vertical_centered_justified(|ui| {
             ui.set_width(ui.available_width() * 0.8);
@@ -312,9 +310,10 @@ impl PortfolioUi {
                     .fill(ui.style().visuals.extreme_bg_color)
                     .show(ui, |ui| {
                         ui.vertical_centered(|ui| {
-                            ui.label(RichText::new("Total Portfolio Value").color(Color32::GRAY).size(14.0));
+                            let wallet_name = ctx.profile().current_wallet.name.clone();
+                            ui.label(RichText::new(wallet_name).color(Color32::GRAY).size(15.0));
                             ui.add_space(8.0);
-                            ui.label(RichText::new(format!("${:.2}", portfolio_value)).heading().size(32.0));
+                            ui.label(RichText::new(format!("${:.2}", portfolio.value)).heading().size(32.0));
                         });
                     });
             });
@@ -358,10 +357,7 @@ impl PortfolioUi {
                                 // Token Rows
                                 for currency in currencies {
                                     self.token(ctx.clone(), icons.clone(), currency, ui, column_widths[0]);
-                                    self.price(ctx.clone(), currency, ui, column_widths[1]);
-                                    self.balance(ctx.clone(), currency, ui, column_widths[2]);
-                                    self.value(ctx.clone(), currency, ui, column_widths[3]);
-                                    // self.change_24h(ui, column_widths[4]);
+                                    self.price_balance_value(ctx.clone(), currency, ui, column_widths[0]);
                                     self.remove_currency(ctx.clone(), currency, ui, column_widths[4]);
                                     ui.end_row();
                                 }
@@ -395,32 +391,26 @@ impl PortfolioUi {
         });
     }
 
-    fn price(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+    fn price_balance_value(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
         let price = currency_price(ctx.clone(), currency);
-        //println!("Price for {}: {}", currency.symbol(), price);
         ui.horizontal(|ui| {
             ui.set_width(width);
             ui.label(format!("${}", price));
         });
-    }
 
-    fn balance(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
         let balance = currency_balance(ctx.clone(), ctx.wallet().key.inner().address(), currency);
         ui.horizontal(|ui| {
             ui.set_width(width);
-            ui.label(balance);
+            ui.label(balance.clone());
         });
-    }
 
-    fn value(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
-        let price = currency_price(ctx.clone(), currency);
-        let balance = currency_balance(ctx.clone(), ctx.wallet().key.inner().address(), currency);
         let value = currency_value(price.parse().unwrap_or(0.0), balance.parse().unwrap_or(0.0));
         ui.horizontal(|ui| {
             ui.set_width(width);
             ui.label(RichText::new(format!("${:.2}", value)).color(Color32::GRAY).size(12.0));
         });
     }
+
 
     #[allow(dead_code)]
     fn change_24h(&self, ui: &mut Ui, width: f32) {
@@ -454,6 +444,8 @@ impl PortfolioUi {
     fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
         let chain_id = ctx.chain().id();
         let owner = ctx.wallet().key.inner().address();
+
+        // Add the token to the portfolio
         ctx.write(|ctx| {
             let portfolio = ctx.db.get_portfolio_mut(chain_id, owner);
             if portfolio.is_none() {
@@ -472,6 +464,7 @@ impl PortfolioUi {
             currency.erc20().cloned().unwrap()
         };
 
+        // If no pool data is available, fetch it
         let v2_pools = ctx.get_v2_pools(token.clone());
         let v3_pools = ctx.get_v3_pools(token.clone());
 

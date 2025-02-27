@@ -1,20 +1,28 @@
-use egui::{ Align, Grid, Layout, RichText, Ui, vec2 };
+use egui::{ Align, Grid, Layout, Spinner, RichText, Ui, vec2 };
 use std::sync::Arc;
 use crate::core::ZeusCtx;
 use crate::assets::icons::Icons;
 use crate::gui::{ GUI, ui::{ WalletSelect, ChainSelect } };
 use egui_theme::Theme;
 
+const DATA_SYNCING_MSG: &str = "Zeus is still loading token data, do not close the app yet!";
+
 pub fn show(gui: &mut GUI, ui: &mut Ui) {
     let ctx = gui.ctx.clone();
+    let syncing = ctx.read(|ctx| ctx.pool_data_syncing);
     let icons = gui.icons.clone();
 
-
-        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            gui.top_left_area.show(ctx, icons, &gui.theme, ui);
+    if syncing {
+        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.label(RichText::new(DATA_SYNCING_MSG).size(14.0));
+            ui.add(Spinner::new().size(20.0));
         });
-}
+    }
 
+    ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+        gui.top_left_area.show(ctx, icons, &gui.theme, ui);
+    });
+}
 
 pub struct TopLeftArea {
     pub open: bool,
@@ -44,20 +52,19 @@ impl TopLeftArea {
 
             ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
 
-                // Chain Select
-                let clicked = self.chain_select.show(ui, theme, icons.clone());
-                if clicked {
-                    // if we select a new chain update the necessary state
-                    let chain = self.chain_select.chain.clone();
-                    // update the chain
-                    ctx.write(|ctx| {
-                        ctx.chain = chain.clone();
-                    });
-                }
+            // Chain Select
+            let clicked = self.chain_select.show(ui, theme, icons.clone());
+            if clicked {
+                // if we select a new chain update the necessary state
+                let chain = self.chain_select.chain.clone();
+                // update the chain
+                ctx.write(|ctx| {
+                    ctx.chain = chain.clone();
+                });
+            }
 
-                // Wallet Select
-                Grid::new("main_wallet_select")
-                .show(ui, |ui| {
+            // Wallet Select
+            Grid::new("main_wallet_select").show(ui, |ui| {
                 ui.add(icons.wallet());
                 let clicked = self.wallet_select.show(ctx.clone(), ui);
                 if clicked {
@@ -73,12 +80,10 @@ impl TopLeftArea {
 
             let wallet = ctx.profile().current_wallet;
             let address = wallet.address_truncated();
-             
+
             if ui.selectable_label(false, RichText::new(address).size(14.0)).clicked() {
                 ui.ctx().copy_text(wallet.address());
             }
-           
         });
-
     }
 }

@@ -1,46 +1,123 @@
-use std::time::{Duration, Instant};
-use crate::core::{utils::{RT, eth}, ZeusCtx};
+use std::time::{ Duration, Instant };
+use crate::core::{ utils::{ RT, eth, wallet_value }, ZeusCtx };
 use zeus_eth::types::SUPPORTED_CHAINS;
-
 
 /// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
-    RT.spawn(async move {
-        update_price_manager(ctx.clone()).await;
-    });
+    // on startup
+    portfolio_update(ctx.clone());
+    update_price_manager(ctx.clone()).await;
+
+    let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
+
+    if !pools_synced {
+        ctx.write(|ctx| {
+            ctx.pool_data_syncing = true;
+        });
+        let chains = SUPPORTED_CHAINS.to_vec();
+        let res = sync_pools(ctx.clone(), chains).await;
+        if res.is_ok() {
+            ctx.write(|ctx| {
+                ctx.db.pool_data_synced = true;
+            });
+            ctx.write(|ctx| {
+                ctx.pool_data_syncing = false;
+            });
+            match ctx.save_db() {
+                Ok(_) => tracing::info!("DB saved"),
+                Err(e) => tracing::error!("Error saving DB: {:?}", e),
+            }
+        } else {
+            ctx.write(|ctx| {
+                ctx.pool_data_syncing = false;
+            });
+            tracing::error!("Error syncing pools: {:?}", res.err().unwrap());
+        }
+
+        let ctx_clone = ctx.clone();
+        RT.spawn(async move {
+            update_price_manager_interval(ctx_clone).await;
+        });
+
+        let ctx_clone = ctx.clone();
+        RT.spawn(async move {
+            portfolio_update_interval(ctx_clone);
+        });
+    }
 }
 
-pub async fn update_price_manager(ctx: ZeusCtx) {
-    const INTERVAL: u64 = 600;
-
+pub fn portfolio_update_interval(ctx: ZeusCtx) {
+    const INTERVAL: u64 = 60;
     let mut time_passed = Instant::now();
 
     loop {
         if time_passed.elapsed().as_secs() > INTERVAL {
-            let pool_manager = ctx.pool_manager();
-
-            for chain in SUPPORTED_CHAINS {
-                let client = ctx.get_client_with_id(chain).unwrap();
-                let res = pool_manager.update(client.clone(), chain).await;
-                if let Err(e) = res {
-                    tracing::error!("Error updating pool manager: {:?}", e);
-                }
-            }
+            portfolio_update(ctx.clone());
             time_passed = Instant::now();
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
 
-            ctx.save_pool_data().unwrap();
-            tracing::info!("Pool State Manager updated");
+pub fn portfolio_update(ctx: ZeusCtx) {
+    let wallets = ctx.profile().wallets;
+    for chain in SUPPORTED_CHAINS {
+        for wallet in &wallets {
+            let owner = wallet.key.inner().address();
+            let _ = wallet_value(ctx.clone(), chain, owner);
+        }
+    }
+
+    tracing::info!("Calculated Portfolio Value");
+    match ctx.save_db() {
+        Ok(_) => tracing::info!("DB saved"),
+        Err(e) => tracing::error!("Error saving DB: {:?}", e),
+    }
+}
+
+pub async fn update_price_manager_interval(ctx: ZeusCtx) {
+    const INTERVAL: u64 = 300;
+    let mut time_passed = Instant::now();
+
+    loop {
+        if time_passed.elapsed().as_secs() > INTERVAL {
+            update_price_manager(ctx.clone()).await;
+            time_passed = Instant::now();
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }
 
+pub async fn update_price_manager(ctx: ZeusCtx) {
+    let pool_manager = ctx.pool_manager();
 
+    let wallets = ctx.profile().wallets;
+    for chain in SUPPORTED_CHAINS {
+        let client = ctx.get_client_with_id(chain).unwrap();
 
+        for wallet in &wallets {
+            let owner = wallet.key.inner().address();
+            let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+            let tokens = portfolio.erc20_tokens();
+
+            match pool_manager.update_minimal(client.clone(), chain, tokens).await {
+                Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+                Err(e) => tracing::error!("Error updating price manager: {:?}", e),
+            }
+        }
+    }
+    match ctx.save_pool_data() {
+        Ok(_) => tracing::info!("Pool data saved"),
+        Err(e) => tracing::error!("Error saving pool data: {:?}", e),
+    }
+}
 
 /// Sync all the V2 & V3 pools for all the tokens
 pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Error> {
     const MAX_RETRY: usize = 5;
+
+    let mut total_v2 = 0;
+    let mut total_v3 = 0;
 
     for chain in chains {
         let currencies = ctx.get_currencies(chain);
@@ -60,6 +137,7 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
             while v2_pools.is_none() && retry < MAX_RETRY {
                 match eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await {
                     Ok(pools) => {
+                        total_v2 += pools.len();
                         v2_pools = Some(pools);
                     }
                     Err(e) => tracing::error!("Error getting v2 pools: {:?}", e),
@@ -72,6 +150,7 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
             while v3_pools.is_none() && retry < MAX_RETRY {
                 match eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await {
                     Ok(pools) => {
+                        total_v3 += pools.len();
                         v3_pools = Some(pools);
                     }
                     Err(e) => tracing::error!("Error getting v3 pools: {:?}", e),
@@ -82,17 +161,19 @@ pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Er
 
             if let Some(v2_pools) = v2_pools {
                 tracing::info!("Got {} v2 pools for: {}", v2_pools.len(), token.symbol);
-                ctx.add_v2_pools(v2_pools);
             }
 
             if let Some(v3_pools) = v3_pools {
                 tracing::info!("Got {} v3 pools for: {}", v3_pools.len(), token.symbol);
-                ctx.add_v3_pools(v3_pools);
             }
         }
     }
 
     ctx.save_pool_data()?;
+
+    tracing::info!("Finished syncing pools");
+    tracing::info!("Total V2 pools: {}", total_v2);
+    tracing::info!("Total V3 pools: {}", total_v3);
 
     Ok(())
 }

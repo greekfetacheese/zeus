@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use lazy_static::lazy_static;
 use crate::core::ZeusCtx;
 use zeus_eth::{
-    alloy_primitives::{Address, utils::format_units},
-    currency::{Currency, ERC20Token},
+    alloy_primitives::{ Address, utils::format_units },
+    currency::{ Currency, ERC20Token },
 };
 
 pub mod trace;
@@ -15,7 +15,6 @@ pub mod update;
 lazy_static! {
     pub static ref RT: Runtime = Runtime::new().unwrap();
 }
-
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -34,21 +33,24 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
     Ok(dir)
 }
 
-
 /// Calculate the total value of a wallet in USD
 pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
-    let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
-    if portfolio.currencies.is_empty() {
-        return 0.0;
-    }
-
-    let currencies = portfolio.currencies();
+    let portfolio = ctx.get_portfolio(chain, owner);
     let mut value = 0.0;
 
-    for currency in currencies {
-        let usd_price: f64 =  currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
-        let balance: f64 = currency_balance(ctx.clone(), owner, currency).parse().unwrap_or(0.0);
-        value += currency_value_f64(usd_price, balance);
+    if let Some(portfolio) = portfolio {
+        let currencies = portfolio.currencies();
+
+        for currency in currencies {
+            let usd_price: f64 = currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
+            let balance: f64 = currency_balance(ctx.clone(), owner, currency)
+                .parse()
+                .unwrap_or(0.0);
+            value += currency_value_f64(usd_price, balance);
+        }
+
+        // update portfolio value
+        ctx.update_portfolio_value(chain, owner, value);
     }
 
     value

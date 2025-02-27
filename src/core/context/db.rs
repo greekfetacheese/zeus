@@ -1,7 +1,6 @@
 use std::{ collections::HashMap, sync::Arc, str::FromStr };
 
-use crate::core::user::Portfolio;
-use crate::core::utils::data_dir;
+use crate::core::{user::Portfolio, utils::data_dir};
 use zeus_eth::{
     alloy_primitives::{ Address, U256 },
     currency::{ erc20::ERC20Token, native::NativeCurrency, Currency },
@@ -38,7 +37,6 @@ pub type Currencies = HashMap<u64, Arc<Vec<Currency>>>;
 ///
 /// Key: (chain_id, owner)
 pub type Portfolios = HashMap<(u64, Address), Arc<Portfolio>>;
-
 
 /// Saved contact by the user
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -87,6 +85,8 @@ pub struct ZeusDB {
     pub portfolios: Portfolios,
 
     pub contacts: Vec<Contact>,
+
+    pub pool_data_synced: bool,
 }
 
 impl Default for ZeusDB {
@@ -97,6 +97,7 @@ impl Default for ZeusDB {
             currencies: Default::default(),
             portfolios: Default::default(),
             contacts: Default::default(),
+            pool_data_synced: false,
         }
     }
 }
@@ -183,7 +184,7 @@ impl ZeusDB {
 
     pub fn remove_contact(&mut self, address: String) {
         self.contacts.retain(|c| c.address != address);
-    }           
+    }
 
     pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {
         // Native Currencies
