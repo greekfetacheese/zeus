@@ -1,0 +1,16 @@
+edition = "2024"
+style_edition = "2024"
+max_width = 120
+hard_tabs = false
+tab_spaces = 3
+use_small_heuristics = "Default"
+fn_call_width = 60
+struct_lit_width = 18
+struct_variant_width = 35
+array_width = 60
+chain_width = 60
+single_line_if_else_max_width = 50
+single_line_let_else_max_width = 50
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true

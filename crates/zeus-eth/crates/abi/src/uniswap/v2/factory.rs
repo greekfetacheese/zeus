@@ -1,7 +1,7 @@
-use alloy_sol_types::{ sol, SolCall };
-use alloy_primitives::{ Address, Bytes, U256 };
+use alloy_primitives::{Address, Bytes, U256};
+use alloy_sol_types::{SolCall, sol};
 
-use alloy_contract::private::{ Network, Provider };
+use alloy_contract::private::{Network, Provider};
 
 sol! {
     #[sol(rpc)]
@@ -20,60 +20,69 @@ sol! {
 }
 
 pub async fn fee_to<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
-    where P: Provider<(), N> + Clone + 'static, N: Network
+where
+   P: Provider<(), N> + Clone + 'static,
+   N: Network,
 {
-    let factory = IUniswapV2Factory::new(factory, client);
-    let fee_to = factory.feeTo().call().await?;
-    Ok(fee_to._0)
+   let factory = IUniswapV2Factory::new(factory, client);
+   let fee_to = factory.feeTo().call().await?;
+   Ok(fee_to._0)
 }
 
 pub async fn fee_to_setter<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
-    where P: Provider<(), N> + Clone + 'static, N: Network
+where
+   P: Provider<(), N> + Clone + 'static,
+   N: Network,
 {
-    let factory = IUniswapV2Factory::new(factory, client);
-    let fee_to_setter = factory.feeToSetter().call().await?;
-    Ok(fee_to_setter._0)
+   let factory = IUniswapV2Factory::new(factory, client);
+   let fee_to_setter = factory.feeToSetter().call().await?;
+   Ok(fee_to_setter._0)
 }
 
 pub async fn get_pair<P, N>(
-    client: P,
-    factory: Address,
-    token0: Address,
-    token1: Address
-)
-    -> Result<Address, anyhow::Error>
-    where P: Provider<(), N> + Clone + 'static, N: Network
+   client: P,
+   factory: Address,
+   token0: Address,
+   token1: Address,
+) -> Result<Address, anyhow::Error>
+where
+   P: Provider<(), N> + Clone + 'static,
+   N: Network,
 {
-    let factory = IUniswapV2Factory::new(factory, client);
-    let pair = factory.getPair(token0, token1).call().await?;
-    Ok(pair.pair)
+   let factory = IUniswapV2Factory::new(factory, client);
+   let pair = factory.getPair(token0, token1).call().await?;
+   Ok(pair.pair)
 }
 
 pub async fn all_pairs<P, N>(client: P, factory: Address, index: U256) -> Result<Address, anyhow::Error>
-    where P: Provider<(), N> + Clone + 'static, N: Network
+where
+   P: Provider<(), N> + Clone + 'static,
+   N: Network,
 {
-    let factory = IUniswapV2Factory::new(factory, client);
-    let pair = factory.allPairs(index).call().await?;
-    Ok(pair.pair)
+   let factory = IUniswapV2Factory::new(factory, client);
+   let pair = factory.allPairs(index).call().await?;
+   Ok(pair.pair)
 }
 
 pub async fn all_pairs_length<P, N>(client: P, factory: Address) -> Result<U256, anyhow::Error>
-    where P: Provider<(), N> + Clone + 'static, N: Network
+where
+   P: Provider<(), N> + Clone + 'static,
+   N: Network,
 {
-    let factory = IUniswapV2Factory::new(factory, client);
-    let length = factory.allPairsLength().call().await?;
-    Ok(length.length)
+   let factory = IUniswapV2Factory::new(factory, client);
+   let length = factory.allPairsLength().call().await?;
+   Ok(length.length)
 }
 
 pub fn encode_create_pair(token0: Address, token1: Address) -> Bytes {
-    let abi = IUniswapV2Factory::createPairCall {
-        tokenA: token0,
-        tokenB: token1,
-    };
-    Bytes::from(abi.abi_encode())
+   let abi = IUniswapV2Factory::createPairCall {
+      tokenA: token0,
+      tokenB: token1,
+   };
+   Bytes::from(abi.abi_encode())
 }
 
 pub fn decode_create_pair(data: &Bytes) -> Result<Address, anyhow::Error> {
-    let abi = IUniswapV2Factory::createPairCall::abi_decode_returns(data, true)?;
-    Ok(abi.pair)
+   let abi = IUniswapV2Factory::createPairCall::abi_decode_returns(data, true)?;
+   Ok(abi.pair)
 }

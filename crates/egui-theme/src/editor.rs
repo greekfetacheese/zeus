@@ -1,346 +1,385 @@
 use egui::{
-    widgets::color_picker::{ color_edit_button_srgba, Alpha },
-    CollapsingHeader,
-    ComboBox,
-    Frame,
-    ScrollArea,
-    Slider,
-    Ui,
-    Window,
+   CollapsingHeader, ComboBox, Frame, ScrollArea, Slider, Ui, Window,
+   widgets::color_picker::{Alpha, color_edit_button_srgba},
 };
 
-use super::{ Theme, FrameVisuals, utils };
+use super::{FrameVisuals, Theme, utils};
 
 /// Identify which state of the widget we should edit
 #[derive(Clone, PartialEq)]
 pub enum WidgetState {
-    NonInteractive,
-    Inactive,
-    Hovered,
-    Active,
-    Open,
+   NonInteractive,
+   Inactive,
+   Hovered,
+   Active,
+   Open,
 }
 
 impl WidgetState {
-    /// Convert the state to a string
-    pub fn to_str(&self) -> &'static str {
-        match self {
-            WidgetState::NonInteractive => "Non-interactive",
-            WidgetState::Inactive => "Inactive",
-            WidgetState::Hovered => "Hovered",
-            WidgetState::Active => "Active",
-            WidgetState::Open => "Open",
-        }
-    }
+   /// Convert the state to a string
+   pub fn to_str(&self) -> &'static str {
+      match self {
+         WidgetState::NonInteractive => "Non-interactive",
+         WidgetState::Inactive => "Inactive",
+         WidgetState::Hovered => "Hovered",
+         WidgetState::Active => "Active",
+         WidgetState::Open => "Open",
+      }
+   }
 
-    /// Convert the state to a vector
-    pub fn to_vec(&self) -> Vec<WidgetState> {
-        let non_interactive = Self::NonInteractive;
-        let inactive = Self::Inactive;
-        let hovered = Self::Hovered;
-        let active = Self::Active;
-        let open = Self::Open;
+   /// Convert the state to a vector
+   pub fn to_vec(&self) -> Vec<WidgetState> {
+      let non_interactive = Self::NonInteractive;
+      let inactive = Self::Inactive;
+      let hovered = Self::Hovered;
+      let active = Self::Active;
+      let open = Self::Open;
 
-        vec![non_interactive, inactive, hovered, active, open]
-    }
+      vec![non_interactive, inactive, hovered, active, open]
+   }
 }
 
 #[derive(Clone)]
 pub struct ThemeEditor {
-    pub open: bool,
+   pub open: bool,
 
-    /// The current widget state being edited
-    pub widget_state: WidgetState,
+   /// The current widget state being edited
+   pub widget_state: WidgetState,
 }
 
 impl ThemeEditor {
-    pub fn new() -> Self {
-        Self {
-            open: false,
-            widget_state: WidgetState::NonInteractive,
-        }
-    }
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         widget_state: WidgetState::NonInteractive,
+      }
+   }
 
-    /// Show the theme editor in a window
-    ///
-    /// Returns the new theme if we change it
-    pub fn show(&mut self, theme: &mut Theme, ui: &mut Ui) -> Option<Theme> {
-        if !self.open {
-            return None;
-        }
+   /// Show the theme editor in a window
+   ///
+   /// Returns the new theme if we change it
+   pub fn show(&mut self, theme: &mut Theme, ui: &mut Ui) -> Option<Theme> {
+      if !self.open {
+         return None;
+      }
 
-        let mut open = self.open;
-        let mut new_theme = None;
-        Window::new("Theme Editor")
-            .open(&mut open)
-            .resizable([true, true])
-            .frame(Frame::window(ui.style()))
-            .show(ui.ctx(), |ui| {
-                ui.set_min_size((350.0, 500.0).into());
+      let mut open = self.open;
+      let mut new_theme = None;
+      Window::new("Theme Editor")
+         .open(&mut open)
+         .resizable([true, true])
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size((350.0, 500.0).into());
 
-                ui.horizontal(|ui| {
-                    new_theme = utils::change_theme(theme, ui);
+            ui.horizontal(|ui| {
+               new_theme = utils::change_theme(theme, ui);
 
-                    ui.add_space(20.0);
+               ui.add_space(20.0);
 
-                    if ui.button("Save Theme").clicked() {
-                        let current_dir = std::env::current_dir().unwrap();
-                        let save_path = current_dir.join("my-custom-theme.json");
-                        let data = theme.to_json().unwrap();
-                        std::fs::write(&save_path, data).unwrap();
-                        println!("Theme saved to: {:?}", save_path);
-                    }
-                });
-                ui.add_space(20.0);
-                
-                ScrollArea::vertical().show(ui, |ui| {
-                    ui.set_min_size((350.0, 500.0).into());
-                    self.ui(theme, ui);
-                });
+               if ui.button("Save Theme").clicked() {
+                  let current_dir = std::env::current_dir().unwrap();
+                  let save_path = current_dir.join("my-custom-theme.json");
+                  let data = theme.to_json().unwrap();
+                  std::fs::write(&save_path, data).unwrap();
+                  println!("Theme saved to: {:?}", save_path);
+               }
             });
-        self.open = open;
-        new_theme
-    }
+            ui.add_space(20.0);
 
-    /// Show the ui for the theme editor
-    pub fn ui(&mut self, theme: &mut Theme, ui: &mut Ui) {
-        ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 20.0;
-
-             
-            CollapsingHeader::new("Theme Frames").show(ui, |ui| {
-                CollapsingHeader::new("Frame 1").show(ui, |ui| {
-                    self.frame_settings(&mut theme.frame1, &mut theme.frame1_visuals, ui);
-                });
-
-                CollapsingHeader::new("Frame 2").show(ui, |ui| {
-                    self.frame_settings(&mut theme.frame2, &mut theme.frame2_visuals, ui);
-                });
+            ScrollArea::vertical().show(ui, |ui| {
+               ui.set_min_size((350.0, 500.0).into());
+               self.ui(theme, ui);
             });
-            
+         });
+      self.open = open;
+      new_theme
+   }
 
-            CollapsingHeader::new("Theme Colors").show(ui, |ui| {
-                ui.label("Background Color");
-                color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
+   /// Show the ui for the theme editor
+   pub fn ui(&mut self, theme: &mut Theme, ui: &mut Ui) {
+      ui.vertical_centered(|ui| {
+         ui.spacing_mut().item_spacing.y = 20.0;
 
-                ui.label("Highlight Color");
-                color_edit_button_srgba(ui, &mut theme.colors.highlight, Alpha::OnlyBlend);
-
-                ui.label("Overlay Color");
-                color_edit_button_srgba(ui, &mut theme.colors.overlay_color, Alpha::OnlyBlend);
-
-                ui.label("Text Color");
-                color_edit_button_srgba(ui, &mut theme.colors.text_color, Alpha::OnlyBlend);
-
-                ui.label("Widget Bg Color on idle");
-                color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_idle, Alpha::OnlyBlend);
-
-                ui.label("Widget Bg Color on click");
-                color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_click, Alpha::OnlyBlend);
-
-                ui.label("Widget Bg Color on hover");
-                color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_hover, Alpha::OnlyBlend);
-
-                ui.label("Widget Bg Color on open");
-                color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_open, Alpha::OnlyBlend);
-
-                ui.label("Border Color");
-                color_edit_button_srgba(ui, &mut theme.colors.border_color_idle, Alpha::OnlyBlend);
-
-                ui.label("Border Color on click");
-                color_edit_button_srgba(ui, &mut theme.colors.border_color_click, Alpha::OnlyBlend);
-
-                ui.label("Border Color on hover");
-                color_edit_button_srgba(ui, &mut theme.colors.border_color_hover, Alpha::OnlyBlend);
-
-                ui.label("Border Color on open");
-                color_edit_button_srgba(ui, &mut theme.colors.border_color_open, Alpha::OnlyBlend);
+         CollapsingHeader::new("Theme Frames").show(ui, |ui| {
+            CollapsingHeader::new("Frame 1").show(ui, |ui| {
+               self.frame_settings(&mut theme.frame1, &mut theme.frame1_visuals, ui);
             });
 
-            CollapsingHeader::new("Other Colors").show(ui, |ui| {
-                ui.label("Selection Stroke");
-                ui.add(Slider::new(&mut theme.style.visuals.selection.stroke.width, 0.0..=10.0).text("Stroke Width"));
-                ui.label("Selection Stroke Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.selection.stroke.color, Alpha::OnlyBlend);
-                ui.label("Selection Bg Fill");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.selection.bg_fill, Alpha::OnlyBlend);
-
-                ui.label("Hyperlink Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.hyperlink_color, Alpha::OnlyBlend);
-
-                ui.label("Faint Background Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.faint_bg_color, Alpha::OnlyBlend);
-
-                ui.label("Extreme Background Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.extreme_bg_color, Alpha::OnlyBlend);
-
-                ui.label("Code Background Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.code_bg_color, Alpha::OnlyBlend);
-
-                ui.label("Warning Text Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.warn_fg_color, Alpha::OnlyBlend);
-
-                ui.label("Error Text Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.error_fg_color, Alpha::OnlyBlend);
-
-                ui.label("Panel Fill Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.panel_fill, Alpha::OnlyBlend);
+            CollapsingHeader::new("Frame 2").show(ui, |ui| {
+               self.frame_settings(&mut theme.frame2, &mut theme.frame2_visuals, ui);
             });
+         });
 
-            CollapsingHeader::new("Window Visuals").show(ui, |ui| {
-                ui.label("Window Rounding");
-                ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.nw, 0..=35).text("Top Left"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.ne, 0..=35).text("Top Right"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.sw, 0..=35).text("Bottom Left"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.se, 0..=35).text("Bottom Right"));
+         CollapsingHeader::new("Theme Colors").show(ui, |ui| {
+            ui.label("Background Color");
+            color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
 
-                ui.label("Window Shadow");
-                ui.add(Slider::new(&mut theme.style.visuals.window_shadow.offset[0], -100..=100).text("Offset X"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_shadow.offset[1], -100..=100).text("Offset Y"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_shadow.blur, 0..=100).text("Blur"));
-                ui.add(Slider::new(&mut theme.style.visuals.window_shadow.spread, 0..=100).text("Spread"));
-                ui.label("Shadow Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.window_shadow.color, Alpha::OnlyBlend);
+            ui.label("Highlight Color");
+            color_edit_button_srgba(ui, &mut theme.colors.highlight, Alpha::OnlyBlend);
 
-                ui.label("Window Fill Color");
-                color_edit_button_srgba(ui, &mut theme.style.visuals.window_fill, Alpha::OnlyBlend);
+            ui.label("Overlay Color");
+            color_edit_button_srgba(ui, &mut theme.colors.overlay_color, Alpha::OnlyBlend);
 
-                ui.label("Window Stroke Color");
-                ui.add(Slider::new(&mut theme.style.visuals.window_stroke.width, 0.0..=10.0).text("Stroke Width"));
-                color_edit_button_srgba(ui, &mut theme.style.visuals.window_stroke.color, Alpha::OnlyBlend);
+            ui.label("Text Color");
+            color_edit_button_srgba(ui, &mut theme.colors.text_color, Alpha::OnlyBlend);
 
-                ui.label("Window Highlight Topmost");
-                ui.checkbox(&mut theme.style.visuals.window_highlight_topmost, "Highlight Topmost");
-            });
+            ui.label("Widget Bg Color on idle");
+            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_idle, Alpha::OnlyBlend);
 
-            CollapsingHeader::new("Popup Shadow").show(ui, |ui| {
-                ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.offset[0], -100..=100).text("Offset X"));
-                ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.offset[1], -100..=100).text("Offset Y"));
-                ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.blur, 0..=100).text("Blur"));
-                ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.spread, 0..=100).text("Spread"));
-                color_edit_button_srgba(ui, &mut theme.style.visuals.popup_shadow.color, Alpha::OnlyBlend);
-            });
+            ui.label("Widget Bg Color on click");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.colors.widget_bg_color_click,
+               Alpha::OnlyBlend,
+            );
 
-            CollapsingHeader::new("Menu Rounding").show(ui, |ui| {
-                ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.nw, 0..=35).text("Top Left"));
-                ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.ne, 0..=35).text("Top Right"));
-                ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.sw, 0..=35).text("Bottom Left"));
-                ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.se, 0..=35).text("Bottom Right"));
-            });
+            ui.label("Widget Bg Color on hover");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.colors.widget_bg_color_hover,
+               Alpha::OnlyBlend,
+            );
 
-            CollapsingHeader::new("Widget Visuals").show(ui, |ui| {
-                self.select_widget_state(ui);
+            ui.label("Widget Bg Color on open");
+            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_open, Alpha::OnlyBlend);
 
-                let widget_visuals = match self.widget_state {
-                    WidgetState::NonInteractive => &mut theme.style.visuals.widgets.noninteractive,
-                    WidgetState::Inactive => &mut theme.style.visuals.widgets.inactive,
-                    WidgetState::Hovered => &mut theme.style.visuals.widgets.hovered,
-                    WidgetState::Active => &mut theme.style.visuals.widgets.active,
-                    WidgetState::Open => &mut theme.style.visuals.widgets.open,
-                };
+            ui.label("Border Color");
+            color_edit_button_srgba(ui, &mut theme.colors.border_color_idle, Alpha::OnlyBlend);
 
-                ui.label("Background Fill Color");
-                color_edit_button_srgba(ui, &mut widget_visuals.bg_fill, Alpha::OnlyBlend);
+            ui.label("Border Color on click");
+            color_edit_button_srgba(ui, &mut theme.colors.border_color_click, Alpha::OnlyBlend);
 
-                ui.label("Weak Background Fill Color");
-                color_edit_button_srgba(ui, &mut widget_visuals.weak_bg_fill, Alpha::OnlyBlend);
+            ui.label("Border Color on hover");
+            color_edit_button_srgba(ui, &mut theme.colors.border_color_hover, Alpha::OnlyBlend);
 
-                ui.label("Background Stroke Color");
-                ui.add(Slider::new(&mut widget_visuals.bg_stroke.width, 0.0..=10.0).text("Stroke Width"));
-                color_edit_button_srgba(ui, &mut widget_visuals.bg_stroke.color, Alpha::OnlyBlend);
+            ui.label("Border Color on open");
+            color_edit_button_srgba(ui, &mut theme.colors.border_color_open, Alpha::OnlyBlend);
+         });
 
-                ui.label("Rounding");
-                ui.add(Slider::new(&mut widget_visuals.corner_radius.nw, 0..=35).text("Top Left"));
-                ui.add(Slider::new(&mut widget_visuals.corner_radius.ne, 0..=35).text("Top Right"));
-                ui.add(Slider::new(&mut widget_visuals.corner_radius.sw, 0..=35).text("Bottom Left"));
-                ui.add(Slider::new(&mut widget_visuals.corner_radius.se, 0..=35).text("Bottom Right"));
+         CollapsingHeader::new("Other Colors").show(ui, |ui| {
+            ui.label("Selection Stroke");
+            ui.add(Slider::new(&mut theme.style.visuals.selection.stroke.width, 0.0..=10.0).text("Stroke Width"));
+            ui.label("Selection Stroke Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.selection.stroke.color,
+               Alpha::OnlyBlend,
+            );
+            ui.label("Selection Bg Fill");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.selection.bg_fill,
+               Alpha::OnlyBlend,
+            );
 
-                ui.label("Foreground Stroke Color");
-                ui.add(Slider::new(&mut widget_visuals.fg_stroke.width, 0.0..=10.0).text("Stroke Width"));
-                color_edit_button_srgba(ui, &mut widget_visuals.fg_stroke.color, Alpha::OnlyBlend);
+            ui.label("Hyperlink Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.hyperlink_color,
+               Alpha::OnlyBlend,
+            );
 
-                ui.label("Expansion");
-                ui.add(Slider::new(&mut widget_visuals.expansion, 0.0..=100.0).text("Expansion"));
-            });
+            ui.label("Faint Background Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.faint_bg_color,
+               Alpha::OnlyBlend,
+            );
 
-            CollapsingHeader::new("Other Settings").show(ui, |ui| {
-                ui.label("Resize Corner Size");
-                ui.add(Slider::new(&mut theme.style.visuals.resize_corner_size, 0.0..=100.0).text("Corner Size"));
+            ui.label("Extreme Background Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.extreme_bg_color,
+               Alpha::OnlyBlend,
+            );
 
-                ui.label("Button Frame");
-                ui.checkbox(&mut theme.style.visuals.button_frame, "Button Frame");
-            });
-        });
-    }
+            ui.label("Code Background Color");
+            color_edit_button_srgba(ui, &mut theme.style.visuals.code_bg_color, Alpha::OnlyBlend);
 
-    fn frame_settings(&mut self, frame: &mut Frame, visuals: &mut FrameVisuals, ui: &mut Ui) {
-        CollapsingHeader::new("Inner & Outter Margin").show(ui, |ui| {
-            ui.label("Inner Margin");
-            ui.add(Slider::new(&mut frame.inner_margin.top, 0..=100).text("Top"));
-            ui.add(Slider::new(&mut frame.inner_margin.bottom, 0..=100).text("Bottom"));
-            ui.add(Slider::new(&mut frame.inner_margin.left, 0..=100).text("Left"));
-            ui.add(Slider::new(&mut frame.inner_margin.right, 0..=100).text("Right"));
+            ui.label("Warning Text Color");
+            color_edit_button_srgba(ui, &mut theme.style.visuals.warn_fg_color, Alpha::OnlyBlend);
 
-            ui.label("Outter Margin");
-            ui.add(Slider::new(&mut frame.outer_margin.top, 0..=100).text("Top"));
-            ui.add(Slider::new(&mut frame.outer_margin.bottom, 0..=100).text("Bottom"));
-            ui.add(Slider::new(&mut frame.outer_margin.left, 0..=100).text("Left"));
-            ui.add(Slider::new(&mut frame.outer_margin.right, 0..=100).text("Right"));
-        });
+            ui.label("Error Text Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.error_fg_color,
+               Alpha::OnlyBlend,
+            );
 
-        CollapsingHeader::new("Visuals").show(ui, |ui| {
-            self.frame_visuals(visuals, ui);
-        });
+            ui.label("Panel Fill Color");
+            color_edit_button_srgba(ui, &mut theme.style.visuals.panel_fill, Alpha::OnlyBlend);
+         });
 
-        ui.label("Rounding");
-        ui.add(Slider::new(&mut frame.corner_radius.nw, 0..=35).text("Top Left"));
-        ui.add(Slider::new(&mut frame.corner_radius.ne, 0..=35).text("Top Right"));
-        ui.add(Slider::new(&mut frame.corner_radius.sw, 0..=35).text("Bottom Left"));
-        ui.add(Slider::new(&mut frame.corner_radius.se, 0..=35).text("Bottom Right"));
+         CollapsingHeader::new("Window Visuals").show(ui, |ui| {
+            ui.label("Window Rounding");
+            ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.nw, 0..=35).text("Top Left"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.ne, 0..=35).text("Top Right"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.sw, 0..=35).text("Bottom Left"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_corner_radius.se, 0..=35).text("Bottom Right"));
 
-        ui.label("Shadow");
-        ui.add(Slider::new(&mut frame.shadow.offset[0], -100..=100).text("Offset X"));
-        ui.add(Slider::new(&mut frame.shadow.offset[1], -100..=100).text("Offset Y"));
-        ui.add(Slider::new(&mut frame.shadow.blur, 0..=100).text("Blur"));
-        ui.add(Slider::new(&mut frame.shadow.spread, 0..=100).text("Spread"));
-        ui.label("Shadow Color");
-        color_edit_button_srgba(ui, &mut frame.shadow.color, Alpha::OnlyBlend);
+            ui.label("Window Shadow");
+            ui.add(Slider::new(&mut theme.style.visuals.window_shadow.offset[0], -100..=100).text("Offset X"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_shadow.offset[1], -100..=100).text("Offset Y"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_shadow.blur, 0..=100).text("Blur"));
+            ui.add(Slider::new(&mut theme.style.visuals.window_shadow.spread, 0..=100).text("Spread"));
+            ui.label("Shadow Color");
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.window_shadow.color,
+               Alpha::OnlyBlend,
+            );
 
-        ui.label("Fill Color");
-        color_edit_button_srgba(ui, &mut frame.fill, Alpha::OnlyBlend);
+            ui.label("Window Fill Color");
+            color_edit_button_srgba(ui, &mut theme.style.visuals.window_fill, Alpha::OnlyBlend);
 
-        ui.label("Stroke Width & Color");
-        ui.add(Slider::new(&mut frame.stroke.width, 0.0..=10.0).text("Stroke Width"));
-        color_edit_button_srgba(ui, &mut frame.stroke.color, Alpha::OnlyBlend);
-    }
+            ui.label("Window Stroke Color");
+            ui.add(Slider::new(&mut theme.style.visuals.window_stroke.width, 0.0..=10.0).text("Stroke Width"));
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.window_stroke.color,
+               Alpha::OnlyBlend,
+            );
 
-    fn frame_visuals(&mut self, visuals: &mut FrameVisuals, ui: &mut Ui) {
-        ui.label("Background Color on hover");
-        color_edit_button_srgba(ui, &mut visuals.bg_on_hover, Alpha::OnlyBlend);
+            ui.label("Window Highlight Topmost");
+            ui.checkbox(
+               &mut theme.style.visuals.window_highlight_topmost,
+               "Highlight Topmost",
+            );
+         });
 
-        ui.label("Background Color on click");
-        color_edit_button_srgba(ui, &mut visuals.bg_on_click, Alpha::OnlyBlend);
+         CollapsingHeader::new("Popup Shadow").show(ui, |ui| {
+            ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.offset[0], -100..=100).text("Offset X"));
+            ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.offset[1], -100..=100).text("Offset Y"));
+            ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.blur, 0..=100).text("Blur"));
+            ui.add(Slider::new(&mut theme.style.visuals.popup_shadow.spread, 0..=100).text("Spread"));
+            color_edit_button_srgba(
+               ui,
+               &mut theme.style.visuals.popup_shadow.color,
+               Alpha::OnlyBlend,
+            );
+         });
 
-        ui.label("Border Color on hover");
-        color_edit_button_srgba(ui, &mut visuals.border_on_hover.1, Alpha::OnlyBlend);
-        ui.add(Slider::new(&mut visuals.border_on_hover.0, 0.0..=10.0).text("Border Width on hover"));
+         CollapsingHeader::new("Menu Rounding").show(ui, |ui| {
+            ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.nw, 0..=35).text("Top Left"));
+            ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.ne, 0..=35).text("Top Right"));
+            ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.sw, 0..=35).text("Bottom Left"));
+            ui.add(Slider::new(&mut theme.style.visuals.menu_corner_radius.se, 0..=35).text("Bottom Right"));
+         });
 
-        ui.label("Border Color on click");
-        color_edit_button_srgba(ui, &mut visuals.border_on_click.1, Alpha::OnlyBlend);
-        ui.add(Slider::new(&mut visuals.border_on_click.0, 0.0..=10.0).text("Border Width on click"));
-    }
+         CollapsingHeader::new("Widget Visuals").show(ui, |ui| {
+            self.select_widget_state(ui);
 
-    fn select_widget_state(&mut self, ui: &mut Ui) {
-        ComboBox::from_label("")
-            .selected_text(self.widget_state.to_str())
-            .show_ui(ui, |ui| {
-                for widget in self.widget_state.to_vec() {
-                    let value = ui.selectable_value(&mut self.widget_state, widget.clone(), widget.to_str());
+            let widget_visuals = match self.widget_state {
+               WidgetState::NonInteractive => &mut theme.style.visuals.widgets.noninteractive,
+               WidgetState::Inactive => &mut theme.style.visuals.widgets.inactive,
+               WidgetState::Hovered => &mut theme.style.visuals.widgets.hovered,
+               WidgetState::Active => &mut theme.style.visuals.widgets.active,
+               WidgetState::Open => &mut theme.style.visuals.widgets.open,
+            };
 
-                    if value.clicked() {
-                        self.widget_state = widget;
-                    }
-                }
-            });
-    }
+            ui.label("Background Fill Color");
+            color_edit_button_srgba(ui, &mut widget_visuals.bg_fill, Alpha::OnlyBlend);
+
+            ui.label("Weak Background Fill Color");
+            color_edit_button_srgba(ui, &mut widget_visuals.weak_bg_fill, Alpha::OnlyBlend);
+
+            ui.label("Background Stroke Color");
+            ui.add(Slider::new(&mut widget_visuals.bg_stroke.width, 0.0..=10.0).text("Stroke Width"));
+            color_edit_button_srgba(ui, &mut widget_visuals.bg_stroke.color, Alpha::OnlyBlend);
+
+            ui.label("Rounding");
+            ui.add(Slider::new(&mut widget_visuals.corner_radius.nw, 0..=35).text("Top Left"));
+            ui.add(Slider::new(&mut widget_visuals.corner_radius.ne, 0..=35).text("Top Right"));
+            ui.add(Slider::new(&mut widget_visuals.corner_radius.sw, 0..=35).text("Bottom Left"));
+            ui.add(Slider::new(&mut widget_visuals.corner_radius.se, 0..=35).text("Bottom Right"));
+
+            ui.label("Foreground Stroke Color");
+            ui.add(Slider::new(&mut widget_visuals.fg_stroke.width, 0.0..=10.0).text("Stroke Width"));
+            color_edit_button_srgba(ui, &mut widget_visuals.fg_stroke.color, Alpha::OnlyBlend);
+
+            ui.label("Expansion");
+            ui.add(Slider::new(&mut widget_visuals.expansion, 0.0..=100.0).text("Expansion"));
+         });
+
+         CollapsingHeader::new("Other Settings").show(ui, |ui| {
+            ui.label("Resize Corner Size");
+            ui.add(Slider::new(&mut theme.style.visuals.resize_corner_size, 0.0..=100.0).text("Corner Size"));
+
+            ui.label("Button Frame");
+            ui.checkbox(&mut theme.style.visuals.button_frame, "Button Frame");
+         });
+      });
+   }
+
+   fn frame_settings(&mut self, frame: &mut Frame, visuals: &mut FrameVisuals, ui: &mut Ui) {
+      CollapsingHeader::new("Inner & Outter Margin").show(ui, |ui| {
+         ui.label("Inner Margin");
+         ui.add(Slider::new(&mut frame.inner_margin.top, 0..=100).text("Top"));
+         ui.add(Slider::new(&mut frame.inner_margin.bottom, 0..=100).text("Bottom"));
+         ui.add(Slider::new(&mut frame.inner_margin.left, 0..=100).text("Left"));
+         ui.add(Slider::new(&mut frame.inner_margin.right, 0..=100).text("Right"));
+
+         ui.label("Outter Margin");
+         ui.add(Slider::new(&mut frame.outer_margin.top, 0..=100).text("Top"));
+         ui.add(Slider::new(&mut frame.outer_margin.bottom, 0..=100).text("Bottom"));
+         ui.add(Slider::new(&mut frame.outer_margin.left, 0..=100).text("Left"));
+         ui.add(Slider::new(&mut frame.outer_margin.right, 0..=100).text("Right"));
+      });
+
+      CollapsingHeader::new("Visuals").show(ui, |ui| {
+         self.frame_visuals(visuals, ui);
+      });
+
+      ui.label("Rounding");
+      ui.add(Slider::new(&mut frame.corner_radius.nw, 0..=35).text("Top Left"));
+      ui.add(Slider::new(&mut frame.corner_radius.ne, 0..=35).text("Top Right"));
+      ui.add(Slider::new(&mut frame.corner_radius.sw, 0..=35).text("Bottom Left"));
+      ui.add(Slider::new(&mut frame.corner_radius.se, 0..=35).text("Bottom Right"));
+
+      ui.label("Shadow");
+      ui.add(Slider::new(&mut frame.shadow.offset[0], -100..=100).text("Offset X"));
+      ui.add(Slider::new(&mut frame.shadow.offset[1], -100..=100).text("Offset Y"));
+      ui.add(Slider::new(&mut frame.shadow.blur, 0..=100).text("Blur"));
+      ui.add(Slider::new(&mut frame.shadow.spread, 0..=100).text("Spread"));
+      ui.label("Shadow Color");
+      color_edit_button_srgba(ui, &mut frame.shadow.color, Alpha::OnlyBlend);
+
+      ui.label("Fill Color");
+      color_edit_button_srgba(ui, &mut frame.fill, Alpha::OnlyBlend);
+
+      ui.label("Stroke Width & Color");
+      ui.add(Slider::new(&mut frame.stroke.width, 0.0..=10.0).text("Stroke Width"));
+      color_edit_button_srgba(ui, &mut frame.stroke.color, Alpha::OnlyBlend);
+   }
+
+   fn frame_visuals(&mut self, visuals: &mut FrameVisuals, ui: &mut Ui) {
+      ui.label("Background Color on hover");
+      color_edit_button_srgba(ui, &mut visuals.bg_on_hover, Alpha::OnlyBlend);
+
+      ui.label("Background Color on click");
+      color_edit_button_srgba(ui, &mut visuals.bg_on_click, Alpha::OnlyBlend);
+
+      ui.label("Border Color on hover");
+      color_edit_button_srgba(ui, &mut visuals.border_on_hover.1, Alpha::OnlyBlend);
+      ui.add(Slider::new(&mut visuals.border_on_hover.0, 0.0..=10.0).text("Border Width on hover"));
+
+      ui.label("Border Color on click");
+      color_edit_button_srgba(ui, &mut visuals.border_on_click.1, Alpha::OnlyBlend);
+      ui.add(Slider::new(&mut visuals.border_on_click.0, 0.0..=10.0).text("Border Width on click"));
+   }
+
+   fn select_widget_state(&mut self, ui: &mut Ui) {
+      ComboBox::from_label("")
+         .selected_text(self.widget_state.to_str())
+         .show_ui(ui, |ui| {
+            for widget in self.widget_state.to_vec() {
+               let value = ui.selectable_value(&mut self.widget_state, widget.clone(), widget.to_str());
+
+               if value.clicked() {
+                  self.widget_state = widget;
+               }
+            }
+         });
+   }
 }

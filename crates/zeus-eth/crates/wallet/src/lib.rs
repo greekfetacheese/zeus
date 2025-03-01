@@ -1,5 +1,5 @@
-pub mod signer;
 pub mod ethereum;
+pub mod signer;
 
-pub use signer::SafeSigner;
 pub use ethereum::SafeWallet;
+pub use signer::SafeSigner;
