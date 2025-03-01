@@ -156,6 +156,9 @@ impl AddWalletUi {
                   gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet imported successfully", "");
+                  ctx.write(|ctx| {
+                     ctx.profile = profile;
+                  })
                }
                Err(e) => {
                   let mut gui = SHARED_GUI.write().unwrap();
@@ -223,6 +226,9 @@ impl AddWalletUi {
                   gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet generated successfully", "");
+                  ctx.write(|ctx| {
+                     ctx.profile = profile;
+                  });
                }
                Err(e) => {
                   let mut gui = SHARED_GUI.write().unwrap();
@@ -231,9 +237,6 @@ impl AddWalletUi {
                   return;
                }
             }
-            ctx.write(|ctx| {
-               ctx.profile = profile;
-            });
          });
       }
       self.generate_wallet = open;

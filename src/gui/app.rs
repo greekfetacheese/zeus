@@ -15,6 +15,7 @@ use egui_theme::{Theme, ThemeKind};
 
 pub struct ZeusApp {
    pub on_startup: bool,
+   pub updated_started: bool,
    pub ctx: ZeusCtx,
 }
 
@@ -52,18 +53,26 @@ impl ZeusApp {
 
       Self {
          on_startup: true,
+         updated_started: false,
          ctx: gui.ctx.clone(),
       }
    }
 
-   fn start_up(&mut self, ctx: &egui::Context, zeus_ctx: ZeusCtx) {
+   fn start_up(&mut self, ctx: &egui::Context) {
       let ctx = ctx.clone();
       let gui = SHARED_GUI.read().unwrap();
       ctx.set_style(gui.theme.style.clone());
+   }
 
-      RT.spawn(async move {
-         // update::update(zeus_ctx).await;
-      });
+   fn start_update(&mut self) {
+      let ctx = self.ctx.clone();
+      let logged_in = self.ctx.logged_in();
+      if logged_in && !self.updated_started {
+            RT.spawn(async move {
+               update::update(ctx).await;
+            });
+            self.updated_started = true;
+      }
    }
 }
 
@@ -73,8 +82,10 @@ impl eframe::App for ZeusApp {
    }
 
    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+      self.start_update();
+
       if self.on_startup {
-         self.start_up(ctx, self.ctx.clone());
+         self.start_up(ctx);
          self.on_startup = false;
       }
 

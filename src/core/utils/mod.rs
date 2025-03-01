@@ -6,6 +6,7 @@ use zeus_eth::{
    alloy_primitives::{Address, utils::format_units},
    currency::{Currency, ERC20Token},
 };
+use tracing::info;
 
 pub mod eth;
 pub mod trace;
@@ -39,6 +40,7 @@ pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
    let mut value = 0.0;
 
    if let Some(portfolio) = portfolio {
+      info!("Calculating wallet value for owner {}, chain {}", owner, chain);
       let currencies = portfolio.currencies();
 
       for currency in currencies {
@@ -51,6 +53,8 @@ pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
 
       // update portfolio value
       ctx.update_portfolio_value(chain, owner, value);
+   } else {
+      info!("No portfolio found for owner {}, chain {}", owner, chain);
    }
 
    value

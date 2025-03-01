@@ -3,13 +3,22 @@ use crate::core::{
    utils::{RT, eth, wallet_value},
 };
 use std::time::{Duration, Instant};
-use zeus_eth::types::SUPPORTED_CHAINS;
+use zeus_eth::{alloy_provider::Provider, types::SUPPORTED_CHAINS, utils::batch_request::get_erc20_balance};
 
 /// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
-   // on startup
-   portfolio_update(ctx.clone());
+
    update_price_manager(ctx.clone()).await;
+
+   if let Err(e) = update_eth_balance(ctx.clone()).await {
+      tracing::error!("Error updating eth balance: {:?}", e);
+   }
+
+   if let Err(e) = update_token_balance(ctx.clone()).await {
+      tracing::error!("Error updating token balance: {:?}", e);
+   }
+
+   portfolio_update(ctx.clone());
 
    let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
 
@@ -47,6 +56,11 @@ pub async fn update(ctx: ZeusCtx) {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          portfolio_update_interval(ctx_clone);
+      });
+
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         balance_update_interval(ctx_clone).await;
       });
    }
 }
@@ -103,13 +117,20 @@ pub async fn update_price_manager(ctx: ZeusCtx) {
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
          let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+         if portfolio.currencies().is_empty() {
+            continue;
+         }
          let tokens = portfolio.erc20_tokens();
 
          match pool_manager
             .update_minimal(client.clone(), chain, tokens)
             .await
          {
-            Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+            Ok(_) => tracing::info!(
+               "Updated price manager for owner {}, chain: {}",
+               owner,
+               chain
+            ),
             Err(e) => tracing::error!("Error updating price manager: {:?}", e),
          }
       }
@@ -117,6 +138,74 @@ pub async fn update_price_manager(ctx: ZeusCtx) {
    match ctx.save_pool_data() {
       Ok(_) => tracing::info!("Pool data saved"),
       Err(e) => tracing::error!("Error saving pool data: {:?}", e),
+   }
+}
+
+/// Update the eth balance for all wallets
+pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+   let wallets = ctx.profile().wallets;
+
+   for chain in SUPPORTED_CHAINS {
+      let client = ctx.get_client_with_id(chain).unwrap();
+
+      for wallet in &wallets {
+         let owner = wallet.key.inner().address();
+         let balance = client.get_balance(owner).await?;
+         ctx.write(|ctx| {
+            ctx.db.insert_eth_balance(chain, owner, balance);
+         })
+      }
+   }
+   Ok(())
+}
+
+/// Update the token balance for all wallets
+pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+   let wallets = ctx.profile().wallets;
+
+   for chain in SUPPORTED_CHAINS {
+      let client = ctx.get_client_with_id(chain).unwrap();
+
+      for wallet in &wallets {
+         let owner = wallet.key.inner().address();
+         let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+         let tokens = portfolio.erc20_tokens();
+
+         if portfolio.currencies.is_empty() || tokens.is_empty() {
+            continue;
+         }
+
+         let tokens = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
+
+         for token in tokens.chunks(100) {
+            let balances = get_erc20_balance(client.clone(), None, owner, token.to_vec()).await?;
+            for balance in balances {
+               ctx.write(|ctx| {
+                  ctx.db
+                     .insert_token_balance(chain, owner, balance.token, balance.balance);
+               });
+            }
+         }
+      }
+   }
+   Ok(())
+}
+
+async fn balance_update_interval(ctx: ZeusCtx) {
+   const INTERVAL: u64 = 300;
+   let mut time_passed = Instant::now();
+
+   loop {
+      if time_passed.elapsed().as_secs() > INTERVAL {
+         if let Err(e) = update_eth_balance(ctx.clone()).await {
+            tracing::error!("Error updating eth balance: {:?}", e);
+         }
+         if let Err(e) = update_token_balance(ctx.clone()).await {
+            tracing::error!("Error updating token balance: {:?}", e);
+         }
+         time_passed = Instant::now();
+      }
+      tokio::time::sleep(Duration::from_secs(1)).await;
    }
 }
 

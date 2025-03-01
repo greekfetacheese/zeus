@@ -182,7 +182,10 @@ impl TokenSelectionWindow {
                               utils::open_loading(true, "Retrieving token...".to_string());
 
                               let token = match eth::get_erc20_token(ctx, address, chain_id).await {
-                                 Ok(token) => token,
+                                 Ok(token) => {
+                                    utils::close_loading();
+                                    token
+                                 },
                                  Err(e) => {
                                     let mut gui = SHARED_GUI.write().unwrap();
                                     gui.open_msg_window("Failed to fetch token", e.to_string());

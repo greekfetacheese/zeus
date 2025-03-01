@@ -4,6 +4,7 @@ use eframe::egui::{
 use std::sync::Arc;
 
 use crate::assets::icons::Icons;
+use crate::core::utils::wallet_value;
 use crate::core::{
    Wallet, ZeusCtx,
    user::Portfolio,
@@ -481,6 +482,7 @@ impl PortfolioUi {
       });
    }
 
+   // Add a currency to the portfolio and update the portfolio value
    fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
       let chain_id = ctx.chain().id();
       let owner = ctx.wallet().key.inner().address();
@@ -513,6 +515,8 @@ impl PortfolioUi {
          let ctx = ctx.clone();
          RT.spawn(async move {
             let _ = eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await;
+            let _ = wallet_value(ctx.clone(), chain_id, owner);
+            let _ = ctx.save_pool_data();
          });
       }
 
@@ -521,9 +525,10 @@ impl PortfolioUi {
          let ctx = ctx.clone();
          RT.spawn(async move {
             let _ = eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await;
+            let _ = wallet_value(ctx.clone(), chain_id, owner);
+            let _ = ctx.save_pool_data();
          });
       }
-      let _ = ctx.save_pool_data();
    }
 
    fn remove_currency(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {

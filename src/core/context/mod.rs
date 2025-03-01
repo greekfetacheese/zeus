@@ -16,6 +16,7 @@ use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
    types::ChainId,
 };
+use tracing::info;
 
 pub mod db;
 pub mod providers;
@@ -115,7 +116,11 @@ impl ZeusCtx {
    pub fn update_portfolio_value(&self, chain: u64, owner: Address, value: f64) {
       self.write(|ctx| {
          if let Some(portfolio) = ctx.db.get_portfolio_mut(chain, owner) {
+            info!("Portfolio found for owner: {}, chain: {}", owner, chain);
+            info!("Updating portfolio value to: {}", value);
             portfolio.value = value;
+         } else {
+            info!("Portfolio not found for owner: {}, chain: {}", owner, chain);
          }
       })
    }

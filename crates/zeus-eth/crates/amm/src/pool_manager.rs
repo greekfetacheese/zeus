@@ -619,7 +619,6 @@ impl PoolStateManager {
       let mut prices = HashMap::new();
       for token in tokens {
          let price = get_base_token_price(client.clone(), token.chain_id, token.address, None).await?;
-         println!("Price for {} is {}", token.symbol, price);
          prices.insert((token.chain_id, token.address), price);
       }
       Ok(prices)
