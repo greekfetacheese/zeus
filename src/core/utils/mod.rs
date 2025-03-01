@@ -2,11 +2,11 @@ use crate::core::ZeusCtx;
 use lazy_static::lazy_static;
 use std::path::PathBuf;
 use tokio::runtime::Runtime;
+use tracing::info;
 use zeus_eth::{
    alloy_primitives::{Address, utils::format_units},
    currency::{Currency, ERC20Token},
 };
-use tracing::info;
 
 pub mod eth;
 pub mod trace;
@@ -39,23 +39,22 @@ pub fn wallet_value(ctx: ZeusCtx, chain: u64, owner: Address) -> f64 {
    let portfolio = ctx.get_portfolio(chain, owner);
    let mut value = 0.0;
 
-   if let Some(portfolio) = portfolio {
-      info!("Calculating wallet value for owner {}, chain {}", owner, chain);
-      let currencies = portfolio.currencies();
+   info!(
+      "Calculating wallet value for owner {}, chain {}",
+      owner, chain
+   );
+   let currencies = portfolio.currencies();
 
-      for currency in currencies {
-         let usd_price: f64 = currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
-         let balance: f64 = currency_balance(ctx.clone(), owner, currency)
-            .parse()
-            .unwrap_or(0.0);
-         value += currency_value_f64(usd_price, balance);
-      }
-
-      // update portfolio value
-      ctx.update_portfolio_value(chain, owner, value);
-   } else {
-      info!("No portfolio found for owner {}, chain {}", owner, chain);
+   for currency in currencies {
+      let usd_price: f64 = currency_price(ctx.clone(), currency).parse().unwrap_or(0.0);
+      let balance: f64 = currency_balance(ctx.clone(), owner, currency)
+         .parse()
+         .unwrap_or(0.0);
+      value += currency_value_f64(usd_price, balance);
    }
+
+   // update portfolio value
+   ctx.update_portfolio_value(chain, owner, value);
 
    value
 }

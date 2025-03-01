@@ -116,11 +116,12 @@ pub async fn update_price_manager(ctx: ZeusCtx) {
 
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
-         let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
-         if portfolio.currencies().is_empty() {
+         let portfolio = ctx.get_portfolio(chain, owner);
+
+         let tokens = portfolio.erc20_tokens();
+         if tokens.is_empty() {
             continue;
          }
-         let tokens = portfolio.erc20_tokens();
 
          match pool_manager
             .update_minimal(client.clone(), chain, tokens)
@@ -168,10 +169,10 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
-         let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+         let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
-         if portfolio.currencies.is_empty() || tokens.is_empty() {
+         if portfolio.currencies.is_empty() {
             continue;
          }
 

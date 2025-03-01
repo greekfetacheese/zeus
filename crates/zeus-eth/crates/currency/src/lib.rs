@@ -32,6 +32,11 @@ impl Currency {
       matches!(self, Self::ERC20(_))
    }
 
+   /// is it WETH or WBNB
+   pub fn is_native_wrapped(&self) -> bool {
+      matches!(self, Self::ERC20(erc20) if erc20.is_weth() || erc20.is_wbnb())
+   }
+
    /// Get the ERC20 inside
    pub fn erc20(&self) -> Option<&ERC20Token> {
       match self {

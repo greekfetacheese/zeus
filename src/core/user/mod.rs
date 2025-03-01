@@ -1,6 +1,7 @@
 use zeus_eth::{
    alloy_primitives::Address,
-   currency::{Currency, ERC20Token},
+   currency::{Currency, ERC20Token, NativeCurrency},
+   types::ChainId,
 };
 
 pub mod profile;
@@ -26,6 +27,19 @@ pub struct Portfolio {
 }
 
 impl Portfolio {
+   /// An empty portfolio with the native currency of the chain
+   pub fn empty(chain: u64, owner: Address) -> Self {
+      let chain = ChainId::new(chain).unwrap_or_default();
+      let currencies = vec![Currency::from_native(
+         NativeCurrency::from_chain_id(chain.id()).unwrap(),
+      )];
+      Self {
+         currencies,
+         owner,
+         value: 0.0,
+      }
+   }
+
    pub fn new(currencies: Vec<Currency>, owner: Address) -> Self {
       Self {
          currencies,

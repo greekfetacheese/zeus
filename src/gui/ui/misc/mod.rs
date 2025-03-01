@@ -301,7 +301,7 @@ impl PortfolioUi {
 
       let chain_id = ctx.chain().id();
       let owner = ctx.wallet().key.inner().address();
-      let portfolio = ctx.get_portfolio(chain_id, owner).unwrap_or_default();
+      let portfolio = ctx.get_portfolio(chain_id, owner);
       let currencies = portfolio.currencies();
 
       ui.vertical_centered_justified(|ui| {
@@ -381,10 +381,31 @@ impl PortfolioUi {
                         ui.end_row();
 
                         // Token Rows
-                        for currency in currencies {
-                           self.token(ctx.clone(), icons.clone(), currency, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), currency, ui, column_widths[0]);
-                           self.remove_currency(ctx.clone(), currency, ui, column_widths[4]);
+                        let native_wrapped = currencies.iter().find(|c| c.is_native_wrapped());
+                        let native_currency = currencies.iter().find(|c| c.is_native());
+                        let tokens: Vec<_> = currencies.iter().filter(|c| c.is_erc20()).collect();
+
+                        if let Some(native) = native_currency {
+                           self.token(ctx.clone(), icons.clone(), native, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), native, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), native, ui, column_widths[4]);
+                           ui.end_row();
+                        }
+
+                        if let Some(wrapped) = native_wrapped {
+                           self.token(ctx.clone(), icons.clone(), wrapped, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), wrapped, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), wrapped, ui, column_widths[4]);
+                           ui.end_row();
+                        }
+
+                        for token in tokens {
+                           if token.is_native_wrapped() {
+                              continue;
+                           }
+                           self.token(ctx.clone(), icons.clone(), token, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), token, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), token, ui, column_widths[4]);
                            ui.end_row();
                         }
                      });
@@ -469,7 +490,7 @@ impl PortfolioUi {
          let owner = ctx.profile().wallet_address();
          let client = ctx.get_client_with_id(chain).unwrap();
 
-         let portfolio = ctx.get_portfolio(chain, owner).unwrap_or_default();
+         let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
          match pool_manager.update_minimal(client, chain, tokens).await {

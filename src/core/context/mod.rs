@@ -100,8 +100,15 @@ impl ZeusCtx {
       self.read(|ctx| ctx.db.get_currencies(chain))
    }
 
-   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Option<Arc<Portfolio>> {
-      self.read(|ctx| ctx.db.get_portfolio(chain, owner))
+   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Arc<Portfolio> {
+      let portfolio = self.read(|ctx| ctx.db.get_portfolio(chain, owner));
+      if let Some(portfolio) = portfolio {
+         portfolio
+      } else {
+         let portfolio = Portfolio::empty(chain, owner);
+         self.write(|ctx| ctx.db.insert_portfolio(chain, owner, portfolio.clone()));
+         Arc::new(portfolio)
+      }
    }
 
    pub fn get_portfolio_value(&self, chain: u64, owner: Address) -> f64 {
