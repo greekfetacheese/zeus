@@ -81,6 +81,8 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    });
 }
 
+
+#[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
    let mut open = gui.data_inspection;
 
@@ -127,8 +129,8 @@ fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
 
             ui.label(rich_text("V3 Pools"));
             for pool in v3_pools {
-               let price0 = ctx.get_token_price(&pool.token0).unwrap_or(0.0);
-               let price1 = ctx.get_token_price(&pool.token1).unwrap_or(0.0);
+               let price0 = ctx.get_token_price(&pool.token0).float();
+               let price1 = ctx.get_token_price(&pool.token1).float();
                let chain = ChainId::new(pool.chain_id).unwrap();
                ui.label(rich_text(format!(
                   "Pair: {}-{}",

@@ -6,7 +6,7 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::core::utils::{RT, currency_balance, eth};
+use crate::core::utils::{RT, eth};
 use crate::gui::ui::{button, dapps::uniswap::swap::InOrOut, img_button, rich_text};
 use crate::gui::{SHARED_GUI, utils};
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
@@ -120,8 +120,8 @@ impl TokenSelectionWindow {
 
                                     ui.label(rich_text(symbol));
                                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                                       let balance = currency_balance(ctx.clone(), owner, currency);
-                                       ui.label(rich_text(balance).size(15.0));
+                                       let balance = ctx.get_currency_balance(chain_id, owner, currency);
+                                       ui.label(rich_text(balance.formatted()).size(15.0));
                                     });
                                  });
 
@@ -142,8 +142,6 @@ impl TokenSelectionWindow {
 
                            if valid_search {
                               ui.push_id(index, |ui| {
-                                 // TODO: use something like numformat to deal with high numbers
-
                                  let name = rich_text(token.name.clone());
                                  let symbol = format!("({})", token.symbol.clone());
 
@@ -159,8 +157,8 @@ impl TokenSelectionWindow {
 
                                     ui.label(rich_text(symbol));
                                     ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                                       let balance = currency_balance(ctx.clone(), owner, currency);
-                                       ui.label(rich_text(balance).size(15.0));
+                                       let balance = ctx.get_currency_balance(chain_id, owner, currency);
+                                       ui.label(rich_text(balance.formatted()).size(15.0));
                                     });
                                  });
 
@@ -181,11 +179,11 @@ impl TokenSelectionWindow {
                            RT.spawn(async move {
                               utils::open_loading(true, "Retrieving token...".to_string());
 
-                              let token = match eth::get_erc20_token(ctx, address, chain_id).await {
+                              let token = match eth::get_erc20_token(ctx, chain_id, owner, address).await {
                                  Ok(token) => {
                                     utils::close_loading();
                                     token
-                                 },
+                                 }
                                  Err(e) => {
                                     let mut gui = SHARED_GUI.write().unwrap();
                                     gui.open_msg_window("Failed to fetch token", e.to_string());

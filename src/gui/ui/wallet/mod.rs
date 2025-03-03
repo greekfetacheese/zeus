@@ -4,7 +4,7 @@ pub use add::AddWalletUi;
 pub use details::WalletDetailsUi;
 
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, ZeusCtx, utils::wallet_value};
+use crate::core::{Wallet, ZeusCtx};
 use crate::gui::ui::{button, img_button, rich_text, text_edit_single};
 use eframe::egui::{Align, Align2, Color32, Frame, Label, Layout, ScrollArea, Sense, Ui, Vec2, Window, vec2};
 use egui_theme::{
@@ -173,10 +173,11 @@ impl WalletUi {
                   }
 
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                     let chain = ctx.chain();
-                     let value = wallet_value(ctx.clone(), chain.id(), wallet.key.inner().address());
+                     let chain = ctx.chain().id();
+                     let owner = wallet.key.inner().address();
+                     let portfolio = ctx.get_portfolio(chain, owner);
                      ui.label(
-                        rich_text(format!("${}", value))
+                        rich_text(format!("${}", portfolio.value.formatted()))
                            .color(theme.colors.text_secondary)
                            .size(12.0),
                      );

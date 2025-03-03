@@ -1,13 +1,14 @@
-use crate::core::{
-   ZeusCtx,
-   utils::{RT, eth, wallet_value},
-};
+use crate::core::{ZeusCtx, utils::*};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use zeus_eth::{alloy_provider::Provider, types::SUPPORTED_CHAINS, utils::batch_request::get_erc20_balance};
+use zeus_eth::currency::NativeCurrency;
+use zeus_eth::{
+   alloy_primitives::Address, alloy_provider::Provider, currency::ERC20Token, types::SUPPORTED_CHAINS,
+   utils::batch_request::get_erc20_balance,
+};
 
 /// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
-
    update_price_manager(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
@@ -20,53 +21,24 @@ pub async fn update(ctx: ZeusCtx) {
 
    portfolio_update(ctx.clone());
 
-   let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      update_price_manager_interval(ctx_clone).await;
+   });
 
-   if !pools_synced {
-      tracing::info!("Syncing pools for the first time");
-      ctx.write(|ctx| {
-         ctx.pool_data_syncing = true;
-      });
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      portfolio_update_interval(ctx_clone);
+   });
 
-      let chains = SUPPORTED_CHAINS.to_vec();
-      let res = sync_pools(ctx.clone(), chains).await;
-      if res.is_ok() {
-         ctx.write(|ctx| {
-            ctx.db.pool_data_synced = true;
-         });
-         ctx.write(|ctx| {
-            ctx.pool_data_syncing = false;
-         });
-         match ctx.save_db() {
-            Ok(_) => tracing::info!("DB saved"),
-            Err(e) => tracing::error!("Error saving DB: {:?}", e),
-         }
-      } else {
-         ctx.write(|ctx| {
-            ctx.pool_data_syncing = false;
-         });
-         tracing::error!("Error syncing pools: {:?}", res.err().unwrap());
-      }
-
-      let ctx_clone = ctx.clone();
-      RT.spawn(async move {
-         update_price_manager_interval(ctx_clone).await;
-      });
-
-      let ctx_clone = ctx.clone();
-      RT.spawn(async move {
-         portfolio_update_interval(ctx_clone);
-      });
-
-      let ctx_clone = ctx.clone();
-      RT.spawn(async move {
-         balance_update_interval(ctx_clone).await;
-      });
-   }
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      balance_update_interval(ctx_clone).await;
+   });
 }
 
 pub fn portfolio_update_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 60;
+   const INTERVAL: u64 = 300;
    let mut time_passed = Instant::now();
 
    loop {
@@ -83,19 +55,18 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
-         let _ = wallet_value(ctx.clone(), chain, owner);
+         ctx.update_portfolio_value(chain, owner);
       }
    }
 
-   tracing::info!("Calculated Portfolio Value");
-   match ctx.save_db() {
+   match ctx.save_portfolio_db() {
       Ok(_) => tracing::info!("DB saved"),
       Err(e) => tracing::error!("Error saving DB: {:?}", e),
    }
 }
 
 pub async fn update_price_manager_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 300;
+   const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {
@@ -152,11 +123,19 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
          let balance = client.get_balance(owner).await?;
+         let native = NativeCurrency::from_chain_id(chain)?;
          ctx.write(|ctx| {
-            ctx.db.insert_eth_balance(chain, owner, balance);
+            ctx.balance_db
+               .insert_eth_balance(chain, owner, balance, &native);
          })
       }
    }
+
+   match ctx.save_balance_db() {
+      Ok(_) => tracing::info!("BalanceDB saved"),
+      Err(e) => tracing::error!("Error saving DB: {:?}", e),
+   }
+
    Ok(())
 }
 
@@ -172,19 +151,31 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
-         if portfolio.currencies.is_empty() {
+         if tokens.is_empty() {
             continue;
          }
 
-         let tokens = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
+         let token_map: HashMap<Address, &ERC20Token> = tokens.iter().map(|token| (token.address, token)).collect();
 
-         for token in tokens.chunks(100) {
-            let balances = get_erc20_balance(client.clone(), None, owner, token.to_vec()).await?;
+         let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
+
+         let mut token_with_balance = Vec::new();
+         for token_addr in tokens_addr.chunks(100) {
+            let balances = get_erc20_balance(client.clone(), None, owner, token_addr.to_vec()).await?;
             for balance in balances {
+               token_with_balance.push((balance.token, balance.balance));
+            }
+         }
+
+         // Match each balance with its corresponding ERC20Token
+         for (token_address, balance) in token_with_balance {
+            if let Some(token) = token_map.get(&token_address) {
                ctx.write(|ctx| {
-                  ctx.db
-                     .insert_token_balance(chain, owner, balance.token, balance.balance);
+                  ctx.balance_db
+                     .insert_token_balance(chain, owner, balance, *token);
                });
+            } else {
+               tracing::warn!("No matching token found for address: {:?}", token_address);
             }
          }
       }
@@ -193,7 +184,7 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 }
 
 async fn balance_update_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 300;
+   const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {
@@ -207,6 +198,42 @@ async fn balance_update_interval(ctx: ZeusCtx) {
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
+   }
+}
+
+#[allow(dead_code)]
+async fn sync_pools_if_needed(ctx: ZeusCtx) {
+   // let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
+   let pools_synced = false;
+
+   if !pools_synced {
+      tracing::info!("Syncing pools for the first time");
+      ctx.write(|ctx| {
+         ctx.pool_data_syncing = true;
+      });
+
+      let chains = SUPPORTED_CHAINS.to_vec();
+      let res = sync_pools(ctx.clone(), chains).await;
+      if res.is_ok() {
+         /*
+         ctx.write(|ctx| {
+            ctx.db.pool_data_synced = true;
+         });
+         */
+
+         ctx.write(|ctx| {
+            ctx.pool_data_syncing = false;
+         });
+         match ctx.save_pool_data() {
+            Ok(_) => tracing::info!("PoolData saved"),
+            Err(e) => tracing::error!("Error saving DB: {:?}", e),
+         }
+      } else {
+         ctx.write(|ctx| {
+            ctx.pool_data_syncing = false;
+         });
+         tracing::error!("Error syncing pools: {:?}", res.err().unwrap());
+      }
    }
 }
 

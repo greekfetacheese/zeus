@@ -20,6 +20,7 @@ use currency::erc20::ERC20Token;
 use utils::{
    batch_request::{V2PoolReserves, V3Pool2, V3PoolData, get_v2_pool_reserves, get_v3_pools, get_v3_state},
    price_feed::get_base_token_price,
+   NumericValue
 };
 
 use serde::{Deserialize, Serialize};
@@ -351,7 +352,7 @@ impl PoolStateManagerHandle {
    }
 
    /// Get the price of the given token
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<f64> {
+   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
       self.read(|manager| manager.get_token_price(token))
    }
 }
@@ -369,7 +370,7 @@ pub type V3Pools = HashMap<(u64, u32, Address, Address), UniswapV3Pool>;
 /// Token Prices
 ///
 /// Key: (chain_id, token) -> Value: Price
-pub type TokenPrices = HashMap<(u64, Address), f64>;
+pub type TokenPrices = HashMap<(u64, Address), NumericValue>;
 
 /// Multi-chain pool state manager for Uniswap V2 and V3 type of pools
 #[derive(Clone, Serialize, Deserialize)]
@@ -478,7 +479,7 @@ impl PoolStateManager {
       self.v3_pools.remove(&(chain_id, fee, token0, token1));
    }
 
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<f64> {
+   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
       self
          .token_prices
          .get(&(token.chain_id, token.address))
@@ -555,7 +556,8 @@ impl PoolStateManager {
             .token_prices
             .get(&(base_token.chain_id, base_token.address))
             .cloned()
-            .unwrap_or(0.0);
+            .unwrap_or_default()
+            .float();
          pool.base_usd = base_price;
 
          let quote_price = pool.caluclate_quote_price(base_price);
@@ -579,7 +581,8 @@ impl PoolStateManager {
             .token_prices
             .get(&(base_token.chain_id, base_token.address))
             .cloned()
-            .unwrap_or(0.0);
+            .unwrap_or_default()
+            .float();
          pool.base_usd = base_price;
 
          let quote_price = pool.caluclate_quote_price(base_price);
@@ -595,7 +598,7 @@ impl PoolStateManager {
       // calculate the average price
       for ((chain_id, token), prices) in prices {
          let price = prices.iter().sum::<f64>() / (prices.len() as f64);
-         self.token_prices.insert((chain_id, token), price);
+         self.token_prices.insert((chain_id, token), NumericValue::currency_price(price));
       }
 
       Ok(())
@@ -619,7 +622,7 @@ impl PoolStateManager {
       let mut prices = HashMap::new();
       for token in tokens {
          let price = get_base_token_price(client.clone(), token.chain_id, token.address, None).await?;
-         prices.insert((token.chain_id, token.address), price);
+         prices.insert((token.chain_id, token.address), NumericValue::currency_price(price));
       }
       Ok(prices)
    }

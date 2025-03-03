@@ -6169,6 +6169,7 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-sol-types",
  "anyhow",
+ "serde",
  "tokio",
  "tracing",
  "types",

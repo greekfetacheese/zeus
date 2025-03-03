@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, context::db::Contact};
+use crate::core::{ZeusCtx, Contact};
 use crate::gui::{
    SHARED_GUI,
    ui::{CredentialsForm, button, img_button, rich_text},
@@ -496,7 +496,7 @@ impl ContactsUi {
 
                if res_delete.clicked() {
                   ctx.write(|ctx| {
-                     ctx.db.remove_contact(contact.address);
+                     ctx.contact_db.remove_contact(contact.address);
                   });
                   self.delete_contact = false;
                   self.main_ui = true;
@@ -559,7 +559,7 @@ impl ContactsUi {
                         }
                      };
 
-                     ctx.write(|ctx| match ctx.db.add_contact(contact) {
+                     ctx.write(|ctx| match ctx.contact_db.add_contact(contact) {
                         Ok(_) => {
                            let mut gui = SHARED_GUI.write().unwrap();
                            gui.settings.contacts_ui.contact_to_add = Contact::default();
@@ -573,7 +573,10 @@ impl ContactsUi {
                         }
                      });
 
-                     utils::save_db(ctx);
+                     match ctx.save_contact_db() {
+                        Ok(_) => tracing::info!("ContactDB saved"),
+                        Err(e) => tracing::error!("Error saving DB: {:?}", e),
+                     }
                   });
                }
             });
@@ -647,8 +650,8 @@ impl ContactsUi {
                      };
 
                      ctx.write(|ctx| {
-                        ctx.db.remove_contact(old_contact.address.clone());
-                        match ctx.db.add_contact(new_contact) {
+                        ctx.contact_db.remove_contact(old_contact.address.clone());
+                        match ctx.contact_db.add_contact(new_contact) {
                            Ok(_) => {
                               let mut gui = SHARED_GUI.write().unwrap();
                               gui.settings.contacts_ui.contact_to_edit = None;
@@ -663,7 +666,10 @@ impl ContactsUi {
                            }
                         }
                      });
-                     utils::save_db(ctx);
+                     match ctx.save_contact_db() {
+                        Ok(_) => tracing::info!("ContactDB saved"),
+                        Err(e) => tracing::error!("Error saving DB: {:?}", e),
+                     }
                   });
                }
             });

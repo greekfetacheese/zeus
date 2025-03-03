@@ -45,11 +45,9 @@ pub async fn send_crypto(
 }
 
 /// Get the ERC20 Token from the blockchain and update the db
-pub async fn get_erc20_token(ctx: ZeusCtx, token_address: Address, chain_id: u64) -> Result<ERC20Token, anyhow::Error> {
-   let client = ctx.get_client_with_id(chain_id)?;
-   let owner = ctx.wallet().key.inner().address();
-
-   let token = ERC20Token::new(client.clone(), token_address, chain_id).await?;
+pub async fn get_erc20_token(ctx: ZeusCtx, chain: u64, owner: Address, token_address: Address, ) -> Result<ERC20Token, anyhow::Error> {
+   let client = ctx.get_client_with_id(chain)?;
+   let token = ERC20Token::new(client.clone(), token_address, chain).await?;
 
    let balance = if owner != Address::ZERO {
       token.balance_of(client.clone(), owner, None).await?
@@ -57,15 +55,26 @@ pub async fn get_erc20_token(ctx: ZeusCtx, token_address: Address, chain_id: u64
       U256::ZERO
    };
 
+   let currency = Currency::from_erc20(token.clone());
+
    // Update the db
    ctx.write(|ctx| {
-      let currency = Currency::from_erc20(token.clone());
-
-      ctx.db.insert_currency(chain_id, currency);
-      ctx.db
-         .insert_token_balance(chain_id, owner, token.address, balance);
-      ctx.db.save_to_file().unwrap();
+      ctx.currency_db.insert_currency(chain, currency.clone());
+      ctx.balance_db
+         .insert_token_balance(chain, owner, balance, &token);
    });
+
+   ctx.update_portfolio_value(chain, owner);
+
+   match ctx.save_currency_db() {
+      Ok(_) => tracing::info!("CurrencyDB saved"),
+      Err(e) => tracing::error!("Error saving DB: {:?}", e),
+   }
+
+   match ctx.save_balance_db() {
+      Ok(_) => tracing::info!("BalanceDB saved"),
+      Err(e) => tracing::error!("Error saving DB: {:?}", e),
+   }
 
    Ok(token)
 }

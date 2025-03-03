@@ -44,7 +44,7 @@ impl TopLeftArea {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, _theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }

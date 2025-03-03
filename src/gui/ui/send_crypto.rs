@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::core::{
    ZeusCtx,
-   context::db::Contact,
-   utils::{RT, currency_balance, currency_value, currency_value_f64, eth::send_crypto},
+   Contact,
+   utils::{RT, eth::send_crypto},
 };
 
 use crate::assets::icons::Icons;
@@ -32,6 +32,7 @@ use zeus_eth::{
    },
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
+   utils::NumericValue
 };
 
 pub struct SendCryptoUi {
@@ -40,7 +41,7 @@ pub struct SendCryptoUi {
    pub chain_select: ChainSelect,
    pub wallet_select: WalletSelect,
    pub priority_fee: String,
-   pub token: Currency,
+   pub currency: Currency,
    pub amount: String,
    pub contact_search_open: bool,
    pub search_query: String,
@@ -57,7 +58,7 @@ impl SendCryptoUi {
          chain_select,
          wallet_select: WalletSelect::new("wallet_select_2", None, Some(theme.colors.bg_color)),
          priority_fee: "1".to_string(),
-         token: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
+         currency: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
          amount: String::new(),
          contact_search_open: false,
          search_query: String::new(),
@@ -102,8 +103,12 @@ impl SendCryptoUi {
             let clicked = self.chain_select.show(ui, icons.clone());
             if clicked {
                let chain = self.chain_select.chain.id();
-               self.token = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
+               self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
             }
+
+            let chain = self.chain_select.chain.id();
+            let owner = self.wallet_select.wallet.key.inner().address();
+            let currencies = ctx.get_currencies(chain);
 
             // From Wallet
             ui.label(
@@ -197,20 +202,17 @@ impl SendCryptoUi {
                      token_selection.open = true;
                   }
 
-                  let chain = self.chain_select.chain.id();
-                  let owner = self.wallet_select.wallet.key.inner().address();
-                  let currencies = ctx.get_currencies(chain);
                   token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
 
                   if let Some(currency) = token_selection.get_currency() {
-                     self.token = currency.clone();
+                     self.currency = currency.clone();
                      token_selection.reset();
                   }
 
                   // Balance display
-                  let balance = currency_balance(ctx.clone(), owner, &self.token);
+                  let balance = ctx.get_currency_balance(chain, owner, &self.currency);
                   ui.label(
-                     RichText::new(format!("Balance: {}", balance))
+                     RichText::new(format!("Balance: {}", balance.formatted()))
                         .color(theme.colors.text_secondary)
                         .size(13.0),
                   );
@@ -246,16 +248,15 @@ impl SendCryptoUi {
                   );
                });
 
-               // USD Value
-               let token = if self.token.is_native() {
-                  ERC20Token::native_wrapped_token(self.chain_select.chain.id())
+               // Calculate the value
+               let price = ctx.get_currency_price(&self.currency);
+               let amount: f64 = self.amount.parse().unwrap_or(0.0);
+               let value = if price.float() == 0.0 || amount == 0.0 {
+                  0.0
                } else {
-                  self.token.erc20().cloned().unwrap()
+                  price.float() * amount
                };
 
-               let price = ctx.get_token_price(&token).unwrap_or(0.0);
-               let amount: f64 = self.amount.parse().unwrap_or(0.0);
-               let value = currency_value(price, amount);
                ui.label(
                   RichText::new(format!("Value≈ ${}", value))
                      .color(theme.colors.text_secondary)
@@ -266,7 +267,7 @@ impl SendCryptoUi {
 
             let cost = self.cost(ctx.clone());
             ui.label(
-               RichText::new(format!("Estimated Cost≈ ${}", cost))
+               RichText::new(format!("Estimated Cost≈ ${}", cost.formatted()))
                   .color(theme.colors.text_secondary)
                   .size(14.0)
                   .strong(),
@@ -283,7 +284,7 @@ impl SendCryptoUi {
    }
 
    // TODO: Actually calulcate the cost based on the base fee + priority fee and the actual gas used
-   fn cost(&self, ctx: ZeusCtx) -> f64 {
+   fn cost(&self, ctx: ZeusCtx) -> NumericValue {
       let fee = if self.priority_fee.is_empty() {
          parse_units("1", "gwei").unwrap().get_absolute()
       } else {
@@ -294,7 +295,7 @@ impl SendCryptoUi {
 
       let chain = self.chain_select.chain;
 
-      if self.token.is_native() {
+      if self.currency.is_native() {
          let token = ERC20Token::native_wrapped_token(chain.id());
          let gas = U256::from(chain.transfer_gas());
          // cost in wei
@@ -303,12 +304,11 @@ impl SendCryptoUi {
 
          // cost in usd
          let cost: f64 = cost.parse().unwrap_or_default();
-         let price = ctx.get_token_price(&token).unwrap_or(0.0);
-         let cost_usd: f64 = currency_value_f64(price, cost);
-         // limit to 2 decimal places
-         (cost_usd * 100.0).round() / 100.0
+         let price = ctx.get_token_price(&token).float();
+         // cost * price
+         NumericValue::currency_value(cost, price)
       } else {
-         let token = self.token.erc20().unwrap();
+         let token = self.currency.erc20().unwrap();
          let gas = U256::from(chain.erc20_transfer_gas());
          // cost in wei
          let cost = gas * fee;
@@ -316,24 +316,23 @@ impl SendCryptoUi {
 
          // cost in usd
          let cost: f64 = cost.parse().unwrap_or_default();
-         let price = ctx.get_token_price(token).unwrap_or(0.0);
-         let cost_usd: f64 = currency_value_f64(price, cost);
-         // limit to 2 decimal places
-         (cost_usd * 100.0).round() / 100.0
+         let price = ctx.get_token_price(&token).float();
+         // cost * price
+         NumericValue::currency_value(cost, price)
       }
    }
 
    fn token_button(&mut self, icons: Arc<Icons>, ui: &mut Ui) -> Response {
       let icon;
       let chain = self.chain_select.chain.id();
-      if self.token.is_native() {
+      if self.currency.is_native() {
          icon = icons.currency_icon(chain);
       } else {
-         let token = self.token.erc20().unwrap();
+         let token = self.currency.erc20().unwrap();
          icon = icons.token_icon(token.address, chain);
       }
 
-      let button = img_button(icon, rich_text(self.token.symbol()).size(13.0));
+      let button = img_button(icon, rich_text(self.currency.symbol()).size(13.0));
       ui.add(button)
    }
 
@@ -341,7 +340,7 @@ impl SendCryptoUi {
       let from = self.wallet_select.wallet.clone();
       let to = Address::from_str(&self.recipient).unwrap_or(Address::ZERO);
       let amount = U256::from_str(&self.amount).unwrap_or_default();
-      let currency = self.token.clone();
+      let currency = self.currency.clone();
       let chain = self.chain_select.chain.id();
       let fee = self.priority_fee.clone();
 

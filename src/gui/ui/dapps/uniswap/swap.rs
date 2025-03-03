@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::currency_balance};
+use crate::core::ZeusCtx;
 use crate::gui::ui::*;
 use egui::{Align, Align2, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window, vec2};
 use egui_theme::Theme;
@@ -141,30 +141,23 @@ impl SwapUi {
                            ui.label(sell_text);
                         });
 
-                        ui.scope(|ui| {
-                           // egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
-                           // egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-                           // egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
-                           self.amount_field(ui, InOrOut::In);
-                        });
+                        self.amount_field(ui, InOrOut::In);
 
                         ui.scope(|ui| {
                            ui.set_max_width(30.0);
                            ui.set_max_height(20.0);
-                           // egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                            self.token_button(ui, chain_id, icons.clone(), InOrOut::In, token_selection);
                            ui.add_space(10.0);
 
-                           let balance = currency_balance(ctx.clone(), owner, &self.currency_in);
-                           let balance_text = rich_text(balance.clone());
-                           ui.label(balance_text);
+                           let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+                           ui.label(balance.formatted());
                            ui.add_space(5.0);
 
                            let max = rich_text("Max").size(17.0).color(Color32::RED);
                            // TODO: on hover change the cursor to a pointer
                            if ui.label(max).clicked() {
-                              *self.amount_in() = balance;
+                              *self.amount_in() = balance.uint().unwrap_or_default().to_string();
                            }
                         });
                      });
@@ -179,35 +172,26 @@ impl SwapUi {
                            ui.label(buy_text);
                         });
 
-                        ui.scope(|ui| {
-                           // egui_theme::utils::border_on_idle(ui, 1.0, Color32::WHITE);
-                           // egui_theme::utils::border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-                           //  egui_theme::utils::border_on_click(ui, 1.0, theme.colors.border_color_click);
-                           self.amount_field(ui, InOrOut::Out);
-                        });
+                        self.amount_field(ui, InOrOut::Out);
 
                         ui.scope(|ui| {
                            ui.set_max_width(30.0);
                            ui.set_max_height(20.0);
-                           // egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                            self.token_button(ui, chain_id, icons.clone(), InOrOut::Out, token_selection);
                            ui.add_space(10.0);
-                           let balance = currency_balance(ctx.clone(), owner, &self.currency_out);
-                           let balance_text = rich_text(balance.clone());
-                           ui.label(balance_text);
+                           let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_out);
+                           ui.label(balance.formatted());
 
                            ui.add_space(5.0);
 
                            let max = rich_text("Max").size(17.0).color(Color32::RED);
                            if ui.label(max).clicked() {
-                              *self.amount_out() = balance;
+                              *self.amount_out() = balance.uint().unwrap_or_default().to_string();
                            }
                         });
                      });
 
-                     let owner = ctx.wallet().key.inner().address();
-                     let chain_id = ctx.chain().id();
                      token_selection.show(ctx, chain_id, owner, icons, &currencies, ui);
 
                      let selected_currency = token_selection.get_currency();
