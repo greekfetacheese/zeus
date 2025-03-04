@@ -9,7 +9,7 @@ use zeus_eth::{
 
 /// Update the necceary data
 pub async fn update(ctx: ZeusCtx) {
-   update_price_manager(ctx.clone()).await;
+   update_pool_manager_minimal_all(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
       tracing::error!("Error updating eth balance: {:?}", e);
@@ -23,7 +23,7 @@ pub async fn update(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      update_price_manager_interval(ctx_clone).await;
+      update_pool_manager_interval(ctx_clone).await;
    });
 
    let ctx_clone = ctx.clone();
@@ -60,26 +60,36 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    }
 
    match ctx.save_portfolio_db() {
-      Ok(_) => tracing::info!("DB saved"),
-      Err(e) => tracing::error!("Error saving DB: {:?}", e),
+      Ok(_) => tracing::info!("PortfolioDB saved"),
+      Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
    }
 }
 
-pub async fn update_price_manager_interval(ctx: ZeusCtx) {
+pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
    const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > INTERVAL {
-         update_price_manager(ctx.clone()).await;
+         update_pool_manager_minimal_all(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
 }
 
-pub async fn update_price_manager(ctx: ZeusCtx) {
+/// Update the pool manager state for all chains and wallets
+pub async fn update_pool_manager_minimal_all(ctx: ZeusCtx) {
    let pool_manager = ctx.pool_manager();
+
+   // update the base token prices
+   for chain in SUPPORTED_CHAINS {
+      let client = ctx.get_client_with_id(chain).unwrap();
+      match pool_manager.update_base_token_prices(client, chain).await {
+         Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
+         Err(e) => tracing::error!("Error updating base token prices: {:?}", e),
+      }
+   }
 
    let wallets = ctx.profile().wallets;
    for chain in SUPPORTED_CHAINS {
@@ -88,11 +98,7 @@ pub async fn update_price_manager(ctx: ZeusCtx) {
       for wallet in &wallets {
          let owner = wallet.key.inner().address();
          let portfolio = ctx.get_portfolio(chain, owner);
-
          let tokens = portfolio.erc20_tokens();
-         if tokens.is_empty() {
-            continue;
-         }
 
          match pool_manager
             .update_minimal(client.clone(), chain, tokens)

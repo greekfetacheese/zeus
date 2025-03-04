@@ -488,6 +488,11 @@ impl PortfolioUi {
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
+         match pool_manager.update_base_token_prices(client.clone(), chain).await {
+            Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating base token prices: {:?}", e),
+         }
+
          match pool_manager.update_minimal(client, chain, tokens).await {
             Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
             Err(e) => tracing::error!("Error updating prices: {:?}", e),

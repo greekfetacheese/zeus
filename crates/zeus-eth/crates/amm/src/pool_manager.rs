@@ -177,7 +177,6 @@ impl PoolStateManagerHandle {
       self
          .update_state_for_pools(client.clone(), chain, v2_pools, v3_pools)
          .await?;
-      self.update_base_token_prices(client.clone(), chain).await?;
       self.calculate_prices()?;
       Ok(())
    }

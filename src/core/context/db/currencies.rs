@@ -12,13 +12,27 @@ use zeus_token_list::{ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM, t
 
 const FILE_NAME: &str = "currencies.json";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrencyDB {
    #[serde(with = "serde_helpers")]
    pub currencies: HashMap<u64, Arc<Vec<Currency>>>,
 }
 
+impl Default for CurrencyDB {
+    fn default() -> Self {
+        let mut currencies = CurrencyDB::new();
+        currencies.load_default_currencies().unwrap_or_default();
+        currencies
+    }
+}
+
 impl CurrencyDB {
+
+   pub fn new() -> Self {
+      Self {
+         currencies: HashMap::new(),
+      }
+   }
 
     pub fn load_from_file() -> Result<Self, anyhow::Error> {
         let dir = data_dir()?.join(FILE_NAME);
