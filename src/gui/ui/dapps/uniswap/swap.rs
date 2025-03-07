@@ -147,7 +147,7 @@ impl SwapUi {
                            ui.set_max_width(30.0);
                            ui.set_max_height(20.0);
 
-                           self.token_button(ui, chain_id, icons.clone(), InOrOut::In, token_selection);
+                           self.token_button(ui, icons.clone(), InOrOut::In, token_selection);
                            ui.add_space(10.0);
 
                            let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
@@ -178,7 +178,7 @@ impl SwapUi {
                            ui.set_max_width(30.0);
                            ui.set_max_height(20.0);
 
-                           self.token_button(ui, chain_id, icons.clone(), InOrOut::Out, token_selection);
+                           self.token_button(ui, icons.clone(), InOrOut::Out, token_selection);
                            ui.add_space(10.0);
                            let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_out);
                            ui.label(balance.formatted());
@@ -231,7 +231,6 @@ impl SwapUi {
    fn token_button(
       &mut self,
       ui: &mut Ui,
-      chain_id: u64,
       icons: Arc<Icons>,
       in_or_out: InOrOut,
       token_selection: &mut TokenSelectionWindow,
@@ -240,14 +239,7 @@ impl SwapUi {
          let currency = self.get_currency(&in_or_out);
          let symbol_text = rich_text(currency.symbol()).size(17.0);
 
-         let icon;
-         if currency.is_native() {
-            icon = icons.currency_icon(chain_id);
-         } else {
-            let token = currency.erc20().unwrap();
-            icon = icons.token_icon(token.address, chain_id);
-         }
-
+         let icon = icons.currency_icon(currency);
          let button = img_button(icon, symbol_text)
             .min_size(vec2(50.0, 25.0))
             .sense(Sense::click());

@@ -4,38 +4,38 @@ use eframe::egui::{
 use std::sync::Arc;
 
 use crate::assets::icons::Icons;
-use crate::core::{Portfolio, Wallet, ZeusCtx, utils::{RT, eth}};
+use crate::core::{
+   Portfolio, Wallet, ZeusCtx,
+   utils::{RT, eth},
+};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
 
-use egui_theme::utils::{bg_color_on_idle, window_fill};
+use egui_theme::utils::bg_color_on_idle;
 
+use egui_theme::Theme;
 use zeus_eth::{currency::Currency, types::ChainId};
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {
    pub id: &'static str,
    pub chain: ChainId,
-   pub bg_color: Option<Color32>,
-   pub bg_color_on_open: Option<Color32>,
-   pub width: f32,
+   pub size: Vec2,
    pub show_icon: bool,
 }
 
 impl ChainSelect {
-   pub fn new(id: &'static str, bg_color: Option<Color32>, bg_color_on_open: Option<Color32>) -> Self {
+   pub fn new(id: &'static str) -> Self {
       Self {
          id,
          chain: ChainId::new(1).unwrap(),
-         bg_color,
-         bg_color_on_open,
-         width: 200.0,
+         size: (200.0, 25.0).into(),
          show_icon: true,
       }
    }
 
-   pub fn width(mut self, width: f32) -> Self {
-      self.width = width;
+   pub fn size(mut self, size: impl Into<Vec2>) -> Self {
+      self.size = size.into();
       self
    }
 
@@ -47,41 +47,52 @@ impl ChainSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the chain was changed
-   pub fn show(&mut self, ui: &mut Ui, icons: Arc<Icons>) -> bool {
-      let mut selected_chain = self.chain.clone();
-      let supported_chains = ChainId::supported_chains();
-
-      if let Some(bg_color) = self.bg_color {
-         bg_color_on_idle(ui, bg_color);
-      }
-      if let Some(color_on_open) = self.bg_color_on_open {
-         window_fill(ui, color_on_open)
-      }
-
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> bool {
+      let selected_chain = self.chain.id();
       let mut clicked = false;
 
-      // hack to keep the icon centered relative to the combo box
-      Grid::new("chain_select").show(ui, |ui| {
-         if self.show_icon {
-            let icon = icons.chain_icon(&selected_chain.id());
-            ui.add(icon);
-         }
+      // hack to keep the icon centered relative to the combobox
+      // But if show_icon is true we cannot apply ui.vertical_centered on the combobox
+      if self.show_icon {
+         Grid::new("chain_select")
+            .spacing(vec2(0.0, 0.0))
+            .show(ui, |ui| {
+               let icon = icons.chain_icon(&selected_chain);
+               ui.add(icon);
+               clicked = self.combo_box(theme, ui);
+            });
+      } else {
+         clicked = self.combo_box(theme, ui);
+      }
+
+      clicked
+   }
+
+   fn combo_box(&mut self, theme: &Theme, ui: &mut Ui) -> bool {
+      let mut selected_chain = self.chain.clone();
+      let supported_chains = ChainId::supported_chains();
+      let mut clicked = false;
+
+      // Add the ComboBox with the specified size
+      ui.add_sized(self.size, |ui: &mut Ui| {
          ComboBox::from_id_salt(self.id)
-            .width(self.width)
-            .selected_text(rich_text(selected_chain.name()).size(16.0))
+            .width(self.size.x)
+            .selected_text(rich_text(selected_chain.name()).size(theme.text_sizes.normal))
             .show_ui(ui, |ui| {
                for chain in supported_chains {
-                  let value = ui.selectable_value(&mut selected_chain, chain.clone(), rich_text(chain.name()));
-
+                  let value = ui.selectable_value(
+                     &mut selected_chain,
+                     chain.clone(),
+                     rich_text(chain.name()).size(theme.text_sizes.normal),
+                  );
                   if value.clicked() {
                      self.chain = selected_chain.clone();
                      clicked = true;
                   }
                }
-            });
-         ui.end_row();
+            })
+            .response
       });
-
       clicked
    }
 }
@@ -91,58 +102,76 @@ pub struct WalletSelect {
    pub id: &'static str,
    /// Selected Wallet
    pub wallet: Wallet,
-   pub bg_color: Option<Color32>,
-   pub bg_color_on_open: Option<Color32>,
-   pub width: f32,
+   pub size: Vec2,
+   pub show_icon: bool,
 }
 
 impl WalletSelect {
-   pub fn new(id: &'static str, bg_color: Option<Color32>, bg_color_on_open: Option<Color32>) -> Self {
+   pub fn new(id: &'static str) -> Self {
       Self {
          id,
          wallet: Wallet::new_rng(String::new()),
-         bg_color,
-         bg_color_on_open,
-         width: 200.0,
+         size: (200.0, 25.0).into(),
+         show_icon: true,
       }
    }
 
-   pub fn width(mut self, width: f32) -> Self {
-      self.width = width;
+   pub fn size(mut self, size: impl Into<Vec2>) -> Self {
+      self.size = size.into();
+      self
+   }
+
+   pub fn show_icon(mut self, show_icon: bool) -> Self {
+      self.show_icon = show_icon;
       self
    }
 
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, wallets: &Vec<Wallet>, ui: &mut Ui) -> bool {
-      if let Some(bg_color) = self.bg_color {
-         bg_color_on_idle(ui, bg_color);
-      }
-      if let Some(color_on_open) = self.bg_color_on_open {
-         window_fill(ui, color_on_open)
-      }
-
+   pub fn show(&mut self, theme: &Theme, wallets: &Vec<Wallet>, icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let mut clicked = false;
-      ComboBox::from_id_salt(self.id)
-         .selected_text(rich_text(self.wallet.name.clone()))
-         .width(self.width)
-         .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
 
-            for wallet in wallets {
-               let value = ui.selectable_value(
-                  &mut self.wallet,
-                  wallet.clone(),
-                  rich_text(wallet.name.clone()),
-               );
+      if self.show_icon {
+         Grid::new("wallet_select")
+            .spacing(vec2(0.0, 0.0))
+            .show(ui, |ui| {
+               ui.add(icons.wallet());
+               clicked = self.combo_box(theme, wallets, ui);
+            });
+      } else {
+         clicked = self.combo_box(theme, wallets, ui);
+      }
 
-               if value.clicked() {
-                  clicked = true;
-                  self.wallet = wallet.clone();
+      clicked
+   }
+
+   fn combo_box(&mut self, theme: &Theme, wallets: &Vec<Wallet>, ui: &mut Ui) -> bool {
+      let mut clicked = false;
+
+      // Add the ComboBox with the specified size
+      ui.add_sized(self.size, |ui: &mut Ui| {
+         ComboBox::from_id_salt(self.id)
+            .width(self.size.x)
+            .selected_text(rich_text(self.wallet.name.clone()).size(theme.text_sizes.normal))
+            .show_ui(ui, |ui| {
+               ui.spacing_mut().item_spacing.y = 10.0;
+
+               for wallet in wallets {
+                  let value = ui.selectable_value(
+                     &mut self.wallet,
+                     wallet.clone(),
+                     rich_text(wallet.name.clone()).size(theme.text_sizes.normal),
+                  );
+
+                  if value.clicked() {
+                     clicked = true;
+                     self.wallet = wallet.clone();
+                  }
                }
-            }
-         });
+            })
+            .response
+      });
       clicked
    }
 }
@@ -286,7 +315,7 @@ impl PortfolioUi {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, token_selection: &mut TokenSelectionWindow, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, token_selection: &mut TokenSelectionWindow, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -303,16 +332,21 @@ impl PortfolioUi {
 
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               if ui.button("+ Add Token").clicked() {
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
+
+               let add_token = button(rich_text("Add Token").size(theme.text_sizes.normal));
+               if ui.add(add_token).clicked() {
                   token_selection.open = true;
                }
 
-               if ui.button("Update Prices").clicked() {
+               let update_prices = button(rich_text("Update Prices").size(theme.text_sizes.normal));
+               if ui.add(update_prices).clicked() {
                   self.update_prices(ctx.clone());
                }
 
                if self.show_spinner {
-                  ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
+                  ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
                }
             });
          });
@@ -347,7 +381,6 @@ impl PortfolioUi {
                   ui.available_width() * 0.2, // Price
                   ui.available_width() * 0.2, // Balance
                   ui.available_width() * 0.2, // Value
-                  // ui.available_width() * 0.1, // 24h price change
                   ui.available_width() * 0.1, // Remove button
                ];
 
@@ -378,14 +411,14 @@ impl PortfolioUi {
                         let tokens: Vec<_> = currencies.iter().filter(|c| c.is_erc20()).collect();
 
                         if let Some(native) = native_currency {
-                           self.token(ctx.clone(), icons.clone(), native, ui, column_widths[0]);
+                           self.token(icons.clone(), native, ui, column_widths[0]);
                            self.price_balance_value(ctx.clone(), chain_id, native, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), native, ui, column_widths[4]);
                            ui.end_row();
                         }
 
                         if let Some(wrapped) = native_wrapped {
-                           self.token(ctx.clone(), icons.clone(), wrapped, ui, column_widths[0]);
+                           self.token(icons.clone(), wrapped, ui, column_widths[0]);
                            self.price_balance_value(ctx.clone(), chain_id, wrapped, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), wrapped, ui, column_widths[4]);
                            ui.end_row();
@@ -395,7 +428,7 @@ impl PortfolioUi {
                            if token.is_native_wrapped() {
                               continue;
                            }
-                           self.token(ctx.clone(), icons.clone(), token, ui, column_widths[0]);
+                           self.token(icons.clone(), token, ui, column_widths[0]);
                            self.price_balance_value(ctx.clone(), chain_id, token, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), token, ui, column_widths[4]);
                            ui.end_row();
@@ -423,13 +456,8 @@ impl PortfolioUi {
       });
    }
 
-   fn token(&self, ctx: ZeusCtx, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
-      let icon = if currency.is_native() {
-         icons.currency_icon(ctx.chain().id())
-      } else {
-         let token = currency.erc20().unwrap();
-         icons.token_icon(token.address, ctx.chain().id())
-      };
+   fn token(&self, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
+      let icon = icons.currency_icon(currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
@@ -488,7 +516,10 @@ impl PortfolioUi {
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
-         match pool_manager.update_base_token_prices(client.clone(), chain).await {
+         match pool_manager
+            .update_base_token_prices(client.clone(), chain)
+            .await
+         {
             Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
             Err(e) => tracing::error!("Error updating base token prices: {:?}", e),
          }

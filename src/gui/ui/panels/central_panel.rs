@@ -27,7 +27,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    }
 
    gui.portofolio
-      .show(ctx.clone(), icons.clone(), token_selection, ui);
+      .show(ctx.clone(), theme, icons.clone(), token_selection, ui);
    gui.swap_ui
       .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);

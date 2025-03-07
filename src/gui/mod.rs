@@ -57,7 +57,8 @@ pub struct GUI {
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
       let token_selection = ui::TokenSelectionWindow::new();
-      let send_crypto = ui::SendCryptoUi::new(&theme);
+      let send_crypto = ui::SendCryptoUi::new();
+      let top_left_area = ui::panels::top_panel::TopLeftArea::new();
 
       let msg_window = ui::MsgWindow::new(Some(theme.colors.bg_color));
       let loading_window = ui::LoadingWindow::new(theme.colors.bg_color);
@@ -79,7 +80,7 @@ impl GUI {
          send_crypto,
          msg_window,
          loading_window,
-         top_left_area: ui::panels::top_panel::TopLeftArea::new(),
+         top_left_area,
          settings: ui::SettingsUi::new(),
          data_inspection: false,
       }

@@ -69,7 +69,7 @@ impl ZeusApp {
       let logged_in = self.ctx.logged_in();
       if logged_in && !self.updated_started {
             RT.spawn(async move {
-               update::update(ctx).await;
+              update::update(ctx).await;
             });
             self.updated_started = true;
       }
@@ -104,7 +104,7 @@ impl eframe::App for ZeusApp {
 
          // Paint the Ui that belongs to the top panel
          egui::TopBottomPanel::top("top_panel")
-            .exact_height(200.0)
+            .exact_height(150.0)
             .resizable(false)
             .show_separator_line(false)
             .frame(bg_frame.clone())

@@ -35,6 +35,7 @@ pub struct Theme {
    pub kind: ThemeKind,
    pub style: Style,
    pub colors: ThemeColors,
+   pub text_sizes: TextSizes,
    pub frame1: Frame,
    pub frame2: Frame,
    pub frame1_visuals: FrameVisuals,
@@ -69,6 +70,30 @@ impl Theme {
    pub fn to_json(&self) -> Result<String, serde_json::Error> {
       serde_json::to_string(self)
    }
+
+   /// Get the button visuals based on the bg color provided
+   pub fn get_button_visuals(&self, bg_color: Color32) -> WidgetVisuals {
+      match self.kind {
+         ThemeKind::Mocha => themes::mocha::button_visuals(bg_color),
+         ThemeKind::Custom => panic!("Not implemented"),
+      }
+   }
+
+   /// Get the text edit visuals based on the bg color provided
+   pub fn get_text_edit_visuals(&self, bg_color: Color32) -> WidgetVisuals {
+      match self.kind {
+         ThemeKind::Mocha => themes::mocha::text_edit_visuals(bg_color),
+         ThemeKind::Custom => panic!("Not implemented"),
+      }
+   }
+
+   /// Get the widget visuals based on the bg color provided
+   pub fn get_widget_visuals(&self, bg_color: Color32) -> WidgetVisuals {
+      match self.kind {
+         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color),
+         ThemeKind::Custom => panic!("Not implemented"),
+      }
+   }
 }
 
 /// These colors can be used to override the visuals using [egui::Ui::visuals_mut]
@@ -76,8 +101,19 @@ impl Theme {
 /// `border_color` = [egui::Stroke] color
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ThemeColors {
-   /// Background color for the entire app
+   /// Main Background color for the entire app
    pub bg_color: Color32,
+
+   /// Secondary Background color to make contrast with the main background
+   pub secondary_bg_color: Color32,
+
+   pub extreme_bg_color: Color32,
+
+   /// Background color for windows
+   pub window_fill: Color32,
+
+   /// Background color for ComboBoxes
+   pub combo_box_fill: Color32,
 
    /// Highlight something
    pub highlight: Color32,
@@ -90,6 +126,11 @@ pub struct ThemeColors {
 
    /// Secondary text color
    pub text_secondary: Color32,
+
+   /// Background color for TextEdits
+   pub text_edit_bg_color: Color32,
+
+   pub button_bg_color: Color32,
 
    /// Widget background color for inactive widgets (no hover or clicks)
    ///
@@ -132,10 +173,47 @@ pub struct ThemeColors {
    pub border_color_open: Color32,
 }
 
+#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+pub struct TextSizes {
+   pub very_small: f32,
+   pub small: f32,
+   pub normal: f32,
+   pub large: f32,
+   pub very_large: f32,
+   pub heading: f32,
+}
+
+impl TextSizes {
+   pub fn new(very_small: f32, small: f32, normal: f32, large: f32, very_large: f32, heading: f32) -> Self {
+      Self {
+         very_small,
+         small,
+         normal,
+         large,
+         very_large,
+         heading,
+      }
+   }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FrameVisuals {
    pub bg_on_hover: Color32,
    pub bg_on_click: Color32,
    pub border_on_hover: (f32, Color32),
    pub border_on_click: (f32, Color32),
+}
+
+
+/// Visuals for ComboBoxes, Sliders
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct WidgetVisuals {
+   pub bg_color_on_idle: Color32,
+   pub bg_color_on_hover: Color32,
+   pub bg_color_on_click: Color32,
+   pub bg_color_on_open: Color32,
+   pub border_on_idle: (f32, Color32),
+   pub border_on_hover: (f32, Color32),
+   pub border_on_click: (f32, Color32),
+   pub border_on_open: (f32, Color32),
 }

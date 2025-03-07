@@ -1,4 +1,4 @@
-use super::{FrameVisuals, Theme, ThemeKind};
+use super::{FrameVisuals, WidgetVisuals, Theme, ThemeKind};
 use egui::{Color32, ComboBox, Frame, Response, Sense, Stroke, Ui};
 
 /// Show a ComboBox to change the theme
@@ -57,6 +57,20 @@ pub fn apply_theme_changes(theme: &Theme, ui: &mut Ui) {
 
 // Helper functions to override the visuals
 
+
+/// Override the visuals for widgets
+pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
+   bg_color_on_idle(ui, visuals.bg_color_on_idle);
+   bg_color_on_hover(ui, visuals.bg_color_on_hover);
+   bg_color_on_click(ui, visuals.bg_color_on_click);
+   bg_color_on_open(ui, visuals.bg_color_on_open);
+   border_on_idle(ui, visuals.border_on_idle.0, visuals.border_on_idle.1);
+   border_on_hover(ui, visuals.border_on_hover.0, visuals.border_on_hover.1);
+   border_on_click(ui, visuals.border_on_click.0, visuals.border_on_click.1);
+   border_on_open(ui, visuals.border_on_open.0, visuals.border_on_open.1);
+   window_fill(ui, visuals.bg_color_on_open);
+ }
+
 /// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
 ///
 /// When the widget is inactive (no hover, clicks etc..)
@@ -78,6 +92,15 @@ pub fn no_border_on_hover(ui: &mut Ui) {
    ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
 }
 
+/// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
+/// 
+/// At any state
+pub fn no_border(ui: &mut Ui) {
+   ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
+   ui.visuals_mut().widgets.active.bg_stroke = Stroke::NONE;
+   ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
+}
+
 /// Give a border to widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
 ///
 /// When the widget is inactive (no hover, clicks etc..)
@@ -90,6 +113,13 @@ pub fn border_on_idle(ui: &mut Ui, width: f32, color: Color32) {
 /// When the widget is active (click)
 pub fn border_on_click(ui: &mut Ui, width: f32, color: Color32) {
    ui.visuals_mut().widgets.active.bg_stroke = Stroke::new(width, color);
+}
+
+/// Give a border to widgets like ComboxBox
+/// 
+/// When the widget is open
+pub fn border_on_open(ui: &mut Ui, width: f32, color: Color32) {
+   ui.visuals_mut().widgets.open.bg_stroke = Stroke::new(width, color);
 }
 
 /// Give a border to widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
@@ -108,16 +138,21 @@ pub fn bg_color_on_idle(ui: &mut Ui, color: Color32) {
 
 /// Give a background color to widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
 ///
+/// When the widget is hovered
+pub fn bg_color_on_hover(ui: &mut Ui, color: Color32) {
+   ui.visuals_mut().widgets.hovered.weak_bg_fill = color;
+}
+
+/// Give a background color to widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
+///
 /// When the widget is active (click)
 pub fn bg_color_on_click(ui: &mut Ui, color: Color32) {
    ui.visuals_mut().widgets.active.weak_bg_fill = color;
 }
 
 /// Give a background color to widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
-///
-/// When the widget is hovered
-pub fn bg_color_on_hover(ui: &mut Ui, color: Color32) {
-   ui.visuals_mut().widgets.hovered.weak_bg_fill = color;
+pub fn bg_color_on_open(ui: &mut Ui, color: Color32) {
+   ui.visuals_mut().widgets.open.weak_bg_fill = color;
 }
 
 /// Window Fill Color

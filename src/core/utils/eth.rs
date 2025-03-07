@@ -24,6 +24,10 @@ pub async fn send_crypto(
       return Err(anyhow!("Invalid recipient address"));
    }
 
+   if sender.key.inner().address() == to {
+      return Err(anyhow!("Cannot send to yourself"));
+   }
+
    if amount.is_zero() {
       return Err(anyhow!("Amount cannot be 0"));
    }

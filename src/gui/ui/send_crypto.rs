@@ -1,12 +1,13 @@
-use eframe::egui::{Align2, Color32, Frame, Id, Response, RichText, ScrollArea, TextEdit, Ui, Window, vec2};
-use egui::{Button, FontId, Margin};
+use eframe::egui::{
+   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Response, RichText, ScrollArea, SelectableLabel,
+   TextEdit, Ui, Window, vec2,
+};
 
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
-   ZeusCtx,
-   Contact,
+   Contact, Wallet, ZeusCtx,
    utils::{RT, eth::send_crypto},
 };
 
@@ -22,7 +23,7 @@ use crate::gui::{
 };
 use egui_theme::{
    Theme,
-   utils::{border_on_hover, border_on_idle},
+   utils::*,
 };
 
 use zeus_eth::{
@@ -31,13 +32,11 @@ use zeus_eth::{
       utils::{format_units, parse_units},
    },
    currency::{Currency, ERC20Token, NativeCurrency},
-   types::ChainId,
-   utils::NumericValue
+   utils::NumericValue,
 };
 
 pub struct SendCryptoUi {
    pub open: bool,
-   pub chain: ChainId,
    pub chain_select: ChainSelect,
    pub wallet_select: WalletSelect,
    pub priority_fee: String,
@@ -45,25 +44,26 @@ pub struct SendCryptoUi {
    pub amount: String,
    pub contact_search_open: bool,
    pub search_query: String,
-   pub selected_contact: Option<Contact>,
+   /// Address in string format
    pub recipient: String,
+   pub recipient_name: Option<String>,
+   pub size: (f32, f32),
 }
 
 impl SendCryptoUi {
-   pub fn new(theme: &Theme) -> Self {
-      let chain_select = ChainSelect::new("chain_select_2", None, Some(theme.colors.bg_color)).show_icon(false);
+   pub fn new() -> Self {
       Self {
          open: false,
-         chain: ChainId::new(1).unwrap(),
-         chain_select,
-         wallet_select: WalletSelect::new("wallet_select_2", None, Some(theme.colors.bg_color)),
+         chain_select: ChainSelect::new("chain_select_2"),
+         wallet_select: WalletSelect::new("wallet_select_2"),
          priority_fee: "1".to_string(),
          currency: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
          amount: String::new(),
          contact_search_open: false,
          search_query: String::new(),
          recipient: String::new(),
-         selected_contact: None,
+         recipient_name: None,
+         size: (500.0, 750.0),
       }
    }
 
@@ -79,208 +79,218 @@ impl SendCryptoUi {
          return;
       }
 
-      Window::new("Send Crypto")
-         .id(Id::new("send_crypto_ui"))
-         .collapsible(false)
-         .resizable(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(400.0);
-            ui.spacing_mut().item_spacing.y = 16.0;
-            // increase the size of comboboxes and buttons
-            ui.spacing_mut().button_padding = vec2(5.0, 5.0);
+      let frame = theme.frame1;
+      let bg_color = frame.fill;
+      ui.add_space(25.0);
+      frame.show(ui, |ui| {
+         let ui_width = self.size.0;
+         let space = 15.0;
+         ui.set_max_width(ui_width);
+         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            ui.separator();
+         // Title
+         ui.label(rich_text("Send Crypto").size(theme.text_sizes.heading));
 
-            // Chain Selection
+         // Chain Selection
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.label(
-               rich_text("CHAIN")
+               rich_text("Chain")
                   .color(theme.colors.text_secondary)
-                  .size(14.0),
+                  .size(theme.text_sizes.large),
             );
+         });
+         ui.add_space(5.0);
 
-            let clicked = self.chain_select.show(ui, icons.clone());
+         ui.scope(|ui| {
+            widget_visuals(ui, theme.get_widget_visuals(bg_color));
+            let clicked = self.chain_select.show(theme, icons.clone(), ui);
             if clicked {
                let chain = self.chain_select.chain.id();
                self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
             }
+         });
 
-            let chain = self.chain_select.chain.id();
-            let owner = self.wallet_select.wallet.key.inner().address();
-            let currencies = ctx.get_currencies(chain);
+         ui.add_space(space);
 
-            // From Wallet
+         let chain = self.chain_select.chain.id();
+         let owner = self.wallet_select.wallet.key.inner().address();
+         let currencies = ctx.get_currencies(chain);
+
+         // From Wallet
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.label(
-               rich_text("FROM")
+               rich_text("From")
                   .color(theme.colors.text_secondary)
-                  .size(14.0),
+                  .size(theme.text_sizes.large),
             );
+         });
+         ui.add_space(5.0);
 
-            ctx.read(|ctx| {
-               let wallets = &ctx.profile.wallets;
-               self.wallet_select.show(wallets, ui);
+         ctx.read(|ctx| {
+            let wallets = &ctx.profile.wallets;
+            ui.scope(|ui| {
+               widget_visuals(ui, theme.get_widget_visuals(bg_color));
+               self.wallet_select.show(theme, wallets, icons.clone(), ui);
             });
+         });
+         ui.add_space(space);
 
-            // Recipient Input
+         // Recipient Input
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.label(
-               rich_text("TO")
+               rich_text("To")
                   .color(theme.colors.text_secondary)
-                  .size(14.0),
+                  .size(theme.text_sizes.large),
             );
-            if let Some(contact) = &self.selected_contact {
-               ui.label(RichText::new(contact.name.clone()).size(13.0));
+            if let Some(name) = &self.recipient_name {
+               ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
             }
+         });
+         ui.add_space(5.0);
 
+         ui.horizontal(|ui| {
+            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
             let res = ui.add(
-               TextEdit::singleline(&mut self.recipient)
-                  .hint_text("Search contacts or enter address")
-                  .min_size(vec2(300.0, 30.0))
-                  .margin(Margin::same(3))
-                  .font(FontId::proportional(13.0)),
+               TextEdit::multiline(&mut self.recipient)
+                  .hint_text("Search contacts or enter an address")
+                  .desired_rows(2)
+                  .desired_width(ui_width * 0.80)
+                  .margin(Margin::same(5))
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .background_color(theme.colors.text_edit_bg_color),
             );
-
             if res.clicked() {
                self.contact_search_open = true;
             }
+         });
+         ui.add_space(space);
 
-            // Integrated contact search dropdown
-            if self.contact_search_open {
-               let contacts = ctx.contacts();
-               Frame::menu(ui.style()).show(ui, |ui| {
-                  ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                     ui.set_width(300.0);
-                     ui.scope(|ui| {
-                        border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                        border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-                        ui.add(
-                           TextEdit::singleline(&mut self.search_query)
-                              .hint_text("Search contacts")
-                              .min_size(vec2(200.0, 30.0))
-                              .margin(Margin::same(3))
-                              .font(FontId::proportional(13.0)),
-                        );
-                     });
+         self.recipient_selection(ctx.clone(), theme, ui);
 
-                     ui.separator();
+         // Token Selection
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(
+               rich_text("Asset")
+                  .color(theme.colors.text_secondary)
+                  .size(theme.text_sizes.large),
+            );
+         });
+         ui.add_space(5.0);
 
-                     for contact in contacts.iter().filter(|c| {
-                        c.name
-                           .to_lowercase()
-                           .contains(&self.search_query.to_lowercase())
-                     }) {
-                        ui.horizontal(|ui| {
-                           if ui.selectable_label(false, &contact.name).clicked() {
-                              self.recipient = contact.address.clone();
-                              self.selected_contact = Some(contact.clone());
-                              self.contact_search_open = false;
-                           }
-                           ui.label(
-                              RichText::new(contact.address_short())
-                                 .color(theme.colors.text_secondary)
-                                 .size(12.0),
-                           );
-                        });
-                     }
-                  });
-               });
-            }
+         Grid::new("token_selection")
+            .spacing(vec2(0.0, 0.0))
+            .show(ui, |ui| {
+               bg_color_on_idle(ui, Color32::TRANSPARENT);
+               let res = self.token_button(theme, icons.clone(), ui);
+               if res.clicked() {
+                  token_selection.open = true;
+               }
 
-            // Token Selection
-            ui.vertical(|ui| {
+               let balance = ctx.get_currency_balance(chain, owner, &self.currency);
                ui.label(
-                  rich_text("ASSET")
+                  RichText::new(format!("Balance: {}", balance.formatted()))
                      .color(theme.colors.text_secondary)
-                     .size(14.0),
+                     .size(theme.text_sizes.normal),
                );
-               ui.horizontal(|ui| {
-                  egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
-
-                  // Token button with icon and balance
-                  let response = self.token_button(icons.clone(), ui);
-                  if response.clicked() {
-                     token_selection.open = true;
-                  }
-
-                  token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
-
-                  if let Some(currency) = token_selection.get_currency() {
-                     self.currency = currency.clone();
-                     token_selection.reset();
-                  }
-
-                  // Balance display
-                  let balance = ctx.get_currency_balance(chain, owner, &self.currency);
-                  ui.label(
-                     RichText::new(format!("Balance: {}", balance.formatted()))
-                        .color(theme.colors.text_secondary)
-                        .size(13.0),
-                  );
-               });
+               token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
+               if let Some(currency) = token_selection.get_currency() {
+                  self.currency = currency.clone();
+                  token_selection.reset();
+               }
+               ui.end_row();
             });
+         ui.add_space(space);
 
-            // Amount Input
-            ui.vertical(|ui| {
-               ui.label(
-                  rich_text("AMOUNT")
-                     .color(theme.colors.text_secondary)
-                     .size(14.0),
-               );
-               ui.add(
-                  TextEdit::singleline(&mut self.amount)
-                     .hint_text(rich_text("0.00").color(theme.colors.text_secondary))
-                     .font(egui::FontId::proportional(20.0))
-                     .desired_width(200.0),
-               );
+         // Amount Input
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(
+               rich_text("Amount")
+                  .color(theme.colors.text_secondary)
+                  .size(theme.text_sizes.large),
+            );
+         });
+         ui.add_space(5.0);
 
-               // Priority Fee
-               ui.horizontal(|ui| {
-                  ui.label(
-                     rich_text("Priority Fee")
-                        .color(theme.colors.text_secondary)
-                        .size(13.0),
-                  );
-                  ui.add(TextEdit::singleline(&mut self.priority_fee).desired_width(30.0));
-                  ui.label(
-                     rich_text("Gwei")
-                        .color(theme.colors.text_secondary)
-                        .size(13.0),
-                  );
-               });
+         ui.horizontal(|ui| {
+            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+            ui.add(
+               TextEdit::singleline(&mut self.amount)
+                  .hint_text("0")
+                  .font(egui::FontId::proportional(theme.text_sizes.normal))
+                  .desired_width(ui_width * 0.25)
+                  .margin(Margin::same(10))
+                  .background_color(theme.colors.text_edit_bg_color),
+            );
+         });
+         ui.add_space(space);
 
-               // Calculate the value
-               let price = ctx.get_currency_price(&self.currency);
-               let amount: f64 = self.amount.parse().unwrap_or(0.0);
-               let value = if price.float() == 0.0 || amount == 0.0 {
-                  0.0
-               } else {
-                  price.float() * amount
-               };
+         // Priority Fee
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(
+               rich_text("Priority Fee")
+                  .color(theme.colors.text_secondary)
+                  .size(theme.text_sizes.large),
+            );
+         });
+         ui.add_space(5.0);
 
-               ui.label(
-                  RichText::new(format!("Value≈ ${}", value))
-                     .color(theme.colors.text_secondary)
-                     .size(14.0)
-                     .strong(),
-               );
-            });
+         ui.horizontal(|ui| {
+            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+            ui.add(
+               TextEdit::singleline(&mut self.priority_fee)
+                  .desired_width(60.0)
+                  .background_color(theme.colors.text_edit_bg_color)
+                  .font(egui::FontId::proportional(theme.text_sizes.normal)),
+            );
+            ui.add_space(5.0);
+            ui.label(
+               rich_text("Gwei")
+                  .color(theme.colors.text_secondary)
+                  .size(theme.text_sizes.normal),
+            );
+         });
+         ui.add_space(space);
 
-            let cost = self.cost(ctx.clone());
+         // Value
+         let price = ctx.get_currency_price(&self.currency);
+         let amount: f64 = self.amount.parse().unwrap_or(0.0);
+         let value = if price.float() == 0.0 || amount == 0.0 {
+            0.0
+         } else {
+            price.float() * amount
+         };
+
+         // Value
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(
+               RichText::new(format!("Value≈ ${:.2}", value))
+                  .color(theme.colors.text_secondary)
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+            );
+         });
+         ui.add_space(space);
+
+         // Estimated Cost
+         let cost = self.cost(ctx.clone());
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.label(
                RichText::new(format!("Estimated Cost≈ ${}", cost.formatted()))
                   .color(theme.colors.text_secondary)
-                  .size(14.0)
+                  .size(theme.text_sizes.normal)
                   .strong(),
             );
-
-            // Send Button
-            ui.horizontal(|ui| {
-               let send = Button::new(rich_text("Send")).min_size(vec2(60.0, 30.0));
-               if ui.add(send).clicked() {
-                  self.send(ctx.clone());
-               }
-            });
          });
+         ui.add_space(space);
+
+         // Send Button
+         widget_visuals(ui, theme.get_button_visuals(bg_color));
+         let send = Button::new(rich_text("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width - 20.0, 40.0)); // Full width minus padding
+         if ui.add(send).clicked() {
+            self.send(ctx.clone());
+         }
+         ui.add_space(space);
+      });
    }
 
    // TODO: Actually calulcate the cost based on the base fee + priority fee and the actual gas used
@@ -289,7 +299,7 @@ impl SendCryptoUi {
          parse_units("1", "gwei").unwrap().get_absolute()
       } else {
          parse_units(&self.priority_fee, "gwei")
-            .unwrap()
+            .unwrap_or(parse_units("1", "gwei").unwrap())
             .get_absolute()
       };
 
@@ -322,17 +332,12 @@ impl SendCryptoUi {
       }
    }
 
-   fn token_button(&mut self, icons: Arc<Icons>, ui: &mut Ui) -> Response {
-      let icon;
-      let chain = self.chain_select.chain.id();
-      if self.currency.is_native() {
-         icon = icons.currency_icon(chain);
-      } else {
-         let token = self.currency.erc20().unwrap();
-         icon = icons.token_icon(token.address, chain);
-      }
-
-      let button = img_button(icon, rich_text(self.currency.symbol()).size(13.0));
+   fn token_button(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> Response {
+      let icon = icons.currency_icon(&self.currency);
+      let button = img_button(
+         icon,
+         rich_text(self.currency.symbol()).size(theme.text_sizes.normal),
+      );
       ui.add(button)
    }
 
@@ -360,4 +365,138 @@ impl SendCryptoUi {
          }
       });
    }
+
+   /// Recipient selection window
+   fn recipient_selection(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      let contacts = ctx.contacts();
+      let wallets = ctx.profile().wallets;
+
+      let mut open = self.contact_search_open;
+      let mut close_it = false;
+      let frame = theme.frame2;
+      let bg_color = frame.fill;
+      Window::new("Recipient")
+         .open(&mut open)
+         .collapsible(false)
+         .resizable(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(frame)
+         .show(ui.ctx(), |ui| {
+            ui.set_width(450.0);
+            ui.set_height(350.0);
+
+            ui.vertical_centered(|ui| {
+               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               ui.add_space(20.0);
+               ui.add(
+                  TextEdit::multiline(&mut self.search_query)
+                     .hint_text("Search contacts or enter an address")
+                     .desired_rows(2)
+                     .min_size(vec2(200.0, 30.0))
+                     .margin(Margin::same(3))
+                     .font(FontId::proportional(theme.text_sizes.normal)),
+               );
+               ui.add_space(20.0);
+            });
+
+            ui.vertical_centered(|ui| {
+               ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
+                  ui.spacing_mut().item_spacing.y = 16.0;
+
+                  // First show the wallets owned by the current account
+                  ui.label(rich_text("Your Wallets").size(theme.text_sizes.large));
+                  for wallet in &wallets {
+                     let valid_search = valid_wallet_search(wallet, &self.search_query);
+
+                     if valid_search {
+                        let address = wallet.key.inner().address();
+                        // exclude the current wallet
+                        if address == self.wallet_select.wallet.key.inner().address() {
+                           continue;
+                        }
+
+                        ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
+                           let res = ui.horizontal(|ui| {
+                              let name = rich_text(wallet.name.clone()).size(theme.text_sizes.normal);
+                              if ui.add(SelectableLabel::new(false, name)).clicked() {
+                                 self.recipient = address.to_string();
+                                 self.recipient_name = Some(wallet.name.clone());
+                                 close_it = true;
+                              }
+                              ui.label(
+                                 RichText::new(wallet.address_truncated())
+                                    .size(theme.text_sizes.normal)
+                                    .strong(),
+                              );
+                           });
+                           res.response
+                        });
+                     }
+                  }
+
+                  // Then show the contacts
+                  ui.label(rich_text("Contacts").size(theme.text_sizes.large));
+                  for contact in &contacts {
+                     let valid_search = valid_contact_search(contact, &self.search_query);
+
+                     if valid_search {
+                        ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
+                           let res = ui.horizontal(|ui| {
+                              let name = rich_text(contact.name.clone()).size(theme.text_sizes.normal);
+                              if ui.add(SelectableLabel::new(false, name)).clicked() {
+                                 self.recipient = contact.address.clone();
+                                 self.recipient_name = Some(contact.name.clone());
+                                 close_it = true;
+                              }
+                              ui.label(
+                                 RichText::new(contact.address_short())
+                                    .size(theme.text_sizes.normal)
+                                    .strong(),
+                              );
+                           });
+                           res.response
+                        });
+                     }
+                  }
+
+                  // When a valid address is pasted
+                  // TODO FIX: If this address exists on wallets or contacts it will show up both times
+                  if let Ok(address) = Address::from_str(&self.search_query) {
+                     ui.label(rich_text("Unknown Address").size(theme.text_sizes.large));
+                     let address_text = rich_text(address.to_string()).size(theme.text_sizes.normal);
+                     if ui.add(SelectableLabel::new(false, address_text)).clicked() {
+                        self.recipient = address.to_string();
+                        self.recipient_name = None;
+                        close_it = true;
+                     }
+                  }
+               });
+            });
+         });
+
+      if close_it {
+         open = false;
+      }
+      self.contact_search_open = open;
+   }
+}
+
+fn valid_contact_search(contact: &Contact, query: &str) -> bool {
+   let query = query.to_lowercase();
+
+   if query.is_empty() {
+      return true;
+   }
+
+   contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
+}
+
+fn valid_wallet_search(wallet: &Wallet, query: &str) -> bool {
+   let query = query.to_lowercase();
+
+   if query.is_empty() {
+      return true;
+   }
+
+   wallet.name.to_lowercase().contains(&query) || wallet.address().to_lowercase().contains(&query)
 }

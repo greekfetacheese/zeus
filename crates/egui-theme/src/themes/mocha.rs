@@ -1,6 +1,8 @@
-use super::super::{FrameVisuals, Theme, ThemeColors, ThemeKind};
+use super::super::{
+   FrameVisuals, TextSizes, Theme, ThemeColors, ThemeKind, WidgetVisuals as ThemeWidgetVisuals,
+};
 use egui::{
-   Color32, CornerRadius, Frame, Shadow, Stroke, Style, Visuals,
+   Color32, CornerRadius, Frame, Margin, Shadow, Stroke, Style, Visuals,
    style::{Selection, WidgetVisuals, Widgets},
 };
 
@@ -37,16 +39,103 @@ const BLUE: Color32 = Color32::from_rgb(137, 180, 250); // #89B4FA
 /// Highlight
 const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
 
+const TEXT_EDIT_BG: Color32 = Color32::from_rgb(45, 45, 61); // #2D2D3D
+
+const LIGHT_BLACK_SHADE: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 40);
+
+const LIGHT_BLACK_SHADE2: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 50);
+
+const LITE_BLUE_SHADE: Color32 = Color32::from_rgb(45, 52, 112);
+
+const LITE_BLUE_SHADE2: Color32 = Color32::from_rgb(41, 60, 134);
+
+const LITE_BLUE_SHADE3: Color32 = Color32::from_rgb(59, 62, 178);
+
+// ! For some reason when the app actually runs this becomes 250, 250, 250, 98
+const VERY_LITE_WHITE: Color32 = Color32::from_rgba_premultiplied(163, 163, 163, 98);
+
 /// Return this theme
 pub fn theme() -> Theme {
    Theme {
       kind: ThemeKind::Mocha,
       style: style(),
       colors: colors(),
+      text_sizes: text_sizes(),
       frame1: frame1(),
       frame2: frame2(),
       frame1_visuals: frame1_visuals(),
       frame2_visuals: frame2_visuals(),
+   }
+}
+
+pub fn button_visuals(bg_color: Color32) -> ThemeWidgetVisuals {
+   let mut visuals = ThemeWidgetVisuals {
+      bg_color_on_idle: LIGHT_BLACK_SHADE,
+      bg_color_on_hover: LITE_BLUE_SHADE2,
+      bg_color_on_click: LITE_BLUE_SHADE3,
+      border_on_idle: (1.0, Color32::TRANSPARENT),
+      border_on_hover: (1.0, Color32::TRANSPARENT),
+      border_on_click: (1.0, Color32::TRANSPARENT),
+      ..Default::default()
+   };
+
+   if bg_color == SURFACE0 {
+      visuals
+   } else if bg_color == LIGHT_BLACK_SHADE2 {
+      visuals.bg_color_on_idle = LITE_BLUE_SHADE;
+      visuals
+   } else {
+      visuals
+   }
+}
+
+pub fn text_edit_visuals(bg_color: Color32) -> ThemeWidgetVisuals {
+   let mut visuals = ThemeWidgetVisuals {
+      bg_color_on_idle: BASE,
+      bg_color_on_hover: Color32::TRANSPARENT,
+      bg_color_on_click: Color32::TRANSPARENT,
+      bg_color_on_open: Color32::TRANSPARENT,
+      border_on_idle: (1.0, Color32::TRANSPARENT),
+      border_on_hover: (1.0, Color32::TRANSPARENT),
+      border_on_click: (1.0, Color32::TRANSPARENT),
+      border_on_open: (1.0, OVERLAY1),
+   };
+   if bg_color == SURFACE0 {
+      visuals
+   } else if bg_color == LIGHT_BLACK_SHADE2 {
+      visuals.bg_color_on_idle = Color32::TRANSPARENT;
+      visuals.border_on_idle = (1.0, VERY_LITE_WHITE);
+      visuals.border_on_hover = (1.0, Color32::WHITE);
+      visuals.border_on_click = (1.0, Color32::WHITE);
+      visuals
+   } else {
+      visuals
+   }
+}
+
+pub fn widget_visuals(bg_color: Color32) -> ThemeWidgetVisuals {
+   let mut visuals = ThemeWidgetVisuals {
+      bg_color_on_idle: BASE,
+      bg_color_on_hover: LITE_BLUE_SHADE2,
+      bg_color_on_click: LITE_BLUE_SHADE3,
+      bg_color_on_open: BASE,
+      border_on_idle: (1.0, Color32::TRANSPARENT),
+      border_on_hover: (1.0, Color32::TRANSPARENT),
+      border_on_click: (1.0, Color32::TRANSPARENT),
+      border_on_open: (1.0, Color32::TRANSPARENT),
+   };
+
+   if bg_color == SURFACE0 {
+      visuals
+   } else if bg_color == LIGHT_BLACK_SHADE2 {
+      visuals.bg_color_on_idle = Color32::TRANSPARENT;
+      visuals.border_on_idle = (1.0, VERY_LITE_WHITE);
+      visuals.border_on_hover = (1.0, Color32::WHITE);
+      visuals.border_on_click = (1.0, Color32::WHITE);
+      visuals.border_on_open = (1.0, OVERLAY1);
+      visuals
+   } else {
+      visuals
    }
 }
 
@@ -63,40 +152,63 @@ fn style() -> Style {
 /// Return the theme colors for this theme
 fn colors() -> ThemeColors {
    ThemeColors {
-      bg_color: BASE,
+      bg_color: SURFACE0,
+      secondary_bg_color: LIGHT_BLACK_SHADE2,
+      extreme_bg_color: BASE,
+      window_fill: LITE_BLUE_SHADE,
+      combo_box_fill: Color32::TRANSPARENT,
       highlight: LAVENDER,
       text_color: TEXT,
       text_secondary: SUBTEXT1,
+      text_edit_bg_color: Color32::TRANSPARENT,
       overlay_color: MANTLE,
-      widget_bg_color_idle: SURFACE1,
-      widget_bg_color_click: BLUE,
-      widget_bg_color_hover: SURFACE2,
-      widget_bg_color_open: SURFACE2,
-      border_color_idle: OVERLAY0,
-      border_color_click: BLUE,
-      border_color_hover: OVERLAY1,
+      button_bg_color: LITE_BLUE_SHADE,
+      widget_bg_color_idle: LIGHT_BLACK_SHADE,
+      widget_bg_color_hover: LITE_BLUE_SHADE2,
+      widget_bg_color_click: LITE_BLUE_SHADE3,
+      widget_bg_color_open: Color32::TRANSPARENT,
+      border_color_idle: VERY_LITE_WHITE,
+      border_color_click: Color32::WHITE,
+      border_color_hover: Color32::WHITE,
       border_color_open: OVERLAY1,
    }
 }
 
+fn text_sizes() -> TextSizes {
+   let very_small = 12.0;
+   let small = 14.0;
+   let normal = 16.0;
+   let large = 18.0;
+   let very_large = 20.0;
+   let heading = 26.0;
+   TextSizes::new(very_small, small, normal, large, very_large, heading)
+}
+
 // Frames that can be used to highlight something or create a border around a widget
 
+// Its good to give a nice bg to a ui, makes good contrsts with the main bg color
 fn frame1() -> Frame {
    Frame {
-      corner_radius: CornerRadius::same(10),
-      fill: SURFACE1,
+      corner_radius: CornerRadius::same(5),
+      inner_margin: Margin::same(10),
+      fill: LIGHT_BLACK_SHADE2,
       stroke: Stroke::NONE,
-      shadow: Shadow::default(),
+      shadow: Shadow {
+         blur: 22,
+         spread: 5,
+         color: LIGHT_BLACK_SHADE,
+         ..Default::default()
+      },
       ..Default::default()
    }
 }
 
+// Good combo for a window if the bg color is the frame1
 fn frame2() -> Frame {
    Frame {
-      corner_radius: CornerRadius::same(10),
-      fill: SURFACE2,
-      stroke: Stroke::NONE,
-      shadow: Shadow::default(),
+      corner_radius: CornerRadius::same(5),
+      inner_margin: Margin::same(10),
+      fill: SURFACE0,
       ..Default::default()
    }
 }

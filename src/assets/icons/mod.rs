@@ -6,7 +6,7 @@ use eframe::egui::{ColorImage, Context, Image, Sense, TextureHandle, epaint::tex
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
-use zeus_eth::alloy_primitives::Address;
+use zeus_eth::{currency::Currency, alloy_primitives::Address};
 use zeus_token_list::*;
 
 /// Icons used in the GUI
@@ -154,11 +154,20 @@ impl Icons {
       }
    }
 
-   /// Return the native currency icon based on the chain_id
-   pub fn currency_icon(&self, id: u64) -> Image<'static> {
-      match id {
-         56 => Image::new(&self.currency.bnb),
-         _ => Image::new(&self.currency.eth),
+   /// Return the currency icon based on the currency
+   /// 
+   /// If the currency is native, it will return the native currency icon based on the chain_id
+   /// 
+   /// If its ERC20, it will return the token icon based on the token address and chain id
+   pub fn currency_icon(&self, currency: &Currency) -> Image<'static> {
+      if currency.is_native() {
+         match currency.chain_id() {
+            56 => Image::new(&self.currency.bnb),
+            _ => Image::new(&self.currency.eth),
+         }
+      } else {
+         let token = currency.erc20().unwrap();
+         self.token_icon(token.address, token.chain_id)
       }
    }
 

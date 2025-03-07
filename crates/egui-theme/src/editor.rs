@@ -115,6 +115,12 @@ impl ThemeEditor {
             ui.label("Background Color");
             color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
 
+            ui.label("Window Fill");
+            color_edit_button_srgba(ui, &mut theme.colors.window_fill, Alpha::OnlyBlend);
+
+            ui.label("Combo Box Fill");
+            color_edit_button_srgba(ui, &mut theme.colors.combo_box_fill, Alpha::OnlyBlend);
+
             ui.label("Highlight Color");
             color_edit_button_srgba(ui, &mut theme.colors.highlight, Alpha::OnlyBlend);
 
@@ -123,6 +129,12 @@ impl ThemeEditor {
 
             ui.label("Text Color");
             color_edit_button_srgba(ui, &mut theme.colors.text_color, Alpha::OnlyBlend);
+
+            ui.label("Text Secondary Color");
+            color_edit_button_srgba(ui, &mut theme.colors.text_secondary, Alpha::OnlyBlend);
+
+            ui.label("Text Edit Background Color");
+            color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg_color, Alpha::OnlyBlend);
 
             ui.label("Widget Bg Color on idle");
             color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_idle, Alpha::OnlyBlend);
@@ -155,6 +167,26 @@ impl ThemeEditor {
 
             ui.label("Border Color on open");
             color_edit_button_srgba(ui, &mut theme.colors.border_color_open, Alpha::OnlyBlend);
+         });
+
+         CollapsingHeader::new("Text Sizes").show(ui, |ui| {
+            ui.label("Very Small");
+            ui.add(Slider::new(&mut theme.text_sizes.very_small, 0.0..=100.0).text("Size"));
+
+            ui.label("Small");
+            ui.add(Slider::new(&mut theme.text_sizes.small, 0.0..=100.0).text("Size"));
+
+            ui.label("Normal");
+            ui.add(Slider::new(&mut theme.text_sizes.normal, 0.0..=100.0).text("Size"));
+
+            ui.label("Large");
+            ui.add(Slider::new(&mut theme.text_sizes.large, 0.0..=100.0).text("Size"));
+
+            ui.label("Very Large");
+            ui.add(Slider::new(&mut theme.text_sizes.very_large, 0.0..=100.0).text("Size"));
+
+            ui.label("Heading");
+            ui.add(Slider::new(&mut theme.text_sizes.heading, 0.0..=100.0).text("Size"));
          });
 
          CollapsingHeader::new("Other Colors").show(ui, |ui| {
