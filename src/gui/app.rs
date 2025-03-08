@@ -69,7 +69,7 @@ impl ZeusApp {
       let logged_in = self.ctx.logged_in();
       if logged_in && !self.updated_started {
             RT.spawn(async move {
-              update::update(ctx).await;
+              update::on_startup(ctx).await;
             });
             self.updated_started = true;
       }
@@ -106,7 +106,7 @@ impl eframe::App for ZeusApp {
          egui::TopBottomPanel::top("top_panel")
             .exact_height(150.0)
             .resizable(false)
-            .show_separator_line(false)
+            .show_separator_line(true)
             .frame(bg_frame.clone())
             .show_inside(ui, |ui| {
                if gui.ctx.logged_in() {
@@ -118,7 +118,7 @@ impl eframe::App for ZeusApp {
          egui::SidePanel::left("left_panel")
             .exact_width(100.0)
             .resizable(false)
-            .show_separator_line(false)
+            .show_separator_line(true)
             .frame(bg_frame.clone())
             .show_inside(ui, |ui| {
                if gui.ctx.logged_in() {
@@ -129,7 +129,7 @@ impl eframe::App for ZeusApp {
          egui::SidePanel::right("right_panel")
             .resizable(false)
             .exact_width(100.0)
-            .show_separator_line(false)
+            .show_separator_line(true)
             .frame(bg_frame.clone())
             .show_inside(ui, |_ui| {
                // nothing for now just occupy the space

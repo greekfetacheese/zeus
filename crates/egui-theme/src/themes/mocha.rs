@@ -45,6 +45,10 @@ const LIGHT_BLACK_SHADE: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 40)
 
 const LIGHT_BLACK_SHADE2: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 50);
 
+const LIGHT_BLACK_SHADE3: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 128);
+
+const LIGHT_BLACK_SHADE4: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 69);
+
 const LITE_BLUE_SHADE: Color32 = Color32::from_rgb(45, 52, 112);
 
 const LITE_BLUE_SHADE2: Color32 = Color32::from_rgb(41, 60, 134);
@@ -63,6 +67,7 @@ pub fn theme() -> Theme {
       text_sizes: text_sizes(),
       frame1: frame1(),
       frame2: frame2(),
+      frame3: frame3(),
       frame1_visuals: frame1_visuals(),
       frame2_visuals: frame2_visuals(),
    }
@@ -213,6 +218,21 @@ fn frame2() -> Frame {
    }
 }
 
+fn frame3() -> Frame {
+   Frame {
+      corner_radius: CornerRadius::same(5),
+      inner_margin: Margin::same(10),
+      fill: SURFACE0,
+      shadow: Shadow {
+         blur: 30,
+         spread: 5,
+         color: LIGHT_BLACK_SHADE4,
+         ..Default::default()
+      },
+      ..Default::default()
+   }
+}
+
 fn frame1_visuals() -> FrameVisuals {
    FrameVisuals {
       bg_on_hover: SURFACE2,
@@ -253,9 +273,9 @@ fn visuals(widgets: Widgets) -> Visuals {
       window_corner_radius: CornerRadius::same(10),
       window_shadow: Shadow {
          offset: (0, 0).into(),
-         blur: 0,
-         spread: 0,
-         color: Color32::TRANSPARENT,
+         blur: 20,
+         spread: 1,
+         color: LIGHT_BLACK_SHADE3,
       },
       window_fill: SURFACE0,
       window_stroke: Stroke::NONE,

@@ -96,7 +96,7 @@ impl EncryptionSettings {
 
                         std::thread::spawn(move || {
                            let dir = utils::get_profile_dir();
-                           utils::open_loading(true, "Encrypting profile...".to_string());
+                           utils::open_loading("Encrypting profile...".to_string());
 
                            match profile.encrypt_and_save(&dir, params.clone()) {
                               Ok(_) => {
@@ -243,7 +243,7 @@ impl SettingsUi {
 
                      std::thread::spawn(move || {
                         let dir = utils::get_profile_dir();
-                        utils::open_loading(true, "Decrypting profile...".to_string());
+                        utils::open_loading("Decrypting profile...".to_string());
 
                         match profile.decrypt_zero(&dir) {
                            Ok(data) => {
@@ -278,7 +278,7 @@ impl SettingsUi {
                      std::thread::spawn(move || {
                         let dir = utils::get_profile_dir();
                         let params = utils::get_encrypted_info(&dir).argon2_params;
-                        utils::open_loading(true, "Encrypting profile...".to_string());
+                        utils::open_loading("Encrypting profile...".to_string());
 
                         match profile.encrypt_and_save(&dir, params) {
                            Ok(_) => {

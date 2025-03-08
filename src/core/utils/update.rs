@@ -1,14 +1,21 @@
 use crate::core::{ZeusCtx, utils::*};
+use alloy_network::primitives::BlockTransactionsKind;
+use anyhow::anyhow;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+use zeus_eth::alloy_rpc_types::BlockId;
 use zeus_eth::currency::NativeCurrency;
 use zeus_eth::{
-   alloy_primitives::Address, alloy_provider::Provider, currency::ERC20Token, types::SUPPORTED_CHAINS,
+   alloy_primitives::Address,
+   alloy_provider::Provider,
+   currency::ERC20Token,
+   types::{ChainId, SUPPORTED_CHAINS},
    utils::batch_request::get_erc20_balance,
+   utils::block::calculate_next_block_base_fee,
 };
 
-/// Update the necceary data
-pub async fn update(ctx: ZeusCtx) {
+/// on startup update the necceary data
+pub async fn on_startup(ctx: ZeusCtx) {
    update_pool_manager_minimal_all(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
@@ -20,6 +27,13 @@ pub async fn update(ctx: ZeusCtx) {
    }
 
    portfolio_update(ctx.clone());
+
+   for chain in SUPPORTED_CHAINS {
+      match update_base_fee(ctx.clone(), chain).await {
+         Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
+         Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+      }
+   }
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
@@ -34,6 +48,11 @@ pub async fn update(ctx: ZeusCtx) {
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       balance_update_interval(ctx_clone).await;
+   });
+
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      update_base_fee_interval(ctx_clone).await;
    });
 }
 
@@ -200,6 +219,44 @@ async fn balance_update_interval(ctx: ZeusCtx) {
          }
          if let Err(e) = update_token_balance(ctx.clone()).await {
             tracing::error!("Error updating token balance: {:?}", e);
+         }
+         time_passed = Instant::now();
+      }
+      tokio::time::sleep(Duration::from_secs(1)).await;
+   }
+}
+
+pub async fn update_base_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client_with_id(chain)?;
+   let chain = ChainId::new(chain)?;
+
+   if chain.is_ethereum() {
+      let block = client
+         .get_block(BlockId::latest(), BlockTransactionsKind::Full)
+         .await?
+         .ok_or(anyhow!("Latest block not found"))?;
+      let base_fee = block.header.base_fee_per_gas.unwrap_or_default();
+      let next_base_fee = calculate_next_block_base_fee(block);
+      ctx.update_base_fee(chain.id(), base_fee, next_base_fee);
+   } else {
+      let gas_price = client.get_gas_price().await?;
+      let fee: u64 = gas_price.try_into()?;
+      ctx.update_base_fee(chain.id(), fee, fee);
+   }
+   Ok(())
+}
+
+pub async fn update_base_fee_interval(ctx: ZeusCtx) {
+   const INTERVAL: u64 = 90;
+   let mut time_passed = Instant::now();
+
+   loop {
+      if time_passed.elapsed().as_secs() > INTERVAL {
+         for chain in SUPPORTED_CHAINS {
+            match update_base_fee(ctx.clone(), chain).await {
+               Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
+               Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+            }
          }
          time_passed = Instant::now();
       }

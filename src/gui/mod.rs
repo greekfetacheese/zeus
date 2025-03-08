@@ -60,8 +60,8 @@ impl GUI {
       let send_crypto = ui::SendCryptoUi::new();
       let top_left_area = ui::panels::top_panel::TopLeftArea::new();
 
-      let msg_window = ui::MsgWindow::new(Some(theme.colors.bg_color));
-      let loading_window = ui::LoadingWindow::new(theme.colors.bg_color);
+      let msg_window = ui::MsgWindow::new();
+      let loading_window = ui::LoadingWindow::new();
       let wallet_ui = ui::WalletUi::new();
 
       Self {

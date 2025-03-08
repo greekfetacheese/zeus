@@ -143,7 +143,7 @@ impl TokenSelectionWindow {
          let button = button(rich_text("Add Token"));
          if ui.add(button).clicked() {
             RT.spawn(async move {
-               utils::open_loading(true, "Retrieving token...".to_string());
+               utils::open_loading("Retrieving token...".to_string());
                let token = match eth::get_erc20_token(ctx, chain, owner, address).await {
                   Ok(token) => {
                      utils::close_loading();

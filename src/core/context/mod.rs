@@ -2,7 +2,10 @@ use super::utils::{data_dir, pool_data_dir};
 use crate::core::{Profile, Wallet};
 use anyhow::anyhow;
 use providers::{Rpc, RpcProviders};
-use std::sync::{Arc, RwLock};
+use std::{
+   collections::HashMap,
+   sync::{Arc, RwLock},
+};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
@@ -23,7 +26,7 @@ const CONTACTS_FILE: &str = "contacts.json";
 pub mod db;
 pub mod providers;
 
-pub use db::{BalanceDB, CurrencyDB, PortfolioDB, Portfolio};
+pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB};
 
 #[derive(Clone)]
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
@@ -262,6 +265,17 @@ impl ZeusCtx {
       }
       pools
    }
+
+   pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
+      self.read(|ctx| ctx.base_fee.get(&chain).cloned())
+   }
+
+   pub fn update_base_fee(&self, chain: u64, base_fee: u64, next_base_fee: u64) {
+      self.write(|ctx| {
+         ctx.base_fee
+            .insert(chain, BaseFee::new(base_fee, next_base_fee));
+      });
+   }
 }
 
 /// Saved contact by the user
@@ -313,6 +327,14 @@ impl ContactDB {
       Ok(())
    }
 
+   pub fn contact_address_exists(&self, address: &str) -> bool {
+      self.contacts.iter().any(|c| &c.address == address)
+   }
+
+   pub fn contact_name_exists(&self, name: &str) -> bool {
+      self.contacts.iter().any(|c| &c.name == name)
+   }
+
    pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
       // make sure name and address are unique
       if self.contacts.iter().any(|c| c.name == contact.name) {
@@ -329,6 +351,24 @@ impl ContactDB {
 
    pub fn remove_contact(&mut self, address: String) {
       self.contacts.retain(|c| c.address != address);
+   }
+}
+
+#[derive(Debug, Clone)]
+pub struct BaseFee {
+   pub current: u64,
+   pub next: u64,
+}
+
+impl Default for BaseFee {
+   fn default() -> Self {
+      Self { current: 1, next: 1 }
+   }
+}
+
+impl BaseFee {
+   pub fn new(current: u64, next: u64) -> Self {
+      Self { current, next }
    }
 }
 
@@ -356,6 +396,8 @@ pub struct ZeusContext {
    pub pool_manager: PoolStateManagerHandle,
 
    pub pool_data_syncing: bool,
+
+   pub base_fee: HashMap<u64, BaseFee>,
 }
 
 impl ZeusContext {
@@ -395,6 +437,7 @@ impl ZeusContext {
          contact_db,
          pool_manager,
          pool_data_syncing: false,
+         base_fee: HashMap::new(),
       }
    }
 
@@ -413,5 +456,48 @@ impl ZeusContext {
    /// Get the current wallet selected from the GUI
    pub fn wallet(&self) -> Wallet {
       self.profile.current_wallet.clone()
+   }
+}
+
+
+
+
+mod tests {
+   #[allow(unused_imports)]
+   use super::*;
+   #[allow(unused_imports)]
+   use zeus_eth::{
+      alloy_primitives::utils::format_units,
+      alloy_provider::Provider,
+      alloy_rpc_types::{BlockId, BlockTransactionsKind},
+   };
+   #[tokio::test]
+   async fn test_base_fee() {
+      let ctx = ZeusContext::new();
+
+      let client = ctx.get_client_with_id(1).unwrap();
+      let block = client
+         .get_block(BlockId::latest(), BlockTransactionsKind::Full)
+         .await
+         .unwrap()
+         .unwrap();
+      let base_fee = block.header.base_fee_per_gas.unwrap();
+      let fee = format_units(base_fee, "gwei").unwrap();
+      println!("Ethereum base fee: {}", fee);
+
+      let client = ctx.get_client_with_id(10).unwrap();
+      let gas_price = client.get_gas_price().await.unwrap();
+      let fee = format_units(gas_price, "gwei").unwrap();
+      println!("Optimism base fee: {}", fee);
+
+      let client = ctx.get_client_with_id(56).unwrap();
+      let gas_price = client.get_gas_price().await.unwrap();
+      let fee = format_units(gas_price, "gwei").unwrap();
+      println!("BSC base fee: {}", fee);
+
+      let client = ctx.get_client_with_id(42161).unwrap();
+      let gas_price = client.get_gas_price().await.unwrap();
+      let fee = format_units(gas_price, "gwei").unwrap();
+      println!("Arbitrum base fee: {}", fee);
    }
 }

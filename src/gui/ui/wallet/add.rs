@@ -41,21 +41,23 @@ impl AddWalletUi {
          return;
       }
 
-      self.main_ui(ui);
+      self.main_ui(theme, ui);
       self.import_wallet_ui(ctx.clone(), theme, ui);
       self.generate_wallet_ui(ctx.clone(), theme, ui);
    }
 
-   pub fn main_ui(&mut self, ui: &mut Ui) {
+   pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut open = self.main_ui;
       let mut clicked1 = false;
       let mut clicked2 = false;
+      let frame = theme.frame3;
+
       Window::new("Add a new Wallet")
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -147,7 +149,7 @@ impl AddWalletUi {
             gui::utils::new_wallet_from_key(&mut profile, name, key);
             let dir = gui::utils::get_profile_dir();
             let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading(true, "Encrypting profile...".to_string());
+            gui::utils::open_loading("Encrypting profile...".to_string());
 
             match profile.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
@@ -218,7 +220,7 @@ impl AddWalletUi {
             gui::utils::new_wallet_rng(&mut profile, name);
             let dir = gui::utils::get_profile_dir();
             let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading(true, "Encrypting profile...".to_string());
+            gui::utils::open_loading("Encrypting profile...".to_string());
 
             match profile.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {

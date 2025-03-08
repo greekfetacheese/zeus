@@ -4,54 +4,86 @@ use zeus_eth::{
    alloy_network::{Ethereum, TransactionBuilder},
    alloy_primitives::{
       Address, Bytes, U256,
-      utils::{format_ether, parse_units},
+      utils::format_ether,
    },
-   alloy_rpc_types::{BlockId, BlockTransactionsKind, TransactionReceipt, TransactionRequest},
-   currency::Currency,
+   alloy_rpc_types::{TransactionReceipt, TransactionRequest},
    types::ChainId,
-   utils::block::calculate_next_block_base_fee,
    wallet::{SafeSigner, SafeWallet},
 };
 
-pub type Amount = U256;
-
-#[derive(Debug, Clone)]
-pub enum TxType {
-   /// ETH or ERC20 transfer
-   Transfer(Amount, Currency),
-   Other(Amount),
-}
-
 #[derive(Clone)]
 pub struct TxParams {
-   pub tx_type: TxType,
    pub signer: SafeSigner,
-   pub recipient: Option<Address>,
+   pub recipient: Address,
+   pub value: U256,
    pub chain: u64,
-   /// Priority fee in Gwei
    pub miner_tip: U256,
+   pub base_fee: u64,
+   pub call_data: Bytes,
 }
 
 impl TxParams {
-   pub fn new(tx_type: TxType, signer: SafeSigner, recipient: Option<Address>, chain: u64, miner_tip: U256) -> Self {
+   pub fn new(
+      signer: SafeSigner,
+      recipient: Address,
+      value: U256,
+      chain: u64,
+      miner_tip: U256,
+      base_fee: u64,
+      call_data: Bytes,
+   ) -> Self {
       Self {
-         tx_type,
          signer,
          recipient,
+         value,
          chain,
          miner_tip,
+         base_fee,
+         call_data,
       }
    }
+}
 
-   pub fn transfer(tx_type: TxType, signer: SafeSigner, recipient: Address, chain: u64, miner_tip: U256) -> Self {
-      Self {
-         tx_type,
-         signer,
-         recipient: Some(recipient),
-         chain,
-         miner_tip,
-      }
-   }
+pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
+where
+   P: Provider<(), Ethereum> + Clone + 'static,
+{
+   let chain = ChainId::new(params.chain)?;
+   let signer_address = params.signer.inner().address();
+
+   let nonce = client.get_transaction_count(signer_address).await?;
+   let max_fee_per_gas = params.miner_tip + U256::from(params.base_fee);
+
+   let mut tx = TransactionRequest::default()
+      .with_from(signer_address)
+      .with_to(params.recipient)
+      .with_nonce(nonce)
+      .with_chain_id(params.chain)
+      .with_value(params.value)
+      .with_input(params.call_data)
+      .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
+      .max_fee_per_gas(max_fee_per_gas.to::<u128>());
+
+   // calculate the estimated cost of the transaction
+   let gas_used = client.estimate_gas(&tx).await?;
+   let gas_cost = U256::from(gas_used * params.base_fee);
+   let balance = client.get_balance(signer_address).await?;
+   has_funds(chain, gas_cost, balance)?;
+   tx.set_gas_limit(gas_used * 15 / 10); // +50%
+
+   let signer = SafeWallet::from(params.signer.clone());
+   let tx_envelope = tx.clone().build(&signer.inner()).await?;
+
+   tracing::info!("Sending Transaction...");
+   let time = std::time::Instant::now();
+   let receipt = client
+      .send_tx_envelope(tx_envelope)
+      .await?
+      .get_receipt()
+      .await?;
+   tracing::info!("Time take to send tx: {:?}secs", time.elapsed().as_secs_f32());
+
+   Ok(receipt)
 }
 
 fn has_funds(chain: ChainId, gas_cost: U256, balance: U256) -> Result<(), anyhow::Error> {
@@ -70,82 +102,4 @@ fn has_funds(chain: ChainId, gas_cost: U256, balance: U256) -> Result<(), anyhow
    }
 
    Ok(())
-}
-
-pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
-where
-   P: Provider<(), Ethereum> + Clone + 'static,
-{
-   let chain = ChainId::new(params.chain)?;
-   let block = client
-      .get_block(BlockId::latest(), BlockTransactionsKind::Hashes)
-      .await?;
-   if block.is_none() {
-      return Err(anyhow!(
-         "Latest block not found, check with your RPC provider or try again later"
-      ));
-   }
-
-   let nonce = client
-      .get_transaction_count(params.signer.inner().address())
-      .await?;
-   let mut tx = build_tx(params.clone())?;
-   tx.set_nonce(nonce);
-
-   let signer = SafeWallet::from(params.signer.clone());
-
-   let tx_envelope = tx.clone().build(&signer.inner()).await?;
-
-   // calculate the estimated cost of the transaction
-   let base_fee = calculate_next_block_base_fee(block.unwrap());
-   let gas_used = client.estimate_gas(&tx).await?;
-   let gas_cost = U256::from(gas_used * base_fee);
-   let balance = client.get_balance(params.signer.inner().address()).await?;
-   has_funds(chain, gas_cost, balance)?;
-
-   let receipt = client
-      .send_tx_envelope(tx_envelope)
-      .await?
-      .with_required_confirmations(2)
-      .with_timeout(Some(std::time::Duration::from_secs(30)))
-      .get_receipt()
-      .await?;
-
-   Ok(receipt)
-}
-
-fn build_tx(params: TxParams) -> Result<TransactionRequest, anyhow::Error> {
-   let tx = match params.tx_type {
-      TxType::Transfer(amount, currency) => {
-         let amount = parse_units(&amount.to_string(), currency.decimals())?.get_absolute();
-
-         let (call_data, gas_limit, to) = if currency.is_native() {
-            let data = Bytes::default();
-            let recipient = params
-               .recipient
-               .ok_or(anyhow!("Recipient address is required for ETH transfers"))?;
-            (data, 21_000, recipient)
-         } else {
-            let token = currency.erc20().unwrap();
-            let recipient = params
-               .recipient
-               .ok_or(anyhow!("Recipient address is required for ERC20 transfers"))?;
-            let data = token.encode_transfer(recipient, amount);
-            (data, 100_000, token.address)
-         };
-
-         TransactionRequest::default()
-            .with_from(params.signer.inner().address())
-            .with_to(to)
-            .with_chain_id(params.chain)
-            .with_value(amount)
-            .with_gas_limit(gas_limit)
-            .with_input(call_data)
-            .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
-            .max_fee_per_gas(params.miner_tip.to::<u128>())
-      }
-      _ => todo!(),
-   };
-
-   Ok(tx)
 }

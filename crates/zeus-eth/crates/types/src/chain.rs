@@ -36,6 +36,24 @@ impl ChainId {
       Ok(chain)
    }
 
+   pub fn is_ethereum(&self) -> bool {
+      matches!(self, ChainId::Ethereum(_))
+   }
+
+   pub fn is_optimism(&self) -> bool {
+      matches!(self, ChainId::Optimism(_))
+   }
+
+   pub fn is_base(&self) -> bool {
+      matches!(self, ChainId::Base(_))
+   }
+   pub fn is_arbitrum(&self) -> bool {
+      matches!(self, ChainId::Arbitrum(_))
+   }
+   pub fn is_bsc(&self) -> bool {
+      matches!(self, ChainId::BinanceSmartChain(_))
+   }
+
    /// Return all supported chains
    pub fn supported_chains() -> Vec<ChainId> {
       SUPPORTED_CHAINS

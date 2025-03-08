@@ -11,9 +11,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let logged_in = ctx.logged_in();
    let profile_exists = ctx.profile_exists();
 
+
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
+
+   gui.send_crypto.tx_success_window.show(theme, ui);
+
 
    if !profile_exists {
       gui.register.show(ctx.clone(), theme, ui);
@@ -52,6 +56,10 @@ fn should_show_overlay(gui: &mut GUI) {
    } else if gui.settings.contacts_ui.open {
       gui.show_overlay = true;
    } else if gui.settings.encryption_settings.open {
+      gui.show_overlay = true;
+   } else if gui.token_selection.open {
+      gui.show_overlay = true;
+   } else if gui.send_crypto.contact_search_open {
       gui.show_overlay = true;
    } else {
       gui.show_overlay = false;

@@ -62,13 +62,14 @@ impl WalletUi {
       let profile = ctx.profile();
       let current_wallet = &profile.current_wallet;
       let wallets = &profile.wallets;
+      let frame = theme.frame3;
 
       Window::new("wallet_main_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .anchor(self.anchor.0, self.anchor.1)
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

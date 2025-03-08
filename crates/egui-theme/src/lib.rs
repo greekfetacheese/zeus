@@ -38,6 +38,7 @@ pub struct Theme {
    pub text_sizes: TextSizes,
    pub frame1: Frame,
    pub frame2: Frame,
+   pub frame3: Frame,
    pub frame1_visuals: FrameVisuals,
    pub frame2_visuals: FrameVisuals,
 }

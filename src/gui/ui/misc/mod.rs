@@ -182,31 +182,25 @@ pub struct LoadingWindow {
    pub msg: String,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
-   pub bg_color: Color32,
-   pub use_bg_color: bool,
 }
 
 impl LoadingWindow {
-   pub fn new(bg_color: Color32) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          msg: String::new(),
          size: (150.0, 100.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
-         bg_color,
-         use_bg_color: false,
       }
    }
 
-   pub fn open(&mut self, use_bg_color: bool, msg: impl Into<String>) {
+   pub fn open(&mut self, msg: impl Into<String>) {
       self.open = true;
-      self.use_bg_color = use_bg_color;
       self.msg = msg.into();
    }
 
    pub fn reset(&mut self) {
       self.open = false;
-      self.use_bg_color = false;
       self.msg = String::new();
    }
 
@@ -215,18 +209,13 @@ impl LoadingWindow {
          return;
       }
 
-      let frame = if self.use_bg_color {
-         Frame::window(ui.style()).fill(self.bg_color)
-      } else {
-         Frame::window(ui.style())
-      };
 
       Window::new("Loading")
          .title_bar(false)
          .resizable(false)
          .anchor(self.anchor.0, self.anchor.1)
          .collapsible(false)
-         .frame(frame)
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -244,16 +233,14 @@ pub struct MsgWindow {
    pub open: bool,
    pub title: String,
    pub message: String,
-   pub bg_color: Option<Color32>,
 }
 
 impl MsgWindow {
-   pub fn new(color: Option<Color32>) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          title: String::new(),
          message: String::new(),
-         bg_color: color,
       }
    }
 
@@ -262,6 +249,12 @@ impl MsgWindow {
       self.open = true;
       self.title = title.into();
       self.message = msg.into();
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.title.clear();
+      self.message.clear();
    }
 
    pub fn show(&mut self, ui: &mut Ui) {
@@ -273,18 +266,12 @@ impl MsgWindow {
       let msg = rich_text(&self.message).size(16.0);
       let ok = button(rich_text("Ok"));
 
-      let frame = if let Some(color) = self.bg_color {
-         Frame::window(ui.style()).fill(color)
-      } else {
-         Frame::window(ui.style())
-      };
-
       Window::new(title)
          .resizable(false)
          .movable(true)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
-         .frame(frame)
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                ui.set_min_size(vec2(300.0, 100.0));

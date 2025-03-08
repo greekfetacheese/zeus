@@ -1,10 +1,13 @@
 use crate::core::{Wallet, ZeusCtx};
 
-use super::tx::{TxParams, TxType, send_tx};
+use super::tx::{TxParams, send_tx};
 use zeus_eth::{
-   alloy_primitives::{Address, U256, utils::parse_units},
+   alloy_primitives::{Address, Bytes, U256, utils::parse_units},
+   alloy_provider::Provider,
+   alloy_rpc_types::TransactionReceipt,
    amm::{UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token},
+   utils::NumericValue,
 };
 
 use anyhow::anyhow;
@@ -17,7 +20,7 @@ pub async fn send_crypto(
    amount: U256,
    fee: String,
    chain: u64,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionReceipt, anyhow::Error> {
    let client = ctx.get_client_with_id(chain)?;
 
    if to.is_zero() {
@@ -39,17 +42,55 @@ pub async fn send_crypto(
    };
 
    let miner_tip = U256::from(fee);
+   let call_data = if currency.is_native() {
+      Bytes::default()
+   } else {
+      let token = currency.erc20().unwrap();
+      let data = token.encode_transfer(to, amount);
+      data
+   };
 
-   let tx_type = TxType::Transfer(amount, currency);
-   let params = TxParams::transfer(tx_type, sender.key.clone(), to, chain, miner_tip);
+   let value = if currency.is_native() {
+      amount
+   } else {
+      U256::ZERO
+   };
 
-   let _receipt = send_tx(client.clone(), params).await?;
+   let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
+   let params = TxParams::new(sender.key.clone(), to, value, chain, miner_tip, base_fee, call_data);
 
-   Ok(())
+   let tx = send_tx(client.clone(), params).await?;
+
+   Ok(tx)
+}
+
+pub async fn get_eth_balance(ctx: ZeusCtx, chain: u64, owner: Address) -> Result<NumericValue, anyhow::Error> {
+   let client = ctx.get_client_with_id(chain)?;
+   let balance = client.get_balance(owner).await?;
+   Ok(NumericValue::currency_balance(balance, 18))
+}
+
+pub async fn get_token_balance(ctx: ZeusCtx, owner: Address, token: ERC20Token) -> Result<NumericValue, anyhow::Error> {
+   let client = ctx.get_client_with_id(token.chain_id)?;
+   let balance = token.balance_of(client, owner, None).await?;
+   Ok(NumericValue::currency_balance(balance, token.decimals))
+}
+
+pub async fn get_currency_balance(ctx: ZeusCtx, owner: Address, currency: Currency) -> Result<NumericValue, anyhow::Error> {
+   if currency.is_native() {
+      get_eth_balance(ctx, currency.chain_id(), owner).await
+   } else {
+      get_token_balance(ctx, owner, currency.erc20().cloned().unwrap()).await
+   }
 }
 
 /// Get the ERC20 Token from the blockchain and update the db
-pub async fn get_erc20_token(ctx: ZeusCtx, chain: u64, owner: Address, token_address: Address, ) -> Result<ERC20Token, anyhow::Error> {
+pub async fn get_erc20_token(
+   ctx: ZeusCtx,
+   chain: u64,
+   owner: Address,
+   token_address: Address,
+) -> Result<ERC20Token, anyhow::Error> {
    let client = ctx.get_client_with_id(chain)?;
    let token = ERC20Token::new(client.clone(), token_address, chain).await?;
 

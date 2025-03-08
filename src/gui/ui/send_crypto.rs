@@ -1,14 +1,18 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Response, RichText, ScrollArea, SelectableLabel,
-   TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Response, RichText, ScrollArea, TextEdit, Ui, Vec2,
+   Window, vec2,
 };
+use egui::Frame;
 
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
    Contact, Wallet, ZeusCtx,
-   utils::{RT, eth::send_crypto},
+   utils::{
+      RT,
+      eth::{get_currency_balance, send_crypto},
+   },
 };
 
 use crate::assets::icons::Icons;
@@ -21,10 +25,7 @@ use crate::gui::{
    },
    utils::open_loading,
 };
-use egui_theme::{
-   Theme,
-   utils::*,
-};
+use egui_theme::{Theme, utils::*};
 
 use zeus_eth::{
    alloy_primitives::{
@@ -34,6 +35,65 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
+
+use super::button;
+
+pub struct TxSuccessWindow {
+   pub open: bool,
+   pub explorer: String,
+   pub size: Vec2,
+}
+
+impl TxSuccessWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         explorer: String::new(),
+         size: vec2(350.0, 150.0),
+      }
+   }
+
+   pub fn open(&mut self, explorer_link: impl Into<String>) {
+      self.open = true;
+      self.explorer = explorer_link.into();
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let msg = rich_text("Transaction Sent!").size(theme.text_sizes.very_large);
+      let msg2 = rich_text("View on:").size(theme.text_sizes.very_large);
+      let ok = button(rich_text("Ok").size(theme.text_sizes.normal));
+
+      Window::new("Tx Success")
+         .title_bar(false)
+         .resizable(false)
+         .movable(true)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .collapsible(false)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               ui.set_min_size(self.size);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               ui.label(msg);
+               ui.add_space(5.0);
+               ui.label(msg2);
+               ui.add_space(5.0);
+               ui.hyperlink(&self.explorer);
+               ui.add_space(20.0);
+
+               if ui.add(ok).clicked() {
+                  self.open = false;
+               }
+            });
+         });
+   }
+}
 
 pub struct SendCryptoUi {
    pub open: bool,
@@ -48,6 +108,7 @@ pub struct SendCryptoUi {
    pub recipient: String,
    pub recipient_name: Option<String>,
    pub size: (f32, f32),
+   pub tx_success_window: TxSuccessWindow,
 }
 
 impl SendCryptoUi {
@@ -64,6 +125,7 @@ impl SendCryptoUi {
          recipient: String::new(),
          recipient_name: None,
          size: (500.0, 750.0),
+         tx_success_window: TxSuccessWindow::new(),
       }
    }
 
@@ -216,7 +278,7 @@ impl SendCryptoUi {
             ui.add(
                TextEdit::singleline(&mut self.amount)
                   .hint_text("0")
-                  .font(egui::FontId::proportional(theme.text_sizes.normal))
+                  .font(egui::FontId::proportional(theme.text_sizes.large))
                   .desired_width(ui_width * 0.25)
                   .margin(Margin::same(10))
                   .background_color(theme.colors.text_edit_bg_color),
@@ -343,19 +405,59 @@ impl SendCryptoUi {
 
    fn send(&self, ctx: ZeusCtx) {
       let from = self.wallet_select.wallet.clone();
-      let to = Address::from_str(&self.recipient).unwrap_or(Address::ZERO);
-      let amount = U256::from_str(&self.amount).unwrap_or_default();
+      let recipient = self.recipient.clone();
+      let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+      let amount = NumericValue::from_str(&self.amount, self.currency.decimals());
       let currency = self.currency.clone();
-      let chain = self.chain_select.chain.id();
+      let chain = self.chain_select.chain;
       let fee = self.priority_fee.clone();
+      let explorer = chain.block_explorer().to_string();
+      let ctx_clone = ctx.clone();
 
       RT.spawn(async move {
-         open_loading(true, "Sending Transaction...".into());
-         match send_crypto(ctx, from, to, currency, amount, fee, chain).await {
-            Ok(_) => {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.loading_window.reset();
-               gui.msg_window.open("Transaction Sent", "");
+         open_loading("Sending Transaction...".into());
+         match send_crypto(
+            ctx_clone,
+            from.clone(),
+            to,
+            currency.clone(),
+            amount.uint().unwrap(),
+            fee,
+            chain.id(),
+         )
+         .await
+         {
+            Ok(tx) => {
+               {
+                  let mut gui = SHARED_GUI.write().unwrap();
+                  gui.loading_window.reset();
+                  let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
+                  gui.send_crypto.tx_success_window.open(link);
+               }
+
+               // if recipient is a wallet owned by the user then update the balance
+               // Also update the sender's balance
+               let profile = ctx.profile();
+               if profile.wallet_address_exists(&recipient) {
+                  let recipient_balance = get_currency_balance(ctx.clone(), to, currency.clone())
+                     .await
+                     .unwrap();
+
+                  ctx.write(|ctx| {
+                     ctx.balance_db
+                        .insert_currency_balance(to, recipient_balance, &currency);
+                  });
+                  ctx.update_portfolio_value(chain.id(), to);
+               }
+               let sender = from.key.inner().address();
+               let sender_balance = get_currency_balance(ctx.clone(), sender, currency.clone())
+                  .await
+                  .unwrap();
+               ctx.write(|ctx| {
+                  ctx.balance_db
+                     .insert_currency_balance(sender, sender_balance, &currency);
+               });
+               ctx.update_portfolio_value(chain.id(), sender);
             }
             Err(e) => {
                let mut gui = SHARED_GUI.write().unwrap();
@@ -393,7 +495,7 @@ impl SendCryptoUi {
                      .hint_text("Search contacts or enter an address")
                      .desired_rows(2)
                      .min_size(vec2(200.0, 30.0))
-                     .margin(Margin::same(3))
+                     .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
                ui.add_space(20.0);
@@ -402,6 +504,8 @@ impl SendCryptoUi {
             ui.vertical_centered(|ui| {
                ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
                   ui.spacing_mut().item_spacing.y = 16.0;
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  widget_visuals(ui, theme.get_button_visuals(bg_color));
 
                   // First show the wallets owned by the current account
                   ui.label(rich_text("Your Wallets").size(theme.text_sizes.large));
@@ -418,7 +522,8 @@ impl SendCryptoUi {
                         ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
                            let res = ui.horizontal(|ui| {
                               let name = rich_text(wallet.name.clone()).size(theme.text_sizes.normal);
-                              if ui.add(SelectableLabel::new(false, name)).clicked() {
+                              let button = button(name);
+                              if ui.add(button).clicked() {
                                  self.recipient = address.to_string();
                                  self.recipient_name = Some(wallet.name.clone());
                                  close_it = true;
@@ -443,7 +548,8 @@ impl SendCryptoUi {
                         ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
                            let res = ui.horizontal(|ui| {
                               let name = rich_text(contact.name.clone()).size(theme.text_sizes.normal);
-                              if ui.add(SelectableLabel::new(false, name)).clicked() {
+                              let button = button(name);
+                              if ui.add(button).clicked() {
                                  self.recipient = contact.address.clone();
                                  self.recipient_name = Some(contact.name.clone());
                                  close_it = true;
@@ -464,7 +570,8 @@ impl SendCryptoUi {
                   if let Ok(address) = Address::from_str(&self.search_query) {
                      ui.label(rich_text("Unknown Address").size(theme.text_sizes.large));
                      let address_text = rich_text(address.to_string()).size(theme.text_sizes.normal);
-                     if ui.add(SelectableLabel::new(false, address_text)).clicked() {
+                     let button = button(address_text);
+                     if ui.add(button).clicked() {
                         self.recipient = address.to_string();
                         self.recipient_name = None;
                         close_it = true;

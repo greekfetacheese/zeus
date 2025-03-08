@@ -79,6 +79,10 @@ impl Profile {
       self.wallets.iter().any(|w| w.name == name)
    }
 
+   pub fn wallet_address_exists(&self, address: &str) -> bool {
+      self.wallets.iter().any(|w| &w.key.inner().address().to_string() == address)
+   }
+
    /// Encrypt the profile and save it to a file
    pub fn encrypt_and_save(&self, dir: &PathBuf, argon: Argon2Params) -> Result<(), anyhow::Error> {
       // ! make sure we dont accidentally erased any of the wallet keys

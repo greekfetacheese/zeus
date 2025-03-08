@@ -15,9 +15,7 @@ pub use settings::SettingsUi;
 pub use token_selection::TokenSelectionWindow;
 pub use wallet::WalletUi;
 
-use eframe::egui::{Button, FontId, RichText, Sense, TextEdit, Ui, vec2, widget_text::WidgetText, widgets::Image};
-
-
+use eframe::egui::{Button, FontId, RichText, Sense, TextEdit, vec2, widget_text::WidgetText, widgets::Image};
 
 pub fn rich_text(text: impl Into<String>) -> RichText {
    RichText::new(text).size(15.0)

@@ -5,7 +5,7 @@ use crate::core::{serde_helpers, utils::*};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
-   currency::{ERC20Token, NativeCurrency},
+   currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
 
@@ -50,6 +50,18 @@ impl BalanceDB {
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<&NumericValue> {
       self.token_balances.get(&(chain, owner, token))
+   }
+
+   pub fn insert_currency_balance(&mut self, owner: Address, balance: NumericValue, currency: &Currency) {
+      if currency.is_native() {
+         let native = currency.native().unwrap();
+         let balance = balance.uint().unwrap_or_default();
+         self.insert_eth_balance(native.chain_id, owner, balance, native);
+      } else {
+         let token = currency.erc20().unwrap();
+         let balance = balance.uint().unwrap_or_default();
+         self.insert_token_balance(token.chain_id, owner, balance, token);
+      }
    }
 
    pub fn insert_eth_balance(&mut self, chain: u64, owner: Address, balance: U256, currency: &NativeCurrency) {

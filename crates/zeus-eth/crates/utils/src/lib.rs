@@ -4,10 +4,10 @@ pub mod block;
 pub mod client;
 pub mod price_feed;
 
+use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, utils::format_units};
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
-use alloy_contract::private::{Network, Provider};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use std::sync::Arc;
 use tokio::{
@@ -115,8 +115,6 @@ where
    Ok(log_chunk)
 }
 
-
-
 /// Format a very large number into a readable string
 pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zeros: bool) -> String {
    // Split the number into integer and decimal parts
@@ -179,7 +177,6 @@ fn add_thousands_separators(number: &str) -> String {
    result
 }
 
-
 pub fn format_price(price: f64) -> String {
    if price == 0.0 {
       return "0.00".to_string();
@@ -215,8 +212,6 @@ pub fn format_price(price: f64) -> String {
    format!("{}.{}", formatted_integer, formatted_decimal)
 }
 
-
-
 /// Represents a numeric value in different formats
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NumericValue {
@@ -239,6 +234,24 @@ impl NumericValue {
    pub fn new(uint: Option<U256>, float: f64, formatted: String) -> Self {
       Self {
          uint,
+         float,
+         formatted,
+      }
+   }
+
+   /// Create a new NumericValue from a string slice and convert it to [U256], [f64] and [String]
+   pub fn from_str(amount: &str, currency_decimals: u8) -> Self {
+      let float: f64 = amount.parse().unwrap_or(0.0);
+
+      // Convert from str to U256
+      let scale = 10_f64.powi(currency_decimals as i32);
+      let scaled = (float * scale) as u128;
+      let uint = U256::from(scaled);
+
+      let formatted = format_number(&amount, 2, true);
+
+      Self {
+         uint: Some(uint),
          float,
          formatted,
       }
@@ -267,6 +280,8 @@ impl NumericValue {
    }
 
    /// Create a new NumericValue to represent a currency value
+   ///
+   /// `amount` * `price`
    pub fn currency_value(amount: f64, price: f64) -> Self {
       let value = if amount == 0.0 || price == 0.0 {
          0.0
