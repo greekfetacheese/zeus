@@ -296,6 +296,10 @@ impl NumericValue {
       }
    }
 
+   pub fn is_zero(&self) -> bool {
+      matches!(self.float, 0.0) || matches!(self.formatted.as_str(), "0")
+   }
+
    pub fn uint(&self) -> Option<U256> {
       self.uint
    }
@@ -346,5 +350,11 @@ mod tests {
       let value = NumericValue::currency_price(price);
       assert_eq!(value.float, 0.001834247995202872);
       assert_eq!(value.formatted, "0.0018");
+   }
+
+   #[test]
+   fn test_zero() {
+      let value = NumericValue::default();
+      assert!(value.is_zero());
    }
 }

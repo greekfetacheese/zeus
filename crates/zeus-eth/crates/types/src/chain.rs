@@ -146,6 +146,8 @@ impl ChainId {
    }
 
    /// Gas needed for an ERC20 Transfer
+   /// 
+   /// This is an estimate since the actual gas cost may vary depending on the token
    pub fn erc20_transfer_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum(_) => 50_000,

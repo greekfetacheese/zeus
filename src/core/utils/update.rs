@@ -26,7 +26,9 @@ pub async fn on_startup(ctx: ZeusCtx) {
       tracing::error!("Error updating token balance: {:?}", e);
    }
 
+   let time = Instant::now();
    portfolio_update(ctx.clone());
+   tracing::info!("Time taken to calculate all portfolios: {:?} secs", time.elapsed().as_secs_f32());
 
    for chain in SUPPORTED_CHAINS {
       match update_base_fee(ctx.clone(), chain).await {
@@ -247,7 +249,7 @@ pub async fn update_base_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Err
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 90;
+   const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {

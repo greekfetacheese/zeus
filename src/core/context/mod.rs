@@ -6,7 +6,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::alloy_primitives::Address;
+use zeus_eth::{alloy_primitives::Address, types::chain};
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
