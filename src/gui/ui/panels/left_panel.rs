@@ -81,7 +81,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    });
 }
 
-
+/* 
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
    let mut open = gui.data_inspection;
@@ -152,3 +152,4 @@ fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
 
    gui.data_inspection = open;
 }
+*/

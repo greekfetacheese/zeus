@@ -121,20 +121,16 @@ impl UniswapV2Pool {
    }
 
    /// Does this pool have enough liquidity
+   ///
+   /// If state is None, it will return true so we dont accidentally remove pools
    pub fn enough_liquidity(&self) -> bool {
       let base_token = self.base_token();
-      let reserve = if self.is_token0(base_token.address) {
-         self
-            .state
-            .as_ref()
-            .map(|state| state.reserve0)
-            .unwrap_or(U256::ZERO)
+      let reserve = if self.is_token0(base_token.address) && self.state.is_some() {
+         self.state.as_ref().unwrap().reserve0
+      } else if self.is_token1(base_token.address) && self.state.is_some() {
+         self.state.as_ref().unwrap().reserve1
       } else {
-         self
-            .state
-            .as_ref()
-            .map(|state| state.reserve1)
-            .unwrap_or(U256::ZERO)
+         return true;
       };
       let threshold = minimum_liquidity(base_token);
       reserve >= threshold

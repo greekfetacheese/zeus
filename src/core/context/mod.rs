@@ -6,7 +6,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::{alloy_primitives::Address, types::chain};
+use zeus_eth::alloy_primitives::Address;
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
@@ -115,22 +115,16 @@ impl ZeusCtx {
       Ok(())
    }
 
-   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
+   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<NumericValue> {
       self.read(|ctx| {
          ctx.balance_db
             .get_token_balance(chain, owner, token)
             .cloned()
-            .unwrap_or_default()
       })
    }
 
-   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.read(|ctx| {
-         ctx.balance_db
-            .get_eth_balance(chain, owner)
-            .cloned()
-            .unwrap_or_default()
-      })
+   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> Option<NumericValue> {
+      self.read(|ctx| ctx.balance_db.get_eth_balance(chain, owner).cloned())
    }
 
    pub fn get_currencies(&self, chain: u64) -> Arc<Vec<Currency>> {
@@ -174,11 +168,21 @@ impl ZeusCtx {
       self.read(|ctx| ctx.contact_db.contacts.clone())
    }
 
-   pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self.read(|ctx| ctx.pool_manager.get_token_price(token).unwrap_or_default())
+   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
+      self.read(|ctx| ctx.pool_manager.get_token_price(token))
    }
 
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
+      if currency.is_native() {
+         let wrapped_token = ERC20Token::native_wrapped_token(currency.chain_id());
+         self.get_token_price(&wrapped_token).unwrap_or_default()
+      } else {
+         let token = currency.erc20().unwrap();
+         self.get_token_price(&token).unwrap_or_default()
+      }
+   }
+
+   pub fn get_currency_price_opt(&self, currency: &Currency) -> Option<NumericValue> {
       if currency.is_native() {
          let wrapped_token = ERC20Token::native_wrapped_token(currency.chain_id());
          self.get_token_price(&wrapped_token)
@@ -190,20 +194,23 @@ impl ZeusCtx {
 
    /// Get the currency's value in USD for the given chain and owner
    pub fn get_currency_value(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
-      if currency.is_native() {
-         let token = ERC20Token::native_wrapped_token(chain);
-         let price = self.get_token_price(&token);
-         let balance = self.get_eth_balance(chain, owner);
-         return NumericValue::currency_value(balance.float(), price.float());
-      } else {
-         let token = currency.erc20().unwrap();
-         let price = self.get_token_price(token);
-         let balance = self.get_token_balance(chain, owner, token.address);
-         return NumericValue::currency_value(balance.float(), price.float());
-      }
+      let price = self.get_currency_price(currency);
+      let balance = self.get_currency_balance(chain, owner, currency);
+      NumericValue::currency_value(balance.float(), price.float())
    }
 
    pub fn get_currency_balance(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
+      if currency.is_native() {
+         self.get_eth_balance(chain, owner).unwrap_or_default()
+      } else {
+         let token = currency.erc20().unwrap();
+         self
+            .get_token_balance(chain, owner, token.address)
+            .unwrap_or_default()
+      }
+   }
+
+   pub fn get_currency_balance_opt(&self, chain: u64, owner: Address, currency: &Currency) -> Option<NumericValue> {
       if currency.is_native() {
          self.get_eth_balance(chain, owner)
       } else {
@@ -362,7 +369,10 @@ pub struct BaseFee {
 
 impl Default for BaseFee {
    fn default() -> Self {
-      Self { current: 1, next: 1 }
+      Self {
+         current: 1,
+         next: 1,
+      }
    }
 }
 
@@ -458,9 +468,6 @@ impl ZeusContext {
       self.profile.current_wallet.clone()
    }
 }
-
-
-
 
 mod tests {
    #[allow(unused_imports)]

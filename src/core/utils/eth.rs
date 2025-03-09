@@ -5,7 +5,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256, utils::parse_units},
    alloy_provider::Provider,
    alloy_rpc_types::TransactionReceipt,
-   amm::{UniswapV2Pool, UniswapV3Pool},
+   amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
@@ -57,7 +57,15 @@ pub async fn send_crypto(
    };
 
    let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
-   let params = TxParams::new(sender.key.clone(), to, value, chain, miner_tip, base_fee, call_data);
+   let params = TxParams::new(
+      sender.key.clone(),
+      to,
+      value,
+      chain,
+      miner_tip,
+      base_fee,
+      call_data,
+   );
 
    let tx = send_tx(client.clone(), params).await?;
 
@@ -76,7 +84,11 @@ pub async fn get_token_balance(ctx: ZeusCtx, owner: Address, token: ERC20Token) 
    Ok(NumericValue::currency_balance(balance, token.decimals))
 }
 
-pub async fn get_currency_balance(ctx: ZeusCtx, owner: Address, currency: Currency) -> Result<NumericValue, anyhow::Error> {
+pub async fn get_currency_balance(
+   ctx: ZeusCtx,
+   owner: Address,
+   currency: Currency,
+) -> Result<NumericValue, anyhow::Error> {
    if currency.is_native() {
       get_eth_balance(ctx, currency.chain_id(), owner).await
    } else {
@@ -133,9 +145,10 @@ pub async fn get_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
    let chain = token.chain_id;
    let client = ctx.get_client_with_id(chain)?;
    let pool_manager = ctx.pool_manager();
+   let dex_kind = DexKind::main_dexes(chain);
 
    pool_manager
-      .get_v2_pools_for_token(client, token.clone())
+      .get_v2_pools_for_token(client, token.clone(), dex_kind)
       .await?;
    let pools = ctx.get_v2_pools(token);
 
@@ -151,11 +164,33 @@ pub async fn get_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
    let chain = token.chain_id;
    let client = ctx.get_client_with_id(chain)?;
    let pool_manager = ctx.pool_manager();
+   let dex_kind = DexKind::main_dexes(chain);
 
    pool_manager
-      .get_v3_pools_for_token(client, token.clone())
+      .get_v3_pools_for_token(client, token.clone(), dex_kind)
       .await?;
    let pools = ctx.get_v3_pools(token);
 
    Ok(pools)
+}
+
+pub async fn get_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3: bool) -> Result<(), anyhow::Error> {
+   let chain = token.chain_id;
+   let client = ctx.get_client_with_id(chain)?;
+   let pool_manager = ctx.pool_manager();
+   let dex_kind = DexKind::main_dexes(chain);
+
+   if v2 {
+      pool_manager
+         .get_v2_pools_for_token(client.clone(), token.clone(), dex_kind.clone())
+         .await?;
+   }
+
+   if v3 {
+      pool_manager
+         .get_v3_pools_for_token(client, token.clone(), dex_kind)
+         .await?;
+   }
+
+   Ok(())
 }

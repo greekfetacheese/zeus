@@ -28,8 +28,11 @@ use egui_theme::{Theme, utils::*};
 
 use zeus_eth::{
    alloy_primitives::{
-      utils::{format_units, parse_units}, Address, U256
-   }, amm::pool_manager, currency::{Currency, ERC20Token, NativeCurrency}, utils::NumericValue
+      Address, U256,
+      utils::{format_units, parse_units},
+   },
+   currency::{Currency, ERC20Token, NativeCurrency},
+   utils::NumericValue,
 };
 
 use super::button;
@@ -240,7 +243,7 @@ impl SendCryptoUi {
          ui.add_space(5.0);
 
          Grid::new("token_selection")
-            .spacing(vec2(0.0, 0.0))
+            .spacing(vec2(5.0, 0.0))
             .show(ui, |ui| {
                bg_color_on_idle(ui, Color32::TRANSPARENT);
                let res = self.token_button(theme, icons.clone(), ui);
@@ -350,17 +353,26 @@ impl SendCryptoUi {
       });
    }
 
-   // ! Still needs some work
+   fn token_button(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> Response {
+      let icon = icons.currency_icon(&self.currency);
+      let button = img_button(
+         icon,
+         rich_text(self.currency.symbol()).size(theme.text_sizes.normal),
+      );
+      ui.add(button)
+   }
+
+
    fn value(&mut self, ctx: ZeusCtx) -> NumericValue {
-      let price = ctx.get_currency_price(&self.currency);
+      let price = ctx.get_currency_price_opt(&self.currency);
       let amount = self.amount.parse().unwrap_or(0.0);
 
       if amount == 0.0 {
          return NumericValue::default();
       }
 
-      if !price.is_zero() {
-         return NumericValue::currency_value(amount, price.float());
+      if !price.is_none() {
+         return NumericValue::currency_value(amount, price.unwrap().float());
       } else {
          // probably no pool data available to calculate the price
 
@@ -370,7 +382,7 @@ impl SendCryptoUi {
             return NumericValue::default();
          }
 
-         // don't spam the rpc in the next frame
+         // don't spam the rpc in the next frames
          if self.pool_data_syncing {
             return NumericValue::default();
          }
@@ -382,58 +394,41 @@ impl SendCryptoUi {
          let owner = self.wallet_select.wallet.key.inner().address();
          let chain_id = self.chain_select.chain.id();
 
-         if v2_pools.is_empty() && v3_pools.is_empty() {
-            self.pool_data_syncing = true;
-         }
+         if v2_pools.is_empty() || v3_pools.is_empty() {
+         self.pool_data_syncing = true;
+         RT.spawn(async move {
+            match eth::get_pools_for_token(
+               ctx.clone(),
+               token.clone(),
+               v2_pools.is_empty(),
+               v3_pools.is_empty(),
+            )
+            .await
+            {
+               Ok(_) => {
+                  {
+                     let mut gui = SHARED_GUI.write().unwrap();
+                     gui.send_crypto.pool_data_syncing = false;
+                  }
+                  let client = ctx.get_client_with_id(chain_id).unwrap();
+                  let pool_manager = ctx.pool_manager();
+                  pool_manager
+                     .update_and_clean(client, chain_id)
+                     .await
+                     .unwrap();
+                  ctx.update_portfolio_value(chain_id, owner);
+                  let _ = ctx.save_pool_data();
+                  let _ = ctx.save_portfolio_db();
+               }
+               Err(e) => {
+                  tracing::error!("Error getting pools: {:?}", e);
+                  let mut gui = SHARED_GUI.write().unwrap();
+                  gui.send_crypto.pool_data_syncing = false;
+               }
+            };
+         });
+      }
 
-         if v2_pools.is_empty() {
-            let token = token.clone();
-            let ctx = ctx.clone();
-            RT.spawn(async move {
-               match eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await {
-                  Ok(_) => {
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.send_crypto.pool_data_syncing = false;
-                  }
-                  Err(e) => {
-                     tracing::error!("Error getting v2 pools: {:?}", e);
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.send_crypto.pool_data_syncing = false;
-                  }
-               };
-               let client = ctx.get_client_with_id(chain_id).unwrap();
-               let pool_manager = ctx.pool_manager();
-               pool_manager.update_minimal(client, chain_id, vec![token.clone()]).await.unwrap();
-               ctx.update_portfolio_value(chain_id, owner);
-               let _ = ctx.save_pool_data();
-               let _ = ctx.save_portfolio_db();
-            });
-         }
-
-         if v3_pools.is_empty() {
-            let token = token.clone();
-            let ctx = ctx.clone();
-            RT.spawn(async move {
-               match eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await {
-                  Ok(_) => {
-                     tracing::info!("Got v3 pools for: {}", token.symbol);
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.send_crypto.pool_data_syncing = false;
-                  }
-                  Err(e) => {
-                     tracing::error!("Error getting v3 pools: {:?}", e);
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.send_crypto.pool_data_syncing = false;
-                  }
-               };
-               let client = ctx.get_client_with_id(chain_id).unwrap();
-               let pool_manager = ctx.pool_manager();
-               pool_manager.update_minimal(client, chain_id, vec![token.clone()]).await.unwrap();
-               ctx.update_portfolio_value(chain_id, owner);
-               let _ = ctx.save_pool_data();
-               let _ = ctx.save_portfolio_db();
-            });
-         }
          return NumericValue::default();
       }
    }
@@ -459,7 +454,10 @@ impl SendCryptoUi {
 
       // native token price
       let native_token = ERC20Token::native_wrapped_token(chain.id());
-      let price = ctx.get_token_price(&native_token).float();
+      let price = ctx
+         .get_token_price(&native_token)
+         .unwrap_or_default()
+         .float();
 
       let cost = gas_used * fee;
       let cost = format_units(cost, native_token.decimals).unwrap_or_default();
@@ -467,15 +465,6 @@ impl SendCryptoUi {
 
       // cost in usd
       NumericValue::currency_value(cost, price)
-   }
-
-   fn token_button(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> Response {
-      let icon = icons.currency_icon(&self.currency);
-      let button = img_button(
-         icon,
-         rich_text(self.currency.symbol()).size(theme.text_sizes.normal),
-      );
-      ui.add(button)
    }
 
    fn send(&self, ctx: ZeusCtx) {

@@ -38,13 +38,12 @@ pub struct UniswapV3Pool {
 
    /// Quote token USD price
    pub quote_usd: f64,
-
-   pub base_token_liquidity: U256,
 }
 
 /// The state of a Uniswap V3 Pool
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V3PoolState {
+   pub base_token_liquidity: U256,
    pub liquidity: u128,
    pub sqrt_price: U256,
    pub tick: i32,
@@ -98,6 +97,7 @@ impl V3PoolState {
       let tick_spacing: i32 = pool_data.tickSpacing.to_string().parse()?;
 
       Ok(Self {
+         base_token_liquidity: pool_data.base_token_liquidity,
          liquidity: pool_data.liquidity,
          sqrt_price: U256::from(pool_data.sqrtPrice),
          tick,
@@ -130,7 +130,6 @@ impl UniswapV3Pool {
          state: None,
          base_usd: 0.0,
          quote_usd: 0.0,
-         base_token_liquidity: U256::ZERO,
       }
    }
 
@@ -185,9 +184,15 @@ impl UniswapV3Pool {
    }
 
    /// Does this pool have enough liquidity
+   ///
+   /// If state is None, it will return true so we dont accidentally remove pools
    pub fn enough_liquidity(&self) -> bool {
       let threshold = minimum_liquidity(self.base_token());
-      self.base_token_liquidity >= threshold
+      if self.state.is_none() {
+         return true;
+      } else {
+         return self.state.as_ref().unwrap().base_token_liquidity >= threshold;
+      }
    }
 
    /// See [is_base_token]

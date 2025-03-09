@@ -18,9 +18,9 @@ use crate::uniswap::{
 };
 use currency::erc20::ERC20Token;
 use utils::{
+   NumericValue,
    batch_request::{V2PoolReserves, V3Pool2, V3PoolData, get_v2_pool_reserves, get_v3_pools, get_v3_state},
    price_feed::get_base_token_price,
-   NumericValue
 };
 
 use serde::{Deserialize, Serialize};
@@ -96,11 +96,15 @@ impl PoolStateManagerHandle {
    }
 
    /// Get a specific v2 pools for the given chain and token pair
+   ///
+   /// token order does not matter
    pub fn get_v2_pool(&self, chain_id: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
       self.read(|manager| manager.get_v2_pool(chain_id, token0, token1))
    }
 
    /// Get a specific v3 pools for the given chain, fee and token pair
+   ///
+   /// token order does not matter
    pub fn get_v3_pool(&self, chain_id: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
       self.read(|manager| manager.get_v3_pool(chain_id, fee, token0, token1))
    }
@@ -137,7 +141,20 @@ impl PoolStateManagerHandle {
       Ok(())
    }
 
+   /// Update everything in the manager and cleanup pools that do not have sufficient liquidity
+   pub async fn update_and_clean<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
+   where
+      P: Provider<(), N> + Clone + 'static,
+      N: Network,
+   {
+      self.update_pool_state(client.clone(), chain).await?;
+      self.cleanup_pools();
+      self.calculate_prices()?;
+      Ok(())
+   }
+
    /// Update only 1 pool for each token
+   #[warn(deprecated)]
    pub async fn update_minimal<P, N>(&self, client: P, chain: u64, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
    where
       P: Provider<(), N> + Clone + 'static,
@@ -145,6 +162,7 @@ impl PoolStateManagerHandle {
    {
       let mut v2_pools = Vec::new();
       let mut v3_pools = Vec::new();
+      let dex_kinds = DexKind::main_dexes(chain);
 
       // grab only 1 pool for each token
       for token in tokens {
@@ -154,12 +172,13 @@ impl PoolStateManagerHandle {
 
          let (v2_pool, v3_pool) = self.read(|manager| manager.grab_pool_for(token.clone()));
 
+         // if they dont exist, fetch them
          if v2_pool.is_none() && v3_pool.is_none() {
             self
-               .get_v2_pools_for_token(client.clone(), token.clone())
+               .get_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
                .await?;
             self
-               .get_v3_pools_for_token(client.clone(), token.clone())
+               .get_v3_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
                .await?;
          }
 
@@ -197,6 +216,11 @@ impl PoolStateManagerHandle {
       self.write(|manager| manager.update_state(v2_reserves, v3_state))
    }
 
+   /// Cleanup pools that do not have sufficient liquidity
+   pub fn cleanup_pools(&self) {
+      self.write(|manager| manager.cleanup_pools())
+   }
+
    /// Update the state for the given pools for the given chain
    pub async fn update_state_for_pools<P, N>(
       &self,
@@ -232,17 +256,29 @@ impl PoolStateManagerHandle {
    /// - The token's chain id
    /// - All the possible [DexKind] for the chain
    /// - Base Tokens [ERC20Token::base_tokens()]
-   pub async fn get_v2_pools_for_token<P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+   pub async fn get_v2_pools_for_token<P, N>(
+      &self,
+      client: P,
+      token: ERC20Token,
+      dex_kinds: Vec<DexKind>,
+   ) -> Result<(), anyhow::Error>
    where
       P: Provider<(), N> + Clone + 'static,
       N: Network,
    {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
-      let dex_kinds = DexKind::all(token.chain_id);
-
       let mut pools = Vec::new();
+
       for base_token in base_tokens {
          if base_token.address == token.address {
+            continue;
+         }
+
+         // if pool already exist, skip
+         if self
+            .get_v2_pool(token.chain_id, base_token.address, token.address)
+            .is_some()
+         {
             continue;
          }
 
@@ -252,10 +288,10 @@ impl PoolStateManagerHandle {
             }
 
             tracing::info!(
-               "Getting v2 pool for: {}-{} on: {} Chain Id: {}",
+               "Getting {} pool for: {}-{} Chain Id: {}",
+               dex.to_str(),
                token.symbol,
                base_token.symbol,
-               dex.to_str(),
                token.chain_id
             );
 
@@ -268,6 +304,12 @@ impl PoolStateManagerHandle {
             )
             .await;
             if let Ok(pool) = pool {
+               tracing::info!(
+                  "Got {} pool for {}/{}",
+                  dex.to_str(),
+                  pool.token0.symbol,
+                  pool.token1.symbol
+               );
                pools.push(pool);
             }
          }
@@ -281,14 +323,21 @@ impl PoolStateManagerHandle {
    /// - The token's chain id
    /// - All the possible [DexKind] for the chain
    /// - Base Tokens [ERC20Token::base_tokens()]
-   pub async fn get_v3_pools_for_token<P, N>(&self, client: P, token: ERC20Token) -> Result<(), anyhow::Error>
+   pub async fn get_v3_pools_for_token<P, N>(
+      &self,
+      client: P,
+      token: ERC20Token,
+      dex_kinds: Vec<DexKind>,
+   ) -> Result<(), anyhow::Error>
    where
       P: Provider<(), N> + Clone + 'static,
       N: Network,
    {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
-      let dex_kinds = DexKind::all(token.chain_id);
-
+      let base_token_map = base_tokens
+         .iter()
+         .map(|t| (t.address, t))
+         .collect::<HashMap<_, _>>();
       let mut pools = Vec::new();
 
       for base_token in &base_tokens {
@@ -303,11 +352,10 @@ impl PoolStateManagerHandle {
 
             let factory = dex.factory(token.chain_id)?;
             tracing::info!(
-               "Getting v3 pools for: {}-{} on: {} with factory {} Chain Id: {}",
-               token.address,
-               base_token.address,
+               "Getting {} pools for: {}-{} Chain Id: {}",
                dex.to_str(),
-               factory,
+               token.symbol,
+               base_token.symbol,
                token.chain_id
             );
             let v3_pools = get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
@@ -316,27 +364,41 @@ impl PoolStateManagerHandle {
       }
 
       let mut pool_result = Vec::new();
-      for base_token in base_tokens {
-         if base_token.address == token.address {
+
+      for dex in &dex_kinds {
+         if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
             continue;
          }
-
-         for dex in &dex_kinds {
-            if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
-               continue;
-            }
-            for pool in &pools {
-               if !pool.addr.is_zero() {
-                  let fee: u32 = pool.fee.to_string().parse()?;
-                  pool_result.push(UniswapV3Pool::new(
-                     token.chain_id,
-                     pool.addr,
-                     fee,
-                     token.clone(),
-                     base_token.clone(),
-                     *dex,
-                  ));
-               }
+         for pool in &pools {
+            if !pool.addr.is_zero() {
+               let fee: u32 = pool.fee.to_string().parse()?;
+               let base_token = if let Some(base_token) = base_token_map.get(&pool.token0).cloned() {
+                  base_token
+               } else if let Some(base_token) = base_token_map.get(&pool.token1).cloned() {
+                  base_token
+               } else {
+                  anyhow::bail!(
+                     "Could not find base token for {}/{} (Shouldn't happen)",
+                     pool.token0,
+                     pool.token1
+                  );
+               };
+               let v3_pool = UniswapV3Pool::new(
+                  token.chain_id,
+                  pool.addr,
+                  fee,
+                  token.clone(),
+                  base_token.clone(),
+                  *dex,
+               );
+               tracing::info!(
+                  "Got {} pool for {}/{} - Fee: {}",
+                  dex.to_str(),
+                  v3_pool.token0.symbol,
+                  v3_pool.token1.symbol,
+                  v3_pool.fee
+               );
+               pool_result.push(v3_pool);
             }
          }
       }
@@ -406,6 +468,29 @@ impl PoolStateManager {
          token_prices,
          concurrency,
       }
+   }
+
+   pub fn cleanup_pools(&mut self) {
+      for (_, pool) in self.v2_pools.iter_mut() {
+         if !pool.enough_liquidity() {
+            println!(
+               "Pool {}/{} - {} does not have sufficient liquidity",
+               pool.token0.symbol, pool.token1.symbol, pool.address
+            );
+         }
+      }
+
+      for (_, pool) in self.v3_pools.iter_mut() {
+         if !pool.enough_liquidity() {
+            println!(
+               "Pool {}/{} - {} does not have sufficient liquidity",
+               pool.token0.symbol, pool.token1.symbol, pool.address
+            );
+         }
+      }
+
+      self.v2_pools.retain(|_, pool| pool.enough_liquidity());
+      self.v3_pools.retain(|_, pool| pool.enough_liquidity());
    }
 
    /// Get only 1 pool for the given token
@@ -594,10 +679,24 @@ impl PoolStateManager {
             .push(quote_price);
       }
 
-      // calculate the average price
-      for ((chain_id, token), prices) in prices {
-         let price = prices.iter().sum::<f64>() / (prices.len() as f64);
-         self.token_prices.insert((chain_id, token), NumericValue::currency_price(price));
+      // use the highest price
+      for ((chain_id, token), prices) in &prices {
+         let mut prices = prices.clone();
+         prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+         if let Some(price) = prices.last() {
+            self
+               .token_prices
+               .insert((*chain_id, *token), NumericValue::currency_price(*price));
+         } else {
+            tracing::warn!(
+               "No prices available for chain_id: {}, token: {}",
+               chain_id,
+               token
+            );
+            self
+               .token_prices
+               .insert((*chain_id, *token), NumericValue::default());
+         }
       }
 
       Ok(())
@@ -621,7 +720,10 @@ impl PoolStateManager {
       let mut prices = HashMap::new();
       for token in tokens {
          let price = get_base_token_price(client.clone(), token.chain_id, token.address, None).await?;
-         prices.insert((token.chain_id, token.address), NumericValue::currency_price(price));
+         prices.insert(
+            (token.chain_id, token.address),
+            NumericValue::currency_price(price),
+         );
       }
       Ok(prices)
    }
