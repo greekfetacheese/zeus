@@ -270,25 +270,14 @@ impl UniswapV3Pool {
       }
 
       let base_token = self.base_token();
+      let price = if self.is_token0(base_token.address) {
+         self.token1_price(base_usd).unwrap_or_default()
+      } else {
+         self.token0_price(base_usd).unwrap_or_default()
+      };
 
-      let unit = parse_units("1", base_token.decimals)
-         .unwrap()
-         .get_absolute();
-      let amount_out = self
-         .simulate_swap(base_token.address, unit)
-         .unwrap_or(U256::ZERO);
-      let amount_out = format_units(amount_out, base_token.decimals)
-         .unwrap()
-         .parse::<f64>()
-         .unwrap();
-
-      if amount_out == 0.0 {
-         return 0.0;
-      }
-
-      let quote_price = base_usd / amount_out;
-      self.quote_usd = quote_price;
-      quote_price
+      self.quote_usd = price;
+      price
    }
 
    /// Calculate the price of token in terms of quote token
@@ -304,7 +293,10 @@ impl UniswapV3Pool {
       }
       let unit = parse_units("1", self.token1.decimals)?.get_absolute();
       let amount_out = self.simulate_swap(self.token1.address, unit)?;
-      let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
+      if amount_out == U256::ZERO {
+         return Ok(0.0);
+      }
+      let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
       Ok(token1_price / amount_out)
    }
 
@@ -315,7 +307,10 @@ impl UniswapV3Pool {
       }
       let unit = parse_units("1", self.token0.decimals)?.get_absolute();
       let amount_out = self.simulate_swap(self.token0.address, unit)?;
-      let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
+      if amount_out == U256::ZERO {
+         return Ok(0.0);
+      }
+      let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
       Ok(token0_price / amount_out)
    }
 
@@ -338,5 +333,73 @@ impl UniswapV3Pool {
       } else {
          anyhow::bail!("Could not determine a common paired token");
       }
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use alloy_primitives::{
+      address,
+      utils::{format_units, parse_units},
+   };
+   use alloy_provider::ProviderBuilder;
+   use url::Url;
+
+   #[tokio::test]
+   async fn uniswap_v3_pool_test() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().on_http(url);
+
+      let usdt = ERC20Token::usdt();
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token::new(client.clone(), uni_addr, 1).await.unwrap();
+
+      let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
+      let mut pool = UniswapV3Pool::new(
+         1,
+         pool_address,
+         3000,
+         usdt.clone(),
+         uni.clone(),
+         DexKind::UniswapV3,
+      );
+
+      let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
+         .await
+         .unwrap();
+      pool.update_state(state);
+
+      let amount_in = parse_units("1", usdt.decimals).unwrap().get_absolute();
+      let amount_out = pool.simulate_swap(usdt.address, amount_in).unwrap();
+
+      let amount_in = format_units(amount_in, usdt.decimals).unwrap();
+      let amount_out = format_units(amount_out, uni.decimals).unwrap();
+
+      println!("=== V3 Swap Test ===");
+      println!(
+         "Swapped {} {} For {} {}",
+         amount_in, usdt.symbol, amount_out, uni.symbol
+      );
+      println!("=== Tokens Price Test ===");
+
+      let (token0_usd, token1_usd) = pool.tokens_usd(client.clone(), None).await.unwrap();
+      println!("{} Price: ${}", pool.token0.symbol, token0_usd);
+      println!("{} Price: ${}", pool.token1.symbol, token1_usd);
+
+      println!("=== Quote Price Test ===");
+      let quote_price = pool.caluclate_quote_price(token1_usd);
+      println!("{} Price: ${}", pool.quote_token().symbol, quote_price);
+
+      assert_eq!(pool.token0.address, uni.address);
+      assert_eq!(pool.token1.address, usdt.address);
+
+      pool.toggle();
+      assert_eq!(pool.token0.address, usdt.address);
+      assert_eq!(pool.token1.address, uni.address);
+
+      pool.reorder();
+      assert_eq!(pool.token0.address, uni.address);
+      assert_eq!(pool.token1.address, usdt.address);
    }
 }

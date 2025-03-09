@@ -225,23 +225,14 @@ impl UniswapV2Pool {
       }
 
       let base_token = self.base_token();
+      let price = if self.is_token0(base_token.address) {
+         self.token1_price(base_usd).unwrap_or_default()
+      } else {
+         self.token0_price(base_usd).unwrap_or_default()
+      };
 
-      let unit = parse_units("1", base_token.decimals)
-         .unwrap()
-         .get_absolute();
-      let amount_out = self.simulate_swap(base_token.address, unit).unwrap();
-      let amount_out = format_units(amount_out, base_token.decimals)
-         .unwrap()
-         .parse::<f64>()
-         .unwrap();
-
-      if amount_out == 0.0 {
-         return 0.0;
-      }
-
-      let quote_price = base_usd / amount_out;
-      self.quote_usd = quote_price;
-      quote_price
+      self.quote_usd = price;
+      price
    }
 
    /// Token0 USD price but we need to know the usd price of token1
@@ -256,7 +247,7 @@ impl UniswapV2Pool {
          return Ok(0.0);
       }
 
-      let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
+      let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
       Ok(token1_price / amount_out)
    }
 
@@ -272,7 +263,7 @@ impl UniswapV2Pool {
          return Ok(0.0);
       }
 
-      let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
+      let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
       Ok(token0_price / amount_out)
    }
 
