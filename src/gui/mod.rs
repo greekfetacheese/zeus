@@ -4,6 +4,7 @@ pub mod utils;
 pub mod window;
 
 use eframe::egui::{Context, Ui};
+use ui::settings;
 use std::sync::{Arc, RwLock};
 
 use crate::assets::icons::Icons;
@@ -49,7 +50,7 @@ pub struct GUI {
 
    pub top_left_area: ui::panels::top_panel::TopLeftArea,
 
-   pub settings: ui::SettingsUi,
+   pub settings: ui::settings::SettingsUi,
 
    pub data_inspection: bool,
 }
@@ -63,6 +64,7 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let wallet_ui = ui::WalletUi::new();
+      let settings = settings::SettingsUi::new();
 
       Self {
          egui_ctx,
@@ -81,7 +83,7 @@ impl GUI {
          msg_window,
          loading_window,
          top_left_area,
-         settings: ui::SettingsUi::new(),
+         settings,
          data_inspection: false,
       }
    }

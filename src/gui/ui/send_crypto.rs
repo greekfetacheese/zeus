@@ -111,6 +111,7 @@ pub struct SendCryptoUi {
    pub tx_success_window: TxSuccessWindow,
    /// Flag to not spam the rpc when fetching pool data
    pub pool_data_syncing: bool,
+   pub syncing_balance: bool,
 }
 
 impl SendCryptoUi {
@@ -129,6 +130,7 @@ impl SendCryptoUi {
          size: (500.0, 750.0),
          tx_success_window: TxSuccessWindow::new(),
          pool_data_syncing: false,
+         syncing_balance: false,
       }
    }
 
@@ -257,10 +259,17 @@ impl SendCryptoUi {
                      .color(theme.colors.text_secondary)
                      .size(theme.text_sizes.normal),
                );
-               token_selection.show(ctx.clone(), chain, owner, icons.clone(), &currencies, ui);
+
+               if self.syncing_balance {
+                  ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+               }
+
+               token_selection.show(ctx.clone(), theme, icons.clone(), chain, owner, &currencies, ui);
+
                if let Some(currency) = token_selection.get_currency() {
                   self.currency = currency.clone();
                   token_selection.reset();
+                  self.sync_balance(ctx.clone());
                }
                ui.end_row();
             });
@@ -360,6 +369,38 @@ impl SendCryptoUi {
          rich_text(self.currency.symbol()).size(theme.text_sizes.normal),
       );
       ui.add(button)
+   }
+
+   fn sync_balance(&mut self, ctx: ZeusCtx) {
+      self.syncing_balance = true;
+      let chain = self.chain_select.chain.id();
+      let owner = self.wallet_select.wallet.key.inner().address();
+      let currency = self.currency.clone();
+      RT.spawn(async move {
+         let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
+            Ok(b) => {
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.send_crypto.syncing_balance = false;
+               b
+            }
+            Err(e) => {
+               tracing::error!("Error getting balance: {:?}", e);
+               {
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.send_crypto.syncing_balance = false;
+               }
+               return;
+            }
+         };
+
+         ctx.write(|ctx| {
+            ctx.balance_db
+               .insert_currency_balance(owner, balance, &currency);
+         });
+
+         ctx.update_portfolio_value(chain, owner);
+         let _ = ctx.save_portfolio_db();
+      });
    }
 
 

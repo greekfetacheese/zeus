@@ -192,7 +192,7 @@ impl SwapUi {
                         });
                      });
 
-                     token_selection.show(ctx, chain_id, owner, icons, &currencies, ui);
+                     token_selection.show(ctx, theme, icons, chain_id, owner, &currencies, ui);
 
                      let selected_currency = token_selection.get_currency();
                      let direction = token_selection.get_currency_direction();

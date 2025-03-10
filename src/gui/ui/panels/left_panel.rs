@@ -1,11 +1,10 @@
-use eframe::egui::{Align2, Color32, Frame, Ui, Window};
+use eframe::egui::{Color32, Ui};
 
 use crate::gui::{
    GUI,
    ui::{button, rich_text},
 };
 use egui_theme::utils;
-use zeus_eth::types::ChainId;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    ui.vertical_centered(|ui| {

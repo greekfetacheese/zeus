@@ -36,7 +36,7 @@ impl ViewKeyUi {
       self.verify_credentials_ui(ctx, theme, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
+   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -57,7 +57,7 @@ impl ViewKeyUi {
 
                ui.label(rich_text("Verify your credentials to view the key"));
 
-               self.credentials_form.show(ui);
+               self.credentials_form.show(theme, ui);
 
                let button = button(rich_text("Confrim"));
                if ui.add(button).clicked() {
@@ -198,7 +198,7 @@ impl DeleteWalletUi {
       self.delete_wallet_ui(ctx, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
+   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -219,7 +219,7 @@ impl DeleteWalletUi {
 
                ui.label(rich_text("Verify your credentials to delete the wallet"));
 
-               self.credentials_form.show(ui);
+               self.credentials_form.show(theme, ui);
 
                let button = button(rich_text("Confrim"));
                if ui.add(button).clicked() {

@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Color32, Frame, Layout, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, Color32, FontId, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
 };
 
 use std::{str::FromStr, sync::Arc};
@@ -9,7 +9,8 @@ use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
 use crate::gui::ui::{button, dapps::uniswap::swap::InOrOut, img_button, rich_text};
 use crate::gui::{SHARED_GUI, utils};
-use zeus_eth::{alloy_primitives::Address, currency::Currency};
+use egui_theme::Theme;
+use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
 
 /// A simple window that allows the user to select a token
 /// based on the a list of [Currency] we pass to it
@@ -31,7 +32,7 @@ impl TokenSelectionWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (400.0, 200.0),
+         size: (550.0, 300.0),
          search_query: String::new(),
          selected_currency: None,
          currency_direction: InOrOut::In,
@@ -60,9 +61,10 @@ impl TokenSelectionWindow {
    pub fn show(
       &mut self,
       ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
       chain_id: u64,
       owner: Address,
-      icons: Arc<Icons>,
       currencies: &Vec<Currency>,
       ui: &mut Ui,
    ) {
@@ -76,43 +78,74 @@ impl TokenSelectionWindow {
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
+            let ui_width = ui.available_width();
 
             ui.vertical_centered(|ui| {
+               ui.add_space(20.0);
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text(rich_text("Search tokens or enter an address"))
-                     .min_size((200.0, 30.0).into()),
+                     .desired_width(ui_width * 0.7)
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.text_sizes.normal)),
                );
-               ui.add_space(15.0);
+               ui.add_space(20.0);
             });
+
+            ui.horizontal(|ui| {
+               ui.set_width(ui_width * 0.9);
+
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(rich_text("Asset").size(theme.text_sizes.large));
+               });
+
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.label(rich_text("Balance").size(theme.text_sizes.large));
+               });
+            });
+
+            ui.add_space(20.0);
 
             ScrollArea::vertical()
                .auto_shrink(Vec2b::new(false, false))
                .show(ui, |ui| {
                   ui.spacing_mut().item_spacing.y = 10.0;
 
-                  for currency in currencies {
-                     let ctx = ctx.clone();
+                  // Precompute balances and sort currencies
+                  let mut currencies_with_balances: Vec<(&Currency, NumericValue)> = currencies
+                     .iter()
+                     .map(|currency| {
+                        let balance = ctx.get_currency_balance(chain_id, owner, currency);
+                        (currency, balance)
+                     })
+                     .collect();
+
+                  // Sort by balance in descending order
+                  currencies_with_balances.sort_by(|a, b| {
+                     b.1.float() // b's balance
+                        .partial_cmp(&a.1.float()) // a's balance
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                  });
+
+                  for (currency, balance) in currencies_with_balances {
                      let valid_search = self.valid_search(currency, &self.search_query);
 
                      if valid_search {
-                        let name = rich_text(currency.name().clone());
-                        let symbol = format!("({})", currency.symbol().clone());
-
+                        let text = format!("{} ({})", currency.name(), currency.symbol());
                         let icon = icons.currency_icon(currency);
-                        let button = img_button(icon, name);
+                        let button = img_button(icon, rich_text(text).size(theme.text_sizes.normal));
 
                         ui.horizontal(|ui| {
+                           ui.set_width(ui_width * 0.9);
                            egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
+
                            if ui.add(button).clicked() {
                               self.selected_currency = Some(currency.clone());
                               close_window = true;
                            }
 
-                           ui.label(rich_text(symbol));
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              let balance = ctx.get_currency_balance(chain_id, owner, currency);
-                              ui.label(rich_text(balance.formatted()).size(15.0));
+                              ui.label(rich_text(balance.formatted()).size(theme.text_sizes.normal));
                            });
                         });
 
@@ -121,8 +154,9 @@ impl TokenSelectionWindow {
                   }
 
                   ui.vertical_centered(|ui| {
-                     self.get_token_on_valid_address(ctx, chain_id, owner, &mut close_window, ui);
-                     });
+                     ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                     self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
+                  });
                });
          });
       if close_window {
@@ -134,13 +168,14 @@ impl TokenSelectionWindow {
    fn get_token_on_valid_address(
       &self,
       ctx: ZeusCtx,
+      theme: &Theme,
       chain: u64,
       owner: Address,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
       if let Ok(address) = Address::from_str(&self.search_query) {
-         let button = button(rich_text("Add Token"));
+         let button = button(rich_text("Add Token").size(theme.text_sizes.normal));
          if ui.add(button).clicked() {
             RT.spawn(async move {
                utils::open_loading("Retrieving token...".to_string());

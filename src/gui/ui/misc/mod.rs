@@ -209,7 +209,6 @@ impl LoadingWindow {
          return;
       }
 
-
       Window::new("Loading")
          .title_bar(false)
          .resizable(false)
@@ -302,7 +301,14 @@ impl PortfolioUi {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, token_selection: &mut TokenSelectionWindow, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      token_selection: &mut TokenSelectionWindow,
+      ui: &mut Ui,
+   ) {
       if !self.open {
          return;
       }
@@ -427,9 +433,10 @@ impl PortfolioUi {
                let all_currencies = ctx.get_currencies(chain_id);
                token_selection.show(
                   ctx.clone(),
+                  theme,
+                  icons.clone(),
                   chain_id,
                   owner,
-                  icons.clone(),
                   &all_currencies,
                   ui,
                );
@@ -500,21 +507,11 @@ impl PortfolioUi {
          let owner = ctx.profile().wallet_address();
          let client = ctx.get_client_with_id(chain).unwrap();
 
-         let portfolio = ctx.get_portfolio(chain, owner);
-         let tokens = portfolio.erc20_tokens();
-
-         match pool_manager
-            .update_base_token_prices(client.clone(), chain)
-            .await
-         {
-            Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
-            Err(e) => tracing::error!("Error updating base token prices: {:?}", e),
-         }
-
-         match pool_manager.update_minimal(client, chain, tokens).await {
+         match pool_manager.update_pool_state(client, chain).await {
             Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
             Err(e) => tracing::error!("Error updating prices: {:?}", e),
          }
+
          ctx.update_portfolio_value(chain, owner);
          let _ = ctx.save_pool_data();
          let _ = ctx.save_portfolio_db();
@@ -551,28 +548,25 @@ impl PortfolioUi {
       let token = currency.erc20().unwrap();
 
       // If no pool data is available, fetch it
-      let v2_pools = ctx.get_v2_pools(token.clone());
       let v3_pools = ctx.get_v3_pools(token.clone());
 
-      if v2_pools.is_empty() {
-         let token = token.clone();
-         let ctx = ctx.clone();
-         RT.spawn(async move {
-            let _ = eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await;
-            ctx.update_portfolio_value(chain_id, owner);
-            let _ = ctx.save_pool_data();
-            let _ = ctx.save_portfolio_db();
-         });
-      }
+      let token2 = token.clone();
+      let ctx2 = ctx.clone();
+      RT.spawn(async move {
+         let _ = eth::get_v2_pools_for_token(ctx2.clone(), token2.clone()).await;
+         ctx2.update_portfolio_value(chain_id, owner);
+         let _ = ctx2.save_pool_data();
+         let _ = ctx2.save_portfolio_db();
+      });
 
       if v3_pools.is_empty() {
          let token = token.clone();
-         let ctx = ctx.clone();
+         let ctx2 = ctx.clone();
          RT.spawn(async move {
-            let _ = eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await;
-            ctx.update_portfolio_value(chain_id, owner);
-            let _ = ctx.save_pool_data();
-            let _ = ctx.save_portfolio_db();
+            let _ = eth::get_v3_pools_for_token(ctx2.clone(), token.clone()).await;
+            ctx2.update_portfolio_value(chain_id, owner);
+            let _ = ctx2.save_pool_data();
+            let _ = ctx2.save_portfolio_db();
          });
       }
    }

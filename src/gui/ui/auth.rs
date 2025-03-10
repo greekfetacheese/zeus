@@ -1,10 +1,11 @@
 use crate::gui::{
    SHARED_GUI,
-   ui::{button, rich_text, text_edit_single},
+   ui::{button, rich_text},
    utils::{get_encrypted_info, get_profile_dir},
 };
 use crate::{core::ZeusCtx, gui::utils};
-use eframe::egui::{Align2, Frame, Ui, Window, vec2};
+use eframe::egui::{Align2, FontId, Frame, TextEdit, Ui, Window, vec2};
+use egui::Margin;
 use egui_theme::Theme;
 use ncrypt_me::{Argon2Params, Credentials};
 
@@ -37,32 +38,48 @@ impl CredentialsForm {
       self.credentials.erase();
    }
 
-   pub fn show(&mut self, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = 15.0;
+         let ui_width = ui.available_width();
+         let text_edit_size = vec2(ui_width * 0.6, 30.0);
 
          let username = self.credentials.user_mut();
-         let text_edit = text_edit_single(username);
 
-         ui.label(rich_text("Username"));
-         ui.add(text_edit);
+         ui.label(rich_text("Username").size(theme.text_sizes.large));
+         ui.add(
+            TextEdit::singleline(username)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.text_sizes.normal)),
+         );
 
          let password = self.credentials.passwd_mut();
-         let text_edit = text_edit_single(password).password(true);
 
-         ui.label(rich_text("Password"));
-         ui.add(text_edit);
+         ui.label(rich_text("Password").size(theme.text_sizes.large));
+         ui.add(
+            TextEdit::singleline(password)
+               .min_size(text_edit_size)
+               .margin(Margin::same(10))
+               .font(FontId::proportional(theme.text_sizes.normal))
+               .password(true),
+         );
 
          if self.confrim_password {
             let confirm_password = self.credentials.confirm_passwd_mut();
-            let text_edit = text_edit_single(confirm_password).password(true);
 
-            ui.label(rich_text("Confirm Password"));
-            ui.add(text_edit);
+            ui.label(rich_text("Confirm Password").size(theme.text_sizes.large));
+            ui.add(
+               TextEdit::singleline(confirm_password)
+                  .min_size(text_edit_size)
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .password(true),
+            );
          } else {
             // copy password to confirm password
             self.credentials.copy_passwd_to_confirm();
@@ -80,11 +97,11 @@ impl LoginUi {
    pub fn new() -> Self {
       Self {
          credentials_form: CredentialsForm::new().open(true),
-         size: (450.0, 300.0),
+         size: (550.0, 350.0),
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       Window::new("Login_ui")
          .title_bar(false)
          .movable(false)
@@ -96,13 +113,15 @@ impl LoginUi {
 
             ui.vertical_centered(|ui| {
                ui.add_space(10.0);
-               ui.spacing_mut().item_spacing.y = 15.0;
+               ui.spacing_mut().item_spacing.y = 25.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let ui_width = ui.available_width();
 
-               ui.label(rich_text("Unlock your profile").size(18.0));
+               ui.label(rich_text("Unlock your profile").size(theme.text_sizes.heading));
 
-               self.credentials_form.show(ui);
+               self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Unlock").size(16.0));
+               let button = button(rich_text("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut profile = ctx.profile();
@@ -117,7 +136,7 @@ impl LoginUi {
                         Ok(_) => {
                            let mut gui = SHARED_GUI.write().unwrap();
                            gui.login.credentials_form.erase();
-                           gui.settings.encryption_settings.argon_params = info.argon2_params.clone();
+                           gui.settings.encryption.argon_params = info.argon2_params.clone();
                            gui.portofolio.open = true;
                            gui.top_left_area.open = true;
                            gui.top_left_area.wallet_select.wallet = profile.current_wallet.clone();
@@ -155,7 +174,7 @@ impl RegisterUi {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       Window::new("Register_ui")
          .title_bar(false)
          .movable(false)
@@ -168,15 +187,17 @@ impl RegisterUi {
             ui.vertical_centered(|ui| {
                ui.add_space(10.0);
                ui.spacing_mut().item_spacing.y = 15.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let ui_width = ui.available_width();
 
-               ui.label(rich_text("Create a new profile").size(18.0));
+               ui.label(rich_text("Create a new profile").size(theme.text_sizes.heading));
                ui.add_space(15.0);
 
-               self.credentials_form.show(ui);
+               self.credentials_form.show(theme, ui);
                ui.add_space(15.0);
 
                {
-                  let button = button(rich_text("Create").size(16.0));
+                  let button = button(rich_text("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                   if ui.add(button).clicked() {
                      let mut profile = ctx.profile();

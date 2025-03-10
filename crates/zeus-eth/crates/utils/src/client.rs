@@ -20,8 +20,8 @@ pub fn get_http_client(url: &str) -> Result<HttpClient, anyhow::Error> {
    Ok(client)
 }
 
+#[cfg(test)]
 mod tests {
-   #![allow(unused_imports)]
    use super::get_http_client;
    use crate::price_feed::get_eth_price;
    use alloy_provider::Provider;

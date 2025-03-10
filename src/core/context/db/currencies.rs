@@ -52,6 +52,14 @@ impl CurrencyDB {
       self.currencies.get(&chain_id).cloned().unwrap_or_default()
    }
 
+   /// Remove any duplicate currencies
+   pub fn dedup(&mut self) {
+      for (_, currencies) in self.currencies.iter_mut() {
+         let currencies_mut = Arc::make_mut(currencies);
+         currencies_mut.dedup();
+      }
+   }
+
    pub fn insert_currency(&mut self, chain_id: u64, currency: Currency) {
       if let Some(currencies_arc) = self.currencies.get_mut(&chain_id) {
          let currencies = Arc::make_mut(currencies_arc);

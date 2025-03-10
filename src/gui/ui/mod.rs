@@ -11,7 +11,6 @@ pub use auth::{CredentialsForm, LoginUi, RegisterUi};
 pub use dapps::uniswap::swap::SwapUi;
 pub use misc::*;
 pub use send_crypto::SendCryptoUi;
-pub use settings::SettingsUi;
 pub use token_selection::TokenSelectionWindow;
 pub use wallet::WalletUi;
 
