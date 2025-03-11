@@ -1,12 +1,12 @@
 use eframe::egui::{Color32, Ui};
 
 use crate::gui::{
-   GUI,
-   ui::{button, rich_text},
+   ui::{button, rich_text}, GUI
 };
 use egui_theme::utils;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
+   let ctx = gui.ctx.clone();
    ui.vertical_centered(|ui| {
       ui.add_space(20.0);
       ui.spacing_mut().item_spacing.y = 30.0;
@@ -52,6 +52,10 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.send_crypto.open = true;
+
+         let chain = gui.send_crypto.chain_select.chain.id();
+         let fee = ctx.get_priority_fee(chain).unwrap_or_default().formatted().clone();
+         gui.send_crypto.priority_fee = fee;
       }
 
       let settings = button(rich_text("Settings").size(21.0));

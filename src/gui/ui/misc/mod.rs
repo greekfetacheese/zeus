@@ -479,7 +479,7 @@ impl PortfolioUi {
       let value = ctx.get_currency_value(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(rich_text(value.formatted()).size(theme.text_sizes.normal));
+         ui.label(rich_text(format!("${}", value.formatted())).size(theme.text_sizes.normal));
       });
    }
 

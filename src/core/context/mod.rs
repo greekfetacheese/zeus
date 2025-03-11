@@ -5,7 +5,6 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::alloy_primitives::Address;
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
@@ -13,6 +12,7 @@ use zeus_eth::amm::{
       v3::pool::{FEE_TIERS, UniswapV3Pool},
    },
 };
+use zeus_eth::alloy_primitives::Address;
 use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
    types::ChainId,
@@ -277,10 +277,20 @@ impl ZeusCtx {
       self.read(|ctx| ctx.base_fee.get(&chain).cloned())
    }
 
+   pub fn get_priority_fee(&self, chain: u64) -> Option<NumericValue> {
+      self.read(|ctx| ctx.priority_fee.get(chain).cloned())
+   }
+
    pub fn update_base_fee(&self, chain: u64, base_fee: u64, next_base_fee: u64) {
       self.write(|ctx| {
          ctx.base_fee
             .insert(chain, BaseFee::new(base_fee, next_base_fee));
+      });
+   }
+
+   pub fn update_priority_fee(&self, chain: u64, fee: NumericValue) {
+      self.write(|ctx| {
+         ctx.priority_fee.fee.insert(chain, fee);
       });
    }
 }
@@ -382,6 +392,40 @@ impl BaseFee {
    }
 }
 
+/// Suggested priority fees for each chain
+#[derive(Debug, Clone)]
+pub struct PriorityFee {
+   pub fee: HashMap<u64, NumericValue>,
+}
+
+impl PriorityFee {
+   pub fn get(&self, chain: u64) -> Option<&NumericValue> {
+      self.fee.get(&chain)
+   }
+}
+
+impl Default for PriorityFee {
+   fn default() -> Self {
+      let mut map = HashMap::new();
+      // Eth
+      map.insert(1, NumericValue::gwei_to_wei("1"));
+
+      // Optimism
+      map.insert(10, NumericValue::gwei_to_wei("0.002"));
+
+      // BSC (Legacy Tx)
+      map.insert(56, NumericValue::gwei_to_wei("0"));
+
+      // Base
+      map.insert(8453, NumericValue::gwei_to_wei("0.002"));
+
+      // Arbitrum (Legacy Tx)
+      map.insert(42161, NumericValue::gwei_to_wei("0"));
+
+      Self { fee: map }
+   }
+}
+
 pub struct ZeusContext {
    pub providers: RpcProviders,
 
@@ -405,6 +449,7 @@ pub struct ZeusContext {
    pub pool_data_syncing: bool,
 
    pub base_fee: HashMap<u64, BaseFee>,
+   pub priority_fee: PriorityFee,
 }
 
 impl ZeusContext {
@@ -443,6 +488,7 @@ impl ZeusContext {
          pool_manager,
          pool_data_syncing: false,
          base_fee: HashMap::new(),
+         priority_fee: PriorityFee::default(),
       }
    }
 
@@ -462,9 +508,10 @@ impl ZeusContext {
 mod tests {
    use super::*;
    use zeus_eth::{
-      alloy_primitives::utils::format_units,
+      alloy_primitives::{U256, utils::format_units},
       alloy_provider::Provider,
       alloy_rpc_types::{BlockId, BlockTransactionsKind},
+      types::SUPPORTED_CHAINS,
    };
 
    #[tokio::test]
@@ -495,5 +542,17 @@ mod tests {
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Arbitrum base fee: {}", fee);
+   }
+
+   #[tokio::test]
+   async fn test_priority_fee_suggestion() {
+      let ctx = ZeusContext::new();
+
+      for chain in SUPPORTED_CHAINS {
+         let client = ctx.get_client_with_id(chain).unwrap();
+         let fee = client.get_max_priority_fee_per_gas().await.unwrap();
+         let fee = format_units(U256::from(fee), "gwei").unwrap();
+         println!("Suggested Fee on {}: {}", chain, fee)
+      }
    }
 }

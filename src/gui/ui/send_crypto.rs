@@ -173,6 +173,7 @@ impl SendCryptoUi {
             let clicked = self.chain_select.show(theme, icons.clone(), ui);
             if clicked {
                let chain = self.chain_select.chain.id();
+               self.priority_fee = ctx.get_priority_fee(chain).unwrap_or_default().formatted().clone();
                self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
             }
          });
@@ -512,7 +513,7 @@ impl SendCryptoUi {
       let from = self.wallet_select.wallet.clone();
       let recipient = self.recipient.clone();
       let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
-      let amount = NumericValue::from_str(&self.amount, self.currency.decimals());
+      let amount = NumericValue::parse_from_str(&self.amount, self.currency.decimals());
       let currency = self.currency.clone();
       let chain = self.chain_select.chain;
       let fee = self.priority_fee.clone();

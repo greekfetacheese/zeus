@@ -6,10 +6,11 @@ use std::time::{Duration, Instant};
 use zeus_eth::alloy_rpc_types::BlockId;
 use zeus_eth::currency::NativeCurrency;
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256, utils::format_units},
    alloy_provider::Provider,
    currency::ERC20Token,
    types::{ChainId, SUPPORTED_CHAINS},
+   utils::NumericValue,
    utils::batch_request::get_erc20_balance,
    utils::block::calculate_next_block_base_fee,
    utils::client::get_http_client,
@@ -18,7 +19,7 @@ use zeus_eth::{
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
    measure_rpcs(ctx.clone()).await;
-   update_pool_manager_minimal_all(ctx.clone()).await;
+   update_pool_manager(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
       tracing::error!("Error updating eth balance: {:?}", e);
@@ -28,17 +29,19 @@ pub async fn on_startup(ctx: ZeusCtx) {
       tracing::error!("Error updating token balance: {:?}", e);
    }
 
-   let time = Instant::now();
    portfolio_update(ctx.clone());
-   tracing::info!(
-      "Time taken to calculate all portfolios: {:?} secs",
-      time.elapsed().as_secs_f32()
-   );
 
    for chain in SUPPORTED_CHAINS {
       match update_base_fee(ctx.clone(), chain).await {
          Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
          Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+      }
+   }
+
+   for chain in SUPPORTED_CHAINS {
+      match update_priority_fee(ctx.clone(), chain).await {
+         Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+         Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
       }
    }
 
@@ -60,6 +63,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       update_base_fee_interval(ctx_clone).await;
+   });
+
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      update_priority_fee_interval(ctx_clone).await;
    });
 
    let ctx_clone = ctx.clone();
@@ -102,15 +110,15 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 
    loop {
       if time_passed.elapsed().as_secs() > INTERVAL {
-         update_pool_manager_minimal_all(ctx.clone()).await;
+         update_pool_manager(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
 }
 
-/// Update the pool manager state for all chains and wallets
-pub async fn update_pool_manager_minimal_all(ctx: ZeusCtx) {
+/// Update the pool manager state for all chains
+pub async fn update_pool_manager(ctx: ZeusCtx) {
    let pool_manager = ctx.pool_manager();
 
    // update the base token prices
@@ -118,30 +126,16 @@ pub async fn update_pool_manager_minimal_all(ctx: ZeusCtx) {
       let client = ctx.get_client_with_id(chain).unwrap();
       match pool_manager.update_base_token_prices(client, chain).await {
          Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating base token prices: {:?}", e),
+         Err(e) => tracing::error!("Error updating base token prices for chain {}: {:?}", chain, e),
       }
    }
 
-   let wallets = ctx.profile().wallets;
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
 
-      for wallet in &wallets {
-         let owner = wallet.key.inner().address();
-         let portfolio = ctx.get_portfolio(chain, owner);
-         let tokens = portfolio.erc20_tokens();
-
-         match pool_manager
-            .update_minimal(client.clone(), chain, tokens)
-            .await
-         {
-            Ok(_) => tracing::info!(
-               "Updated price manager for owner {}, chain: {}",
-               owner,
-               chain
-            ),
-            Err(e) => tracing::error!("Error updating price manager: {:?}", e),
-         }
+      match pool_manager.update_and_clean(client.clone(), chain).await {
+         Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+         Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
       }
    }
    match ctx.save_pool_data() {
@@ -268,6 +262,35 @@ pub async fn update_base_fee_interval(ctx: ZeusCtx) {
             match update_base_fee(ctx.clone(), chain).await {
                Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
                Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+            }
+         }
+         time_passed = Instant::now();
+      }
+      tokio::time::sleep(Duration::from_secs(1)).await;
+   }
+}
+
+pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client_with_id(chain)?;
+   let chain = ChainId::new(chain)?;
+   if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
+      let fee = client.get_max_priority_fee_per_gas().await?;
+      let fee = format_units(U256::from(fee), "gwei")?;
+      ctx.update_priority_fee(chain.id(), NumericValue::gwei_to_wei(&fee));
+   }
+   Ok(())
+}
+
+pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
+   const INTERVAL: u64 = 300;
+   let mut time_passed = Instant::now();
+
+   loop {
+      if time_passed.elapsed().as_secs() > INTERVAL {
+         for chain in SUPPORTED_CHAINS {
+            match update_priority_fee(ctx.clone(), chain).await {
+               Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+               Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
             }
          }
          time_passed = Instant::now();

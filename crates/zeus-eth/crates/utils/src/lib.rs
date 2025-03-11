@@ -17,9 +17,6 @@ use tokio::{
 use tracing::trace;
 use types::BlockTime;
 
-
-
-
 /// Is this token a base token?
 ///
 /// We consider base tokens those that are mostly used for liquidity.
@@ -242,9 +239,12 @@ impl NumericValue {
       }
    }
 
-   /// Create a new NumericValue from a string slice and convert it to [U256], [f64] and [String]
-   pub fn from_str(amount: &str, currency_decimals: u8) -> Self {
+   /// Parse a value doing the 10^currency_decimals conversion and format it to [U256] , [f64] and [String]
+   pub fn parse_from_str(amount: &str, currency_decimals: u8) -> Self {
       let float: f64 = amount.parse().unwrap_or(0.0);
+      if float == 0.0 {
+         return Self::default();
+      }
 
       // Convert from str to U256
       let scale = 10_f64.powi(currency_decimals as i32);
@@ -255,6 +255,26 @@ impl NumericValue {
 
       Self {
          uint: Some(uint),
+         float,
+         formatted,
+      }
+   }
+
+   /// Parse a value doing the 10^9 conversion and format it to [U256] , [f64] and [String]
+   pub fn gwei_to_wei(amount: &str) -> Self {
+      let float: f64 = amount.parse().unwrap_or(0.0);
+      if float == 0.0 {
+         return Self::default();
+      }
+
+      let scale = 10f64.powi(9);
+      let scaled = (float * scale) as u128;
+      let wei = U256::from(scaled);
+
+      let formatted = format_number(&float.to_string(), 2, true);
+
+      Self {
+         uint: Some(wei),
          float,
          formatted,
       }
@@ -316,10 +336,9 @@ impl NumericValue {
    }
 }
 
+#[cfg(test)]
 mod tests {
-   #[allow(unused_imports)]
    use super::*;
-   #[allow(unused_imports)]
    use alloy_primitives::utils::parse_ether;
 
    #[test]
@@ -328,6 +347,21 @@ mod tests {
       let value = NumericValue::currency_balance(amount, 18);
       assert_eq!(value.float, 0.001834247995202872);
       assert_eq!(value.formatted, "0.0018");
+   }
+
+   #[test]
+   fn test_gwei_to_wei() {
+      let amount = "1";
+      let value = NumericValue::gwei_to_wei(&amount.to_string());
+      assert_eq!(value.uint.unwrap(), U256::from(1000000000u128));
+      assert_eq!(value.float, 1.0);
+      assert_eq!(value.formatted, "1");
+
+      let amount = "0.001294885";
+      let value = NumericValue::gwei_to_wei(&amount.to_string());
+      assert_eq!(value.uint.unwrap(), U256::from(1294885u128));
+      assert_eq!(value.float, 0.001294885);
+      assert_eq!(value.formatted, "0.0012");
    }
 
    #[test]
