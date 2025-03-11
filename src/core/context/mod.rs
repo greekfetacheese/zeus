@@ -1,7 +1,6 @@
 use super::utils::{data_dir, pool_data_dir};
 use crate::core::{Profile, Wallet};
 use anyhow::anyhow;
-use providers::{Rpc, RpcProviders};
 use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
@@ -27,6 +26,7 @@ pub mod db;
 pub mod providers;
 
 pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB};
+pub use providers::{Rpc, RpcProviders};
 
 #[derive(Clone)]
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
@@ -67,16 +67,12 @@ impl ZeusCtx {
       self.read(|ctx| ctx.logged_in)
    }
 
+   pub fn rpc_providers(&self) -> RpcProviders {
+      self.read(|ctx| ctx.providers.clone())
+   }
+
    pub fn profile(&self) -> Profile {
       self.read(|ctx| ctx.profile.clone())
-   }
-
-   pub fn rpc(&self) -> Rpc {
-      self.read(|ctx| ctx.rpc.clone())
-   }
-
-   pub fn get_client(&self) -> Result<HttpClient, anyhow::Error> {
-      self.read(|ctx| ctx.get_client())
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
@@ -107,11 +103,16 @@ impl ZeusCtx {
       self.read(|ctx| ctx.contact_db.save())
    }
 
+   pub fn save_providers(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.providers.save_to_file())
+   }
+
    pub fn save_all(&self) -> Result<(), anyhow::Error> {
       self.save_balance_db()?;
       self.save_currency_db()?;
       self.save_portfolio_db()?;
       self.save_contact_db()?;
+      self.save_providers()?;
       Ok(())
    }
 
@@ -192,7 +193,6 @@ impl ZeusCtx {
       }
    }
 
-   /// Get the currency's value in USD for the given chain and owner
    pub fn get_currency_value(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
       let price = self.get_currency_price(currency);
       let balance = self.get_currency_balance(chain, owner, currency);
@@ -385,9 +385,6 @@ impl BaseFee {
 pub struct ZeusContext {
    pub providers: RpcProviders,
 
-   /// The current selected rpc provider from the GUI
-   pub rpc: Rpc,
-
    /// The current selected chain from the GUI
    pub chain: ChainId,
 
@@ -414,7 +411,7 @@ impl ZeusContext {
    pub fn new() -> Self {
       let mut providers = RpcProviders::default();
       if let Ok(loaded_providers) = RpcProviders::load_from_file() {
-         providers.rpc = loaded_providers.rpc;
+         providers.rpcs = loaded_providers.rpcs;
       }
 
       let contact_db = ContactDB::load_from_file().unwrap_or_default();
@@ -423,7 +420,6 @@ impl ZeusContext {
       let portfolio_db = PortfolioDB::load_from_file().unwrap_or_default();
 
       let profile_exists = Profile::exists().expect("Failed to read data directory");
-      let rpc = providers.get(1).expect("Failed to find provider");
 
       let pool_dir = pool_data_dir().unwrap().exists();
       let mut pool_manager = PoolStateManagerHandle::default();
@@ -436,7 +432,6 @@ impl ZeusContext {
 
       Self {
          providers,
-         rpc,
          chain: ChainId::new(1).unwrap(),
          profile: Profile::default(),
          profile_exists,
@@ -451,14 +446,8 @@ impl ZeusContext {
       }
    }
 
-   pub fn get_client(&self) -> Result<HttpClient, anyhow::Error> {
-      let rpc = self.providers.get(self.chain.id())?;
-      let client = get_http_client(&rpc.url)?;
-      Ok(client)
-   }
-
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
-      let rpc = self.providers.get(id)?;
+      let rpc = self.providers.get_rpc(id)?;
       let client = get_http_client(&rpc.url)?;
       Ok(client)
    }
@@ -469,15 +458,15 @@ impl ZeusContext {
    }
 }
 
+#[cfg(test)]
 mod tests {
-   #[allow(unused_imports)]
    use super::*;
-   #[allow(unused_imports)]
    use zeus_eth::{
       alloy_primitives::utils::format_units,
       alloy_provider::Provider,
       alloy_rpc_types::{BlockId, BlockTransactionsKind},
    };
+
    #[tokio::test]
    async fn test_base_fee() {
       let ctx = ZeusContext::new();

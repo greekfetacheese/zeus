@@ -6,16 +6,15 @@ use crate::gui::{
    utils,
 };
 use egui::{Align2, Frame, Grid, Slider, Ui, Window, vec2};
-use egui_theme::{
-   Theme,
-   utils::*,
-};
+use egui_theme::{Theme, utils::*};
 use ncrypt_me::Argon2Params;
 use std::sync::Arc;
 
 pub mod contacts;
+pub mod networks;
 
 pub use contacts::ContactsUi;
+pub use networks::NetworkSettings;
 
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
@@ -30,6 +29,7 @@ pub struct SettingsUi {
    pub open: bool,
    pub main_ui: bool,
    pub encryption: EncryptionSettings,
+   pub network: NetworkSettings,
    pub contacts_ui: ContactsUi,
    pub credentials: CredentialsForm,
    pub verified_credentials: bool,
@@ -42,6 +42,7 @@ impl SettingsUi {
          open: false,
          main_ui: true,
          encryption: EncryptionSettings::new(),
+         network: NetworkSettings::new(),
          contacts_ui: ContactsUi::new(),
          credentials: CredentialsForm::new(),
          verified_credentials: false,
@@ -58,6 +59,9 @@ impl SettingsUi {
       self.main_ui(theme, &mut main_ui, ui);
       self.encryption.show(ctx.clone(), ui);
       self.change_credentials_ui(ctx.clone(), theme, ui);
+      self
+         .network
+         .show(ctx.clone(), theme, icons.clone(), &mut main_ui, ui);
       self.contacts_ui.show(ctx, theme, icons, &mut main_ui, ui);
       self.main_ui = main_ui;
    }
@@ -66,7 +70,6 @@ impl SettingsUi {
       if !*open {
          return;
       }
-
 
       // Transparent window
       Window::new("settings_main_ui")
@@ -109,6 +112,14 @@ impl SettingsUi {
                if ui.add(contacts).clicked() {
                   *open = false;
                   self.contacts_ui.open = true;
+               }
+
+               let network = button(rich_text("Network Settings").size(theme.text_sizes.large))
+                  .corner_radius(5)
+                  .min_size(size);
+               if ui.add(network).clicked() {
+                  *open = false;
+                  self.network.open = true;
                }
             });
          });

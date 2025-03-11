@@ -12,10 +12,12 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::batch_request::get_erc20_balance,
    utils::block::calculate_next_block_base_fee,
+   utils::client::get_http_client,
 };
 
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
+   measure_rpcs(ctx.clone()).await;
    update_pool_manager_minimal_all(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
@@ -28,7 +30,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let time = Instant::now();
    portfolio_update(ctx.clone());
-   tracing::info!("Time taken to calculate all portfolios: {:?} secs", time.elapsed().as_secs_f32());
+   tracing::info!(
+      "Time taken to calculate all portfolios: {:?} secs",
+      time.elapsed().as_secs_f32()
+   );
 
    for chain in SUPPORTED_CHAINS {
       match update_base_fee(ctx.clone(), chain).await {
@@ -55,6 +60,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       update_base_fee_interval(ctx_clone).await;
+   });
+
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      measure_rpcs_interval(ctx_clone).await;
    });
 }
 
@@ -260,6 +270,43 @@ pub async fn update_base_fee_interval(ctx: ZeusCtx) {
                Err(e) => tracing::error!("Error updating base fee: {:?}", e),
             }
          }
+         time_passed = Instant::now();
+      }
+      tokio::time::sleep(Duration::from_secs(1)).await;
+   }
+}
+
+pub async fn measure_rpcs(ctx: ZeusCtx) {
+   let providers = ctx.rpc_providers();
+
+   for chain in SUPPORTED_CHAINS {
+      let rpcs = providers.get_all(chain);
+
+      for rpc in rpcs {
+         let rpc = rpc.clone();
+         let ctx = ctx.clone();
+         RT.spawn(async move {
+            let client = get_http_client(&rpc.url).unwrap();
+            let time = Instant::now();
+            let _ = client.get_block_number().await.unwrap();
+            let latency = time.elapsed();
+            ctx.write(|ctx| {
+               if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
+                  rpc.latency = Some(latency);
+               }
+            });
+         });
+      }
+   }
+}
+
+pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
+   const INTERVAL: u64 = 300;
+   let mut time_passed = Instant::now();
+
+   loop {
+      if time_passed.elapsed().as_secs() > INTERVAL {
+         measure_rpcs(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;

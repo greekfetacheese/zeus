@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Color32, ComboBox, Frame, Grid, Layout, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Color32, ComboBox, Order, Frame, Grid, Layout, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 
@@ -211,6 +211,7 @@ impl LoadingWindow {
 
       Window::new("Loading")
          .title_bar(false)
+         .order(Order::Foreground)
          .resizable(false)
          .anchor(self.anchor.0, self.anchor.1)
          .collapsible(false)
@@ -267,6 +268,7 @@ impl MsgWindow {
 
       Window::new(title)
          .resizable(false)
+         .order(Order::Foreground)
          .movable(true)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
@@ -352,12 +354,12 @@ impl PortfolioUi {
                .show(ui, |ui| {
                   ui.vertical_centered(|ui| {
                      let wallet_name = ctx.profile().current_wallet.name.clone();
-                     ui.label(RichText::new(wallet_name).color(Color32::GRAY).size(15.0));
+                     ui.label(RichText::new(wallet_name).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
                      ui.label(
                         RichText::new(format!("${}", portfolio.value.formatted()))
                            .heading()
-                           .size(32.0),
+                           .size(theme.text_sizes.heading + 4.0),
                      );
                   });
                });
@@ -386,15 +388,13 @@ impl PortfolioUi {
                      .spacing([20.0, 30.0])
                      .show(ui, |ui| {
                         // Header
-                        ui.label(RichText::new("Asset").strong().size(15.0));
+                        ui.label(RichText::new("Asset").size(theme.text_sizes.large));
 
-                        ui.label(RichText::new("Price").strong().size(15.0));
+                        ui.label(RichText::new("Price").size(theme.text_sizes.large));
 
-                        ui.label(RichText::new("Balance").strong().size(15.0));
+                        ui.label(RichText::new("Balance").size(theme.text_sizes.large));
 
-                        ui.label(RichText::new("Value").strong().size(15.0));
-
-                        // ui.label(RichText::new("24h").strong().size(15.0));
+                        ui.label(RichText::new("Value").size(theme.text_sizes.large));
 
                         ui.end_row();
 
@@ -404,15 +404,15 @@ impl PortfolioUi {
                         let tokens: Vec<_> = currencies.iter().filter(|c| c.is_erc20()).collect();
 
                         if let Some(native) = native_currency {
-                           self.token(icons.clone(), native, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), chain_id, native, ui, column_widths[0]);
+                           self.token(theme, icons.clone(), native, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, native, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), native, ui, column_widths[4]);
                            ui.end_row();
                         }
 
                         if let Some(wrapped) = native_wrapped {
-                           self.token(icons.clone(), wrapped, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), chain_id, wrapped, ui, column_widths[0]);
+                           self.token(theme, icons.clone(), wrapped, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, wrapped, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), wrapped, ui, column_widths[4]);
                            ui.end_row();
                         }
@@ -421,8 +421,8 @@ impl PortfolioUi {
                            if token.is_native_wrapped() {
                               continue;
                            }
-                           self.token(icons.clone(), token, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), chain_id, token, ui, column_widths[0]);
+                           self.token(theme, icons.clone(), token, ui, column_widths[0]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, token, ui, column_widths[0]);
                            self.remove_currency(ctx.clone(), token, ui, column_widths[4]);
                            ui.end_row();
                         }
@@ -450,22 +450,22 @@ impl PortfolioUi {
       });
    }
 
-   fn token(&self, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
+   fn token(&self, theme: &Theme, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
       let icon = icons.currency_icon(currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
-         ui.label(RichText::new(currency.symbol()).strong())
+         ui.label(RichText::new(currency.symbol()).strong().size(theme.text_sizes.normal))
             .on_hover_text(currency.name());
       });
    }
 
-   fn price_balance_value(&self, ctx: ZeusCtx, chain: u64, currency: &Currency, ui: &mut Ui, width: f32) {
+   fn price_balance_value(&self, ctx: ZeusCtx, theme: &Theme, chain: u64, currency: &Currency, ui: &mut Ui, width: f32) {
       let price = ctx.get_currency_price(currency);
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(format!("${}", price.formatted()));
+         ui.label(rich_text(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
 
       let owner = ctx.wallet().key.inner().address();
@@ -473,17 +473,13 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(balance.formatted());
+         ui.label(rich_text(balance.formatted()).size(theme.text_sizes.normal));
       });
 
       let value = ctx.get_currency_value(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(
-            RichText::new(value.formatted())
-               .color(Color32::GRAY)
-               .size(12.0),
-         );
+         ui.label(rich_text(value.formatted()).size(theme.text_sizes.normal));
       });
    }
 
