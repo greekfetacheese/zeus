@@ -242,9 +242,6 @@ impl NumericValue {
    /// Parse a value doing the 10^currency_decimals conversion and format it to [U256] , [f64] and [String]
    pub fn parse_from_str(amount: &str, currency_decimals: u8) -> Self {
       let float: f64 = amount.parse().unwrap_or(0.0);
-      if float == 0.0 {
-         return Self::default();
-      }
 
       // Convert from str to U256
       let scale = 10_f64.powi(currency_decimals as i32);
@@ -263,9 +260,6 @@ impl NumericValue {
    /// Parse a value doing the 10^9 conversion and format it to [U256] , [f64] and [String]
    pub fn gwei_to_wei(amount: &str) -> Self {
       let float: f64 = amount.parse().unwrap_or(0.0);
-      if float == 0.0 {
-         return Self::default();
-      }
 
       let scale = 10f64.powi(9);
       let scaled = (float * scale) as u128;
@@ -275,6 +269,15 @@ impl NumericValue {
 
       Self {
          uint: Some(wei),
+         float,
+         formatted,
+      }
+   }
+
+   pub fn from_f64(float: f64) -> Self {
+      let formatted = format_number(&float.to_string(), 2, true);
+      Self {
+         uint: None,
          float,
          formatted,
       }

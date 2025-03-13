@@ -11,9 +11,8 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
 
-use egui_theme::utils::bg_color_on_idle;
 
-use egui_theme::Theme;
+use egui_theme::{Theme, utils::*};
 use zeus_eth::{currency::Currency, types::ChainId};
 
 /// A ComboBox to select a chain
@@ -328,7 +327,9 @@ impl PortfolioUi {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
+              // bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
+              let visuals = theme.get_button_visuals(theme.colors.bg_color);
+              widget_visuals(ui, visuals);
 
                let add_token = button(rich_text("Add Token").size(theme.text_sizes.normal));
                if ui.add(add_token).clicked() {

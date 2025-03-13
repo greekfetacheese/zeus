@@ -38,7 +38,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.send_crypto
       .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
 
-   gui.wallet_ui.show(ctx.clone(), icons.clone(), theme, ui);
+   gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
    let theme = gui.editor.show(&mut gui.theme, ui);
    if let Some(theme) = theme {

@@ -31,7 +31,7 @@ pub fn apply_theme_changes(theme: &Theme, ui: &mut Ui) {
    ui.style_mut().visuals.override_text_color = Some(theme.colors.text_color);
 
    // widget bg color on idle
-   ui.style_mut().visuals.widgets.inactive.weak_bg_fill = theme.colors.widget_bg_color_idle;
+   ui.style_mut().visuals.widgets.inactive.weak_bg_fill = theme.colors.widget_bg_color;
 
    // widget bg color on click
    ui.style_mut().visuals.widgets.active.weak_bg_fill = theme.colors.widget_bg_color_click;

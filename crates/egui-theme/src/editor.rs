@@ -115,14 +115,20 @@ impl ThemeEditor {
             ui.label("Background Color");
             color_edit_button_srgba(ui, &mut theme.colors.bg_color, Alpha::OnlyBlend);
 
+            ui.label("Extreme Background Color");
+            color_edit_button_srgba(ui, &mut theme.colors.extreme_bg_color, Alpha::OnlyBlend);
+
+            ui.label("Extreme Background Color 2");
+            color_edit_button_srgba(ui, &mut theme.colors.extreme_bg_color2, Alpha::OnlyBlend);
+
             ui.label("Window Fill");
             color_edit_button_srgba(ui, &mut theme.colors.window_fill, Alpha::OnlyBlend);
 
-            ui.label("Combo Box Fill");
-            color_edit_button_srgba(ui, &mut theme.colors.combo_box_fill, Alpha::OnlyBlend);
+            ui.label("Highlight1 Color");
+            color_edit_button_srgba(ui, &mut theme.colors.highlight1, Alpha::OnlyBlend);
 
-            ui.label("Highlight Color");
-            color_edit_button_srgba(ui, &mut theme.colors.highlight, Alpha::OnlyBlend);
+            ui.label("Highlight2 Color");
+            color_edit_button_srgba(ui, &mut theme.colors.highlight2, Alpha::OnlyBlend);
 
             ui.label("Overlay Color");
             color_edit_button_srgba(ui, &mut theme.colors.overlay_color, Alpha::OnlyBlend);
@@ -134,10 +140,22 @@ impl ThemeEditor {
             color_edit_button_srgba(ui, &mut theme.colors.text_secondary, Alpha::OnlyBlend);
 
             ui.label("Text Edit Background Color");
-            color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg_color, Alpha::OnlyBlend);
+            color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg, Alpha::OnlyBlend);
 
-            ui.label("Widget Bg Color on idle");
-            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color_idle, Alpha::OnlyBlend);
+            ui.label("Text Edit Background Color 2");
+            color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg2, Alpha::OnlyBlend);
+
+            ui.label("Button Background Color");
+            color_edit_button_srgba(ui, &mut theme.colors.button_bg, Alpha::OnlyBlend);
+
+            ui.label("Button Background Color 2");
+            color_edit_button_srgba(ui, &mut theme.colors.button_bg2, Alpha::OnlyBlend);
+
+            ui.label("Widget Bg Color");
+            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color, Alpha::OnlyBlend);
+
+            ui.label("Widget Bg Color 2");
+            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color2, Alpha::OnlyBlend);
 
             ui.label("Widget Bg Color on click");
             color_edit_button_srgba(

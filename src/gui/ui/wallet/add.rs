@@ -1,14 +1,10 @@
 use crate::core::ZeusCtx;
 use crate::gui::{
    self, SHARED_GUI,
-   ui::{button, rich_text, text_edit_single},
+   ui::{button, rich_text},
 };
-use eframe::egui::{Frame, TextEdit, Ui, Vec2, Window, vec2};
-use egui::{Align2, Color32};
-use egui_theme::{
-   Theme,
-   utils::{bg_color_on_idle, border_on_hover, border_on_idle},
-};
+use eframe::egui::{FontId, Order, Align2, Frame, Margin, TextEdit, Ui, Vec2, Window, vec2};
+use egui_theme::{Theme, utils::*};
 use ncrypt_me::zeroize::Zeroize;
 
 pub struct AddWalletUi {
@@ -50,23 +46,22 @@ impl AddWalletUi {
       let mut open = self.main_ui;
       let mut clicked1 = false;
       let mut clicked2 = false;
-      let frame = theme.frame3;
 
-      Window::new("Add a new Wallet")
+      Window::new(rich_text("Add a new Wallet").size(theme.text_sizes.large))
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
-               bg_color_on_idle(ui, Color32::TRANSPARENT);
-               border_on_idle(ui, 1.0, Color32::LIGHT_GRAY);
-               let size = vec2(ui.available_width() * 0.5, 50.0);
+               let size = vec2(ui.available_width() * 0.9, 50.0);
+               widget_visuals(ui, theme.get_button_visuals(theme.colors.bg_color));
 
                // From private key
                let button1 = button(rich_text("From Private Key").heading())
@@ -99,11 +94,12 @@ impl AddWalletUi {
       self.main_ui = open;
    }
 
-   pub fn import_wallet_ui(&mut self, ctx: ZeusCtx, _theme: &Theme, ui: &mut Ui) {
+   pub fn import_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.import_wallet;
       let mut clicked = false;
-      Window::new("Import Wallet")
+      Window::new(rich_text("Import Wallet").size(theme.text_sizes.large))
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -114,26 +110,31 @@ impl AddWalletUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let size = vec2(ui.available_width() * 0.5, 20.0);
+               ui.add_space(20.0);
 
-               ui.scope(|ui| {
-                  // border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                  // border_on_hover(ui, 1.0, theme.colors.border_color_hover);
+               // Wallet Name
+               ui.label(rich_text("Wallet Name (Optional)").size(theme.text_sizes.normal));
+               ui.add(
+                  TextEdit::singleline(&mut self.wallet_name)
+                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .margin(Margin::same(10))
+                     .min_size(size),
+               );
 
-                  // Wallet Name
-                  ui.label(rich_text("Wallet Name (Optional)"));
-                  ui.add(TextEdit::singleline(&mut self.wallet_name).min_size(vec2(150.0, 25.0)));
-
-                  // Private Key
-                  ui.label(rich_text("Private Key"));
-                  ui.add(
-                     TextEdit::singleline(&mut self.imported_key)
-                        .min_size(vec2(150.0, 25.0))
-                        .password(true),
-                  );
-               });
+               // Private Key
+               ui.label(rich_text("Private Key").size(theme.text_sizes.normal));
+               ui.add(
+                  TextEdit::singleline(&mut self.imported_key)
+                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .margin(Margin::same(10))
+                     .min_size(size)
+                     .password(true),
+               );
 
                // Import Button
-               let button = button(rich_text("Import"));
+               let button = button(rich_text("Import").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -182,8 +183,9 @@ impl AddWalletUi {
    pub fn generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.generate_wallet;
       let mut clicked = false;
-      Window::new("Generate Wallet")
+      Window::new(rich_text("Generate Wallet").size(theme.text_sizes.large))
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -194,18 +196,21 @@ impl AddWalletUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let size = vec2(ui.available_width() * 0.5, 20.0);
+               ui.add_space(20.0);
 
-               ui.scope(|ui| {
-                  border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                  border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-
-                  // Wallet Name
-                  ui.label(rich_text("Wallet Name (Optional)"));
-                  ui.add(text_edit_single(&mut self.wallet_name));
-               });
+               // Wallet Name
+               ui.label(rich_text("Wallet Name (Optional)").size(theme.text_sizes.normal));
+               ui.add(
+                  TextEdit::singleline(&mut self.wallet_name)
+                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .margin(Margin::same(10))
+                     .min_size(size),
+               );
 
                // Generate Button
-               let button = button(rich_text("Generate"));
+               let button = button(rich_text("Generate").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }

@@ -473,7 +473,7 @@ impl PoolStateManager {
    pub fn cleanup_pools(&mut self) {
       for (_, pool) in self.v2_pools.iter_mut() {
          if !pool.enough_liquidity() {
-            println!(
+            tracing::info!(
                "Pool {}/{} - {} does not have sufficient liquidity",
                pool.token0.symbol, pool.token1.symbol, pool.address
             );
@@ -482,7 +482,7 @@ impl PoolStateManager {
 
       for (_, pool) in self.v3_pools.iter_mut() {
          if !pool.enough_liquidity() {
-            println!(
+            tracing::info!(
                "Pool {}/{} - {} does not have sufficient liquidity",
                pool.token0.symbol, pool.token1.symbol, pool.address
             );

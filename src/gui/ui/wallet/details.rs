@@ -1,20 +1,19 @@
 use crate::core::{Wallet, ZeusCtx};
 use crate::gui::{
    self, SHARED_GUI,
-   ui::{CredentialsForm, button, rich_text, text_edit_multi},
+   ui::{CredentialsForm, button, rich_text},
 };
-use eframe::egui::{Align2, Frame, Id, Ui, Vec2, Window, vec2};
-use egui_theme::{
-   Theme,
-   utils::{border_on_hover, border_on_idle},
-};
-use ncrypt_me::zeroize::Zeroize;
+use eframe::egui::{Align2, Frame, Id, Order, Ui, Vec2, Window, vec2};
+use egui_theme::Theme;
+
+const VIEW_KEY_MSG: &str = "The key has been copied to your clipboard, make sure to clear it after you done using it!!! (eg. copy some random text)";
+const WALLET_NOT_FOUND: &str = "Wallet not found";
 
 pub struct ViewKeyUi {
    pub open: bool,
    pub credentials_form: CredentialsForm,
    pub verified_credentials: bool,
-   pub key: String,
+   pub wallet: Option<Wallet>,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
@@ -25,14 +24,21 @@ impl ViewKeyUi {
          open: false,
          credentials_form: CredentialsForm::new(),
          verified_credentials: false,
-         key: String::new(),
+         wallet: None,
          size: (300.0, 400.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.credentials_form.erase();
+      self.verified_credentials = false;
+      self.wallet = None;
+      tracing::info!("ViewKeyUi reset");
+   }
+
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.view_key(theme, ui);
       self.verify_credentials_ui(ctx, theme, ui);
    }
 
@@ -41,9 +47,10 @@ impl ViewKeyUi {
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_view_key_ui");
-      Window::new("Verify Credentials")
+      Window::new(rich_text("Verify Credentials").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -54,12 +61,12 @@ impl ViewKeyUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
-
-               ui.label(rich_text("Verify your credentials to view the key"));
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
 
                self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Confrim"));
+               let button = button(rich_text("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -72,30 +79,33 @@ impl ViewKeyUi {
          std::thread::spawn(move || {
             let ok = gui::utils::verify_credentials(&mut profile);
 
+            let wallet;
+            {
+               let gui = SHARED_GUI.read().unwrap();
+               wallet = gui.wallet_ui.view_key_ui.wallet.clone();
+            }
+
+            // This should not happen
+            if wallet.is_none() {
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.open_msg_window("Something gone wrong", WALLET_NOT_FOUND);
+               gui.wallet_ui.view_key_ui.credentials_form.erase();
+               return;
+            }
+
+            // All good copy the key to the clipboard and show a msg
             if ok {
                let mut gui = SHARED_GUI.write().unwrap();
-               // erase the credentials form
-               gui.wallet_ui
-                  .wallet_details
+               let key = gui
+                  .wallet_ui
                   .view_key_ui
-                  .credentials_form
-                  .erase();
-               // set the key from the current wallet from the wallet details ui
-               gui.wallet_ui.wallet_details.view_key_ui.key = gui.wallet_ui.wallet_details.wallet.key_string();
-
-               // show the key
-               gui.wallet_ui.wallet_details.view_key_ui.open = true;
-               gui.wallet_ui
-                  .wallet_details
-                  .view_key_ui
-                  .verified_credentials = true;
-
-               // close the verify credentials ui
-               gui.wallet_ui
-                  .wallet_details
-                  .view_key_ui
-                  .credentials_form
-                  .open = false;
+                  .wallet
+                  .clone()
+                  .unwrap()
+                  .key_string();
+               gui.egui_ctx.copy_text(key);
+               gui.wallet_ui.view_key_ui.reset();
+               gui.open_msg_window("", VIEW_KEY_MSG);
             } else {
                let mut gui = SHARED_GUI.write().unwrap();
                gui.open_msg_window(
@@ -109,65 +119,7 @@ impl ViewKeyUi {
       self.credentials_form.open = open;
       if !self.credentials_form.open {
          self.credentials_form.erase();
-      }
-   }
-
-   pub fn view_key(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.verified_credentials {
-         return;
-      }
-      let mut open = self.open;
-      let mut clicked = false;
-
-      // TODO: Maybe add a timeout for the key to be shown
-      let id = Id::new("view_key_view_key_ui");
-      Window::new("View Key")
-         .id(id)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(self.anchor.0, self.anchor.1)
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-
-               ui.scope(|ui| {
-                  border_on_idle(ui, 1.0, theme.colors.border_color_idle);
-                  border_on_hover(ui, 1.0, theme.colors.border_color_hover);
-
-                  // Wallet Key
-                  ui.label(rich_text("Wallet Key"));
-                  ui.add(text_edit_multi(&mut self.key));
-               });
-
-               // Copy Key Button
-               let button = button(rich_text("Copy Key"));
-               if ui.add(button).clicked() {
-                  ui.ctx().copy_text(self.key.clone());
-                  clicked = true;
-               }
-            });
-         });
-
-      if clicked {
-         open = false;
-         self.verified_credentials = false;
-         std::thread::spawn(move || {
-            let mut gui = SHARED_GUI.write().unwrap();
-            gui.open_msg_window(
-                    "",
-                    "The key has been copied to your clipboard, make sure to clear it after you done using it!!! (eg. copy some random text)".to_string()
-                );
-         });
-      }
-
-      self.open = open;
-      if !self.open {
-         self.key.zeroize();
+         tracing::debug!("ViewKeyUi credentials erased");
       }
    }
 }
@@ -195,7 +147,7 @@ impl DeleteWalletUi {
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       self.verify_credentials_ui(ctx.clone(), theme, ui);
-      self.delete_wallet_ui(ctx, ui);
+      self.delete_wallet_ui(ctx, theme, ui);
    }
 
    pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
@@ -203,9 +155,10 @@ impl DeleteWalletUi {
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_delete_wallet_ui");
-      Window::new("Verify Credentials")
+      Window::new(rich_text("Verify Credentials").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -216,12 +169,12 @@ impl DeleteWalletUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
-
-               ui.label(rich_text("Verify your credentials to delete the wallet"));
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
 
                self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Confrim"));
+               let button = button(rich_text("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -237,27 +190,16 @@ impl DeleteWalletUi {
             if ok {
                let mut gui = SHARED_GUI.write().unwrap();
                // credentials are verified
-               gui.wallet_ui
-                  .wallet_details
-                  .delete_wallet_ui
-                  .verified_credentials = true;
+               gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
 
                // close the verify credentials ui
-               gui.wallet_ui
-                  .wallet_details
-                  .delete_wallet_ui
-                  .credentials_form
-                  .open = false;
+               gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
 
                // open the delete wallet ui
-               gui.wallet_ui.wallet_details.delete_wallet_ui.open = true;
+               gui.wallet_ui.delete_wallet_ui.open = true;
 
                // erase the credentials form
-               gui.wallet_ui
-                  .wallet_details
-                  .delete_wallet_ui
-                  .credentials_form
-                  .erase();
+               gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
             } else {
                let mut gui = SHARED_GUI.write().unwrap();
                gui.open_msg_window(
@@ -274,7 +216,7 @@ impl DeleteWalletUi {
       }
    }
 
-   pub fn delete_wallet_ui(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
+   pub fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.verified_credentials {
          return;
       }
@@ -284,9 +226,10 @@ impl DeleteWalletUi {
       let wallet = self.wallet_to_delete.clone();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
-      Window::new("Delete Wallet")
+      Window::new(rich_text("Delete this wallet?").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(self.anchor.0, self.anchor.1)
@@ -297,16 +240,24 @@ impl DeleteWalletUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
 
                // should not happen
                if wallet.is_none() {
                   ui.label(rich_text("No wallet to delete"));
                } else {
                   let wallet = wallet.clone().unwrap();
-                  ui.label(rich_text("Are you sure you want to delete this wallet?").heading());
-                  ui.label(rich_text(wallet.name.clone()));
+                  ui.label(rich_text(wallet.name.clone()).size(theme.text_sizes.normal));
+                  ui.label(rich_text(wallet.address()).size(theme.text_sizes.normal));
 
-                  if ui.add(button(rich_text("Yes"))).clicked() {
+                  let value = ctx.get_portfolio_value_all_chains(wallet.key.inner().address());
+                  ui.label(rich_text(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
+
+                  if ui
+                     .add(button(rich_text("Yes").size(theme.text_sizes.normal)))
+                     .clicked()
+                  {
                      clicked = true;
                   }
                }
@@ -328,20 +279,15 @@ impl DeleteWalletUi {
                Ok(_) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.loading_window.open = false;
-                  gui.wallet_ui
-                     .wallet_details
-                     .delete_wallet_ui
-                     .wallet_to_delete = None;
-                  gui.wallet_ui
-                     .wallet_details
-                     .delete_wallet_ui
-                     .verified_credentials = false;
+                  gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
+                  gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                   gui.open_msg_window("Wallet Deleted", "");
                }
                Err(e) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Failed to delete wallet", e.to_string());
+                  return;
                }
             }
 
@@ -349,92 +295,6 @@ impl DeleteWalletUi {
                ctx.profile = profile;
             });
          });
-      }
-      self.open = open;
-   }
-}
-
-/// Ui to show the details of a wallet
-pub struct WalletDetailsUi {
-   pub open: bool,
-   pub view_key_ui: ViewKeyUi,
-   pub delete_wallet_ui: DeleteWalletUi,
-   pub wallet: Wallet,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
-}
-
-impl WalletDetailsUi {
-   pub fn new(size: (f32, f32), offset: Vec2, align: Align2) -> Self {
-      Self {
-         open: false,
-         view_key_ui: ViewKeyUi::new(),
-         delete_wallet_ui: DeleteWalletUi::new(),
-         wallet: Wallet::new_rng("I should not be here".to_string()),
-         size,
-         anchor: (align, offset),
-      }
-   }
-
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.main_ui(ui);
-      self.view_key_ui.show(ctx.clone(), theme, ui);
-      self.delete_wallet_ui.show(ctx.clone(), theme, ui);
-   }
-
-   fn main_ui(&mut self, ui: &mut Ui) {
-      let mut open = self.open;
-      let mut clicked1 = false;
-      let mut clicked2 = false;
-
-      let id = Id::new("wallet_details_main_ui");
-      Window::new("Wallet Details")
-         .id(id)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(self.anchor.0, self.anchor.1)
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-
-               // Wallet Name
-               ui.label(rich_text(self.wallet.name.clone()).heading());
-
-               // Wallet Address
-               let address = rich_text(self.wallet.address()).size(13.0);
-               let res = ui.selectable_label(false, address);
-               if res.clicked() {
-                  ui.ctx().copy_text(self.wallet.address());
-               }
-
-               // View Key
-               let view_key = rich_text("View Key");
-               if ui.add(button(view_key)).clicked() {
-                  clicked1 = true;
-               }
-
-               // Delete Wallet
-               let delete_wallet = rich_text("Delete Wallet");
-               if ui.add(button(delete_wallet)).clicked() {
-                  clicked2 = true;
-               }
-            });
-         });
-
-      if clicked1 {
-         self.view_key_ui.credentials_form.open = true;
-         open = false;
-      }
-
-      if clicked2 {
-         self.delete_wallet_ui.wallet_to_delete = Some(self.wallet.clone());
-         self.delete_wallet_ui.credentials_form.open = true;
-         open = false;
       }
       self.open = open;
    }

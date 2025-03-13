@@ -46,7 +46,7 @@ impl CredentialsForm {
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = 15.0;
          let ui_width = ui.available_width();
-         let text_edit_size = vec2(ui_width * 0.6, 30.0);
+         let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
          let username = self.credentials.user_mut();
 

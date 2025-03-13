@@ -7,6 +7,7 @@ use zeus_eth::{
    alloy_rpc_types::TransactionReceipt,
    amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token},
+   types::ChainId,
    utils::NumericValue,
 };
 
@@ -56,7 +57,8 @@ pub async fn send_crypto(
       U256::ZERO
    };
 
-   let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
+   let chain = ChainId::new(chain)?;
+   let base_fee = ctx.get_base_fee(chain.id()).unwrap_or_default().next;
    let params = TxParams::new(
       sender.key.clone(),
       to,

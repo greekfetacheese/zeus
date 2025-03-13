@@ -15,7 +15,7 @@ use zeus_eth::amm::{
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
-   types::ChainId,
+   types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
    utils::client::{HttpClient, get_http_client},
 };
@@ -144,6 +144,19 @@ impl ZeusCtx {
          });
          Arc::new(portfolio)
       }
+   }
+
+   /// Get the portfolio value across all chains
+   pub fn get_portfolio_value_all_chains(&self, owner: Address) -> NumericValue {
+      let mut value = 0.0;
+      let chains = SUPPORTED_CHAINS.to_vec();
+
+      for chain in chains {
+         let portfolio = self.get_portfolio(chain, owner);
+         value += portfolio.value.float();
+      }
+
+      NumericValue::from_f64(value)
    }
 
    /// Calculate and update the portfolio value

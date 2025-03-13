@@ -14,7 +14,7 @@ pub fn setup_tracing() -> (WorkerGuard, WorkerGuard) {
 
    // Use different filters for trace logs and other levels
    let console_filter = EnvFilter::new("zeus_desktop=info,error,warn,zeus_eth=info,error,warn");
-   let trace_filter = EnvFilter::new("zeus_desktop=trace");
+   let trace_filter = EnvFilter::new("zeus_desktop=trace,zeus_eth=trace");
    let output_filter = EnvFilter::new("zeus_desktop=info,error,warn,zeus_eth=info,error,warn");
 
    // Setting up layers

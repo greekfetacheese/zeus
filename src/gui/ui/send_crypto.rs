@@ -217,15 +217,15 @@ impl SendCryptoUi {
          ui.add_space(5.0);
 
          ui.horizontal(|ui| {
-            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+           widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
             let res = ui.add(
                TextEdit::multiline(&mut self.recipient)
                   .hint_text("Search contacts or enter an address")
                   .desired_rows(2)
                   .desired_width(ui_width * 0.80)
-                  .margin(Margin::same(5))
+                  .margin(Margin::same(10))
+                  .background_color(theme.colors.text_edit_bg2)
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg_color),
             );
             if res.clicked() {
                self.contact_search_open = true;
@@ -292,9 +292,9 @@ impl SendCryptoUi {
                TextEdit::singleline(&mut self.amount)
                   .hint_text("0")
                   .font(egui::FontId::proportional(theme.text_sizes.large))
+                  .background_color(theme.colors.text_edit_bg2)
                   .desired_width(ui_width * 0.25)
                   .margin(Margin::same(10))
-                  .background_color(theme.colors.text_edit_bg_color),
             );
          });
          ui.add_space(space);
@@ -314,7 +314,8 @@ impl SendCryptoUi {
             ui.add(
                TextEdit::singleline(&mut self.priority_fee)
                   .desired_width(60.0)
-                  .background_color(theme.colors.text_edit_bg_color)
+                  .margin(Margin::same(10))
+                  .background_color(theme.colors.text_edit_bg2)
                   .font(egui::FontId::proportional(theme.text_sizes.normal)),
             );
             ui.add_space(5.0);
@@ -581,14 +582,14 @@ impl SendCryptoUi {
 
       let mut open = self.contact_search_open;
       let mut close_it = false;
-      let frame = theme.frame2;
-      let bg_color = frame.fill;
+      let window_frame = Frame::window(ui.style());
+      let bg_color = window_frame.fill;
       Window::new("Recipient")
          .open(&mut open)
          .collapsible(false)
          .resizable(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(450.0);
             ui.set_height(350.0);

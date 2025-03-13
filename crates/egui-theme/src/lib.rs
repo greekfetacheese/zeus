@@ -38,7 +38,6 @@ pub struct Theme {
    pub text_sizes: TextSizes,
    pub frame1: Frame,
    pub frame2: Frame,
-   pub frame3: Frame,
    pub frame1_visuals: FrameVisuals,
    pub frame2_visuals: FrameVisuals,
 }
@@ -75,7 +74,7 @@ impl Theme {
    /// Get the button visuals based on the bg color provided
    pub fn get_button_visuals(&self, bg_color: Color32) -> WidgetVisuals {
       match self.kind {
-         ThemeKind::Mocha => themes::mocha::button_visuals(bg_color),
+         ThemeKind::Mocha => themes::mocha::button_visuals(bg_color, &self.colors),
          ThemeKind::Custom => panic!("Not implemented"),
       }
    }
@@ -83,7 +82,7 @@ impl Theme {
    /// Get the text edit visuals based on the bg color provided
    pub fn get_text_edit_visuals(&self, bg_color: Color32) -> WidgetVisuals {
       match self.kind {
-         ThemeKind::Mocha => themes::mocha::text_edit_visuals(bg_color),
+         ThemeKind::Mocha => themes::mocha::text_edit_visuals(bg_color, &self.colors),
          ThemeKind::Custom => panic!("Not implemented"),
       }
    }
@@ -91,7 +90,7 @@ impl Theme {
    /// Get the widget visuals based on the bg color provided
    pub fn get_widget_visuals(&self, bg_color: Color32) -> WidgetVisuals {
       match self.kind {
-         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color),
+         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color ,&self.colors),
          ThemeKind::Custom => panic!("Not implemented"),
       }
    }
@@ -106,18 +105,23 @@ pub struct ThemeColors {
    pub bg_color: Color32,
 
    /// Secondary Background color to make contrast with the main background
+   /// 
+   /// Eg. Can be used as frame fill
    pub secondary_bg_color: Color32,
 
+   /// Something to make good contrast with the main background
    pub extreme_bg_color: Color32,
+
+   /// Something to make good contrast with the `secondary_bg_color`
+   pub extreme_bg_color2: Color32,
 
    /// Background color for windows
    pub window_fill: Color32,
 
-   /// Background color for ComboBoxes
-   pub combo_box_fill: Color32,
-
    /// Highlight something
-   pub highlight: Color32,
+   pub highlight1: Color32,
+
+   pub highlight2: Color32,
 
    /// An overlay color, used for example when a window is open to darken the background
    pub overlay_color: Color32,
@@ -128,15 +132,23 @@ pub struct ThemeColors {
    /// Secondary text color
    pub text_secondary: Color32,
 
-   /// Background color for TextEdits
-   pub text_edit_bg_color: Color32,
+   /// Bg for TextEdit when the background is the main background
+   pub text_edit_bg: Color32,
 
-   pub button_bg_color: Color32,
+   /// Bg for TextEdit when the background is the `secondary_bg_color`
+   pub text_edit_bg2: Color32,
 
-   /// Widget background color for inactive widgets (no hover or clicks)
-   ///
-   /// It affects the following widgets: Button, ComboxBox, Slider
-   pub widget_bg_color_idle: Color32,
+   /// Bg for Buttons when the background is the main background
+   pub button_bg: Color32,
+
+   /// Bg for Buttons when the background is the `secondary_bg_color`
+   pub button_bg2: Color32,
+
+   /// Widget bg color when the background is the main background
+   pub widget_bg_color: Color32,
+
+   /// Widget bg color when the background is the `secondary_bg_color`
+   pub widget_bg_color2: Color32,
 
    /// Background color for active widgets (click)
    ///

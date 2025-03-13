@@ -14,7 +14,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       ui.visuals_mut().widgets.active.expansion = 15.0;
 
       utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
-      utils::bg_color_on_hover(ui, gui.theme.colors.widget_bg_color_idle);
+      utils::bg_color_on_hover(ui, gui.theme.colors.widget_bg_color);
       utils::bg_color_on_click(ui, gui.theme.colors.widget_bg_color_click);
       utils::no_border_on_click(ui);
 

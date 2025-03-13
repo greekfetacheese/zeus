@@ -53,7 +53,7 @@ lazy_static = "1.4.0"
 lto = "off"
 incremental = true
 opt-level = 1
-debug = false
+debug = true
 
 [features]
 default = []
