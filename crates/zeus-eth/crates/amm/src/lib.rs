@@ -16,7 +16,7 @@ pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
 // TODO: This should be based on a USD value
-pub fn minimum_liquidity(token: ERC20Token) -> U256 {
+pub fn minimum_liquidity(token: &ERC20Token) -> U256 {
    if token.is_weth() {
       parse_units("40", token.decimals).unwrap().get_absolute()
    } else if token.is_wbnb() {

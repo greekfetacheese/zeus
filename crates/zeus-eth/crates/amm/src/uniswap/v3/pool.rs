@@ -1,5 +1,5 @@
 use alloy_primitives::{
-   Address, U256,
+   Address, U256, address,
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::BlockId;
@@ -17,7 +17,7 @@ use utils::{
 
 use std::collections::HashMap;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
@@ -195,21 +195,31 @@ impl UniswapV3Pool {
       }
    }
 
-   /// See [is_base_token]
-   pub fn base_token(&self) -> ERC20Token {
+   pub fn base_token_exists(&self) -> bool {
       if is_base_token(self.chain_id, self.token0.address) {
-         self.token0.clone()
+         true
+      } else if is_base_token(self.chain_id, self.token1.address) {
+         true
       } else {
-         self.token1.clone()
+         false
+      }
+   }
+
+   /// See [is_base_token]
+   pub fn base_token(&self) -> &ERC20Token {
+      if is_base_token(self.chain_id, self.token0.address) {
+         &self.token0
+      } else {
+         &self.token1
       }
    }
 
    /// Anything that is not [is_base_token]
-   pub fn quote_token(&self) -> ERC20Token {
+   pub fn quote_token(&self) -> &ERC20Token {
       if is_base_token(self.chain_id, self.token0.address) {
-         self.token1.clone()
+         &self.token1
       } else {
-         self.token0.clone()
+         &self.token0
       }
    }
 
@@ -263,21 +273,26 @@ impl UniswapV3Pool {
       Ok(amount_out)
    }
 
-   /// Calculate quote token price
-   pub fn caluclate_quote_price(&mut self, base_usd: f64) -> f64 {
+   /// Quote token USD price but we need to know the usd price of base token
+   pub fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
       if base_usd == 0.0 {
-         return 0.0;
+         return Ok(0.0);
       }
 
-      let base_token = self.base_token();
-      let price = if self.is_token0(base_token.address) {
-         self.token1_price(base_usd).unwrap_or_default()
-      } else {
-         self.token0_price(base_usd).unwrap_or_default()
-      };
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
+      }
 
-      self.quote_usd = price;
-      price
+      let unit = parse_units("1", self.base_token().decimals)?.get_absolute();
+      let amount_out = self.simulate_swap(self.base_token().address, unit)?;
+      if amount_out == U256::ZERO {
+         return Ok(0.0);
+      }
+
+      let amount_out = format_units(amount_out, self.quote_token().decimals)?.parse::<f64>()?;
+      let price = base_usd / amount_out;
+
+      Ok(price)
    }
 
    /// Calculate the price of token in terms of quote token
@@ -286,120 +301,132 @@ impl UniswapV3Pool {
       Ok(price)
    }
 
-   /// Token0 USD price but we need to know the usd price of token1
-   pub fn token0_price(&self, token1_price: f64) -> Result<f64, anyhow::Error> {
-      if token1_price == 0.0 {
-         return Ok(0.0);
-      }
-      let unit = parse_units("1", self.token1.decimals)?.get_absolute();
-      let amount_out = self.simulate_swap(self.token1.address, unit)?;
-      if amount_out == U256::ZERO {
-         return Ok(0.0);
-      }
-      let amount_out = format_units(amount_out, self.token0.decimals)?.parse::<f64>()?;
-      Ok(token1_price / amount_out)
-   }
-
-   /// Token1 USD price but we need to know the usd price of token0
-   pub fn token1_price(&self, token0_price: f64) -> Result<f64, anyhow::Error> {
-      if token0_price == 0.0 {
-         return Ok(0.0);
-      }
-      let unit = parse_units("1", self.token0.decimals)?.get_absolute();
-      let amount_out = self.simulate_swap(self.token0.address, unit)?;
-      if amount_out == U256::ZERO {
-         return Ok(0.0);
-      }
-      let amount_out = format_units(amount_out, self.token1.decimals)?.parse::<f64>()?;
-      Ok(token0_price / amount_out)
-   }
-
-   /// Get the usd values of token0 and token1 at a given block
+   /// Get the usd value of Base and Quote token at a given block
    /// If block is None, the latest block is used
-   pub async fn tokens_usd<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
+   ///
+   /// ## Returns
+   ///
+   /// - (base_price, quote_price)
+   pub async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
    where
       P: Provider<(), N> + Clone + 'static,
       N: Network,
    {
-      let chain = self.chain_id;
-      if is_base_token(chain, self.token0.address) {
-         let price0 = get_base_token_price(client.clone(), chain, self.token0.address, block).await?;
-         let price1 = self.token1_price(price0)?;
-         Ok((price0, price1))
-      } else if is_base_token(chain, self.token1.address) {
-         let price1 = get_base_token_price(client.clone(), chain, self.token1.address, block).await?;
-         let price0 = self.token0_price(price1)?;
-         Ok((price0, price1))
-      } else {
-         anyhow::bail!("Could not determine a common paired token");
+      let chain_id = self.chain_id;
+
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
       }
+
+      let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
+      let quote_price = self.quote_price(base_price)?;
+      Ok((base_price, quote_price))
+   }
+
+   /// Test pool
+   pub fn usdt_uni() -> Self {
+      let usdt = ERC20Token::usdt();
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+
+      let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
+      UniswapV3Pool::new(1, pool_address, 3000, usdt, uni, DexKind::UniswapV3)
    }
 }
 
 #[cfg(test)]
 mod tests {
    use super::*;
-   use alloy_primitives::{
-      address,
-      utils::{format_units, parse_units},
-   };
+   use alloy_primitives::utils::{format_units, parse_units};
+
    use alloy_provider::ProviderBuilder;
    use url::Url;
 
    #[tokio::test]
-   async fn uniswap_v3_pool_test() {
+   async fn can_swap() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().on_http(url);
 
-      let usdt = ERC20Token::usdt();
-      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = ERC20Token::new(client.clone(), uni_addr, 1).await.unwrap();
-
-      let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
-      let mut pool = UniswapV3Pool::new(
-         1,
-         pool_address,
-         3000,
-         usdt.clone(),
-         uni.clone(),
-         DexKind::UniswapV3,
-      );
+      let mut pool = UniswapV3Pool::usdt_uni();
 
       let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
          .await
          .unwrap();
       pool.update_state(state);
 
-      let amount_in = parse_units("1", usdt.decimals).unwrap().get_absolute();
-      let amount_out = pool.simulate_swap(usdt.address, amount_in).unwrap();
+      // Swap 1 USDT for UNI
+      let base_token = pool.base_token().clone();
+      let quote_token = pool.quote_token().clone();
 
-      let amount_in = format_units(amount_in, usdt.decimals).unwrap();
-      let amount_out = format_units(amount_out, uni.decimals).unwrap();
+      let amount_in = parse_units("1", base_token.decimals)
+         .unwrap()
+         .get_absolute();
+      let amount_out = pool.simulate_swap(base_token.address, amount_in).unwrap();
+
+      let amount_in = format_units(amount_in, base_token.decimals).unwrap();
+      let amount_out = format_units(amount_out, quote_token.decimals).unwrap();
 
       println!("=== V3 Swap Test ===");
       println!(
          "Swapped {} {} For {} {}",
-         amount_in, usdt.symbol, amount_out, uni.symbol
+         amount_in, base_token.symbol, amount_out, quote_token.symbol
       );
-      println!("=== Tokens Price Test ===");
+   }
 
-      let (token0_usd, token1_usd) = pool.tokens_usd(client.clone(), None).await.unwrap();
-      println!("{} Price: ${}", pool.token0.symbol, token0_usd);
-      println!("{} Price: ${}", pool.token1.symbol, token1_usd);
+   #[test]
+   fn pool_order() {
+      let mut pool = UniswapV3Pool::usdt_uni();
 
-      println!("=== Quote Price Test ===");
-      let quote_price = pool.caluclate_quote_price(token1_usd);
-      println!("{} Price: ${}", pool.quote_token().symbol, quote_price);
-
-      assert_eq!(pool.token0.address, uni.address);
-      assert_eq!(pool.token1.address, usdt.address);
+      // UNI is token0 and USDT is token1
+      let token0 = pool.is_token0(pool.quote_token().address);
+      let token1 = pool.is_token1(pool.base_token().address);
+      assert_eq!(token0, true);
+      assert_eq!(token1, true);
 
       pool.toggle();
-      assert_eq!(pool.token0.address, usdt.address);
-      assert_eq!(pool.token1.address, uni.address);
+      // Now USDT is token0 and UNI is token1
+      let token0 = pool.is_token0(pool.base_token().address);
+      let token1 = pool.is_token1(pool.quote_token().address);
+      assert_eq!(token0, true);
+      assert_eq!(token1, true);
 
       pool.reorder();
-      assert_eq!(pool.token0.address, uni.address);
-      assert_eq!(pool.token1.address, usdt.address);
+      // Back to the original order
+      let token0 = pool.is_token0(pool.quote_token().address);
+      let token1 = pool.is_token1(pool.base_token().address);
+      assert_eq!(token0, true);
+      assert_eq!(token1, true);
+
+      let base_exists = pool.base_token_exists();
+      assert_eq!(base_exists, true);
+
+}
+
+   #[tokio::test]
+   async fn price_calculation() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().on_http(url);
+
+      let mut pool = UniswapV3Pool::usdt_uni();
+
+      let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
+         .await
+         .unwrap();
+      pool.update_state(state);
+
+      let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
+      let base_token = pool.base_token();
+      let quote_token = pool.quote_token();
+
+      println!("{} Price: ${}", base_token.symbol, base_price);
+      println!("{} Price: ${}", quote_token.symbol, quote_price);
    }
+
 }

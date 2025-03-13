@@ -11,22 +11,23 @@ use egui_theme::{
 };
 use std::sync::Arc;
 
-const DATA_SYNCING_MSG: &str = "Zeus is still loading token data, do not close the app yet!";
+const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data, do not close the app yet!";
 
 pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let ctx = gui.ctx.clone();
-   let syncing = ctx.read(|ctx| ctx.pool_data_syncing);
+   let syncing = ctx.read(|ctx| ctx.data_syncing);
    let icons = gui.icons.clone();
+   let theme = &gui.theme;
 
    if syncing {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(DATA_SYNCING_MSG).size(14.0));
+         ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
          ui.add(Spinner::new().size(20.0));
       });
    }
 
    ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-      gui.top_left_area.show(ctx, icons, &gui.theme, ui);
+      gui.top_left_area.show(ctx, icons, theme, ui);
    });
 }
 

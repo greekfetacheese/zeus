@@ -19,6 +19,7 @@ use zeus_eth::{
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
    measure_rpcs(ctx.clone()).await;
+   resync_pools(ctx.clone()).await;
    update_pool_manager(ctx.clone()).await;
 
    if let Err(e) = update_eth_balance(ctx.clone()).await {
@@ -126,7 +127,11 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
       let client = ctx.get_client_with_id(chain).unwrap();
       match pool_manager.update_base_token_prices(client, chain).await {
          Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating base token prices for chain {}: {:?}", chain, e),
+         Err(e) => tracing::error!(
+            "Error updating base token prices for chain {}: {:?}",
+            chain,
+            e
+         ),
       }
    }
 
@@ -144,7 +149,7 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
    }
 }
 
-/// Update the eth balance for all wallets
+/// Update the eth balance for all wallets across all chains
 pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let wallets = ctx.profile().wallets;
 
@@ -170,7 +175,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    Ok(())
 }
 
-/// Update the token balance for all wallets
+/// Update the token balance for all wallets across all chains
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let wallets = ctx.profile().wallets;
 
@@ -336,6 +341,46 @@ pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
    }
 }
 
+/// If needed re-sync pools for all tokens across all chains
+pub async fn resync_pools(ctx: ZeusCtx) {
+   let need_resync = ctx.pools_need_resync();
+
+   if need_resync {
+      ctx.write(|ctx| {
+         ctx.data_syncing = true;
+      });
+
+      tracing::info!("Resyncing pools");
+
+      for chain in SUPPORTED_CHAINS {
+         let tokens = ctx.get_all_erc20_tokens(chain);
+         for token in tokens {
+            // add a small delay to avoid rate limiting
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            match eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Failed to sync pools for token {}: {}", token.symbol, e);
+               }
+            }
+         }
+      }
+
+      ctx.write(|ctx| {
+         ctx.data_syncing = false;
+      });
+
+      match ctx.save_pool_data() {
+         Ok(_) => tracing::info!("PoolData saved"),
+         Err(e) => tracing::error!("Error saving PoolData: {:?}", e),
+      }
+   } else {
+      tracing::info!("No need to resync pools");
+   }
+}
+
+
+/* 
 #[allow(dead_code)]
 async fn sync_pools_if_needed(ctx: ZeusCtx) {
    // let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
@@ -371,6 +416,7 @@ async fn sync_pools_if_needed(ctx: ZeusCtx) {
       }
    }
 }
+   */
 
 /// Sync all the V2 & V3 pools for all the tokens
 pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Error> {

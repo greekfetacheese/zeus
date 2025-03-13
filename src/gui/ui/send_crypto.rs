@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Response, RichText, ScrollArea, Spinner,
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, Response, RichText, ScrollArea, Spinner,
    TextEdit, Ui, Vec2, Window, vec2,
 };
 
@@ -148,220 +148,243 @@ impl SendCryptoUi {
 
       let frame = theme.frame1;
       let bg_color = frame.fill;
-      ui.add_space(25.0);
-      frame.show(ui, |ui| {
-         let ui_width = self.size.0;
-         let space = 15.0;
-         ui.set_max_width(ui_width);
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      Window::new("send_crypto_ui")
+         .title_bar(false)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(frame)
+         .show(ui.ctx(), |ui| {
+            let ui_width = self.size.0;
+            let space = 15.0;
+            ui.set_max_width(ui_width);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         // Title
-         ui.label(rich_text("Send Crypto").size(theme.text_sizes.heading));
+            // Title
+            ui.vertical_centered(|ui| {
+               ui.label(rich_text("Send Crypto").size(theme.text_sizes.heading));
+               ui.add_space(20.0);
+            });
 
-         // Chain Selection
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("Chain")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
-         });
-         ui.add_space(5.0);
+            // Chain Selection
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  rich_text("Chain")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+            });
+            ui.add_space(5.0);
 
-         ui.scope(|ui| {
-            widget_visuals(ui, theme.get_widget_visuals(bg_color));
-            let clicked = self.chain_select.show(theme, icons.clone(), ui);
-            if clicked {
-               let chain = self.chain_select.chain.id();
-               self.priority_fee = ctx.get_priority_fee(chain).unwrap_or_default().formatted().clone();
-               self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
-            }
-         });
-
-         ui.add_space(space);
-
-         let chain = self.chain_select.chain.id();
-         let owner = self.wallet_select.wallet.key.inner().address();
-         let currencies = ctx.get_currencies(chain);
-
-         // From Wallet
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("From")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
-         });
-         ui.add_space(5.0);
-
-         ctx.read(|ctx| {
-            let wallets = &ctx.profile.wallets;
             ui.scope(|ui| {
                widget_visuals(ui, theme.get_widget_visuals(bg_color));
-               self.wallet_select.show(theme, wallets, icons.clone(), ui);
-            });
-         });
-         ui.add_space(space);
-
-         // Recipient Input
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("To")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
-            if let Some(name) = &self.recipient_name {
-               ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
-            }
-         });
-         ui.add_space(5.0);
-
-         ui.horizontal(|ui| {
-           widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-            let res = ui.add(
-               TextEdit::multiline(&mut self.recipient)
-                  .hint_text("Search contacts or enter an address")
-                  .desired_rows(2)
-                  .desired_width(ui_width * 0.80)
-                  .margin(Margin::same(10))
-                  .background_color(theme.colors.text_edit_bg2)
-                  .font(FontId::proportional(theme.text_sizes.normal))
-            );
-            if res.clicked() {
-               self.contact_search_open = true;
-            }
-         });
-         ui.add_space(space);
-
-         self.recipient_selection(ctx.clone(), theme, ui);
-
-         // Token Selection
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("Asset")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
-         });
-         ui.add_space(5.0);
-
-         Grid::new("token_selection")
-            .spacing(vec2(5.0, 0.0))
-            .show(ui, |ui| {
-               bg_color_on_idle(ui, Color32::TRANSPARENT);
-               let res = self.token_button(theme, icons.clone(), ui);
-               if res.clicked() {
-                  token_selection.open = true;
+               let clicked = self.chain_select.show(theme, icons.clone(), ui);
+               if clicked {
+                  let chain = self.chain_select.chain.id();
+                  self.priority_fee = ctx
+                     .get_priority_fee(chain)
+                     .unwrap_or_default()
+                     .formatted()
+                     .clone();
+                  self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
                }
+            });
 
-               let balance = ctx.get_currency_balance(chain, owner, &self.currency);
+            ui.add_space(space);
+
+            let chain = self.chain_select.chain.id();
+            let owner = self.wallet_select.wallet.key.inner().address();
+            let currencies = ctx.get_currencies(chain);
+
+            // From Wallet
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(
-                  RichText::new(format!("Balance: {}", balance.formatted()))
+                  rich_text("From")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+            });
+            ui.add_space(5.0);
+
+            ctx.read(|ctx| {
+               let wallets = &ctx.profile.wallets;
+               ui.scope(|ui| {
+                  widget_visuals(ui, theme.get_widget_visuals(bg_color));
+                  self.wallet_select.show(theme, wallets, icons.clone(), ui);
+               });
+            });
+            ui.add_space(space);
+
+            // Recipient Input
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  rich_text("To")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+               if let Some(name) = &self.recipient_name {
+                  ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
+               }
+            });
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               let res = ui.add(
+                  TextEdit::multiline(&mut self.recipient)
+                     .hint_text("Search contacts or enter an address")
+                     .desired_rows(2)
+                     .desired_width(ui_width * 0.80)
+                     .margin(Margin::same(10))
+                     .background_color(theme.colors.text_edit_bg2)
+                     .font(FontId::proportional(theme.text_sizes.normal)),
+               );
+               if res.clicked() {
+                  self.contact_search_open = true;
+               }
+            });
+            ui.add_space(space);
+
+            self.recipient_selection(ctx.clone(), theme, ui);
+
+            // Token Selection
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  rich_text("Asset")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+            });
+            ui.add_space(5.0);
+
+            Grid::new("token_selection")
+               .spacing(vec2(5.0, 0.0))
+               .show(ui, |ui| {
+                  bg_color_on_idle(ui, Color32::TRANSPARENT);
+                  let res = self.token_button(theme, icons.clone(), ui);
+                  if res.clicked() {
+                     token_selection.open = true;
+                  }
+
+                  let balance = ctx.get_currency_balance(chain, owner, &self.currency);
+                  ui.label(
+                     RichText::new(format!("Balance: {}", balance.formatted()))
+                        .color(theme.colors.text_secondary)
+                        .size(theme.text_sizes.normal),
+                  );
+
+                  if self.syncing_balance {
+                     ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                  }
+
+                  token_selection.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     chain,
+                     owner,
+                     &currencies,
+                     ui,
+                  );
+
+                  if let Some(currency) = token_selection.get_currency() {
+                     self.currency = currency.clone();
+                     token_selection.reset();
+                     self.sync_balance(ctx.clone());
+                  }
+                  ui.end_row();
+               });
+            ui.add_space(space);
+
+            // Amount Input
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  rich_text("Amount")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+            });
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               ui.add(
+                  TextEdit::singleline(&mut self.amount)
+                     .hint_text("0")
+                     .font(egui::FontId::proportional(theme.text_sizes.large))
+                     .background_color(theme.colors.text_edit_bg2)
+                     .desired_width(ui_width * 0.25)
+                     .margin(Margin::same(10)),
+               );
+            });
+            ui.add_space(space);
+
+            // Priority Fee
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  rich_text("Priority Fee")
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.large),
+               );
+            });
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               ui.add(
+                  TextEdit::singleline(&mut self.priority_fee)
+                     .desired_width(60.0)
+                     .margin(Margin::same(10))
+                     .background_color(theme.colors.text_edit_bg2)
+                     .font(egui::FontId::proportional(theme.text_sizes.normal)),
+               );
+               ui.add_space(5.0);
+               ui.label(
+                  rich_text("Gwei")
                      .color(theme.colors.text_secondary)
                      .size(theme.text_sizes.normal),
                );
+            });
+            ui.add_space(space);
 
-               if self.syncing_balance {
+            // Value
+            let value = self.value(ctx.clone());
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  RichText::new(format!("Value≈ ${}", value.formatted()))
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.normal)
+                     .strong(),
+               );
+               if self.pool_data_syncing {
                   ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
                }
-
-               token_selection.show(ctx.clone(), theme, icons.clone(), chain, owner, &currencies, ui);
-
-               if let Some(currency) = token_selection.get_currency() {
-                  self.currency = currency.clone();
-                  token_selection.reset();
-                  self.sync_balance(ctx.clone());
-               }
-               ui.end_row();
             });
-         ui.add_space(space);
+            ui.add_space(space);
 
-         // Amount Input
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("Amount")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
+            // Estimated Cost
+            let cost = self.cost(ctx.clone());
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  RichText::new(format!("Estimated Cost≈ ${}", cost.formatted()))
+                     .color(theme.colors.text_secondary)
+                     .size(theme.text_sizes.normal)
+                     .strong(),
+               );
+            });
+            ui.add_space(space);
+
+            // Send Button
+            widget_visuals(ui, theme.get_button_visuals(bg_color));
+            let send =
+               Button::new(rich_text("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.9, 40.0));
+            ui.vertical_centered(|ui| {
+               if ui.add(send).clicked() {
+                  self.send(ctx.clone());
+               }
+            });
+            ui.add_space(space);
          });
-         ui.add_space(5.0);
-
-         ui.horizontal(|ui| {
-            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-            ui.add(
-               TextEdit::singleline(&mut self.amount)
-                  .hint_text("0")
-                  .font(egui::FontId::proportional(theme.text_sizes.large))
-                  .background_color(theme.colors.text_edit_bg2)
-                  .desired_width(ui_width * 0.25)
-                  .margin(Margin::same(10))
-            );
-         });
-         ui.add_space(space);
-
-         // Priority Fee
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               rich_text("Priority Fee")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.large),
-            );
-         });
-         ui.add_space(5.0);
-
-         ui.horizontal(|ui| {
-            widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-            ui.add(
-               TextEdit::singleline(&mut self.priority_fee)
-                  .desired_width(60.0)
-                  .margin(Margin::same(10))
-                  .background_color(theme.colors.text_edit_bg2)
-                  .font(egui::FontId::proportional(theme.text_sizes.normal)),
-            );
-            ui.add_space(5.0);
-            ui.label(
-               rich_text("Gwei")
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.normal),
-            );
-         });
-         ui.add_space(space);
-
-         // Value
-         let value = self.value(ctx.clone());
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               RichText::new(format!("Value≈ ${}", value.formatted()))
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.normal)
-                  .strong(),
-            );
-            if self.pool_data_syncing {
-               ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-            }
-         });
-         ui.add_space(space);
-
-         // Estimated Cost
-         let cost = self.cost(ctx.clone());
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               RichText::new(format!("Estimated Cost≈ ${}", cost.formatted()))
-                  .color(theme.colors.text_secondary)
-                  .size(theme.text_sizes.normal)
-                  .strong(),
-            );
-         });
-         ui.add_space(space);
-
-         // Send Button
-         widget_visuals(ui, theme.get_button_visuals(bg_color));
-         let send = Button::new(rich_text("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width - 20.0, 40.0)); // Full width minus padding
-         if ui.add(send).clicked() {
-            self.send(ctx.clone());
-         }
-         ui.add_space(space);
-      });
    }
 
    fn token_button(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> Response {
@@ -388,8 +411,8 @@ impl SendCryptoUi {
             Err(e) => {
                tracing::error!("Error getting balance: {:?}", e);
                {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.send_crypto.syncing_balance = false;
+                  let mut gui = SHARED_GUI.write().unwrap();
+                  gui.send_crypto.syncing_balance = false;
                }
                return;
             }
@@ -404,7 +427,6 @@ impl SendCryptoUi {
          let _ = ctx.save_portfolio_db();
       });
    }
-
 
    fn value(&mut self, ctx: ZeusCtx) -> NumericValue {
       let price = ctx.get_currency_price_opt(&self.currency);
@@ -438,39 +460,39 @@ impl SendCryptoUi {
          let chain_id = self.chain_select.chain.id();
 
          if v2_pools.is_empty() || v3_pools.is_empty() {
-         self.pool_data_syncing = true;
-         RT.spawn(async move {
-            match eth::get_pools_for_token(
-               ctx.clone(),
-               token.clone(),
-               v2_pools.is_empty(),
-               v3_pools.is_empty(),
-            )
-            .await
-            {
-               Ok(_) => {
-                  {
+            self.pool_data_syncing = true;
+            RT.spawn(async move {
+               match eth::sync_pools_for_token(
+                  ctx.clone(),
+                  token.clone(),
+                  v2_pools.is_empty(),
+                  v3_pools.is_empty(),
+               )
+               .await
+               {
+                  Ok(_) => {
+                     {
+                        let mut gui = SHARED_GUI.write().unwrap();
+                        gui.send_crypto.pool_data_syncing = false;
+                     }
+                     let client = ctx.get_client_with_id(chain_id).unwrap();
+                     let pool_manager = ctx.pool_manager();
+                     pool_manager
+                        .update_and_clean(client, chain_id)
+                        .await
+                        .unwrap();
+                     ctx.update_portfolio_value(chain_id, owner);
+                     let _ = ctx.save_pool_data();
+                     let _ = ctx.save_portfolio_db();
+                  }
+                  Err(e) => {
+                     tracing::error!("Error getting pools: {:?}", e);
                      let mut gui = SHARED_GUI.write().unwrap();
                      gui.send_crypto.pool_data_syncing = false;
                   }
-                  let client = ctx.get_client_with_id(chain_id).unwrap();
-                  let pool_manager = ctx.pool_manager();
-                  pool_manager
-                     .update_and_clean(client, chain_id)
-                     .await
-                     .unwrap();
-                  ctx.update_portfolio_value(chain_id, owner);
-                  let _ = ctx.save_pool_data();
-                  let _ = ctx.save_portfolio_db();
-               }
-               Err(e) => {
-                  tracing::error!("Error getting pools: {:?}", e);
-                  let mut gui = SHARED_GUI.write().unwrap();
-                  gui.send_crypto.pool_data_syncing = false;
-               }
-            };
-         });
-      }
+               };
+            });
+         }
 
          return NumericValue::default();
       }
@@ -586,6 +608,7 @@ impl SendCryptoUi {
       let bg_color = window_frame.fill;
       Window::new("Recipient")
          .open(&mut open)
+         .order(Order::Foreground)
          .collapsible(false)
          .resizable(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))

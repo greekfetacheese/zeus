@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Color32, ComboBox, Order, Frame, Grid, Layout, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Color32, ComboBox, Frame, Grid, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 
@@ -10,7 +10,6 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
-
 
 use egui_theme::{Theme, utils::*};
 use zeus_eth::{currency::Currency, types::ChainId};
@@ -327,9 +326,9 @@ impl PortfolioUi {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-              // bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
-              let visuals = theme.get_button_visuals(theme.colors.bg_color);
-              widget_visuals(ui, visuals);
+               // bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
+               let visuals = theme.get_button_visuals(theme.colors.bg_color);
+               widget_visuals(ui, visuals);
 
                let add_token = button(rich_text("Add Token").size(theme.text_sizes.normal));
                if ui.add(add_token).clicked() {
@@ -456,12 +455,24 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
-         ui.label(RichText::new(currency.symbol()).strong().size(theme.text_sizes.normal))
-            .on_hover_text(currency.name());
+         ui.label(
+            RichText::new(currency.symbol())
+               .strong()
+               .size(theme.text_sizes.normal),
+         )
+         .on_hover_text(currency.name());
       });
    }
 
-   fn price_balance_value(&self, ctx: ZeusCtx, theme: &Theme, chain: u64, currency: &Currency, ui: &mut Ui, width: f32) {
+   fn price_balance_value(
+      &self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      chain: u64,
+      currency: &Currency,
+      ui: &mut Ui,
+      width: f32,
+   ) {
       let price = ctx.get_currency_price(currency);
 
       ui.horizontal(|ui| {

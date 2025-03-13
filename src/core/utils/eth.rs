@@ -176,7 +176,8 @@ pub async fn get_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
    Ok(pools)
 }
 
-pub async fn get_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3: bool) -> Result<(), anyhow::Error> {
+
+pub async fn sync_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3: bool) -> Result<(), anyhow::Error> {
    let chain = token.chain_id;
    let client = ctx.get_client_with_id(chain)?;
    let pool_manager = ctx.pool_manager();

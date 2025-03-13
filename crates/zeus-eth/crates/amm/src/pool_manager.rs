@@ -1,5 +1,4 @@
 use alloy_primitives::{Address, U256};
-use utils::is_base_token;
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -148,54 +147,8 @@ impl PoolStateManagerHandle {
       N: Network,
    {
       self.update_pool_state(client.clone(), chain).await?;
+      self.update_base_token_prices(client.clone(), chain).await?;
       self.cleanup_pools();
-      self.calculate_prices()?;
-      Ok(())
-   }
-
-   /// Update only 1 pool for each token
-   #[warn(deprecated)]
-   pub async fn update_minimal<P, N>(&self, client: P, chain: u64, tokens: Vec<ERC20Token>) -> Result<(), anyhow::Error>
-   where
-      P: Provider<(), N> + Clone + 'static,
-      N: Network,
-   {
-      let mut v2_pools = Vec::new();
-      let mut v3_pools = Vec::new();
-      let dex_kinds = DexKind::main_dexes(chain);
-
-      // grab only 1 pool for each token
-      for token in tokens {
-         if is_base_token(token.chain_id, token.address) {
-            continue;
-         }
-
-         let (v2_pool, v3_pool) = self.read(|manager| manager.grab_pool_for(token.clone()));
-
-         // if they dont exist, fetch them
-         if v2_pool.is_none() && v3_pool.is_none() {
-            self
-               .get_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
-               .await?;
-            self
-               .get_v3_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
-               .await?;
-         }
-
-         let (v2_pool, v3_pool) = self.read(|manager| manager.grab_pool_for(token));
-
-         if let Some(pool) = v2_pool {
-            v2_pools.push(pool);
-         }
-
-         if let Some(pool) = v3_pool {
-            v3_pools.push(pool);
-         }
-      }
-
-      self
-         .update_state_for_pools(client.clone(), chain, v2_pools, v3_pools)
-         .await?;
       self.calculate_prices()?;
       Ok(())
    }
@@ -634,17 +587,16 @@ impl PoolStateManager {
             continue;
          }
 
-         let quote = pool.quote_token();
-         let base_token = pool.base_token();
+         let quote = pool.quote_token().clone();
+         let base_token = pool.base_token().clone();
          let base_price = self
             .token_prices
             .get(&(base_token.chain_id, base_token.address))
             .cloned()
             .unwrap_or_default()
             .float();
-         pool.base_usd = base_price;
 
-         let quote_price = pool.caluclate_quote_price(base_price);
+         let quote_price = pool.quote_price(base_price).unwrap_or_default();
          if quote_price == 0.0 {
             continue;
          }
@@ -659,8 +611,8 @@ impl PoolStateManager {
             continue;
          }
 
-         let quote = pool.quote_token();
-         let base_token = pool.base_token();
+         let quote = pool.quote_token().clone();
+         let base_token = pool.base_token().clone();
          let base_price = self
             .token_prices
             .get(&(base_token.chain_id, base_token.address))
@@ -669,7 +621,7 @@ impl PoolStateManager {
             .float();
          pool.base_usd = base_price;
 
-         let quote_price = pool.caluclate_quote_price(base_price);
+         let quote_price = pool.quote_price(base_price).unwrap_or_default();
          if quote_price == 0.0 {
             continue;
          }

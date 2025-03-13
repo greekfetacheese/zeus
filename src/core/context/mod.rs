@@ -5,6 +5,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
+use zeus_eth::alloy_primitives::Address;
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
@@ -12,7 +13,6 @@ use zeus_eth::amm::{
       v3::pool::{FEE_TIERS, UniswapV3Pool},
    },
 };
-use zeus_eth::alloy_primitives::Address;
 use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
@@ -48,6 +48,14 @@ impl ZeusCtx {
 
    pub fn pool_manager(&self) -> PoolStateManagerHandle {
       self.read(|ctx| ctx.pool_manager.clone())
+   }
+
+   /// If pool_data.json has been deleted, we need to re-sync the pools
+   pub fn pools_need_resync(&self) -> bool {
+      match pool_data_dir() {
+         Ok(dir) => !dir.exists(),
+         Err(_) => true,
+      }
    }
 
    pub fn save_pool_data(&self) -> Result<(), anyhow::Error> {
@@ -157,6 +165,19 @@ impl ZeusCtx {
       }
 
       NumericValue::from_f64(value)
+   }
+
+   /// Get all the erc20 tokens in all portfolios
+   pub fn get_all_erc20_tokens(&self, chain: u64) -> Vec<ERC20Token> {
+      let mut tokens = Vec::new();
+      let wallets = self.profile().wallets;
+
+      for wallet in &wallets {
+         let owner = wallet.key.inner().address();
+         let portfolio = self.get_portfolio(chain, owner);
+         tokens.extend(portfolio.erc20_tokens());
+      }
+      tokens
    }
 
    /// Calculate and update the portfolio value
@@ -269,7 +290,7 @@ impl ZeusCtx {
       pools
    }
 
-   /// Get all v2 pools for the given pair
+   /// Get all v2 pools for the given token
    pub fn get_v2_pools(&self, token: ERC20Token) -> Vec<UniswapV2Pool> {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
       let mut pools = Vec::new();
@@ -459,7 +480,8 @@ pub struct ZeusContext {
 
    pub pool_manager: PoolStateManagerHandle,
 
-   pub pool_data_syncing: bool,
+   /// True if we are syncing important data and need to show a msg
+   pub data_syncing: bool,
 
    pub base_fee: HashMap<u64, BaseFee>,
    pub priority_fee: PriorityFee,
@@ -499,7 +521,7 @@ impl ZeusContext {
          portfolio_db,
          contact_db,
          pool_manager,
-         pool_data_syncing: false,
+         data_syncing: false,
          base_fee: HashMap::new(),
          priority_fee: PriorityFee::default(),
       }

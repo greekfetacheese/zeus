@@ -41,7 +41,9 @@ impl TxParams {
    }
 
    pub fn max_fee_per_gas(&self) -> U256 {
-      self.miner_tip + U256::from(self.base_fee)
+      let fee = self.miner_tip + U256::from(self.base_fee);
+      // add a 10% tolerance
+      fee * U256::from(110) / U256::from(100)
    }
 
    pub fn gas_cost(&self, gas_used: u64) -> U256 {
