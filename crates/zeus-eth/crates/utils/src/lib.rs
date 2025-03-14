@@ -5,7 +5,10 @@ pub mod client;
 pub mod price_feed;
 
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::{Address, U256, utils::format_units};
+use alloy_primitives::{
+   Address, U256,
+   utils::{format_units, parse_units},
+};
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
 
@@ -215,70 +218,74 @@ pub fn format_price(price: f64) -> String {
 /// Represents a numeric value in different formats
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NumericValue {
-   pub uint: Option<U256>,
-   pub float: f64,
+   /// For [Self::value] & [Self::currency_price] is None
+   pub wei: Option<U256>,
+   pub f64: f64,
    pub formatted: String,
 }
 
 impl Default for NumericValue {
    fn default() -> Self {
       Self {
-         uint: None,
-         float: 0.0,
+         wei: Some(U256::ZERO),
+         f64: 0.0,
          formatted: "0".to_string(),
       }
    }
 }
 
 impl NumericValue {
-   pub fn new(uint: Option<U256>, float: f64, formatted: String) -> Self {
+
+   pub fn from_wei(wei: U256, decimals: u8) -> Self {
+      let units_formated = format_units(wei, decimals).unwrap_or("0".to_string());
+      let f64 = units_formated.parse().unwrap_or(0.0);
+      let formatted = format_number(&units_formated, 2, true);
+
       Self {
-         uint,
-         float,
+         wei: Some(wei),
+         f64,
          formatted,
       }
    }
 
-   /// Parse a value doing the 10^currency_decimals conversion and format it to [U256] , [f64] and [String]
-   pub fn parse_from_str(amount: &str, currency_decimals: u8) -> Self {
-      let float: f64 = amount.parse().unwrap_or(0.0);
+   /// Parse a value doing the 10^currency_decimals conversion
+   ///
+   /// The wei value is stored and its being formatted to a readable format [f64] and [String]
+   pub fn parse_to_wei(amount: &str, currency_decimals: u8) -> Self {
+      let wei = if let Ok(units) = parse_units(amount, currency_decimals) {
+         units.get_absolute()
+      } else {
+         U256::ZERO
+      };
 
-      // Convert from str to U256
-      let scale = 10_f64.powi(currency_decimals as i32);
-      let scaled = (float * scale) as u128;
-      let uint = U256::from(scaled);
-
-      let formatted = format_number(&amount, 2, true);
+      let units_formated = format_units(wei, currency_decimals).unwrap_or("0".to_string());
+      let f64 = units_formated.parse().unwrap_or(0.0);
+      let formatted = format_number(&units_formated, 2, true);
 
       Self {
-         uint: Some(uint),
-         float,
+         wei: Some(wei),
+         f64,
          formatted,
       }
    }
 
-   /// Parse a value doing the 10^9 conversion and format it to [U256] , [f64] and [String]
-   pub fn gwei_to_wei(amount: &str) -> Self {
-      let float: f64 = amount.parse().unwrap_or(0.0);
+   /// Parse a value doing the 10^9 conversion
+   ///
+   /// The wei value is stored and its being formatted to a readable format [f64] and [String]
+   pub fn parse_to_gwei(amount: &str) -> Self {
+      let wei = if let Ok(units) = parse_units(amount, 9) {
+         units.get_absolute()
+      } else {
+         U256::ZERO
+      };
 
-      let scale = 10f64.powi(9);
-      let scaled = (float * scale) as u128;
-      let wei = U256::from(scaled);
-
-      let formatted = format_number(&float.to_string(), 2, true);
+      let units_formated = format_units(wei, 9).unwrap_or("0".to_string());
+      let f64 = units_formated.parse().unwrap_or(0.0);
+      let formatted = format_number(&units_formated, 2, true);
 
       Self {
-         uint: Some(wei),
-         float,
-         formatted,
-      }
-   }
-
-   pub fn from_f64(float: f64) -> Self {
-      let formatted = format_number(&float.to_string(), 2, true);
-      Self {
-         uint: None,
-         float,
+         wei: Some(wei),
+         f64,
          formatted,
       }
    }
@@ -289,8 +296,8 @@ impl NumericValue {
       let float = value_string.parse().unwrap_or(0.0);
       let formatted = format_number(&value_string, 2, true);
       Self {
-         uint: Some(balance),
-         float,
+         wei: Some(balance),
+         f64: float,
          formatted,
       }
    }
@@ -299,16 +306,16 @@ impl NumericValue {
    pub fn currency_price(price: f64) -> Self {
       let formatted = format_price(price);
       Self {
-         uint: None,
-         float: price,
+         wei: None,
+         f64: price,
          formatted,
       }
    }
 
-   /// Create a new NumericValue to represent a currency value
+   /// Create a new NumericValue to represent a value
    ///
    /// `amount` * `price`
-   pub fn currency_value(amount: f64, price: f64) -> Self {
+   pub fn value(amount: f64, price: f64) -> Self {
       let value = if amount == 0.0 || price == 0.0 {
          0.0
       } else {
@@ -316,26 +323,40 @@ impl NumericValue {
       };
       let formatted = format_number(&value.to_string(), 2, true);
       Self {
-         uint: None,
-         float: value,
+         wei: None,
+         f64: value,
+         formatted,
+      }
+   }
+
+   pub fn from_f64(float: f64) -> Self {
+      let formatted = format_number(&float.to_string(), 2, true);
+      Self {
+         wei: None,
+         f64: float,
          formatted,
       }
    }
 
    pub fn is_zero(&self) -> bool {
-      matches!(self.float, 0.0) || matches!(self.formatted.as_str(), "0")
+      matches!(self.f64, 0.0) || matches!(self.formatted.as_str(), "0")
    }
 
-   pub fn uint(&self) -> Option<U256> {
-      self.uint
+   pub fn wei(&self) -> Option<U256> {
+      self.wei
    }
 
-   pub fn float(&self) -> f64 {
-      self.float
+   pub fn f64(&self) -> f64 {
+      self.f64
    }
 
    pub fn formatted(&self) -> &String {
       &self.formatted
+   }
+
+   /// Remove the commas from the formatted string
+   pub fn flatten(&self) -> String {
+      self.formatted.replace(",", "")
    }
 }
 
@@ -348,22 +369,39 @@ mod tests {
    fn test_low_amount_value() {
       let amount = parse_ether("0.001834247995202872").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.float, 0.001834247995202872);
+      assert_eq!(value.f64, 0.001834247995202872);
       assert_eq!(value.formatted, "0.0018");
    }
 
    #[test]
-   fn test_gwei_to_wei() {
+   fn test_parse_to_wei() {
+      // 1 ETH
       let amount = "1";
-      let value = NumericValue::gwei_to_wei(&amount.to_string());
-      assert_eq!(value.uint.unwrap(), U256::from(1000000000u128));
-      assert_eq!(value.float, 1.0);
+      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
+      assert_eq!(value.f64, 1.0);
+      assert_eq!(value.formatted, "1");
+
+      // 0.001294885 ETH
+      let amount = "0.001294885";
+      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      assert_eq!(value.wei().unwrap(), U256::from(1294885000000000u128));
+      assert_eq!(value.f64, 0.001294885);
+      assert_eq!(value.formatted, "0.0012");
+   }
+
+   #[test]
+   fn test_parse_to_gwei() {
+      let amount = "1";
+      let value = NumericValue::parse_to_gwei(&amount.to_string());
+      assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+      assert_eq!(value.f64, 1.0);
       assert_eq!(value.formatted, "1");
 
       let amount = "0.001294885";
-      let value = NumericValue::gwei_to_wei(&amount.to_string());
-      assert_eq!(value.uint.unwrap(), U256::from(1294885u128));
-      assert_eq!(value.float, 0.001294885);
+      let value = NumericValue::parse_to_gwei(&amount.to_string());
+      assert_eq!(value.wei().unwrap(), U256::from(1294885u128));
+      assert_eq!(value.f64, 0.001294885);
       assert_eq!(value.formatted, "0.0012");
    }
 
@@ -371,16 +409,17 @@ mod tests {
    fn test_high_amount_value() {
       let amount = parse_ether("2133.073141862605681577").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.float, 2133.073141862605681577);
+      assert_eq!(value.f64, 2133.073141862605681577);
       assert_eq!(value.formatted, "2,133.07");
+      assert_eq!(value.flatten(), "2133.07");
    }
 
    #[test]
-   fn test_currency_value() {
+   fn test_value() {
       let amount = 0.421;
       let price = 2345.33;
-      let value = NumericValue::currency_value(amount, price);
-      assert_eq!(value.float, price * amount);
+      let value = NumericValue::value(amount, price);
+      assert_eq!(value.f64, price * amount);
       assert_eq!(value.formatted, "987.38");
    }
 
@@ -388,13 +427,7 @@ mod tests {
    fn test_low_price() {
       let price = 0.001834247995202872;
       let value = NumericValue::currency_price(price);
-      assert_eq!(value.float, 0.001834247995202872);
+      assert_eq!(value.f64, 0.001834247995202872);
       assert_eq!(value.formatted, "0.0018");
-   }
-
-   #[test]
-   fn test_zero() {
-      let value = NumericValue::default();
-      assert!(value.is_zero());
    }
 }

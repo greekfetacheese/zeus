@@ -161,7 +161,7 @@ impl ZeusCtx {
 
       for chain in chains {
          let portfolio = self.get_portfolio(chain, owner);
-         value += portfolio.value.float();
+         value += portfolio.value.f64();
       }
 
       NumericValue::from_f64(value)
@@ -187,9 +187,9 @@ impl ZeusCtx {
       let mut value = 0.0;
 
       for currency in currencies {
-         let price = self.get_currency_price(currency).float();
-         let balance = self.get_currency_balance(chain, owner, currency).float();
-         value += NumericValue::currency_value(balance, price).float()
+         let price = self.get_currency_price(currency).f64();
+         let balance = self.get_currency_balance(chain, owner, currency).f64();
+         value += NumericValue::value(balance, price).f64()
       }
 
       portfolio.update_value(value);
@@ -230,7 +230,7 @@ impl ZeusCtx {
    pub fn get_currency_value(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
       let price = self.get_currency_price(currency);
       let balance = self.get_currency_balance(chain, owner, currency);
-      NumericValue::currency_value(balance.float(), price.float())
+      NumericValue::value(balance.f64(), price.f64())
    }
 
    pub fn get_currency_balance(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
@@ -442,19 +442,19 @@ impl Default for PriorityFee {
    fn default() -> Self {
       let mut map = HashMap::new();
       // Eth
-      map.insert(1, NumericValue::gwei_to_wei("1"));
+      map.insert(1, NumericValue::parse_to_gwei("1"));
 
       // Optimism
-      map.insert(10, NumericValue::gwei_to_wei("0.002"));
+      map.insert(10, NumericValue::parse_to_gwei("0.002"));
 
       // BSC (Legacy Tx)
-      map.insert(56, NumericValue::gwei_to_wei("0"));
+      map.insert(56, NumericValue::parse_to_gwei("0"));
 
       // Base
-      map.insert(8453, NumericValue::gwei_to_wei("0.002"));
+      map.insert(8453, NumericValue::parse_to_gwei("0.002"));
 
       // Arbitrum (Legacy Tx)
-      map.insert(42161, NumericValue::gwei_to_wei("0"));
+      map.insert(42161, NumericValue::parse_to_gwei("0"));
 
       Self { fee: map }
    }

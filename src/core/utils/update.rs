@@ -1,4 +1,4 @@
-use crate::core::{ZeusCtx, utils::*};
+use crate::core::{utils::*, BaseFee, ZeusCtx};
 use alloy_network::primitives::BlockTransactionsKind;
 use anyhow::anyhow;
 use std::collections::HashMap;
@@ -33,7 +33,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    portfolio_update(ctx.clone());
 
    for chain in SUPPORTED_CHAINS {
-      match update_base_fee(ctx.clone(), chain).await {
+      match get_base_fee(ctx.clone(), chain).await {
          Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
          Err(e) => tracing::error!("Error updating base fee: {:?}", e),
       }
@@ -237,7 +237,7 @@ async fn balance_update_interval(ctx: ZeusCtx) {
    }
 }
 
-pub async fn update_base_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
+pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::Error> {
    let client = ctx.get_client_with_id(chain)?;
    let chain = ChainId::new(chain)?;
 
@@ -249,22 +249,23 @@ pub async fn update_base_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Err
       let base_fee = block.header.base_fee_per_gas.unwrap_or_default();
       let next_base_fee = calculate_next_block_base_fee(block);
       ctx.update_base_fee(chain.id(), base_fee, next_base_fee);
+      Ok(BaseFee::new(base_fee, next_base_fee))
    } else {
       let gas_price = client.get_gas_price().await?;
       let fee: u64 = gas_price.try_into()?;
       ctx.update_base_fee(chain.id(), fee, fee);
+      Ok(BaseFee::new(fee, fee))
    }
-   Ok(())
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 600;
+   const INTERVAL: u64 = 30;
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > INTERVAL {
          for chain in SUPPORTED_CHAINS {
-            match update_base_fee(ctx.clone(), chain).await {
+            match get_base_fee(ctx.clone(), chain).await {
                Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
                Err(e) => tracing::error!("Error updating base fee: {:?}", e),
             }
@@ -281,7 +282,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
    if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
       let fee = client.get_max_priority_fee_per_gas().await?;
       let fee = format_units(U256::from(fee), "gwei")?;
-      ctx.update_priority_fee(chain.id(), NumericValue::gwei_to_wei(&fee));
+      ctx.update_priority_fee(chain.id(), NumericValue::parse_to_gwei(&fee));
    }
    Ok(())
 }

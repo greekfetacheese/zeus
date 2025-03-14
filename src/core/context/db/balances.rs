@@ -55,11 +55,11 @@ impl BalanceDB {
    pub fn insert_currency_balance(&mut self, owner: Address, balance: NumericValue, currency: &Currency) {
       if currency.is_native() {
          let native = currency.native().unwrap();
-         let balance = balance.uint().unwrap_or_default();
+         let balance = balance.wei().unwrap_or_default();
          self.insert_eth_balance(native.chain_id, owner, balance, native);
       } else {
          let token = currency.erc20().unwrap();
-         let balance = balance.uint().unwrap_or_default();
+         let balance = balance.wei().unwrap_or_default();
          self.insert_token_balance(token.chain_id, owner, balance, token);
       }
    }

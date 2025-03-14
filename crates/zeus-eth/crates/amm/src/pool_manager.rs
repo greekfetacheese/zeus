@@ -594,7 +594,7 @@ impl PoolStateManager {
             .get(&(base_token.chain_id, base_token.address))
             .cloned()
             .unwrap_or_default()
-            .float();
+            .f64();
 
          let quote_price = pool.quote_price(base_price).unwrap_or_default();
          if quote_price == 0.0 {
@@ -618,7 +618,7 @@ impl PoolStateManager {
             .get(&(base_token.chain_id, base_token.address))
             .cloned()
             .unwrap_or_default()
-            .float();
+            .f64();
          pool.base_usd = base_price;
 
          let quote_price = pool.quote_price(base_price).unwrap_or_default();

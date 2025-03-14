@@ -1,11 +1,6 @@
 use anyhow::anyhow;
 use zeus_eth::{
-   alloy_contract::private::Provider,
-   alloy_network::{Ethereum, TransactionBuilder},
-   alloy_primitives::{Address, Bytes, U256, utils::format_ether},
-   alloy_rpc_types::{TransactionReceipt, TransactionRequest},
-   types::ChainId,
-   wallet::{SafeSigner, SafeWallet},
+   alloy_contract::private::Provider, alloy_network::{Ethereum, TransactionBuilder}, alloy_primitives::{utils::format_ether, Address, Bytes, U256}, alloy_rpc_types::{TransactionReceipt, TransactionRequest}, types::ChainId, utils::NumericValue, wallet::{SafeSigner, SafeWallet}
 };
 
 #[derive(Clone)]
@@ -17,6 +12,7 @@ pub struct TxParams {
    pub miner_tip: U256,
    pub base_fee: u64,
    pub call_data: Bytes,
+   pub gas_used: u64,
 }
 
 impl TxParams {
@@ -28,6 +24,7 @@ impl TxParams {
       miner_tip: U256,
       base_fee: u64,
       call_data: Bytes,
+      gas_used: u64,
    ) -> Self {
       Self {
          signer,
@@ -37,6 +34,7 @@ impl TxParams {
          miner_tip,
          base_fee,
          call_data,
+         gas_used,
       }
    }
 
@@ -46,12 +44,30 @@ impl TxParams {
       fee * U256::from(110) / U256::from(100)
    }
 
-   pub fn gas_cost(&self, gas_used: u64) -> U256 {
+   pub fn gas_cost(&self) -> U256 {
       if self.chain.is_ethereum() || self.chain.is_optimism() || self.chain.is_base() {
-         U256::from(U256::from(gas_used) * self.max_fee_per_gas())
+         U256::from(U256::from(self.gas_used) * self.max_fee_per_gas())
       } else {
-         U256::from(gas_used * self.base_fee)
+         U256::from(self.gas_used * self.base_fee)
       }
+   }
+
+   pub fn sufficient_balance(&self, balance: NumericValue) -> Result<(), anyhow::Error> {
+      let coin = self.chain.coin_symbol();
+      let cost = self.gas_cost();
+      let cost_str = format!("{:.6}", format_ether(cost));
+
+      if balance.wei().unwrap() < cost {
+         return Err(anyhow!(
+            "Insufficient balance to cover gas fees, need at least {} {} but you have {} {}",
+            cost_str,
+            coin,
+            balance.formatted(),
+            coin
+         ));
+      }
+
+      Ok(())
    }
 }
 
@@ -64,13 +80,7 @@ where
 
    let mut tx = legacy_or_eip1559(params.clone());
    tx.set_nonce(nonce);
-
-   // calculate the estimated cost of the transaction
-   let gas_used = client.estimate_gas(&tx).await?;
-   let gas_cost = params.gas_cost(gas_used);
-   let balance = client.get_balance(signer_address).await?;
-   has_funds(params.chain, gas_cost, balance)?;
-   tx.set_gas_limit(gas_used * 15 / 10); // +50%
+   tx.set_gas_limit(params.gas_used * 15 / 10); // +50%
 
    let signer = SafeWallet::from(params.signer.clone());
    let tx_envelope = tx.clone().build(&signer.inner()).await?;
@@ -90,23 +100,6 @@ where
    Ok(receipt)
 }
 
-fn has_funds(chain: ChainId, gas_cost: U256, balance: U256) -> Result<(), anyhow::Error> {
-   let symbol = chain.coin_symbol();
-   let gas_cost = format_ether(gas_cost);
-   let balance = format_ether(balance);
-
-   if balance < gas_cost {
-      return Err(anyhow!(
-         "Insufficient balance to cover gas fees, need at least {} {} but you have {} {}",
-         gas_cost,
-         symbol,
-         balance,
-         symbol
-      ));
-   }
-
-   Ok(())
-}
 
 fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    // Eip1559

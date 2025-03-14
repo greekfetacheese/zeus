@@ -157,7 +157,7 @@ impl SwapUi {
                            let max = rich_text("Max").size(17.0).color(Color32::RED);
                            // TODO: on hover change the cursor to a pointer
                            if ui.label(max).clicked() {
-                              *self.amount_in() = balance.uint().unwrap_or_default().to_string();
+                              *self.amount_in() = balance.wei().unwrap_or_default().to_string();
                            }
                         });
                      });
@@ -187,7 +187,7 @@ impl SwapUi {
 
                            let max = rich_text("Max").size(17.0).color(Color32::RED);
                            if ui.label(max).clicked() {
-                              *self.amount_out() = balance.uint().unwrap_or_default().to_string();
+                              *self.amount_out() = balance.wei().unwrap_or_default().to_string();
                            }
                         });
                      });

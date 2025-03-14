@@ -11,6 +11,7 @@ use crate::core::{
    utils::{
       RT,
       eth::{self, get_currency_balance, send_crypto},
+      tx::TxParams,
    },
 };
 
@@ -18,7 +19,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      TokenSelectionWindow, img_button,
+      TokenSelectionWindow, button, img_button,
       misc::{ChainSelect, WalletSelect},
       rich_text,
    },
@@ -26,16 +27,15 @@ use crate::gui::{
 };
 use egui_theme::{Theme, utils::*};
 
+use anyhow::anyhow;
 use zeus_eth::{
    alloy_primitives::{
-      Address, U256,
+      Address, Bytes, U256,
       utils::{format_units, parse_units},
    },
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
-
-use super::button;
 
 // This is a temporary solution to just show that the transaction was sent
 pub struct TxSuccessWindow {
@@ -112,6 +112,9 @@ pub struct SendCryptoUi {
    /// Flag to not spam the rpc when fetching pool data
    pub pool_data_syncing: bool,
    pub syncing_balance: bool,
+
+   /// Review Transaction window
+   pub review_tx_window: bool,
 }
 
 impl SendCryptoUi {
@@ -131,6 +134,7 @@ impl SendCryptoUi {
          tx_success_window: TxSuccessWindow::new(),
          pool_data_syncing: false,
          syncing_balance: false,
+         review_tx_window: false,
       }
    }
 
@@ -145,6 +149,8 @@ impl SendCryptoUi {
       if !self.open {
          return;
       }
+
+      self.review_transaction(ctx.clone(), theme, icons.clone(), ui);
 
       let frame = theme.frame1;
       let bg_color = frame.fill;
@@ -297,13 +303,23 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             // Amount Input
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  rich_text("Amount")
-                     .color(theme.colors.text_secondary)
-                     .size(theme.text_sizes.large),
-               );
-            });
+            Grid::new("amount_input")
+               .spacing(vec2(5.0, 0.0))
+               .show(ui, |ui| {
+                  ui.label(
+                     rich_text("Amount")
+                        .color(theme.colors.text_secondary)
+                        .size(theme.text_sizes.large),
+                  );
+                  widget_visuals(ui, theme.get_button_visuals(bg_color));
+                  ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+                  let max_button = button(rich_text("Max").size(theme.text_sizes.small));
+                  if ui.add(max_button).clicked() {
+                     self.amount = self.max_amount(ctx.clone()).flatten().clone();
+                  }
+                  ui.end_row();
+               });
+
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
@@ -363,7 +379,7 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             // Estimated Cost
-            let cost = self.cost(ctx.clone());
+            let (_, cost) = self.cost(ctx.clone());
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(
                   RichText::new(format!("Estimated Cost≈ ${}", cost.formatted()))
@@ -380,7 +396,7 @@ impl SendCryptoUi {
                Button::new(rich_text("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.9, 40.0));
             ui.vertical_centered(|ui| {
                if ui.add(send).clicked() {
-                  self.send(ctx.clone());
+                  self.validate_and_send(ctx.clone());
                }
             });
             ui.add_space(space);
@@ -437,7 +453,7 @@ impl SendCryptoUi {
       }
 
       if !price.is_none() {
-         return NumericValue::currency_value(amount, price.unwrap().float());
+         return NumericValue::value(amount, price.unwrap().f64());
       } else {
          // probably no pool data available to calculate the price
 
@@ -498,7 +514,26 @@ impl SendCryptoUi {
       }
    }
 
-   fn cost(&self, ctx: ZeusCtx) -> NumericValue {
+   /// Max amount = Balance - Cost
+   fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
+      let chain = self.chain_select.chain;
+      let currency = self.currency.clone();
+      let owner = self.wallet_select.wallet.key.inner().address();
+      let balance = ctx.get_currency_balance(chain.id(), owner, &currency);
+      let (cost_wei, _) = self.cost(ctx.clone());
+
+      if currency.is_erc20() {
+         return balance;
+      } else {
+         if balance.wei().unwrap() < cost_wei {
+            return NumericValue::default();
+         }
+         let max = balance.wei().unwrap() - cost_wei;
+         return NumericValue::from_wei(max, currency.decimals());
+      }
+   }
+
+   fn cost(&self, ctx: ZeusCtx) -> (U256, NumericValue) {
       let fee = if self.priority_fee.is_empty() {
          parse_units("1", "gwei").unwrap().get_absolute()
       } else {
@@ -519,82 +554,231 @@ impl SendCryptoUi {
 
       // native token price
       let native_token = ERC20Token::native_wrapped_token(chain.id());
-      let price = ctx
-         .get_token_price(&native_token)
-         .unwrap_or_default()
-         .float();
+      let price = ctx.get_token_price(&native_token).unwrap_or_default().f64();
 
-      let cost = gas_used * fee;
-      let cost = format_units(cost, native_token.decimals).unwrap_or_default();
+      let cost_wei = gas_used * fee;
+      let cost = format_units(cost_wei, native_token.decimals).unwrap_or_default();
       let cost: f64 = cost.parse().unwrap_or_default();
 
       // cost in usd
-      NumericValue::currency_value(cost, price)
+      let cost_usd = NumericValue::value(cost, price);
+      (cost_wei, cost_usd)
    }
 
-   fn send(&self, ctx: ZeusCtx) {
+   fn validate_params(&self, ctx: ZeusCtx) -> Result<TxParams, anyhow::Error> {
       let from = self.wallet_select.wallet.clone();
       let recipient = self.recipient.clone();
       let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
-      let amount = NumericValue::parse_from_str(&self.amount, self.currency.decimals());
+      let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let currency = self.currency.clone();
       let chain = self.chain_select.chain;
       let fee = self.priority_fee.clone();
-      let explorer = chain.block_explorer().to_string();
-      let ctx_clone = ctx.clone();
 
-      RT.spawn(async move {
-         open_loading("Sending Transaction...".into());
-         match send_crypto(
-            ctx_clone,
-            from.clone(),
-            to,
-            currency.clone(),
-            amount.uint().unwrap(),
-            fee,
-            chain.id(),
-         )
-         .await
-         {
-            Ok(tx) => {
-               {
-                  let mut gui = SHARED_GUI.write().unwrap();
-                  gui.loading_window.reset();
-                  let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
-                  gui.send_crypto.tx_success_window.open(link);
+      let balance = ctx.get_currency_balance(chain.id(), from.key.inner().address(), &currency);
+
+      if amount.wei().unwrap() > balance.wei().unwrap() {
+         return Err(anyhow!("Insufficient balance"));
+      }
+
+      if to.is_zero() {
+         return Err(anyhow!("Invalid recipient address"));
+      }
+
+      if from.key.inner().address() == to {
+         return Err(anyhow!("Cannot send to yourself"));
+      }
+
+      if amount.is_zero() {
+         return Err(anyhow!("Amount cannot be 0"));
+      }
+
+      let fee = if fee.is_empty() {
+         parse_units("1", "gwei")?.get_absolute()
+      } else {
+         parse_units(&fee, "gwei")?.get_absolute()
+      };
+
+      let miner_tip = U256::from(fee);
+      let call_data = if currency.is_native() {
+         Bytes::default()
+      } else {
+         let token = currency.erc20().unwrap();
+         let data = token.encode_transfer(to, amount.wei().unwrap());
+         data
+      };
+
+      let value = if currency.is_native() {
+         amount.wei().unwrap()
+      } else {
+         U256::ZERO
+      };
+
+      let gas_used = if currency.is_native() {
+         chain.transfer_gas()
+      } else {
+         chain.erc20_transfer_gas()
+      };
+
+      let base_fee = ctx.get_base_fee(chain.id()).unwrap_or_default().next;
+
+      let params = TxParams::new(
+         from.key.clone(),
+         to,
+         value,
+         chain,
+         miner_tip,
+         base_fee,
+         call_data,
+         gas_used,
+      );
+
+      params.sufficient_balance(balance)?;
+
+      Ok(params)
+   }
+
+   fn review_transaction(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.review_tx_window {
+         return;
+      }
+
+      let amount = self.amount.clone();
+      let value = self.value(ctx.clone());
+      let sender = self.wallet_select.wallet.clone();
+      let chain = self.chain_select.chain;
+      let currency = self.currency.clone();
+      let recipient = self.recipient.clone();
+      let recipient_name = self.recipient_name.clone();
+      let explorer = chain.block_explorer().to_owned();
+
+      let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+
+      let mut should_send_tx = false;
+
+      Window::new("Review Transaction")
+         .title_bar(false)
+         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(400.0);
+            ui.set_height(300.0);
+            ui.spacing_mut().item_spacing.y = 15.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            let width = ui.available_width();
+
+            ui.vertical_centered(|ui| {
+               ui.add_space(20.0);
+               ui.label(rich_text("You are about to send").size(theme.text_sizes.heading));
+
+               // TODO: center this
+               ui.add_sized(vec2(width * 0.33, 20.0), |ui: &mut Ui| {
+                  let res = Grid::new("amount_send")
+                     .spacing(vec2(5.0, 0.0))
+                     .show(ui, |ui| {
+                        ui.label(rich_text(format!("{} {}", amount, currency.symbol())).size(theme.text_sizes.large));
+                        ui.add(icons.currency_icon(&currency));
+                        ui.label(rich_text(format!("${}", value.formatted())).size(theme.text_sizes.normal));
+                        ui.end_row();
+                     });
+                  res.response
+               });
+
+               ui.label(rich_text("To").size(theme.text_sizes.large));
+
+               if let Some(name) = recipient_name {
+                  ui.label(rich_text(name).size(theme.text_sizes.large));
+               } else {
+                  ui.label(rich_text(recipient.clone()).size(theme.text_sizes.large));
                }
 
-               // if recipient is a wallet owned by the user then update the balance
-               // Also update the sender's balance
-               let profile = ctx.profile();
-               if profile.wallet_address_exists(&recipient) {
-                  let recipient_balance = get_currency_balance(ctx.clone(), to, currency.clone())
+               let confirm = Button::new(rich_text("Confirm").size(theme.text_sizes.normal));
+               if ui.add(confirm).clicked() {
+                  should_send_tx = true;
+                  self.review_tx_window = false;
+               }
+
+               let cancel = Button::new(rich_text("Cancel").size(theme.text_sizes.normal));
+               if ui.add(cancel).clicked() {
+                  self.review_tx_window = false;
+               }
+            });
+         });
+
+      if should_send_tx {
+         let params = match self.validate_params(ctx.clone()) {
+            Ok(p) => p,
+            Err(e) => {
+               std::thread::spawn(move || {
+                  let mut gui = SHARED_GUI.write().unwrap();
+                  gui.msg_window.open("Transaction Error", &e.to_string());
+               });
+               return;
+            }
+         };
+
+         RT.spawn(async move {
+            open_loading("Sending Transaction...".into());
+
+            match send_crypto(ctx.clone(), currency.clone(), params.clone()).await {
+               Ok(tx) => {
+                  {
+                     let mut gui = SHARED_GUI.write().unwrap();
+                     gui.loading_window.reset();
+                     let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
+                     gui.send_crypto.tx_success_window.open(link);
+                  }
+
+                  // if recipient is a wallet owned by the user then update the balance
+                  // Also update the sender's balance
+                  let profile = ctx.profile();
+                  if profile.wallet_address_exists(recipient_address) {
+                     let recipient_balance = get_currency_balance(ctx.clone(), recipient_address, currency.clone())
+                        .await
+                        .unwrap();
+
+                     ctx.write(|ctx| {
+                        ctx.balance_db
+                           .insert_currency_balance(recipient_address, recipient_balance, &currency);
+                     });
+                     ctx.update_portfolio_value(chain.id(), recipient_address);
+                  }
+                  let sender_addr = sender.key.inner().address();
+                  let sender_balance = get_currency_balance(ctx.clone(), sender_addr, currency.clone())
                      .await
                      .unwrap();
-
                   ctx.write(|ctx| {
                      ctx.balance_db
-                        .insert_currency_balance(to, recipient_balance, &currency);
+                        .insert_currency_balance(sender_addr, sender_balance, &currency);
                   });
-                  ctx.update_portfolio_value(chain.id(), to);
+                  ctx.update_portfolio_value(chain.id(), sender_addr);
                }
-               let sender = from.key.inner().address();
-               let sender_balance = get_currency_balance(ctx.clone(), sender, currency.clone())
-                  .await
-                  .unwrap();
-               ctx.write(|ctx| {
-                  ctx.balance_db
-                     .insert_currency_balance(sender, sender_balance, &currency);
-               });
-               ctx.update_portfolio_value(chain.id(), sender);
+               Err(e) => {
+                  let mut gui = SHARED_GUI.write().unwrap();
+                  gui.loading_window.reset();
+                  gui.msg_window.open("Transaction Error", &e.to_string());
+               }
             }
-            Err(e) => {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.loading_window.reset();
-               gui.msg_window.open("Transaction Error", &e.to_string());
-            }
+         });
+      }
+   }
+
+   /// Validate the params and open the Review Tx window
+   fn validate_and_send(&mut self, ctx: ZeusCtx) {
+      match self.validate_params(ctx.clone()) {
+         Ok(_) => {
+            self.review_tx_window = true;
          }
-      });
+         Err(e) => {
+            std::thread::spawn(move || {
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.msg_window.open("Transaction Error", &e.to_string());
+            });
+            return;
+         }
+      };
    }
 
    /// Recipient selection window

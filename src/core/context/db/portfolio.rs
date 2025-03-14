@@ -61,7 +61,7 @@ impl Portfolio {
 
    pub fn update_value(&mut self, value: f64) {
       let formatted = format_number(&value.to_string(), 4, true);
-      self.value = NumericValue::new(None, value, formatted);
+      self.value = NumericValue{wei: None, f64: value, formatted};
    }
 
    pub fn add_currency(&mut self, currency: Currency) {

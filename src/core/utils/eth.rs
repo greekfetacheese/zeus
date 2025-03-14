@@ -1,74 +1,31 @@
-use crate::core::{Wallet, ZeusCtx};
+use crate::core::ZeusCtx;
 
-use super::tx::{TxParams, send_tx};
+use super::{tx::{send_tx, TxParams}, update};
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, U256, utils::parse_units},
+   alloy_primitives::{Address, U256},
    alloy_provider::Provider,
    alloy_rpc_types::TransactionReceipt,
    amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token},
-   types::ChainId,
    utils::NumericValue,
 };
 
-use anyhow::anyhow;
 
 pub async fn send_crypto(
    ctx: ZeusCtx,
-   sender: Wallet,
-   to: Address,
    currency: Currency,
-   amount: U256,
-   fee: String,
-   chain: u64,
+   mut params: TxParams
 ) -> Result<TransactionReceipt, anyhow::Error> {
-   let client = ctx.get_client_with_id(chain)?;
+   let client = ctx.get_client_with_id(params.chain.id())?;
 
-   if to.is_zero() {
-      return Err(anyhow!("Invalid recipient address"));
-   }
+   // override the base fee incase has been increased since the last update
+   let base_fee = update::get_base_fee(ctx.clone(), params.chain.id()).await?;
+   params.base_fee = base_fee.next;
 
-   if sender.key.inner().address() == to {
-      return Err(anyhow!("Cannot send to yourself"));
-   }
-
-   if amount.is_zero() {
-      return Err(anyhow!("Amount cannot be 0"));
-   }
-
-   let fee = if fee.is_empty() {
-      parse_units("1", "gwei")?.get_absolute()
-   } else {
-      parse_units(&fee, "gwei")?.get_absolute()
-   };
-
-   let miner_tip = U256::from(fee);
-   let call_data = if currency.is_native() {
-      Bytes::default()
-   } else {
-      let token = currency.erc20().unwrap();
-      let data = token.encode_transfer(to, amount);
-      data
-   };
-
-   let value = if currency.is_native() {
-      amount
-   } else {
-      U256::ZERO
-   };
-
-   let chain = ChainId::new(chain)?;
-   let base_fee = ctx.get_base_fee(chain.id()).unwrap_or_default().next;
-   let params = TxParams::new(
-      sender.key.clone(),
-      to,
-      value,
-      chain,
-      miner_tip,
-      base_fee,
-      call_data,
-   );
-
+   // check for sufficient balance again
+   let balance = ctx.get_currency_balance(params.chain.id(), params.signer.inner().address(), &currency);
+   params.sufficient_balance(balance)?;
+  
    let tx = send_tx(client.clone(), params).await?;
 
    Ok(tx)

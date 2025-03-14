@@ -79,8 +79,8 @@ impl Profile {
       self.wallets.iter().any(|w| w.name == name)
    }
 
-   pub fn wallet_address_exists(&self, address: &str) -> bool {
-      self.wallets.iter().any(|w| &w.key.inner().address().to_string() == address)
+   pub fn wallet_address_exists(&self, address: Address) -> bool {
+      self.wallets.iter().any(|w| &w.key.inner().address() == &address)
    }
 
    /// Encrypt the profile and save it to a file

@@ -2,6 +2,7 @@ use eframe::egui::{
    Align, Align2, Color32, ComboBox, Frame, Grid, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
+use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
 use crate::core::{
@@ -553,7 +554,7 @@ impl PortfolioUi {
          return;
       }
 
-      let token = currency.erc20().unwrap();
+      let token = currency.erc20().cloned().unwrap();
 
       // If no pool data is available, fetch it
       let v3_pools = ctx.get_v3_pools(token.clone());
@@ -561,22 +562,38 @@ impl PortfolioUi {
       let token2 = token.clone();
       let ctx2 = ctx.clone();
       RT.spawn(async move {
-         let _ = eth::get_v2_pools_for_token(ctx2.clone(), token2.clone()).await;
+         match eth::sync_pools_for_token(ctx2.clone(), token2.clone(), true, v3_pools.is_empty()).await {
+            Ok(_) => {
+               tracing::info!("Synced Pools for {}", token2.symbol);
+            }
+            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token2.symbol, e),
+         }
+
+         let pool_manager = ctx2.pool_manager();
+         let client = ctx2.get_client_with_id(chain_id).unwrap();
+         match pool_manager.update_and_clean(client, chain_id).await {
+            Ok(_) => {
+               tracing::info!("Updated pool state for {}", token2.symbol);
+            }
+            Err(e) => tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e),
+         }
+
+         let balance = match eth::get_token_balance(ctx2.clone(), owner, token.clone()).await {
+            Ok(b) => b,
+            Err(e) => {
+               tracing::error!("Error getting token balance: {:?}", e);
+               NumericValue::default()
+            }
+         };
+         ctx2.write(|ctx| {
+            ctx.balance_db
+               .insert_token_balance(chain_id, owner, balance.wei().unwrap(), &token);
+         });
          ctx2.update_portfolio_value(chain_id, owner);
          let _ = ctx2.save_pool_data();
+         let _ = ctx2.save_balance_db();
          let _ = ctx2.save_portfolio_db();
       });
-
-      if v3_pools.is_empty() {
-         let token = token.clone();
-         let ctx2 = ctx.clone();
-         RT.spawn(async move {
-            let _ = eth::get_v3_pools_for_token(ctx2.clone(), token.clone()).await;
-            ctx2.update_portfolio_value(chain_id, owner);
-            let _ = ctx2.save_pool_data();
-            let _ = ctx2.save_portfolio_db();
-         });
-      }
    }
 
    fn remove_currency(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {

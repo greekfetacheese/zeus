@@ -122,8 +122,8 @@ impl TokenSelectionWindow {
 
                   // Sort by balance in descending order
                   currencies_with_balances.sort_by(|a, b| {
-                     b.1.float() // b's balance
-                        .partial_cmp(&a.1.float()) // a's balance
+                     b.1.f64() // b's balance
+                        .partial_cmp(&a.1.f64()) // a's balance
                         .unwrap_or(std::cmp::Ordering::Equal)
                   });
 
