@@ -103,9 +103,7 @@ impl Profile {
       Ok(decrypted_data)
    }
 
-   /// Same as [Self::decrypt()] but make sure we zero out the decrypted data
-   ///
-   /// Useful for verifying credentials
+   /// Do not return the decrypted data, just verify the credentials
    pub fn decrypt_zero(&self, dir: &PathBuf) -> Result<(), anyhow::Error> {
       let mut decrypted_data = self.decrypt(dir)?;
       decrypted_data.zeroize();
@@ -114,8 +112,9 @@ impl Profile {
 
    /// Decrypt and load the profile
    pub fn decrypt_and_load(&mut self, dir: &PathBuf) -> Result<(), anyhow::Error> {
-      let decrypted_data = self.decrypt(dir)?;
+      let mut decrypted_data = self.decrypt(dir)?;
       let profile: Profile = serde_json::from_slice(&decrypted_data)?;
+      decrypted_data.zeroize();
 
       self.wallets = profile.wallets;
       self.current_wallet = profile.current_wallet;

@@ -121,7 +121,8 @@ impl LoginUi {
 
                self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               let button =
+                  button(rich_text("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut profile = ctx.profile();
@@ -196,44 +197,43 @@ impl RegisterUi {
                self.credentials_form.show(theme, ui);
                ui.add_space(15.0);
 
-               {
-                  let button = button(rich_text("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               let button =
+                  button(rich_text("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
-                  if ui.add(button).clicked() {
-                     let mut profile = ctx.profile();
-                     profile.credentials = self.credentials_form.credentials.clone();
+               if ui.add(button).clicked() {
+                  let mut profile = ctx.profile();
+                  profile.credentials = self.credentials_form.credentials.clone();
 
-                     std::thread::spawn(move || {
-                        {
+                  std::thread::spawn(move || {
+                     {
+                        let mut gui = SHARED_GUI.write().unwrap();
+                        gui.loading_window.msg = "Creating profile...".to_string();
+                        gui.loading_window.open = true;
+                     }
+                     let dir = get_profile_dir();
+                     match profile.encrypt_and_save(&dir, Argon2Params::balanced()) {
+                        Ok(_) => {
                            let mut gui = SHARED_GUI.write().unwrap();
-                           gui.loading_window.msg = "Creating profile...".to_string();
-                           gui.loading_window.open = true;
-                        }
-                        let dir = get_profile_dir();
-                        match profile.encrypt_and_save(&dir, Argon2Params::balanced()) {
-                           Ok(_) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.top_left_area.wallet_select.wallet = profile.current_wallet.clone();
-                              gui.send_crypto.wallet_select.wallet = profile.current_wallet.clone();
-                              gui.register.credentials_form.erase();
-                              gui.portofolio.open = true;
-                              gui.top_left_area.open = true;
-                              gui.loading_window.open = false;
+                           gui.top_left_area.wallet_select.wallet = profile.current_wallet.clone();
+                           gui.send_crypto.wallet_select.wallet = profile.current_wallet.clone();
+                           gui.register.credentials_form.erase();
+                           gui.portofolio.open = true;
+                           gui.top_left_area.open = true;
+                           gui.loading_window.open = false;
 
-                              ctx.write(|ctx| {
-                                 ctx.profile_exists = true;
-                                 ctx.logged_in = true;
-                                 ctx.profile = profile;
-                              });
-                           }
-                           Err(e) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.open_msg_window("Failed to create profile", e.to_string());
-                              gui.loading_window.open = false;
-                           }
-                        };
-                     });
-                  }
+                           ctx.write(|ctx| {
+                              ctx.profile_exists = true;
+                              ctx.logged_in = true;
+                              ctx.profile = profile;
+                           });
+                        }
+                        Err(e) => {
+                           let mut gui = SHARED_GUI.write().unwrap();
+                           gui.open_msg_window("Failed to create profile", e.to_string());
+                           gui.loading_window.open = false;
+                        }
+                     };
+                  });
                }
             });
          });

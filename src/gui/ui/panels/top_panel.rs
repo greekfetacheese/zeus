@@ -64,11 +64,9 @@ impl TopLeftArea {
          // Chain Select
          let clicked = self.chain_select.show(theme, icons.clone(), ui);
          if clicked {
-            // if we select a new chain update the necessary state
-            let chain = self.chain_select.chain.clone();
             // update the chain
             ctx.write(|ctx| {
-               ctx.chain = chain.clone();
+               ctx.chain = self.chain_select.chain.clone();
             });
          }
 
@@ -76,11 +74,9 @@ impl TopLeftArea {
          let wallets = ctx.profile().wallets;
          let clicked = self.wallet_select.show(theme, &wallets, icons.clone(), ui);
          if clicked {
-            // if we select a new wallet update the necessary state
-            let wallet = self.wallet_select.wallet.clone();
             // update the wallet
             ctx.write(|ctx| {
-               ctx.profile.current_wallet = wallet.clone();
+               ctx.profile.current_wallet = self.wallet_select.wallet.clone();
             });
          }
          ui.end_row();

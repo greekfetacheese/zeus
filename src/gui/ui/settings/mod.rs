@@ -57,7 +57,7 @@ impl SettingsUi {
 
       let mut main_ui = self.main_ui;
       self.main_ui(theme, &mut main_ui, ui);
-      self.encryption.show(ctx.clone(), ui);
+      self.encryption.show(ctx.clone(), theme, ui);
       self.change_credentials_ui(ctx.clone(), theme, ui);
       self
          .network
@@ -248,7 +248,7 @@ impl EncryptionSettings {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -263,6 +263,8 @@ impl EncryptionSettings {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.add_space(20.0);
 
             let content_width = ui.available_width() * 0.3;
 
@@ -274,7 +276,7 @@ impl EncryptionSettings {
                   .show(ui, |ui| {
                      ui.set_width(content_width);
 
-                     ui.label(rich_text("Memory cost (MB):").size(14.0))
+                     ui.label(rich_text("Memory cost (MB):").size(theme.text_sizes.normal))
                         .on_hover_text(M_COST_TIP);
                      ui.end_row();
 
@@ -284,21 +286,21 @@ impl EncryptionSettings {
                      );
                      ui.end_row();
 
-                     ui.label(rich_text("Iterations:").size(14.0))
+                     ui.label(rich_text("Iterations:").size(theme.text_sizes.normal))
                         .on_hover_text(T_COST_TIP);
                      ui.end_row();
 
                      ui.add(Slider::new(&mut self.argon_params.t_cost, 5..=200));
                      ui.end_row();
 
-                     ui.label(rich_text("Parallelism:").size(14.0))
+                     ui.label(rich_text("Parallelism:").size(theme.text_sizes.normal))
                         .on_hover_text(P_COST_TIP);
                      ui.end_row();
 
                      ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=8));
                      ui.end_row();
 
-                     let save = button(rich_text("Save").size(16.0));
+                     let save = button(rich_text("Save").size(theme.text_sizes.normal));
                      if ui.add(save).clicked() {
                         let params = self.argon_params.clone();
                         let profile = ctx.profile();

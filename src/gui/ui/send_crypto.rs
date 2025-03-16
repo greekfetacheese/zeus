@@ -222,28 +222,38 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             // Recipient Input
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  rich_text("To")
-                     .color(theme.colors.text_secondary)
-                     .size(theme.text_sizes.large),
-               );
-               if let Some(name) = &self.recipient_name {
-                  ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
-               }
-            });
+            Grid::new("recipient_name")
+               .spacing(vec2(3.0, 0.0))
+               .show(ui, |ui| {
+                  ui.label(
+                     rich_text("To")
+                        .color(theme.colors.text_secondary)
+                        .size(theme.text_sizes.large),
+                  );
+                  if !self.recipient.is_empty() {
+                     if let Some(name) = &self.recipient_name {
+                        ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
+                     } else {
+                        ui.label(
+                           RichText::new("Unknown Address")
+                              .size(theme.text_sizes.normal)
+                              .color(Color32::RED),
+                        );
+                     }
+                  }
+                  ui.end_row();
+               });
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                let res = ui.add(
-                  TextEdit::multiline(&mut self.recipient)
+                  TextEdit::singleline(&mut self.recipient)
                      .hint_text("Search contacts or enter an address")
-                     .desired_rows(2)
-                     .desired_width(ui_width * 0.80)
+                     .min_size(vec2(ui_width * 0.85, 25.0))
                      .margin(Margin::same(10))
                      .background_color(theme.colors.text_edit_bg2)
-                     .font(FontId::proportional(theme.text_sizes.normal)),
+                     .font(FontId::proportional(theme.text_sizes.large)),
                );
                if res.clicked() {
                   self.contact_search_open = true;
@@ -323,13 +333,14 @@ impl SendCryptoUi {
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
+               ui.set_width(ui_width * 0.5);
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.add(
                   TextEdit::singleline(&mut self.amount)
                      .hint_text("0")
                      .font(egui::FontId::proportional(theme.text_sizes.large))
                      .background_color(theme.colors.text_edit_bg2)
-                     .desired_width(ui_width * 0.25)
+                     .min_size(vec2(ui_width * 0.5, 25.0))
                      .margin(Margin::same(10)),
                );
             });
@@ -346,10 +357,11 @@ impl SendCryptoUi {
             ui.add_space(5.0);
 
             ui.horizontal(|ui| {
+               ui.set_width(ui_width * 0.2);
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.add(
                   TextEdit::singleline(&mut self.priority_fee)
-                     .desired_width(60.0)
+                     .min_size(vec2(ui_width * 0.2, 25.0))
                      .margin(Margin::same(10))
                      .background_color(theme.colors.text_edit_bg2)
                      .font(egui::FontId::proportional(theme.text_sizes.normal)),
@@ -800,15 +812,15 @@ impl SendCryptoUi {
          .show(ui.ctx(), |ui| {
             ui.set_width(450.0);
             ui.set_height(350.0);
+            let ui_width = ui.available_width();
 
             ui.vertical_centered(|ui| {
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.add_space(20.0);
                ui.add(
-                  TextEdit::multiline(&mut self.search_query)
+                  TextEdit::singleline(&mut self.search_query)
                      .hint_text("Search contacts or enter an address")
-                     .desired_rows(2)
-                     .min_size(vec2(200.0, 30.0))
+                     .min_size(vec2(ui_width * 0.80, 25.0))
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
