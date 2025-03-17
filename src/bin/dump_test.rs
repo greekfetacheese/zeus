@@ -1,5 +1,6 @@
 use ncrypt_me::{ zeroize::Zeroize, Credentials};
 use std::io::Write;
+use secure_types::SecureString;
 
 use chacha20poly1305::{
    AeadCore, KeyInit, XChaCha20Poly1305, XNonce,
@@ -31,43 +32,64 @@ impl EncryptedCredentials {
 
       let encrypted_password = key.cipher.encrypt(&key.nonce, payload).unwrap();
 
+      /* 
+      let mut bytes = [0u8; 128];
+      let mut bytes2 = [0u8; 128];
+      OsRng.fill_bytes(&mut bytes);
+      OsRng.fill_bytes(&mut bytes2);
+      let payload = Payload {
+         msg: &bytes,
+         aad: &bytes2
+      };
+      */
+
       Self {
          encrypted_username,
          encrypted_password,
          key
       }
    }
-}
 
-pub struct Credentials2 {
-   pub username: [u8; 1024],
-   pub password: [u8; 1024],
-   pub confirm_password: [u8; 1024],
-}
+   /// Decrypt the encrypted credentials
+   pub fn decrypt(&self) -> Result<Credentials, anyhow::Error> {
+      let payload = Payload {
+         msg: &self.encrypted_username,
+         aad: &self.key.aad
+      };
 
-impl Credentials2 {
-   pub fn new(mut username: String, mut password: String, mut confirm_password: String) -> Self {
-      let mut user = [0u8; 1024];
-      let mut passwd = [0u8; 1024];
-      let mut confirm = [0u8; 1024];
+      let username = self.key.cipher.decrypt(&self.key.nonce, payload).unwrap();
 
-      user[..username.len()].copy_from_slice(username.as_bytes());
-      passwd[..password.len()].copy_from_slice(password.as_bytes());
-      confirm[..confirm_password.len()].copy_from_slice(confirm_password.as_bytes());
+      let payload = Payload {
+         msg: &self.encrypted_password,
+         aad: &self.key.aad
+      };
 
-      username.zeroize();
-      password.zeroize();
-      confirm_password.zeroize();
+      let password = self.key.cipher.decrypt(&self.key.nonce, payload).unwrap();
 
-      Self {
-         username: user,
-         password: passwd,
-         confirm_password: confirm,
-      }
+      let credentials = Credentials::new(
+         String::from_utf8(username)?,
+         String::from_utf8(password.clone())?,
+         String::from_utf8(password)?
+      );
+
+      Ok(credentials)
    }
 }
 
+#[derive(Clone, Debug)]
+pub struct SecureCredentials {
+   pub username: SecureString,
+   pub password: SecureString,
+}
 
+impl SecureCredentials {
+   pub fn new(username: SecureString, password: SecureString) -> Self {
+      Self {
+         username,
+         password
+      }
+   }
+}
 
 
 #[derive(Clone)]
@@ -85,44 +107,49 @@ impl CipherKey {
       let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
       let mut aad = vec![0u8; 128];
       OsRng.fill_bytes(&mut aad);
-
+      let aad = aad.try_into().unwrap();
+      println!("aad: {:?}", aad);
       
       Self {
          plain_text: "search for me".to_string(),
          cipher,
          nonce,
-         aad: aad.try_into().unwrap()
+         aad
       }
    }
 }
 
 fn main() -> Result<(), anyhow::Error> {
+
+
    let mut credentials = Credentials::default();
    prompt("Username: ", credentials.user_mut())?;
    prompt("Password: ", credentials.passwd_mut())?;
-   credentials.copy_passwd_to_confirm();
+   prompt("Confirm Password: ", credentials.confirm_passwd_mut())?;
 
    let key = CipherKey::rng();
-   println!("Cipher key initialized");
-   let _encrypted_credentials = EncryptedCredentials::new(credentials, key.clone());
+   
+   let encrypted_credentials = EncryptedCredentials::new(credentials, key.clone());
+   let time = std::time::Instant::now();
+   let credentials = encrypted_credentials.decrypt()?;
+   println!("Decryption took {} ms", time.elapsed().as_millis());
+   
+   let mut username = SecureString::from("");
+   prompt("Username: ", username.borrow_mut())?;
+   let mut password = SecureString::from("");
+   prompt("Password: ", password.borrow_mut())?;
 
-   let mut username = String::new();
-   prompt("A Different Username: ", &mut username)?;
-   let mut password = String::new();
-   prompt("A Different Password: ", &mut password)?;
-   let mut confirm_password = String::new();
-   prompt("Confirm Password: ", &mut confirm_password)?;
-   let _credentials2 = Credentials2::new(username, password, confirm_password);
+   let secure_credentials = SecureCredentials::new(username, password);
+   
+   
 
-
-   println!("Done");
 
    loop {
       std::thread::sleep(std::time::Duration::from_millis(500));
    }
 }
 
-fn prompt(msg: &str, string: &mut String) -> Result<(), anyhow::Error> {
+fn prompt(msg: &str, string: &mut str) -> Result<(), anyhow::Error> {
    print!("{}", msg);
    std::io::stdout().flush().unwrap();
 

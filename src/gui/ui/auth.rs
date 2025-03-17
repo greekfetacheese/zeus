@@ -48,19 +48,20 @@ impl CredentialsForm {
          let ui_width = ui.available_width();
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
-         let username = self.credentials.user_mut();
 
          ui.label(rich_text("Username").size(theme.text_sizes.large));
+         self.credentials.user_mut(|username| {
          ui.add(
             TextEdit::singleline(username)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.text_sizes.normal)),
          );
+         });
 
-         let password = self.credentials.passwd_mut();
 
          ui.label(rich_text("Password").size(theme.text_sizes.large));
+         self.credentials.passwd_mut(|password| {
          ui.add(
             TextEdit::singleline(password)
                .min_size(text_edit_size)
@@ -68,11 +69,11 @@ impl CredentialsForm {
                .font(FontId::proportional(theme.text_sizes.normal))
                .password(true),
          );
+         });
 
          if self.confrim_password {
-            let confirm_password = self.credentials.confirm_passwd_mut();
-
             ui.label(rich_text("Confirm Password").size(theme.text_sizes.large));
+            self.credentials.confirm_passwd_mut(|confirm_password| {
             ui.add(
                TextEdit::singleline(confirm_password)
                   .min_size(text_edit_size)
@@ -80,8 +81,8 @@ impl CredentialsForm {
                   .font(FontId::proportional(theme.text_sizes.normal))
                   .password(true),
             );
+            });
          } else {
-            // copy password to confirm password
             self.credentials.copy_passwd_to_confirm();
          }
       });

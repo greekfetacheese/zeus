@@ -1,123 +1,209 @@
 use alloy_signer_local::PrivateKeySigner;
-use serde::{Deserialize, Serialize};
+use core::fmt;
+use memsec::{mlock, munlock};
+use secure_types::SecureString;
+use std::borrow::Borrow;
 use zeroize::Zeroize;
 
-/// Wrapper around [PrivateKeySigner] that zeroizes the key when dropped
+/// Wrapper type around [PrivateKeySigner]
 ///
-/// Do not clone the inner value, as it will not be erased when the outer value is dropped
-#[derive(Clone, PartialEq)]
-pub struct SafeSigner(PrivateKeySigner);
+/// - Securely erases the key when it is dropped
+/// - For `Windows` calls `VirtualLock` to protect the key from being swapped out to disk
+/// - For `Unix` calls `mlock` to prevent the key from being swapped to disk and memory dumped
+///
+/// ### Note on `Windows` is not possible to prevent memory dumping
+pub struct SecureSigner {
+   signer: PrivateKeySigner,
+}
 
-impl SafeSigner {
-   /// Create a new signer with a random key
-   pub fn random() -> Self {
-      Self(PrivateKeySigner::random())
+impl SecureSigner {
+   pub fn new(mut signer: PrivateKeySigner) -> Self {
+      unsafe {
+         let ptr: *mut PrivateKeySigner = &mut signer;
+         let ptr = ptr as *mut u8;
+         mlock(ptr, std::mem::size_of::<PrivateKeySigner>());
+      }
+      SecureSigner { signer }
    }
 
-   /// Do not clone the inner value, as it will not be erased when the outer value is dropped
-   pub fn inner(&self) -> &PrivateKeySigner {
-      &self.0
+   pub fn random() -> Self {
+      Self::new(PrivateKeySigner::random())
+   }
+
+   /// Return the signer's key in SecureString format
+   pub fn key_string(&self) -> SecureString {
+      let key_vec = self.signer.to_bytes();
+      let string = key_vec
+         .iter()
+         .map(|b| format!("{b:02x}"))
+         .collect::<String>();
+      SecureString::from(string)
+   }
+
+   /// Convert into a normal PrivateKeySigner
+   ///
+   /// This will consume the SecureSigner
+   ///
+   /// You are responsible for zeroizing the contents of the returned PrivateKeySigner
+   pub fn into_signer(mut self) -> PrivateKeySigner {
+      let signer = std::mem::replace(&mut self.signer, PrivateKeySigner::random());
+
+      unsafe {
+         let ptr: *mut PrivateKeySigner = &mut self.signer;
+         let ptr = ptr as *mut u8;
+         munlock(ptr, std::mem::size_of::<PrivateKeySigner>());
+      }
+
+      std::mem::forget(self);
+      signer
+   }
+
+   pub fn borrow(&self) -> &PrivateKeySigner {
+      self.signer.borrow()
    }
 
    /// Erase the signer's key from memory
    pub fn erase(&mut self) {
       unsafe {
-         // Get a mutable pointer to the key
-         let key_ptr: *mut PrivateKeySigner = &mut self.0;
-
-         // Convert the key to a byte slice
-         let key_bytes: &mut [u8] =
-            std::slice::from_raw_parts_mut(key_ptr as *mut u8, std::mem::size_of::<PrivateKeySigner>());
-
-         // Zeroize the byte slice
-         key_bytes.zeroize();
+         let ptr: *mut PrivateKeySigner = &mut self.signer;
+         let bytes: &mut [u8] = std::slice::from_raw_parts_mut(ptr as *mut u8, std::mem::size_of::<PrivateKeySigner>());
+         bytes.zeroize();
       }
    }
 
    pub fn is_erased(&self) -> bool {
-      let mut key_bytes = self.0.to_bytes();
+      let mut key_bytes = self.signer.to_bytes();
       let erased = key_bytes.iter().all(|&b| b == 0);
       key_bytes.zeroize();
       erased
    }
 }
 
-impl Drop for SafeSigner {
+impl Drop for SecureSigner {
    fn drop(&mut self) {
       self.erase();
+      unsafe {
+         let ptr: *mut PrivateKeySigner = &mut self.signer;
+         let ptr = ptr as *mut u8;
+         munlock(ptr, std::mem::size_of::<PrivateKeySigner>());
+      }
    }
 }
 
-impl From<PrivateKeySigner> for SafeSigner {
-   fn from(signer: PrivateKeySigner) -> Self {
-      Self(signer)
+impl Clone for SecureSigner {
+   fn clone(&self) -> Self {
+      Self::new(self.signer.clone())
    }
 }
 
-impl Serialize for SafeSigner {
+impl Borrow<PrivateKeySigner> for SecureSigner {
+   fn borrow(&self) -> &PrivateKeySigner {
+      &self.signer
+   }
+}
+
+impl fmt::Debug for SecureSigner {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      f.write_str("***SECRET***").map_err(|_| fmt::Error)
+   }
+}
+
+impl fmt::Display for SecureSigner {
+   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+      f.write_str("***SECRET***").map_err(|_| fmt::Error)
+   }
+}
+
+impl serde::Serialize for SecureSigner {
    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
    where
       S: serde::Serializer,
    {
-      let key_bytes = self.0.to_bytes().to_vec();
-      serializer.serialize_bytes(&key_bytes)
+      let mut key_bytes = self.signer.to_bytes().to_vec();
+      let result = serializer.serialize_bytes(&key_bytes);
+      key_bytes.zeroize();
+      result
    }
 }
 
-impl<'de> Deserialize<'de> for SafeSigner {
-   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+impl<'de> serde::Deserialize<'de> for SecureSigner {
+   fn deserialize<D>(deserializer: D) -> Result<SecureSigner, D::Error>
    where
       D: serde::Deserializer<'de>,
    {
-      let key_bytes: Vec<u8> = serde::Deserialize::deserialize(deserializer)?;
-      let key = PrivateKeySigner::from_slice(&key_bytes).map_err(serde::de::Error::custom)?;
-      Ok(Self(key))
+      struct SecureVisitor;
+      impl<'de> serde::de::Visitor<'de> for SecureVisitor {
+         type Value = SecureSigner;
+         fn expecting(&self, formatter: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
+            write!(formatter, "a sequence of bytes")
+         }
+         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+         where
+            A: serde::de::SeqAccess<'de>,
+         {
+            let mut vec = Vec::new();
+            while let Some(byte) = seq.next_element::<u8>()? {
+               vec.push(byte);
+            }
+            let signer = if let Ok(signer) = PrivateKeySigner::from_slice(&vec) {
+               vec.zeroize();
+               signer
+            } else {
+               vec.zeroize();
+               return Err(serde::de::Error::custom("invalid private key"));
+            };
+            Ok(SecureSigner::new(signer))
+         }
+      }
+      deserializer.deserialize_seq(SecureVisitor)
    }
 }
 
+#[cfg(test)]
 mod tests {
-   #[allow(unused_imports)]
    use super::*;
 
    #[test]
-   fn test_erase() {
-      let mut safe_signer = SafeSigner::from(PrivateKeySigner::random());
-
-      println!(
-         "Signer key: {}",
-         safe_signer
-            .0
-            .to_bytes()
-            .to_vec()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-      );
-      assert!(!safe_signer.is_erased());
-
-      safe_signer.erase();
-      assert!(safe_signer.is_erased());
-
-      println!(
-         "Signer key erased, should be all zeros: {}",
-         safe_signer
-            .0
-            .to_bytes()
-            .to_vec()
-            .iter()
-            .map(|b| format!("{:02x}", b))
-            .collect::<String>()
-      );
+   fn test_key_string() {
+      let signer = SecureSigner::random();
+      let key_string = signer.key_string();
+      assert_eq!(key_string.borrow().len(), 64);
    }
 
    #[test]
-   fn test_serde() {
-      let safe_signer = SafeSigner::from(PrivateKeySigner::random());
-      let serialized = serde_json::to_string(&safe_signer).unwrap();
-      let deserialized: SafeSigner = serde_json::from_str(&serialized).unwrap();
+   fn test_into_signer() {
+      let signer = SecureSigner::random();
+      let signer = signer.into_signer();
+      assert_eq!(signer.address().len(), 20);
+      println!("Signer Address: {:?}", signer.address());
+   }
 
-      let key1 = safe_signer.0.to_bytes();
-      let key2 = deserialized.0.to_bytes();
-      assert_eq!(key1, key2);
+   #[test]
+   fn test_erase_signer() {
+      let mut secure_signer = SecureSigner::random();
+      let key = secure_signer.borrow().to_bytes();
+      println!(
+         "Signer key before the erase: {}",
+         key.iter().map(|b| format!("{b:02x}")).collect::<String>()
+      );
+
+      secure_signer.erase();
+
+      let key = secure_signer.borrow().to_bytes();
+
+      println!(
+         "Signer key after the erase: {}",
+         key.iter().map(|b| format!("{b:02x}")).collect::<String>()
+      );
+
+      assert!(secure_signer.is_erased());
+   }
+
+   #[test]
+   fn test_signer_serde() {
+      let secure_signer = SecureSigner::random();
+      let serialized = serde_json::to_string(&secure_signer).unwrap();
+      let deserialized: SecureSigner = serde_json::from_str(&serialized).unwrap();
+      assert_eq!(deserialized.signer, secure_signer.signer);
    }
 }

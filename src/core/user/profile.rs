@@ -146,6 +146,7 @@ impl Profile {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use secure_types::SecureString;
    use std::fs;
 
    #[test]
@@ -157,9 +158,9 @@ mod tests {
       let original_key2 = wallet_2.key_string();
 
       let credentials = Credentials::new(
-         "test".to_string(),
-         "password".to_string(),
-         "password".to_string(),
+         SecureString::from("test".to_string()),
+         SecureString::from("password".to_string()),
+         SecureString::from("password".to_string()),
       );
 
       let mut profile = Profile {

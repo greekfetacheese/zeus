@@ -4,7 +4,7 @@ use crate::gui::{
    GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use egui::{Align, Layout, RichText, SelectableLabel, Spinner, Ui, vec2};
+use egui::{vec2, Align, Layout, RichText, SelectableLabel, Spinner, Ui};
 use egui_theme::{
    Theme,
    utils::*,
@@ -44,7 +44,7 @@ impl TopLeftArea {
          open: false,
          chain_select: ChainSelect::new("main_chain_select"),
          wallet_select: WalletSelect::new("main_wallet_select"),
-         size: (300.0, 140.0),
+         size: (300.0, 180.0),
       }
    }
 
@@ -57,9 +57,11 @@ impl TopLeftArea {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
 
+
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
          widget_visuals(ui, theme.get_widget_visuals(theme.colors.bg_color));
+
 
          // Chain Select
          let clicked = self.chain_select.show(theme, icons.clone(), ui);
