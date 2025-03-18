@@ -199,7 +199,7 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             let chain = self.chain_select.chain.id();
-            let owner = self.wallet_select.wallet.key.inner().address();
+            let owner = self.wallet_select.wallet.key.borrow().address();
             let currencies = ctx.get_currencies(chain);
 
             // From Wallet
@@ -427,7 +427,7 @@ impl SendCryptoUi {
    fn sync_balance(&mut self, ctx: ZeusCtx) {
       self.syncing_balance = true;
       let chain = self.chain_select.chain.id();
-      let owner = self.wallet_select.wallet.key.inner().address();
+      let owner = self.wallet_select.wallet.key.borrow().address();
       let currency = self.currency.clone();
       RT.spawn(async move {
          let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
@@ -484,7 +484,7 @@ impl SendCryptoUi {
 
          let v2_pools = ctx.get_v2_pools(token.clone());
          let v3_pools = ctx.get_v3_pools(token.clone());
-         let owner = self.wallet_select.wallet.key.inner().address();
+         let owner = self.wallet_select.wallet.key.borrow().address();
          let chain_id = self.chain_select.chain.id();
 
          if v2_pools.is_empty() || v3_pools.is_empty() {
@@ -530,7 +530,7 @@ impl SendCryptoUi {
    fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
       let chain = self.chain_select.chain;
       let currency = self.currency.clone();
-      let owner = self.wallet_select.wallet.key.inner().address();
+      let owner = self.wallet_select.wallet.key.borrow().address();
       let balance = ctx.get_currency_balance(chain.id(), owner, &currency);
       let (cost_wei, _) = self.cost(ctx.clone());
 
@@ -586,7 +586,7 @@ impl SendCryptoUi {
       let chain = self.chain_select.chain;
       let fee = self.priority_fee.clone();
 
-      let balance = ctx.get_currency_balance(chain.id(), from.key.inner().address(), &currency);
+      let balance = ctx.get_currency_balance(chain.id(), from.key.borrow().address(), &currency);
 
       if amount.wei().unwrap() > balance.wei().unwrap() {
          return Err(anyhow!("Insufficient balance"));
@@ -596,7 +596,7 @@ impl SendCryptoUi {
          return Err(anyhow!("Invalid recipient address"));
       }
 
-      if from.key.inner().address() == to {
+      if from.key.borrow().address() == to {
          return Err(anyhow!("Cannot send to yourself"));
       }
 
@@ -757,7 +757,7 @@ impl SendCryptoUi {
                      });
                      ctx.update_portfolio_value(chain.id(), recipient_address);
                   }
-                  let sender_addr = sender.key.inner().address();
+                  let sender_addr = sender.key.borrow().address();
                   let sender_balance = get_currency_balance(ctx.clone(), sender_addr, currency.clone())
                      .await
                      .unwrap();
@@ -839,9 +839,9 @@ impl SendCryptoUi {
                      let valid_search = valid_wallet_search(wallet, &self.search_query);
 
                      if valid_search {
-                        let address = wallet.key.inner().address();
+                        let address = wallet.key.borrow().address();
                         // exclude the current wallet
-                        if address == self.wallet_select.wallet.key.inner().address() {
+                        if address == self.wallet_select.wallet.key.borrow().address() {
                            continue;
                         }
 

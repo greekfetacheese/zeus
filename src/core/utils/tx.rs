@@ -1,11 +1,17 @@
 use anyhow::anyhow;
 use zeus_eth::{
-   alloy_contract::private::Provider, alloy_network::{Ethereum, TransactionBuilder}, alloy_primitives::{utils::format_ether, Address, Bytes, U256}, alloy_rpc_types::{TransactionReceipt, TransactionRequest}, types::ChainId, utils::NumericValue, wallet::{SafeSigner, SafeWallet}
+   alloy_contract::private::Provider,
+   alloy_network::{Ethereum, TransactionBuilder},
+   alloy_primitives::{Address, Bytes, U256, utils::format_ether},
+   alloy_rpc_types::{TransactionReceipt, TransactionRequest},
+   types::ChainId,
+   utils::NumericValue,
+   wallet::{SecureSigner, SecureWallet},
 };
 
 #[derive(Clone)]
 pub struct TxParams {
-   pub signer: SafeSigner,
+   pub signer: SecureSigner,
    pub recipient: Address,
    pub value: U256,
    pub chain: ChainId,
@@ -17,7 +23,7 @@ pub struct TxParams {
 
 impl TxParams {
    pub fn new(
-      signer: SafeSigner,
+      signer: SecureSigner,
       recipient: Address,
       value: U256,
       chain: ChainId,
@@ -75,15 +81,15 @@ pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceip
 where
    P: Provider<(), Ethereum> + Clone + 'static,
 {
-   let signer_address = params.signer.inner().address();
+   let signer_address = params.signer.borrow().address();
    let nonce = client.get_transaction_count(signer_address).await?;
 
    let mut tx = legacy_or_eip1559(params.clone());
    tx.set_nonce(nonce);
    tx.set_gas_limit(params.gas_used * 15 / 10); // +50%
 
-   let signer = SafeWallet::from(params.signer.clone());
-   let tx_envelope = tx.clone().build(&signer.inner()).await?;
+   let wallet = SecureWallet::from(params.signer.clone());
+   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
 
    tracing::info!("Sending Transaction...");
    let time = std::time::Instant::now();
@@ -100,12 +106,11 @@ where
    Ok(receipt)
 }
 
-
 fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    // Eip1559
    if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
       return TransactionRequest::default()
-         .with_from(params.signer.inner().address())
+         .with_from(params.signer.borrow().address())
          .with_to(params.recipient)
          .with_chain_id(params.chain.id())
          .with_value(params.value)
@@ -115,7 +120,7 @@ fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    } else {
       // Legacy
       return TransactionRequest::default()
-         .with_from(params.signer.inner().address())
+         .with_from(params.signer.borrow().address())
          .with_to(params.recipient)
          .with_value(params.value)
          .with_input(params.call_data)

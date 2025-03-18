@@ -315,7 +315,7 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.wallet().key.inner().address();
+      let owner = ctx.wallet().key.borrow().address();
       let portfolio = ctx.get_portfolio(chain_id, owner);
       let currencies = portfolio.currencies();
 
@@ -481,7 +481,7 @@ impl PortfolioUi {
          ui.label(rich_text(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
 
-      let owner = ctx.wallet().key.inner().address();
+      let owner = ctx.wallet().key.borrow().address();
       let balance = ctx.get_currency_balance(chain, owner, currency);
 
       ui.horizontal(|ui| {
@@ -533,7 +533,7 @@ impl PortfolioUi {
    // Add a currency to the portfolio and update the portfolio value
    fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
       let chain_id = ctx.chain().id();
-      let owner = ctx.wallet().key.inner().address();
+      let owner = ctx.wallet().key.borrow().address();
 
       // Add the token to the portfolio
       ctx.write(|ctx| {
@@ -600,7 +600,7 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          if ui.button("X").clicked() {
-            let owner = ctx.wallet().key.inner().address();
+            let owner = ctx.wallet().key.borrow().address();
             let chain = ctx.chain().id();
             ctx.write(|ctx| {
                let portfolio = ctx.portfolio_db.get_portfolio_mut(chain, owner);

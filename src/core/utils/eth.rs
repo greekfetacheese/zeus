@@ -23,7 +23,7 @@ pub async fn send_crypto(
    params.base_fee = base_fee.next;
 
    // check for sufficient balance again
-   let balance = ctx.get_currency_balance(params.chain.id(), params.signer.inner().address(), &currency);
+   let balance = ctx.get_currency_balance(params.chain.id(), params.signer.borrow().address(), &currency);
    params.sufficient_balance(balance)?;
   
    let tx = send_tx(client.clone(), params).await?;

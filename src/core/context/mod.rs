@@ -173,7 +173,7 @@ impl ZeusCtx {
       let wallets = self.profile().wallets;
 
       for wallet in &wallets {
-         let owner = wallet.key.inner().address();
+         let owner = wallet.key.borrow().address();
          let portfolio = self.get_portfolio(chain, owner);
          tokens.extend(portfolio.erc20_tokens());
       }

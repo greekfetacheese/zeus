@@ -103,7 +103,7 @@ impl ViewKeyUi {
                   .clone()
                   .unwrap()
                   .key_string();
-               gui.egui_ctx.copy_text(key);
+               gui.egui_ctx.copy_text(key.to_string());
                gui.wallet_ui.view_key_ui.reset();
                gui.open_msg_window("", VIEW_KEY_MSG);
             } else {
@@ -251,7 +251,7 @@ impl DeleteWalletUi {
                   ui.label(rich_text(wallet.name.clone()).size(theme.text_sizes.normal));
                   ui.label(rich_text(wallet.address()).size(theme.text_sizes.normal));
 
-                  let value = ctx.get_portfolio_value_all_chains(wallet.key.inner().address());
+                  let value = ctx.get_portfolio_value_all_chains(wallet.key.borrow().address());
                   ui.label(rich_text(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
 
                   if ui

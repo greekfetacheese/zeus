@@ -194,7 +194,7 @@ impl WalletUi {
 
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                      let chain = ctx.chain().id();
-                     let owner = wallet.key.inner().address();
+                     let owner = wallet.key.borrow().address();
                      let portfolio = ctx.get_portfolio(chain, owner);
                      ui.label(
                         rich_text(format!("${}", portfolio.value.formatted()))

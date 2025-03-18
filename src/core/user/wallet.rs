@@ -1,9 +1,7 @@
-use ncrypt_me::zeroize::Zeroize;
 use std::str::FromStr;
-
 use alloy_signer_local::PrivateKeySigner;
-use zeus_eth::alloy_primitives::hex::encode;
-use zeus_eth::wallet::SafeSigner;
+use zeus_eth::wallet::SecureSigner;
+use secure_types::SecureString;
 
 /// User Wallet
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -17,7 +15,7 @@ pub struct Wallet {
    pub hidden: bool,
 
    /// The key of the wallet
-   pub key: SafeSigner,
+   pub key: SecureSigner,
 }
 
 impl Wallet {
@@ -25,15 +23,14 @@ impl Wallet {
       self.key.is_erased()
    }
 
-   /// Return the wallet's key in string format
-   pub fn key_string(&self) -> String {
-      let key_vec = self.key.inner().to_bytes().to_vec();
-      encode(key_vec)
+   /// Return the wallet's key
+   pub fn key_string(&self) -> SecureString {
+      self.key.key_string()
    }
 
    /// Create a new wallet from a random private key
    pub fn new_rng(name: String) -> Self {
-      let key = SafeSigner::random();
+      let key = SecureSigner::random();
 
       Self {
          name,
@@ -44,10 +41,9 @@ impl Wallet {
    }
 
    /// Create a new wallet from a given private key
-   pub fn new_from_key(name: String, notes: String, hidden: bool, mut key_str: String) -> Result<Self, anyhow::Error> {
-      let key = PrivateKeySigner::from_str(&key_str)?;
-      let key = SafeSigner::from(key);
-      key_str.zeroize();
+   pub fn new_from_key(name: String, notes: String, hidden: bool, key_str: SecureString) -> Result<Self, anyhow::Error> {
+      let key = PrivateKeySigner::from_str(key_str.borrow())?;
+      let key = SecureSigner::new(key);
 
       Ok(Self {
          name,
@@ -58,12 +54,12 @@ impl Wallet {
    }
 
    pub fn address(&self) -> String {
-      self.key.inner().address().to_string()
+      self.key.borrow().address().to_string()
    }
 
    /// Get the wallet address truncated
    pub fn address_truncated(&self) -> String {
-      let address = self.key.inner().address().to_string();
+      let address = self.key.borrow().address().to_string();
       format!("{}...{}", &address[..6], &address[36..])
    }
 }

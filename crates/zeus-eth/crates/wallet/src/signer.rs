@@ -1,9 +1,8 @@
 use alloy_signer_local::PrivateKeySigner;
 use core::fmt;
-use memsec::{mlock, munlock};
-use secure_types::SecureString;
+use secure_types::{Zeroize, SecureString};
 use std::borrow::Borrow;
-use zeroize::Zeroize;
+use memsec::{mlock, munlock};
 
 /// Wrapper type around [PrivateKeySigner]
 ///
@@ -12,6 +11,7 @@ use zeroize::Zeroize;
 /// - For `Unix` calls `mlock` to prevent the key from being swapped to disk and memory dumped
 ///
 /// ### Note on `Windows` is not possible to prevent memory dumping
+#[derive(PartialEq)]
 pub struct SecureSigner {
    signer: PrivateKeySigner,
 }
@@ -30,13 +30,14 @@ impl SecureSigner {
       Self::new(PrivateKeySigner::random())
    }
 
-   /// Return the signer's key in SecureString format
+   /// Return the signer's key in a SecureString
    pub fn key_string(&self) -> SecureString {
-      let key_vec = self.signer.to_bytes();
+      let mut key_vec = self.signer.to_bytes();
       let string = key_vec
          .iter()
          .map(|b| format!("{b:02x}"))
          .collect::<String>();
+      key_vec.zeroize();
       SecureString::from(string)
    }
 
@@ -204,6 +205,6 @@ mod tests {
       let secure_signer = SecureSigner::random();
       let serialized = serde_json::to_string(&secure_signer).unwrap();
       let deserialized: SecureSigner = serde_json::from_str(&serialized).unwrap();
-      assert_eq!(deserialized.signer, secure_signer.signer);
+      assert_eq!(deserialized.key_string().borrow(), secure_signer.key_string().borrow());
    }
 }

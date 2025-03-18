@@ -94,7 +94,7 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    let wallets = ctx.profile().wallets;
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
-         let owner = wallet.key.inner().address();
+         let owner = wallet.key.borrow().address();
          ctx.update_portfolio_value(chain, owner);
       }
    }
@@ -157,7 +157,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       let client = ctx.get_client_with_id(chain).unwrap();
 
       for wallet in &wallets {
-         let owner = wallet.key.inner().address();
+         let owner = wallet.key.borrow().address();
          let balance = client.get_balance(owner).await?;
          let native = NativeCurrency::from_chain_id(chain)?;
          ctx.write(|ctx| {
@@ -183,7 +183,7 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       let client = ctx.get_client_with_id(chain).unwrap();
 
       for wallet in &wallets {
-         let owner = wallet.key.inner().address();
+         let owner = wallet.key.borrow().address();
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 

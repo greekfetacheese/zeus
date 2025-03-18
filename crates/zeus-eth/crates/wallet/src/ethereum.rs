@@ -1,9 +1,10 @@
 use crate::signer::SecureSigner;
 use alloy_network::EthereumWallet;
 use alloy_signer_local::PrivateKeySigner;
-use memsec::{mlock, munlock};
 use std::borrow::Borrow;
-use zeroize::Zeroize;
+use secure_types::Zeroize;
+use memsec::{mlock, munlock};
+
 
 /// Wrapper type around [EthereumWallet]
 ///

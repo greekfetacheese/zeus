@@ -2,12 +2,13 @@ use crate::core::user::Profile;
 use crate::gui::SHARED_GUI;
 use ncrypt_me::EncryptedInfo;
 use std::path::PathBuf;
+use secure_types::SecureString;
 
 // Shortcuts for functions that may fail but we need to show an error message
 // These functions are only called on a seperate thread so we dont block or panic the main thread
 
 
-pub fn new_wallet_from_key(profile: &mut Profile, name: String, key: String) {
+pub fn new_wallet_from_key(profile: &mut Profile, name: String, key: SecureString) {
    match profile.new_wallet_from_key(name, key) {
       Ok(_) => {}
       Err(e) => {

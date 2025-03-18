@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use ncrypt_me::{Argon2Params, Credentials, decrypt_data, encrypt_data, zeroize::Zeroize};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
+use secure_types::SecureString;
 
 pub const PROFILE_FILE: &str = "profile.data";
 
@@ -33,7 +34,7 @@ impl Default for Profile {
 }
 
 impl Profile {
-   pub fn new_wallet_from_key(&mut self, mut name: String, key: String) -> Result<(), anyhow::Error> {
+   pub fn new_wallet_from_key(&mut self, mut name: String, key: SecureString) -> Result<(), anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
@@ -80,7 +81,7 @@ impl Profile {
    }
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
-      self.wallets.iter().any(|w| &w.key.inner().address() == &address)
+      self.wallets.iter().any(|w| &w.key.borrow().address() == &address)
    }
 
    /// Encrypt the profile and save it to a file
@@ -128,7 +129,7 @@ impl Profile {
 
    /// Get the current wallet address
    pub fn wallet_address(&self) -> Address {
-      self.current_wallet.key.inner().address()
+      self.current_wallet.key.borrow().address()
    }
 
    /// Is a profile exists at the data directory
