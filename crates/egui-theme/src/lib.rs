@@ -225,6 +225,7 @@ pub struct WidgetVisuals {
    pub bg_color_on_hover: Color32,
    pub bg_color_on_click: Color32,
    pub bg_color_on_open: Color32,
+   pub combobox_bg: Color32,
    pub border_on_idle: (f32, Color32),
    pub border_on_hover: (f32, Color32),
    pub border_on_click: (f32, Color32),

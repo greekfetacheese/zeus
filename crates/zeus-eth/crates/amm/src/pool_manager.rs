@@ -2,7 +2,6 @@ use alloy_primitives::{Address, U256};
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
 use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
@@ -428,7 +427,9 @@ impl PoolStateManager {
          if !pool.enough_liquidity() {
             tracing::info!(
                "Pool {}/{} - {} does not have sufficient liquidity",
-               pool.token0.symbol, pool.token1.symbol, pool.address
+               pool.token0.symbol,
+               pool.token1.symbol,
+               pool.address
             );
          }
       }
@@ -437,7 +438,9 @@ impl PoolStateManager {
          if !pool.enough_liquidity() {
             tracing::info!(
                "Pool {}/{} - {} does not have sufficient liquidity",
-               pool.token0.symbol, pool.token1.symbol, pool.address
+               pool.token0.symbol,
+               pool.token1.symbol,
+               pool.address
             );
          }
       }
@@ -693,7 +696,6 @@ impl PoolStateManager {
    {
       const BATCH_SIZE: usize = 100;
       const BATCH_SIZE_2: usize = 5;
-      const MAX_RETRY: usize = 5;
 
       let v2_addresses: Vec<Address> = v2_pools
          .iter()
@@ -704,35 +706,22 @@ impl PoolStateManager {
       let v2_reserves = Arc::new(Mutex::new(Vec::new()));
       let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
       let semaphore = Arc::new(Semaphore::new(concurrency as usize));
-      let delay = Arc::new(Mutex::new(0));
-      let retry = Arc::new(Mutex::new(0));
 
       for chunk in v2_addresses.chunks(BATCH_SIZE) {
          let chunk_clone = chunk.to_vec();
          let client = client.clone();
          let semaphore = semaphore.clone();
          let v2_reserves = v2_reserves.clone();
-         let delay = delay.clone();
-         let retry = retry.clone();
 
          let task = tokio::spawn({
             async move {
-               let mut got_it = false;
-               while !got_it && *retry.lock().await < MAX_RETRY {
-                  let _permit = semaphore.acquire().await?;
-                  let data_res = get_v2_pool_reserves(client.clone(), None, chunk_clone.clone()).await;
-                  match data_res {
-                     Ok(data) => {
-                        v2_reserves.lock().await.extend(data);
-                        got_it = true;
-                     }
-                     Err(e) => {
-                        tracing::error!("Error fetching v2 pool reserves: {:?}", e);
-                        let mut delay = delay.lock().await;
-                        *delay += 500;
-                        tokio::time::sleep(Duration::from_millis(*delay)).await;
-                        *retry.lock().await += 1;
-                     }
+               let _permit = semaphore.acquire().await?;
+               match get_v2_pool_reserves(client.clone(), None, chunk_clone.clone()).await {
+                  Ok(data) => {
+                     v2_reserves.lock().await.extend(data);
+                  }
+                  Err(e) => {
+                     tracing::error!("Error fetching v2 pool reserves: {:?}", e);
                   }
                }
                Ok(())
@@ -749,15 +738,11 @@ impl PoolStateManager {
 
       let v3_data = Arc::new(Mutex::new(Vec::new()));
       let mut v3_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-      let delay = Arc::new(Mutex::new(0));
-      let retry = Arc::new(Mutex::new(0));
 
       for pool in pools.chunks(BATCH_SIZE_2) {
          let client = client.clone();
          let semaphore = semaphore.clone();
          let v3_data = v3_data.clone();
-         let delay = delay.clone();
-         let retry = retry.clone();
 
          let mut pools2 = Vec::new();
          for pool in pool {
@@ -769,22 +754,13 @@ impl PoolStateManager {
 
          let task = tokio::spawn({
             async move {
-               let mut got_it = false;
-               while !got_it && *retry.lock().await < MAX_RETRY {
-                  let _permit = semaphore.acquire().await?;
-                  let data_res = get_v3_state(client.clone(), None, pools2.clone()).await;
-                  match data_res {
-                     Ok(data) => {
-                        v3_data.lock().await.extend(data);
-                        got_it = true;
-                     }
-                     Err(e) => {
-                        tracing::error!("Error fetching v3 pool data: {:?}", e);
-                        let mut delay = delay.lock().await;
-                        *delay += 500;
-                        tokio::time::sleep(Duration::from_millis(*delay)).await;
-                        *retry.lock().await += 1;
-                     }
+               let _permit = semaphore.acquire().await?;
+               match get_v3_state(client.clone(), None, pools2.clone()).await {
+                  Ok(data) => {
+                     v3_data.lock().await.extend(data);
+                  }
+                  Err(e) => {
+                     tracing::error!("Error fetching v3 pool data: {:?}", e);
                   }
                }
                Ok(())

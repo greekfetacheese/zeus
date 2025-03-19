@@ -1,7 +1,8 @@
 use eframe::egui::{Color32, Ui};
 
 use crate::gui::{
-   ui::{button, rich_text}, GUI
+   GUI,
+   ui::{button, rich_text},
 };
 use egui_theme::utils;
 
@@ -36,13 +37,16 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = true;
       }
 
-      let swap = button(rich_text("Swap").size(21.0));
-      if ui.add(swap).clicked() {
-         gui.portofolio.open = false;
-         gui.send_crypto.open = false;
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.swap_ui.open = true;
+      #[cfg(feature = "dev")]
+      {
+         let swap = button(rich_text("Swap").size(21.0));
+         if ui.add(swap).clicked() {
+            gui.portofolio.open = false;
+            gui.send_crypto.open = false;
+            gui.settings.open = false;
+            gui.wallet_ui.open = false;
+            gui.swap_ui.open = true;
+         }
       }
 
       let send = button(rich_text("Send").size(21.0));
@@ -54,7 +58,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = true;
 
          let chain = gui.send_crypto.chain_select.chain.id();
-         let fee = ctx.get_priority_fee(chain).unwrap_or_default().formatted().clone();
+         let fee = ctx
+            .get_priority_fee(chain)
+            .unwrap_or_default()
+            .formatted()
+            .clone();
          gui.send_crypto.priority_fee = fee;
       }
 
@@ -67,6 +75,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = true;
       }
 
+      #[cfg(feature = "dev")]
       if ui
          .add(button(rich_text("Theme Editor").size(20.0)))
          .clicked()
@@ -84,7 +93,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    });
 }
 
-/* 
+/*
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
    let mut open = gui.data_inspection;

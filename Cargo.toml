@@ -25,9 +25,9 @@ zeus-token-list = { path = "crates/zeus-token-list" }
 
 
 # Alloy
-alloy-signer = "=0.11.1"
-alloy-signer-local = "=0.11.1"
-alloy-network = "=0.11.1"
+alloy-signer = "0.12.6"
+alloy-signer-local = "0.12.6"
+alloy-network = "0.12.6"
 
 # Crypto
 ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
@@ -56,7 +56,6 @@ strip = true
 opt-level = 2
 debug = false
 lto = "fat"
-panic = "abort"
 
 [profile.dev]
 lto = "off"
@@ -66,4 +65,4 @@ debug = true
 
 
 [features]
-default = []
+dev = []

@@ -1,5 +1,4 @@
 use crate::core::{utils::*, BaseFee, ZeusCtx};
-use alloy_network::primitives::BlockTransactionsKind;
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -243,7 +242,7 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 
    if chain.is_ethereum() {
       let block = client
-         .get_block(BlockId::latest(), BlockTransactionsKind::Full)
+         .get_block(BlockId::latest())
          .await?
          .ok_or(anyhow!("Latest block not found"))?;
       let base_fee = block.header.base_fee_per_gas.unwrap_or_default();

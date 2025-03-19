@@ -44,7 +44,7 @@ impl TopLeftArea {
          open: false,
          chain_select: ChainSelect::new("main_chain_select"),
          wallet_select: WalletSelect::new("main_wallet_select"),
-         size: (300.0, 180.0),
+         size: (300.0, 140.0),
       }
    }
 

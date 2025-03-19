@@ -813,6 +813,7 @@ impl SendCryptoUi {
             ui.set_width(450.0);
             ui.set_height(350.0);
             let ui_width = ui.available_width();
+            let column_width = ui.available_width() / 3.0;
 
             ui.vertical_centered(|ui| {
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
@@ -825,84 +826,139 @@ impl SendCryptoUi {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
                ui.add_space(20.0);
-            });
 
-            ui.vertical_centered(|ui| {
-               ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
-                  ui.spacing_mut().item_spacing.y = 16.0;
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                  widget_visuals(ui, theme.get_button_visuals(bg_color));
+               // TODO: Actually center this
+               ui.add_sized(vec2(ui_width, 350.0), |ui: &mut Ui| {
+                  let res = ui.vertical_centered(|ui| {
+                     ScrollArea::vertical()
+                        .max_height(350.0)
+                        .max_width(ui_width)
+                        .show(ui, |ui| {
+                           ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
+                           ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                           widget_visuals(ui, theme.get_button_visuals(bg_color));
 
-                  // First show the wallets owned by the current account
-                  ui.label(rich_text("Your Wallets").size(theme.text_sizes.large));
-                  for wallet in &wallets {
-                     let valid_search = valid_wallet_search(wallet, &self.search_query);
+                           // First show the wallets owned by the account
+                           ui.label(rich_text("Your Wallets").size(theme.text_sizes.large));
 
-                     if valid_search {
-                        let address = wallet.key.borrow().address();
-                        // exclude the current wallet
-                        if address == self.wallet_select.wallet.key.borrow().address() {
-                           continue;
-                        }
+                           Grid::new("wallet_grid_2")
+                              .spacing(vec2(5.0, 10.0))
+                              .show(ui, |ui| {
+                                 ui.label(RichText::new("Wallet Name").size(theme.text_sizes.normal));
+                                 ui.label(RichText::new("Address").size(theme.text_sizes.normal));
+                                 ui.label(RichText::new("Value").size(theme.text_sizes.normal));
+                                 ui.end_row();
 
-                        ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
-                           let res = ui.horizontal(|ui| {
-                              let name = rich_text(wallet.name.clone()).size(theme.text_sizes.normal);
-                              let button = button(name);
+                                 for wallet in &wallets {
+                                    let valid_search = valid_wallet_search(wallet, &self.search_query);
+                                    let value = ctx.get_portfolio_value_all_chains(wallet.key.borrow().address());
+
+                                    if valid_search {
+                                       let address = wallet.key.borrow().address();
+                                       // exclude the current wallet
+                                       if address == self.wallet_select.wallet.key.borrow().address() {
+                                          continue;
+                                       }
+
+                                       // Wallet Name
+                                       ui.with_layout(
+                                          Layout::left_to_right(Align::Min).with_main_wrap(true),
+                                          |ui| {
+                                             ui.set_width(column_width);
+                                             let name = rich_text(wallet.name.clone()).size(theme.text_sizes.normal);
+                                             if ui.add(button(name)).clicked() {
+                                                self.recipient = address.to_string();
+                                                self.recipient_name = Some(wallet.name.clone());
+                                                close_it = true;
+                                             }
+                                          },
+                                       );
+
+                                       // Address
+                                       ui.with_layout(
+                                          Layout::left_to_right(Align::Min).with_main_wrap(true),
+                                          |ui| {
+                                             ui.set_width(column_width);
+                                             ui.label(
+                                                RichText::new(wallet.address_truncated()).size(theme.text_sizes.normal),
+                                             );
+                                          },
+                                       );
+
+                                       // Value
+                                       ui.with_layout(
+                                          Layout::left_to_right(Align::Min).with_main_wrap(true),
+                                          |ui| {
+                                             ui.set_width(column_width);
+                                             ui.label(
+                                                RichText::new(format!("${}", value.formatted()))
+                                                   .size(theme.text_sizes.normal),
+                                             );
+                                          },
+                                       );
+                                       ui.end_row();
+                                    }
+                                 }
+                              });
+
+                           // Then show the contacts
+                           ui.label(rich_text("Contacts").size(theme.text_sizes.large));
+
+                           Grid::new("contact_grid_2")
+                              .spacing(vec2(5.0, 10.0))
+                              .show(ui, |ui| {
+                                 ui.label(RichText::new("Contact Name").size(theme.text_sizes.normal));
+                                 ui.label(RichText::new("Address").size(theme.text_sizes.normal));
+                                 ui.end_row();
+
+                                 for contact in &contacts {
+                                    let valid_search = valid_contact_search(contact, &self.search_query);
+
+                                    if valid_search {
+                                       // Contact Name
+                                       ui.with_layout(
+                                          Layout::left_to_right(Align::Min).with_main_wrap(true),
+                                          |ui| {
+                                             ui.set_width(column_width);
+                                             let name = rich_text(contact.name.clone()).size(theme.text_sizes.normal);
+                                             if ui.add(button(name)).clicked() {
+                                                self.recipient = contact.address.clone();
+                                                self.recipient_name = Some(contact.name.clone());
+                                                close_it = true;
+                                             }
+                                          },
+                                       );
+
+                                       // Address
+                                       ui.with_layout(
+                                          Layout::left_to_right(Align::Min).with_main_wrap(true),
+                                          |ui| {
+                                             ui.set_width(column_width);
+                                             ui.label(
+                                                RichText::new(contact.address_short()).size(theme.text_sizes.normal),
+                                             );
+                                          },
+                                       );
+                                       ui.end_row();
+                                    }
+                                 }
+                              });
+
+                           // When a valid address is pasted
+                           // TODO FIX: If this address exists on wallets or contacts it will show up both times
+                           if let Ok(address) = Address::from_str(&self.search_query) {
+                              ui.label(rich_text("Unknown Address").size(theme.text_sizes.large));
+                              let address_text = rich_text(address.to_string()).size(theme.text_sizes.normal);
+                              let button = button(address_text);
                               if ui.add(button).clicked() {
                                  self.recipient = address.to_string();
-                                 self.recipient_name = Some(wallet.name.clone());
+                                 self.recipient_name = None;
                                  close_it = true;
                               }
-                              ui.label(
-                                 RichText::new(wallet.address_truncated())
-                                    .size(theme.text_sizes.normal)
-                                    .strong(),
-                              );
-                           });
-                           res.response
+                           }
                         });
-                     }
-                  }
-
-                  // Then show the contacts
-                  ui.label(rich_text("Contacts").size(theme.text_sizes.large));
-                  for contact in &contacts {
-                     let valid_search = valid_contact_search(contact, &self.search_query);
-
-                     if valid_search {
-                        ui.add_sized(vec2(200.0, 10.0), |ui: &mut Ui| {
-                           let res = ui.horizontal(|ui| {
-                              let name = rich_text(contact.name.clone()).size(theme.text_sizes.normal);
-                              let button = button(name);
-                              if ui.add(button).clicked() {
-                                 self.recipient = contact.address.clone();
-                                 self.recipient_name = Some(contact.name.clone());
-                                 close_it = true;
-                              }
-                              ui.label(
-                                 RichText::new(contact.address_short())
-                                    .size(theme.text_sizes.normal)
-                                    .strong(),
-                              );
-                           });
-                           res.response
-                        });
-                     }
-                  }
-
-                  // When a valid address is pasted
-                  // TODO FIX: If this address exists on wallets or contacts it will show up both times
-                  if let Ok(address) = Address::from_str(&self.search_query) {
-                     ui.label(rich_text("Unknown Address").size(theme.text_sizes.large));
-                     let address_text = rich_text(address.to_string()).size(theme.text_sizes.normal);
-                     let button = button(address_text);
-                     if ui.add(button).clicked() {
-                        self.recipient = address.to_string();
-                        self.recipient_name = None;
-                        close_it = true;
-                     }
-                  }
+                  });
+                  res.response
                });
             });
          });

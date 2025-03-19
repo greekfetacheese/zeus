@@ -2,7 +2,7 @@ use crate::gui::GUI;
 use eframe::egui::Ui;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
-   should_show_overlay(gui);
+   // should_show_overlay(gui);
    gui.msg_window.show(ui);
    gui.loading_window.show(ui);
 
@@ -11,13 +11,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let logged_in = ctx.logged_in();
    let profile_exists = ctx.profile_exists();
 
-
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
 
    gui.send_crypto.tx_success_window.show(theme, ui);
-
 
    if !profile_exists {
       gui.register.show(ctx.clone(), theme, ui);
@@ -40,12 +38,17 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
+   #[cfg(feature = "dev")]
+   {
    let theme = gui.editor.show(&mut gui.theme, ui);
    if let Some(theme) = theme {
       gui.theme = theme;
    }
+   }
+   
 }
 
+#[allow(dead_code)]
 fn should_show_overlay(gui: &mut GUI) {
    if gui.settings.credentials.open {
       gui.show_overlay = true;

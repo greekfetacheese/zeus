@@ -5,7 +5,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::alloy_primitives::Address;
+use zeus_eth::{alloy_primitives::Address, utils::client::get_http_client_with_throttle};
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
@@ -529,7 +529,12 @@ impl ZeusContext {
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
       let rpc = self.providers.get_rpc(id)?;
-      let client = get_http_client(&rpc.url)?;
+      // for default rpcs we use a throttled client
+      let client = if rpc.default {
+         get_http_client_with_throttle(&rpc.url)?
+      } else {
+         get_http_client(&rpc.url)?
+      };
       Ok(client)
    }
 
@@ -543,9 +548,9 @@ impl ZeusContext {
 mod tests {
    use super::*;
    use zeus_eth::{
+      abi::alloy_provider::Provider,
       alloy_primitives::{U256, utils::format_units},
-      alloy_provider::Provider,
-      alloy_rpc_types::{BlockId, BlockTransactionsKind},
+      alloy_rpc_types::BlockId,
       types::SUPPORTED_CHAINS,
    };
 
@@ -555,7 +560,7 @@ mod tests {
 
       let client = ctx.get_client_with_id(1).unwrap();
       let block = client
-         .get_block(BlockId::latest(), BlockTransactionsKind::Full)
+         .get_block(BlockId::latest())
          .await
          .unwrap()
          .unwrap();

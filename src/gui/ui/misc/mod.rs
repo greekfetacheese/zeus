@@ -188,7 +188,7 @@ impl LoadingWindow {
       Self {
          open: false,
          msg: String::new(),
-         size: (150.0, 100.0),
+         size: (200.0, 100.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -220,7 +220,7 @@ impl LoadingWindow {
             ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
                ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
-               ui.label(rich_text(&self.msg));
+               ui.label(rich_text(&self.msg).size(17.0));
             });
          });
    }

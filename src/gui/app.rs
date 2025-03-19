@@ -34,7 +34,7 @@ impl ZeusApp {
          theme
       };
 
-      theme.style.animation_time = 0.5;
+      theme.style.animation_time = 0.3;
       ctx.set_style(theme.style.clone());
 
       // Load the icons

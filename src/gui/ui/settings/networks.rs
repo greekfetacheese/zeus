@@ -8,11 +8,12 @@ use crate::gui::{
    ui::{ChainSelect, button, rich_text},
 };
 use eframe::egui::{
-   Align, Align2, Color32, FontId, Order, Grid, Layout, Margin, ScrollArea, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Color32, FontId, Grid, Layout, Margin, Order, ScrollArea, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
 use egui_theme::{Theme, utils::widget_visuals};
 use std::sync::Arc;
+use std::time::Duration;
 
 pub struct NetworkSettings {
    pub open: bool,
@@ -119,6 +120,14 @@ impl NetworkSettings {
 
                      ui.end_row();
 
+                     // sort rpcs by the fastests to the slowest
+                     rpcs.sort_by(|a, b| {
+                        a.latency
+                           .unwrap_or(Duration::default())
+                           .partial_cmp(&b.latency.unwrap_or(Duration::default()))
+                           .unwrap_or(std::cmp::Ordering::Equal)
+                     });
+
                      for rpc in rpcs.iter_mut() {
                         // Url column
                         ui.horizontal(|ui| {
@@ -157,11 +166,14 @@ impl NetworkSettings {
                         let button = button(rich_text("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[3]);
-                           if ui.add(button).clicked() {
-                              ctx.write(|ctx| {
-                                 ctx.providers.remove_rpc(chain, rpc.url.clone());
-                              });
-                              let _ = ctx.save_providers();
+                           // only allow rpcs added by the user to be removed
+                           if !rpc.default {
+                              if ui.add(button).clicked() {
+                                 ctx.write(|ctx| {
+                                    ctx.providers.remove_rpc(chain, rpc.url.clone());
+                                 });
+                                 let _ = ctx.save_providers();
+                              }
                            }
                         });
 

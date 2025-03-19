@@ -68,7 +68,7 @@ pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
    border_on_hover(ui, visuals.border_on_hover.0, visuals.border_on_hover.1);
    border_on_click(ui, visuals.border_on_click.0, visuals.border_on_click.1);
    border_on_open(ui, visuals.border_on_open.0, visuals.border_on_open.1);
-   window_fill(ui, visuals.bg_color_on_open);
+   window_fill(ui, visuals.combobox_bg);
  }
 
 /// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton

@@ -29,7 +29,7 @@ const SUBTEXT1: Color32 = Color32::from_rgb(186, 194, 222); // #BAC2DE
 
 const BLUE: Color32 = Color32::from_rgb(137, 180, 250); // #89B4FA
 
-const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
+// const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
 
 const BLACK_SHADE: Color32 = Color32::from_rgb(24, 25, 37,);
 
@@ -97,6 +97,7 @@ pub fn text_edit_visuals(bg_color: Color32, colors: &ThemeColors) -> ThemeWidget
       border_on_hover: (1.0, Color32::TRANSPARENT),
       border_on_click: (1.0, Color32::TRANSPARENT),
       border_on_open: (1.0, OVERLAY1),
+      combobox_bg: EXTREME_BG,
    };
    if bg_color == colors.bg_color {
       visuals
@@ -118,6 +119,7 @@ pub fn widget_visuals(bg_color: Color32, colors: &ThemeColors) -> ThemeWidgetVis
       bg_color_on_hover: BLACK_SHADE,
       bg_color_on_click: EXTREME_BG,
       bg_color_on_open: EXTREME_BG,
+      combobox_bg: EXTREME_BG,
       border_on_idle: (1.0, Color32::TRANSPARENT),
       border_on_hover: (1.0, Color32::TRANSPARENT),
       border_on_click: (1.0, Color32::TRANSPARENT),
@@ -128,6 +130,7 @@ pub fn widget_visuals(bg_color: Color32, colors: &ThemeColors) -> ThemeWidgetVis
       visuals
    } else if bg_color == colors.secondary_bg_color || bg_color == colors.extreme_bg_color2 {
       visuals.bg_color_on_idle = colors.widget_bg_color2;
+      visuals.combobox_bg = colors.extreme_bg_color2;
       // ! On hover and click colors need improvement
       visuals.bg_color_on_hover = EXTREME_BG;
       visuals.bg_color_on_click = EXTREME_BG;
@@ -241,13 +244,13 @@ fn visuals(widgets: Widgets) -> Visuals {
       override_text_color: Some(TEXT),
       widgets,
       selection: Selection {
-         bg_fill: LAVENDER,
+         bg_fill: SURFACE1,
          stroke: Stroke {
             width: 1.0,
-            color: LAVENDER,
+            color: SURFACE1,
          },
       },
-      hyperlink_color: LAVENDER,
+      hyperlink_color: SURFACE1,
       faint_bg_color: MANTLE,
       extreme_bg_color: EXTREME_BG, // This also affects the background of the TextEdit
       code_bg_color: MANTLE,

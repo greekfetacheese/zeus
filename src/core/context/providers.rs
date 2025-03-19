@@ -90,7 +90,7 @@ impl RpcProviders {
          .rpcs
          .get(&chain_id)
          .ok_or_else(|| anyhow!("No RPCs found for chain id {}", chain_id))?;
-      let mut sorted_rpcs = rpcs.iter().filter(|rpc| rpc.default).collect::<Vec<_>>();
+      let mut sorted_rpcs = rpcs.iter().filter(|rpc| rpc.default && rpc.enabled).collect::<Vec<_>>();
       sorted_rpcs.sort_by(|a, b| {
          // Sort by latency, treating unmeasured (None) as slower than measured
          a.latency
