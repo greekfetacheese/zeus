@@ -229,7 +229,7 @@ impl ContactsUi {
 
                // Go back button
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
+                  let button = img_button(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
                   if ui.add(button).clicked() {
                      self.add_contact = false;
                      self.main_ui = true;
@@ -316,7 +316,7 @@ impl ContactsUi {
 
                // Go back button
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let button = img_button(icons.arrow_back(), "").min_size(vec2(30.0, 20.0));
+                  let button = img_button(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
                   bg_color_on_idle(ui, Color32::TRANSPARENT);
                   if ui.add(button).clicked() {
                      self.edit_contact = false;

@@ -5369,7 +5369,6 @@ version = "0.1.0"
 source = "git+https://github.com/greekfetacheese/secure-types.git?branch=master#091d48b76dd877fccf4aa2673d55f8ba56e4ed9e"
 dependencies = [
  "memsec",
- "serde",
  "zeroize",
 ]
 

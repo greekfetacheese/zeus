@@ -29,8 +29,14 @@ alloy-signer = "0.12.6"
 alloy-signer-local = "0.12.6"
 alloy-network = "0.12.6"
 
-# Crypto
+# Encryption
 ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
+
+# Memory
+secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master"}
+# Cause memory to leak every time we encrypt/decrypt
+# mimalloc = { version = "0.1.44", features = ["secure"] }
+
 
 # Tracing
 tracing = "0.1.40"
@@ -41,7 +47,6 @@ tracing-appender = "0.2.3"
 tokio = { version = "1.35.1", features = ["rt"] }
 futures = "0.3.31"
 
-secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master", features = ["serde"]}
 
 # Misc
 anyhow = "1.0.44"

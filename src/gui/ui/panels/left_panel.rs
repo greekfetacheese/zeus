@@ -1,10 +1,13 @@
-use eframe::egui::{Color32, Ui};
-
+use crate::assets::icons::Icons;
+use crate::core::ZeusCtx;
 use crate::gui::{
    GUI,
    ui::{button, rich_text},
 };
-use egui_theme::utils;
+use eframe::egui::{Align2, Color32, Frame, ScrollArea, Ui, Window};
+use egui_theme::{Theme, utils};
+use std::sync::Arc;
+use zeus_eth::{amm::UniswapV2Pool, types::ChainId};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -83,85 +86,116 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.editor.open = true;
       }
 
-      /*
-      if ui.add(button(rich_text("Data Insp").size(20.0))).clicked() {
-          gui.data_inspection = true;
+      #[cfg(feature = "dev")]
+      if ui
+         .add(button(rich_text("Inspect Pool Data").size(20.0)))
+         .clicked()
+      {
+         gui.data_inspection = true;
       }
-       */
 
-      // show_data_insp(gui, ui);
+      #[cfg(feature = "dev")]
+      show_data_insp(gui, ui);
    });
 }
 
-/*
+
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
    let mut open = gui.data_inspection;
+   let theme = &gui.theme;
+   let icons = gui.icons.clone();
 
    Window::new("Data Inspection")
       .open(&mut open)
       .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-      .scroll([false, true])
       .frame(Frame::window(ui.style()))
       .show(ui.ctx(), |ui| {
-         ui.set_width(400.0);
-         ui.set_height(400.0);
+         ui.set_width(600.0);
+         ui.set_height(600.0);
          ui.vertical_centered(|ui| {
-            ui.spacing_mut().item_spacing.y = 10.0;
+            ui.spacing_mut().item_spacing.y = 20.0;
 
             let ctx = gui.ctx.clone();
             let v2_pools = ctx.read(|ctx| ctx.pool_manager.v2_pools()).into_values();
-            let v3_pools = ctx.read(|ctx| ctx.pool_manager.v3_pools()).into_values();
+            let _v3_pools = ctx.read(|ctx| ctx.pool_manager.v3_pools()).into_values();
 
-            ui.label(rich_text("V2 Pools"));
-
-            for pool in v2_pools {
-               let (price0, price1) = if pool.base_token().address == pool.token0.address {
-                  (pool.base_usd, pool.quote_usd)
-               } else {
-                  (pool.quote_usd, pool.base_usd)
-               };
-
-               let chain = ChainId::new(pool.chain_id).unwrap();
-               ui.label(rich_text(format!(
-                  "Pair: {}-{}",
-                  pool.token0.symbol, pool.token1.symbol
-               )));
-               ui.label(rich_text(format!(
-                  "{} ${} - {} ${}",
-                  pool.token0.symbol, price0, pool.token1.symbol, price1
-               )));
-               ui.label(rich_text(format!(
-                  "Pool Address: {}",
-                  pool.address.to_string()
-               )));
-               ui.label(rich_text(format!("DEX: {}", pool.dex.to_str())));
-               ui.label(rich_text(format!("Chain: {}", chain.name())));
-            }
-
-            ui.label(rich_text("V3 Pools"));
-            for pool in v3_pools {
-               let price0 = ctx.get_token_price(&pool.token0).float();
-               let price1 = ctx.get_token_price(&pool.token1).float();
-               let chain = ChainId::new(pool.chain_id).unwrap();
-               ui.label(rich_text(format!(
-                  "Pair: {}-{}",
-                  pool.token0.symbol, pool.token1.symbol
-               )));
-               ui.label(rich_text(format!(
-                  "{} ${} - {} ${}",
-                  pool.token0.symbol, price0, pool.token1.symbol, price1
-               )));
-               ui.label(rich_text(format!(
-                  "Pool Address: {}",
-                  pool.address.to_string()
-               )));
-               ui.label(rich_text(format!("DEX: {}", pool.dex.to_str())));
-               ui.label(rich_text(format!("Chain: {}", chain.name())));
-            }
+            ScrollArea::vertical().show(ui, |ui| {
+               ui.label(rich_text(format!("V2 Pools {}", v2_pools.len())).size(theme.text_sizes.large));
+               for pool in v2_pools {
+                  v2_pool_info(ctx.clone(), theme, icons.clone(), &pool, ui);
+               }
+            });
          });
       });
 
    gui.data_inspection = open;
 }
-*/
+
+#[allow(dead_code)]
+fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV2Pool, ui: &mut Ui) {
+   let frame = theme.frame1;
+
+   frame.show(ui, |ui| {
+      ui.set_width(300.0);
+      ui.set_height(150.0);
+      ui.spacing_mut().item_spacing.y = 10.0;
+      ui.spacing_mut().item_spacing.x = 5.0;
+
+      let chain = ChainId::new(pool.chain_id).unwrap();
+
+      ui.vertical(|ui| {
+         ui.horizontal(|ui| {
+            ui.label(rich_text("Token0:").size(theme.text_sizes.normal));
+            ui.label(rich_text(&pool.token0.symbol).size(theme.text_sizes.normal));
+         });
+
+         ui.horizontal(|ui| {
+            ui.label(rich_text("Token1:").size(theme.text_sizes.normal));
+            ui.label(rich_text(&pool.token1.symbol).size(theme.text_sizes.normal));
+         });
+
+         ui.horizontal(|ui| {
+            ui.label(rich_text("Chain:").size(theme.text_sizes.normal));
+            ui.label(rich_text(chain.name()).size(theme.text_sizes.normal));
+         });
+
+         ui.horizontal(|ui| {
+            ui.label(rich_text("Dex:").size(theme.text_sizes.normal));
+            ui.label(rich_text(pool.dex.to_str()).size(theme.text_sizes.normal));
+         });
+
+         ui.horizontal(|ui| {
+            let exp_link = chain.block_explorer();
+            let link = format!("{}/address/{}", exp_link, pool.address);
+            ui.label(rich_text("Address:").size(theme.text_sizes.normal));
+            ui.add(egui::Hyperlink::from_label_and_url(
+               rich_text(&pool.address.to_string()).size(theme.text_sizes.small),
+               link,
+            ));
+         });
+
+         let base = pool.base_token();
+         let quote = pool.quote_token();
+         let base_usd = ctx.get_token_price(base);
+
+         if let Some(base_usd) = base_usd {
+           let quote_usd = pool.quote_price(base_usd.f64()).unwrap_or_default();
+
+            ui.horizontal(|ui| {
+               ui.label(rich_text(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal));
+            });
+
+            ui.horizontal(|ui| {
+               ui.label(rich_text(format!("{} ${}", quote.symbol, quote_usd)).size(theme.text_sizes.normal));
+            });
+
+         } else {
+            ui.label(rich_text("Base Token Price not found").size(theme.text_sizes.small).color(Color32::RED));
+         }
+
+         
+
+      });
+   });
+}

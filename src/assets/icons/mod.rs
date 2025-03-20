@@ -6,7 +6,7 @@ use eframe::egui::{ColorImage, Context, Image, Sense, TextureHandle, epaint::tex
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
-use zeus_eth::{currency::Currency, alloy_primitives::Address};
+use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use zeus_token_list::*;
 
 /// Icons used in the GUI
@@ -63,12 +63,7 @@ pub struct CurrencyIcons {
 pub struct MiscIcons {
    pub add_wallet: TextureHandle,
    pub wallet: TextureHandle,
-   pub copy: TextureHandle,
-   pub settings: TextureHandle,
-   pub right_arrow: TextureHandle,
-   pub right_arrow2: TextureHandle,
-   pub arrow_back: TextureHandle,
-   pub contact: TextureHandle,
+   pub arrow_left: TextureHandle,
    pub trash: TextureHandle,
    pub edit: TextureHandle,
 }
@@ -86,18 +81,14 @@ impl Icons {
       let eth_coin = load_image(include_bytes!("currency/resized/ethereum.png"))?;
       let bnb_coin = load_image(include_bytes!("currency/resized/bnb.png"))?;
 
+      // ERC20 & BEP20 Placeholders
       let erc20 = load_image(include_bytes!("currency/resized/erc20.png"))?;
       let bep20 = load_image(include_bytes!("currency/resized/bep20.png"))?;
 
       // Misc Icons
       let wallet_add = load_image(include_bytes!("wallet/resized/wallet-plus.png"))?;
       let wallet = load_image(include_bytes!("wallet/resized/wallet.png"))?;
-      let copy = load_image(include_bytes!("misc/resized/copy.png"))?;
-      let settings = load_image(include_bytes!("misc/resized/settings.png"))?;
-      let right_arrow = load_image(include_bytes!("misc/resized/arrow-right.png"))?;
-      let right_arrow2 = load_image(include_bytes!("misc/resized/arrow-right2.png"))?;
-      let arrow_back = load_image(include_bytes!("misc/resized/arrow-back.png"))?;
-      let contact = load_image(include_bytes!("misc/resized/contact.png"))?;
+      let arrow_left = load_image(include_bytes!("misc/resized/arrow-left.png"))?;
       let trash = load_image(include_bytes!("misc/resized/trash.png"))?;
       let edit = load_image(include_bytes!("misc/resized/edit.png"))?;
 
@@ -122,12 +113,7 @@ impl Icons {
       let misc_icons = MiscIcons {
          add_wallet: ctx.load_texture("add_wallet", wallet_add, texture_options),
          wallet: ctx.load_texture("wallet", wallet, texture_options),
-         copy: ctx.load_texture("copy", copy, texture_options),
-         settings: ctx.load_texture("settings", settings, texture_options),
-         right_arrow: ctx.load_texture("right_arrow", right_arrow, texture_options),
-         right_arrow2: ctx.load_texture("right_arrow2", right_arrow2, texture_options),
-         contact: ctx.load_texture("contact", contact, texture_options),
-         arrow_back: ctx.load_texture("arrow_back", arrow_back, texture_options),
+         arrow_left: ctx.load_texture("arrow_left", arrow_left, texture_options),
          trash: ctx.load_texture("trash", trash, texture_options),
          edit: ctx.load_texture("edit", edit, texture_options),
       };
@@ -155,9 +141,9 @@ impl Icons {
    }
 
    /// Return the currency icon based on the currency
-   /// 
+   ///
    /// If the currency is native, it will return the native currency icon based on the chain_id
-   /// 
+   ///
    /// If its ERC20, it will return the token icon based on the token address and chain id
    pub fn currency_icon(&self, currency: &Currency) -> Image<'static> {
       if currency.is_native() {
@@ -211,30 +197,8 @@ impl Icons {
       Image::new(&self.misc.wallet).sense(Sense::click())
    }
 
-   /// Return the copy icon
-   pub fn copy(&self) -> Image<'static> {
-      Image::new(&self.misc.copy).sense(Sense::click())
-   }
-
-   /// Return the settings icons
-   pub fn settings(&self) -> Image<'static> {
-      Image::new(&self.misc.settings).sense(Sense::click())
-   }
-
-   pub fn right_arrow(&self) -> Image<'static> {
-      Image::new(&self.misc.right_arrow).sense(Sense::click())
-   }
-
-   pub fn right_arrow2(&self) -> Image<'static> {
-      Image::new(&self.misc.right_arrow2).sense(Sense::click())
-   }
-
-   pub fn arrow_back(&self) -> Image<'static> {
-      Image::new(&self.misc.arrow_back).sense(Sense::click())
-   }
-
-   pub fn contact(&self) -> Image<'static> {
-      Image::new(&self.misc.contact).sense(Sense::click())
+   pub fn arrow_left(&self) -> Image<'static> {
+      Image::new(&self.misc.arrow_left).sense(Sense::click())
    }
 
    pub fn trash(&self) -> Image<'static> {

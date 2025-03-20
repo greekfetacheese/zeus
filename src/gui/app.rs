@@ -1,6 +1,4 @@
-use std::path::PathBuf;
 use std::sync::Arc;
-
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
@@ -24,16 +22,7 @@ impl ZeusApp {
       let ctx = cc.egui_ctx.clone();
       let ctx_clone = ctx.clone();
 
-      let path_exists = PathBuf::from("my-custom-theme.json").exists();
-      let mut theme = if path_exists {
-         let path = PathBuf::from("my-custom-theme.json");
-         let theme = Theme::from_custom(path).unwrap();
-         theme
-      } else {
-         let theme = Theme::new(ThemeKind::Mocha);
-         theme
-      };
-
+      let mut theme = Theme::new(ThemeKind::Mocha);
       theme.style.animation_time = 0.3;
       ctx.set_style(theme.style.clone());
 

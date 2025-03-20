@@ -5,7 +5,6 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::{alloy_primitives::Address, utils::client::get_http_client_with_throttle};
 use zeus_eth::amm::{
    pool_manager::PoolStateManagerHandle,
    uniswap::{
@@ -13,6 +12,7 @@ use zeus_eth::amm::{
       v3::pool::{FEE_TIERS, UniswapV3Pool},
    },
 };
+use zeus_eth::{alloy_primitives::Address, utils::client::get_http_client_with_throttle};
 use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
@@ -494,19 +494,59 @@ impl ZeusContext {
          providers.rpcs = loaded_providers.rpcs;
       }
 
-      let contact_db = ContactDB::load_from_file().unwrap_or_default();
-      let balance_db = BalanceDB::load_from_file().unwrap_or_default();
-      let currency_db = CurrencyDB::load_from_file().unwrap_or_default();
-      let portfolio_db = PortfolioDB::load_from_file().unwrap_or_default();
+      let contact_db = match ContactDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load contacts, {:?}", e);
+            ContactDB::default()
+         }
+      };
 
-      let profile_exists = Profile::exists().expect("Failed to read data directory");
+      let balance_db = match BalanceDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load balances, {:?}", e);
+            BalanceDB::default()
+         }
+      };
 
-      let pool_dir = pool_data_dir().unwrap().exists();
+      let currency_db = match CurrencyDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load currencies, {:?}", e);
+            CurrencyDB::default()
+         }
+      };
+
+      let portfolio_db = match PortfolioDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load portfolios, {:?}", e);
+            PortfolioDB::default()
+         }
+      };
+
+      let profile_exists = Profile::exists().is_ok_and(|p| p);
+
       let mut pool_manager = PoolStateManagerHandle::default();
-      if pool_dir {
+
+      let pool_dir_exists = match pool_data_dir() {
+         Ok(dir) => dir.exists(),
+         Err(e) => {
+            tracing::error!("Failed to read pool data dir, {:?}", e);
+            false
+         }
+      };
+
+      if pool_dir_exists {
          let dir = pool_data_dir().unwrap();
-         let data = std::fs::read(dir).unwrap();
-         let manager = PoolStateManagerHandle::from_slice(&data).unwrap();
+         let manager = match PoolStateManagerHandle::from_dir(&dir) {
+            Ok(manager) => manager,
+            Err(e) => {
+               tracing::error!("Failed to load pool data, {:?}", e);
+               PoolStateManagerHandle::default()
+            }
+         };
          pool_manager = manager;
       }
 
@@ -559,11 +599,7 @@ mod tests {
       let ctx = ZeusContext::new();
 
       let client = ctx.get_client_with_id(1).unwrap();
-      let block = client
-         .get_block(BlockId::latest())
-         .await
-         .unwrap()
-         .unwrap();
+      let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
       let base_fee = block.header.base_fee_per_gas.unwrap();
       let fee = format_units(base_fee, "gwei").unwrap();
       println!("Ethereum base fee: {}", fee);

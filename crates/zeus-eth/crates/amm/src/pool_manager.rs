@@ -74,15 +74,23 @@ impl PoolStateManagerHandle {
       Ok(Self(Arc::new(RwLock::new(manager))))
    }
 
-   /// Deserialize the [PoolStateManager] from a JSON string
-   pub fn from_slice(data: &[u8]) -> Result<Self, serde_json::Error> {
-      let manager = serde_json::from_slice(data)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
-   }
-
    /// Serialize the [PoolStateManager] to a JSON string
    pub fn to_string(&self) -> Result<String, serde_json::Error> {
       self.read(|manager| serde_json::to_string(manager))
+   }
+
+   /// Deserialize the [PoolStateManager] from a JSON file
+   pub fn from_dir(dir: &std::path::PathBuf) -> Result<Self, anyhow::Error> {
+      let data = std::fs::read(dir)?;
+      let manager = serde_json::from_slice(&data)?;
+      Ok(Self(Arc::new(RwLock::new(manager))))
+   }
+
+   /// Serialize the [PoolStateManager] to a JSON file
+   pub fn save_to_dir(&self, dir: &std::path::PathBuf) -> Result<(), anyhow::Error> {
+      let data = self.read(|manager| serde_json::to_string(manager))?;
+      std::fs::write(dir, data)?;
+      Ok(())
    }
 
    pub fn v2_pools(&self) -> V2Pools {
@@ -135,7 +143,7 @@ impl PoolStateManagerHandle {
    {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
-      self.calculate_prices()?;
+      self.calculate_prices(chain)?;
       Ok(())
    }
 
@@ -148,7 +156,7 @@ impl PoolStateManagerHandle {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
       self.cleanup_pools();
-      self.calculate_prices()?;
+      self.calculate_prices(chain)?;
       Ok(())
    }
 
@@ -360,8 +368,8 @@ impl PoolStateManagerHandle {
    }
 
    /// Calculate the prices for all the pools
-   pub fn calculate_prices(&self) -> Result<(), anyhow::Error> {
-      self.write(|manager| manager.calculate_prices())
+   pub fn calculate_prices(&self, chain: u64) -> Result<(), anyhow::Error> {
+      self.write(|manager| manager.calculate_prices(chain))
    }
 
    /// Get the price of the given token
@@ -423,28 +431,6 @@ impl PoolStateManager {
    }
 
    pub fn cleanup_pools(&mut self) {
-      for (_, pool) in self.v2_pools.iter_mut() {
-         if !pool.enough_liquidity() {
-            tracing::info!(
-               "Pool {}/{} - {} does not have sufficient liquidity",
-               pool.token0.symbol,
-               pool.token1.symbol,
-               pool.address
-            );
-         }
-      }
-
-      for (_, pool) in self.v3_pools.iter_mut() {
-         if !pool.enough_liquidity() {
-            tracing::info!(
-               "Pool {}/{} - {} does not have sufficient liquidity",
-               pool.token0.symbol,
-               pool.token1.symbol,
-               pool.address
-            );
-         }
-      }
-
       self.v2_pools.retain(|_, pool| pool.enough_liquidity());
       self.v3_pools.retain(|_, pool| pool.enough_liquidity());
    }
@@ -582,8 +568,9 @@ impl PoolStateManager {
       Ok(())
    }
 
-   pub fn calculate_prices(&mut self) -> Result<(), anyhow::Error> {
+   pub fn calculate_prices(&mut self, chain_id: u64) -> Result<(), anyhow::Error> {
       let mut prices: HashMap<(u64, Address), Vec<f64>> = HashMap::new();
+      let base_tokens = ERC20Token::base_tokens(chain_id);
 
       for (_, pool) in self.v2_pools.iter_mut() {
          if !pool.enough_liquidity() {
@@ -592,6 +579,12 @@ impl PoolStateManager {
 
          let quote = pool.quote_token().clone();
          let base_token = pool.base_token().clone();
+
+         // if both tokens are base tokens, skip because we are gonna a get very weird number
+         if base_tokens.contains(&quote) && base_tokens.contains(&base_token) {
+            continue;
+         }
+
          let base_price = self
             .token_prices
             .get(&(base_token.chain_id, base_token.address))
@@ -616,6 +609,11 @@ impl PoolStateManager {
 
          let quote = pool.quote_token().clone();
          let base_token = pool.base_token().clone();
+
+         if base_tokens.contains(&quote) && base_tokens.contains(&base_token) {
+            continue;
+         }
+
          let base_price = self
             .token_prices
             .get(&(base_token.chain_id, base_token.address))

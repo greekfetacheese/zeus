@@ -147,7 +147,6 @@ impl Profile {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use secure_types::SecureString;
    use std::fs;
 
    #[test]

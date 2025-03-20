@@ -9,6 +9,8 @@ use egui::Margin;
 use egui_theme::Theme;
 use ncrypt_me::{Argon2Params, Credentials};
 
+
+
 pub struct CredentialsForm {
    pub open: bool,
    pub confrim_password: bool,

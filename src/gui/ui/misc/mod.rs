@@ -336,8 +336,8 @@ impl PortfolioUi {
                   token_selection.open = true;
                }
 
-               let update_prices = button(rich_text("Update Prices").size(theme.text_sizes.normal));
-               if ui.add(update_prices).clicked() {
+               let refresh = button(rich_text("Refresh").size(theme.text_sizes.normal));
+               if ui.add(refresh).clicked() {
                   self.update_prices(ctx.clone());
                }
 
@@ -458,7 +458,6 @@ impl PortfolioUi {
          ui.add(icon);
          ui.label(
             RichText::new(currency.symbol())
-               .strong()
                .size(theme.text_sizes.normal),
          )
          .on_hover_text(currency.name());
@@ -496,18 +495,6 @@ impl PortfolioUi {
       });
    }
 
-   #[allow(dead_code)]
-   fn change_24h(&self, ui: &mut Ui, width: f32) {
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(
-            RichText::new("12.4%")
-               .color(Color32::from_rgb(0, 200, 0))
-               .size(12.0),
-         ); // Replace with real data
-      });
-   }
-
    fn update_prices(&mut self, ctx: ZeusCtx) {
       self.show_spinner = true;
       RT.spawn(async move {
@@ -531,7 +518,7 @@ impl PortfolioUi {
    }
 
    // Add a currency to the portfolio and update the portfolio value
-   fn add_currency(&self, ctx: ZeusCtx, currency: Currency) {
+   fn add_currency(&mut self, ctx: ZeusCtx, currency: Currency) {
       let chain_id = ctx.chain().id();
       let owner = ctx.wallet().key.borrow().address();
 
@@ -561,6 +548,7 @@ impl PortfolioUi {
 
       let token2 = token.clone();
       let ctx2 = ctx.clone();
+      self.show_spinner = true;
       RT.spawn(async move {
          match eth::sync_pools_for_token(ctx2.clone(), token2.clone(), true, v3_pools.is_empty()).await {
             Ok(_) => {
@@ -574,8 +562,14 @@ impl PortfolioUi {
          match pool_manager.update_and_clean(client, chain_id).await {
             Ok(_) => {
                tracing::info!("Updated pool state for {}", token2.symbol);
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.portofolio.show_spinner = false;
             }
-            Err(e) => tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e),
+            Err(e) => {
+               tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e);
+               let mut gui = SHARED_GUI.write().unwrap();
+               gui.portofolio.show_spinner = false;
+            },
          }
 
          let balance = match eth::get_token_balance(ctx2.clone(), owner, token.clone()).await {

@@ -111,7 +111,6 @@ impl TokenSelectionWindow {
                .show(ui, |ui| {
                   ui.spacing_mut().item_spacing.y = 10.0;
 
-                  // Precompute balances and sort currencies
                   let mut currencies_with_balances: Vec<(&Currency, NumericValue)> = currencies
                      .iter()
                      .map(|currency| {
@@ -120,7 +119,7 @@ impl TokenSelectionWindow {
                      })
                      .collect();
 
-                  // Sort by balance in descending order
+                  // sort currenies by the highest balance
                   currencies_with_balances.sort_by(|a, b| {
                      b.1.f64() // b's balance
                         .partial_cmp(&a.1.f64()) // a's balance
@@ -155,7 +154,7 @@ impl TokenSelectionWindow {
 
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                     self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
+                     self.get_token_on_valid_address(ctx, currencies, theme, chain_id, owner, &mut close_window, ui);
                   });
                });
          });
@@ -168,6 +167,7 @@ impl TokenSelectionWindow {
    fn get_token_on_valid_address(
       &self,
       ctx: ZeusCtx,
+      currencies: &Vec<Currency>,
       theme: &Theme,
       chain: u64,
       owner: Address,
@@ -175,6 +175,10 @@ impl TokenSelectionWindow {
       ui: &mut Ui,
    ) {
       if let Ok(address) = Address::from_str(&self.search_query) {
+         // check if currency already exists
+         if currencies.iter().any(|c| c.erc20().map_or(false, |t| t.address == address)) {
+            return;
+         }
          let button = button(rich_text("Add Token").size(theme.text_sizes.normal));
          if ui.add(button).clicked() {
             RT.spawn(async move {
