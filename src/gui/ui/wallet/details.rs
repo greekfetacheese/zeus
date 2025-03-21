@@ -6,14 +6,57 @@ use crate::gui::{
 use eframe::egui::{Align2, Frame, Id, Order, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
 
-const VIEW_KEY_MSG: &str = "The key has been copied to your clipboard, make sure to clear it after you done using it!!! (eg. copy some random text)";
-const WALLET_NOT_FOUND: &str = "Wallet not found";
+const VIEW_KEY_MSG: &str = "The key has been copied! In 30 seconds it will be cleared from the clipboard.";
+
+
+pub struct KeyExporter {
+   pub wallet: Option<Wallet>,
+   /// When the key was copied to the clipboard
+   pub key_copied_time: Option<std::time::Instant>,
+
+   /// How much time before we force clear the clipboard
+   clipboard_clear_delay: std::time::Duration
+}
+
+impl KeyExporter {
+   pub fn new() -> Self {
+      Self {
+         wallet: None,
+         key_copied_time: None,
+         clipboard_clear_delay: std::time::Duration::from_secs(30),
+      }
+   }
+
+   pub fn export_key(&mut self, ctx: egui::Context) {
+      let key = self.wallet.take().unwrap().key_string();
+      ctx.copy_text(key.to_string());
+      self.key_copied_time = Some(std::time::Instant::now());
+      self.wallet = None;
+      tracing::info!("Key copied to clipboard");
+   }
+
+   pub fn update(&mut self, theme: &Theme, ctx: egui::Context, ui: &mut egui::Ui) {
+      // Check if we need to clear the clipboard
+      if let Some(copy_time) = self.key_copied_time {
+          let elapsed = copy_time.elapsed();
+          if elapsed >= self.clipboard_clear_delay {
+              ctx.copy_text("".to_string()); // Overwrite with empty string
+              self.key_copied_time = None; // Reset timer
+              tracing::info!("Key cleared from clipboard");
+          } else {
+              let remaining = self.clipboard_clear_delay - elapsed;
+              let text = rich_text(format!("Clipboard will clear in {} seconds", remaining.as_secs())).size(theme.text_sizes.normal);
+              ui.label(text);
+          }
+      }
+}
+}
 
 pub struct ViewKeyUi {
    pub open: bool,
    pub credentials_form: CredentialsForm,
    pub verified_credentials: bool,
-   pub wallet: Option<Wallet>,
+   pub exporter: KeyExporter,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
@@ -24,7 +67,7 @@ impl ViewKeyUi {
          open: false,
          credentials_form: CredentialsForm::new(),
          verified_credentials: false,
-         wallet: None,
+         exporter: KeyExporter::new(),
          size: (300.0, 400.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
@@ -33,8 +76,8 @@ impl ViewKeyUi {
    pub fn reset(&mut self) {
       self.open = false;
       self.credentials_form.erase();
+      self.credentials_form.open = false;
       self.verified_credentials = false;
-      self.wallet = None;
       tracing::info!("ViewKeyUi reset");
    }
 
@@ -79,31 +122,11 @@ impl ViewKeyUi {
          std::thread::spawn(move || {
             let ok = gui::utils::verify_credentials(&mut account);
 
-            let wallet;
-            {
-               let gui = SHARED_GUI.read().unwrap();
-               wallet = gui.wallet_ui.view_key_ui.wallet.clone();
-            }
-
-            // This should not happen
-            if wallet.is_none() {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.open_msg_window("Something gone wrong", WALLET_NOT_FOUND);
-               gui.wallet_ui.view_key_ui.credentials_form.erase();
-               return;
-            }
-
             // All good copy the key to the clipboard and show a msg
             if ok {
                let mut gui = SHARED_GUI.write().unwrap();
-               let key = gui
-                  .wallet_ui
-                  .view_key_ui
-                  .wallet
-                  .clone()
-                  .unwrap()
-                  .key_string();
-               gui.egui_ctx.copy_text(key.to_string());
+               let ctx = gui.egui_ctx.clone();
+               gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
                gui.wallet_ui.view_key_ui.reset();
                gui.open_msg_window("", VIEW_KEY_MSG);
             } else {

@@ -172,7 +172,7 @@ impl WalletUi {
                   let view_key = button(rich_text("View Key").size(theme.text_sizes.small));
                   if ui.add(view_key).clicked() {
                      self.view_key_ui.open = true;
-                     self.view_key_ui.wallet = Some(wallet.clone());
+                     self.view_key_ui.exporter.wallet = Some(wallet.clone());
                      self.view_key_ui.credentials_form.open = true;
                   }
                   ui.add_space(5.0);

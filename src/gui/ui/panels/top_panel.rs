@@ -4,11 +4,8 @@ use crate::gui::{
    GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use egui::{vec2, Align, Layout, RichText, SelectableLabel, Spinner, Ui};
-use egui_theme::{
-   Theme,
-   utils::*,
-};
+use egui::{Align, Grid, Layout, RichText, SelectableLabel, Spinner, Ui, vec2};
+use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data, do not close the app yet!";
@@ -23,6 +20,23 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
          ui.add(Spinner::new().size(20.0));
+      });
+   }
+
+   // For now no need to call ctx.request_repaint() here
+   // because the spinner does that even when the window is minimized
+   if gui.wallet_ui.view_key_ui.exporter.key_copied_time.is_some() {
+      ui.vertical_centered(|ui| {
+         Grid::new("key_copied_grid")
+            .spacing([0.0, 0.0])
+            .show(ui, |ui| {
+               ui.add(Spinner::new().size(20.0));
+               gui.wallet_ui
+                  .view_key_ui
+                  .exporter
+                  .update(theme, ui.ctx().clone(), ui);
+               ui.end_row();
+            });
       });
    }
 
@@ -57,11 +71,9 @@ impl TopLeftArea {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
 
-
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
          widget_visuals(ui, theme.get_widget_visuals(theme.colors.bg_color));
-
 
          // Chain Select
          let clicked = self.chain_select.show(theme, icons.clone(), ui);

@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
@@ -10,6 +9,7 @@ use eframe::{
    egui::{self, Frame},
 };
 use egui_theme::{Theme, ThemeKind};
+use std::sync::Arc;
 
 pub struct ZeusApp {
    pub on_startup: bool,
@@ -63,6 +63,15 @@ impl ZeusApp {
          self.updated_started = true;
       }
    }
+
+   fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
+      if ctx.input(|i| i.viewport().close_requested()) {
+         let clear_clipboard = gui.wallet_ui.view_key_ui.exporter.key_copied_time.is_some();
+         if clear_clipboard {
+            ctx.copy_text("".to_string());
+         }
+      }
+   }
 }
 
 impl eframe::App for ZeusApp {
@@ -71,7 +80,9 @@ impl eframe::App for ZeusApp {
    }
 
    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-      self.start_update();
+      if !self.updated_started {
+         self.start_update();
+      }
 
       if self.on_startup {
          self.start_up(ctx);
@@ -79,6 +90,7 @@ impl eframe::App for ZeusApp {
       }
 
       let mut gui = SHARED_GUI.write().unwrap();
+      self.on_shutdown(ctx, &mut gui);
 
       let bg_color = if gui.show_overlay {
          gui.theme.colors.overlay_color
