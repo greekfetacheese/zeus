@@ -89,8 +89,9 @@ pub fn portfolio_update_interval(ctx: ZeusCtx) {
    }
 }
 
+/// Update the portfolio value for all wallets across all chains
 pub fn portfolio_update(ctx: ZeusCtx) {
-   let wallets = ctx.profile().wallets;
+   let wallets = ctx.account().wallets;
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
          let owner = wallet.key.borrow().address();
@@ -150,7 +151,7 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
 
 /// Update the eth balance for all wallets across all chains
 pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let wallets = ctx.profile().wallets;
+   let wallets = ctx.account().wallets;
 
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
@@ -176,7 +177,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 
 /// Update the token balance for all wallets across all chains
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let wallets = ctx.profile().wallets;
+   let wallets = ctx.account().wallets;
 
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
@@ -344,6 +345,7 @@ pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
 /// If needed re-sync pools for all tokens across all chains
 pub async fn resync_pools(ctx: ZeusCtx) {
    let need_resync = ctx.pools_need_resync();
+   let pool_manager = ctx.pool_manager();
 
    if need_resync {
       ctx.write(|ctx| {
@@ -354,9 +356,8 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
       for chain in SUPPORTED_CHAINS {
          let tokens = ctx.get_all_erc20_tokens(chain);
+         let client = ctx.get_client_with_id(chain).unwrap();
          for token in tokens {
-            // add a small delay to avoid rate limiting
-            tokio::time::sleep(Duration::from_millis(500)).await;
             match eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await {
                Ok(_) => {}
                Err(e) => {
@@ -364,11 +365,22 @@ pub async fn resync_pools(ctx: ZeusCtx) {
                }
             }
          }
+         match pool_manager.update_and_clean(client, chain).await {
+            Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
+         }
       }
 
       ctx.write(|ctx| {
          ctx.data_syncing = false;
       });
+
+      portfolio_update(ctx.clone());
+
+      match ctx.save_portfolio_db() {
+         Ok(_) => tracing::info!("PortfolioDB saved"),
+         Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
+      }
 
       match ctx.save_pool_data() {
          Ok(_) => tracing::info!("PoolData saved"),

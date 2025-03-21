@@ -9,7 +9,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
 
    let logged_in = ctx.logged_in();
-   let profile_exists = ctx.profile_exists();
+   let account = ctx.account_exists();
 
    let theme = &gui.theme;
    let icons = gui.icons.clone();
@@ -17,13 +17,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.send_crypto.tx_success_window.show(theme, ui);
 
-   if !profile_exists {
+   if !account {
       gui.register.show(ctx.clone(), theme, ui);
       gui.portofolio.open = false;
       // ! We could early return but for some reason the whole window becomes transparent
    }
 
-   if profile_exists && !logged_in {
+   if account && !logged_in {
       gui.login.show(ctx.clone(), theme, ui);
       gui.portofolio.open = false;
    }

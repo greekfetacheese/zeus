@@ -73,22 +73,22 @@ impl TopLeftArea {
          }
 
          // Wallet Select
-         let wallets = ctx.profile().wallets;
+         let wallets = ctx.account().wallets;
          let clicked = self.wallet_select.show(theme, &wallets, icons.clone(), ui);
          if clicked {
             // update the wallet
             ctx.write(|ctx| {
-               ctx.profile.current_wallet = self.wallet_select.wallet.clone();
+               ctx.account.current_wallet = self.wallet_select.wallet.clone();
             });
          }
          ui.end_row();
 
-         let wallet = ctx.profile().current_wallet;
+         let wallet = ctx.account().current_wallet;
          let address = wallet.address_truncated();
 
          let address_text = RichText::new(address).size(theme.text_sizes.normal);
          if ui.add(SelectableLabel::new(false, address_text)).clicked() {
-            ui.ctx().copy_text(wallet.address());
+            ui.ctx().copy_text(wallet.address_string());
          }
       });
    }

@@ -74,10 +74,10 @@ impl ViewKeyUi {
          });
 
       if clicked {
-         let mut profile = ctx.profile();
-         profile.credentials = self.credentials_form.credentials.clone();
+         let mut account = ctx.account();
+         account.credentials = self.credentials_form.credentials.clone();
          std::thread::spawn(move || {
-            let ok = gui::utils::verify_credentials(&mut profile);
+            let ok = gui::utils::verify_credentials(&mut account);
 
             let wallet;
             {
@@ -182,10 +182,10 @@ impl DeleteWalletUi {
          });
 
       if clicked {
-         let mut profile = ctx.profile();
-         profile.credentials = self.credentials_form.credentials.clone();
+         let mut account = ctx.account();
+         account.credentials = self.credentials_form.credentials.clone();
          std::thread::spawn(move || {
-            let ok = gui::utils::verify_credentials(&mut profile);
+            let ok = gui::utils::verify_credentials(&mut account);
 
             if ok {
                let mut gui = SHARED_GUI.write().unwrap();
@@ -249,7 +249,7 @@ impl DeleteWalletUi {
                } else {
                   let wallet = wallet.clone().unwrap();
                   ui.label(rich_text(wallet.name.clone()).size(theme.text_sizes.normal));
-                  ui.label(rich_text(wallet.address()).size(theme.text_sizes.normal));
+                  ui.label(rich_text(wallet.address_string()).size(theme.text_sizes.normal));
 
                   let value = ctx.get_portfolio_value_all_chains(wallet.key.borrow().address());
                   ui.label(rich_text(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
@@ -267,15 +267,15 @@ impl DeleteWalletUi {
       if clicked {
          open = false;
 
-         let mut profile = ctx.clone().profile();
+         let mut account = ctx.clone().account();
          let wallet = wallet.unwrap();
          std::thread::spawn(move || {
-            profile.remove_wallet(wallet);
+            account.remove_wallet(wallet);
 
-            let dir = gui::utils::get_profile_dir();
+            let dir = gui::utils::get_account_dir();
             let params = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting profile...".to_string());
-            match profile.encrypt_and_save(&dir, params.argon2_params) {
+            gui::utils::open_loading("Encrypting account...".to_string());
+            match account.encrypt_and_save(&dir, params.argon2_params) {
                Ok(_) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.loading_window.open = false;
@@ -292,7 +292,7 @@ impl DeleteWalletUi {
             }
 
             ctx.write(|ctx| {
-               ctx.profile = profile;
+               ctx.account = account;
             });
          });
       }

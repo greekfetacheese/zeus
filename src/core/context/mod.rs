@@ -1,5 +1,5 @@
 use super::utils::{data_dir, pool_data_dir};
-use crate::core::{Profile, Wallet};
+use crate::core::Account;
 use anyhow::anyhow;
 use std::{
    collections::HashMap,
@@ -67,8 +67,8 @@ impl ZeusCtx {
       Ok(())
    }
 
-   pub fn profile_exists(&self) -> bool {
-      self.read(|ctx| ctx.profile_exists)
+   pub fn account_exists(&self) -> bool {
+      self.read(|ctx| ctx.account_exists)
    }
 
    pub fn logged_in(&self) -> bool {
@@ -79,16 +79,12 @@ impl ZeusCtx {
       self.read(|ctx| ctx.providers.clone())
    }
 
-   pub fn profile(&self) -> Profile {
-      self.read(|ctx| ctx.profile.clone())
+   pub fn account(&self) -> Account {
+      self.read(|ctx| ctx.account.clone())
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
       self.read(|ctx| ctx.get_client_with_id(id))
-   }
-
-   pub fn wallet(&self) -> Wallet {
-      self.read(|ctx| ctx.wallet())
    }
 
    pub fn chain(&self) -> ChainId {
@@ -170,10 +166,10 @@ impl ZeusCtx {
    /// Get all the erc20 tokens in all portfolios
    pub fn get_all_erc20_tokens(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let wallets = self.profile().wallets;
+      let wallets = self.account().wallets;
 
       for wallet in &wallets {
-         let owner = wallet.key.borrow().address();
+         let owner = wallet.address();
          let portfolio = self.get_portfolio(chain, owner);
          tokens.extend(portfolio.erc20_tokens());
       }
@@ -466,10 +462,10 @@ pub struct ZeusContext {
    /// The current selected chain from the GUI
    pub chain: ChainId,
 
-   /// Loaded profile
-   pub profile: Profile,
+   /// Loaded account
+   pub account: Account,
 
-   pub profile_exists: bool,
+   pub account_exists: bool,
 
    pub logged_in: bool,
 
@@ -526,7 +522,7 @@ impl ZeusContext {
          }
       };
 
-      let profile_exists = Profile::exists().is_ok_and(|p| p);
+      let account_exists = Account::exists().is_ok_and(|p| p);
 
       let mut pool_manager = PoolStateManagerHandle::default();
 
@@ -553,8 +549,8 @@ impl ZeusContext {
       Self {
          providers,
          chain: ChainId::new(1).unwrap(),
-         profile: Profile::default(),
-         profile_exists,
+         account: Account::default(),
+         account_exists,
          logged_in: false,
          balance_db,
          currency_db,
@@ -576,11 +572,6 @@ impl ZeusContext {
          get_http_client(&rpc.url)?
       };
       Ok(client)
-   }
-
-   /// Get the current wallet selected from the GUI
-   pub fn wallet(&self) -> Wallet {
-      self.profile.current_wallet.clone()
    }
 }
 

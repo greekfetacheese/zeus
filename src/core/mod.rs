@@ -3,7 +3,7 @@ pub mod user;
 pub mod utils;
 
 pub use context::*;
-pub use user::{Profile, wallet::Wallet};
+pub use user::{Account, wallet::Wallet};
 
 
 

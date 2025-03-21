@@ -315,7 +315,8 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.wallet().key.borrow().address();
+      let current_wallet = ctx.account().current_wallet.clone();
+      let owner = current_wallet.key.borrow().address();
       let portfolio = ctx.get_portfolio(chain_id, owner);
       let currencies = portfolio.currencies();
 
@@ -354,7 +355,7 @@ impl PortfolioUi {
                .fill(ui.style().visuals.extreme_bg_color)
                .show(ui, |ui| {
                   ui.vertical_centered(|ui| {
-                     let wallet_name = ctx.profile().current_wallet.name.clone();
+                     let wallet_name = current_wallet.name.clone();
                      ui.label(RichText::new(wallet_name).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
                      ui.label(
@@ -480,7 +481,7 @@ impl PortfolioUi {
          ui.label(rich_text(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
 
-      let owner = ctx.wallet().key.borrow().address();
+      let owner = ctx.account().current_wallet.key.borrow().address();
       let balance = ctx.get_currency_balance(chain, owner, currency);
 
       ui.horizontal(|ui| {
@@ -500,7 +501,7 @@ impl PortfolioUi {
       RT.spawn(async move {
          let pool_manager = ctx.pool_manager();
          let chain = ctx.chain().id();
-         let owner = ctx.profile().wallet_address();
+         let owner = ctx.account().current_wallet.key.borrow().address();
          let client = ctx.get_client_with_id(chain).unwrap();
 
          match pool_manager.update_pool_state(client, chain).await {
@@ -520,7 +521,7 @@ impl PortfolioUi {
    // Add a currency to the portfolio and update the portfolio value
    fn add_currency(&mut self, ctx: ZeusCtx, currency: Currency) {
       let chain_id = ctx.chain().id();
-      let owner = ctx.wallet().key.borrow().address();
+      let owner = ctx.account().current_wallet.key.borrow().address();
 
       // Add the token to the portfolio
       ctx.write(|ctx| {
@@ -594,7 +595,7 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          if ui.button("X").clicked() {
-            let owner = ctx.wallet().key.borrow().address();
+            let owner = ctx.account().current_wallet.key.borrow().address();
             let chain = ctx.chain().id();
             ctx.write(|ctx| {
                let portfolio = ctx.portfolio_db.get_portfolio_mut(chain, owner);

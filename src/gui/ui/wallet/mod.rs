@@ -64,9 +64,9 @@ impl WalletUi {
          return;
       }
 
-      let profile = ctx.profile();
-      let current_wallet = &profile.current_wallet;
-      let wallets = &profile.wallets;
+      let account = ctx.account();
+      let current_wallet = &account.current_wallet;
+      let wallets = &account.wallets;
 
       let frame = theme.frame1;
       Window::new("wallet_main_ui")
@@ -189,7 +189,7 @@ impl WalletUi {
                   let res = ui.selectable_label(false, rich_text(wallet.address_truncated()).size(theme.text_sizes.small));
                   if res.clicked() {
                      // Copy the address to the clipboard
-                     ui.ctx().copy_text(wallet.address());
+                     ui.ctx().copy_text(wallet.address_string());
                   }
 
                   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -210,7 +210,7 @@ impl WalletUi {
       if res.interact(Sense::click()).clicked() {
          let wallet_clone = wallet.clone();
          ctx.write(|ctx| {
-            ctx.profile.current_wallet = wallet.clone();
+            ctx.account.current_wallet = wallet.clone();
          });
          std::thread::spawn(move || {
             let mut gui = SHARED_GUI.write().unwrap();

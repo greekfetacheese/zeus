@@ -33,7 +33,7 @@ alloy-network = "0.12.6"
 ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
 
 # Memory
-secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master"}
+secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master", features = ["egui"]}
 # Cause memory to leak every time we encrypt/decrypt
 # mimalloc = { version = "0.1.44", features = ["secure"] }
 

@@ -1,4 +1,4 @@
-pub mod profile;
+pub mod account;
 pub mod wallet;
 
-pub use profile::{PROFILE_FILE, Profile};
+pub use account::{ACCOUNT_FILE, Account};

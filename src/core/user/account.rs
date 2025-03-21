@@ -6,22 +6,21 @@ use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use secure_types::SecureString;
 
-pub const PROFILE_FILE: &str = "profile.data";
+pub const ACCOUNT_FILE: &str = "account.data";
 
-/// Main user profile struct
+/// Main user account struct
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
-pub struct Profile {
+pub struct Account {
    #[serde(skip)]
    pub credentials: Credentials,
 
-   /// The wallets of the profile
    pub wallets: Vec<Wallet>,
 
    /// The current selected wallet from the GUI
    pub current_wallet: Wallet,
 }
 
-impl Default for Profile {
+impl Default for Account {
    fn default() -> Self {
       let wallet = Wallet::new_rng("Wallet 1".to_string());
       let wallets = vec![wallet.clone()];
@@ -33,15 +32,13 @@ impl Default for Profile {
    }
 }
 
-impl Profile {
+impl Account {
    pub fn new_wallet_from_key(&mut self, mut name: String, key: SecureString) -> Result<(), anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
          }
-      }
-
-      if name.is_empty() {
+      } else {
          name = self.generate_wallet_name();
       }
 
@@ -75,7 +72,6 @@ impl Profile {
       }
    }
 
-   /// Check if the given wallet name already exists
    pub fn wallet_name_exists(&self, name: &str) -> bool {
       self.wallets.iter().any(|w| w.name == name)
    }
@@ -84,16 +80,17 @@ impl Profile {
       self.wallets.iter().any(|w| &w.key.borrow().address() == &address)
    }
 
-   /// Encrypt the profile and save it to a file
+   /// Encrypt the account and save it to a file
    pub fn encrypt_and_save(&self, dir: &PathBuf, argon: Argon2Params) -> Result<(), anyhow::Error> {
       // ! make sure we dont accidentally erased any of the wallet keys
+      // ! this should actually never happen
       for wallet in self.wallets.iter() {
          if wallet.is_key_erased() {
             return Err(anyhow!("Wallet key is erased"));
          }
       }
-      let profile_data = serde_json::to_vec(self)?;
-      let encrypted_data = encrypt_data(argon, profile_data, self.credentials.clone())?;
+      let account_data = serde_json::to_vec(self)?;
+      let encrypted_data = encrypt_data(argon, account_data, self.credentials.clone())?;
       std::fs::write(dir, encrypted_data)?;
       Ok(())
    }
@@ -111,14 +108,14 @@ impl Profile {
       Ok(())
    }
 
-   /// Decrypt and load the profile
+   /// Decrypt and load the account
    pub fn decrypt_and_load(&mut self, dir: &PathBuf) -> Result<(), anyhow::Error> {
       let mut decrypted_data = self.decrypt(dir)?;
-      let profile: Profile = serde_json::from_slice(&decrypted_data)?;
+      let account: Account = serde_json::from_slice(&decrypted_data)?;
       decrypted_data.zeroize();
 
-      self.wallets = profile.wallets;
-      self.current_wallet = profile.current_wallet;
+      self.wallets = account.wallets;
+      self.current_wallet = account.current_wallet;
 
       Ok(())
    }
@@ -132,15 +129,15 @@ impl Profile {
       self.current_wallet.key.borrow().address()
    }
 
-   /// Is a profile exists at the data directory
+   /// Is an account exists at the data directory
    pub fn exists() -> Result<bool, anyhow::Error> {
-      let dir = data_dir()?.join(PROFILE_FILE);
+      let dir = data_dir()?.join(ACCOUNT_FILE);
       Ok(dir.exists())
    }
 
-   /// Profile directory
-   pub fn profile_dir() -> Result<PathBuf, anyhow::Error> {
-      Ok(data_dir()?.join(PROFILE_FILE))
+   /// Account directory
+   pub fn dir() -> Result<PathBuf, anyhow::Error> {
+      Ok(data_dir()?.join(ACCOUNT_FILE))
    }
 }
 
@@ -163,24 +160,24 @@ mod tests {
          SecureString::from("password".to_string()),
       );
 
-      let mut profile = Profile {
+      let mut account = Account {
          credentials,
          wallets: vec![wallet_1.clone(), wallet_2],
          current_wallet: wallet_1,
       };
 
       let argon_2 = Argon2Params::very_fast();
-      let dir = PathBuf::from("profile_test.data");
-      profile
+      let dir = PathBuf::from("account_test.data");
+      account
          .encrypt_and_save(&dir, argon_2)
          .expect("Profile Encryption failed");
 
-      profile
+         account
          .decrypt_and_load(&dir)
          .expect("Profile Recovery failed");
 
-      let recovered_wallet_1 = profile.wallets.get(0).unwrap();
-      let recovered_wallet_2 = profile.wallets.get(1).unwrap();
+      let recovered_wallet_1 = account.wallets.get(0).unwrap();
+      let recovered_wallet_2 = account.wallets.get(1).unwrap();
 
       assert_eq!(recovered_wallet_1.name, "Wallet 1");
       assert_eq!(recovered_wallet_2.name, "Wallet 2");
@@ -191,6 +188,6 @@ mod tests {
       assert_eq!(key_1, original_key1);
       assert_eq!(key_2, original_key2);
 
-      fs::remove_file("profile_test.data").unwrap();
+      fs::remove_file("account_test.data").unwrap();
    }
 }

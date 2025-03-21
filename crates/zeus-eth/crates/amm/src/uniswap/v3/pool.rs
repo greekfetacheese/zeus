@@ -32,12 +32,6 @@ pub struct UniswapV3Pool {
    pub token1: ERC20Token,
    pub dex: DexKind,
    pub state: Option<V3PoolState>,
-
-   /// Base token USD price
-   pub base_usd: f64,
-
-   /// Quote token USD price
-   pub quote_usd: f64,
 }
 
 /// The state of a Uniswap V3 Pool
@@ -128,8 +122,6 @@ impl UniswapV3Pool {
          token1,
          dex,
          state: None,
-         base_usd: 0.0,
-         quote_usd: 0.0,
       }
    }
 
@@ -170,8 +162,8 @@ impl UniswapV3Pool {
       self.state.as_ref()
    }
 
-   /// Update the state for this pool
-   pub fn update_state(&mut self, state: V3PoolState) {
+   /// Set the state for this pool
+   pub fn set_state(&mut self, state: V3PoolState) {
       self.state = Some(state);
    }
 
@@ -268,7 +260,7 @@ impl UniswapV3Pool {
       state.sqrt_price = current_state.sqrt_price_x_96;
       state.tick = current_state.tick;
 
-      self.update_state(state);
+      self.set_state(state);
 
       Ok(amount_out)
    }
@@ -359,7 +351,7 @@ mod tests {
       let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
          .await
          .unwrap();
-      pool.update_state(state);
+      pool.set_state(state);
 
       // Swap 1 USDT for UNI
       let base_token = pool.base_token().clone();
@@ -419,7 +411,7 @@ mod tests {
       let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
          .await
          .unwrap();
-      pool.update_state(state);
+      pool.set_state(state);
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
       let base_token = pool.base_token();

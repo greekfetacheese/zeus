@@ -1,4 +1,4 @@
-use crate::core::user::Profile;
+use crate::core::user::Account;
 use crate::gui::SHARED_GUI;
 use ncrypt_me::EncryptedInfo;
 use std::path::PathBuf;
@@ -8,8 +8,8 @@ use secure_types::SecureString;
 // These functions are only called on a seperate thread so we dont block or panic the main thread
 
 
-pub fn new_wallet_from_key(profile: &mut Profile, name: String, key: SecureString) {
-   match profile.new_wallet_from_key(name, key) {
+pub fn new_wallet_from_key(account: &mut Account, name: String, key: SecureString) {
+   match account.new_wallet_from_key(name, key) {
       Ok(_) => {}
       Err(e) => {
          {
@@ -21,8 +21,8 @@ pub fn new_wallet_from_key(profile: &mut Profile, name: String, key: SecureStrin
    }
 }
 
-pub fn new_wallet_rng(profile: &mut Profile, name: String) {
-   match profile.new_wallet_rng(name) {
+pub fn new_wallet_rng(account: &mut Account, name: String) {
+   match account.new_wallet_rng(name) {
       Ok(_) => {}
       Err(e) => {
          {
@@ -34,8 +34,8 @@ pub fn new_wallet_rng(profile: &mut Profile, name: String) {
    }
 }
 
-pub fn get_profile_dir() -> PathBuf {
-   match Profile::profile_dir() {
+pub fn get_account_dir() -> PathBuf {
+   match Account::dir() {
       Ok(dir) => dir,
       Err(e) => {
          {
@@ -60,11 +60,11 @@ pub fn get_encrypted_info(dir: &PathBuf) -> EncryptedInfo {
    }
 }
 
-pub fn verify_credentials(profile: &mut Profile) -> bool {
-   let dir = get_profile_dir();
+pub fn verify_credentials(account: &mut Account) -> bool {
+   let dir = get_account_dir();
    open_loading("Verifying credentials...".to_string());
 
-   match profile.decrypt_zero(&dir) {
+   match account.decrypt_zero(&dir) {
       Ok(_) => {
          let mut gui = SHARED_GUI.write().unwrap();
          gui.loading_window.open = false;

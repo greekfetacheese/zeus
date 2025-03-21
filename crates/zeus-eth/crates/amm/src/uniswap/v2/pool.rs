@@ -99,8 +99,8 @@ impl UniswapV2Pool {
       self.state.as_ref()
    }
 
-   /// Update the state for this pool
-   pub fn update_state(&mut self, state: PoolReserves) {
+   /// Set the state for this pool
+   pub fn set_state(&mut self, state: PoolReserves) {
       self.state = Some(state);
    }
 
@@ -304,7 +304,7 @@ mod tests {
       let state = UniswapV2Pool::fetch_state(client.clone(), pool.address, None)
          .await
          .unwrap();
-      pool.update_state(state);
+      pool.set_state(state);
 
       // Swap 1 WETH for UNI
       let base_token = pool.base_token().clone();
@@ -363,7 +363,7 @@ mod tests {
       let state = UniswapV2Pool::fetch_state(client.clone(), pool.address, None)
          .await
          .unwrap();
-      pool.update_state(state);
+      pool.set_state(state);
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
       let base_token = pool.base_token();

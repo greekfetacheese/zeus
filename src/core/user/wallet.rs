@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use alloy_signer_local::PrivateKeySigner;
-use zeus_eth::wallet::SecureSigner;
+use zeus_eth::{alloy_primitives::Address, wallet::SecureSigner};
 use secure_types::SecureString;
 
 /// User Wallet
@@ -53,7 +53,11 @@ impl Wallet {
       })
    }
 
-   pub fn address(&self) -> String {
+   pub fn address(&self) -> Address {
+      self.key.borrow().address()
+   }
+
+   pub fn address_string(&self) -> String {
       self.key.borrow().address().to_string()
    }
 

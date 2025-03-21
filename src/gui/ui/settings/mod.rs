@@ -154,14 +154,14 @@ impl SettingsUi {
 
                   let verify = button(rich_text("Verify").size(theme.text_sizes.normal));
                   if ui.add(verify).clicked() {
-                     let mut profile = ctx.profile();
-                     profile.credentials = self.credentials.credentials.clone();
+                     let mut account = ctx.account();
+                     account.credentials = self.credentials.credentials.clone();
 
                      std::thread::spawn(move || {
-                        let dir = utils::get_profile_dir();
+                        let dir = utils::get_account_dir();
                         utils::open_loading("Decrypting profile...".to_string());
 
-                        match profile.decrypt_zero(&dir) {
+                        match account.decrypt_zero(&dir) {
                            Ok(data) => {
                               let mut gui = SHARED_GUI.write().unwrap();
                               gui.settings.verified_credentials = true;
@@ -189,15 +189,15 @@ impl SettingsUi {
                   let save = button(rich_text("Save").size(theme.text_sizes.normal));
 
                   if ui.add(save).clicked() {
-                     let mut profile = ctx.profile();
-                     profile.credentials = self.credentials.credentials.clone();
+                     let mut account = ctx.account();
+                     account.credentials = self.credentials.credentials.clone();
 
                      std::thread::spawn(move || {
-                        let dir = utils::get_profile_dir();
+                        let dir = utils::get_account_dir();
                         let params = utils::get_encrypted_info(&dir).argon2_params;
                         utils::open_loading("Encrypting profile...".to_string());
 
-                        match profile.encrypt_and_save(&dir, params) {
+                        match account.encrypt_and_save(&dir, params) {
                            Ok(_) => {
                               let mut gui = SHARED_GUI.write().unwrap();
                               gui.settings.credentials.erase();
@@ -215,7 +215,7 @@ impl SettingsUi {
                            }
                         }
                         ctx.write(|ctx| {
-                           ctx.profile = profile;
+                           ctx.account = account;
                         });
                      });
                   }
@@ -303,13 +303,13 @@ impl EncryptionSettings {
                      let save = button(rich_text("Save").size(theme.text_sizes.normal));
                      if ui.add(save).clicked() {
                         let params = self.argon_params.clone();
-                        let profile = ctx.profile();
+                        let account = ctx.account();
 
                         std::thread::spawn(move || {
-                           let dir = utils::get_profile_dir();
+                           let dir = utils::get_account_dir();
                            utils::open_loading("Encrypting profile...".to_string());
 
-                           match profile.encrypt_and_save(&dir, params.clone()) {
+                           match account.encrypt_and_save(&dir, params.clone()) {
                               Ok(_) => {
                                  let mut gui = SHARED_GUI.write().unwrap();
                                  gui.open_msg_window("Encryption settings have been updated", "");

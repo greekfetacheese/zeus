@@ -126,13 +126,15 @@ impl AddWalletUi {
                // Private Key
                ui.label(rich_text("Private Key").size(theme.text_sizes.normal));
                self.imported_key.string_mut(|imported_key| {
-                  ui.add(
-                     TextEdit::singleline(imported_key)
+                  
+                    let text_edit = TextEdit::singleline(imported_key)
                         .font(FontId::proportional(theme.text_sizes.normal))
                         .margin(Margin::same(10))
                         .min_size(size)
-                        .password(true),
-                  );
+                        .password(true);
+                     let mut output = text_edit.show(ui);
+                     output.state.clear_undoer();
+                  
                });
 
                // Import Button
@@ -148,13 +150,13 @@ impl AddWalletUi {
          let key = self.imported_key.clone();
 
          std::thread::spawn(move || {
-            let mut profile = ctx.profile();
-            gui::utils::new_wallet_from_key(&mut profile, name, key);
-            let dir = gui::utils::get_profile_dir();
+            let mut account = ctx.account();
+            gui::utils::new_wallet_from_key(&mut account, name, key);
+            let dir = gui::utils::get_account_dir();
             let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting profile...".to_string());
+            gui::utils::open_loading("Encrypting account...".to_string());
 
-            match profile.encrypt_and_save(&dir, info.argon2_params) {
+            match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.wallet_ui.add_wallet_ui.imported_key.erase();
@@ -162,14 +164,14 @@ impl AddWalletUi {
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet imported successfully", "");
                   ctx.write(|ctx| {
-                     ctx.profile = profile;
+                     ctx.account = account;
                   })
                }
                Err(e) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.wallet_ui.add_wallet_ui.imported_key.erase();
                   gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to save profile", e.to_string());
+                  gui.open_msg_window("Failed to save account", e.to_string());
                   return;
                }
             }
@@ -223,26 +225,26 @@ impl AddWalletUi {
          let name = self.wallet_name.clone();
 
          std::thread::spawn(move || {
-            let mut profile = ctx.profile();
-            gui::utils::new_wallet_rng(&mut profile, name);
-            let dir = gui::utils::get_profile_dir();
+            let mut account = ctx.account();
+            gui::utils::new_wallet_rng(&mut account, name);
+            let dir = gui::utils::get_account_dir();
             let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting profile...".to_string());
+            gui::utils::open_loading("Encrypting account...".to_string());
 
-            match profile.encrypt_and_save(&dir, info.argon2_params) {
+            match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet generated successfully", "");
                   ctx.write(|ctx| {
-                     ctx.profile = profile;
+                     ctx.account = account;
                   });
                }
                Err(e) => {
                   let mut gui = SHARED_GUI.write().unwrap();
                   gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to save profile", e.to_string());
+                  gui.open_msg_window("Failed to save account", e.to_string());
                   return;
                }
             }

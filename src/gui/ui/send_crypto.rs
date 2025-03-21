@@ -213,7 +213,7 @@ impl SendCryptoUi {
             ui.add_space(5.0);
 
             ctx.read(|ctx| {
-               let wallets = &ctx.profile.wallets;
+               let wallets = &ctx.account.wallets;
                ui.scope(|ui| {
                   widget_visuals(ui, theme.get_widget_visuals(bg_color));
                   self.wallet_select.show(theme, wallets, icons.clone(), ui);
@@ -745,8 +745,8 @@ impl SendCryptoUi {
 
                   // if recipient is a wallet owned by the user then update the balance
                   // Also update the sender's balance
-                  let profile = ctx.profile();
-                  if profile.wallet_address_exists(recipient_address) {
+                  let account = ctx.account();
+                  if account.wallet_address_exists(recipient_address) {
                      let recipient_balance = get_currency_balance(ctx.clone(), recipient_address, currency.clone())
                         .await
                         .unwrap();
@@ -796,7 +796,7 @@ impl SendCryptoUi {
    /// Recipient selection window
    fn recipient_selection(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let contacts = ctx.contacts();
-      let wallets = ctx.profile().wallets;
+      let wallets = ctx.account().wallets;
 
       let mut open = self.contact_search_open;
       let mut close_it = false;
@@ -987,5 +987,5 @@ fn valid_wallet_search(wallet: &Wallet, query: &str) -> bool {
       return true;
    }
 
-   wallet.name.to_lowercase().contains(&query) || wallet.address().to_lowercase().contains(&query)
+   wallet.name.to_lowercase().contains(&query) || wallet.address_string().to_lowercase().contains(&query)
 }

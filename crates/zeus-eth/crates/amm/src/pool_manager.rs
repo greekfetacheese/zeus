@@ -93,6 +93,10 @@ impl PoolStateManagerHandle {
       Ok(())
    }
 
+   pub fn reset_token_prices(&self) {
+      self.write(|manager| manager.token_prices.clear());
+   }
+
    pub fn v2_pools(&self) -> V2Pools {
       self.read(|manager| manager.v2_pools.clone())
    }
@@ -143,7 +147,7 @@ impl PoolStateManagerHandle {
    {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
-      self.calculate_prices(chain)?;
+      self.calculate_prices()?;
       Ok(())
    }
 
@@ -156,7 +160,7 @@ impl PoolStateManagerHandle {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
       self.cleanup_pools();
-      self.calculate_prices(chain)?;
+      self.calculate_prices()?;
       Ok(())
    }
 
@@ -173,7 +177,7 @@ impl PoolStateManagerHandle {
       let v3_pools = v3_pool_map.into_values().collect::<Vec<_>>();
       let (v2_reserves, v3_state) =
          PoolStateManager::fetch_state(client, chain, concurrency, v2_pools, v3_pools).await?;
-      self.write(|manager| manager.update_state(v2_reserves, v3_state))
+      self.write(|manager| manager.set_state(v2_reserves, v3_state))
    }
 
    /// Cleanup pools that do not have sufficient liquidity
@@ -196,7 +200,7 @@ impl PoolStateManagerHandle {
       let concurrency = self.read(|manager| manager.concurrency);
       let (v2_reserves, v3_state) =
          PoolStateManager::fetch_state(client, chain, concurrency, v2_pools, v3_pools).await?;
-      self.write(|manager| manager.update_state(v2_reserves, v3_state))
+      self.write(|manager| manager.set_state(v2_reserves, v3_state))
    }
 
    /// Update the base token prices for the given tokens
@@ -368,8 +372,8 @@ impl PoolStateManagerHandle {
    }
 
    /// Calculate the prices for all the pools
-   pub fn calculate_prices(&self, chain: u64) -> Result<(), anyhow::Error> {
-      self.write(|manager| manager.calculate_prices(chain))
+   pub fn calculate_prices(&self,) -> Result<(), anyhow::Error> {
+      self.write(|manager| manager.calculate_prices())
    }
 
    /// Get the price of the given token
@@ -512,7 +516,7 @@ impl PoolStateManager {
          .cloned()
    }
 
-   pub fn update_state(
+   pub fn set_state(
       &mut self,
       v2_state: Vec<V2PoolReserves>,
       v3_state: Vec<V3PoolData>,
@@ -538,7 +542,7 @@ impl PoolStateManager {
             let reserve0 = U256::from(data.reserve0);
             let reserve1 = U256::from(data.reserve1);
             let v2_state = PoolReserves::new(reserve0, reserve1, data.blockTimestampLast as u64);
-            pool.update_state(v2_state);
+            pool.set_state(v2_state);
          }
       }
 
@@ -561,22 +565,22 @@ impl PoolStateManager {
                .get_mut(key)
                .map_or_else(|| Err(anyhow::anyhow!("V3 Pool not found")), Ok)?;
             let v3_state = V3PoolState::new(data.clone(), None)?;
-            pool.update_state(v3_state);
+            pool.set_state(v3_state);
          }
       }
 
       Ok(())
    }
 
-   pub fn calculate_prices(&mut self, chain_id: u64) -> Result<(), anyhow::Error> {
-      let mut prices: HashMap<(u64, Address), Vec<f64>> = HashMap::new();
-      let base_tokens = ERC20Token::base_tokens(chain_id);
+   pub fn calculate_prices(&mut self) -> Result<(), anyhow::Error> {
 
       for (_, pool) in self.v2_pools.iter_mut() {
          if !pool.enough_liquidity() {
             continue;
          }
 
+         let chain = pool.chain_id;
+         let base_tokens = ERC20Token::base_tokens(chain);
          let quote = pool.quote_token().clone();
          let base_token = pool.base_token().clone();
 
@@ -587,7 +591,7 @@ impl PoolStateManager {
 
          let base_price = self
             .token_prices
-            .get(&(base_token.chain_id, base_token.address))
+            .get(&(chain, base_token.address))
             .cloned()
             .unwrap_or_default()
             .f64();
@@ -596,10 +600,10 @@ impl PoolStateManager {
          if quote_price == 0.0 {
             continue;
          }
-         prices
-            .entry((pool.chain_id, quote.address))
-            .or_insert_with(Vec::new)
-            .push(quote_price);
+
+         let key = (chain, quote.address);
+         let quote_price = NumericValue::currency_price(quote_price);
+         self.token_prices.insert(key, quote_price);
       }
 
       for (_, pool) in self.v3_pools.iter_mut() {
@@ -607,6 +611,8 @@ impl PoolStateManager {
             continue;
          }
 
+         let chain = pool.chain_id;
+         let base_tokens = ERC20Token::base_tokens(chain);
          let quote = pool.quote_token().clone();
          let base_token = pool.base_token().clone();
 
@@ -616,40 +622,18 @@ impl PoolStateManager {
 
          let base_price = self
             .token_prices
-            .get(&(base_token.chain_id, base_token.address))
+            .get(&(chain, base_token.address))
             .cloned()
             .unwrap_or_default()
             .f64();
-         pool.base_usd = base_price;
 
          let quote_price = pool.quote_price(base_price).unwrap_or_default();
          if quote_price == 0.0 {
             continue;
          }
-         prices
-            .entry((pool.chain_id, quote.address))
-            .or_insert_with(Vec::new)
-            .push(quote_price);
-      }
-
-      // use the highest price
-      for ((chain_id, token), prices) in &prices {
-         let mut prices = prices.clone();
-         prices.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-         if let Some(price) = prices.last() {
-            self
-               .token_prices
-               .insert((*chain_id, *token), NumericValue::currency_price(*price));
-         } else {
-            tracing::warn!(
-               "No prices available for chain_id: {}, token: {}",
-               chain_id,
-               token
-            );
-            self
-               .token_prices
-               .insert((*chain_id, *token), NumericValue::default());
-         }
+         let key = (pool.chain_id, quote.address);
+         let quote_price = NumericValue::currency_price(quote_price);
+         self.token_prices.insert(key, quote_price);
       }
 
       Ok(())

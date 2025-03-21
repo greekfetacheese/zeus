@@ -1,7 +1,7 @@
 use crate::gui::{
    SHARED_GUI,
    ui::{button, rich_text},
-   utils::{get_encrypted_info, get_profile_dir},
+   utils::{get_encrypted_info, get_account_dir},
 };
 use crate::{core::ZeusCtx, gui::utils};
 use eframe::egui::{Align2, FontId, Frame, TextEdit, Ui, Window, vec2};
@@ -52,37 +52,37 @@ impl CredentialsForm {
 
 
          ui.label(rich_text("Username").size(theme.text_sizes.large));
-         self.credentials.user_mut(|username| {
-         ui.add(
-            TextEdit::singleline(username)
+         self.credentials.username.secure_mut(|username| {
+           let text_edit = TextEdit::singleline(username)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
-               .font(FontId::proportional(theme.text_sizes.normal)),
-         );
+               .font(FontId::proportional(theme.text_sizes.normal));
+            let mut output = text_edit.show(ui);
+            output.state.clear_undoer();
          });
 
 
          ui.label(rich_text("Password").size(theme.text_sizes.large));
-         self.credentials.passwd_mut(|password| {
-         ui.add(
-            TextEdit::singleline(password)
+         self.credentials.password.secure_mut(|password| {
+           let text_edit = TextEdit::singleline(password)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.text_sizes.normal))
-               .password(true),
-         );
+               .password(true);
+            let mut output = text_edit.show(ui);
+            output.state.clear_undoer();
          });
 
          if self.confrim_password {
             ui.label(rich_text("Confirm Password").size(theme.text_sizes.large));
-            self.credentials.confirm_passwd_mut(|confirm_password| {
-            ui.add(
-               TextEdit::singleline(confirm_password)
+            self.credentials.confirm_password.secure_mut(|confirm_password| {
+              let text_edit = TextEdit::singleline(confirm_password)
                   .min_size(text_edit_size)
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .password(true),
-            );
+                  .password(true);
+               let mut output = text_edit.show(ui);
+               output.state.clear_undoer();
             });
          } else {
             self.credentials.copy_passwd_to_confirm();
@@ -120,7 +120,7 @@ impl LoginUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(rich_text("Unlock your profile").size(theme.text_sizes.heading));
+               ui.label(rich_text("Unlock your account").size(theme.text_sizes.heading));
 
                self.credentials_form.show(theme, ui);
 
@@ -128,33 +128,34 @@ impl LoginUi {
                   button(rich_text("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
-                  let mut profile = ctx.profile();
-                  profile.credentials = self.credentials_form.credentials.clone();
+                  let mut account = ctx.account();
+                  account.credentials = self.credentials_form.credentials.clone();
 
                   std::thread::spawn(move || {
-                     utils::open_loading("Unlocking profile...".to_string());
+                     utils::open_loading("Unlocking account...".to_string());
 
-                     let dir = get_profile_dir();
+                     let dir = get_account_dir();
                      let info = get_encrypted_info(&dir);
-                     match profile.decrypt_and_load(&dir) {
+                     match account.decrypt_and_load(&dir) {
                         Ok(_) => {
                            let mut gui = SHARED_GUI.write().unwrap();
                            gui.login.credentials_form.erase();
                            gui.settings.encryption.argon_params = info.argon2_params.clone();
                            gui.portofolio.open = true;
                            gui.top_left_area.open = true;
-                           gui.top_left_area.wallet_select.wallet = profile.current_wallet.clone();
-                           gui.send_crypto.wallet_select.wallet = profile.current_wallet.clone();
+                           gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
+                           gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
                            gui.loading_window.open = false;
 
                            ctx.write(|ctx| {
-                              ctx.profile = profile;
+                              ctx.account = account;
+                              ctx.account.credentials.erase();
                               ctx.logged_in = true;
                            });
                         }
                         Err(e) => {
                            let mut gui = SHARED_GUI.write().unwrap();
-                           gui.open_msg_window("Failed to unlock profile", e.to_string());
+                           gui.open_msg_window("Failed to unlock account", e.to_string());
                            gui.loading_window.open = false;
                         }
                      };
@@ -194,7 +195,7 @@ impl RegisterUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(rich_text("Create a new profile").size(theme.text_sizes.heading));
+               ui.label(rich_text("Create a new account").size(theme.text_sizes.heading));
                ui.add_space(15.0);
 
                self.credentials_form.show(theme, ui);
@@ -204,35 +205,35 @@ impl RegisterUi {
                   button(rich_text("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
-                  let mut profile = ctx.profile();
-                  profile.credentials = self.credentials_form.credentials.clone();
+                  let mut account = ctx.account();
+                  account.credentials = self.credentials_form.credentials.clone();
 
                   std::thread::spawn(move || {
                      {
                         let mut gui = SHARED_GUI.write().unwrap();
-                        gui.loading_window.msg = "Creating profile...".to_string();
+                        gui.loading_window.msg = "Creating account...".to_string();
                         gui.loading_window.open = true;
                      }
-                     let dir = get_profile_dir();
-                     match profile.encrypt_and_save(&dir, Argon2Params::balanced()) {
+                     let dir = get_account_dir();
+                     match account.encrypt_and_save(&dir, Argon2Params::balanced()) {
                         Ok(_) => {
                            let mut gui = SHARED_GUI.write().unwrap();
-                           gui.top_left_area.wallet_select.wallet = profile.current_wallet.clone();
-                           gui.send_crypto.wallet_select.wallet = profile.current_wallet.clone();
+                           gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
+                           gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
                            gui.register.credentials_form.erase();
                            gui.portofolio.open = true;
                            gui.top_left_area.open = true;
                            gui.loading_window.open = false;
 
                            ctx.write(|ctx| {
-                              ctx.profile_exists = true;
+                              ctx.account_exists = true;
                               ctx.logged_in = true;
-                              ctx.profile = profile;
+                              ctx.account = account;
                            });
                         }
                         Err(e) => {
                            let mut gui = SHARED_GUI.write().unwrap();
-                           gui.open_msg_window("Failed to create profile", e.to_string());
+                           gui.open_msg_window("Failed to create account", e.to_string());
                            gui.loading_window.open = false;
                         }
                      };

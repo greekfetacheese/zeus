@@ -3628,7 +3628,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -3880,7 +3880,7 @@ dependencies = [
 [[package]]
 name = "ncrypt-me"
 version = "0.1.0"
-source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#755e42fa1b559f6e60faee82021c2f0d7db3e3f5"
+source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#367807d5af308bd02b877bf5e1686e15f007e97c"
 dependencies = [
  "argon2",
  "bincode",
@@ -5366,8 +5366,9 @@ dependencies = [
 [[package]]
 name = "secure-types"
 version = "0.1.0"
-source = "git+https://github.com/greekfetacheese/secure-types.git?branch=master#091d48b76dd877fccf4aa2673d55f8ba56e4ed9e"
+source = "git+https://github.com/greekfetacheese/secure-types.git?branch=master#9121f76cb8696bd63e3e1710cf88dc480bdb7af6"
 dependencies = [
+ "egui",
  "memsec",
  "zeroize",
 ]
