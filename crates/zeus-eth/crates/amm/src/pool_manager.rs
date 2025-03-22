@@ -22,6 +22,7 @@ use utils::{
 };
 
 use serde::{Deserialize, Serialize};
+use tracing::{error, info};
 
 /// Thread-safe handle to the [PoolStateManager]
 #[derive(Clone)]
@@ -147,25 +148,13 @@ impl PoolStateManagerHandle {
    {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
-      self.calculate_prices()?;
-      Ok(())
-   }
-
-   /// Update everything in the manager and cleanup pools that do not have sufficient liquidity
-   pub async fn update_and_clean<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
-   where
-      P: Provider<(), N> + Clone + 'static,
-      N: Network,
-   {
-      self.update_pool_state(client.clone(), chain).await?;
-      self.update_base_token_prices(client.clone(), chain).await?;
       self.cleanup_pools();
       self.calculate_prices()?;
       Ok(())
    }
 
    /// Update the state of all the pools for the given chain
-   pub async fn update_pool_state<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
+   async fn update_pool_state<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
    where
       P: Provider<(), N> + Clone + 'static,
       N: Network,
@@ -251,8 +240,8 @@ impl PoolStateManagerHandle {
                continue;
             }
 
-            tracing::info!(
-               "Getting {} pool for: {}-{} Chain Id: {}",
+            info!(
+               target: "zeus_eth::amm::pool_manager", "Getting {} pool for: {}-{} Chain Id: {}",
                dex.to_str(),
                token.symbol,
                base_token.symbol,
@@ -268,8 +257,8 @@ impl PoolStateManagerHandle {
             )
             .await;
             if let Ok(pool) = pool {
-               tracing::info!(
-                  "Got {} pool for {}/{}",
+               info!(
+                  target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{}",
                   dex.to_str(),
                   pool.token0.symbol,
                   pool.token1.symbol
@@ -315,8 +304,8 @@ impl PoolStateManagerHandle {
             }
 
             let factory = dex.factory(token.chain_id)?;
-            tracing::info!(
-               "Getting {} pools for: {}-{} Chain Id: {}",
+            info!(
+               target: "zeus_eth::amm::pool_manager", "Getting {} pools for: {}-{} Chain Id: {}",
                dex.to_str(),
                token.symbol,
                base_token.symbol,
@@ -355,8 +344,8 @@ impl PoolStateManagerHandle {
                   base_token.clone(),
                   *dex,
                );
-               tracing::info!(
-                  "Got {} pool for {}/{} - Fee: {}",
+               info!(
+                  target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{} - Fee: {}",
                   dex.to_str(),
                   v3_pool.token0.symbol,
                   v3_pool.token1.symbol,
@@ -372,7 +361,7 @@ impl PoolStateManagerHandle {
    }
 
    /// Calculate the prices for all the pools
-   pub fn calculate_prices(&self,) -> Result<(), anyhow::Error> {
+   pub fn calculate_prices(&self) -> Result<(), anyhow::Error> {
       self.write(|manager| manager.calculate_prices())
    }
 
@@ -516,11 +505,7 @@ impl PoolStateManager {
          .cloned()
    }
 
-   pub fn set_state(
-      &mut self,
-      v2_state: Vec<V2PoolReserves>,
-      v3_state: Vec<V3PoolData>,
-   ) -> Result<(), anyhow::Error> {
+   pub fn set_state(&mut self, v2_state: Vec<V2PoolReserves>, v3_state: Vec<V3PoolData>) -> Result<(), anyhow::Error> {
       // make sure no matter the order of the pools, we can match them
       let v2_state_map: HashMap<Address, _> = v2_state.into_iter().map(|s| (s.pool, s)).collect();
 
@@ -573,7 +558,6 @@ impl PoolStateManager {
    }
 
    pub fn calculate_prices(&mut self) -> Result<(), anyhow::Error> {
-
       for (_, pool) in self.v2_pools.iter_mut() {
          if !pool.enough_liquidity() {
             continue;
@@ -703,7 +687,7 @@ impl PoolStateManager {
                      v2_reserves.lock().await.extend(data);
                   }
                   Err(e) => {
-                     tracing::error!("Error fetching v2 pool reserves: {:?}", e);
+                     error!(target: "zeus_eth::amm::pool_manager","Error fetching v2 pool reserves: {:?}", e);
                   }
                }
                Ok(())
@@ -742,7 +726,7 @@ impl PoolStateManager {
                      v3_data.lock().await.extend(data);
                   }
                   Err(e) => {
-                     tracing::error!("Error fetching v3 pool data: {:?}", e);
+                     error!(target: "zeus_eth::amm::pool_manager", "Error fetching v3 pool data: {:?}", e);
                   }
                }
                Ok(())
@@ -753,13 +737,13 @@ impl PoolStateManager {
 
       for task in v2_tasks {
          if let Err(e) = task.await? {
-            tracing::error!("Error fetching v2 pool reserves: {:?}", e);
+            error!(target: "zeus_eth::amm::pool_manager", "Error fetching v2 pool reserves: {:?}", e);
          }
       }
 
       for task in v3_tasks {
          if let Err(e) = task.await? {
-            tracing::error!("Error fetching v3 pool data: {:?}", e);
+            error!(target: "zeus_eth::amm::pool_manager", "Error fetching v3 pool data: {:?}", e);
          }
       }
 

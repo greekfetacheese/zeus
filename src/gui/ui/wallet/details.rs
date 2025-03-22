@@ -142,7 +142,6 @@ impl ViewKeyUi {
       self.credentials_form.open = open;
       if !self.credentials_form.open {
          self.credentials_form.erase();
-         tracing::debug!("ViewKeyUi credentials erased");
       }
    }
 }

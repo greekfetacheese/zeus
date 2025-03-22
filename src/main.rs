@@ -23,9 +23,6 @@ fn main() -> eframe::Result {
 
    let _tracing_guard = setup_tracing();
 
-   tracing::info!(target: "zeus_desktop", "Hello from zeus_desktop");
-   tracing::info!(target: "zeus_eth", "Hello from zeus_eth");
-
    eframe::run_native(
       "Zeus",
       options,

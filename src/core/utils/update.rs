@@ -122,23 +122,10 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 pub async fn update_pool_manager(ctx: ZeusCtx) {
    let pool_manager = ctx.pool_manager();
 
-   // update the base token prices
-   for chain in SUPPORTED_CHAINS {
-      let client = ctx.get_client_with_id(chain).unwrap();
-      match pool_manager.update_base_token_prices(client, chain).await {
-         Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
-         Err(e) => tracing::error!(
-            "Error updating base token prices for chain {}: {:?}",
-            chain,
-            e
-         ),
-      }
-   }
-
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
 
-      match pool_manager.update_and_clean(client.clone(), chain).await {
+      match pool_manager.update(client.clone(), chain).await {
          Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
          Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
       }
@@ -259,7 +246,7 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 30;
+   const INTERVAL: u64 = 60;
    let mut time_passed = Instant::now();
 
    loop {
@@ -288,7 +275,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 }
 
 pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 300;
+   const INTERVAL: u64 = 60;
    let mut time_passed = Instant::now();
 
    loop {
@@ -365,7 +352,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
                }
             }
          }
-         match pool_manager.update_and_clean(client, chain).await {
+         match pool_manager.update(client, chain).await {
             Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
             Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
          }
@@ -389,111 +376,4 @@ pub async fn resync_pools(ctx: ZeusCtx) {
    } else {
       tracing::info!("No need to resync pools");
    }
-}
-
-
-/* 
-#[allow(dead_code)]
-async fn sync_pools_if_needed(ctx: ZeusCtx) {
-   // let pools_synced = ctx.read(|ctx| ctx.db.pool_data_synced);
-   let pools_synced = false;
-
-   if !pools_synced {
-      tracing::info!("Syncing pools for the first time");
-      ctx.write(|ctx| {
-         ctx.pool_data_syncing = true;
-      });
-
-      let chains = SUPPORTED_CHAINS.to_vec();
-      let res = sync_pools(ctx.clone(), chains).await;
-      if res.is_ok() {
-         /*
-         ctx.write(|ctx| {
-            ctx.db.pool_data_synced = true;
-         });
-         */
-
-         ctx.write(|ctx| {
-            ctx.pool_data_syncing = false;
-         });
-         match ctx.save_pool_data() {
-            Ok(_) => tracing::info!("PoolData saved"),
-            Err(e) => tracing::error!("Error saving DB: {:?}", e),
-         }
-      } else {
-         ctx.write(|ctx| {
-            ctx.pool_data_syncing = false;
-         });
-         tracing::error!("Error syncing pools: {:?}", res.err().unwrap());
-      }
-   }
-}
-   */
-
-/// Sync all the V2 & V3 pools for all the tokens
-pub async fn sync_pools(ctx: ZeusCtx, chains: Vec<u64>) -> Result<(), anyhow::Error> {
-   const MAX_RETRY: usize = 5;
-
-   let mut total_v2 = 0;
-   let mut total_v3 = 0;
-   let time = Instant::now();
-
-   for chain in chains {
-      let currencies = ctx.get_currencies(chain);
-
-      for currency in &*currencies {
-         if currency.is_native() {
-            continue;
-         }
-
-         let token = currency.erc20().unwrap();
-         let ctx = ctx.clone();
-
-         let mut retry = 0;
-         let mut v2_pools = None;
-         let mut v3_pools = None;
-
-         while v2_pools.is_none() && retry < MAX_RETRY {
-            match eth::get_v2_pools_for_token(ctx.clone(), token.clone()).await {
-               Ok(pools) => {
-                  total_v2 += pools.len();
-                  v2_pools = Some(pools);
-               }
-               Err(e) => tracing::error!("Error getting v2 pools: {:?}", e),
-            }
-            retry += 1;
-            std::thread::sleep(Duration::from_secs(1));
-         }
-
-         retry = 0;
-         while v3_pools.is_none() && retry < MAX_RETRY {
-            match eth::get_v3_pools_for_token(ctx.clone(), token.clone()).await {
-               Ok(pools) => {
-                  total_v3 += pools.len();
-                  v3_pools = Some(pools);
-               }
-               Err(e) => tracing::error!("Error getting v3 pools: {:?}", e),
-            }
-            retry += 1;
-            std::thread::sleep(Duration::from_secs(1));
-         }
-
-         if let Some(v2_pools) = v2_pools {
-            tracing::info!("Got {} v2 pools for: {}", v2_pools.len(), token.symbol);
-         }
-
-         if let Some(v3_pools) = v3_pools {
-            tracing::info!("Got {} v3 pools for: {}", v3_pools.len(), token.symbol);
-         }
-      }
-   }
-
-   ctx.save_pool_data()?;
-
-   tracing::info!("Finished syncing pools");
-   tracing::info!("Total V2 pools: {}", total_v2);
-   tracing::info!("Total V3 pools: {}", total_v3);
-   tracing::info!("Time taken: {:?} secs", time.elapsed().as_secs_f32());
-
-   Ok(())
 }

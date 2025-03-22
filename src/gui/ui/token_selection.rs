@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Color32, FontId, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, Color32, FontId, Order, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
 };
 
 use std::{str::FromStr, sync::Arc};
@@ -72,6 +72,7 @@ impl TokenSelectionWindow {
       let mut close_window = false;
       Window::new(rich_text("Select Token").size(18.0))
          .open(&mut open)
+         .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .resizable(false)
          .collapsible(false)

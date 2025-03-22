@@ -328,7 +328,6 @@ impl PortfolioUi {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               // bg_color_on_idle(ui, ui.style().visuals.extreme_bg_color);
                let visuals = theme.get_button_visuals(theme.colors.bg_color);
                widget_visuals(ui, visuals);
 
@@ -504,7 +503,7 @@ impl PortfolioUi {
          let owner = ctx.account().current_wallet.key.borrow().address();
          let client = ctx.get_client_with_id(chain).unwrap();
 
-         match pool_manager.update_pool_state(client, chain).await {
+         match pool_manager.update(client, chain).await {
             Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
             Err(e) => tracing::error!("Error updating prices: {:?}", e),
          }
@@ -560,7 +559,7 @@ impl PortfolioUi {
 
          let pool_manager = ctx2.pool_manager();
          let client = ctx2.get_client_with_id(chain_id).unwrap();
-         match pool_manager.update_and_clean(client, chain_id).await {
+         match pool_manager.update(client, chain_id).await {
             Ok(_) => {
                tracing::info!("Updated pool state for {}", token2.symbol);
                let mut gui = SHARED_GUI.write().unwrap();

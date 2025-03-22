@@ -62,7 +62,7 @@ fn should_show_overlay(gui: &mut GUI) {
       gui.show_overlay = true;
    } else if gui.token_selection.open {
       gui.show_overlay = true;
-   } else if gui.send_crypto.contact_search_open {
+   } else if gui.send_crypto.recipient_selection.open {
       gui.show_overlay = true;
    } else {
       gui.show_overlay = false;
