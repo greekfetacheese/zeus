@@ -52,6 +52,7 @@ impl CredentialsForm {
 
 
          ui.label(rich_text("Username").size(theme.text_sizes.large));
+         // ! Username still remains in the buffer
          self.credentials.username.secure_mut(|username| {
            let text_edit = TextEdit::singleline(username)
                .min_size(text_edit_size)
@@ -149,7 +150,6 @@ impl LoginUi {
 
                            ctx.write(|ctx| {
                               ctx.account = account;
-                              ctx.account.credentials.erase();
                               ctx.logged_in = true;
                            });
                         }

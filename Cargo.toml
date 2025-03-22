@@ -14,7 +14,7 @@ default-run = "zeus-desktop"
 # GUI
 eframe = {version = "0.31.0", features = ["wgpu"]}
 egui = {version = "0.31.0", features = ["serde"]}
-egui_extras = {version = "0.31.0", features = ["svg", "image"]}
+egui_extras = {version = "0.31.0", features = ["image"]}
 egui-theme = { path = "crates/egui-theme" }
 image = "0.25.1"
 
@@ -26,7 +26,7 @@ zeus-token-list = { path = "crates/zeus-token-list" }
 
 # Alloy
 alloy-signer = "0.12.6"
-alloy-signer-local = "0.12.6"
+alloy-signer-local = {version = "0.12.6", features = ["mnemonic"]}
 alloy-network = "0.12.6"
 
 # Encryption

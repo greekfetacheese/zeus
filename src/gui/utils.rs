@@ -8,8 +8,8 @@ use secure_types::SecureString;
 // These functions are only called on a seperate thread so we dont block or panic the main thread
 
 
-pub fn new_wallet_from_key(account: &mut Account, name: String, key: SecureString) {
-   match account.new_wallet_from_key(name, key) {
+pub fn new_wallet_from_key_or_phrase(account: &mut Account, name: String, from_key: bool, key: SecureString) {
+   match account.new_wallet_from_key_or_phrase(name, from_key, key) {
       Ok(_) => {}
       Err(e) => {
          {

@@ -2,9 +2,9 @@ use super::wallet::Wallet;
 use crate::core::utils::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2Params, Credentials, decrypt_data, encrypt_data, zeroize::Zeroize};
+use secure_types::SecureString;
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
-use secure_types::SecureString;
 
 pub const ACCOUNT_FILE: &str = "account.data";
 
@@ -33,7 +33,12 @@ impl Default for Account {
 }
 
 impl Account {
-   pub fn new_wallet_from_key(&mut self, mut name: String, key: SecureString) -> Result<(), anyhow::Error> {
+   pub fn new_wallet_from_key_or_phrase(
+      &mut self,
+      mut name: String,
+      from_key: bool,
+      key: SecureString,
+   ) -> Result<(), anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
@@ -42,7 +47,16 @@ impl Account {
          name = self.generate_wallet_name();
       }
 
-      let wallet = Wallet::new_from_key(name, String::new(), false, key)?;
+      let wallet = if from_key {
+         Wallet::new_from_key(name, String::new(), false, key)?
+      } else {
+         Wallet::new_from_mnemonic(name, String::new(), false, key)?
+      };
+
+      if self.wallet_address_exists(wallet.address()) {
+         return Err(anyhow!("Wallet with address {} already exists", wallet.address()));
+      }
+
       self.wallets.push(wallet);
       Ok(())
    }
@@ -77,7 +91,10 @@ impl Account {
    }
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
-      self.wallets.iter().any(|w| &w.key.borrow().address() == &address)
+      self
+         .wallets
+         .iter()
+         .any(|w| &w.key.borrow().address() == &address)
    }
 
    /// Encrypt the account and save it to a file
@@ -172,7 +189,7 @@ mod tests {
          .encrypt_and_save(&dir, argon_2)
          .expect("Profile Encryption failed");
 
-         account
+      account
          .decrypt_and_load(&dir)
          .expect("Profile Recovery failed");
 

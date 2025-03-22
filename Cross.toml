@@ -1,0 +1,6 @@
+[target.x86_64-unknown-linux-gnu]
+pre-build = [
+    "apt-get update",
+    "apt-get install -y libssl-dev",
+    "apt-get install -y pkg-config",
+]
