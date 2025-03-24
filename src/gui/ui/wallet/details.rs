@@ -68,7 +68,7 @@ impl ViewKeyUi {
          credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          exporter: KeyExporter::new(),
-         size: (300.0, 400.0),
+         size: (400.0, 300.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -162,7 +162,7 @@ impl DeleteWalletUi {
          credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          wallet_to_delete: None,
-         size: (300.0, 400.0),
+         size: (400.0, 300.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }

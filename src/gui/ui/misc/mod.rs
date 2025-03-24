@@ -7,7 +7,7 @@ use zeus_eth::utils::NumericValue;
 use crate::assets::icons::Icons;
 use crate::core::{
    Portfolio, Wallet, ZeusCtx,
-   utils::{RT, eth},
+   utils::{RT, eth, update::update_eth_balance},
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
@@ -338,7 +338,7 @@ impl PortfolioUi {
 
                let refresh = button(rich_text("Refresh").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
-                  self.update_prices(ctx.clone());
+                  self.refresh(ctx.clone());
                }
 
                if self.show_spinner {
@@ -495,17 +495,22 @@ impl PortfolioUi {
       });
    }
 
-   fn update_prices(&mut self, ctx: ZeusCtx) {
+   fn refresh(&mut self, ctx: ZeusCtx) {
       self.show_spinner = true;
       RT.spawn(async move {
          let pool_manager = ctx.pool_manager();
          let chain = ctx.chain().id();
-         let owner = ctx.account().current_wallet.key.borrow().address();
+         let owner = ctx.account().current_wallet.address();
          let client = ctx.get_client_with_id(chain).unwrap();
 
          match pool_manager.update(client, chain).await {
             Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
             Err(e) => tracing::error!("Error updating prices: {:?}", e),
+         }
+
+         match update_eth_balance(ctx.clone()).await {
+            Ok(_) => tracing::info!("Updated eth balance for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
          }
 
          ctx.update_portfolio_value(chain, owner);

@@ -36,7 +36,7 @@ impl WalletUi {
       Self {
          open: false,
          main_ui: true,
-         add_wallet_ui: AddWalletUi::new((300.0, 200.0), offset, align),
+         add_wallet_ui: AddWalletUi::new((450.0, 250.0), offset, align),
          search_query: String::new(),
          view_key_ui: ViewKeyUi::new(),
          delete_wallet_ui: DeleteWalletUi::new(),
@@ -160,7 +160,7 @@ impl WalletUi {
                ui.set_width(ui.available_width() * 0.7);
 
                ui.horizontal(|ui| {
-                  ui.spacing_mut().button_padding = Vec2::new(3.0, 3.0);
+                  ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
                   ui.set_width(ui.available_width() * 0.45);
 
                   let name = Label::new(rich_text(wallet.name.clone()).heading()).wrap();

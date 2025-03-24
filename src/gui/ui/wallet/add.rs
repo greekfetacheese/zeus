@@ -29,7 +29,7 @@ impl ImportWallet {
          import_key_or_phrase: ImportWalletType::PrivateKey,
          key_or_phrase: SecureString::from(""),
          wallet_name: String::new(),
-         size: (300.0, 200.0),
+         size: (450.0, 250.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -190,11 +190,12 @@ impl AddWalletUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
+               ui.add_space(30.0);
                let size = vec2(ui.available_width() * 0.9, 50.0);
                widget_visuals(ui, theme.get_button_visuals(theme.colors.bg_color));
 
                // From private key
-               let button1 = button(rich_text("From Private Key").heading())
+               let button1 = button(rich_text("From Private Key").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button1).clicked() {
@@ -202,7 +203,7 @@ impl AddWalletUi {
                }
 
                // From seed phrase
-               let button2 = button(rich_text("From Seed Phrase").heading())
+               let button2 = button(rich_text("From Seed Phrase").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button2).clicked() {
@@ -210,7 +211,7 @@ impl AddWalletUi {
                }
 
                // Generate new wallet
-               let button2 = button(rich_text("Generate New Wallet").heading())
+               let button2 = button(rich_text("Generate New Wallet").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button2).clicked() {

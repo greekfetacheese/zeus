@@ -13,8 +13,8 @@
 
 ## Supported Platforms
 - Windows
-- MacOS
 - Linux
+- MacOS (Soon)
 
 
 ## Features
