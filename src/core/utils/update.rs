@@ -94,7 +94,7 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    let wallets = ctx.account().wallets;
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
-         let owner = wallet.key.borrow().address();
+         let owner = wallet.address();
          ctx.update_portfolio_value(chain, owner);
       }
    }
@@ -105,7 +105,7 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    }
 }
 
-/// Refresh the portofolio state for the given chain and wallet
+/// Update the portofolio state for the given chain and wallet
 pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) -> Result<(), anyhow::Error> {
    let pool_manager = ctx.pool_manager();
    let client = ctx.get_client_with_id(chain).unwrap();

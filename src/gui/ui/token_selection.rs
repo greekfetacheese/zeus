@@ -23,7 +23,8 @@ pub struct TokenSelectionWindow {
    pub size: (f32, f32),
    pub search_query: String,
    pub selected_currency: Option<Currency>,
-
+   /// Did we fetched this token from the blockchain?
+   pub token_fetched: bool,
    /// Currency direction, this only applies if we try to select a token from a SwapUi
    pub currency_direction: InOrOut,
 }
@@ -35,6 +36,7 @@ impl TokenSelectionWindow {
          size: (550.0, 300.0),
          search_query: String::new(),
          selected_currency: None,
+         token_fetched: false,
          currency_direction: InOrOut::In,
       }
    }
@@ -54,6 +56,7 @@ impl TokenSelectionWindow {
 
    pub fn reset(&mut self) {
       self.selected_currency = None;
+      self.token_fetched = false;
       self.search_query.clear();
    }
 
@@ -141,6 +144,7 @@ impl TokenSelectionWindow {
 
                            if ui.add(button).clicked() {
                               self.selected_currency = Some(currency.clone());
+                              self.token_fetched = false;
                               close_window = true;
                            }
 
@@ -166,7 +170,7 @@ impl TokenSelectionWindow {
    }
 
    fn get_token_on_valid_address(
-      &self,
+      &mut self,
       ctx: ZeusCtx,
       currencies: &Vec<Currency>,
       theme: &Theme,
@@ -182,6 +186,7 @@ impl TokenSelectionWindow {
          }
          let button = button(rich_text("Add Token").size(theme.text_sizes.normal));
          if ui.add(button).clicked() {
+            self.token_fetched = true;
             RT.spawn(async move {
                utils::open_loading("Retrieving token...".to_string());
                let token = match eth::get_erc20_token(ctx, chain, owner, address).await {

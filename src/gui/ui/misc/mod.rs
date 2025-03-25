@@ -7,7 +7,7 @@ use zeus_eth::utils::NumericValue;
 use crate::assets::icons::Icons;
 use crate::core::utils::update::update_portfolio_state;
 use crate::core::{
-   Portfolio, Wallet, ZeusCtx,
+   Wallet, ZeusCtx,
    utils::{RT, eth},
 };
 use crate::gui::SHARED_GUI;
@@ -445,8 +445,9 @@ impl PortfolioUi {
                let currency = token_selection.get_currency().cloned();
 
                if let Some(currency) = currency {
+                  let token_fetched = token_selection.token_fetched;
                   token_selection.reset();
-                  self.add_currency(ctx.clone(), currency);
+                  self.add_currency(ctx.clone(), token_fetched, currency);
                }
             });
       });
@@ -514,22 +515,13 @@ impl PortfolioUi {
    }
 
    // Add a currency to the portfolio and update the portfolio value
-   fn add_currency(&mut self, ctx: ZeusCtx, currency: Currency) {
+   fn add_currency(&mut self, ctx: ZeusCtx, token_fetched: bool, currency: Currency) {
       let chain_id = ctx.chain().id();
-      let owner = ctx.account().current_wallet.key.borrow().address();
+      let owner = ctx.account().current_wallet.address();
 
-      // Add the token to the portfolio
       ctx.write(|ctx| {
-         let portfolio = ctx.portfolio_db.get_portfolio_mut(chain_id, owner);
-         if portfolio.is_none() {
-            let mut portfolio = Portfolio::empty(chain_id, owner);
-            portfolio.add_currency(currency.clone());
-            ctx.portfolio_db
-               .insert_portfolio(chain_id, owner, portfolio);
-         } else {
-            let portfolio = portfolio.unwrap();
-            portfolio.add_currency(currency.clone());
-         }
+         ctx.portfolio_db
+            .add_currency(chain_id, owner, currency.clone());
       });
       let _ = ctx.save_portfolio_db();
 
@@ -539,9 +531,16 @@ impl PortfolioUi {
 
       let token = currency.erc20().cloned().unwrap();
 
-      // If no pool data is available, fetch it
-      let v3_pools = ctx.get_v3_pools(&token);
+      // if token was fetched from the blockchain, we don't need to sync the pools or the balance
+      if token_fetched {
+         tracing::info!(
+            "Token {} was fetched from the blockchain, no need to sync pools or balance",
+            token.symbol
+         );
+         return;
+      }
 
+      let v3_pools = ctx.get_v3_pools(&token);
       let token2 = token.clone();
       let ctx2 = ctx.clone();
       self.show_spinner = true;
@@ -580,9 +579,7 @@ impl PortfolioUi {
                .insert_token_balance(chain_id, owner, balance.wei().unwrap(), &token);
          });
          ctx2.update_portfolio_value(chain_id, owner);
-         let _ = ctx2.save_pool_data();
-         let _ = ctx2.save_balance_db();
-         let _ = ctx2.save_portfolio_db();
+         let _ = ctx2.save_all();
       });
    }
 
@@ -593,10 +590,7 @@ impl PortfolioUi {
             let owner = ctx.account().current_wallet.key.borrow().address();
             let chain = ctx.chain().id();
             ctx.write(|ctx| {
-               let portfolio = ctx.portfolio_db.get_portfolio_mut(chain, owner);
-               if let Some(portfolio) = portfolio {
-                  portfolio.remove_currency(currency);
-               }
+               ctx.portfolio_db.remove_currency(chain, owner, currency);
             });
             let _ = ctx.save_portfolio_db();
          }

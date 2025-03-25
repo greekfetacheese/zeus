@@ -61,7 +61,11 @@ impl Portfolio {
 
    pub fn update_value(&mut self, value: f64) {
       let formatted = format_number(&value.to_string(), 4, true);
-      self.value = NumericValue{wei: None, f64: value, formatted};
+      self.value = NumericValue {
+         wei: None,
+         f64: value,
+         formatted,
+      };
    }
 
    pub fn add_currency(&mut self, currency: Currency) {
@@ -131,6 +135,27 @@ impl PortfolioDB {
    pub fn get_portfolio(&self, chain_id: u64, owner: Address) -> Option<Arc<Portfolio>> {
       let key = (chain_id, owner);
       self.portfolios.get(&key).cloned()
+   }
+
+   pub fn add_currency(&mut self, chain_id: u64, owner: Address, currency: Currency) {
+      let portfolio = self.get_portfolio_mut(chain_id, owner);
+      if portfolio.is_none() {
+         let mut portfolio = Portfolio::empty(chain_id, owner);
+         portfolio.add_currency(currency.clone());
+         self.insert_portfolio(chain_id, owner, portfolio);
+      } else {
+         let portfolio = portfolio.unwrap();
+         portfolio.add_currency(currency.clone());
+      }
+   }
+
+   pub fn remove_currency(&mut self, chain_id: u64, owner: Address, currency: &Currency) {
+      let portfolio = self.get_portfolio_mut(chain_id, owner);
+      if portfolio.is_none() {
+         return;
+      }
+      let portfolio = portfolio.unwrap();
+      portfolio.remove_currency(currency);
    }
 
    pub fn get_portfolio_mut(&mut self, chain_id: u64, owner: Address) -> Option<&mut Portfolio> {

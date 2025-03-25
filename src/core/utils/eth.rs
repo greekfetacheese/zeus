@@ -1,4 +1,4 @@
-use crate::core::{Portfolio, ZeusCtx};
+use crate::core::ZeusCtx;
 
 use super::{
    RT, eth,
@@ -87,49 +87,44 @@ pub async fn get_erc20_token(
          .insert_token_balance(chain, owner, balance, &token);
    });
 
-   // Add the token to the portfolio
-   // And sync its pools
+   // If there is a balance add the token to the portfolio
    if !balance.is_zero() {
-      let ctx = ctx.clone();
-      let token = token.clone();
+      ctx.write(|ctx| {
+         ctx.portfolio_db.add_currency(chain, owner, currency.clone());
+      });
+   }
+
+      // Sync the pools for the token
+      let ctx_clone = ctx.clone();
+      let token_clone = token.clone();
       RT.spawn(async move {
-         ctx.write(|ctx| {
+         ctx_clone.write(|ctx| {
             ctx.data_syncing = true;
-            let portfolio = ctx.portfolio_db.get_portfolio_mut(chain, owner);
-            if portfolio.is_none() {
-               let mut portfolio = Portfolio::empty(chain, owner);
-               portfolio.add_currency(currency.clone());
-               ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
-            } else {
-               let portfolio = portfolio.unwrap();
-               portfolio.add_currency(currency.clone());
-            }
          });
 
-         match eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await {
+         match eth::sync_pools_for_token(ctx_clone.clone(), token_clone.clone(), true, true).await {
             Ok(_) => {
-               tracing::info!("Synced Pools for {}", token.symbol);
+               tracing::info!("Synced Pools for {}", token_clone.symbol);
             }
-            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token.symbol, e),
+            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token_clone.symbol, e),
          }
 
-         let pool_manager = ctx.pool_manager();
+         let pool_manager = ctx_clone.pool_manager();
          match pool_manager.update(client, chain).await {
             Ok(_) => {
-               tracing::info!("Updated pool state for {}", token.symbol);
+               tracing::info!("Updated pool state for {}", token_clone.symbol);
             }
             Err(e) => {
-               tracing::error!("Error updating pool state for {}: {:?}", token.symbol, e);
+               tracing::error!("Error updating pool state for {}: {:?}", token_clone.symbol, e);
             }
          }
-         ctx.update_portfolio_value(chain, owner);
-         ctx.write(|ctx| ctx.data_syncing = false);
-         match ctx.save_all() {
+         ctx_clone.update_portfolio_value(chain, owner);
+         ctx_clone.write(|ctx| ctx.data_syncing = false);
+         match ctx_clone.save_all() {
             Ok(_) => tracing::info!("Saved all"),
             Err(e) => tracing::error!("Error saving all: {:?}", e),
          }
       });
-   }
 
    match ctx.save_currency_db() {
       Ok(_) => tracing::info!("CurrencyDB saved"),
