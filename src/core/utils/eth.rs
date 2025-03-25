@@ -1,6 +1,10 @@
-use crate::core::ZeusCtx;
+use crate::core::{Portfolio, ZeusCtx};
 
-use super::{tx::{send_tx, TxParams}, update};
+use super::{
+   RT, eth,
+   tx::{TxParams, send_tx},
+   update,
+};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
@@ -10,11 +14,10 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-
 pub async fn send_crypto(
    ctx: ZeusCtx,
    currency: Currency,
-   mut params: TxParams
+   mut params: TxParams,
 ) -> Result<TransactionReceipt, anyhow::Error> {
    let client = ctx.get_client_with_id(params.chain.id())?;
 
@@ -23,9 +26,13 @@ pub async fn send_crypto(
    params.base_fee = base_fee.next;
 
    // check for sufficient balance again
-   let balance = ctx.get_currency_balance(params.chain.id(), params.signer.borrow().address(), &currency);
+   let balance = ctx.get_currency_balance(
+      params.chain.id(),
+      params.signer.borrow().address(),
+      &currency,
+   );
    params.sufficient_balance(balance)?;
-  
+
    let tx = send_tx(client.clone(), params).await?;
 
    Ok(tx)
@@ -80,7 +87,49 @@ pub async fn get_erc20_token(
          .insert_token_balance(chain, owner, balance, &token);
    });
 
-   ctx.update_portfolio_value(chain, owner);
+   // Add the token to the portfolio
+   // And sync its pools
+   if !balance.is_zero() {
+      let ctx = ctx.clone();
+      let token = token.clone();
+      RT.spawn(async move {
+         ctx.write(|ctx| {
+            ctx.data_syncing = true;
+            let portfolio = ctx.portfolio_db.get_portfolio_mut(chain, owner);
+            if portfolio.is_none() {
+               let mut portfolio = Portfolio::empty(chain, owner);
+               portfolio.add_currency(currency.clone());
+               ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+            } else {
+               let portfolio = portfolio.unwrap();
+               portfolio.add_currency(currency.clone());
+            }
+         });
+
+         match eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await {
+            Ok(_) => {
+               tracing::info!("Synced Pools for {}", token.symbol);
+            }
+            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token.symbol, e),
+         }
+
+         let pool_manager = ctx.pool_manager();
+         match pool_manager.update(client, chain).await {
+            Ok(_) => {
+               tracing::info!("Updated pool state for {}", token.symbol);
+            }
+            Err(e) => {
+               tracing::error!("Error updating pool state for {}: {:?}", token.symbol, e);
+            }
+         }
+         ctx.update_portfolio_value(chain, owner);
+         ctx.write(|ctx| ctx.data_syncing = false);
+         match ctx.save_all() {
+            Ok(_) => tracing::info!("Saved all"),
+            Err(e) => tracing::error!("Error saving all: {:?}", e),
+         }
+      });
+   }
 
    match ctx.save_currency_db() {
       Ok(_) => tracing::info!("CurrencyDB saved"),
@@ -109,7 +158,7 @@ pub async fn get_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
    pool_manager
       .get_v2_pools_for_token(client, token.clone(), dex_kind)
       .await?;
-   let pools = ctx.get_v2_pools(token);
+   let pools = ctx.get_v2_pools(&token);
 
    Ok(pools)
 }
@@ -128,11 +177,10 @@ pub async fn get_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<V
    pool_manager
       .get_v3_pools_for_token(client, token.clone(), dex_kind)
       .await?;
-   let pools = ctx.get_v3_pools(token);
+   let pools = ctx.get_v3_pools(&token);
 
    Ok(pools)
 }
-
 
 pub async fn sync_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3: bool) -> Result<(), anyhow::Error> {
    let chain = token.chain_id;

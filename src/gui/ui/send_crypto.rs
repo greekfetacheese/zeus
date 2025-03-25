@@ -478,8 +478,8 @@ impl SendCryptoUi {
 
          let token = token.unwrap();
 
-         let v2_pools = ctx.get_v2_pools(token.clone());
-         let v3_pools = ctx.get_v3_pools(token.clone());
+         let v2_pools = ctx.get_v2_pools(&token);
+         let v3_pools = ctx.get_v3_pools(&token);
          let owner = self.wallet_select.wallet.key.borrow().address();
          let chain_id = self.chain_select.chain.id();
 

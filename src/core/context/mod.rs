@@ -249,12 +249,12 @@ impl ZeusCtx {
       }
    }
 
-   /// Get the v2 pool for the given tokens, token order does not matter
+   /// Get the v2 pool for the pair, token order does not matter
    pub fn get_v2_pool(&self, chain: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
       self.read(|ctx| ctx.pool_manager.get_v2_pool(chain, token0, token1))
    }
 
-   /// Get the v3 pool for the given tokens, token order does not matter
+   /// Get the v3 pool for the pair, token order does not matter
    pub fn get_v3_pool(&self, chain: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
       self.read(|ctx| ctx.pool_manager.get_v3_pool(chain, fee, token0, token1))
    }
@@ -268,7 +268,7 @@ impl ZeusCtx {
    }
 
    /// Get all v3 pools that include the given token and [FEE_TIERS]
-   pub fn get_v3_pools(&self, token: ERC20Token) -> Vec<UniswapV3Pool> {
+   pub fn get_v3_pools(&self, token: &ERC20Token) -> Vec<UniswapV3Pool> {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
       let mut pools = Vec::new();
 
@@ -287,7 +287,7 @@ impl ZeusCtx {
    }
 
    /// Get all v2 pools for the given token
-   pub fn get_v2_pools(&self, token: ERC20Token) -> Vec<UniswapV2Pool> {
+   pub fn get_v2_pools(&self, token: &ERC20Token) -> Vec<UniswapV2Pool> {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
       let mut pools = Vec::new();
 

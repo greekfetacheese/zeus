@@ -1,4 +1,4 @@
-use crate::core::{utils::*, BaseFee, ZeusCtx};
+use crate::core::{BaseFee, ZeusCtx, utils::*};
 use anyhow::anyhow;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -105,6 +105,33 @@ pub fn portfolio_update(ctx: ZeusCtx) {
    }
 }
 
+/// Refresh the portofolio state for the given chain and wallet
+pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) -> Result<(), anyhow::Error> {
+   let pool_manager = ctx.pool_manager();
+   let client = ctx.get_client_with_id(chain).unwrap();
+   let tokens = ctx.get_portfolio(chain, owner).erc20_tokens();
+
+   // check if any pool data is missing
+   for token in &tokens {
+      let v2_pools = ctx.get_v2_pools(&token);
+      let v3_pools = ctx.get_v3_pools(&token);
+      let resync = v2_pools.len() == 0 && v3_pools.len() == 0;
+
+      if resync {
+         eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await?;
+      }
+   }
+
+   pool_manager.update(client, chain).await?;
+   update_eth_balance(ctx.clone()).await?;
+   update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await?;
+
+   ctx.update_portfolio_value(chain, owner);
+   ctx.save_all()?;
+
+   Ok(())
+}
+
 pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
    const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
@@ -162,15 +189,46 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    Ok(())
 }
 
+/// Update the token's balance for the given chain and owner
+pub async fn update_tokens_balance_for_chain(
+   ctx: ZeusCtx,
+   chain: u64,
+   owner: Address,
+   tokens: Vec<ERC20Token>,
+) -> Result<(), anyhow::Error> {
+   let token_map: HashMap<Address, &ERC20Token> = tokens.iter().map(|token| (token.address, token)).collect();
+   let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
+   let client = ctx.get_client_with_id(chain).unwrap();
+
+   let mut token_with_balance = Vec::new();
+   for token_addr in tokens_addr.chunks(100) {
+      let balances = get_erc20_balance(client.clone(), None, owner, token_addr.to_vec()).await?;
+      for balance in balances {
+         token_with_balance.push((balance.token, balance.balance));
+      }
+   }
+
+   // Match each balance with its corresponding ERC20Token
+   for (token_address, balance) in token_with_balance {
+      if let Some(token) = token_map.get(&token_address) {
+         ctx.write(|ctx| {
+            ctx.balance_db
+               .insert_token_balance(chain, owner, balance, *token);
+         });
+      } else {
+         tracing::warn!("No matching token found for address: {:?}", token_address);
+      }
+   }
+   Ok(())
+}
+
 /// Update the token balance for all wallets across all chains
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let wallets = ctx.account().wallets;
 
    for chain in SUPPORTED_CHAINS {
-      let client = ctx.get_client_with_id(chain).unwrap();
-
       for wallet in &wallets {
-         let owner = wallet.key.borrow().address();
+         let owner = wallet.address();
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.erc20_tokens();
 
@@ -178,29 +236,7 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
             continue;
          }
 
-         let token_map: HashMap<Address, &ERC20Token> = tokens.iter().map(|token| (token.address, token)).collect();
-
-         let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
-
-         let mut token_with_balance = Vec::new();
-         for token_addr in tokens_addr.chunks(100) {
-            let balances = get_erc20_balance(client.clone(), None, owner, token_addr.to_vec()).await?;
-            for balance in balances {
-               token_with_balance.push((balance.token, balance.balance));
-            }
-         }
-
-         // Match each balance with its corresponding ERC20Token
-         for (token_address, balance) in token_with_balance {
-            if let Some(token) = token_map.get(&token_address) {
-               ctx.write(|ctx| {
-                  ctx.balance_db
-                     .insert_token_balance(chain, owner, balance, *token);
-               });
-            } else {
-               tracing::warn!("No matching token found for address: {:?}", token_address);
-            }
-         }
+         update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await?;
       }
    }
    Ok(())

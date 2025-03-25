@@ -21,7 +21,7 @@ use currency::erc20::ERC20Token;
 use serde::{Deserialize, Serialize};
 
 use tracing::error;
-use types::BlockTime;
+use types::{BlockTime, ChainId};
 use utils::get_logs_for;
 
 /// Sync pools from the last checkpoint
@@ -61,6 +61,11 @@ impl SyncedPools {
          v2_pools,
          v3_pools,
       }
+   }
+
+   pub fn file_name(&self) -> String {
+      let chain = ChainId::new(self.checkpoint.chain_id).expect("Unsupported ChainId");
+      format!("{}.{}", self.checkpoint.dex.to_str(), chain.name())
    }
 }
 

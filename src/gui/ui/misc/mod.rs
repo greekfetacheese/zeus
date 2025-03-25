@@ -5,9 +5,10 @@ use std::sync::Arc;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
+use crate::core::utils::update::update_portfolio_state;
 use crate::core::{
    Portfolio, Wallet, ZeusCtx,
-   utils::{RT, eth, update::update_eth_balance},
+   utils::{RT, eth},
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
@@ -456,11 +457,8 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
-         ui.label(
-            RichText::new(currency.symbol())
-               .size(theme.text_sizes.normal),
-         )
-         .on_hover_text(currency.name());
+         ui.label(RichText::new(currency.symbol()).size(theme.text_sizes.normal))
+            .on_hover_text(currency.name());
       });
    }
 
@@ -498,24 +496,17 @@ impl PortfolioUi {
    fn refresh(&mut self, ctx: ZeusCtx) {
       self.show_spinner = true;
       RT.spawn(async move {
-         let pool_manager = ctx.pool_manager();
          let chain = ctx.chain().id();
          let owner = ctx.account().current_wallet.address();
-         let client = ctx.get_client_with_id(chain).unwrap();
 
-         match pool_manager.update(client, chain).await {
-            Ok(_) => tracing::info!("Updated prices for chain: {}", chain),
-            Err(e) => tracing::error!("Error updating prices: {:?}", e),
+         match update_portfolio_state(ctx, chain, owner).await {
+            Ok(_) => {
+               tracing::info!("Updated portfolio state");
+            }
+            Err(e) => {
+               tracing::error!("Error updating portfolio state: {:?}", e);
+            }
          }
-
-         match update_eth_balance(ctx.clone()).await {
-            Ok(_) => tracing::info!("Updated eth balance for chain: {}", chain),
-            Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
-         }
-
-         ctx.update_portfolio_value(chain, owner);
-         let _ = ctx.save_pool_data();
-         let _ = ctx.save_portfolio_db();
 
          let mut gui = SHARED_GUI.write().unwrap();
          gui.portofolio.show_spinner = false;
@@ -549,7 +540,7 @@ impl PortfolioUi {
       let token = currency.erc20().cloned().unwrap();
 
       // If no pool data is available, fetch it
-      let v3_pools = ctx.get_v3_pools(token.clone());
+      let v3_pools = ctx.get_v3_pools(&token);
 
       let token2 = token.clone();
       let ctx2 = ctx.clone();
@@ -574,7 +565,7 @@ impl PortfolioUi {
                tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e);
                let mut gui = SHARED_GUI.write().unwrap();
                gui.portofolio.show_spinner = false;
-            },
+            }
          }
 
          let balance = match eth::get_token_balance(ctx2.clone(), owner, token.clone()).await {
