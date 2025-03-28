@@ -25,6 +25,8 @@ zeus-token-list = { path = "crates/zeus-token-list" }
 
 
 # Alloy
+#alloy-rpc-types = {version = "0.12.6", features = ["serde"]}
+alloy-consensus = "=0.12.6"
 alloy-signer = "0.12.6"
 alloy-signer-local = {version = "0.12.6", features = ["mnemonic"]}
 alloy-network = "0.12.6"

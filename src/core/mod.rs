@@ -7,7 +7,7 @@ pub use user::{Account, wallet::Wallet};
 
 
 
-mod serde_helpers {
+mod serde_hashmap {
     use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
     use std::collections::HashMap;
  

@@ -37,6 +37,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_history.show(ctx.clone(), theme, icons.clone(), ui);
 
    #[cfg(feature = "dev")]
    {

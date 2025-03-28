@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::core::{serde_helpers, utils::*};
+use crate::core::{serde_hashmap, utils::*};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -14,11 +14,11 @@ const FILE_NAME: &str = "balances.json";
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BalanceDB {
    /// Eth Balances (or any native currency for evm compatable chains)
-   #[serde(with = "serde_helpers")]
+   #[serde(with = "serde_hashmap")]
    pub eth_balances: HashMap<(u64, Address), NumericValue>,
 
    /// Token Balances
-   #[serde(with = "serde_helpers")]
+   #[serde(with = "serde_hashmap")]
    pub token_balances: HashMap<(u64, Address, Address), NumericValue>,
 }
 

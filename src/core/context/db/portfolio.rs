@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc};
 
-use crate::core::{serde_helpers, utils::data_dir};
+use crate::core::{serde_hashmap, utils::data_dir};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -105,7 +105,7 @@ impl From<Arc<Portfolio>> for Portfolio {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PortfolioDB {
-   #[serde(with = "serde_helpers")]
+   #[serde(with = "serde_hashmap")]
    pub portfolios: HashMap<(u64, Address), Arc<Portfolio>>,
 }
 

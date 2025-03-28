@@ -16,6 +16,8 @@ use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
 use egui_theme::{Theme, utils::*};
 use zeus_eth::{currency::Currency, types::ChainId};
 
+pub mod tx_history;
+
 /// A ComboBox to select a chain
 pub struct ChainSelect {
    pub id: &'static str,

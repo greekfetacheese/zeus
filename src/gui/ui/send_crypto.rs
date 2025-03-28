@@ -11,7 +11,7 @@ use crate::core::{
    utils::{
       RT,
       eth::{self, get_currency_balance, send_crypto},
-      tx::TxParams,
+      tx::{TxParams, TxMethod},
    },
 };
 
@@ -534,7 +534,7 @@ impl SendCryptoUi {
             return NumericValue::default();
          }
          let max = balance.wei().unwrap() - cost_wei;
-         return NumericValue::from_wei(max, currency.decimals());
+         return NumericValue::format_wei(max, currency.decimals());
       }
    }
 
@@ -581,9 +581,11 @@ impl SendCryptoUi {
 
       let balance = ctx.get_currency_balance(chain.id(), from.key.borrow().address(), &currency);
 
+      /*
       if amount.wei().unwrap() > balance.wei().unwrap() {
          return Err(anyhow!("Insufficient balance"));
       }
+       */
 
       if to.is_zero() {
          return Err(anyhow!("Invalid recipient address"));
@@ -626,7 +628,16 @@ impl SendCryptoUi {
 
       let base_fee = ctx.get_base_fee(chain.id()).unwrap_or_default().next;
 
+      let tx_method = if currency.is_native() {
+         let currency = currency.native().cloned().unwrap();
+         TxMethod::Transfer(currency)
+      } else {
+         let token = currency.erc20().cloned().unwrap();
+         TxMethod::ERC20Transfer((token, amount))
+      };
+
       let params = TxParams::new(
+         tx_method,
          from.key.clone(),
          to,
          value,

@@ -25,7 +25,7 @@ const CONTACTS_FILE: &str = "contacts.json";
 pub mod db;
 pub mod providers;
 
-pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB};
+pub use db::{BalanceDB, CurrencyDB, TransactionsDB, Portfolio, PortfolioDB};
 pub use providers::{Rpc, RpcProviders};
 
 #[derive(Clone)]
@@ -118,6 +118,10 @@ impl ZeusCtx {
       self.save_contact_db()?;
       self.save_providers()?;
       Ok(())
+   }
+
+   pub fn save_tx_db(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.tx_db.save())
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<NumericValue> {
@@ -473,6 +477,7 @@ pub struct ZeusContext {
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
    pub contact_db: ContactDB,
+   pub tx_db: TransactionsDB,
 
    pub pool_manager: PoolStateManagerHandle,
 
@@ -522,6 +527,14 @@ impl ZeusContext {
          }
       };
 
+      let tx_db = match TransactionsDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load transactions, {:?}", e);
+            TransactionsDB::default()
+         }
+      };
+
       let account_exists = Account::exists().is_ok_and(|p| p);
 
       let mut pool_manager = PoolStateManagerHandle::default();
@@ -556,6 +569,7 @@ impl ZeusContext {
          currency_db,
          portfolio_db,
          contact_db,
+         tx_db,
          pool_manager,
          data_syncing: false,
          base_fee: HashMap::new(),

@@ -2,16 +2,19 @@ use crate::core::ZeusCtx;
 
 use super::{
    RT, eth,
-   tx::{TxParams, send_tx},
+   tx::{TxParams, legacy_or_eip1559},
    update,
 };
+use crate::core::utils::tx::TxDetails;
 use zeus_eth::{
+   alloy_network::TransactionBuilder,
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
    alloy_rpc_types::TransactionReceipt,
    amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token},
    utils::NumericValue,
+   wallet::SecureWallet,
 };
 
 pub async fn send_crypto(
@@ -33,9 +36,62 @@ pub async fn send_crypto(
    );
    params.sufficient_balance(balance)?;
 
-   let tx = send_tx(client.clone(), params).await?;
+   let signer_address = params.signer.borrow().address();
+   let nonce = client.get_transaction_count(signer_address).await?;
 
-   Ok(tx)
+   let mut tx = legacy_or_eip1559(params.clone());
+   tx.set_nonce(nonce);
+   let gas_limit = params.gas_used * 15 / 10; // +50%
+   tx.set_gas_limit(gas_limit);
+
+   let wallet = SecureWallet::from(params.signer.clone());
+   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
+
+   tracing::info!("Sending Transaction...");
+   let time = std::time::Instant::now();
+   let receipt = client
+      .send_tx_envelope(tx_envelope)
+      .await?
+      .get_receipt()
+      .await?;
+   tracing::info!(
+      "Time take to send tx: {:?}secs",
+      time.elapsed().as_secs_f32()
+   );
+
+   let native_token = ERC20Token::native_wrapped_token(params.chain.id());
+
+   let tx_type = receipt.inner.tx_type();
+   let value = NumericValue::format_wei(params.value, 18);
+   let eth_price = ctx.get_token_price(&native_token).unwrap_or_default();
+   let base_fee = NumericValue::format_to_gwei(U256::from(params.base_fee));
+   let priority_fee = NumericValue::format_to_gwei(params.miner_tip);
+   
+   let tx_details = TxDetails::new(
+      receipt.status(),
+      params.signer.borrow().address(),
+      params.recipient,
+      value,
+      eth_price,
+      params.call_data,
+      receipt.transaction_hash,
+      receipt.block_number.unwrap_or_default(),
+      receipt.transaction_index.unwrap_or_default(),
+      params.tx_method,
+      nonce,
+      receipt.gas_used,
+      gas_limit,
+      base_fee,
+      priority_fee,
+      tx_type
+   );
+
+   ctx.write(|ctx| {
+      ctx.tx_db.add_tx(params.chain.id(), params.signer.borrow().address(), tx_details);
+      let _ = ctx.tx_db.save();
+   });
+
+   Ok(receipt)
 }
 
 pub async fn get_eth_balance(ctx: ZeusCtx, chain: u64, owner: Address) -> Result<NumericValue, anyhow::Error> {
@@ -90,41 +146,46 @@ pub async fn get_erc20_token(
    // If there is a balance add the token to the portfolio
    if !balance.is_zero() {
       ctx.write(|ctx| {
-         ctx.portfolio_db.add_currency(chain, owner, currency.clone());
+         ctx.portfolio_db
+            .add_currency(chain, owner, currency.clone());
       });
    }
 
-      // Sync the pools for the token
-      let ctx_clone = ctx.clone();
-      let token_clone = token.clone();
-      RT.spawn(async move {
-         ctx_clone.write(|ctx| {
-            ctx.data_syncing = true;
-         });
-
-         match eth::sync_pools_for_token(ctx_clone.clone(), token_clone.clone(), true, true).await {
-            Ok(_) => {
-               tracing::info!("Synced Pools for {}", token_clone.symbol);
-            }
-            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token_clone.symbol, e),
-         }
-
-         let pool_manager = ctx_clone.pool_manager();
-         match pool_manager.update(client, chain).await {
-            Ok(_) => {
-               tracing::info!("Updated pool state for {}", token_clone.symbol);
-            }
-            Err(e) => {
-               tracing::error!("Error updating pool state for {}: {:?}", token_clone.symbol, e);
-            }
-         }
-         ctx_clone.update_portfolio_value(chain, owner);
-         ctx_clone.write(|ctx| ctx.data_syncing = false);
-         match ctx_clone.save_all() {
-            Ok(_) => tracing::info!("Saved all"),
-            Err(e) => tracing::error!("Error saving all: {:?}", e),
-         }
+   // Sync the pools for the token
+   let ctx_clone = ctx.clone();
+   let token_clone = token.clone();
+   RT.spawn(async move {
+      ctx_clone.write(|ctx| {
+         ctx.data_syncing = true;
       });
+
+      match eth::sync_pools_for_token(ctx_clone.clone(), token_clone.clone(), true, true).await {
+         Ok(_) => {
+            tracing::info!("Synced Pools for {}", token_clone.symbol);
+         }
+         Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token_clone.symbol, e),
+      }
+
+      let pool_manager = ctx_clone.pool_manager();
+      match pool_manager.update(client, chain).await {
+         Ok(_) => {
+            tracing::info!("Updated pool state for {}", token_clone.symbol);
+         }
+         Err(e) => {
+            tracing::error!(
+               "Error updating pool state for {}: {:?}",
+               token_clone.symbol,
+               e
+            );
+         }
+      }
+      ctx_clone.update_portfolio_value(chain, owner);
+      ctx_clone.write(|ctx| ctx.data_syncing = false);
+      match ctx_clone.save_all() {
+         Ok(_) => tracing::info!("Saved all"),
+         Err(e) => tracing::error!("Error saving all: {:?}", e),
+      }
+   });
 
    match ctx.save_currency_db() {
       Ok(_) => tracing::info!("CurrencyDB saved"),

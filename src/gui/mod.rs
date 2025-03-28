@@ -52,6 +52,8 @@ pub struct GUI {
 
    pub settings: ui::settings::SettingsUi,
 
+   pub tx_history: ui::tx_history::TxHistory,
+
    pub data_inspection: bool,
 }
 
@@ -65,6 +67,7 @@ impl GUI {
       let loading_window = ui::LoadingWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new();
+      let tx_history = ui::tx_history::TxHistory::new();
 
       Self {
          egui_ctx,
@@ -84,6 +87,7 @@ impl GUI {
          loading_window,
          top_left_area,
          settings,
+         tx_history,
          data_inspection: false,
       }
    }

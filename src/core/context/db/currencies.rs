@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use crate::core::{serde_helpers, utils::*};
+use crate::core::{serde_hashmap, utils::*};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -14,7 +14,7 @@ const FILE_NAME: &str = "currencies.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrencyDB {
-   #[serde(with = "serde_helpers")]
+   #[serde(with = "serde_hashmap")]
    pub currencies: HashMap<u64, Arc<Vec<Currency>>>,
 }
 

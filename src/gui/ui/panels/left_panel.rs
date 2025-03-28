@@ -28,6 +28,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
          gui.portofolio.open = true;
       }
 
@@ -37,7 +38,18 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.swap_ui.open = false;
          gui.send_crypto.open = false;
          gui.settings.open = false;
+         gui.tx_history.open = false;
          gui.wallet_ui.open = true;
+      }
+
+      let tx_history = button(rich_text("Transactions").size(21.0));
+      if ui.add(tx_history).clicked() {
+         gui.portofolio.open = false;
+         gui.swap_ui.open = false;
+         gui.send_crypto.open = false;
+         gui.settings.open = false;
+         gui.wallet_ui.open = false;
+         gui.tx_history.open = true;
       }
 
       #[cfg(feature = "dev")]
@@ -48,6 +60,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.send_crypto.open = false;
             gui.settings.open = false;
             gui.wallet_ui.open = false;
+            gui.tx_history.open = false;
             gui.swap_ui.open = true;
          }
       }
@@ -58,6 +71,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.portofolio.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
          gui.send_crypto.open = true;
 
          let chain = gui.send_crypto.chain_select.chain.id();
@@ -75,6 +89,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.swap_ui.open = false;
          gui.send_crypto.open = false;
          gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
          gui.settings.open = true;
       }
 
@@ -98,7 +113,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       show_data_insp(gui, ui);
    });
 }
-
 
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
@@ -180,7 +194,7 @@ fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV
          let base_usd = ctx.get_token_price(base);
 
          if let Some(base_usd) = base_usd {
-           let quote_usd = pool.quote_price(base_usd.f64()).unwrap_or_default();
+            let quote_usd = pool.quote_price(base_usd.f64()).unwrap_or_default();
 
             ui.horizontal(|ui| {
                ui.label(rich_text(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal));
@@ -189,13 +203,13 @@ fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV
             ui.horizontal(|ui| {
                ui.label(rich_text(format!("{} ${}", quote.symbol, quote_usd)).size(theme.text_sizes.normal));
             });
-
          } else {
-            ui.label(rich_text("Base Token Price not found").size(theme.text_sizes.small).color(Color32::RED));
+            ui.label(
+               rich_text("Base Token Price not found")
+                  .size(theme.text_sizes.small)
+                  .color(Color32::RED),
+            );
          }
-
-         
-
       });
    });
 }

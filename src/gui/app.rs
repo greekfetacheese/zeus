@@ -117,7 +117,7 @@ impl eframe::App for ZeusApp {
 
          // Paint the Ui that belongs to the left panel
          egui::SidePanel::left("left_panel")
-            .exact_width(100.0)
+            .exact_width(150.0)
             .resizable(false)
             .show_separator_line(true)
             .frame(bg_frame.clone())
@@ -127,14 +127,7 @@ impl eframe::App for ZeusApp {
                }
             });
 
-         egui::SidePanel::right("right_panel")
-            .resizable(false)
-            .exact_width(100.0)
-            .show_separator_line(true)
-            .frame(bg_frame.clone())
-            .show_inside(ui, |_ui| {
-               // nothing for now just occupy the space
-            });
+         
 
          // Paint the Ui that belongs to the central panel
          egui::CentralPanel::default()

@@ -118,6 +118,22 @@ where
    Ok(log_chunk)
 }
 
+pub fn truncate_address(s: &str, max_len: usize) -> String {
+   if s.len() <= max_len {
+      return s.to_string();
+   }
+   let prefix_len = 6;
+   let suffix_len = 6;
+   // Ensure "0x" prefix is handled if present
+   if s.starts_with("0x") && max_len > 6 { // 2 for "0x", 3 for "...", 1 for actual char
+      let prefix = &s[..prefix_len.max(2)]; // Keep at least "0x"
+      let suffix = &s[s.len() - suffix_len..];
+      format!("{}...{}", prefix, suffix)
+   } else {
+      format!("{}...{}", &s[..prefix_len], &s[s.len() - suffix_len..])
+   }
+}
+
 /// Format a very large number into a readable string
 pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zeros: bool) -> String {
    // Split the number into integer and decimal parts
@@ -131,7 +147,7 @@ pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zero
    // Determine the effective number of decimal places
    let effective_decimal_places = if integer_part == "0" {
       // For small numbers (less than 1), show up to 4 decimal places
-      4
+      6
    } else {
       // For larger numbers, use the provided decimal_places
       decimal_places
@@ -236,7 +252,19 @@ impl Default for NumericValue {
 
 impl NumericValue {
 
-   pub fn from_wei(wei: U256, decimals: u8) -> Self {
+
+   /// Format a wei value to a readable format
+   /// 
+   /// Example:
+   /// ```
+   /// // 1 ETH in wei
+   /// let wei = U256::from(1000000000000000000u128);
+   /// let value = NumericValue::format_wei(wei, 18);
+   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
+   /// assert_eq!(value.f64(), 1.0);
+   /// assert_eq!(value.formatted(), "1");
+   /// ```
+   pub fn format_wei(wei: U256, decimals: u8) -> Self {
       let units_formated = format_units(wei, decimals).unwrap_or("0".to_string());
       let f64 = units_formated.parse().unwrap_or(0.0);
       let formatted = format_number(&units_formated, 2, true);
@@ -248,9 +276,18 @@ impl NumericValue {
       }
    }
 
-   /// Parse a value doing the 10^currency_decimals conversion
+   /// Parse a value doing the 10^decimals conversion
    ///
    /// The wei value is stored and its being formatted to a readable format [f64] and [String]
+   /// 
+   /// Example:
+   /// ```
+   /// let amount = "1";
+   /// let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
+   /// assert_eq!(value.f64, 1.0);
+   /// assert_eq!(value.formatted, "1");
+   /// ```
    pub fn parse_to_wei(amount: &str, currency_decimals: u8) -> Self {
       let wei = if let Ok(units) = parse_units(amount, currency_decimals) {
          units.get_absolute()
@@ -269,9 +306,41 @@ impl NumericValue {
       }
    }
 
+   /// Format a wei value to gwei in a readable format
+   /// 
+   /// Example:
+   /// ```
+   /// // 1 GWei in wei
+   /// let wei = U256::from(1000000000u128);
+   /// let value = NumericValue::format_to_gwei(wei);
+   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+   /// assert_eq!(value.f64, 1.0);
+   /// assert_eq!(value.formatted, "1");
+   /// ```
+   pub fn format_to_gwei(amount: U256) -> Self {
+      let units_formated = format_units(amount, 9).unwrap_or("0".to_string());
+      let f64 = units_formated.parse().unwrap_or(0.0);
+      let formatted = format_number(&units_formated, 2, true);
+
+      Self {
+         wei: Some(amount),
+         f64,
+         formatted,
+      }
+   }
+
    /// Parse a value doing the 10^9 conversion
    ///
    /// The wei value is stored and its being formatted to a readable format [f64] and [String]
+   /// 
+   /// Example:
+   /// ```
+   /// let amount = "1";
+   /// let value = NumericValue::parse_to_gwei(&amount.to_string());
+   /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+   /// assert_eq!(value.f64, 1.0);
+   /// assert_eq!(value.formatted, "1");
+   /// ```
    pub fn parse_to_gwei(amount: &str) -> Self {
       let wei = if let Ok(units) = parse_units(amount, 9) {
          units.get_absolute()
@@ -391,6 +460,15 @@ mod tests {
    }
 
    #[test]
+   fn test_parse_to_wei_low_amount() {
+      let amount = "0.000001";
+      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      assert_eq!(value.wei().unwrap(), U256::from(1000000000000u128));
+      assert_eq!(value.f64, 0.000001);
+      assert_eq!(value.formatted, "0.000001");
+   }
+
+   #[test]
    fn test_parse_to_gwei() {
       let amount = "1";
       let value = NumericValue::parse_to_gwei(&amount.to_string());
@@ -403,6 +481,15 @@ mod tests {
       assert_eq!(value.wei().unwrap(), U256::from(1294885u128));
       assert_eq!(value.f64, 0.001294885);
       assert_eq!(value.formatted, "0.0012");
+   }
+
+   #[test]
+   fn test_format_to_gwei() {
+      let amount = U256::from(1000000000u128);
+      let value = NumericValue::format_to_gwei(amount);
+      assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+      assert_eq!(value.f64, 1.0);
+      assert_eq!(value.formatted, "1");
    }
 
    #[test]

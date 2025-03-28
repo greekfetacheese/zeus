@@ -7751,6 +7751,7 @@ dependencies = [
 name = "zeus-desktop"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-network",
  "alloy-signer",
  "alloy-signer-local",
