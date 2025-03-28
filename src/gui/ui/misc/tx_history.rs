@@ -348,7 +348,7 @@ impl TxHistory {
                            );
                            ui.end_row();
 
-                           // Add Gas Used / Limit if available in TxDetails
+                           // Gas Used
                            ui.label(RichText::new("Gas Used:").size(theme.text_sizes.normal));
                            ui.label(RichText::new(format!("{}", tx.gas_used)).size(theme.text_sizes.normal));
                            ui.end_row();
