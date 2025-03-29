@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use types::{BSC, ChainId};
+use types::ChainId;
 
 /// Represents a Native Currency to its chain
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -35,13 +35,31 @@ impl NativeCurrency {
    pub fn from_chain_id(id: u64) -> Result<Self, anyhow::Error> {
       let chain = ChainId::new(id)?;
       match chain {
-         ChainId::BinanceSmartChain(_) => Ok(Self {
-            chain_id: BSC,
-            symbol: "BNB".to_string(),
-            name: "Binance Smart Chain".to_string(),
-            decimals: 18,
-         }),
-         _ => Ok(NativeCurrency::default()),
+         ChainId::Ethereum(_) => Ok(NativeCurrency::default()),
+         ChainId::Optimism(_) => Ok(NativeCurrency::new(
+            chain.id(),
+            "ETH".to_string(),
+            "Ethereum".to_string(),
+            18,
+         )),
+         ChainId::BinanceSmartChain(_) => Ok(NativeCurrency::new(
+            chain.id(),
+            "BNB".to_string(),
+            "Binance Smart Chain".to_string(),
+            18,
+         )),
+         ChainId::Base(_) => Ok(NativeCurrency::new(
+            chain.id(),
+            "ETH".to_string(),
+            "Ethereum".to_string(),
+            18,
+         )),
+         ChainId::Arbitrum(_) => Ok(NativeCurrency::new(
+            chain.id(),
+            "ETH".to_string(),
+            "Ethereum".to_string(),
+            18,
+         )),
       }
    }
 }

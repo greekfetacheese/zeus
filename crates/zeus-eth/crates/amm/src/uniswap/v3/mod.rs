@@ -1,4 +1,6 @@
 pub mod pool;
+pub mod fee_math;
+pub mod position;
 
 use alloy_primitives::{Address, I256, U256};
 

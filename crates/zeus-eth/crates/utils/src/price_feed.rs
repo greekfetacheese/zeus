@@ -84,7 +84,7 @@ where
       if token == weth(chain_id)? {
          return get_eth_price(client, chain_id, block).await;
       } else {
-         return Ok(1.0); // Assuming Stablecoins are stable
+         return Ok(1.0);
       }
    }
 }

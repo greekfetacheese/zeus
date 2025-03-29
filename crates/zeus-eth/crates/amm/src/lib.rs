@@ -93,8 +93,10 @@ pub enum DexKind {
 
 impl DexKind {
    /// Get the main DexKind for the given chain
+   /// 
+   /// Panics if the chain is not supported
    pub fn main_dexes(chain: u64) -> Vec<DexKind> {
-      let chain = ChainId::new(chain).unwrap_or_default();
+      let chain = ChainId::new(chain).unwrap();
       match chain {
          ChainId::Ethereum(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3],
          ChainId::BinanceSmartChain(_) => vec![DexKind::PancakeSwapV2, DexKind::PancakeSwapV3],
@@ -105,8 +107,10 @@ impl DexKind {
    }
 
    /// Get all possible DEX kinds based on the chain
+   /// 
+   /// Panics if the chain is not supported
    pub fn all(chain: u64) -> Vec<DexKind> {
-      let chain = ChainId::new(chain).unwrap_or_default();
+      let chain = ChainId::new(chain).unwrap();
       match chain {
          ChainId::Ethereum(_) => vec![
             DexKind::UniswapV2,

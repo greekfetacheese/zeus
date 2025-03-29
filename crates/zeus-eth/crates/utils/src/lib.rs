@@ -20,6 +20,10 @@ use tokio::{
 use tracing::trace;
 use types::BlockTime;
 
+pub use alloy_network;
+pub use alloy_rpc_client;
+pub use alloy_transport;
+
 /// Is this token a base token?
 ///
 /// We consider base tokens those that are mostly used for liquidity.
@@ -55,7 +59,7 @@ where
    let latest_block = client.get_block_number().await?;
    let from_block = block_time.go_back(chain_id, latest_block)?;
 
-   trace!(
+   trace!(target: "zeus_eth::utils::lib",
       "Fetching logs from block {} to {}",
       from_block, latest_block
    );
@@ -81,7 +85,7 @@ where
          let filter_clone = filter.clone();
          let permit = Arc::clone(&semaphore).acquire_owned().await?;
 
-         trace!(
+         trace!(target: "zeus_eth::utils::lib",
             "Quering Logs for block range: {} - {}",
             start_block, end_block
          );
@@ -106,7 +110,7 @@ where
          match task.await {
             Ok(_) => {}
             Err(e) => {
-               trace!("Error fetching logs: {:?}", e);
+               trace!(target: "zeus_eth::utils::lib", "Error fetching logs: {:?}", e);
             }
          }
       }

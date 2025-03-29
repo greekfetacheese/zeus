@@ -132,8 +132,10 @@ impl ERC20Token {
 
 impl ERC20Token {
    /// Native Wrapped Token based on the chain_id
+   /// 
+   /// Panics if the chain is not supported
    pub fn native_wrapped_token(chain_id: u64) -> ERC20Token {
-      let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum(1));
+      let chain = ChainId::new(chain_id).unwrap();
       match chain {
          ChainId::Ethereum(_) => ERC20Token::weth(),
          ChainId::Optimism(_) => ERC20Token::weth_optimism(),

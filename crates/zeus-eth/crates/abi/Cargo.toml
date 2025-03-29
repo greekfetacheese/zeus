@@ -7,8 +7,8 @@ edition = "2021"
 alloy-sol-types = {version = "0.8.20", features = ["json"]}
 alloy-primitives = "0.8.20"
 
-alloy-rpc-types = "0.12.6"
-alloy-contract = "0.12.6"
-alloy-provider = "0.12.6"
+alloy-rpc-types = "0.13.0"
+alloy-contract = "0.13.0"
+alloy-provider = "0.13.0"
 
 anyhow = "1.0.95"

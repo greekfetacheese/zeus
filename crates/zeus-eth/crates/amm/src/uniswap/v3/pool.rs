@@ -1,12 +1,11 @@
+use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
    Address, U256, address,
    utils::{format_units, parse_units},
 };
-use alloy_rpc_types::BlockId;
+use alloy_rpc_types::{BlockId, Log};
 
-use alloy_contract::private::{Network, Provider};
-
-use crate::{DexKind, minimum_liquidity};
+use crate::{DexKind, minimum_liquidity, uniswap::{SwapData, PoolVolume}};
 use abi::uniswap::v3;
 use currency::erc20::ERC20Token;
 use utils::{
@@ -16,7 +15,7 @@ use utils::{
 };
 
 use std::collections::HashMap;
-
+use std::str::FromStr;
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
@@ -315,6 +314,88 @@ impl UniswapV3Pool {
       Ok((base_price, quote_price))
    }
 
+   /// Get the volume of the pool
+   pub fn get_volume_from_logs(&self, logs: Vec<Log>) -> Result<PoolVolume, anyhow::Error> {
+      let mut buy_volume = U256::ZERO;
+      let mut sell_volume = U256::ZERO;
+      let mut swaps = Vec::new();
+
+      for log in &logs {
+         let swap_data = self.decode_swap(log)?;
+         if swap_data.token_in.address == self.token1.address {
+            buy_volume += swap_data.amount_in;
+         }
+
+         if swap_data.token_out.address == self.token0.address {
+            sell_volume += swap_data.amount_out;
+         }
+         swaps.push(swap_data);
+      }
+
+      // sort swaps by the newest block to oldest
+      swaps.sort_by(|a, b| a.block.cmp(&b.block));
+
+      Ok(PoolVolume {
+         buy_volume,
+         sell_volume,
+         swaps,
+      })
+   }
+
+   /// Decode a swap log against this pool
+   pub fn decode_swap(&self, log: &Log) -> Result<SwapData, anyhow::Error> {
+      let v3::pool::IUniswapV3Pool::Swap {
+         amount0, amount1, ..
+      } = log.log_decode()?.inner.data;
+
+      let pair_address = log.address();
+      let block = log.block_number;
+
+      if pair_address != self.address {
+         return Err(anyhow::anyhow!("Pool Address mismatch"));
+      }
+
+      let (amount_in, token_in) = if amount0.is_positive() {
+         (amount0, self.token0.clone())
+      } else {
+         (amount1, self.token1.clone())
+      };
+
+      let (amount_out, token_out) = if amount1.is_negative() {
+         (amount1, self.token1.clone())
+      } else {
+         (amount0, self.token0.clone())
+      };
+
+      if block.is_none() {
+         // this should never happen
+         return Err(anyhow!("Block number is missing"));
+      }
+
+      let tx_hash = if let Some(hash) = log.transaction_hash {
+         hash
+      } else {
+         return Err(anyhow!("Transaction hash is missing"));
+      };
+
+      let amount_in = U256::from_str(&amount_in.to_string())?;
+      // remove the - sign
+      let amount_out = amount_out
+         .to_string()
+         .trim_start_matches('-')
+         .parse::<U256>()?;
+
+      Ok(SwapData {
+         account: None,
+         token_in,
+         token_out,
+         amount_in,
+         amount_out,
+         block: block.unwrap(),
+         tx_hash: tx_hash.to_string(),
+      })
+   }
+
    /// Test pool
    pub fn usdt_uni() -> Self {
       let usdt = ERC20Token::usdt();
@@ -398,8 +479,7 @@ mod tests {
 
       let base_exists = pool.base_token_exists();
       assert_eq!(base_exists, true);
-
-}
+   }
 
    #[tokio::test]
    async fn price_calculation() {
@@ -420,5 +500,4 @@ mod tests {
       println!("{} Price: ${}", base_token.symbol, base_price);
       println!("{} Price: ${}", quote_token.symbol, quote_price);
    }
-
 }

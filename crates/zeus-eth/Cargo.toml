@@ -8,25 +8,15 @@ edition = "2021"
 abi = { path = "crates/abi"}
 amm = { path = "crates/amm"}
 currency = { path = "crates/currency"}
-revm-utils = { path = "crates/revm-utils"}
+revm-utils = { path = "crates/revm-utils", optional = true}
 types = { path = "crates/types"}
-utils = { path = "crates/utils"}
-wallet = { path = "crates/wallet"}
-
-# External dependencies
-alloy-sol-types = {version = "0.8.20", features = ["json"]}
-alloy-primitives = "0.8.20"
+utils = { path = "crates/utils" , optional = true}
+wallet = { path = "crates/wallet", optional = true}
 
 
-alloy-rpc-types = "0.12.6"
-alloy-contract = "0.12.6"
-alloy-provider = "0.12.6"
-alloy-network = "0.12.6"
 
-uniswap_v3_math = { git = "https://github.com/0xKitsune/uniswap-v3-math.git", branch = "main" }
-tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
-serde = "1.0.217"
-serde_json = "1.0.138"
-anyhow = "1.0.95"
-tracing = "0.1.41"
-url = "2.5.4"
+
+[features]
+utils = ["dep:utils"]
+wallet = ["dep:wallet"]
+revm-utils = ["dep:revm-utils"]

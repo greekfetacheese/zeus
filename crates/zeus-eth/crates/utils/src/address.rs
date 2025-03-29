@@ -87,6 +87,18 @@ pub fn wbtc(chain_id: u64) -> Result<Address, anyhow::Error> {
    }
 }
 
+/// Return the Uniswap's NonfungiblePositionManager contract address for the given chain id.
+pub fn uniswap_nft_position_manager(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("C36442b4a4522E871399CD717aBDD847Ab11FE88")),
+      ChainId::Optimism(_) => Ok(address!("C36442b4a4522E871399CD717aBDD847Ab11FE88")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("7b8A01B39D58278b5DE7e48c8449c9f4F5170613")),
+      ChainId::Base(_) => Ok(address!("03a520b32C04BF3bEEf7BEb72E919cf822Ed34f1")),
+      ChainId::Arbitrum(_) => Ok(address!("C36442b4a4522E871399CD717aBDD847Ab11FE88")),
+   }
+}
+
 /// Returns the Uniswap V2 Factory address for the given chain id.
 pub fn uniswap_v2_factory(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;

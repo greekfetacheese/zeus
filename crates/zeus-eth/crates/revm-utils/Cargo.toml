@@ -4,3 +4,34 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+abi = { path = "../abi" }
+
+revm = { version = "21.0.0", features = [
+    "std",
+    "optional_block_gas_limit",
+    "optional_no_base_fee",
+    "optional_balance_check",
+    "optional_eip3607",
+] }
+
+alloy-primitives = "0.8.25"
+alloy-signer = "0.13.0"
+alloy-signer-local = "0.13.0"
+
+alloy-rpc-types = "0.13.0"
+alloy-contract = "0.13.0"
+alloy-provider = "0.13.0"
+alloy-transport = "0.13.0"
+
+# Async
+tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
+futures = "0.3.5"
+futures-util = "0.3.30"
+
+# Error handling
+anyhow = "1.0.44"
+thiserror = "1.0.37"
+eyre = "0.6.8"
+
+[dev-dependencies]
+tokio = "1"

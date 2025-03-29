@@ -9,16 +9,14 @@ types = { path = "../types" }
 alloy-sol-types = {version = "0.8.20", features = ["json"]}
 alloy-primitives = "0.8.20"
 
-alloy-rpc-types = "0.12.6"
-alloy-contract = "0.12.6"
-alloy-provider = "0.12.6"
-alloy-network = "0.12.6"
-alloy-transport = {version = "0.12.6", features = ["throttle"]}
-alloy-rpc-client = {version = "0.12.6", features = ["reqwest"]}
+alloy-rpc-types = "0.13.0"
+alloy-contract = "0.13.0"
+alloy-provider = "0.13.0"
+alloy-network = "0.13.0"
+alloy-transport = {version = "0.13.0", features = ["throttle"]}
+alloy-rpc-client = {version = "0.13.0", features = ["reqwest"]}
 
 anyhow = "1.0.95"
-
-
 tracing = "0.1.41"
 serde = "1.0.217"
 url = "2.5.4"

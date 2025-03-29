@@ -8,6 +8,8 @@ pub const ARBITRUM: u64 = 42161;
 
 pub const SUPPORTED_CHAINS: [u64; 5] = [ETH, OPTIMISM, BSC, BASE, ARBITRUM];
 
+const ERR_MSG: &str = "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainId {
    Ethereum(u64),
@@ -31,9 +33,29 @@ impl ChainId {
          56 => ChainId::BinanceSmartChain(id),
          8453 => ChainId::Base(id),
          42161 => ChainId::Arbitrum(id),
-         _ => bail!("Unsupported chain id: {}", id),
+         _ => bail!(format!("Unsupported chain id: {}\n{}", id, ERR_MSG)),
       };
       Ok(chain)
+   }
+
+   pub fn eth() -> Self {
+      ChainId::Ethereum(1)
+   }
+
+   pub fn optimism() -> Self {
+      ChainId::Optimism(10)
+   }
+
+   pub fn bsc() -> Self {
+      ChainId::BinanceSmartChain(56)
+   }
+
+   pub fn base() -> Self {
+      ChainId::Base(8453)
+   }
+
+   pub fn arbitrum() -> Self {
+      ChainId::Arbitrum(42161)
    }
 
    pub fn is_ethereum(&self) -> bool {
@@ -60,6 +82,10 @@ impl ChainId {
          .iter()
          .map(|id| ChainId::new(*id).unwrap())
          .collect()
+   }
+
+   pub fn is_supported(chain_id: u64) -> bool {
+      SUPPORTED_CHAINS.contains(&chain_id)
    }
 
    pub fn coin_symbol(&self) -> &str {
@@ -156,5 +182,16 @@ impl ChainId {
          ChainId::Base(_) => 50_000,
          ChainId::Arbitrum(_) => 97_818,
       }
+   }
+}
+
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn chain_new_err() {
+      let _chain = ChainId::new(1000).unwrap();
    }
 }

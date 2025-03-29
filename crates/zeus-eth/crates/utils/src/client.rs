@@ -15,6 +15,22 @@ pub type HttpClient = Arc<
    >,
 >;
 
+pub fn retry_layer(
+   max_rate_limit_retries: u32,
+   initial_backoff: u64,
+   compute_units_per_second: u64,
+) -> RetryBackoffLayer {
+   RetryBackoffLayer::new(
+      max_rate_limit_retries,
+      initial_backoff,
+      compute_units_per_second,
+   )
+}
+
+pub fn throttle_layer(max_requests_per_second: u32) -> ThrottleLayer {
+   ThrottleLayer::new(max_requests_per_second)
+}
+
 pub fn get_http_client(url: &str) -> Result<HttpClient, anyhow::Error> {
    let retry_layer = RetryBackoffLayer::new(10, 300, 330);
    let url = Url::parse(url)?;

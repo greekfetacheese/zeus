@@ -1,14 +1,13 @@
-pub use alloy_contract;
-pub use alloy_network;
-pub use alloy_primitives;
-pub use alloy_provider;
-pub use alloy_rpc_types;
-pub use alloy_sol_types;
-
 pub use abi;
 pub use amm;
 pub use currency;
 pub use revm_utils;
 pub use types;
+#[cfg(feature = "utils")]
 pub use utils;
+#[cfg(feature = "wallet")]
 pub use wallet;
+
+pub use abi::{alloy_contract, alloy_primitives, alloy_provider, alloy_rpc_types, alloy_sol_types};
+#[cfg(feature = "utils")]
+pub use utils::{alloy_network, alloy_rpc_client, alloy_transport};

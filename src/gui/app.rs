@@ -127,8 +127,6 @@ impl eframe::App for ZeusApp {
                }
             });
 
-         
-
          // Paint the Ui that belongs to the central panel
          egui::CentralPanel::default()
             .frame(bg_frame.clone())

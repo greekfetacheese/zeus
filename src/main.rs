@@ -10,8 +10,14 @@ pub mod gui;
 use core::utils::trace::*;
 
 fn main() -> eframe::Result {
+   // only use wgpu for windows
+   let renderer = if cfg!(target_os = "windows") {
+      eframe::Renderer::Wgpu
+   } else {
+      eframe::Renderer::Glow
+   };
    let options = eframe::NativeOptions {
-      renderer: eframe::Renderer::Wgpu,
+      renderer,
       viewport: egui::ViewportBuilder::default()
          .with_decorations(false) // Hide the OS-specific "chrome" around the window
          .with_inner_size([1280.0, 900.0])

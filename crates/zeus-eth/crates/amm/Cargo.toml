@@ -8,18 +8,26 @@ currency = { path = "../currency" }
 abi = { path = "../abi" }
 utils = { path = "../utils" }
 types = { path = "../types" }
+revm-utils = { path = "../revm-utils", optional = false}
 
 uniswap_v3_math = { git = "https://github.com/0xKitsune/uniswap-v3-math.git", branch = "main" }
 
 alloy-primitives = "0.8.20"
+alloy-sol-types = { version = "0.8.20" }
 
-alloy-rpc-types = "0.12.6"
-alloy-contract = "0.12.6"
-alloy-provider = "0.12.6"
+alloy-rpc-types = "0.13.0"
+alloy-contract = "0.13.0"
+alloy-provider = "0.13.0"
 
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
 serde = "1.0.217"
 serde_json = "1.0.138"
 anyhow = "1.0.95"
 tracing = "0.1.41"
-url = "2.5.4"
+
+[dev-dependencies]
+revm-utils = { path = "../revm-utils" }
+url = "2"
+
+[features]
+#position = ["dep:revm-utils"]
