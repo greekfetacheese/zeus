@@ -213,7 +213,7 @@ fn frame2() -> Frame {
    Frame {
       corner_radius: CornerRadius::same(5),
       inner_margin: Margin::same(10),
-      fill: BLACK_SHADE,
+      fill: BLACK_SHADE, // ! Need to change this because it has the same color as the secondary widget color
       ..Default::default()
    }
 }

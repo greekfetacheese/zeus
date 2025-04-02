@@ -25,6 +25,12 @@ impl Default for ChainId {
    }
 }
 
+impl Into<ChainId> for u64 {
+   fn into(self) -> ChainId {
+      ChainId::new(self).unwrap()
+   }
+}
+
 impl ChainId {
    pub fn new(id: u64) -> Result<Self, anyhow::Error> {
       let chain = match id {

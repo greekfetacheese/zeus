@@ -124,17 +124,19 @@ impl ViewKeyUi {
 
             // All good copy the key to the clipboard and show a msg
             if ok {
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                let ctx = gui.egui_ctx.clone();
                gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
                gui.wallet_ui.view_key_ui.reset();
                gui.open_msg_window("", VIEW_KEY_MSG);
+               });
             } else {
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                gui.open_msg_window(
                   "Failed to verify credentials",
                   "Please try again".to_string(),
                );
+            });
             }
          });
       }
@@ -210,7 +212,7 @@ impl DeleteWalletUi {
             let ok = gui::utils::verify_credentials(&mut account);
 
             if ok {
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                // credentials are verified
                gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
 
@@ -222,12 +224,14 @@ impl DeleteWalletUi {
 
                // erase the credentials form
                gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
+               });
             } else {
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                gui.open_msg_window(
                   "Failed to verify credentials",
                   "Please try again".to_string(),
                );
+            });
             }
          });
       }
@@ -299,16 +303,18 @@ impl DeleteWalletUi {
             gui::utils::open_loading("Encrypting account...".to_string());
             match account.encrypt_and_save(&dir, params.argon2_params) {
                Ok(_) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
                   gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                   gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                   gui.open_msg_window("Wallet Deleted", "");
+                  });
                }
                Err(e) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
                   gui.open_msg_window("Failed to delete wallet", e.to_string());
+                  });
                   return;
                }
             }

@@ -13,6 +13,18 @@ pub enum Currency {
    ERC20(ERC20Token),
 }
 
+impl From<NativeCurrency> for Currency {
+   fn from(native: NativeCurrency) -> Self {
+      Self::Native(native)
+   }
+}
+
+impl From<ERC20Token> for Currency {
+   fn from(erc20: ERC20Token) -> Self {
+      Self::ERC20(erc20)
+   }
+}
+
 impl Currency {
    /// Create a new Currency from a [NativeCurrency]
    pub fn from_native(native: NativeCurrency) -> Self {

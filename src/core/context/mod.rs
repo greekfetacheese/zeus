@@ -91,37 +91,79 @@ impl ZeusCtx {
       self.read(|ctx| ctx.chain.clone())
    }
 
-   pub fn save_balance_db(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.balance_db.save())
+   pub fn save_balance_db(&self) {
+      self.read(|ctx| match ctx.balance_db.save(){
+         Ok(_) => {
+            tracing::info!("BalanceDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
-   pub fn save_currency_db(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.currency_db.save())
+   pub fn save_currency_db(&self) {
+      self.read(|ctx| match ctx.currency_db.save(){
+         Ok(_) => {
+            tracing::info!("CurrencyDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
-   pub fn save_portfolio_db(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.portfolio_db.save())
+   pub fn save_portfolio_db(&self) {
+      self.read(|ctx| match ctx.portfolio_db.save() {
+         Ok(_) => {
+            tracing::info!("PortfolioDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
-   pub fn save_contact_db(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.contact_db.save())
+   pub fn save_contact_db(&self) {
+      self.read(|ctx| match ctx.contact_db.save() {
+         Ok(_) => {
+            tracing::info!("ContactDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
-   pub fn save_providers(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.providers.save_to_file())
+   pub fn save_providers(&self) {
+      self.read(|ctx| match ctx.providers.save_to_file() {
+         Ok(_) => {
+            tracing::info!("Providers saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
-   pub fn save_all(&self) -> Result<(), anyhow::Error> {
-      self.save_balance_db()?;
-      self.save_currency_db()?;
-      self.save_portfolio_db()?;
-      self.save_contact_db()?;
-      self.save_providers()?;
-      Ok(())
+   pub fn save_all(&self) {
+      self.save_balance_db();
+      self.save_currency_db();
+      self.save_portfolio_db();
+      self.save_contact_db();
+      self.save_providers();
+      self.save_tx_db();
    }
 
-   pub fn save_tx_db(&self) -> Result<(), anyhow::Error> {
-      self.read(|ctx| ctx.tx_db.save())
+   pub fn save_tx_db(&self) {
+      self.read(|ctx| match ctx.tx_db.save() {
+         Ok(_) => {
+            tracing::info!("TransactionsDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         },
+      })
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<NumericValue> {
@@ -209,7 +251,7 @@ impl ZeusCtx {
 
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
       if currency.is_native() {
-         let wrapped_token = ERC20Token::native_wrapped_token(currency.chain_id());
+         let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
          self.get_token_price(&wrapped_token).unwrap_or_default()
       } else {
          let token = currency.erc20().unwrap();
@@ -219,7 +261,7 @@ impl ZeusCtx {
 
    pub fn get_currency_price_opt(&self, currency: &Currency) -> Option<NumericValue> {
       if currency.is_native() {
-         let wrapped_token = ERC20Token::native_wrapped_token(currency.chain_id());
+         let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
          self.get_token_price(&wrapped_token)
       } else {
          let token = currency.erc20().unwrap();

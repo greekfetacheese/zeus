@@ -13,8 +13,9 @@ pub fn new_wallet_from_key_or_phrase(account: &mut Account, name: String, from_k
       Ok(_) => {}
       Err(e) => {
          {
-            let mut gui = SHARED_GUI.write().unwrap();
+            SHARED_GUI.write(|gui| {
             gui.open_msg_window("Failed to import wallet", e.to_string());
+            });
          }
          panic!("Failed to import wallet");
       }
@@ -26,8 +27,9 @@ pub fn new_wallet_rng(account: &mut Account, name: String) {
       Ok(_) => {}
       Err(e) => {
          {
-            let mut gui = SHARED_GUI.write().unwrap();
+            SHARED_GUI.write(|gui| {
             gui.open_msg_window("Failed to create new wallet", e.to_string());
+            });
          }
          panic!("Failed to create new wallet");
       }
@@ -39,8 +41,9 @@ pub fn get_account_dir() -> PathBuf {
       Ok(dir) => dir,
       Err(e) => {
          {
-            let mut gui = SHARED_GUI.write().unwrap();
+            SHARED_GUI.write(|gui| {
             gui.open_msg_window("Failed to get profile directory", e.to_string());
+            });
          }
          panic!("Failed to get profile directory");
       }
@@ -52,8 +55,9 @@ pub fn get_encrypted_info(dir: &PathBuf) -> EncryptedInfo {
       Ok(info) => info,
       Err(e) => {
          {
-            let mut gui = SHARED_GUI.write().unwrap();
+            SHARED_GUI.write(|gui| {
             gui.open_msg_window("Failed to get encrypted info", e.to_string());
+            });
          }
          panic!("Failed to get encrypted info");
       }
@@ -66,25 +70,29 @@ pub fn verify_credentials(account: &mut Account) -> bool {
 
    match account.decrypt_zero(&dir) {
       Ok(_) => {
-         let mut gui = SHARED_GUI.write().unwrap();
+         SHARED_GUI.write(|gui| {
          gui.loading_window.open = false;
+         });
          return true;
       }
       Err(e) => {
-         let mut gui = SHARED_GUI.write().unwrap();
+         SHARED_GUI.write(|gui| {
          gui.loading_window.open = false;
          gui.open_msg_window("Invalid Credentials", e.to_string());
+         });
          return false;
       }
    }
 }
 
 pub fn open_loading(msg: String) {
-   let mut gui = SHARED_GUI.write().unwrap();
+   SHARED_GUI.write(|gui| {
    gui.loading_window.open(msg);
+   });
 }
 
 pub fn close_loading() {
-   let mut gui = SHARED_GUI.write().unwrap();
+   SHARED_GUI.write(|gui| {
    gui.loading_window.reset();
+   });
 }

@@ -104,7 +104,7 @@ impl ImportWallet {
 
             match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.wallet_ui
                      .add_wallet_ui
                      .import_wallet
@@ -117,14 +117,16 @@ impl ImportWallet {
                      .clear();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet imported successfully", "");
+                  });
                   ctx.write(|ctx| {
                      ctx.account = account;
                   })
                }
                Err(e) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
                   gui.open_msg_window("Failed to save account", e.to_string());
+                  });
                   return;
                }
             }
@@ -289,18 +291,20 @@ impl AddWalletUi {
 
             match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                   gui.loading_window.open = false;
                   gui.open_msg_window("Wallet generated successfully", "");
+                  });
                   ctx.write(|ctx| {
                      ctx.account = account;
                   });
                }
                Err(e) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
                   gui.open_msg_window("Failed to save account", e.to_string());
+                  });
                   return;
                }
             }

@@ -196,10 +196,7 @@ impl ContactsUi {
                   ctx.write(|ctx| {
                      ctx.contact_db.remove_contact(contact.address);
                   });
-                  match ctx.save_contact_db() {
-                     Ok(_) => tracing::info!("ContactDB saved"),
-                     Err(e) => tracing::error!("Error saving DB: {:?}", e),
-                  }
+                  ctx.save_contact_db();
                   self.delete_contact = false;
                   self.main_ui = true;
                   self.contact_to_delete = None;
@@ -265,30 +262,30 @@ impl ContactsUi {
                      let _ = match Address::from_str(&contact.address) {
                         Ok(address) => address,
                         Err(e) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
-                           gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                           });
                            return;
                         }
                      };
 
                      ctx.write(|ctx| match ctx.contact_db.add_contact(contact) {
                         Ok(_) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
-                           gui.settings.contacts_ui.contact_to_add = Contact::default();
-                           gui.settings.contacts_ui.add_contact = false;
-                           gui.settings.contacts_ui.main_ui = true;
+                           SHARED_GUI.write(|gui| {
+                              gui.settings.contacts_ui.contact_to_add = Contact::default();
+                              gui.settings.contacts_ui.add_contact = false;
+                              gui.settings.contacts_ui.main_ui = true;
+                           });
                         }
                         Err(e) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
-                           gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                           });
                            return;
                         }
                      });
 
-                     match ctx.save_contact_db() {
-                        Ok(_) => tracing::info!("ContactDB saved"),
-                        Err(e) => tracing::error!("Error saving DB: {:?}", e),
-                     }
+                     ctx.save_contact_db();
                   });
                }
             });
@@ -366,8 +363,9 @@ impl ContactsUi {
                      let _ = match Address::from_str(&contact.address) {
                         Ok(address) => address,
                         Err(e) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
-                           gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                           });
                            return;
                         }
                      };
@@ -375,24 +373,21 @@ impl ContactsUi {
                      ctx.write(|ctx| {
                         ctx.contact_db.remove_contact(old_contact.address.clone());
                         match ctx.contact_db.add_contact(new_contact) {
-                           Ok(_) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
+                           Ok(_) => SHARED_GUI.write(|gui| {
                               gui.settings.contacts_ui.contact_to_edit = None;
                               gui.settings.contacts_ui.edit_contact = false;
                               gui.settings.contacts_ui.main_ui = true;
                               gui.loading_window.open = false;
-                           }
+                           }),
                            Err(e) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                              SHARED_GUI.write(|gui| {
+                                 gui.open_msg_window("Failed to add contact", &format!("{}", e));
+                              });
                               return;
                            }
                         }
                      });
-                     match ctx.save_contact_db() {
-                        Ok(_) => tracing::info!("ContactDB saved"),
-                        Err(e) => tracing::error!("Error saving DB: {:?}", e),
-                     }
+                     ctx.save_contact_db();
                   });
                }
             });

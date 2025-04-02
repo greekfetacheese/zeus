@@ -195,15 +195,17 @@ impl TokenSelectionWindow {
                      token
                   }
                   Err(e) => {
-                     let mut gui = SHARED_GUI.write().unwrap();
+                     SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Failed to fetch token", e.to_string());
                      gui.loading_window.open = false;
+                     });
                      return;
                   }
                };
                let currency = Currency::from_erc20(token);
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                gui.token_selection.selected_currency = Some(currency);
+               });
             });
 
             // close the token selection window

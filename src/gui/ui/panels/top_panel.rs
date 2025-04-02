@@ -56,7 +56,7 @@ impl TopLeftArea {
    pub fn new() -> Self {
       Self {
          open: false,
-         chain_select: ChainSelect::new("main_chain_select"),
+         chain_select: ChainSelect::new("main_chain_select", 1),
          wallet_select: WalletSelect::new("main_wallet_select"),
          size: (300.0, 140.0),
       }
@@ -76,7 +76,7 @@ impl TopLeftArea {
          widget_visuals(ui, theme.get_widget_visuals(theme.colors.bg_color));
 
          // Chain Select
-         let clicked = self.chain_select.show(theme, icons.clone(), ui);
+         let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
          if clicked {
             // update the chain
             ctx.write(|ctx| {

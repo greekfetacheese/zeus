@@ -13,8 +13,30 @@ use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 lazy_static! {
-   pub static ref SHARED_GUI: Arc<RwLock<GUI>> = Arc::new(RwLock::new(GUI::default()));
+   pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
 }
+
+#[derive(Clone)]
+pub struct SharedGUI(Arc<RwLock<GUI>>);
+
+impl SharedGUI {
+   /// Shared access to the [GUI]
+   pub fn read<R>(&self, reader: impl FnOnce(&GUI) -> R) -> R {
+      reader(&self.0.read().unwrap())
+   }
+
+   /// Exclusive mutable access to the [GUI]
+   pub fn write<R>(&self, writer: impl FnOnce(&mut GUI) -> R) -> R {
+      writer(&mut self.0.write().unwrap())
+   }
+}
+
+impl Default for SharedGUI {
+   fn default() -> Self {
+      Self(Arc::new(RwLock::new(GUI::default())))
+   }
+}
+
 
 pub struct GUI {
    pub egui_ctx: Context,
@@ -32,7 +54,11 @@ pub struct GUI {
 
    pub swap_ui: ui::SwapUi,
 
+   pub across_bridge: ui::dapps::across::AcrossBridge,
+
    pub token_selection: ui::TokenSelectionWindow,
+
+   pub recipient_selection: ui::RecipientSelectionWindow,
 
    pub wallet_ui: ui::WalletUi,
 
@@ -60,8 +86,10 @@ pub struct GUI {
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
       let token_selection = ui::TokenSelectionWindow::new();
+      let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
       let top_left_area = ui::panels::top_panel::TopLeftArea::new();
+      let across_bridge = ui::dapps::across::AcrossBridge::new();
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
@@ -77,8 +105,10 @@ impl GUI {
          editor: ThemeEditor::new(),
          icons,
          token_selection,
+         recipient_selection,
          wallet_ui,
          swap_ui: ui::SwapUi::new(),
+         across_bridge,
          login: ui::LoginUi::new(),
          register: ui::RegisterUi::new(),
          portofolio: ui::PortfolioUi::new(),

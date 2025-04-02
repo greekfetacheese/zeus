@@ -29,7 +29,29 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
+         gui.across_bridge.open = false;
          gui.portofolio.open = true;
+      }
+
+      let bridge = button(rich_text("Bridge").size(21.0));
+      if ui.add(bridge).clicked() {
+         gui.portofolio.open = false;
+         gui.swap_ui.open = false;
+         gui.send_crypto.open = false;
+         gui.settings.open = false;
+         gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+         gui.across_bridge.open = true;
+
+         let chain = gui.send_crypto.chain_select.chain.id();
+         let fee = ctx
+            .get_priority_fee(chain)
+            .unwrap_or_default()
+            .formatted()
+            .clone();
+         gui.across_bridge.priority_fee = fee;
       }
 
       let wallets = button(rich_text("Wallets").size(21.0));
@@ -39,6 +61,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.tx_history.open = false;
+         gui.across_bridge.open = false;
          gui.wallet_ui.open = true;
       }
 
@@ -49,6 +72,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
+         gui.across_bridge.open = false;
          gui.tx_history.open = true;
       }
 
@@ -61,6 +85,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.settings.open = false;
             gui.wallet_ui.open = false;
             gui.tx_history.open = false;
+            gui.across_bridge.open = false;
             gui.swap_ui.open = true;
          }
       }
@@ -72,7 +97,10 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
+         gui.across_bridge.open = false;
          gui.send_crypto.open = true;
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
 
          let chain = gui.send_crypto.chain_select.chain.id();
          let fee = ctx
@@ -90,6 +118,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
+         gui.across_bridge.open = false;
          gui.settings.open = true;
       }
 

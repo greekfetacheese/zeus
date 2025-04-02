@@ -60,7 +60,8 @@ where
    }
 
    // Create a new sandbox environment with backend running on own thread
-   pub fn new_sandbox_factory(provider: P, initial_db: InMemoryDB, fork_block: Option<BlockId>) -> Self {
+   pub fn new_sandbox_factory(provider: P, initial_db: Option<InMemoryDB>, fork_block: Option<BlockId>) -> Self {
+      let initial_db = initial_db.unwrap_or_else(|| InMemoryDB::default());
       let (shared, handler) = Self::new(provider, initial_db, fork_block);
 
       // spawn a light-weight thread with a thread-local async runtime just for

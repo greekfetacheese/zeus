@@ -5,16 +5,29 @@ pub mod panels;
 pub mod send_crypto;
 pub mod settings;
 pub mod token_selection;
+pub mod recipient_selection;
 pub mod wallet;
 
 pub use auth::{CredentialsForm, LoginUi, RegisterUi};
-pub use dapps::uniswap::swap::SwapUi;
+pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
 pub use misc::*;
 pub use send_crypto::SendCryptoUi;
 pub use token_selection::TokenSelectionWindow;
+pub use recipient_selection::RecipientSelectionWindow;
 pub use wallet::WalletUi;
 
 use eframe::egui::{Button, FontId, RichText, Sense, TextEdit, vec2, widget_text::WidgetText, widgets::Image};
+
+pub const GREEN_CIRCLE: &str = "🟢";
+pub const RED_CIRCLE: &str = "🔴";
+pub const LIGHTING_BOLT: &str = "⚡";
+pub const BOOK: &str = "📖";
+pub const GAS: &str = "⛽";
+pub const GREEN_CHECK: &str = "✅";
+pub const KEY: &str = "🔑";
+pub const LOCK: &str = "🔒";
+pub const UNLOCK: &str = "🔓";
+pub const PENDING: &str = "⏳";
 
 pub fn rich_text(text: impl Into<String>) -> RichText {
    RichText::new(text).size(15.0)

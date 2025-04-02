@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 abi = { path = "../abi" }
+dapps = { path = "../dapps" }
 
 revm = { version = "21.0.0", features = [
     "std",
@@ -14,6 +15,7 @@ revm = { version = "21.0.0", features = [
     "optional_eip3607",
 ] }
 
+alloy-sol-types = {version = "0.8.20", features = ["json"]}
 alloy-primitives = "0.8.25"
 alloy-signer = "0.13.0"
 alloy-signer-local = "0.13.0"

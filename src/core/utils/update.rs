@@ -17,7 +17,16 @@ use zeus_eth::{
 
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
-   measure_rpcs(ctx.clone()).await;
+   for chain in SUPPORTED_CHAINS {
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+      match update_priority_fee(ctx_clone, chain).await {
+         Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+         Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
+      }
+      });
+   }
+
    resync_pools(ctx.clone()).await;
    update_pool_manager(ctx.clone()).await;
 
@@ -38,12 +47,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       }
    }
 
-   for chain in SUPPORTED_CHAINS {
-      match update_priority_fee(ctx.clone(), chain).await {
-         Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
-      }
-   }
+   measure_rpcs(ctx.clone()).await;
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
@@ -99,10 +103,7 @@ pub fn portfolio_update(ctx: ZeusCtx) {
       }
    }
 
-   match ctx.save_portfolio_db() {
-      Ok(_) => tracing::info!("PortfolioDB saved"),
-      Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
-   }
+   ctx.save_portfolio_db();
 }
 
 /// Update the portofolio state for the given chain and wallet
@@ -127,7 +128,7 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
    update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await?;
 
    ctx.update_portfolio_value(chain, owner);
-   ctx.save_all()?;
+   ctx.save_all();
 
    Ok(())
 }
@@ -181,10 +182,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       }
    }
 
-   match ctx.save_balance_db() {
-      Ok(_) => tracing::info!("BalanceDB saved"),
-      Err(e) => tracing::error!("Error saving DB: {:?}", e),
-   }
+   ctx.save_balance_db();
 
    Ok(())
 }
@@ -400,15 +398,8 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
       portfolio_update(ctx.clone());
 
-      match ctx.save_portfolio_db() {
-         Ok(_) => tracing::info!("PortfolioDB saved"),
-         Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
-      }
-
-      match ctx.save_pool_data() {
-         Ok(_) => tracing::info!("PoolData saved"),
-         Err(e) => tracing::error!("Error saving PoolData: {:?}", e),
-      }
+      ctx.save_portfolio_db();
+      ctx.save_pool_data();
    } else {
       tracing::info!("No need to resync pools");
    }

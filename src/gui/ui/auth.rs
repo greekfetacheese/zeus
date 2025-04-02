@@ -139,14 +139,16 @@ impl LoginUi {
                      let info = get_encrypted_info(&dir);
                      match account.decrypt_and_load(&dir) {
                         Ok(_) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
+                           SHARED_GUI.write(|gui| {
                            gui.login.credentials_form.erase();
                            gui.settings.encryption.argon_params = info.argon2_params.clone();
                            gui.portofolio.open = true;
                            gui.top_left_area.open = true;
                            gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
                            gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
+                           gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
                            gui.loading_window.open = false;
+                           });
 
                            ctx.write(|ctx| {
                               ctx.account = account;
@@ -154,9 +156,10 @@ impl LoginUi {
                            });
                         }
                         Err(e) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
+                           SHARED_GUI.write(|gui| {
                            gui.open_msg_window("Failed to unlock account", e.to_string());
                            gui.loading_window.open = false;
+                           });
                         }
                      };
                   });
@@ -209,21 +212,22 @@ impl RegisterUi {
                   account.credentials = self.credentials_form.credentials.clone();
 
                   std::thread::spawn(move || {
-                     {
-                        let mut gui = SHARED_GUI.write().unwrap();
+                        SHARED_GUI.write(|gui| {
                         gui.loading_window.msg = "Creating account...".to_string();
                         gui.loading_window.open = true;
-                     }
+                     });
                      let dir = get_account_dir();
                      match account.encrypt_and_save(&dir, Argon2Params::balanced()) {
                         Ok(_) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
+                           SHARED_GUI.write(|gui| {
                            gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
                            gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
+                           gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
                            gui.register.credentials_form.erase();
                            gui.portofolio.open = true;
                            gui.top_left_area.open = true;
                            gui.loading_window.open = false;
+                           });
 
                            ctx.write(|ctx| {
                               ctx.account_exists = true;
@@ -232,9 +236,10 @@ impl RegisterUi {
                            });
                         }
                         Err(e) => {
-                           let mut gui = SHARED_GUI.write().unwrap();
+                           SHARED_GUI.write(|gui| {
                            gui.open_msg_window("Failed to create account", e.to_string());
                            gui.loading_window.open = false;
+                           });
                         }
                      };
                   });

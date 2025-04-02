@@ -161,7 +161,7 @@ impl TxHistory {
    fn tx_method(&self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, tx: &TxDetails, ui: &mut Ui) {
       match &tx.method {
          TxMethod::Transfer(currency) => {
-            let icon = icons.native_currency_icon(currency);
+            let icon = icons.native_currency_icon(currency.chain_id);
             ui.add(icon);
             ui.label(RichText::new(&currency.symbol).size(theme.text_sizes.normal));
             ui.label(RichText::new(tx.value.formatted()).size(theme.text_sizes.normal));

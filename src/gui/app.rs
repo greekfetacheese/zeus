@@ -33,12 +33,13 @@ impl ZeusApp {
       let gui = GUI::new(icons.clone(), theme.clone(), ctx_clone);
 
       // Update the shared GUI with the current GUI state
-      let mut shared_gui = SHARED_GUI.write().unwrap();
 
+      SHARED_GUI.write(|shared_gui| {
       shared_gui.icons = gui.icons.clone();
       shared_gui.theme = gui.theme.clone();
       shared_gui.egui_ctx = gui.egui_ctx.clone();
       shared_gui.ctx = gui.ctx.clone();
+      });
 
       Self {
          on_startup: true,
@@ -49,8 +50,8 @@ impl ZeusApp {
 
    fn start_up(&mut self, ctx: &egui::Context) {
       let ctx = ctx.clone();
-      let gui = SHARED_GUI.read().unwrap();
-      ctx.set_style(gui.theme.style.clone());
+      let style = SHARED_GUI.read(|shared_gui| shared_gui.theme.style.clone());
+      ctx.set_style(style);
    }
 
    fn start_update(&mut self) {
@@ -89,8 +90,8 @@ impl eframe::App for ZeusApp {
          self.on_startup = false;
       }
 
-      let mut gui = SHARED_GUI.write().unwrap();
-      self.on_shutdown(ctx, &mut gui);
+      SHARED_GUI.write(|gui| {
+      self.on_shutdown(ctx, gui);
 
       let bg_color = if gui.show_overlay {
          gui.theme.colors.overlay_color
@@ -136,5 +137,6 @@ impl eframe::App for ZeusApp {
                });
             });
       });
+   });
    }
 }

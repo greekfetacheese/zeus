@@ -21,7 +21,7 @@ use utils::{get_logs_for, address::uniswap_nft_position_manager};
 
 use revm_utils::{
    AccountType, DummyAccount, ForkFactory, new_evm, simulate,
-   revm::{database::InMemoryDB, state::Bytecode},
+   revm::state::Bytecode,
 };
 
 use anyhow::Context;
@@ -250,7 +250,7 @@ where
    let upper_tick = get_tick_from_price(args.upper_range);
 
    // prepare the fork enviroment
-   let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), InMemoryDB::default(), Some(fork_block));
+   let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), None, Some(fork_block));
 
    // a simple router to simulate uniswap swaps
    let bytecode = Bytecode::new_raw(abi::misc::SWAP_ROUTER_BYTECODE.parse()?);

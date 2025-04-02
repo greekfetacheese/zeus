@@ -1,11 +1,49 @@
 use crate::revert_msg;
-use alloy_primitives::{Address, TxKind, U256};
+use alloy_primitives::{Address, Bytes, TxKind, U256};
 
 use super::Evm2;
 use anyhow::anyhow;
 use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
 
 use abi::uniswap::nft_position::{INonfungiblePositionManager, MintReturn};
+
+
+
+/// Simulate the depositV3 of the SpokePool contract
+pub fn across_deposit_v3<DB>(
+   evm: &mut Evm2<DB>,
+   call_data: Bytes,
+   value: U256,
+   caller: Address,
+   contract: Address,
+   commit: bool,
+) -> Result<(), anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   evm.tx.caller = caller;
+   evm.tx.data = call_data;
+   evm.tx.value = value;
+   evm.tx.kind = TxKind::Call(contract);
+
+   let res = if commit {
+      evm.transact_commit(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+   } else {
+      evm.transact(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+         .result
+   };
+
+   let output = res.output().ok_or(anyhow!("Output not found"))?;
+
+   if !res.is_success() {
+      let err = revert_msg(&output);
+      return Err(anyhow!("Failed to deposit: {}", err));
+   }
+
+   Ok(())
+}
 
 /// Simulate a swap using [abi::misc::SwapRouter]
 ///
@@ -62,6 +100,45 @@ where
    let output = res.result.output().ok_or(anyhow!("Output not found"))?;
    let balance = abi::erc20::decode_balance_of(&output)?;
    Ok(balance)
+}
+
+/// Simulate the transfer function in the ERC20 contract
+pub fn transfer_token<DB>(
+   evm: &mut Evm2<DB>,
+   token: Address,
+   from: Address,
+   to: Address,
+   amount: U256,
+   commit: bool
+) -> Result<(), anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   let data = abi::erc20::encode_transfer(to, amount);
+   evm.tx.caller = from;
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(token);
+
+   let res = if commit {
+      evm.transact_commit(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+   } else {
+      evm.transact(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+         .result
+   };
+
+   println!("Execution result: {:?}", res);
+
+   let output = res.output().ok_or(anyhow!("Output not found"))?;
+
+   if !res.is_success() {
+      let err = revert_msg(&output);
+      return Err(anyhow!("Failed to transfer token: {}", err));
+   }
+
+   Ok(())
 }
 
 /// Simulate the approve function in the ERC20 contract

@@ -33,7 +33,7 @@ impl NetworkSettings {
          add_rpc: false,
          valid_url: false,
          url_to_add: String::new(),
-         chain_select: ChainSelect::new("network_settings_chain_select"),
+         chain_select: ChainSelect::new("network_settings_chain_select", 1),
          size: (500.0, 400.0),
       }
    }
@@ -67,7 +67,7 @@ impl NetworkSettings {
 
             ui.horizontal(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  self.chain_select.show(theme, icons.clone(), ui);
+                  self.chain_select.show(0, theme, icons.clone(), ui);
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -81,8 +81,9 @@ impl NetworkSettings {
                      let ctx = ctx.clone();
                      RT.spawn(async move {
                         measure_rpcs(ctx.clone()).await;
-                        let mut gui = SHARED_GUI.write().unwrap();
+                        SHARED_GUI.write(|gui| {
                         gui.settings.network.refreshing = false;
+                        });
                      });
                   }
 

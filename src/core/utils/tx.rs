@@ -222,7 +222,7 @@ impl TxDetails {
 pub struct TxParams {
    pub tx_method: TxMethod,
    pub signer: SecureSigner,
-   pub recipient: Address,
+   pub transcact_to: Address,
    pub value: U256,
    pub chain: ChainId,
    pub miner_tip: U256,
@@ -235,7 +235,7 @@ impl TxParams {
    pub fn new(
       tx_method: TxMethod,
       signer: SecureSigner,
-      recipient: Address,
+      transcact_to: Address,
       value: U256,
       chain: ChainId,
       miner_tip: U256,
@@ -246,7 +246,7 @@ impl TxParams {
       Self {
          tx_method,
          signer,
-         recipient,
+         transcact_to,
          value,
          chain,
          miner_tip,
@@ -323,7 +323,7 @@ pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
       return TransactionRequest::default()
          .with_from(params.signer.borrow().address())
-         .with_to(params.recipient)
+         .with_to(params.transcact_to)
          .with_chain_id(params.chain.id())
          .with_value(params.value)
          .with_input(params.call_data.clone())
@@ -333,7 +333,7 @@ pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
       // Legacy
       return TransactionRequest::default()
          .with_from(params.signer.borrow().address())
-         .with_to(params.recipient)
+         .with_to(params.transcact_to)
          .with_value(params.value)
          .with_input(params.call_data)
          .with_gas_price(params.base_fee.into());

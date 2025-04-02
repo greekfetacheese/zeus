@@ -163,16 +163,18 @@ impl SettingsUi {
 
                         match account.decrypt_zero(&dir) {
                            Ok(data) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.settings.verified_credentials = true;
-                              gui.settings.credentials.erase();
-                              gui.loading_window.open = false;
+                              SHARED_GUI.write(|gui| {
+                                 gui.settings.verified_credentials = true;
+                                 gui.settings.credentials.erase();
+                                 gui.loading_window.open = false;
+                              });
                               data
                            }
                            Err(e) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.loading_window.open = false;
-                              gui.open_msg_window("Failed to decrypt profile", &format!("{}", e));
+                              SHARED_GUI.write(|gui| {
+                                 gui.loading_window.open = false;
+                                 gui.open_msg_window("Failed to decrypt profile", &format!("{}", e));
+                              });
                               return;
                            }
                         };
@@ -198,19 +200,19 @@ impl SettingsUi {
                         utils::open_loading("Encrypting profile...".to_string());
 
                         match account.encrypt_and_save(&dir, params) {
-                           Ok(_) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
+                           Ok(_) => SHARED_GUI.write(|gui| {
                               gui.settings.credentials.erase();
                               gui.settings.verified_credentials = false;
                               gui.settings.credentials.open = false;
                               gui.settings.main_ui = true;
                               gui.loading_window.open = false;
                               gui.open_msg_window("Credentials have been updated", "");
-                           }
+                           }),
                            Err(e) => {
-                              let mut gui = SHARED_GUI.write().unwrap();
-                              gui.loading_window.open = false;
-                              gui.open_msg_window("Failed to update credentials", &format!("{}", e));
+                              SHARED_GUI.write(|gui| {
+                                 gui.loading_window.open = false;
+                                 gui.open_msg_window("Failed to update credentials", &format!("{}", e));
+                              });
                               return;
                            }
                         }
@@ -311,16 +313,18 @@ impl EncryptionSettings {
 
                            match account.encrypt_and_save(&dir, params.clone()) {
                               Ok(_) => {
-                                 let mut gui = SHARED_GUI.write().unwrap();
-                                 gui.open_msg_window("Encryption settings have been updated", "");
-                                 gui.settings.encryption.open = false;
-                                 gui.settings.encryption.argon_params = params;
-                                 gui.loading_window.open = false;
+                                 SHARED_GUI.write(|gui| {
+                                    gui.open_msg_window("Encryption settings have been updated", "");
+                                    gui.settings.encryption.open = false;
+                                    gui.settings.encryption.argon_params = params;
+                                    gui.loading_window.open = false;
+                                 });
                               }
                               Err(e) => {
-                                 let mut gui = SHARED_GUI.write().unwrap();
-                                 gui.open_msg_window("Failed to update encryption settings", &format!("{}", e));
-                                 gui.loading_window.open = false;
+                                 SHARED_GUI.write(|gui| {
+                                    gui.open_msg_window("Failed to update encryption settings", &format!("{}", e));
+                                    gui.loading_window.open = false;
+                                 });
                                  return;
                               }
                            }

@@ -18,19 +18,24 @@ use zeus_eth::{currency::Currency, types::ChainId};
 
 pub mod tx_history;
 
+
+
+
 /// A ComboBox to select a chain
 pub struct ChainSelect {
    pub id: &'static str,
+   pub grid_id: &'static str,
    pub chain: ChainId,
    pub size: Vec2,
    pub show_icon: bool,
 }
 
 impl ChainSelect {
-   pub fn new(id: &'static str) -> Self {
+   pub fn new(id: &'static str, default_chain: u64) -> Self {
       Self {
          id,
-         chain: ChainId::new(1).unwrap(),
+         grid_id: "chain_select_grid",
+         chain: ChainId::new(default_chain).unwrap(),
          size: (200.0, 25.0).into(),
          show_icon: true,
       }
@@ -49,28 +54,28 @@ impl ChainSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the chain was changed
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(&mut self, ignore_chain: u64, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let selected_chain = self.chain.id();
       let mut clicked = false;
 
       // hack to keep the icon centered relative to the combobox
-      // But if show_icon is true we cannot apply ui.vertical_centered on the combobox
+      // But if show_icon is true we cannot center the combobox
       if self.show_icon {
-         Grid::new("chain_select")
+         Grid::new(self.grid_id)
             .spacing(vec2(0.0, 0.0))
             .show(ui, |ui| {
                let icon = icons.chain_icon(&selected_chain);
                ui.add(icon);
-               clicked = self.combo_box(theme, ui);
+               clicked = self.combo_box(ignore_chain, theme, ui);
             });
       } else {
-         clicked = self.combo_box(theme, ui);
+         clicked = self.combo_box(ignore_chain, theme, ui);
       }
 
       clicked
    }
 
-   fn combo_box(&mut self, theme: &Theme, ui: &mut Ui) -> bool {
+   fn combo_box(&mut self, ignore_chain: u64, theme: &Theme, ui: &mut Ui) -> bool {
       let mut selected_chain = self.chain.clone();
       let supported_chains = ChainId::supported_chains();
       let mut clicked = false;
@@ -82,6 +87,10 @@ impl ChainSelect {
             .selected_text(rich_text(selected_chain.name()).size(theme.text_sizes.normal))
             .show_ui(ui, |ui| {
                for chain in supported_chains {
+                  if chain.id() == ignore_chain {
+                     continue;
+                  }
+
                   let value = ui.selectable_value(
                      &mut selected_chain,
                      chain.clone(),
@@ -511,8 +520,9 @@ impl PortfolioUi {
             }
          }
 
-         let mut gui = SHARED_GUI.write().unwrap();
+         SHARED_GUI.write(|gui| {
          gui.portofolio.show_spinner = false;
+         });
       });
    }
 
@@ -559,13 +569,15 @@ impl PortfolioUi {
          match pool_manager.update(client, chain_id).await {
             Ok(_) => {
                tracing::info!("Updated pool state for {}", token2.symbol);
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                gui.portofolio.show_spinner = false;
+               });
             }
             Err(e) => {
                tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e);
-               let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                gui.portofolio.show_spinner = false;
+               });
             }
          }
 

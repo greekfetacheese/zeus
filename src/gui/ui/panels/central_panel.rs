@@ -14,6 +14,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
+   let recipient_selection = &mut gui.recipient_selection;
 
    gui.send_crypto.tx_success_window.show(theme, ui);
 
@@ -34,10 +35,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
    gui.send_crypto
-      .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
+      .show(ctx.clone(), icons.clone(), theme, token_selection, recipient_selection, ui);
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.tx_history.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.across_bridge.show(ctx.clone(), theme, icons.clone(), recipient_selection, ui);
 
    #[cfg(feature = "dev")]
    {
@@ -62,8 +64,6 @@ fn should_show_overlay(gui: &mut GUI) {
    } else if gui.settings.encryption.open {
       gui.show_overlay = true;
    } else if gui.token_selection.open {
-      gui.show_overlay = true;
-   } else if gui.send_crypto.recipient_selection.open {
       gui.show_overlay = true;
    } else {
       gui.show_overlay = false;

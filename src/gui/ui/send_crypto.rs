@@ -1,17 +1,17 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, Response, RichText, ScrollArea, Spinner,
-   TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, Response, RichText, Spinner, TextEdit,
+   Ui, Vec2, Window, vec2,
 };
 
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
-   Contact, Wallet, ZeusCtx,
+   ZeusCtx,
    utils::{
       RT,
       eth::{self, get_currency_balance, send_crypto},
-      tx::{TxParams, TxMethod},
+      tx::{TxMethod, TxParams},
    },
 };
 
@@ -19,7 +19,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      TokenSelectionWindow, button, img_button,
+      RecipientSelectionWindow, TokenSelectionWindow, button, img_button,
       misc::{ChainSelect, WalletSelect},
       rich_text,
    },
@@ -97,12 +97,13 @@ impl TxSuccessWindow {
 
 pub struct SendCryptoUi {
    pub open: bool,
-   pub recipient_selection: RecipientSelectionWindow,
    pub chain_select: ChainSelect,
    pub wallet_select: WalletSelect,
    pub priority_fee: String,
    pub currency: Currency,
    pub amount: String,
+   pub recipient: String,
+   pub recipient_name: Option<String>,
    pub search_query: String,
    pub size: (f32, f32),
    pub tx_success_window: TxSuccessWindow,
@@ -117,12 +118,13 @@ impl SendCryptoUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         recipient_selection: RecipientSelectionWindow::new(),
-         chain_select: ChainSelect::new("chain_select_2"),
+         chain_select: ChainSelect::new("chain_select_2", 1),
          wallet_select: WalletSelect::new("wallet_select_2"),
          priority_fee: "1".to_string(),
          currency: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
          amount: String::new(),
+         recipient: String::new(),
+         recipient_name: None,
          search_query: String::new(),
          size: (500.0, 750.0),
          tx_success_window: TxSuccessWindow::new(),
@@ -138,13 +140,24 @@ impl SendCryptoUi {
       icons: Arc<Icons>,
       theme: &Theme,
       token_selection: &mut TokenSelectionWindow,
+      recipient_selection: &mut RecipientSelectionWindow,
       ui: &mut Ui,
    ) {
       if !self.open {
          return;
       }
 
-      self.review_transaction(ctx.clone(), theme, icons.clone(), ui);
+      recipient_selection.show(ctx.clone(), theme, &self.wallet_select, ui);
+      let recipient = recipient_selection.get_recipient();
+      let recipient_name = recipient_selection.get_recipient_name();
+      self.review_transaction(
+         ctx.clone(),
+         theme,
+         icons.clone(),
+         recipient.clone(),
+         recipient_name.clone(),
+         ui,
+      );
 
       let frame = theme.frame1;
       let bg_color = frame.fill;
@@ -178,7 +191,7 @@ impl SendCryptoUi {
 
             ui.scope(|ui| {
                widget_visuals(ui, theme.get_widget_visuals(bg_color));
-               let clicked = self.chain_select.show(theme, icons.clone(), ui);
+               let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
                if clicked {
                   let chain = self.chain_select.chain.id();
                   self.priority_fee = ctx
@@ -224,8 +237,8 @@ impl SendCryptoUi {
                         .color(theme.colors.text_secondary)
                         .size(theme.text_sizes.large),
                   );
-                  if !self.recipient_selection.recipient.is_empty() {
-                     if let Some(name) = &self.recipient_selection.recipient_name {
+                  if !recipient_selection.recipient.is_empty() {
+                     if let Some(name) = &recipient_selection.recipient_name {
                         ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
                      } else {
                         ui.label(
@@ -242,7 +255,7 @@ impl SendCryptoUi {
             ui.horizontal(|ui| {
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                let res = ui.add(
-                  TextEdit::singleline(&mut self.recipient_selection.recipient)
+                  TextEdit::singleline(&mut recipient_selection.recipient)
                      .hint_text("Search contacts or enter an address")
                      .min_size(vec2(ui_width * 0.85, 25.0))
                      .margin(Margin::same(10))
@@ -250,14 +263,10 @@ impl SendCryptoUi {
                      .font(FontId::proportional(theme.text_sizes.large)),
                );
                if res.clicked() {
-                  self.recipient_selection.open = true;
+                  recipient_selection.open = true;
                }
             });
             ui.add_space(space);
-
-            self
-               .recipient_selection
-               .show(ctx.clone(), theme, &self.wallet_select, ui);
 
             // Token Selection
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -404,7 +413,7 @@ impl SendCryptoUi {
                Button::new(rich_text("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.9, 40.0));
             ui.vertical_centered(|ui| {
                if ui.add(send).clicked() {
-                  self.validate_and_send(ctx.clone());
+                  self.validate_and_send(ctx.clone(), recipient);
                }
             });
             ui.add_space(space);
@@ -428,16 +437,16 @@ impl SendCryptoUi {
       RT.spawn(async move {
          let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
             Ok(b) => {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.send_crypto.syncing_balance = false;
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.syncing_balance = false;
+               });
                b
             }
             Err(e) => {
                tracing::error!("Error getting balance: {:?}", e);
-               {
-                  let mut gui = SHARED_GUI.write().unwrap();
+               SHARED_GUI.write(|gui| {
                   gui.send_crypto.syncing_balance = false;
-               }
+               });
                return;
             }
          };
@@ -495,10 +504,9 @@ impl SendCryptoUi {
                .await
                {
                   Ok(_) => {
-                     {
-                        let mut gui = SHARED_GUI.write().unwrap();
+                     SHARED_GUI.write(|gui| {
                         gui.send_crypto.pool_data_syncing = false;
-                     }
+                     });
                      let client = ctx.get_client_with_id(chain_id).unwrap();
                      let pool_manager = ctx.pool_manager();
                      pool_manager.update(client, chain_id).await.unwrap();
@@ -508,8 +516,9 @@ impl SendCryptoUi {
                   }
                   Err(e) => {
                      tracing::error!("Error getting pools: {:?}", e);
-                     let mut gui = SHARED_GUI.write().unwrap();
-                     gui.send_crypto.pool_data_syncing = false;
+                     SHARED_GUI.write(|gui| {
+                        gui.send_crypto.pool_data_syncing = false;
+                     });
                   }
                };
             });
@@ -558,7 +567,7 @@ impl SendCryptoUi {
       };
 
       // native token price
-      let native_token = ERC20Token::native_wrapped_token(chain.id());
+      let native_token = ERC20Token::wrapped_native_token(chain.id());
       let price = ctx.get_token_price(&native_token).unwrap_or_default().f64();
 
       let cost_wei = gas_used * fee;
@@ -570,9 +579,8 @@ impl SendCryptoUi {
       (cost_wei, cost_usd)
    }
 
-   fn validate_params(&self, ctx: ZeusCtx) -> Result<TxParams, anyhow::Error> {
+   fn validate_params(&self, ctx: ZeusCtx, recipient: String) -> Result<TxParams, anyhow::Error> {
       let from = self.wallet_select.wallet.clone();
-      let recipient = self.recipient_selection.recipient.clone();
       let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let currency = self.currency.clone();
@@ -581,11 +589,9 @@ impl SendCryptoUi {
 
       let balance = ctx.get_currency_balance(chain.id(), from.key.borrow().address(), &currency);
 
-      /*
       if amount.wei().unwrap() > balance.wei().unwrap() {
          return Err(anyhow!("Insufficient balance"));
       }
-       */
 
       if to.is_zero() {
          return Err(anyhow!("Invalid recipient address"));
@@ -653,7 +659,15 @@ impl SendCryptoUi {
       Ok(params)
    }
 
-   fn review_transaction(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn review_transaction(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      recipient: String,
+      recipient_name: Option<String>,
+      ui: &mut Ui,
+   ) {
       if !self.review_tx_window {
          return;
       }
@@ -663,8 +677,6 @@ impl SendCryptoUi {
       let sender = self.wallet_select.wallet.clone();
       let chain = self.chain_select.chain;
       let currency = self.currency.clone();
-      let recipient = self.recipient_selection.recipient.clone();
-      let recipient_name = self.recipient_selection.recipient_name.clone();
       let explorer = chain.block_explorer().to_owned();
 
       let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
@@ -724,12 +736,13 @@ impl SendCryptoUi {
          });
 
       if should_send_tx {
-         let params = match self.validate_params(ctx.clone()) {
+         let params = match self.validate_params(ctx.clone(), recipient) {
             Ok(p) => p,
             Err(e) => {
                std::thread::spawn(move || {
-                  let mut gui = SHARED_GUI.write().unwrap();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                  SHARED_GUI.write(|gui| {
+                     gui.msg_window.open("Transaction Error", &e.to_string());
+                  });
                });
                return;
             }
@@ -740,12 +753,11 @@ impl SendCryptoUi {
 
             match send_crypto(ctx.clone(), currency.clone(), params.clone()).await {
                Ok(tx) => {
-                  {
-                     let mut gui = SHARED_GUI.write().unwrap();
+                  SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
                      gui.send_crypto.tx_success_window.open(link);
-                  }
+                  });
 
                   // if recipient is a wallet owned by the user then update the balance
                   // Also update the sender's balance
@@ -772,9 +784,10 @@ impl SendCryptoUi {
                   ctx.update_portfolio_value(chain.id(), sender_addr);
                }
                Err(e) => {
-                  let mut gui = SHARED_GUI.write().unwrap();
-                  gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Transaction Error", &e.to_string());
+                  });
                }
             }
          });
@@ -782,289 +795,19 @@ impl SendCryptoUi {
    }
 
    /// Validate the params and open the Review Tx window
-   fn validate_and_send(&mut self, ctx: ZeusCtx) {
-      match self.validate_params(ctx.clone()) {
+   fn validate_and_send(&mut self, ctx: ZeusCtx, recipient: String) {
+      match self.validate_params(ctx.clone(), recipient) {
          Ok(_) => {
             self.review_tx_window = true;
          }
          Err(e) => {
             std::thread::spawn(move || {
-               let mut gui = SHARED_GUI.write().unwrap();
-               gui.msg_window.open("Transaction Error", &e.to_string());
+               SHARED_GUI.write(|gui| {
+                  gui.msg_window.open("Transaction Error", &e.to_string());
+               });
             });
             return;
          }
       };
    }
-}
-
-pub struct RecipientSelectionWindow {
-   pub open: bool,
-   /// Address in string format
-   pub recipient: String,
-   pub recipient_name: Option<String>,
-   pub search_query: String,
-   pub size: (f32, f32),
-}
-
-impl RecipientSelectionWindow {
-   pub fn new() -> Self {
-      Self {
-         open: false,
-         recipient: String::new(),
-         recipient_name: None,
-         search_query: String::new(),
-         size: (450.0, 350.0),
-      }
-   }
-
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, wallet_select: &WalletSelect, ui: &mut Ui) {
-      let mut open = self.open;
-      let mut close_window = false;
-      let frame = Frame::window(ui.style());
-      let bg_color = frame.fill;
-
-      Window::new("Recipient")
-         .open(&mut open)
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(450.0);
-            ui.set_height(350.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let ui_width = ui.available_width();
-            let column_width = ui.available_width() / 3.0;
-
-            // Search bar
-            ui.vertical_centered(|ui| {
-               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-               ui.add_space(20.0);
-               ui.add(
-                  TextEdit::singleline(&mut self.search_query)
-                     .hint_text("Search contacts or enter an address")
-                     .min_size(vec2(ui_width * 0.80, 25.0))
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal)),
-               );
-               ui.add_space(20.0);
-            });
-
-            let wallets = ctx.account().wallets;
-            let contacts = ctx.contacts();
-
-            // TODO: Optimize this
-            let query = self.search_query.clone();
-            let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
-            let are_valid_wallets = wallets.len() >= 2 && wallets.iter().any(|w| valid_wallet_search(w, &query));
-
-               ScrollArea::vertical()
-                  .id_salt("recipient_select_scroll")
-                  .max_height(350.0)
-                  .max_width(ui_width)
-                  .show(ui, |ui| {
-                     if are_valid_wallets {
-                     self.account_wallets(
-                        ctx.clone(),
-                        theme,
-                        wallet_select,
-                        bg_color,
-                        column_width,
-                        &mut close_window,
-                        ui,
-                     );
-                  }
-                     ui.add_space(20.0);
-                     if are_valid_contacts {
-                     self.account_contacts(
-                        ctx.clone(),
-                        theme,
-                        bg_color,
-                        column_width,
-                        &mut close_window,
-                        ui,
-                     );
-                  }
-                  });
-            
-               if let Ok(address) = Address::from_str(&self.search_query) {
-                  ui.vertical_centered(|ui| {
-                  ui.label(rich_text("Unknown Address").size(theme.text_sizes.large));
-                  ui.add_space(20.0);
-                 
-                  let address_text = rich_text(address.to_string()).size(theme.text_sizes.normal);
-                  let button = button(address_text);
-
-                  if ui.add(button).clicked() {
-                     self.recipient = address.to_string();
-                     self.recipient_name = None;
-                     close_window = true;
-                  }
-               });
-               }
-         });
-
-      if close_window {
-         self.open = false;
-      } else {
-         self.open = open;
-      }
-   }
-
-   fn account_wallets(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      wallet_select: &WalletSelect,
-      bg_color: Color32,
-      column_width: f32,
-      close_window: &mut bool,
-      ui: &mut Ui,
-   ) {
-      let wallets = ctx.account().wallets;
-
-      ui.vertical_centered(|ui| {
-      ui.label(rich_text("Your Wallets").size(theme.text_sizes.large));
-      ui.add_space(20.0);
-      });
-
-      ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-      widget_visuals(ui, theme.get_button_visuals(bg_color));
-
-      Grid::new("recipient_select_wallet_grid")
-         .spacing(vec2(5.0, 10.0))
-         .show(ui, |ui| {
-            ui.label(RichText::new("Wallet Name").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Address").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Value").size(theme.text_sizes.normal));
-            ui.end_row();
-
-            for wallet in &wallets {
-               let address = wallet.address();
-               let valid_search = valid_wallet_search(wallet, &self.search_query);
-               let value = ctx.get_portfolio_value_all_chains(address);
-
-               if valid_search {
-                  // exclude the current wallet
-                  if address == wallet_select.wallet.address() {
-                     continue;
-                  }
-
-                  // Wallet Name
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        let name = rich_text(wallet.name.clone()).size(theme.text_sizes.normal);
-                        if ui.add(button(name)).clicked() {
-                           self.recipient = address.to_string();
-                           self.recipient_name = Some(wallet.name.clone());
-                           *close_window = true;
-                        }
-                     },
-                  );
-
-                  // Address
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new(wallet.address_truncated()).size(theme.text_sizes.normal));
-                     },
-                  );
-
-                  // Value
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
-                     },
-                  );
-                  ui.end_row();
-               }
-            }
-         });
-   }
-
-   fn account_contacts(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      bg_color: Color32,
-      column_width: f32,
-      close_window: &mut bool,
-      ui: &mut Ui,
-   ) {
-      let contacts = ctx.contacts();
-
-      ui.vertical_centered(|ui| {
-      ui.label(rich_text("Contacts").size(theme.text_sizes.large));
-      });
-
-      ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
-      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-      widget_visuals(ui, theme.get_button_visuals(bg_color));
-
-      Grid::new("recipient_select_contact_grid")
-         .spacing(vec2(5.0, 10.0))
-         .show(ui, |ui| {
-            ui.label(RichText::new("Contact Name").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Address").size(theme.text_sizes.normal));
-            ui.end_row();
-
-            for contact in &contacts {
-               let valid_search = valid_contact_search(contact, &self.search_query);
-
-               if valid_search {
-                  // Contact Name
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        let name = rich_text(contact.name.clone()).size(theme.text_sizes.normal);
-                        if ui.add(button(name)).clicked() {
-                           self.recipient = contact.address.clone();
-                           self.recipient_name = Some(contact.name.clone());
-                           *close_window = true;
-                        }
-                     },
-                  );
-
-                  // Address
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new(contact.address_short()).size(theme.text_sizes.normal));
-                     },
-                  );
-                  ui.end_row();
-               }
-            }
-         });
-   }
-}
-
-fn valid_contact_search(contact: &Contact, query: &str) -> bool {
-   let query = query.to_lowercase();
-
-   if query.is_empty() {
-      return true;
-   }
-
-   contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
-}
-
-fn valid_wallet_search(wallet: &Wallet, query: &str) -> bool {
-   let query = query.to_lowercase();
-
-   if query.is_empty() {
-      return true;
-   }
-
-   wallet.name.to_lowercase().contains(&query) || wallet.address_string().to_lowercase().contains(&query)
 }

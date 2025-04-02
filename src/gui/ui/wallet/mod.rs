@@ -213,8 +213,9 @@ impl WalletUi {
             ctx.account.current_wallet = wallet.clone();
          });
          std::thread::spawn(move || {
-            let mut gui = SHARED_GUI.write().unwrap();
+            SHARED_GUI.write(|gui| {
             gui.top_left_area.wallet_select.wallet = wallet_clone;
+            });
          });
       }
    }
