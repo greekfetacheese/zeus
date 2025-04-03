@@ -12,6 +12,10 @@ pub struct Rpc {
    /// False if the rpc is added by the user
    pub default: bool,
    pub enabled: bool,
+   /// Be default this is true so we can measure and test the RPCs
+   /// 
+   /// Later on we can set this to false if the RPC is not working
+   pub working: bool,
    pub latency: Option<Duration>,
 }
 
@@ -22,6 +26,7 @@ impl Rpc {
          chain_id,
          default,
          enabled,
+         working: true,
          latency: None,
       }
    }
@@ -90,7 +95,7 @@ impl RpcProviders {
          .rpcs
          .get(&chain_id)
          .ok_or_else(|| anyhow!("No RPCs found for chain id {}", chain_id))?;
-      let mut sorted_rpcs = rpcs.iter().filter(|rpc| rpc.default && rpc.enabled).collect::<Vec<_>>();
+      let mut sorted_rpcs = rpcs.iter().filter(|rpc| rpc.default && rpc.enabled && rpc.working).collect::<Vec<_>>();
       sorted_rpcs.sort_by(|a, b| {
          // Sort by latency, treating unmeasured (None) as slower than measured
          a.latency
@@ -110,7 +115,7 @@ impl RpcProviders {
          .rpcs
          .get(&chain_id)
          .ok_or_else(|| anyhow!("No RPCs available for chain id {}", chain_id))?;
-      let mut sorted_rpcs = rpcs.iter().filter(|rpc| !rpc.default && rpc.enabled).collect::<Vec<_>>();
+      let mut sorted_rpcs = rpcs.iter().filter(|rpc| !rpc.default && rpc.enabled && rpc.working).collect::<Vec<_>>();
       sorted_rpcs.sort_by(|a, b| {
          a.latency
             .unwrap_or(Duration::MAX)
@@ -134,7 +139,7 @@ impl RpcProviders {
       }
    }
 
-   /// Get all RPCs for a chain regardless of everything
+   /// Get all RPCs for a chain
    pub fn get_all(&self, chain_id: u64) -> Vec<Rpc> {
       self.rpcs.get(&chain_id).unwrap_or(&vec![]).to_vec()
    }
@@ -149,6 +154,10 @@ impl Default for RpcProviders {
       rpcs.insert(
          1,
          vec![
+            Rpc::new("https://rpc.payload.de", 1, true, true),
+            Rpc::new("https://1rpc.io/eth", 1, true, true),
+            Rpc::new("https://eth-mainnet.public.blastapi.io", 1, true, true),
+            Rpc::new("https://eth-pokt.nodies.app", 1, true, true),
             Rpc::new("https://eth.merkle.io", 1, true, true),
             Rpc::new("https://eth.llamarpc.com", 1, true, true),
             Rpc::new("https://ethereum-rpc.publicnode.com", 1, true, true),
@@ -161,7 +170,9 @@ impl Default for RpcProviders {
       rpcs.insert(
          10,
          vec![
-            Rpc::new("https://optimism.llamarpc.com", 10, true, true),
+            Rpc::new("https://optimism-mainnet.public.blastapi.io", 10, true, true),
+            Rpc::new("https://optimism.blockpi.network/v1/rpc/public", 10, true, true),
+            Rpc::new("https://op-pokt.nodies.app", 10, true, true),
             Rpc::new("https://mainnet.optimism.io", 10, true, true),
             Rpc::new("https://1rpc.io/op", 10, true, true),
             Rpc::new("https://optimism-rpc.publicnode.com", 10, true, true),
@@ -173,6 +184,9 @@ impl Default for RpcProviders {
       rpcs.insert(
          56,
          vec![
+            Rpc::new("https://bsc-mainnet.public.blastapi.io", 56, true, true),
+            Rpc::new("https://bsc.blockrazor.xyz", 56, true, true),
+            Rpc::new("https://rpc-bsc.48.club", 56, true, true),
             Rpc::new("https://bsc.drpc.org", 56, true, true),
             Rpc::new("https://binance.llamarpc.com", 56, true, true),
             Rpc::new("https://bsc-pokt.nodies.app", 56, true, true),
@@ -184,6 +198,8 @@ impl Default for RpcProviders {
       rpcs.insert(
          8453,
          vec![
+            Rpc::new("https://base.api.onfinality.io/public", 8453, true, true),
+            Rpc::new("https://base-mainnet.public.blastapi.io", 8453, true, true),
             Rpc::new("https://base.llamarpc.com", 8453, true, true),
             Rpc::new("https://mainnet.base.org", 8453, true, true),
             Rpc::new("https://developer-access-mainnet.base.org", 8453, true, true),
@@ -197,7 +213,9 @@ impl Default for RpcProviders {
       rpcs.insert(
          42161,
          vec![
-            Rpc::new("https://arbitrum.llamarpc.com", 42161, true, true),
+            Rpc::new("https://arbitrum-one-rpc.publicnode.com", 42161, true, true),
+            Rpc::new("https://arbitrum-one.public.blastapi.io", 42161, true, true),
+            Rpc::new("https://arbitrum.meowrpc.com", 42161, true, true),
             Rpc::new("https://arb1.arbitrum.io/rpc", 42161, true, true),
             Rpc::new("https://1rpc.io/arb", 42161, true, true),
             Rpc::new("https://arb-pokt.nodies.app", 42161, true, true),

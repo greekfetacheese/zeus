@@ -284,6 +284,7 @@ pub async fn send_crypto(
    let receipt = client
       .send_tx_envelope(tx_envelope)
       .await?
+      .with_timeout(Some(Duration::from_secs(60)))
       .get_receipt()
       .await?;
    tracing::info!(

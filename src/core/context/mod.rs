@@ -12,12 +12,12 @@ use zeus_eth::amm::{
       v3::pool::{FEE_TIERS, UniswapV3Pool},
    },
 };
-use zeus_eth::{alloy_primitives::Address, utils::client::get_http_client_with_throttle};
 use zeus_eth::{
+   alloy_primitives::Address,
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
-   utils::client::{HttpClient, get_http_client},
+   utils::client::{HttpClient, get_http_client, retry_layer, throttle_layer},
 };
 
 const CONTACTS_FILE: &str = "contacts.json";
@@ -631,12 +631,12 @@ impl ZeusContext {
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
       let rpc = self.providers.get_rpc(id)?;
       // for default rpcs we use a throttled client
-      let client = if rpc.default {
-         get_http_client_with_throttle(&rpc.url)?
+      let (retry, throttle) = if rpc.default {
+         (retry_layer(10, 400, 600), throttle_layer(5))
       } else {
-         get_http_client(&rpc.url)?
+         (retry_layer(100, 10, 1000), throttle_layer(1000))
       };
-      Ok(client)
+      get_http_client(&rpc.url, retry, throttle)
    }
 }
 

@@ -12,11 +12,23 @@ use zeus_eth::{
    utils::NumericValue,
    utils::batch_request::get_erc20_balance,
    utils::block::calculate_next_block_base_fee,
-   utils::client::get_http_client,
+   utils::client,
 };
+
+const MEASURE_RPCS_INTERVAL: u64 = 100;
+const POOL_MANAGER_INTERVAL: u64 = 600;
+const PORTFOLIO_INTERVAL: u64 = 60;
+const BALANCE_INTERVAL: u64 = 120;
+const PRIORITY_FEE_INTERVAL: u64 = 60;
+const BASE_FEE_INTERVAL: u64 = 180;
 
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
+
+   let time = std::time::Instant::now();
+   measure_rpcs(ctx.clone()).await;
+   tracing::info!("Measuring RPCs took {} ms", time.elapsed().as_millis());
+
    for chain in SUPPORTED_CHAINS {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
@@ -46,8 +58,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
          Err(e) => tracing::error!("Error updating base fee: {:?}", e),
       }
    }
-
-   measure_rpcs(ctx.clone()).await;
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
@@ -81,11 +91,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
 }
 
 pub fn portfolio_update_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 300;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > PORTFOLIO_INTERVAL {
          portfolio_update(ctx.clone());
          time_passed = Instant::now();
       }
@@ -134,11 +143,10 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
 }
 
 pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > POOL_MANAGER_INTERVAL {
          update_pool_manager(ctx.clone()).await;
          time_passed = Instant::now();
       }
@@ -241,11 +249,10 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 }
 
 async fn balance_update_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 600;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > BALANCE_INTERVAL {
          if let Err(e) = update_eth_balance(ctx.clone()).await {
             tracing::error!("Error updating eth balance: {:?}", e);
          }
@@ -280,11 +287,10 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 180;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > BASE_FEE_INTERVAL {
          for chain in SUPPORTED_CHAINS {
             match get_base_fee(ctx.clone(), chain).await {
                Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
@@ -317,11 +323,10 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 }
 
 pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 120;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > PRIORITY_FEE_INTERVAL {
          for chain in SUPPORTED_CHAINS {
             match update_priority_fee(ctx.clone(), chain).await {
                Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
@@ -344,26 +349,38 @@ pub async fn measure_rpcs(ctx: ZeusCtx) {
          let rpc = rpc.clone();
          let ctx = ctx.clone();
          RT.spawn(async move {
-            let client = get_http_client(&rpc.url).unwrap();
+            let retry = client::retry_layer(10, 400, 600);
+            let throttle = client::throttle_layer(5);
+            let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
             let time = Instant::now();
-            let _ = client.get_block_number().await.unwrap();
-            let latency = time.elapsed();
-            ctx.write(|ctx| {
-               if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                  rpc.latency = Some(latency);
+            match client.get_block_number().await {
+               Ok(_) => {
+                  let latency = time.elapsed();
+                  ctx.write(|ctx| {
+                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
+                        rpc.latency = Some(latency);
+                     }
+                  });
                }
-            });
+               Err(e) => {
+                  tracing::error!("Error testing RPC: {} {}", rpc.url, e);
+                  ctx.write(|ctx| {
+                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
+                        rpc.working = false;
+                     }
+                  });
+               }
+            }
          });
       }
    }
 }
 
 pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 300;
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > INTERVAL {
+      if time_passed.elapsed().as_secs() > MEASURE_RPCS_INTERVAL {
          measure_rpcs(ctx.clone()).await;
          time_passed = Instant::now();
       }
