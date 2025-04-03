@@ -280,7 +280,7 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 60;
+   const INTERVAL: u64 = 180;
    let mut time_passed = Instant::now();
 
    loop {
@@ -309,7 +309,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 }
 
 pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
-   const INTERVAL: u64 = 60;
+   const INTERVAL: u64 = 120;
    let mut time_passed = Instant::now();
 
    loop {

@@ -1,8 +1,7 @@
-use alloy_primitives::{Address, Bytes, U256, address};
-use alloy_rpc_types::Log;
+use alloy_primitives::{Address, LogData, Bytes, U256, address};
 use alloy_sol_types::{SolEvent, SolInterface, sol};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{ Deserialize, Serialize};
 
 use V3SpokePoolInterface::{V3SpokePoolInterfaceCalls, depositV3Call};
 use anyhow::bail;
@@ -92,12 +91,14 @@ sol! {
     #[sol(rpc)]
     interface V3SpokePoolInterface {
 
+      #[derive(Debug)]
       enum FillType {
          FastFill,
          ReplacedSlowFill,
          SlowFill
      }
 
+      #[derive(Debug)]
       struct V3RelayExecutionEventInfo {
          bytes32 updatedRecipient;
          bytes32 updatedMessageHash;
@@ -256,7 +257,7 @@ pub struct FundsDeposited {
    pub message: Bytes,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct FilledRelay {
    pub input_token: Address,
    pub output_token: Address,
@@ -275,7 +276,7 @@ pub struct FilledRelay {
    pub relay_execution_info: V3RelayExecutionEventInfo,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct V3RelayExecutionEventInfo {
    pub updated_recipient: Bytes,
    pub updated_message_hash: Bytes,
@@ -370,94 +371,65 @@ pub fn encode_deposit_v3(args: DepositV3Args) -> Bytes {
    Bytes::from(c.abi_encode())
 }
 
-pub fn decode_funds_deposited(log: &Log) -> Result<FundsDeposited, anyhow::Error> {
-   let V3SpokePoolInterface::FundsDeposited {
-      inputToken,
-      outputToken,
-      inputAmount,
-      outputAmount,
-      destinationChainId,
-      depositId,
-      quoteTimestamp,
-      fillDeadline,
-      exclusivityDeadline,
-      depositor,
-      recipient,
-      exclusiveRelayer,
-      message,
-   } = log.log_decode()?.inner.data;
 
-   let input_token = Address::from_slice(&inputToken[12..]);
-   let output_token = Address::from_slice(&outputToken[12..]);
-   let depositor = Address::from_slice(&depositor[12..]);
-   let recipient = Address::from_slice(&recipient[12..]);
-   let exclusive_relayer = Address::from_slice(&exclusiveRelayer[12..]);
+pub fn decode_funds_deposited(log: &LogData) -> Result<FundsDeposited, anyhow::Error> {
+   let decoded = V3SpokePoolInterface::FundsDeposited::decode_raw_log(log.topics(), &log.data, true)?;
+
+   let input_token = Address::from_slice(&decoded.inputToken[12..]);
+   let output_token = Address::from_slice(&decoded.outputToken[12..]);
+   let depositor = Address::from_slice(&decoded.depositor[12..]);
+   let recipient = Address::from_slice(&decoded.recipient[12..]);
+   let exclusive_relayer = Address::from_slice(&decoded.exclusiveRelayer[12..]);
 
    Ok(FundsDeposited {
       input_token,
       output_token,
-      input_amount: inputAmount,
-      output_amount: outputAmount,
-      destination_chain_id: destinationChainId,
-      deposit_id: depositId,
-      quote_timestamp: quoteTimestamp,
-      fill_deadline: fillDeadline,
-      exclusivity_deadline: exclusivityDeadline,
+      input_amount: decoded.inputAmount,
+      output_amount: decoded.outputAmount,
+      destination_chain_id: decoded.destinationChainId,
+      deposit_id: decoded.depositId,
+      quote_timestamp: decoded.quoteTimestamp,
+      fill_deadline: decoded.fillDeadline,
+      exclusivity_deadline: decoded.exclusivityDeadline,
       depositor,
       recipient,
       exclusive_relayer,
-      message,
+      message: decoded.message,
    })
 }
 
-pub fn decode_filled_relay(log: &Log) -> Result<FilledRelay, anyhow::Error> {
-   let V3SpokePoolInterface::FilledRelay {
-      inputToken,
-      outputToken,
-      inputAmount,
-      outputAmount,
-      repaymentChainId,
-      originChainId,
-      depositId,
-      fillDeadline,
-      exclusivityDeadline,
-      exclusiveRelayer,
-      relayer,
-      depositor,
-      recipient,
-      messageHash,
-      relayExecutionInfo,
-   } = log.log_decode()?.inner.data;
+pub fn decode_filled_relay(log: &LogData) -> Result<FilledRelay, anyhow::Error> {
+   let decoded = V3SpokePoolInterface::FilledRelay::decode_raw_log(log.topics(), &log.data, true)?;
 
-   let input_token = Address::from_slice(&inputToken[12..]);
-   let output_token = Address::from_slice(&outputToken[12..]);
-   let depositor = Address::from_slice(&depositor[12..]);
-   let recipient = Address::from_slice(&recipient[12..]);
-   let exclusive_relayer = Address::from_slice(&exclusiveRelayer[12..]);
-   let relayer = Address::from_slice(&relayer[12..]);
+   let input_token = Address::from_slice(&decoded.inputToken[12..]);
+   let output_token = Address::from_slice(&decoded.outputToken[12..]);
+   let depositor = Address::from_slice(&decoded.depositor[12..]);
+   let recipient = Address::from_slice(&decoded.recipient[12..]);
+   let exclusive_relayer = Address::from_slice(&decoded.exclusiveRelayer[12..]);
+   let relayer = Address::from_slice(&decoded.relayer[12..]);
 
    let relay_execution_info = V3RelayExecutionEventInfo {
-      updated_recipient: relayExecutionInfo.updatedRecipient.into(),
-      updated_message_hash: relayExecutionInfo.updatedMessageHash.into(),
-      updated_output_amount: relayExecutionInfo.updatedOutputAmount,
-      fill_type: relayExecutionInfo.fillType,
+      updated_recipient: decoded.relayExecutionInfo.updatedRecipient.into(),
+      updated_message_hash: decoded.relayExecutionInfo.updatedMessageHash.into(),
+      updated_output_amount: decoded.relayExecutionInfo.updatedOutputAmount,
+      fill_type: decoded.relayExecutionInfo.fillType,
    };
 
    Ok(FilledRelay {
       input_token,
       output_token,
-      input_amount: inputAmount,
-      output_amount: outputAmount,
-      repayment_chain_id: repaymentChainId,
-      origin_chain_id: originChainId,
-      deposit_id: depositId,
-      fill_deadline: fillDeadline,
-      exclusivity_deadline: exclusivityDeadline,
+      input_amount: decoded.inputAmount,
+      output_amount: decoded.outputAmount,
+      repayment_chain_id: decoded.repaymentChainId,
+      origin_chain_id: decoded.originChainId,
+      deposit_id: decoded.depositId,
+      fill_deadline: decoded.fillDeadline,
+      exclusivity_deadline: decoded.exclusivityDeadline,
       exclusive_relayer,
       relayer,
       depositor,
       recipient,
-      message_hash: messageHash.into(),
+      message_hash: decoded.messageHash.into(),
       relay_execution_info,
    })
 }

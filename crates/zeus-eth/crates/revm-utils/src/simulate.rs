@@ -3,7 +3,7 @@ use alloy_primitives::{Address, Bytes, TxKind, U256};
 
 use super::Evm2;
 use anyhow::anyhow;
-use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
+use revm::{context::result::ExecutionResult, database::Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm};
 
 use abi::uniswap::nft_position::{INonfungiblePositionManager, MintReturn};
 
@@ -17,7 +17,7 @@ pub fn across_deposit_v3<DB>(
    caller: Address,
    contract: Address,
    commit: bool,
-) -> Result<(), anyhow::Error>
+) -> Result<ExecutionResult, anyhow::Error>
 where
    DB: Database + DatabaseCommit,
 {
@@ -42,7 +42,7 @@ where
       return Err(anyhow!("Failed to deposit: {}", err));
    }
 
-   Ok(())
+   Ok(res)
 }
 
 /// Simulate a swap using [abi::misc::SwapRouter]

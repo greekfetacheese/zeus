@@ -833,6 +833,7 @@ impl AcrossBridge {
                ctx.clone(),
                currency,
                deadline,
+               output_amount.clone(),
                dest_chain,
                recipient,
                params,
@@ -899,6 +900,8 @@ pub struct ProgressWindow {
    pub order_filling: bool,
    pub order_filling_done: bool,
    pub funds_received: bool,
+   pub currency_received: Currency,
+   pub amount_received: NumericValue,
    pub dest_chain: ChainId,
    pub size: (f32, f32),
 }
@@ -915,6 +918,8 @@ impl ProgressWindow {
          order_filling: false,
          order_filling_done: false,
          funds_received: false,
+         currency_received: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
+         amount_received: NumericValue::default(),
          dest_chain: ChainId::new(1).unwrap(),
          size: (200.0, 150.0),
       }
@@ -1025,7 +1030,9 @@ impl ProgressWindow {
 
                         if self.funds_received {
                            let text = format!(
-                              "Funds received on the {} chain {}",
+                              "You have sent {} {} on the {} chain {}",
+                              self.amount_received.formatted(),
+                              self.currency_received.symbol(),
                               self.dest_chain.name(),
                               GREEN_CHECK
                            );

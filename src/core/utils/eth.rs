@@ -15,7 +15,7 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, TransactionReceipt},
    amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token, NativeCurrency},
-   dapps::across,
+   dapps::across::{self, decode_funds_deposited},
    revm_utils::{ForkFactory, new_evm, simulate},
    types::ChainId,
    utils::NumericValue,
@@ -27,6 +27,7 @@ pub async fn across_bridge(
    ctx: ZeusCtx,
    currency: Currency,
    deadline: u32,
+   expected_output_amount: NumericValue,
    dest_chain: u64,
    recipient: Address,
    mut params: TxParams,
@@ -57,7 +58,7 @@ pub async fn across_bridge(
    let mut evm = new_evm(params.chain.id(), fork_block, fork_db);
 
    let time = std::time::Instant::now();
-   simulate::across_deposit_v3(
+   let res = simulate::across_deposit_v3(
       &mut evm,
       params.call_data.clone(),
       params.value,
@@ -69,6 +70,27 @@ pub async fn across_bridge(
       "Simulated DepositV3 in {:?} seconds",
       time.elapsed().as_secs_f32()
    );
+
+   let logs = res.into_logs();
+   tracing::debug!("Logs: {:#?}", logs);
+   let mut minimum_received = NumericValue::default();
+   for log in logs {
+      if let Ok(decoded) = decode_funds_deposited(&log) {
+         tracing::debug!("Log Decoded: {:#?}", decoded);
+         // make sure the output amount is between an 1% tolerance
+         minimum_received = NumericValue::format_wei(decoded.output_amount, currency.decimals());
+         if minimum_received.f64() < expected_output_amount.f64() * 0.99 {
+            let err = format!(
+               "Expected output amount of {} but received {}",
+               expected_output_amount.formatted(),
+               minimum_received.formatted()
+            );
+            bail!(err);
+         } else {
+            tracing::info!("Output amount is ok");
+         }
+      }
+   }
 
    SHARED_GUI.write(|gui| {
       gui.across_bridge.progress_window.done_simulating();
@@ -169,22 +191,32 @@ pub async fn across_bridge(
    let mut funds_received = false;
 
    // an initial delay
-   tokio::time::sleep(std::time::Duration::from_millis(block_time_ms)).await;
+   tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
+   // * Could use the BlockNumberOrTag::Latest but it doesn't always work
+   let from_block = client.get_block_number().await?;
 
-   while now.elapsed().as_millis() < deadline.into() {
+   while now.elapsed().as_secs() < deadline.into() {
       let filter = Filter::new()
-         .from_block(BlockNumberOrTag::Latest)
+         .from_block(BlockNumberOrTag::Number(from_block))
          .event(across::filled_relay_signature());
       let logs = client.get_logs(&filter).await?;
+      tracing::debug!("Found {} Filled Relay Logs", logs.len());
       for log in logs {
-         if let Ok(decoded) = across::decode_filled_relay(&log) {
+         if let Ok(decoded) = across::decode_filled_relay(log.data()) {
+            tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
             if decoded.recipient == recipient {
+               tracing::debug!("Funds received");
                funds_received = true;
                break;
             }
          }
       }
-      tokio::time::sleep(std::time::Duration::from_millis(block_time_ms)).await;
+
+      if funds_received {
+         break;
+      }
+
+      tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
    }
 
    // I dont expect this to happen
@@ -201,13 +233,17 @@ pub async fn across_bridge(
    SHARED_GUI.write(|gui| {
       gui.across_bridge.progress_window.done_order_filling();
       gui.across_bridge.progress_window.funds_received = true;
+      gui.across_bridge.progress_window.currency_received = currency;
+      gui.across_bridge.progress_window.amount_received = minimum_received;
       gui.across_bridge.progress_window.dest_chain = dest_chain_id;
    });
 
    // if recipient is a wallet owned by this account, update its balance
    let exists = ctx.account().wallet_address_exists(recipient);
    if exists {
+      RT.spawn(async move {
       let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
+      });
    }
 
    Ok(receipt)
