@@ -1,10 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::gui::{
-   GUI,
-   ui::{button, rich_text},
-};
-use eframe::egui::{Align2, Color32, Frame, ScrollArea, Ui, Window};
+use crate::gui::GUI;
+use eframe::egui::{Align2, Color32, Button, RichText, Frame, ScrollArea, Ui, Window};
 use egui_theme::{Theme, utils};
 use std::sync::Arc;
 use zeus_eth::{amm::UniswapV2Pool, types::ChainId};
@@ -22,7 +19,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       utils::bg_color_on_click(ui, gui.theme.colors.widget_bg_color_click);
       utils::no_border_on_click(ui);
 
-      let home = button(rich_text("Home").size(21.0));
+      let home = Button::new(RichText::new("Home").size(21.0));
       if ui.add(home).clicked() {
          gui.swap_ui.open = false;
          gui.send_crypto.open = false;
@@ -33,7 +30,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.portofolio.open = true;
       }
 
-      let bridge = button(rich_text("Bridge").size(21.0));
+      let bridge = Button::new(RichText::new("Bridge").size(21.0));
       if ui.add(bridge).clicked() {
          gui.portofolio.open = false;
          gui.swap_ui.open = false;
@@ -54,7 +51,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.across_bridge.priority_fee = fee;
       }
 
-      let wallets = button(rich_text("Wallets").size(21.0));
+      let wallets = Button::new(RichText::new("Wallets").size(21.0));
       if ui.add(wallets).clicked() {
          gui.portofolio.open = false;
          gui.swap_ui.open = false;
@@ -65,7 +62,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = true;
       }
 
-      let tx_history = button(rich_text("Transactions").size(21.0));
+      let tx_history = Button::new(RichText::new("Transactions").size(21.0));
       if ui.add(tx_history).clicked() {
          gui.portofolio.open = false;
          gui.swap_ui.open = false;
@@ -78,7 +75,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       #[cfg(feature = "dev")]
       {
-         let swap = button(rich_text("Swap").size(21.0));
+         let swap = Button::new(RichText::new("Swap").size(21.0));
          if ui.add(swap).clicked() {
             gui.portofolio.open = false;
             gui.send_crypto.open = false;
@@ -90,7 +87,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
 
-      let send = button(rich_text("Send").size(21.0));
+      let send = Button::new(RichText::new("Send").size(21.0));
       if ui.add(send).clicked() {
          gui.swap_ui.open = false;
          gui.portofolio.open = false;
@@ -111,7 +108,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.priority_fee = fee;
       }
 
-      let settings = button(rich_text("Settings").size(21.0));
+      let settings = Button::new(RichText::new("Settings").size(21.0));
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
          gui.swap_ui.open = false;
@@ -124,7 +121,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       #[cfg(feature = "dev")]
       if ui
-         .add(button(rich_text("Theme Editor").size(20.0)))
+         .add(Button::new(RichText::new("Theme Editor").size(20.0)))
          .clicked()
       {
          gui.editor.open = true;
@@ -132,7 +129,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       #[cfg(feature = "dev")]
       if ui
-         .add(button(rich_text("Inspect Pool Data").size(20.0)))
+         .add(Button::new(RichText::new("Inspect Pool Data").size(20.0)))
          .clicked()
       {
          gui.data_inspection = true;
@@ -164,7 +161,7 @@ fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {
             let _v3_pools = ctx.read(|ctx| ctx.pool_manager.v3_pools()).into_values();
 
             ScrollArea::vertical().show(ui, |ui| {
-               ui.label(rich_text(format!("V2 Pools {}", v2_pools.len())).size(theme.text_sizes.large));
+               ui.label(RichText::new(format!("V2 Pools {}", v2_pools.len())).size(theme.text_sizes.large));
                for pool in v2_pools {
                   v2_pool_info(ctx.clone(), theme, icons.clone(), &pool, ui);
                }
@@ -189,31 +186,31 @@ fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV
 
       ui.vertical(|ui| {
          ui.horizontal(|ui| {
-            ui.label(rich_text("Token0:").size(theme.text_sizes.normal));
-            ui.label(rich_text(&pool.token0.symbol).size(theme.text_sizes.normal));
+            ui.label(RichText::new("Token0:").size(theme.text_sizes.normal));
+            ui.label(RichText::new(&pool.token0.symbol).size(theme.text_sizes.normal));
          });
 
          ui.horizontal(|ui| {
-            ui.label(rich_text("Token1:").size(theme.text_sizes.normal));
-            ui.label(rich_text(&pool.token1.symbol).size(theme.text_sizes.normal));
+            ui.label(RichText::new("Token1:").size(theme.text_sizes.normal));
+            ui.label(RichText::new(&pool.token1.symbol).size(theme.text_sizes.normal));
          });
 
          ui.horizontal(|ui| {
-            ui.label(rich_text("Chain:").size(theme.text_sizes.normal));
-            ui.label(rich_text(chain.name()).size(theme.text_sizes.normal));
+            ui.label(RichText::new("Chain:").size(theme.text_sizes.normal));
+            ui.label(RichText::new(chain.name()).size(theme.text_sizes.normal));
          });
 
          ui.horizontal(|ui| {
-            ui.label(rich_text("Dex:").size(theme.text_sizes.normal));
-            ui.label(rich_text(pool.dex.to_str()).size(theme.text_sizes.normal));
+            ui.label(RichText::new("Dex:").size(theme.text_sizes.normal));
+            ui.label(RichText::new(pool.dex.to_str()).size(theme.text_sizes.normal));
          });
 
          ui.horizontal(|ui| {
             let exp_link = chain.block_explorer();
             let link = format!("{}/address/{}", exp_link, pool.address);
-            ui.label(rich_text("Address:").size(theme.text_sizes.normal));
+            ui.label(RichText::new("Address:").size(theme.text_sizes.normal));
             ui.add(egui::Hyperlink::from_label_and_url(
-               rich_text(&pool.address.to_string()).size(theme.text_sizes.small),
+               RichText::new(&pool.address.to_string()).size(theme.text_sizes.small),
                link,
             ));
          });
@@ -226,15 +223,15 @@ fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV
             let quote_usd = pool.quote_price(base_usd.f64()).unwrap_or_default();
 
             ui.horizontal(|ui| {
-               ui.label(rich_text(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal));
+               ui.label(RichText::new(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal));
             });
 
             ui.horizontal(|ui| {
-               ui.label(rich_text(format!("{} ${}", quote.symbol, quote_usd)).size(theme.text_sizes.normal));
+               ui.label(RichText::new(format!("{} ${}", quote.symbol, quote_usd)).size(theme.text_sizes.normal));
             });
          } else {
             ui.label(
-               rich_text("Base Token Price not found")
+               RichText::new("Base Token Price not found")
                   .size(theme.text_sizes.small)
                   .color(Color32::RED),
             );

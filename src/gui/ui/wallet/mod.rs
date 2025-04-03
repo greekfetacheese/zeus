@@ -5,12 +5,10 @@ pub use details::{ViewKeyUi, DeleteWalletUi};
 
 use crate::assets::icons::Icons;
 use crate::core::{Wallet, ZeusCtx};
-use crate::gui::{
-   SHARED_GUI,
-   ui::{button, rich_text},
-};
+use crate::gui::
+   SHARED_GUI;
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Label, Layout, Margin, ScrollArea, Sense, TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, FontId, Button, RichText, Frame, Label, Layout, Margin, ScrollArea, Sense, TextEdit, Ui, Vec2, Window, vec2,
 };
 use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
@@ -87,8 +85,8 @@ impl WalletUi {
                   let visuals = theme.get_button_visuals(frame.fill);
                   widget_visuals(ui, visuals);
                   if ui
-                     .add(button(
-                        rich_text("Add Wallet").size(theme.text_sizes.normal),
+                     .add(Button::new(
+                        RichText::new("Add Wallet").size(theme.text_sizes.normal),
                      ))
                      .clicked()
                   {
@@ -98,7 +96,7 @@ impl WalletUi {
                });
 
                ui.add_space(10.0);
-               ui.label(rich_text("Selected Wallet").size(theme.text_sizes.large));
+               ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
                self.wallet(ctx.clone(), theme, current_wallet, true, ui);
 
                // Search bar
@@ -163,13 +161,13 @@ impl WalletUi {
                   ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
                   ui.set_width(ui.available_width() * 0.45);
 
-                  let name = Label::new(rich_text(wallet.name.clone()).heading()).wrap();
+                  let name = Label::new(RichText::new(wallet.name.clone()).heading()).wrap();
                   ui.add(name);
 
                   // Details button
                   let visuals = theme.get_button_visuals(bg_color);
                   widget_visuals(ui, visuals);
-                  let view_key = button(rich_text("View Key").size(theme.text_sizes.small));
+                  let view_key = Button::new(RichText::new("View Key").size(theme.text_sizes.small));
                   if ui.add(view_key).clicked() {
                      self.view_key_ui.open = true;
                      self.view_key_ui.exporter.wallet = Some(wallet.clone());
@@ -177,7 +175,7 @@ impl WalletUi {
                   }
                   ui.add_space(5.0);
 
-                  let delete_wallet = button(rich_text("Delete Wallet").size(theme.text_sizes.small));
+                  let delete_wallet = Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
                   if ui.add(delete_wallet).clicked() {
                      self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
                      self.delete_wallet_ui.credentials_form.open = true;
@@ -186,7 +184,7 @@ impl WalletUi {
 
                // Address and value
                ui.horizontal(|ui| {
-                  let res = ui.selectable_label(false, rich_text(wallet.address_truncated()).size(theme.text_sizes.small));
+                  let res = ui.selectable_label(false, RichText::new(wallet.address_truncated()).size(theme.text_sizes.small));
                   if res.clicked() {
                      // Copy the address to the clipboard
                      ui.ctx().copy_text(wallet.address_string());
@@ -197,7 +195,7 @@ impl WalletUi {
                      let owner = wallet.key.borrow().address();
                      let portfolio = ctx.get_portfolio(chain, owner);
                      ui.label(
-                        rich_text(format!("${}", portfolio.value.formatted()))
+                        RichText::new(format!("${}", portfolio.value.formatted()))
                            .color(theme.colors.text_secondary)
                            .size(theme.text_sizes.small),
                      );

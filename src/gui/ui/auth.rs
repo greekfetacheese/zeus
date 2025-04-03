@@ -1,10 +1,9 @@
 use crate::gui::{
    SHARED_GUI,
-   ui::{button, rich_text},
    utils::{get_encrypted_info, get_account_dir},
 };
 use crate::{core::ZeusCtx, gui::utils};
-use eframe::egui::{Align2, FontId, Frame, TextEdit, Ui, Window, vec2};
+use eframe::egui::{Align2, Button, RichText, FontId, Frame, TextEdit, Ui, Window, vec2};
 use egui::Margin;
 use egui_theme::Theme;
 use ncrypt_me::{Argon2Params, Credentials};
@@ -51,7 +50,7 @@ impl CredentialsForm {
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
 
-         ui.label(rich_text("Username").size(theme.text_sizes.large));
+         ui.label(RichText::new("Username").size(theme.text_sizes.large));
          // ! Username still remains in the buffer
          self.credentials.username.secure_mut(|username| {
            let text_edit = TextEdit::singleline(username)
@@ -63,7 +62,7 @@ impl CredentialsForm {
          });
 
 
-         ui.label(rich_text("Password").size(theme.text_sizes.large));
+         ui.label(RichText::new("Password").size(theme.text_sizes.large));
          self.credentials.password.secure_mut(|password| {
            let text_edit = TextEdit::singleline(password)
                .min_size(text_edit_size)
@@ -75,7 +74,7 @@ impl CredentialsForm {
          });
 
          if self.confrim_password {
-            ui.label(rich_text("Confirm Password").size(theme.text_sizes.large));
+            ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
             self.credentials.confirm_password.secure_mut(|confirm_password| {
               let text_edit = TextEdit::singleline(confirm_password)
                   .min_size(text_edit_size)
@@ -121,12 +120,12 @@ impl LoginUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(rich_text("Unlock your account").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Unlock your account").size(theme.text_sizes.heading));
 
                self.credentials_form.show(theme, ui);
 
                let button =
-                  button(rich_text("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               Button::new(RichText::new("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut account = ctx.account();
@@ -198,14 +197,14 @@ impl RegisterUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(rich_text("Create a new account").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Create a new account").size(theme.text_sizes.heading));
                ui.add_space(15.0);
 
                self.credentials_form.show(theme, ui);
                ui.add_space(15.0);
 
                let button =
-                  button(rich_text("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               Button::new(RichText::new("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut account = ctx.account();

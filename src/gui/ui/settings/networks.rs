@@ -5,10 +5,10 @@ use crate::core::{
 };
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, button, rich_text},
+   ui::ChainSelect,
 };
 use eframe::egui::{
-   Align, Align2, Color32, FontId, Grid, Layout, Margin, Order, ScrollArea, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Color32, Button, RichText, FontId, Grid, Layout, Margin, Order, ScrollArea, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
 use egui_theme::{Theme, utils::widget_visuals};
@@ -46,7 +46,7 @@ impl NetworkSettings {
       self.add_rpc(ctx.clone(), theme, ui);
 
       let mut open = self.open;
-      Window::new(rich_text("Network Settings").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -75,7 +75,7 @@ impl NetworkSettings {
                      ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
                   }
 
-                  let refresh = button(rich_text("Refresh").size(theme.text_sizes.normal));
+                  let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
                   if ui.add(refresh).clicked() {
                      self.refreshing = true;
                      let ctx = ctx.clone();
@@ -87,7 +87,7 @@ impl NetworkSettings {
                      });
                   }
 
-                  let add_network = button(rich_text("Add Network").size(theme.text_sizes.normal));
+                  let add_network = Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
                   if ui.add(add_network).clicked() {
                      self.add_rpc = true;
                   }
@@ -113,11 +113,11 @@ impl NetworkSettings {
                      ui.set_width(column_widths.iter().sum::<f32>());
 
                      // Header
-                     ui.label(rich_text("Url").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Url").size(theme.text_sizes.large));
 
-                     ui.label(rich_text("Enabled").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Enabled").size(theme.text_sizes.large));
 
-                     ui.label(rich_text("Latency").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Latency").size(theme.text_sizes.large));
 
                      ui.end_row();
 
@@ -160,11 +160,11 @@ impl NetworkSettings {
                         // Latency column
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[2]);
-                           ui.label(rich_text(rpc.latency_str()).size(theme.text_sizes.normal));
+                           ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
                         });
 
                         // Remove button column
-                        let button = button(rich_text("Remove").size(theme.text_sizes.small));
+                        let button = Button::new(RichText::new("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[3]);
                            // only allow rpcs added by the user to be removed
@@ -191,7 +191,7 @@ impl NetworkSettings {
    pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.add_rpc;
 
-      Window::new(rich_text("Add Network").size(theme.text_sizes.normal))
+      Window::new(RichText::new("Add Network").size(theme.text_sizes.normal))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -217,13 +217,13 @@ impl NetworkSettings {
 
                if !self.valid_url() && !self.url_to_add.is_empty() {
                   ui.label(
-                     rich_text("Invalid URL")
+                     RichText::new("Invalid URL")
                         .size(theme.text_sizes.very_small)
                         .color(Color32::RED),
                   );
                }
 
-               let button = button(rich_text("Add").size(theme.text_sizes.normal));
+               let button = Button::new(RichText::new("Add").size(theme.text_sizes.normal));
                if self.valid_url() {
                   if ui.add(button).clicked() {
                      let chain = self.chain_select.chain.id();

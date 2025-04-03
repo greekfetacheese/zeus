@@ -1,13 +1,9 @@
 use crate::core::{Wallet, ZeusCtx};
-use crate::gui::{
-   self, SHARED_GUI,
-   ui::{CredentialsForm, button, rich_text},
-};
-use eframe::egui::{Align2, Frame, Id, Order, Ui, Vec2, Window, vec2};
+use crate::gui::{self, SHARED_GUI, ui::CredentialsForm};
+use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
 
 const VIEW_KEY_MSG: &str = "The key has been copied! In 30 seconds it will be cleared from the clipboard.";
-
 
 pub struct KeyExporter {
    pub wallet: Option<Wallet>,
@@ -15,7 +11,7 @@ pub struct KeyExporter {
    pub key_copied_time: Option<std::time::Instant>,
 
    /// How much time before we force clear the clipboard
-   clipboard_clear_delay: std::time::Duration
+   clipboard_clear_delay: std::time::Duration,
 }
 
 impl KeyExporter {
@@ -38,18 +34,22 @@ impl KeyExporter {
    pub fn update(&mut self, theme: &Theme, ctx: egui::Context, ui: &mut egui::Ui) {
       // Check if we need to clear the clipboard
       if let Some(copy_time) = self.key_copied_time {
-          let elapsed = copy_time.elapsed();
-          if elapsed >= self.clipboard_clear_delay {
-              ctx.copy_text("".to_string()); // Overwrite with empty string
-              self.key_copied_time = None; // Reset timer
-              tracing::info!("Key cleared from clipboard");
-          } else {
-              let remaining = self.clipboard_clear_delay - elapsed;
-              let text = rich_text(format!("Clipboard will clear in {} seconds", remaining.as_secs())).size(theme.text_sizes.normal);
-              ui.label(text);
-          }
+         let elapsed = copy_time.elapsed();
+         if elapsed >= self.clipboard_clear_delay {
+            ctx.copy_text("".to_string()); // Overwrite with empty string
+            self.key_copied_time = None; // Reset timer
+            tracing::info!("Key cleared from clipboard");
+         } else {
+            let remaining = self.clipboard_clear_delay - elapsed;
+            let text = RichText::new(format!(
+               "Clipboard will clear in {} seconds",
+               remaining.as_secs()
+            ))
+            .size(theme.text_sizes.normal);
+            ui.label(text);
+         }
       }
-}
+   }
 }
 
 pub struct ViewKeyUi {
@@ -90,7 +90,7 @@ impl ViewKeyUi {
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_view_key_ui");
-      Window::new(rich_text("Verify Credentials").size(theme.text_sizes.large))
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
          .order(Order::Foreground)
@@ -109,7 +109,7 @@ impl ViewKeyUi {
 
                self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Confrim").size(theme.text_sizes.normal));
+               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -125,18 +125,18 @@ impl ViewKeyUi {
             // All good copy the key to the clipboard and show a msg
             if ok {
                SHARED_GUI.write(|gui| {
-               let ctx = gui.egui_ctx.clone();
-               gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
-               gui.wallet_ui.view_key_ui.reset();
-               gui.open_msg_window("", VIEW_KEY_MSG);
+                  let ctx = gui.egui_ctx.clone();
+                  gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
+                  gui.wallet_ui.view_key_ui.reset();
+                  gui.open_msg_window("", VIEW_KEY_MSG);
                });
             } else {
                SHARED_GUI.write(|gui| {
-               gui.open_msg_window(
-                  "Failed to verify credentials",
-                  "Please try again".to_string(),
-               );
-            });
+                  gui.open_msg_window(
+                     "Failed to verify credentials",
+                     "Please try again".to_string(),
+                  );
+               });
             }
          });
       }
@@ -179,7 +179,7 @@ impl DeleteWalletUi {
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_delete_wallet_ui");
-      Window::new(rich_text("Verify Credentials").size(theme.text_sizes.large))
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
          .order(Order::Foreground)
@@ -198,7 +198,7 @@ impl DeleteWalletUi {
 
                self.credentials_form.show(theme, ui);
 
-               let button = button(rich_text("Confrim").size(theme.text_sizes.normal));
+               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -213,25 +213,25 @@ impl DeleteWalletUi {
 
             if ok {
                SHARED_GUI.write(|gui| {
-               // credentials are verified
-               gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
+                  // credentials are verified
+                  gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
 
-               // close the verify credentials ui
-               gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
+                  // close the verify credentials ui
+                  gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
 
-               // open the delete wallet ui
-               gui.wallet_ui.delete_wallet_ui.open = true;
+                  // open the delete wallet ui
+                  gui.wallet_ui.delete_wallet_ui.open = true;
 
-               // erase the credentials form
-               gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
+                  // erase the credentials form
+                  gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
                });
             } else {
                SHARED_GUI.write(|gui| {
-               gui.open_msg_window(
-                  "Failed to verify credentials",
-                  "Please try again".to_string(),
-               );
-            });
+                  gui.open_msg_window(
+                     "Failed to verify credentials",
+                     "Please try again".to_string(),
+                  );
+               });
             }
          });
       }
@@ -252,7 +252,7 @@ impl DeleteWalletUi {
       let wallet = self.wallet_to_delete.clone();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
-      Window::new(rich_text("Delete this wallet?").size(theme.text_sizes.large))
+      Window::new(RichText::new("Delete this wallet?").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
          .order(Order::Foreground)
@@ -271,17 +271,19 @@ impl DeleteWalletUi {
 
                // should not happen
                if wallet.is_none() {
-                  ui.label(rich_text("No wallet to delete"));
+                  ui.label(RichText::new("No wallet to delete"));
                } else {
                   let wallet = wallet.clone().unwrap();
-                  ui.label(rich_text(wallet.name.clone()).size(theme.text_sizes.normal));
-                  ui.label(rich_text(wallet.address_string()).size(theme.text_sizes.normal));
+                  ui.label(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
+                  ui.label(RichText::new(wallet.address_string()).size(theme.text_sizes.normal));
 
                   let value = ctx.get_portfolio_value_all_chains(wallet.key.borrow().address());
-                  ui.label(rich_text(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
+                  ui.label(RichText::new(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
 
                   if ui
-                     .add(button(rich_text("Yes").size(theme.text_sizes.normal)))
+                     .add(Button::new(
+                        RichText::new("Yes").size(theme.text_sizes.normal),
+                     ))
                      .clicked()
                   {
                      clicked = true;
@@ -304,16 +306,16 @@ impl DeleteWalletUi {
             match account.encrypt_and_save(&dir, params.argon2_params) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
-                  gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
-                  gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
-                  gui.open_msg_window("Wallet Deleted", "");
+                     gui.loading_window.open = false;
+                     gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
+                     gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
+                     gui.open_msg_window("Wallet Deleted", "");
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to delete wallet", e.to_string());
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to delete wallet", e.to_string());
                   });
                   return;
                }

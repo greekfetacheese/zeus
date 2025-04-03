@@ -189,8 +189,17 @@ impl ChainId {
          ChainId::Arbitrum(_) => 97_818,
       }
    }
-}
 
+   pub fn uses_priority_fee(&self) -> bool {
+      match self {
+         ChainId::Ethereum(_) => true,
+         ChainId::Optimism(_) => true,
+         ChainId::BinanceSmartChain(_) => false,
+         ChainId::Base(_) => true,
+         ChainId::Arbitrum(_) => false,
+      }
+}
+}
 
 #[cfg(test)]
 mod tests {

@@ -58,15 +58,6 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_pool_data(&self) -> Result<(), anyhow::Error> {
-      let data = self.read(|ctx| ctx.pool_manager.to_string().ok());
-      if let Some(data) = data {
-         let dir = pool_data_dir()?;
-         std::fs::write(dir, data)?;
-      }
-      Ok(())
-   }
-
    pub fn account_exists(&self) -> bool {
       self.read(|ctx| ctx.account_exists)
    }
@@ -146,6 +137,15 @@ impl ZeusCtx {
       })
    }
 
+   pub fn save_pool_manager(&self) -> Result<(), anyhow::Error> {
+      let data = self.read(|ctx| ctx.pool_manager.to_string().ok());
+      if let Some(data) = data {
+         let dir = pool_data_dir()?;
+         std::fs::write(dir, data)?;
+      }
+      Ok(())
+   }
+
    pub fn save_all(&self) {
       self.save_balance_db();
       self.save_currency_db();
@@ -153,6 +153,14 @@ impl ZeusCtx {
       self.save_contact_db();
       self.save_providers();
       self.save_tx_db();
+      match self.save_pool_manager() {
+         Ok(_) => {
+            tracing::info!("Pool Manager saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving Pool Manager: {:?}", e);
+         },
+      }
    }
 
    pub fn save_tx_db(&self) {
@@ -601,6 +609,7 @@ impl ZeusContext {
          pool_manager = manager;
       }
 
+      let priority_fee = PriorityFee::default();
       Self {
          providers,
          chain: ChainId::new(1).unwrap(),
@@ -615,7 +624,7 @@ impl ZeusContext {
          pool_manager,
          data_syncing: false,
          base_fee: HashMap::new(),
-         priority_fee: PriorityFee::default(),
+         priority_fee,
       }
    }
 

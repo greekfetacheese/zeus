@@ -1,11 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::gui::{
-   SHARED_GUI,
-   ui::{CredentialsForm, button, rich_text},
-   utils,
-};
-use egui::{Align2, Frame, Grid, Slider, Ui, Window, vec2};
+use crate::gui::{SHARED_GUI, ui::CredentialsForm, utils};
+use egui::{Align2, Button, Frame, Grid, RichText, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use ncrypt_me::Argon2Params;
 use std::sync::Arc;
@@ -87,10 +83,10 @@ impl SettingsUi {
                let visuals = theme.get_button_visuals(theme.colors.bg_color);
                widget_visuals(ui, visuals);
 
-               ui.label(rich_text("Settings").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
                let size = vec2(self.size.0, 50.0);
-               let credentials = button(rich_text("Change your Credentials").size(theme.text_sizes.large))
+               let credentials = Button::new(RichText::new("Change your Credentials").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(credentials).clicked() {
@@ -98,7 +94,7 @@ impl SettingsUi {
                   self.credentials.open = true;
                }
 
-               let encryption_settings = button(rich_text("Encryption Settings").size(theme.text_sizes.large))
+               let encryption_settings = Button::new(RichText::new("Encryption Settings").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(encryption_settings).clicked() {
@@ -106,7 +102,7 @@ impl SettingsUi {
                   self.encryption.open = true;
                }
 
-               let contacts = button(rich_text("Contacts").size(theme.text_sizes.large))
+               let contacts = Button::new(RichText::new("Contacts").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(contacts).clicked() {
@@ -114,7 +110,7 @@ impl SettingsUi {
                   self.contacts_ui.open = true;
                }
 
-               let network = button(rich_text("Network Settings").size(theme.text_sizes.large))
+               let network = Button::new(RichText::new("Network Settings").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(network).clicked() {
@@ -133,7 +129,7 @@ impl SettingsUi {
       };
 
       let mut open = self.credentials.open;
-      Window::new(rich_text(title).size(theme.text_sizes.heading))
+      Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -152,7 +148,7 @@ impl SettingsUi {
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let verify = button(rich_text("Verify").size(theme.text_sizes.normal));
+                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.normal));
                   if ui.add(verify).clicked() {
                      let mut account = ctx.account();
                      account.credentials = self.credentials.credentials.clone();
@@ -188,7 +184,7 @@ impl SettingsUi {
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let save = button(rich_text("Save").size(theme.text_sizes.normal));
+                  let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
 
                   if ui.add(save).clicked() {
                      let mut account = ctx.account();
@@ -278,7 +274,7 @@ impl EncryptionSettings {
                   .show(ui, |ui| {
                      ui.set_width(content_width);
 
-                     ui.label(rich_text("Memory cost (MB):").size(theme.text_sizes.normal))
+                     ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
                         .on_hover_text(M_COST_TIP);
                      ui.end_row();
 
@@ -288,21 +284,21 @@ impl EncryptionSettings {
                      );
                      ui.end_row();
 
-                     ui.label(rich_text("Iterations:").size(theme.text_sizes.normal))
+                     ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal))
                         .on_hover_text(T_COST_TIP);
                      ui.end_row();
 
                      ui.add(Slider::new(&mut self.argon_params.t_cost, 5..=200));
                      ui.end_row();
 
-                     ui.label(rich_text("Parallelism:").size(theme.text_sizes.normal))
+                     ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal))
                         .on_hover_text(P_COST_TIP);
                      ui.end_row();
 
                      ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=8));
                      ui.end_row();
 
-                     let save = button(rich_text("Save").size(theme.text_sizes.normal));
+                     let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
                      if ui.add(save).clicked() {
                         let params = self.argon_params.clone();
                         let account = ctx.account();

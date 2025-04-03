@@ -141,7 +141,7 @@ impl RecipientSelectionWindow {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
-      wallet_select: &WalletSelect,
+      _wallet_select: &WalletSelect,
       bg_color: Color32,
       column_width: f32,
       close_window: &mut bool,

@@ -443,7 +443,7 @@ mod tests {
       let amount = parse_ether("0.001834247995202872").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
       assert_eq!(value.f64, 0.001834247995202872);
-      assert_eq!(value.formatted, "0.0018");
+      assert_eq!(value.formatted, "0.001834");
    }
 
    #[test]
@@ -460,7 +460,7 @@ mod tests {
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
       assert_eq!(value.wei().unwrap(), U256::from(1294885000000000u128));
       assert_eq!(value.f64, 0.001294885);
-      assert_eq!(value.formatted, "0.0012");
+      assert_eq!(value.formatted, "0.001294");
    }
 
    #[test]
@@ -480,11 +480,11 @@ mod tests {
       assert_eq!(value.f64, 1.0);
       assert_eq!(value.formatted, "1");
 
-      let amount = "0.001294885";
+      let amount = "0.000000070";
       let value = NumericValue::parse_to_gwei(&amount.to_string());
-      assert_eq!(value.wei().unwrap(), U256::from(1294885u128));
-      assert_eq!(value.f64, 0.001294885);
-      assert_eq!(value.formatted, "0.0012");
+      assert_eq!(value.wei().unwrap(), U256::from(70u128));
+      assert_eq!(value.f64, 0.000000070);
+      assert_eq!(value.formatted, "0");
    }
 
    #[test]

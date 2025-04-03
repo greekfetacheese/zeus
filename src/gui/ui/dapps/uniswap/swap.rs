@@ -1,7 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::ui::*;
-use egui::{Align, Align2, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window, vec2};
+use egui::{Align, Align2, Sense, RichText, Button, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window, vec2};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::currency::{Currency, erc20::ERC20Token, native::NativeCurrency};
@@ -105,8 +105,8 @@ impl SwapUi {
       let owner = ctx.account().current_wallet.key.borrow().address();
       let currencies = ctx.get_currencies(chain_id);
 
-      let sell_text = rich_text("Sell").size(23.0);
-      let buy_text = rich_text("Buy").size(23.0);
+      let sell_text = RichText::new("Sell").size(23.0);
+      let buy_text = RichText::new("Buy").size(23.0);
 
       let frame = theme.frame2.fill(Color32::TRANSPARENT);
 
@@ -154,7 +154,7 @@ impl SwapUi {
                            ui.label(balance.formatted());
                            ui.add_space(5.0);
 
-                           let max = rich_text("Max").size(17.0).color(Color32::RED);
+                           let max = RichText::new("Max").size(17.0).color(Color32::RED);
                            // TODO: on hover change the cursor to a pointer
                            if ui.label(max).clicked() {
                               *self.amount_in() = balance.wei().unwrap_or_default().to_string();
@@ -185,7 +185,7 @@ impl SwapUi {
 
                            ui.add_space(5.0);
 
-                           let max = rich_text("Max").size(17.0).color(Color32::RED);
+                           let max = RichText::new("Max").size(17.0).color(Color32::RED);
                            if ui.label(max).clicked() {
                               *self.amount_out() = balance.wei().unwrap_or_default().to_string();
                            }
@@ -210,7 +210,7 @@ impl SwapUi {
    /// Creates the amount field
    fn amount_field(&mut self, ui: &mut Ui, in_or_out: InOrOut) {
       let font = FontId::proportional(23.0);
-      let hint = rich_text("0").size(23.0);
+      let hint = RichText::new("0").size(23.0);
 
       let amount = match in_or_out {
          InOrOut::In => self.amount_in(),
@@ -237,10 +237,10 @@ impl SwapUi {
    ) {
       ui.push_id(in_or_out.to_string(), |ui| {
          let currency = self.get_currency(&in_or_out);
-         let symbol_text = rich_text(currency.symbol()).size(17.0);
+         let symbol_text = RichText::new(currency.symbol()).size(17.0);
 
          let icon = icons.currency_icon(currency);
-         let button = img_button(icon, symbol_text)
+         let button = Button::image_and_text(icon, symbol_text)
             .min_size(vec2(50.0, 25.0))
             .sense(Sense::click());
 

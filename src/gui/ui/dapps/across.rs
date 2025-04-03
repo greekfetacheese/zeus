@@ -3,7 +3,7 @@ use crate::core::utils::eth::get_eth_balance;
 use crate::core::{
    ZeusCtx,
    utils::{
-      RT, eth,
+      RT, estimate_gas_cost, eth,
       tx::{TxMethod, TxParams},
    },
 };
@@ -19,10 +19,7 @@ use egui_theme::{Theme, utils::widget_visuals};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
-   alloy_primitives::{
-      Address, Bytes, U256,
-      utils::{format_units, parse_units},
-   },
+   alloy_primitives::{Address, Bytes, U256, utils::parse_units},
    currency::{Currency, NativeCurrency},
    dapps::across::*,
    types::{BSC, ChainId},
@@ -103,8 +100,11 @@ impl AcrossBridge {
       recipient_selection.show(ctx.clone(), theme, &self.from_wallet, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
+      let from_chain = self.from_chain.chain.id();
+      let depositor = self.from_wallet.wallet.key.borrow().address();
+      self.currency = NativeCurrency::from_chain_id(from_chain).unwrap();
 
-      self.get_suggested_fees(recipient.clone());
+      self.get_suggested_fees(ctx.clone(), depositor, recipient.clone());
 
       self.review_transaction(
          ctx.clone(),
@@ -129,10 +129,6 @@ impl AcrossBridge {
             ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
             let ui_width = ui.available_width();
-
-            let from_chain = self.from_chain.chain.id();
-            let depositor = self.from_wallet.wallet.key.borrow().address();
-            self.currency = NativeCurrency::from_chain_id(from_chain).unwrap();
 
             // Header
             ui.vertical_centered(|ui| {
@@ -196,6 +192,7 @@ impl AcrossBridge {
                      ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                      // Max amount button
+                     ui.spacing_mut().button_padding = vec2(5.0, 5.0);
                      widget_visuals(ui, theme.get_button_visuals(bg_color));
                      let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
                      if ui.add(button).clicked() {
@@ -214,6 +211,7 @@ impl AcrossBridge {
                               .size(theme.text_sizes.small)
                               .color(Color32::RED),
                         );
+                        ui.end_row();
                      }
 
                      // Balance check
@@ -223,6 +221,7 @@ impl AcrossBridge {
                               .size(theme.text_sizes.small)
                               .color(Color32::RED),
                         );
+                        ui.end_row();
                      }
                   });
             });
@@ -252,7 +251,7 @@ impl AcrossBridge {
                      );
 
                      if !recipient.is_empty() {
-                        if let Some(name) = recipient_name.clone() {
+                        if let Some(name) = &recipient_name {
                            ui.label(RichText::new(name).size(theme.text_sizes.normal).strong());
                         } else {
                            ui.label(
@@ -303,7 +302,15 @@ impl AcrossBridge {
                            .size(theme.text_sizes.large),
                      );
 
-                     self.from_chain.show(BSC, theme, icons.clone(), ui);
+                     let changed = self.from_chain.show(BSC, theme, icons.clone(), ui);
+                     if changed {
+                        let chain = self.from_chain.chain.id();
+                        self.priority_fee = ctx
+                           .get_priority_fee(chain)
+                           .unwrap_or_default()
+                           .formatted()
+                           .clone();
+                     }
                      ui.end_row();
                   });
             });
@@ -329,6 +336,8 @@ impl AcrossBridge {
             // Priority Fee
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(RichText::new("Priority Fee").size(theme.text_sizes.normal));
+               ui.add_space(2.0);
+               ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
             });
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -341,8 +350,27 @@ impl AcrossBridge {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
                ui.add_space(5.0);
-               ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
+               ui.spacing_mut().button_padding = vec2(5.0, 5.0);
+               widget_visuals(ui, theme.get_button_visuals(bg_color));
+               if ui
+                  .add(Button::new(
+                     RichText::new("Reset").size(theme.text_sizes.small),
+                  ))
+                  .clicked()
+               {
+                  self.reset_priority_fee(ctx.clone());
+               }
             });
+
+            if !self.priority_fee.is_empty() {
+               if self.fee_is_zero() {
+                  ui.label(
+                     RichText::new("Fee cannot be zero")
+                        .size(theme.text_sizes.normal)
+                        .color(Color32::RED),
+                  );
+               }
+            }
 
             // Network Fee
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -387,7 +415,7 @@ impl AcrossBridge {
             let bridge =
                Button::new(RichText::new("Bridge").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.90, 40.0));
 
-            if !self.sufficient_balance(ctx.clone(), depositor) || !self.valid_inputs(recipient.clone()) {
+            if !self.valid_inputs(ctx, depositor, recipient.clone()) {
                ui.disable();
             }
 
@@ -433,18 +461,35 @@ impl AcrossBridge {
       amount > 0.0
    }
 
-   fn valid_inputs(&self, recipient: String) -> bool {
-      self.valid_recipient(recipient) && self.valid_amount()
+   fn fee_is_zero(&self) -> bool {
+      let fee = self.priority_fee.parse().unwrap_or(0.0);
+      let chain = self.from_chain.chain;
+      if chain.uses_priority_fee() {
+      fee == 0.0
+      } else {
+         false
+      }
    }
 
-   fn should_get_suggested_fees(&mut self, recipient: String) -> bool {
+   /// Reset priority fee to the suggested fee
+   fn reset_priority_fee(&mut self, ctx: ZeusCtx) {
+      let chain = self.from_chain.chain.id();
+      let fee = ctx.get_priority_fee(chain).unwrap_or_default();
+      self.priority_fee = fee.formatted().clone();
+   }
+
+   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: String) -> bool {
+      self.valid_recipient(recipient) && self.valid_amount() && self.sufficient_balance(ctx, depositor)
+   }
+
+   fn should_get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: String) -> bool {
       // Don't request if already in progress
       if self.requesting {
          return false;
       }
 
       // Don't request if inputs are invalid
-      if !self.valid_inputs(recipient) {
+      if !self.valid_inputs(ctx, depositor, recipient) {
          return false;
       }
 
@@ -523,21 +568,21 @@ impl AcrossBridge {
          match get_eth_balance(ctx_clone, chain, depositor).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-               gui.across_bridge.balance_syncing = false;
+                  gui.across_bridge.balance_syncing = false;
                });
             }
             Err(e) => {
                tracing::error!("Error getting balance: {:?}", e);
                SHARED_GUI.write(|gui| {
-               gui.across_bridge.balance_syncing = false;
+                  gui.across_bridge.balance_syncing = false;
                });
             }
          }
       });
    }
 
-   fn get_suggested_fees(&mut self, recipient: String) {
-      if !self.should_get_suggested_fees(recipient.clone()) {
+   fn get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: String) {
+      if !self.should_get_suggested_fees(ctx, depositor, recipient.clone()) {
          return;
       }
 
@@ -618,22 +663,9 @@ impl AcrossBridge {
       };
 
       let chain = self.from_chain.chain;
-      let base_fee = ctx.get_base_fee(chain.id()).unwrap_or_default().next;
-      let total_fee = priority_fee + U256::from(base_fee);
-      let gas_used = U256::from(70_000);
+      let gas_used: u64 = 70_000;
 
-      // native currency price
-      let price = ctx
-         .get_currency_price(&Currency::from_native(self.currency.clone()))
-         .f64();
-
-      let cost_wei = gas_used * total_fee;
-      let cost = format_units(cost_wei, self.currency.decimals).unwrap_or_default();
-      let cost: f64 = cost.parse().unwrap_or_default();
-
-      // cost in usd
-      let cost_usd = NumericValue::value(cost, price);
-      (cost_wei, cost_usd)
+      estimate_gas_cost(ctx, chain.id(), gas_used, priority_fee)
    }
 
    fn review_transaction(
@@ -846,8 +878,8 @@ impl AcrossBridge {
                Err(e) => {
                   tracing::error!("Bridge Transaction Error: {:?}", e);
                   SHARED_GUI.write(|gui| {
-                  gui.across_bridge.progress_window.reset_and_close();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                     gui.across_bridge.progress_window.reset_and_close();
+                     gui.msg_window.open("Transaction Error", &e.to_string());
                   });
                }
             }
@@ -864,8 +896,8 @@ fn request_suggested_fees(from_chain: u64, to_chain: u64, input_token: Address, 
             tracing::error!("Failed to get suggested fees: {:?}", e);
             {
                SHARED_GUI.write(|gui| {
-               gui.across_bridge.requesting = false;
-               gui.across_bridge.last_request_time = Some(Instant::now());
+                  gui.across_bridge.requesting = false;
+                  gui.across_bridge.last_request_time = Some(Instant::now());
                });
             }
             return;
@@ -873,15 +905,15 @@ fn request_suggested_fees(from_chain: u64, to_chain: u64, input_token: Address, 
       };
 
       SHARED_GUI.write(|gui| {
-      gui.across_bridge.api_res_cache.insert(
-         (from_chain, to_chain),
-         ApiResCache {
-            res,
-            last_updated: Some(Instant::now()),
-         },
-      );
-      gui.across_bridge.requesting = false;
-      gui.across_bridge.last_request_time = Some(Instant::now())
+         gui.across_bridge.api_res_cache.insert(
+            (from_chain, to_chain),
+            ApiResCache {
+               res,
+               last_updated: Some(Instant::now()),
+            },
+         );
+         gui.across_bridge.requesting = false;
+         gui.across_bridge.last_request_time = Some(Instant::now())
       });
    });
 }

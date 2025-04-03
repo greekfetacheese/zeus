@@ -1,9 +1,6 @@
 use crate::core::ZeusCtx;
-use crate::gui::{
-   self, SHARED_GUI,
-   ui::{button, rich_text},
-};
-use eframe::egui::{Align2, FontId, Frame, Margin, Order, TextEdit, Ui, Vec2, Window, vec2};
+use crate::gui::{self, SHARED_GUI};
+use eframe::egui::{Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use secure_types::SecureString;
 
@@ -37,7 +34,7 @@ impl ImportWallet {
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
       let mut clicked = false;
-      Window::new(rich_text("Import Wallet").size(theme.text_sizes.large))
+      Window::new(RichText::new("Import Wallet").size(theme.text_sizes.large))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -55,7 +52,7 @@ impl ImportWallet {
                ui.add_space(20.0);
 
                // Wallet Name
-               ui.label(rich_text("Wallet Name (Optional)").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
                ui.add(
                   TextEdit::singleline(&mut self.wallet_name)
                      .font(FontId::proportional(theme.text_sizes.normal))
@@ -70,7 +67,7 @@ impl ImportWallet {
                   "Seed Phrase"
                };
 
-               ui.label(rich_text(text).size(theme.text_sizes.normal));
+               ui.label(RichText::new(text).size(theme.text_sizes.normal));
                // ! Key still remains in the buffer
                self.key_or_phrase.secure_mut(|imported_key| {
                   let text_edit = TextEdit::singleline(imported_key)
@@ -83,7 +80,7 @@ impl ImportWallet {
                });
 
                // Import Button
-               let button = button(rich_text("Import").size(theme.text_sizes.normal));
+               let button = Button::new(RichText::new("Import").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -105,18 +102,18 @@ impl ImportWallet {
             match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                  gui.wallet_ui
-                     .add_wallet_ui
-                     .import_wallet
-                     .key_or_phrase
-                     .erase();
-                  gui.wallet_ui
-                     .add_wallet_ui
-                     .import_wallet
-                     .wallet_name
-                     .clear();
-                  gui.loading_window.open = false;
-                  gui.open_msg_window("Wallet imported successfully", "");
+                     gui.wallet_ui
+                        .add_wallet_ui
+                        .import_wallet
+                        .key_or_phrase
+                        .erase();
+                     gui.wallet_ui
+                        .add_wallet_ui
+                        .import_wallet
+                        .wallet_name
+                        .clear();
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Wallet imported successfully", "");
                   });
                   ctx.write(|ctx| {
                      ctx.account = account;
@@ -124,8 +121,8 @@ impl ImportWallet {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to save account", e.to_string());
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to save account", e.to_string());
                   });
                   return;
                }
@@ -179,7 +176,7 @@ impl AddWalletUi {
       let mut clicked2 = false;
       let mut clicked3 = false;
 
-      Window::new(rich_text("Add a new Wallet").size(theme.text_sizes.large))
+      Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.large))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -197,7 +194,7 @@ impl AddWalletUi {
                widget_visuals(ui, theme.get_button_visuals(theme.colors.bg_color));
 
                // From private key
-               let button1 = button(rich_text("From Private Key").size(theme.text_sizes.large))
+               let button1 = Button::new(RichText::new("From Private Key").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button1).clicked() {
@@ -205,7 +202,7 @@ impl AddWalletUi {
                }
 
                // From seed phrase
-               let button2 = button(rich_text("From Seed Phrase").size(theme.text_sizes.large))
+               let button2 = Button::new(RichText::new("From Seed Phrase").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button2).clicked() {
@@ -213,7 +210,7 @@ impl AddWalletUi {
                }
 
                // Generate new wallet
-               let button2 = button(rich_text("Generate New Wallet").size(theme.text_sizes.large))
+               let button2 = Button::new(RichText::new("Generate New Wallet").size(theme.text_sizes.large))
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(button2).clicked() {
@@ -245,7 +242,7 @@ impl AddWalletUi {
    pub fn generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.generate_wallet;
       let mut clicked = false;
-      Window::new(rich_text("Generate Wallet").size(theme.text_sizes.large))
+      Window::new(RichText::new("Generate Wallet").size(theme.text_sizes.large))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -263,7 +260,7 @@ impl AddWalletUi {
                ui.add_space(20.0);
 
                // Wallet Name
-               ui.label(rich_text("Wallet Name (Optional)").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
                ui.add(
                   TextEdit::singleline(&mut self.wallet_name)
                      .font(FontId::proportional(theme.text_sizes.normal))
@@ -272,7 +269,7 @@ impl AddWalletUi {
                );
 
                // Generate Button
-               let button = button(rich_text("Generate").size(theme.text_sizes.normal));
+               let button = Button::new(RichText::new("Generate").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -292,9 +289,9 @@ impl AddWalletUi {
             match account.encrypt_and_save(&dir, info.argon2_params) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                  gui.wallet_ui.add_wallet_ui.wallet_name.clear();
-                  gui.loading_window.open = false;
-                  gui.open_msg_window("Wallet generated successfully", "");
+                     gui.wallet_ui.add_wallet_ui.wallet_name.clear();
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Wallet generated successfully", "");
                   });
                   ctx.write(|ctx| {
                      ctx.account = account;
@@ -302,8 +299,8 @@ impl AddWalletUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to save account", e.to_string());
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to save account", e.to_string());
                   });
                   return;
                }

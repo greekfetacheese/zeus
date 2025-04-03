@@ -1,10 +1,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{Contact, ZeusCtx};
-use crate::gui::{
-   SHARED_GUI,
-   ui::{button, img_button, rich_text},
-};
-use egui::{Align, Align2, Color32, FontId, Frame, Label, Layout, Margin, ScrollArea, TextEdit, Ui, Window, vec2};
+use crate::gui::
+   SHARED_GUI;
+use egui::{Align, Align2, Color32, FontId, Button, RichText, Frame, Label, Layout, Margin, ScrollArea, TextEdit, Ui, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -58,7 +56,7 @@ impl ContactsUi {
       }
 
       let mut open = self.open;
-      Window::new(rich_text("Contacts").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Contacts").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -76,8 +74,8 @@ impl ContactsUi {
 
                // Add contact button
                if ui
-                  .add(button(
-                     rich_text("Add Contact").size(theme.text_sizes.normal),
+                  .add(Button::new(
+                     RichText::new("Add Contact").size(theme.text_sizes.normal),
                   ))
                   .clicked()
                {
@@ -86,7 +84,7 @@ impl ContactsUi {
                }
 
                if contacts.is_empty() {
-                  ui.label(rich_text("No contacts found").size(theme.text_sizes.large));
+                  ui.label(RichText::new("No contacts found").size(theme.text_sizes.large));
                } else {
                   ScrollArea::vertical().show(ui, |ui| {
                      ui.set_width(self.size.0);
@@ -113,13 +111,13 @@ impl ContactsUi {
             ui.set_width(ui.available_width() - 40.0); // Leave space for buttons
 
             // Name
-            let name_label = Label::new(rich_text(&contact.name).size(theme.text_sizes.normal)).wrap();
+            let name_label = Label::new(RichText::new(&contact.name).size(theme.text_sizes.normal)).wrap();
             ui.add(name_label);
 
             // Address
             let address = contact.address_short();
             if ui
-               .selectable_label(false, rich_text(&address).size(theme.text_sizes.normal))
+               .selectable_label(false, RichText::new(&address).size(theme.text_sizes.normal))
                .clicked()
             {
                ui.ctx().copy_text(contact.address.clone());
@@ -130,8 +128,8 @@ impl ContactsUi {
          ui.vertical(|ui| {
             ui.set_min_width(40.0);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let delete_res = ui.add(img_button(icons.trash(), "").min_size((16.0, 16.0).into()));
-               let edit_res = ui.add(img_button(icons.edit(), "").min_size((16.0, 16.0).into()));
+               let delete_res = ui.add(Button::image_and_text(icons.trash(), "").min_size((16.0, 16.0).into()));
+               let edit_res = ui.add(Button::image_and_text(icons.edit(), "").min_size((16.0, 16.0).into()));
 
                if delete_res.clicked() {
                   self.main_ui = false;
@@ -154,7 +152,7 @@ impl ContactsUi {
          return;
       }
 
-      Window::new(rich_text("Delete contact").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Delete contact").size(theme.text_sizes.heading))
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
@@ -171,20 +169,20 @@ impl ContactsUi {
 
                // should not happen
                if self.contact_to_delete.is_none() {
-                  ui.label(rich_text("No contact to delete"));
-                  if ui.add(button(rich_text("Close"))).clicked() {
+                  ui.label(RichText::new("No contact to delete"));
+                  if ui.add(Button::new(RichText::new("Close"))).clicked() {
                      self.delete_contact = false;
                      return;
                   }
                }
 
                let contact = self.contact_to_delete.clone().unwrap();
-               ui.label(rich_text("Are you sure you want to delete this contact?").size(theme.text_sizes.large));
-               ui.label(rich_text(&contact.name).size(theme.text_sizes.normal));
-               ui.label(rich_text(&contact.address_short()).size(theme.text_sizes.normal));
+               ui.label(RichText::new("Are you sure you want to delete this contact?").size(theme.text_sizes.large));
+               ui.label(RichText::new(&contact.name).size(theme.text_sizes.normal));
+               ui.label(RichText::new(&contact.address_short()).size(theme.text_sizes.normal));
 
-               let res_delete = ui.add(button(rich_text("Delete").size(theme.text_sizes.normal)));
-               let res_cancel = ui.add(button(rich_text("Cancel").size(theme.text_sizes.normal)));
+               let res_delete = ui.add(Button::new(RichText::new("Delete").size(theme.text_sizes.normal)));
+               let res_cancel = ui.add(Button::new(RichText::new("Cancel").size(theme.text_sizes.normal)));
 
                if res_cancel.clicked() {
                   self.delete_contact = false;
@@ -210,7 +208,7 @@ impl ContactsUi {
          return;
       }
 
-      Window::new(rich_text("Add new contact").size(theme.text_sizes.heading))
+      Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
@@ -226,14 +224,14 @@ impl ContactsUi {
 
                // Go back button
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let button = img_button(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
+                  let button = Button::image_and_text(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
                   if ui.add(button).clicked() {
                      self.add_contact = false;
                      self.main_ui = true;
                   }
                });
 
-               ui.label(rich_text("Name:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Name:").size(theme.text_sizes.normal));
                let name = &mut self.contact_to_add.name;
                ui.add(
                   TextEdit::singleline(name)
@@ -242,7 +240,7 @@ impl ContactsUi {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(rich_text("Address:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Address:").size(theme.text_sizes.normal));
                let address = &mut self.contact_to_add.address;
                ui.add(
                   TextEdit::singleline(address)
@@ -252,7 +250,7 @@ impl ContactsUi {
                );
 
                if ui
-                  .add(button(rich_text("Add").size(theme.text_sizes.normal)))
+                  .add(Button::new(RichText::new("Add").size(theme.text_sizes.normal)))
                   .clicked()
                {
                   let contact = self.contact_to_add.clone();
@@ -313,7 +311,7 @@ impl ContactsUi {
 
                // Go back button
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let button = img_button(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
+                  let button = Button::image_and_text(icons.arrow_left(), "").min_size(vec2(30.0, 20.0));
                   bg_color_on_idle(ui, Color32::TRANSPARENT);
                   if ui.add(button).clicked() {
                      self.edit_contact = false;
@@ -323,15 +321,15 @@ impl ContactsUi {
 
                // should not happen
                if self.contact_to_edit.is_none() {
-                  ui.label(rich_text("No contact to edit"));
-                  if ui.add(button(rich_text("Close"))).clicked() {
+                  ui.label(RichText::new("No contact to edit"));
+                  if ui.add(Button::new(RichText::new("Close"))).clicked() {
                      self.edit_contact = false;
                      return;
                   }
                }
 
                let mut contact = self.contact_to_edit.clone().unwrap();
-               ui.label(rich_text("Name:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Name:").size(theme.text_sizes.normal));
                let name = &mut contact.name;
                ui.add(
                   TextEdit::singleline(name)
@@ -340,7 +338,7 @@ impl ContactsUi {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(rich_text("Address:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Address:").size(theme.text_sizes.normal));
                let address = &mut contact.address;
                ui.add(
                   TextEdit::singleline(address)
@@ -352,7 +350,7 @@ impl ContactsUi {
                self.contact_to_edit = Some(contact.clone());
 
                if ui
-                  .add(button(rich_text("Save").size(theme.text_sizes.normal)))
+                  .add(Button::new(RichText::new("Save").size(theme.text_sizes.normal)))
                   .clicked()
                {
                   let old_contact = self.old_contact.clone().unwrap();

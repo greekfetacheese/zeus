@@ -1,5 +1,5 @@
 use crate::core::{BaseFee, ZeusCtx, utils::*};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use zeus_eth::alloy_rpc_types::BlockId;
@@ -20,10 +20,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-      match update_priority_fee(ctx_clone, chain).await {
-         Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
-      }
+         match update_priority_fee(ctx_clone, chain).await {
+            Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
+         }
       });
    }
 
@@ -158,7 +158,7 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
          Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
       }
    }
-   match ctx.save_pool_data() {
+   match ctx.save_pool_manager() {
       Ok(_) => tracing::info!("Pool data saved"),
       Err(e) => tracing::error!("Error saving pool data: {:?}", e),
    }
@@ -302,8 +302,16 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
    let chain = ChainId::new(chain)?;
    if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
       let fee = client.get_max_priority_fee_per_gas().await?;
-      let fee = format_units(U256::from(fee), "gwei")?;
-      ctx.update_priority_fee(chain.id(), NumericValue::parse_to_gwei(&fee));
+      let fee_str = format_units(U256::from(fee), "gwei")?;
+      let fee_value = NumericValue::parse_to_gwei(&fee_str);
+      if fee_value.formatted() == "0" {
+         bail!(
+            "Rpc returned bad data, Raw Fee {} For Chain: {}",
+            fee,
+            chain.id()
+         );
+      }
+      ctx.update_priority_fee(chain.id(), fee_value);
    }
    Ok(())
 }
@@ -399,7 +407,10 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       portfolio_update(ctx.clone());
 
       ctx.save_portfolio_db();
-      ctx.save_pool_data();
+      match ctx.save_pool_manager() {
+         Ok(_) => tracing::info!("Pool data saved"),
+         Err(e) => tracing::error!("Error saving pool data: {:?}", e),
+      }
    } else {
       tracing::info!("No need to resync pools");
    }

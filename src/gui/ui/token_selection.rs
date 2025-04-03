@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Color32, FontId, Order, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, Color32, Button, RichText, FontId, Order, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
 };
 
 use std::{str::FromStr, sync::Arc};
@@ -7,7 +7,7 @@ use std::{str::FromStr, sync::Arc};
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
-use crate::gui::ui::{button, dapps::uniswap::swap::InOrOut, img_button, rich_text};
+use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::{SHARED_GUI, utils};
 use egui_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
@@ -73,7 +73,7 @@ impl TokenSelectionWindow {
    ) {
       let mut open = self.open;
       let mut close_window = false;
-      Window::new(rich_text("Select Token").size(18.0))
+      Window::new(RichText::new("Select Token").size(18.0))
          .open(&mut open)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -88,7 +88,7 @@ impl TokenSelectionWindow {
                ui.add_space(20.0);
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
-                     .hint_text(rich_text("Search tokens or enter an address"))
+                     .hint_text(RichText::new("Search tokens or enter an address"))
                      .desired_width(ui_width * 0.7)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
@@ -100,11 +100,11 @@ impl TokenSelectionWindow {
                ui.set_width(ui_width * 0.9);
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.label(rich_text("Asset").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Asset").size(theme.text_sizes.large));
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  ui.label(rich_text("Balance").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Balance").size(theme.text_sizes.large));
                });
             });
 
@@ -136,7 +136,7 @@ impl TokenSelectionWindow {
                      if valid_search {
                         let text = format!("{} ({})", currency.name(), currency.symbol());
                         let icon = icons.currency_icon(currency);
-                        let button = img_button(icon, rich_text(text).size(theme.text_sizes.normal));
+                        let button = Button::image_and_text(icon, RichText::new(text).size(theme.text_sizes.normal));
 
                         ui.horizontal(|ui| {
                            ui.set_width(ui_width * 0.9);
@@ -149,7 +149,7 @@ impl TokenSelectionWindow {
                            }
 
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              ui.label(rich_text(balance.formatted()).size(theme.text_sizes.normal));
+                              ui.label(RichText::new(balance.formatted()).size(theme.text_sizes.normal));
                            });
                         });
 
@@ -184,7 +184,7 @@ impl TokenSelectionWindow {
          if currencies.iter().any(|c| c.erc20().map_or(false, |t| t.address == address)) {
             return;
          }
-         let button = button(rich_text("Add Token").size(theme.text_sizes.normal));
+         let button = Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {

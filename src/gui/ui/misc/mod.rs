@@ -1,5 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Color32, ComboBox, Frame, Grid, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, ComboBox, Frame, Grid, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2,
+   Window, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::utils::NumericValue;
@@ -11,15 +12,12 @@ use crate::core::{
    utils::{RT, eth},
 };
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::{TokenSelectionWindow, button, rich_text};
+use crate::gui::ui::TokenSelectionWindow;
 
 use egui_theme::{Theme, utils::*};
 use zeus_eth::{currency::Currency, types::ChainId};
 
 pub mod tx_history;
-
-
-
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {
@@ -84,7 +82,7 @@ impl ChainSelect {
       ui.add_sized(self.size, |ui: &mut Ui| {
          ComboBox::from_id_salt(self.id)
             .width(self.size.x)
-            .selected_text(rich_text(selected_chain.name()).size(theme.text_sizes.normal))
+            .selected_text(RichText::new(selected_chain.name()).size(theme.text_sizes.normal))
             .show_ui(ui, |ui| {
                for chain in supported_chains {
                   if chain.id() == ignore_chain {
@@ -94,7 +92,7 @@ impl ChainSelect {
                   let value = ui.selectable_value(
                      &mut selected_chain,
                      chain.clone(),
-                     rich_text(chain.name()).size(theme.text_sizes.normal),
+                     RichText::new(chain.name()).size(theme.text_sizes.normal),
                   );
                   if value.clicked() {
                      self.chain = selected_chain.clone();
@@ -164,7 +162,7 @@ impl WalletSelect {
       ui.add_sized(self.size, |ui: &mut Ui| {
          ComboBox::from_id_salt(self.id)
             .width(self.size.x)
-            .selected_text(rich_text(self.wallet.name.clone()).size(theme.text_sizes.normal))
+            .selected_text(RichText::new(self.wallet.name.clone()).size(theme.text_sizes.normal))
             .show_ui(ui, |ui| {
                ui.spacing_mut().item_spacing.y = 10.0;
 
@@ -172,7 +170,7 @@ impl WalletSelect {
                   let value = ui.selectable_value(
                      &mut self.wallet,
                      wallet.clone(),
-                     rich_text(wallet.name.clone()).size(theme.text_sizes.normal),
+                     RichText::new(wallet.name.clone()).size(theme.text_sizes.normal),
                   );
 
                   if value.clicked() {
@@ -232,7 +230,7 @@ impl LoadingWindow {
             ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
                ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
-               ui.label(rich_text(&self.msg).size(17.0));
+               ui.label(RichText::new(&self.msg).size(17.0));
             });
          });
    }
@@ -273,9 +271,9 @@ impl MsgWindow {
          return;
       }
 
-      let title = rich_text(self.title.clone()).size(20.0);
-      let msg = rich_text(&self.message).size(16.0);
-      let ok = button(rich_text("Ok"));
+      let title = RichText::new(self.title.clone()).size(20.0);
+      let msg = RichText::new(&self.message).size(16.0);
+      let ok = Button::new(RichText::new("Ok"));
 
       Window::new(title)
          .resizable(false)
@@ -343,12 +341,12 @@ impl PortfolioUi {
                let visuals = theme.get_button_visuals(theme.colors.bg_color);
                widget_visuals(ui, visuals);
 
-               let add_token = button(rich_text("Add Token").size(theme.text_sizes.normal));
+               let add_token = Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
                if ui.add(add_token).clicked() {
                   token_selection.open = true;
                }
 
-               let refresh = button(rich_text("Refresh").size(theme.text_sizes.normal));
+               let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
                   self.refresh(ctx.clone());
                }
@@ -487,7 +485,7 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(rich_text(format!("${}", price.formatted())).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
 
       let owner = ctx.account().current_wallet.key.borrow().address();
@@ -495,13 +493,13 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(rich_text(balance.formatted()).size(theme.text_sizes.normal));
+         ui.label(RichText::new(balance.formatted()).size(theme.text_sizes.normal));
       });
 
       let value = ctx.get_currency_value(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(rich_text(format!("${}", value.formatted())).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
       });
    }
 
@@ -521,7 +519,7 @@ impl PortfolioUi {
          }
 
          SHARED_GUI.write(|gui| {
-         gui.portofolio.show_spinner = false;
+            gui.portofolio.show_spinner = false;
          });
       });
    }
@@ -570,13 +568,13 @@ impl PortfolioUi {
             Ok(_) => {
                tracing::info!("Updated pool state for {}", token2.symbol);
                SHARED_GUI.write(|gui| {
-               gui.portofolio.show_spinner = false;
+                  gui.portofolio.show_spinner = false;
                });
             }
             Err(e) => {
                tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e);
                SHARED_GUI.write(|gui| {
-               gui.portofolio.show_spinner = false;
+                  gui.portofolio.show_spinner = false;
                });
             }
          }
