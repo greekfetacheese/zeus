@@ -1,10 +1,18 @@
 # Zeus - Ethereum Desktop Wallet
 
-![Screenshot](src/zeus-home.png)
+![Screenshot](src/zeus.png)
 
  Zeus is an Ethereum Desktop Wallet with a focus on simplicity and security.
  
  ---
+ 
+## Installation
+**Make sure you have [Rust](https://www.rust-lang.org/tools/install) installed.**
+
+1. Download the latest release from the [Releases](https://github.com/greekfetacheese/zeus/releases)
+2. Zeus is portable, you just need to extract the folder and run the `zeus-desktop` executable.
+
+**Zeus saves and loads its data from the current directory it exists, so if you want to move it move it with the entire folder**
 
 ## Supported Chains
 - Ethereum
