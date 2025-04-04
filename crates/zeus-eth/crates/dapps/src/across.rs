@@ -306,7 +306,6 @@ pub async fn get_suggested_fees(
 
    // println!("Raw JSON response: {}", raw_response);
 
-   // Attempt to deserialize
    let response = serde_json::from_str::<SuggestedFeesResponse>(&raw_response)?;
 
    let res = ClientResponse {
@@ -349,7 +348,7 @@ pub fn spoke_pool_address(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Optimism(_) => Ok(address!("6f26Bf09B1C792e3228e5467807a900A503c0281")),
       ChainId::Base(_) => Ok(address!("09aea4b2242abC8bb4BB78D537A67a245A7bEC64")),
       ChainId::Arbitrum(_) => Ok(address!("e35e9842fceaca96570b734083f4a58e8f7c5f2a")),
-      ChainId::BinanceSmartChain(_) => bail!("SpokePool not supported on BSC"),
+      ChainId::BinanceSmartChain(_) => bail!("Across Protocol does not support BSC"),
    }
 }
 

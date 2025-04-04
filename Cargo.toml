@@ -15,13 +15,13 @@ default-run = "zeus-desktop"
 eframe = {version = "0.31.0", features = ["wgpu"]}
 egui = {version = "0.31.0", features = ["serde"]}
 egui_extras = {version = "0.31.0", features = ["image"]}
-egui-theme = { path = "crates/egui-theme" }
 image = "0.25.1"
 
 
-# Eth
+# Zeus Crates
 zeus-eth = { path = "crates/zeus-eth", features = ["utils", "wallet", "revm-utils"] }
 zeus-token-list = { path = "crates/zeus-token-list" }
+egui-theme = { path = "crates/egui-theme" }
 
 
 # Alloy
@@ -59,6 +59,7 @@ lazy_static = "1.4.0"
 inherits = "release"
 codegen-units = 1
 strip = true
+# Slightly smaller binary size than level 3
 opt-level = 2
 debug = false
 lto = "fat"

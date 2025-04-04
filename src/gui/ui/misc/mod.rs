@@ -185,6 +185,96 @@ impl WalletSelect {
    }
 }
 
+
+
+/// Testing Window
+pub struct TestingWindow {
+   pub open: bool,
+   pub msg1: String,
+   pub msg2: String,
+   pub msg3: String,
+   pub msg4: String,
+   pub panic: bool,
+   pub size: (f32, f32),
+}
+
+impl TestingWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         msg1: String::new(),
+         msg2: String::new(),
+         msg3: String::new(),
+         msg4: String::new(),
+         panic: false,
+         size: (500.0, 400.0),
+      }
+   }
+
+   pub fn open(&mut self, msg1: impl Into<String>, msg2: impl Into<String>, msg3: impl Into<String>, msg4: impl Into<String>) {
+      self.open = true;
+      self.msg1 = msg1.into();
+      self.msg2 = msg2.into();
+      self.msg3 = msg3.into();
+      self.msg4 = msg4.into();
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.msg1.clear();
+      self.msg2.clear();
+      self.msg3.clear();
+      self.msg4.clear();
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let msg1 = RichText::new(&self.msg1).size(theme.text_sizes.very_large);
+      let msg2 = RichText::new(&self.msg2).size(theme.text_sizes.very_large);
+      let msg3 = RichText::new(&self.msg3).size(theme.text_sizes.very_large);
+      let msg4 = RichText::new(&self.msg4).size(theme.text_sizes.very_large);
+      let ok = Button::new(RichText::new("Close").size(theme.text_sizes.normal));
+      let panic_btn = Button::new(RichText::new("Panic").size(theme.text_sizes.normal));
+
+      Window::new("Testing Window")
+         .title_bar(false)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               ui.set_min_size(self.size.into());
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               ui.add(Spinner::new().size(40.0).color(Color32::WHITE));
+
+               ui.label(msg1);
+               ui.add_space(5.0);
+               ui.label(msg2);
+               ui.add_space(5.0);
+               ui.label(msg3);
+               ui.add_space(5.0);
+               ui.label(msg4);
+               ui.add_space(20.0);
+
+               if ui.add(ok).clicked() {
+                  self.reset();
+               }
+
+               if ui.add(panic_btn).clicked() {
+                  self.panic = true;
+               }
+            });
+         });
+   }
+}
+
+
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    pub open: bool,
@@ -266,14 +356,14 @@ impl MsgWindow {
       self.message.clear();
    }
 
-   pub fn show(&mut self, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      let title = RichText::new(self.title.clone()).size(20.0);
-      let msg = RichText::new(&self.message).size(16.0);
-      let ok = Button::new(RichText::new("Ok"));
+      let title = RichText::new(self.title.clone()).size(theme.text_sizes.large);
+      let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
+      let ok = Button::new(RichText::new("Ok").size(theme.text_sizes.normal));
 
       Window::new(title)
          .resizable(false)
@@ -287,6 +377,7 @@ impl MsgWindow {
                ui.set_min_size(vec2(300.0, 100.0));
                ui.scope(|ui| {
                   ui.spacing_mut().item_spacing.y = 20.0;
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   ui.label(msg);
 

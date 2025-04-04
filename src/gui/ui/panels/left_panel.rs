@@ -1,10 +1,17 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
-use eframe::egui::{Align2, Color32, Button, RichText, Frame, ScrollArea, Ui, Window};
+use eframe::egui::{Align2, Button, Color32, Frame, RichText, ScrollArea, Ui, Window};
 use egui_theme::{Theme, utils};
 use std::sync::Arc;
 use zeus_eth::{amm::UniswapV2Pool, types::ChainId};
+
+#[cfg(feature = "dev")]
+use std::time::Duration;
+#[cfg(feature = "dev")]
+use crate::core::utils::RT;
+#[cfg(feature = "dev")]
+use crate::gui::SHARED_GUI;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -28,6 +35,27 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
          gui.portofolio.open = true;
+      }
+
+      let send = Button::new(RichText::new("Send").size(21.0));
+      if ui.add(send).clicked() {
+         gui.swap_ui.open = false;
+         gui.portofolio.open = false;
+         gui.settings.open = false;
+         gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
+         gui.across_bridge.open = false;
+         gui.send_crypto.open = true;
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+
+         let chain = gui.send_crypto.chain_select.chain.id();
+         let fee = ctx
+            .get_priority_fee(chain)
+            .unwrap_or_default()
+            .formatted()
+            .clone();
+         gui.send_crypto.priority_fee = fee;
       }
 
       let bridge = Button::new(RichText::new("Bridge").size(21.0));
@@ -87,27 +115,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
 
-      let send = Button::new(RichText::new("Send").size(21.0));
-      if ui.add(send).clicked() {
-         gui.swap_ui.open = false;
-         gui.portofolio.open = false;
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.send_crypto.open = true;
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-
-         let chain = gui.send_crypto.chain_select.chain.id();
-         let fee = ctx
-            .get_priority_fee(chain)
-            .unwrap_or_default()
-            .formatted()
-            .clone();
-         gui.send_crypto.priority_fee = fee;
-      }
-
       let settings = Button::new(RichText::new("Settings").size(21.0));
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
@@ -137,7 +144,53 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       #[cfg(feature = "dev")]
       show_data_insp(gui, ui);
+
+     #[cfg(feature = "dev")]
+      {
+         let test_locks_button = ui.add(Button::new(RichText::new("Test Locks").size(20.0)));
+         if test_locks_button.clicked() {
+            gui.testing_window.open = true;
+            RT.spawn(async move {
+               test_locks(ctx).await;
+            });
+         }
+      }
    });
+}
+
+#[cfg(feature = "dev")]
+async fn test_locks(ctx: ZeusCtx) {
+   for i in 0..1001 {
+      // do nothing just aquire the lock
+      ctx.write(|_ctx| {});
+      SHARED_GUI.write(|gui| {
+         gui.testing_window.msg1 = format!("Aquared Lock On GUI and Context: {}", i);
+      });
+   }
+   tokio::time::sleep(Duration::from_secs(1)).await;
+
+   for i in 0..1001 {
+      ctx.write(|_ctx| {});
+      SHARED_GUI.write(|gui| {
+         gui.testing_window.msg2 = format!("Aquared Lock On GUI and Context: {}", i);
+      });
+   }
+   tokio::time::sleep(Duration::from_secs(1)).await;
+
+   for i in 0..1001 {
+      ctx.write(|_ctx| {});
+      SHARED_GUI.write(|gui| {
+         gui.testing_window.msg3 = format!("Aquared Lock On GUI and Context: {}", i);
+      });
+   }
+
+   loop {
+      tokio::time::sleep(Duration::from_millis(50)).await;
+      let panic = SHARED_GUI.read(|gui| gui.testing_window.panic);
+      if panic {
+         panic!("Panic Button Pressed!");
+      }
+   }
 }
 
 #[allow(dead_code)]
@@ -223,7 +276,9 @@ fn v2_pool_info(ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, pool: &UniswapV
             let quote_usd = pool.quote_price(base_usd.f64()).unwrap_or_default();
 
             ui.horizontal(|ui| {
-               ui.label(RichText::new(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal));
+               ui.label(
+                  RichText::new(format!("{} ${}", base.symbol, base_usd.formatted())).size(theme.text_sizes.normal),
+               );
             });
 
             ui.horizontal(|ui| {

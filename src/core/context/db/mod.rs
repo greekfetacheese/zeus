@@ -16,7 +16,7 @@ use crate::core::{
 use std::collections::HashMap;
 use zeus_eth::alloy_primitives::Address;
 
-pub const TRANSACTIONS_FILE: &str = "transactions.json";
+pub const TX_RECEIPTS_FILE: &str = "tx_receipts.json";
 
 /// Transactions by chain and wallet address
 pub type Transactions = HashMap<(u64, Address), Vec<TxDetails>>;
@@ -36,7 +36,7 @@ impl TransactionsDB {
 
    /// Load from file
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(TRANSACTIONS_FILE);
+      let dir = data_dir()?.join(TX_RECEIPTS_FILE);
       let data = std::fs::read(dir)?;
       let db = serde_json::from_slice(&data)?;
       Ok(db)
@@ -45,7 +45,7 @@ impl TransactionsDB {
    /// Save to file
    pub fn save(&self) -> Result<(), anyhow::Error> {
       let db = serde_json::to_string(&self)?;
-      let dir = data_dir()?.join("tx_receipts.json");
+      let dir = data_dir()?.join(TX_RECEIPTS_FILE);
       std::fs::write(dir, db)?;
       Ok(())
    }

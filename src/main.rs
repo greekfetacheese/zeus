@@ -8,14 +8,29 @@ pub mod core;
 pub mod gui;
 
 use core::utils::trace::*;
+use std::panic;
 
 fn main() -> eframe::Result {
+   panic::set_hook(Box::new(|panic_info| {
+      let message = panic_info
+         .payload()
+         .downcast_ref::<&str>()
+         .map_or("Unknown panic", |s| s);
+      let location = panic_info
+         .location()
+         .map_or("Unknown location".to_string(), |loc| {
+            format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+         });
+      tracing::error!("Panic occurred: '{}' at {}", message, location);
+   }));
+
    // only use wgpu for windows
    let renderer = if cfg!(target_os = "windows") {
       eframe::Renderer::Wgpu
    } else {
       eframe::Renderer::Glow
    };
+
    let options = eframe::NativeOptions {
       renderer,
       viewport: egui::ViewportBuilder::default()

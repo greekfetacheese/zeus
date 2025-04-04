@@ -26,6 +26,7 @@
 ### Zeus is still in heavy development, so as for now the features are limited to:
 - **Wallet Management:** Import and manage your wallets.
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
+- **Cross-Chain Bridging:** Bridge ETH between the supported chains.(**BNB is not supported**)
 - **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
 
 
@@ -38,8 +39,15 @@
 
 ---
 
-## Bugs & Security
+## Security
 > **Disclaimer** I'm not aware of any major bugs, but this is still work in progress and **not audited** so use at your own risk.
+
+---
+
+## Issues/Bugs
+- While bridging and waiting for the transaction to complete Zeus may return an error while trying to see if the order has been filled at the destination chain, this is RPC related and there is not much i can do. Some free RPC's work great some don't. But since the deposit has been confirmed on the origin chain the order should go through normally.
+
+- There are some rare cases where the app becomes unresponsive and finally need to shut it down manually, this is because at some point the main thread which runs the gui is blocked. Not really sure yet why or where is happening.
 
 ---
 
@@ -55,7 +63,7 @@
 Features I plan to implement:
 - Backup account wallets to popular cloud services (e.g., Google Drive, Dropbox).
 - Full integration with the Uniswap protocol.
-- Cross-chain bridging.
+- ~~Cross-chain bridging.~~ (**BNB is not supported**)
 - Connect to dApps.
 
 ---

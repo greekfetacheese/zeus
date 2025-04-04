@@ -24,7 +24,6 @@ const BASE_FEE_INTERVAL: u64 = 180;
 
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
-
    let time = std::time::Instant::now();
    measure_rpcs(ctx.clone()).await;
    tracing::info!("Measuring RPCs took {} ms", time.elapsed().as_millis());
@@ -39,16 +38,27 @@ pub async fn on_startup(ctx: ZeusCtx) {
       });
    }
 
-   resync_pools(ctx.clone()).await;
-   update_pool_manager(ctx.clone()).await;
+   let resynced = resync_pools(ctx.clone()).await;
 
-   if let Err(e) = update_eth_balance(ctx.clone()).await {
-      tracing::error!("Error updating eth balance: {:?}", e);
+   if !resynced {
+      update_pool_manager(ctx.clone());
    }
 
-   if let Err(e) = update_token_balance(ctx.clone()).await {
-      tracing::error!("Error updating token balance: {:?}", e);
-   }
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      match update_eth_balance(ctx_clone).await {
+         Ok(_) => tracing::info!("Updated eth balance"),
+         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+      }
+   });
+
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      match update_token_balance(ctx_clone).await {
+         Ok(_) => tracing::info!("Updated token balance"),
+         Err(e) => tracing::error!("Error updating token balance: {:?}", e),
+      }
+   });
 
    portfolio_update(ctx.clone());
 
@@ -121,6 +131,10 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
    let client = ctx.get_client_with_id(chain).unwrap();
    let tokens = ctx.get_portfolio(chain, owner).erc20_tokens();
 
+   update_eth_balance(ctx.clone()).await?;
+   update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens.clone()).await?;
+   ctx.update_portfolio_value(chain, owner);
+
    // check if any pool data is missing
    for token in &tokens {
       let v2_pools = ctx.get_v2_pools(&token);
@@ -133,9 +147,6 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
    }
 
    pool_manager.update(client, chain).await?;
-   update_eth_balance(ctx.clone()).await?;
-   update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await?;
-
    ctx.update_portfolio_value(chain, owner);
    ctx.save_all();
 
@@ -147,7 +158,7 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 
    loop {
       if time_passed.elapsed().as_secs() > POOL_MANAGER_INTERVAL {
-         update_pool_manager(ctx.clone()).await;
+         update_pool_manager(ctx.clone());
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
@@ -155,20 +166,23 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 }
 
 /// Update the pool manager state for all chains
-pub async fn update_pool_manager(ctx: ZeusCtx) {
-   let pool_manager = ctx.pool_manager();
-
+pub fn update_pool_manager(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
+      let pool_manager = ctx.pool_manager();
 
-      match pool_manager.update(client.clone(), chain).await {
-         Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
-      }
-   }
-   match ctx.save_pool_manager() {
-      Ok(_) => tracing::info!("Pool data saved"),
-      Err(e) => tracing::error!("Error saving pool data: {:?}", e),
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         match pool_manager.update(client, chain).await {
+            Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
+         }
+
+         match ctx_clone.save_pool_manager() {
+            Ok(_) => tracing::info!("Pool data saved for chain: {}", chain),
+            Err(e) => tracing::error!("Error saving pool data for chain {}: {:?}", chain, e),
+         }
+      });
    }
 }
 
@@ -312,7 +326,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
       let fee_value = NumericValue::parse_to_gwei(&fee_str);
       if fee_value.formatted() == "0" {
          bail!(
-            "Rpc returned bad data, Raw Fee {} For Chain: {}",
+            "Rpc returned bad data, Fee (Wei) {} For Chain: {}",
             fee,
             chain.id()
          );
@@ -342,13 +356,14 @@ pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
 pub async fn measure_rpcs(ctx: ZeusCtx) {
    let providers = ctx.rpc_providers();
 
+   let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let rpcs = providers.get_all(chain);
 
       for rpc in rpcs {
          let rpc = rpc.clone();
          let ctx = ctx.clone();
-         RT.spawn(async move {
+         let task = RT.spawn(async move {
             let retry = client::retry_layer(10, 400, 600);
             let throttle = client::throttle_layer(5);
             let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
@@ -372,6 +387,13 @@ pub async fn measure_rpcs(ctx: ZeusCtx) {
                }
             }
          });
+         tasks.push(task);
+      }
+   }
+   for task in tasks {
+      match task.await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error testing RPC: {:?}", e),
       }
    }
 }
@@ -389,7 +411,7 @@ pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
 }
 
 /// If needed re-sync pools for all tokens across all chains
-pub async fn resync_pools(ctx: ZeusCtx) {
+pub async fn resync_pools(ctx: ZeusCtx) -> bool {
    let need_resync = ctx.pools_need_resync();
    let pool_manager = ctx.pool_manager();
 
@@ -425,10 +447,14 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
       ctx.save_portfolio_db();
       match ctx.save_pool_manager() {
-         Ok(_) => tracing::info!("Pool data saved"),
+         Ok(_) => tracing::info!("Pool data saved for"),
          Err(e) => tracing::error!("Error saving pool data: {:?}", e),
       }
+
+      // resynced
+      true
    } else {
       tracing::info!("No need to resync pools");
+      false
    }
 }

@@ -13,7 +13,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, TransactionReceipt},
-   amm::{DexKind, UniswapV2Pool, UniswapV3Pool},
+   amm::DexKind,
    currency::{Currency, ERC20Token, NativeCurrency},
    dapps::across::{self, decode_funds_deposited},
    revm_utils::{ForkFactory, new_evm, simulate},
@@ -92,6 +92,11 @@ pub async fn across_bridge(
       }
    }
 
+   // this actually should not happen
+   if minimum_received.is_zero() {
+      bail!("Minimum received is zero");
+   }
+
    SHARED_GUI.write(|gui| {
       gui.across_bridge.progress_window.done_simulating();
       gui.across_bridge.progress_window.sending();
@@ -111,6 +116,17 @@ pub async fn across_bridge(
    let tx_envelope = tx.clone().build(wallet.borrow()).await?;
    let timeout = Duration::from_secs(60);
 
+   // Across protocol is very fast on filling the orders
+   // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
+   let dest_chain_id = ChainId::new(dest_chain)?;
+   let dest_client = ctx.get_client_with_id(dest_chain)?;
+   let from_block = dest_client.get_block_number().await?;
+   tracing::info!(
+      "Will Query the destination {} chain from block {}",
+      dest_chain_id.name(),
+      from_block
+   );
+
    tracing::info!("Sending Transaction...");
    let time = std::time::Instant::now();
    let receipt = client
@@ -125,7 +141,6 @@ pub async fn across_bridge(
    );
 
    let native_token = ERC20Token::wrapped_native_token(params.chain.id());
-
    let tx_type = receipt.inner.tx_type();
    let value = NumericValue::format_wei(params.value, native_token.decimals);
    let eth_price = ctx.get_token_price(&native_token).unwrap_or_default();
@@ -169,17 +184,16 @@ pub async fn across_bridge(
    let owner = params.signer.borrow().address();
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      get_eth_balance(ctx_clone, chain, owner).await.unwrap();
+      get_eth_balance(ctx_clone.clone(), chain, owner)
+         .await
+         .unwrap();
+      ctx_clone.update_portfolio_value(chain, owner);
    });
 
    // TODO: Add revert reason
    if !receipt.status() {
       bail!("Deposit Failed");
    }
-
-   // Wait for the order to be filled at the destination chain
-   let dest_chain_id = ChainId::new(dest_chain)?;
-   let client = ctx.get_client_with_id(dest_chain)?;
 
    let mut block_time_ms = dest_chain_id.block_time();
    if dest_chain_id.is_arbitrum() {
@@ -190,22 +204,19 @@ pub async fn across_bridge(
    let now = std::time::Instant::now();
    let mut funds_received = false;
 
-   // an initial delay
-   tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
-   // * Could use the BlockNumberOrTag::Latest but it doesn't always work
-   let from_block = client.get_block_number().await?;
-
+   // Wait for the order to be filled at the destination chain
    while now.elapsed().as_secs() < deadline.into() {
       let filter = Filter::new()
          .from_block(BlockNumberOrTag::Number(from_block))
+         .address(across::spoke_pool_address(dest_chain)?)
          .event(across::filled_relay_signature());
-      let logs = client.get_logs(&filter).await?;
-      tracing::debug!("Found {} Filled Relay Logs", logs.len());
+      let logs = dest_client.get_logs(&filter).await?;
+      tracing::info!("Found {} Filled Relay Logs", logs.len());
       for log in logs {
          if let Ok(decoded) = across::decode_filled_relay(log.data()) {
             tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
             if decoded.recipient == recipient {
-               tracing::debug!("Funds received");
+               tracing::info!("Funds received");
                funds_received = true;
                break;
             }
@@ -242,7 +253,8 @@ pub async fn across_bridge(
    let exists = ctx.account().wallet_address_exists(recipient);
    if exists {
       RT.spawn(async move {
-      let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
+         let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
+         ctx.update_portfolio_value(dest_chain, recipient);
       });
    }
 
@@ -252,6 +264,7 @@ pub async fn across_bridge(
 pub async fn send_crypto(
    ctx: ZeusCtx,
    currency: Currency,
+   recipient: Address,
    mut params: TxParams,
 ) -> Result<TransactionReceipt, anyhow::Error> {
    let client = ctx.get_client_with_id(params.chain.id())?;
@@ -327,6 +340,22 @@ pub async fn send_crypto(
       );
    });
    ctx.save_tx_db();
+
+   // update owner balance
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      let _ = get_eth_balance(ctx_clone.clone(), params.chain.id(), signer_address).await;
+      ctx_clone.update_portfolio_value(params.chain.id(), signer_address);
+   });
+
+   // if recipient is a wallet owned by this account, update its balance
+   let exists = ctx.account().wallet_address_exists(recipient);
+   if exists {
+      RT.spawn(async move {
+         let _ = get_eth_balance(ctx.clone(), params.chain.id(), recipient).await;
+         ctx.update_portfolio_value(params.chain.id(), recipient);
+      });
+   }
 
    Ok(receipt)
 }
@@ -455,42 +484,40 @@ pub async fn get_erc20_token(
    Ok(token)
 }
 
-/// Get all the possible v2 pools for the given token based on:
+/// Sync all the possible v2 pools for the given token based on:
 ///
 /// - The token's chain id
 /// - All the possible [DexKind] for the chain
 /// - Base Tokens [base_tokens]
-pub async fn get_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<Vec<UniswapV2Pool>, anyhow::Error> {
+pub async fn sync_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<(), anyhow::Error> {
    let chain = token.chain_id;
    let client = ctx.get_client_with_id(chain)?;
    let pool_manager = ctx.pool_manager();
    let dex_kind = DexKind::main_dexes(chain);
 
    pool_manager
-      .get_v2_pools_for_token(client, token.clone(), dex_kind)
+      .sync_v2_pools_for_token(client, token.clone(), dex_kind)
       .await?;
-   let pools = ctx.get_v2_pools(&token);
 
-   Ok(pools)
+   Ok(())
 }
 
-/// Get all the possible v3 pools for the given token based on:
+/// Sync all the possible v3 pools for the given token based on:
 ///
 /// - The token's chain id
 /// - All the possible [DexKind] for the chain
 /// - Base Tokens [base_tokens]
-pub async fn get_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<Vec<UniswapV3Pool>, anyhow::Error> {
+pub async fn sync_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<(), anyhow::Error> {
    let chain = token.chain_id;
    let client = ctx.get_client_with_id(chain)?;
    let pool_manager = ctx.pool_manager();
    let dex_kind = DexKind::main_dexes(chain);
 
    pool_manager
-      .get_v3_pools_for_token(client, token.clone(), dex_kind)
+      .sync_v3_pools_for_token(client, token.clone(), dex_kind)
       .await?;
-   let pools = ctx.get_v3_pools(&token);
 
-   Ok(pools)
+   Ok(())
 }
 
 pub async fn sync_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3: bool) -> Result<(), anyhow::Error> {
@@ -501,13 +528,13 @@ pub async fn sync_pools_for_token(ctx: ZeusCtx, token: ERC20Token, v2: bool, v3:
 
    if v2 {
       pool_manager
-         .get_v2_pools_for_token(client.clone(), token.clone(), dex_kind.clone())
+         .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kind.clone())
          .await?;
    }
 
    if v3 {
       pool_manager
-         .get_v3_pools_for_token(client, token.clone(), dex_kind)
+         .sync_v3_pools_for_token(client, token.clone(), dex_kind)
          .await?;
    }
 

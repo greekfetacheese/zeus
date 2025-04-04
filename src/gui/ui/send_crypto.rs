@@ -661,7 +661,6 @@ impl SendCryptoUi {
 
       let amount = self.amount.clone();
       let value = self.value(ctx.clone());
-      let sender = self.wallet_select.wallet.clone();
       let chain = self.chain_select.chain;
       let currency = self.currency.clone();
       let explorer = chain.block_explorer().to_owned();
@@ -786,37 +785,13 @@ impl SendCryptoUi {
          RT.spawn(async move {
             open_loading("Sending Transaction...".into());
 
-            match send_crypto(ctx.clone(), currency.clone(), params.clone()).await {
+            match send_crypto(ctx.clone(), currency.clone(), recipient_address, params.clone()).await {
                Ok(tx) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
                      gui.send_crypto.tx_success_window.open(link);
                   });
-
-                  // if recipient is a wallet owned by the user then update the balance
-                  // Also update the sender's balance
-                  let account = ctx.account();
-                  if account.wallet_address_exists(recipient_address) {
-                     let recipient_balance = get_currency_balance(ctx.clone(), recipient_address, currency.clone())
-                        .await
-                        .unwrap();
-
-                     ctx.write(|ctx| {
-                        ctx.balance_db
-                           .insert_currency_balance(recipient_address, recipient_balance, &currency);
-                     });
-                     ctx.update_portfolio_value(chain.id(), recipient_address);
-                  }
-                  let sender_addr = sender.key.borrow().address();
-                  let sender_balance = get_currency_balance(ctx.clone(), sender_addr, currency.clone())
-                     .await
-                     .unwrap();
-                  ctx.write(|ctx| {
-                     ctx.balance_db
-                        .insert_currency_balance(sender_addr, sender_balance, &currency);
-                  });
-                  ctx.update_portfolio_value(chain.id(), sender_addr);
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {

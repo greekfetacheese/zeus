@@ -166,10 +166,10 @@ impl ZeusCtx {
    pub fn save_tx_db(&self) {
       self.read(|ctx| match ctx.tx_db.save() {
          Ok(_) => {
-            tracing::info!("TransactionsDB saved");
+            tracing::info!("TxDB saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving TxDB: {:?}", e);
          },
       })
    }

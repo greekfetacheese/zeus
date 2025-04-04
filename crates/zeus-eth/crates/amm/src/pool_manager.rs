@@ -204,12 +204,12 @@ impl PoolStateManagerHandle {
       Ok(())
    }
 
-   /// Get all the possible v2 pools for the given token based on:
+   /// Sync all the possible v2 pools for the given token based on:
    ///
    /// - The token's chain id
    /// - All the possible [DexKind] for the chain
    /// - Base Tokens [ERC20Token::base_tokens()]
-   pub async fn get_v2_pools_for_token<P, N>(
+   pub async fn sync_v2_pools_for_token<P, N>(
       &self,
       client: P,
       token: ERC20Token,
@@ -271,12 +271,12 @@ impl PoolStateManagerHandle {
       Ok(())
    }
 
-   /// Get all the possible v3 pools for the given token based on:
+   /// Sync all the possible v3 pools for the given token based on:
    ///
    /// - The token's chain id
    /// - All the possible [DexKind] for the chain
    /// - Base Tokens [ERC20Token::base_tokens()]
-   pub async fn get_v3_pools_for_token<P, N>(
+   pub async fn sync_v3_pools_for_token<P, N>(
       &self,
       client: P,
       token: ERC20Token,

@@ -2,20 +2,17 @@ use crate::gui::GUI;
 use eframe::egui::Ui;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
-   // should_show_overlay(gui);
-   gui.msg_window.show(ui);
-   gui.loading_window.show(ui);
-
    let ctx = gui.ctx.clone();
-
    let logged_in = ctx.logged_in();
    let account = ctx.account_exists();
-
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
    let recipient_selection = &mut gui.recipient_selection;
 
+   gui.testing_window.show(theme, ui);
+   gui.msg_window.show(theme, ui);
+   gui.loading_window.show(ui);
    gui.send_crypto.tx_success_window.show(theme, ui);
 
    if !account {

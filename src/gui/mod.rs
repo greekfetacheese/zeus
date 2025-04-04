@@ -81,6 +81,8 @@ pub struct GUI {
    pub tx_history: ui::tx_history::TxHistory,
 
    pub data_inspection: bool,
+
+   pub testing_window: ui::misc::TestingWindow,
 }
 
 impl GUI {
@@ -119,6 +121,7 @@ impl GUI {
          settings,
          tx_history,
          data_inspection: false,
+         testing_window: ui::misc::TestingWindow::new(),
       }
    }
 
