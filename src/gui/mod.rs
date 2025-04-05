@@ -1,6 +1,5 @@
 pub mod app;
 pub mod ui;
-pub mod utils;
 pub mod window;
 
 use eframe::egui::{Context, Ui};

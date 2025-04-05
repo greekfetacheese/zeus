@@ -22,7 +22,6 @@ use crate::gui::{
       RecipientSelectionWindow, TokenSelectionWindow,
       misc::{ChainSelect, WalletSelect},
    },
-   utils::open_loading,
 };
 use egui_theme::{Theme, utils::*};
 
@@ -783,7 +782,9 @@ impl SendCryptoUi {
          );
 
          RT.spawn(async move {
-            open_loading("Sending Transaction...".into());
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Sending Transaction...");
+            });
 
             match send_crypto(ctx.clone(), currency.clone(), recipient_address, params.clone()).await {
                Ok(tx) => {

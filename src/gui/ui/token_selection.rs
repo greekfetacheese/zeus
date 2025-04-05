@@ -8,7 +8,7 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
-use crate::gui::{SHARED_GUI, utils};
+use crate::gui::SHARED_GUI;
 use egui_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
 
@@ -188,10 +188,16 @@ impl TokenSelectionWindow {
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {
-               utils::open_loading("Retrieving token...".to_string());
+
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.open("Retrieving token...");
+               });
+
                let token = match eth::get_erc20_token(ctx, chain, owner, address).await {
                   Ok(token) => {
-                     utils::close_loading();
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open = false;
+                     });
                      token
                   }
                   Err(e) => {

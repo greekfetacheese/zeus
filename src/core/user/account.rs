@@ -1,8 +1,8 @@
 use super::wallet::Wallet;
 use crate::core::utils::data_dir;
 use anyhow::anyhow;
-use ncrypt_me::{Argon2Params, Credentials, decrypt_data, encrypt_data, zeroize::Zeroize};
-use secure_types::SecureString;
+use ncrypt_me::{Argon2Params, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
+use secure_types::{SecureBytes, SecureString};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 
@@ -54,7 +54,10 @@ impl Account {
       };
 
       if self.wallet_address_exists(wallet.address()) {
-         return Err(anyhow!("Wallet with address {} already exists", wallet.address()));
+         return Err(anyhow!(
+            "Wallet with address {} already exists",
+            wallet.address()
+         ));
       }
 
       self.wallets.push(wallet);
@@ -97,8 +100,8 @@ impl Account {
          .any(|w| &w.key.borrow().address() == &address)
    }
 
-   /// Encrypt the account and save it to a file
-   pub fn encrypt_and_save(&self, dir: &PathBuf, argon: Argon2Params) -> Result<(), anyhow::Error> {
+   /// Encrypt this account and return the encrypted data
+   pub fn encrypt(&self, new_params: Option<Argon2Params>) -> Result<Vec<u8>, anyhow::Error> {
       // ! make sure we dont accidentally erased any of the wallet keys
       // ! this should actually never happen
       for wallet in self.wallets.iter() {
@@ -107,33 +110,40 @@ impl Account {
          }
       }
       let account_data = serde_json::to_vec(self)?;
-      let encrypted_data = encrypt_data(argon, account_data, self.credentials.clone())?;
+      let argon_params = match new_params {
+         Some(params) => params,
+         None => self.encrypted_info()?.argon2_params,
+      };
+      let encrypted_data = encrypt_data(argon_params, account_data, self.credentials.clone())?;
+      Ok(encrypted_data)
+   }
+
+   /// Save the encrypted account data to the given directory
+   pub fn save(&self, dir: Option<PathBuf>, encrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
+      let dir = match dir {
+         Some(dir) => dir,
+         None => Account::dir()?,
+      };
       std::fs::write(dir, encrypted_data)?;
       Ok(())
    }
 
-   pub fn decrypt(&self, dir: &PathBuf) -> Result<Vec<u8>, anyhow::Error> {
+   /// Decrypt this account and return the decrypted data
+   pub fn decrypt(&self, dir: Option<PathBuf>) -> Result<SecureBytes, anyhow::Error> {
+      let dir = match dir {
+         Some(dir) => dir,
+         None => Account::dir()?,
+      };
       let encrypted_data = std::fs::read(dir)?;
       let decrypted_data = decrypt_data(encrypted_data, self.credentials.clone())?;
       Ok(decrypted_data)
    }
 
-   /// Do not return the decrypted data, just verify the credentials
-   pub fn decrypt_zero(&self, dir: &PathBuf) -> Result<(), anyhow::Error> {
-      let mut decrypted_data = self.decrypt(dir)?;
-      decrypted_data.zeroize();
-      Ok(())
-   }
-
-   /// Decrypt and load the account
-   pub fn decrypt_and_load(&mut self, dir: &PathBuf) -> Result<(), anyhow::Error> {
-      let mut decrypted_data = self.decrypt(dir)?;
-      let account: Account = serde_json::from_slice(&decrypted_data)?;
-      decrypted_data.zeroize();
-
+   /// Load the account from the decrypted data
+   pub fn load(&mut self, decrypted_data: SecureBytes) -> Result<(), anyhow::Error> {
+      let account: Account = serde_json::from_slice(decrypted_data.borrow())?;
       self.wallets = account.wallets;
       self.current_wallet = account.current_wallet;
-
       Ok(())
    }
 
@@ -144,6 +154,12 @@ impl Account {
    /// Get the current wallet address
    pub fn wallet_address(&self) -> Address {
       self.current_wallet.key.borrow().address()
+   }
+
+   pub fn encrypted_info(&self) -> Result<EncryptedInfo, anyhow::Error> {
+      let data = std::fs::read(Account::dir()?)?;
+      let info = EncryptedInfo::from_encrypted_data(&data)?;
+      Ok(info)
    }
 
    /// Is an account exists at the data directory
@@ -177,20 +193,27 @@ mod tests {
          SecureString::from("password".to_string()),
       );
 
+      let argon_params = Argon2Params::very_fast();
       let mut account = Account {
          credentials,
          wallets: vec![wallet_1.clone(), wallet_2],
          current_wallet: wallet_1,
       };
 
-      let argon_2 = Argon2Params::very_fast();
       let dir = PathBuf::from("account_test.data");
-      account
-         .encrypt_and_save(&dir, argon_2)
+
+      let encrypted_data = account
+         .encrypt(Some(argon_params))
          .expect("Profile Encryption failed");
 
       account
-         .decrypt_and_load(&dir)
+         .save(Some(dir.clone()), encrypted_data)
+         .expect("Profile Encryption failed");
+
+      let decrypted_data = account.decrypt(Some(dir)).expect("Profile Recovery failed");
+
+      account
+         .load(decrypted_data)
          .expect("Profile Recovery failed");
 
       let recovered_wallet_1 = account.wallets.get(0).unwrap();

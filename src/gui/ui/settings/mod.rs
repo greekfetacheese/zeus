@@ -1,6 +1,6 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::gui::{SHARED_GUI, ui::CredentialsForm, utils};
+use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Grid, RichText, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use ncrypt_me::Argon2Params;
@@ -154,17 +154,18 @@ impl SettingsUi {
                      account.credentials = self.credentials.credentials.clone();
 
                      std::thread::spawn(move || {
-                        let dir = utils::get_account_dir();
-                        utils::open_loading("Decrypting profile...".to_string());
+                        SHARED_GUI.write(|gui| {
+                           gui.loading_window.open("Decrypting profile...");
+                        });
 
-                        match account.decrypt_zero(&dir) {
-                           Ok(data) => {
+                        // Verify the credentials by just decrypting the account
+                        match account.decrypt(None) {
+                           Ok(_) => {
                               SHARED_GUI.write(|gui| {
                                  gui.settings.verified_credentials = true;
                                  gui.settings.credentials.erase();
                                  gui.loading_window.open = false;
                               });
-                              data
                            }
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
@@ -191,19 +192,22 @@ impl SettingsUi {
                      account.credentials = self.credentials.credentials.clone();
 
                      std::thread::spawn(move || {
-                        let dir = utils::get_account_dir();
-                        let params = utils::get_encrypted_info(&dir).argon2_params;
-                        utils::open_loading("Encrypting profile...".to_string());
+                        SHARED_GUI.write(|gui| {
+                           gui.loading_window.open("Encrypting profile...");
+                        });
 
-                        match account.encrypt_and_save(&dir, params) {
-                           Ok(_) => SHARED_GUI.write(|gui| {
-                              gui.settings.credentials.erase();
-                              gui.settings.verified_credentials = false;
-                              gui.settings.credentials.open = false;
-                              gui.settings.main_ui = true;
-                              gui.loading_window.open = false;
-                              gui.open_msg_window("Credentials have been updated", "");
-                           }),
+                        let data = match account.encrypt(None) {
+                           Ok(data) => {
+                              SHARED_GUI.write(|gui| {
+                                 gui.settings.credentials.erase();
+                                 gui.settings.verified_credentials = false;
+                                 gui.settings.credentials.open = false;
+                                 gui.settings.main_ui = true;
+                                 gui.loading_window.open = false;
+                                 gui.open_msg_window("Credentials have been updated", "");
+                              });
+                              data
+                           }
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.open = false;
@@ -211,7 +215,23 @@ impl SettingsUi {
                               });
                               return;
                            }
+                        };
+
+                        // Save the encrypted data to the account file
+                        match account.save(None, data) {
+                           Ok(_) => {
+                              SHARED_GUI.write(|gui| {
+                                 gui.loading_window.open = false;
+                              });
+                           }
+                           Err(e) => {
+                              SHARED_GUI.write(|gui| {
+                                 gui.loading_window.open = false;
+                                 gui.open_msg_window("Failed to save account", &format!("{}", e));
+                              });
+                           }
                         }
+
                         ctx.write(|ctx| {
                            ctx.account = account;
                         });
@@ -304,17 +324,20 @@ impl EncryptionSettings {
                         let account = ctx.account();
 
                         std::thread::spawn(move || {
-                           let dir = utils::get_account_dir();
-                           utils::open_loading("Encrypting profile...".to_string());
+                           SHARED_GUI.write(|gui| {
+                              gui.loading_window.open("Encrypting profile...");
+                           });
 
-                           match account.encrypt_and_save(&dir, params.clone()) {
-                              Ok(_) => {
+                           // Encrypt the account with the new params
+                           let data = match account.encrypt(Some(params.clone())) {
+                              Ok(data) => {
                                  SHARED_GUI.write(|gui| {
                                     gui.open_msg_window("Encryption settings have been updated", "");
                                     gui.settings.encryption.open = false;
                                     gui.settings.encryption.argon_params = params;
                                     gui.loading_window.open = false;
                                  });
+                                 data
                               }
                               Err(e) => {
                                  SHARED_GUI.write(|gui| {
@@ -323,7 +346,22 @@ impl EncryptionSettings {
                                  });
                                  return;
                               }
-                           }
+                           };
+
+                           // Save the encrypted data to the account file
+                           match account.save(None, data) {
+                              Ok(_) => {
+                                 SHARED_GUI.write(|gui| {
+                                    gui.loading_window.open = false;
+                                 });
+                              }
+                              Err(e) => {
+                                 SHARED_GUI.write(|gui| {
+                                    gui.loading_window.open = false;
+                                    gui.open_msg_window("Failed to save account", &format!("{}", e));
+                                 });
+                              }
+                           };
                         });
                      }
                      ui.end_row();

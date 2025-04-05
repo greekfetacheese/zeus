@@ -1,13 +1,11 @@
-use crate::gui::{
-   SHARED_GUI,
-   utils::{get_encrypted_info, get_account_dir},
-};
-use crate::{core::ZeusCtx, gui::utils};
-use eframe::egui::{Align2, Button, RichText, FontId, Frame, TextEdit, Ui, Window, vec2};
+use crate::core::{Account, ZeusCtx};
+use crate::gui::SHARED_GUI;
+use eframe::egui::{Align2, Button, FontId, Frame, RichText, TextEdit, Ui, Window, vec2};
 use egui::Margin;
 use egui_theme::Theme;
 use ncrypt_me::{Argon2Params, Credentials};
-
+#[cfg(feature = "dev")]
+use ncrypt_me::secure_types::SecureString;
 
 
 pub struct CredentialsForm {
@@ -49,11 +47,10 @@ impl CredentialsForm {
          let ui_width = ui.available_width();
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
-
          ui.label(RichText::new("Username").size(theme.text_sizes.large));
          // ! Username still remains in the buffer
          self.credentials.username.secure_mut(|username| {
-           let text_edit = TextEdit::singleline(username)
+            let text_edit = TextEdit::singleline(username)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.text_sizes.normal));
@@ -61,10 +58,9 @@ impl CredentialsForm {
             output.state.clear_undoer();
          });
 
-
          ui.label(RichText::new("Password").size(theme.text_sizes.large));
          self.credentials.password.secure_mut(|password| {
-           let text_edit = TextEdit::singleline(password)
+            let text_edit = TextEdit::singleline(password)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.text_sizes.normal))
@@ -75,15 +71,18 @@ impl CredentialsForm {
 
          if self.confrim_password {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
-            self.credentials.confirm_password.secure_mut(|confirm_password| {
-              let text_edit = TextEdit::singleline(confirm_password)
-                  .min_size(text_edit_size)
-                  .margin(Margin::same(10))
-                  .font(FontId::proportional(theme.text_sizes.normal))
-                  .password(true);
-               let mut output = text_edit.show(ui);
-               output.state.clear_undoer();
-            });
+            self
+               .credentials
+               .confirm_password
+               .secure_mut(|confirm_password| {
+                  let text_edit = TextEdit::singleline(confirm_password)
+                     .min_size(text_edit_size)
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .password(true);
+                  let mut output = text_edit.show(ui);
+                  output.state.clear_undoer();
+               });
          } else {
             self.credentials.copy_passwd_to_confirm();
          }
@@ -124,47 +123,78 @@ impl LoginUi {
 
                self.credentials_form.show(theme, ui);
 
-               let button =
-               Button::new(RichText::new("Unlock").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               let button = Button::new(RichText::new("Unlock").size(theme.text_sizes.large))
+                  .min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut account = ctx.account();
                   account.credentials = self.credentials_form.credentials.clone();
-
-                  std::thread::spawn(move || {
-                     utils::open_loading("Unlocking account...".to_string());
-
-                     let dir = get_account_dir();
-                     let info = get_encrypted_info(&dir);
-                     match account.decrypt_and_load(&dir) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                           gui.login.credentials_form.erase();
-                           gui.settings.encryption.argon_params = info.argon2_params.clone();
-                           gui.portofolio.open = true;
-                           gui.top_left_area.open = true;
-                           gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
-                           gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
-                           gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
-                           gui.loading_window.open = false;
-                           });
-
-                           ctx.write(|ctx| {
-                              ctx.account = account;
-                              ctx.logged_in = true;
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Failed to unlock account", e.to_string());
-                           gui.loading_window.open = false;
-                           });
-                        }
-                     };
-                  });
+                  self.login(ctx.clone(), account);
                }
+
+               #[cfg(feature = "dev")]
+               if ui.button("Dev Login").clicked() {
+                  let credentials = Credentials::new(
+                     SecureString::from("dev"),
+                     SecureString::from("dev"),
+                     SecureString::from("dev"),
+                  );
+                  let mut account = ctx.account();
+                  account.credentials = credentials;
+                  self.login(ctx, account);
+               }
+
             });
          });
+   }
+
+   fn login(&self, ctx: ZeusCtx, mut account: Account) {
+      std::thread::spawn(move || {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Unlocking account...");
+         });
+
+         // Decrypt the account
+         let data = match account.decrypt(None) {
+            Ok(data) => data,
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window("Failed to unlock account", e.to_string());
+                  gui.loading_window.open = false;
+               });
+               return;
+            }
+         };
+
+         let info = account.encrypted_info().unwrap();
+
+         // Load the account
+         match account.load(data) {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.login.credentials_form.erase();
+                  gui.settings.encryption.argon_params = info.argon2_params.clone();
+                  gui.portofolio.open = true;
+                  gui.top_left_area.open = true;
+                  gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
+                  gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
+                  gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
+                  gui.loading_window.open = false;
+               });
+
+               ctx.write(|ctx| {
+                  ctx.account = account;
+                  ctx.logged_in = true;
+               });
+            }
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window("Failed to load account", e.to_string());
+                  gui.loading_window.open = false;
+               });
+            }
+         }
+      });
    }
 }
 
@@ -203,29 +233,41 @@ impl RegisterUi {
                self.credentials_form.show(theme, ui);
                ui.add_space(15.0);
 
-               let button =
-               Button::new(RichText::new("Create").size(theme.text_sizes.large)).min_size(vec2(ui_width * 0.25, 25.0));
+               let button = Button::new(RichText::new("Create").size(theme.text_sizes.large))
+                  .min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
                   let mut account = ctx.account();
                   account.credentials = self.credentials_form.credentials.clone();
 
                   std::thread::spawn(move || {
-                        SHARED_GUI.write(|gui| {
-                        gui.loading_window.msg = "Creating account...".to_string();
-                        gui.loading_window.open = true;
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open("Creating account...");
                      });
-                     let dir = get_account_dir();
-                     match account.encrypt_and_save(&dir, Argon2Params::balanced()) {
+
+                     // Encrypt the account
+                     let data = match account.encrypt(Some(Argon2Params::balanced())) {
+                        Ok(data) => data,
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Failed to create account", e.to_string());
+                              gui.loading_window.open = false;
+                           });
+                           return;
+                        }
+                     };
+
+                     // Save the new account encrypted data to the account file
+                     match account.save(None, data) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
-                           gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
-                           gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
-                           gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
-                           gui.register.credentials_form.erase();
-                           gui.portofolio.open = true;
-                           gui.top_left_area.open = true;
-                           gui.loading_window.open = false;
+                              gui.loading_window.open = false;
+                              gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
+                              gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
+                              gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
+                              gui.register.credentials_form.erase();
+                              gui.portofolio.open = true;
+                              gui.top_left_area.open = true;
                            });
 
                            ctx.write(|ctx| {
@@ -236,9 +278,10 @@ impl RegisterUi {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Failed to create account", e.to_string());
-                           gui.loading_window.open = false;
+                              gui.loading_window.open = false;
+                              gui.open_msg_window("Failed to save account", e.to_string());
                            });
+                           return;
                         }
                      };
                   });

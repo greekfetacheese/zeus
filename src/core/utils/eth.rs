@@ -205,7 +205,7 @@ pub async fn across_bridge(
    let mut funds_received = false;
 
    // Wait for the order to be filled at the destination chain
-   while now.elapsed().as_secs() < deadline.into() {
+   while now.elapsed().as_secs() < deadline as u64 {
       let filter = Filter::new()
          .from_block(BlockNumberOrTag::Number(from_block))
          .address(across::spoke_pool_address(dest_chain)?)

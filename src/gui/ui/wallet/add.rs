@@ -1,5 +1,5 @@
 use crate::core::ZeusCtx;
-use crate::gui::{self, SHARED_GUI};
+use crate::gui::SHARED_GUI;
 use eframe::egui::{Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use secure_types::SecureString;
@@ -94,13 +94,25 @@ impl ImportWallet {
 
          std::thread::spawn(move || {
             let mut account = ctx.account();
-            gui::utils::new_wallet_from_key_or_phrase(&mut account, name, from_key, key_or_phrase);
-            let dir = gui::utils::get_account_dir();
-            let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting account...".to_string());
 
-            match account.encrypt_and_save(&dir, info.argon2_params) {
-               Ok(_) => {
+            // Import the wallet
+            match account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
+               Ok(_) => {}
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to import wallet", e.to_string());
+                  });
+                  return;
+               }
+            }
+
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Encrypting account...");
+            });
+
+            // Encrypt the account
+            let data = match account.encrypt(None) {
+               Ok(data) => {
                   SHARED_GUI.write(|gui| {
                      gui.wallet_ui
                         .add_wallet_ui
@@ -112,12 +124,25 @@ impl ImportWallet {
                         .import_wallet
                         .wallet_name
                         .clear();
+                  });
+                  data
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to encrypt account", e.to_string());
+                  });
+                  return;
+               }
+            };
+
+            // Save the new account encrypted data to the account file
+            match account.save(None, data) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
                      gui.open_msg_window("Wallet imported successfully", "");
                   });
-                  ctx.write(|ctx| {
-                     ctx.account = account;
-                  })
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -127,6 +152,10 @@ impl ImportWallet {
                   return;
                }
             }
+
+            ctx.write(|ctx| {
+               ctx.account = account;
+            });
          });
       }
 
@@ -281,20 +310,41 @@ impl AddWalletUi {
 
          std::thread::spawn(move || {
             let mut account = ctx.account();
-            gui::utils::new_wallet_rng(&mut account, name);
-            let dir = gui::utils::get_account_dir();
-            let info = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting account...".to_string());
 
-            match account.encrypt_and_save(&dir, info.argon2_params) {
+            match account.new_wallet_rng(name) {
+               Ok(_) => {}
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to generate wallet", e.to_string());
+                  });
+                  return;
+               }
+            }
+
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Encrypting account...");
+            });
+
+            // Encrypt the account
+            let data =match account.encrypt(None) {
+               Ok(data) => {
+                  data
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to encrypt account", e.to_string());
+                  });
+                  return;
+               }
+            };
+
+            // Save the new account encrypted data to the account file
+            match account.save(None, data) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                      gui.loading_window.open = false;
+                     gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                      gui.open_msg_window("Wallet generated successfully", "");
-                  });
-                  ctx.write(|ctx| {
-                     ctx.account = account;
                   });
                }
                Err(e) => {
@@ -304,7 +354,11 @@ impl AddWalletUi {
                   });
                   return;
                }
-            }
+            };
+
+            ctx.write(|ctx| {
+               ctx.account = account;
+            });
          });
       }
       self.generate_wallet = open;

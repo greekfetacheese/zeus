@@ -1,9 +1,10 @@
 use crate::core::{Wallet, ZeusCtx};
-use crate::gui::{self, SHARED_GUI, ui::CredentialsForm};
+use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
 
-const VIEW_KEY_MSG: &str = "The key has been copied! In 30 seconds it will be cleared from the clipboard.";
+const VIEW_KEY_MSG: &str = "The key has been copied! In 60 seconds it will be cleared from the clipboard.";
+const CLIPBOARD_EXPIRY: u64 = 60;
 
 pub struct KeyExporter {
    pub wallet: Option<Wallet>,
@@ -19,7 +20,7 @@ impl KeyExporter {
       Self {
          wallet: None,
          key_copied_time: None,
-         clipboard_clear_delay: std::time::Duration::from_secs(30),
+         clipboard_clear_delay: std::time::Duration::from_secs(CLIPBOARD_EXPIRY),
       }
    }
 
@@ -120,23 +121,27 @@ impl ViewKeyUi {
          let mut account = ctx.account();
          account.credentials = self.credentials_form.credentials.clone();
          std::thread::spawn(move || {
-            let ok = gui::utils::verify_credentials(&mut account);
-
-            // All good copy the key to the clipboard and show a msg
-            if ok {
-               SHARED_GUI.write(|gui| {
-                  let ctx = gui.egui_ctx.clone();
-                  gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
-                  gui.wallet_ui.view_key_ui.reset();
-                  gui.open_msg_window("", VIEW_KEY_MSG);
-               });
-            } else {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(
-                     "Failed to verify credentials",
-                     "Please try again".to_string(),
-                  );
-               });
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Decrypting account...");
+            });
+            
+            // Verify the credentials by just decrypting the account
+            match account.decrypt(None) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.egui_ctx.clone();
+                     gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
+                     gui.wallet_ui.view_key_ui.reset();
+                     gui.open_msg_window("", VIEW_KEY_MSG);
+                     gui.loading_window.open = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to decrypt account", e.to_string());
+                     gui.loading_window.open = false;
+                  });
+               }
             }
          });
       }
@@ -209,29 +214,34 @@ impl DeleteWalletUi {
          let mut account = ctx.account();
          account.credentials = self.credentials_form.credentials.clone();
          std::thread::spawn(move || {
-            let ok = gui::utils::verify_credentials(&mut account);
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Decrypting account...");
+            });
 
-            if ok {
-               SHARED_GUI.write(|gui| {
-                  // credentials are verified
-                  gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
+            // Verify the credentials by just decrypting the account
+            match account.decrypt(None) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     // credentials are verified
+                     gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
 
-                  // close the verify credentials ui
-                  gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
+                     // close the verify credentials ui
+                     gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
 
-                  // open the delete wallet ui
-                  gui.wallet_ui.delete_wallet_ui.open = true;
+                     // open the delete wallet ui
+                     gui.wallet_ui.delete_wallet_ui.open = true;
 
-                  // erase the credentials form
-                  gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
-               });
-            } else {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(
-                     "Failed to verify credentials",
-                     "Please try again".to_string(),
-                  );
-               });
+                     // erase the credentials form
+                     gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
+                     gui.loading_window.open = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to decrypt account", e.to_string());
+                     gui.loading_window.open = false;
+                  });
+               }
             }
          });
       }
@@ -300,10 +310,27 @@ impl DeleteWalletUi {
          std::thread::spawn(move || {
             account.remove_wallet(wallet);
 
-            let dir = gui::utils::get_account_dir();
-            let params = gui::utils::get_encrypted_info(&dir);
-            gui::utils::open_loading("Encrypting account...".to_string());
-            match account.encrypt_and_save(&dir, params.argon2_params) {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Encrypting account...");
+            });
+
+
+            // Encrypt the account
+           let data = match account.encrypt(None) {
+               Ok(data) => {
+                  data
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to encrypt wallet", e.to_string());
+                  });
+                  return;
+               }
+            };
+
+            // Save the new account encrypted data to the account file
+            match account.save(None, data) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
@@ -315,11 +342,11 @@ impl DeleteWalletUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to delete wallet", e.to_string());
+                     gui.open_msg_window("Failed to save account", e.to_string());
                   });
                   return;
                }
-            }
+            };
 
             ctx.write(|ctx| {
                ctx.account = account;
