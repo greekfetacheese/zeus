@@ -1,4 +1,4 @@
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2};
 use egui_theme::{Theme, utils::*};
@@ -92,7 +92,7 @@ impl ImportWallet {
          let key_or_phrase = self.key_or_phrase.clone();
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
 
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             let mut account = ctx.account();
 
             // Import the wallet
@@ -308,7 +308,7 @@ impl AddWalletUi {
       if clicked {
          let name = self.wallet_name.clone();
 
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             let mut account = ctx.account();
 
             match account.new_wallet_rng(name) {

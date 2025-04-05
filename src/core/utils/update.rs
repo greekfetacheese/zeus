@@ -60,7 +60,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       }
    });
 
-   portfolio_update(ctx.clone());
+   let ctx_clone = ctx.clone();
+   RT.spawn_blocking(move || {
+      portfolio_update(ctx_clone.clone());
+   });
 
    for chain in SUPPORTED_CHAINS {
       match get_base_fee(ctx.clone(), chain).await {
@@ -75,7 +78,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    let ctx_clone = ctx.clone();
-   RT.spawn(async move {
+   RT.spawn_blocking(move || {
       portfolio_update_interval(ctx_clone);
    });
 
@@ -133,7 +136,6 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
 
    update_eth_balance(ctx.clone()).await?;
    update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens.clone()).await?;
-   ctx.update_portfolio_value(chain, owner);
 
    // check if any pool data is missing
    for token in &tokens {
@@ -147,8 +149,10 @@ pub async fn update_portfolio_state(ctx: ZeusCtx, chain: u64, owner: Address) ->
    }
 
    pool_manager.update(client, chain).await?;
-   ctx.update_portfolio_value(chain, owner);
-   ctx.save_all();
+   RT.spawn_blocking(move || {
+      ctx.update_portfolio_value(chain, owner);
+      ctx.save_all();
+   });
 
    Ok(())
 }
@@ -178,10 +182,13 @@ pub fn update_pool_manager(ctx: ZeusCtx) {
             Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
          }
 
+         RT.spawn_blocking(move || {
          match ctx_clone.save_pool_manager() {
             Ok(_) => tracing::info!("Pool data saved for chain: {}", chain),
             Err(e) => tracing::error!("Error saving pool data for chain {}: {:?}", chain, e),
          }
+         });
+         
       });
    }
 }
@@ -204,7 +211,9 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       }
    }
 
-   ctx.save_balance_db();
+   RT.spawn_blocking(move || {
+      ctx.save_balance_db();
+   });
 
    Ok(())
 }
@@ -443,13 +452,14 @@ pub async fn resync_pools(ctx: ZeusCtx) -> bool {
          ctx.data_syncing = false;
       });
 
+      RT.spawn_blocking(move || {
       portfolio_update(ctx.clone());
 
-      ctx.save_portfolio_db();
       match ctx.save_pool_manager() {
          Ok(_) => tracing::info!("Pool data saved for"),
          Err(e) => tracing::error!("Error saving pool data: {:?}", e),
       }
+      });
 
       // resynced
       true

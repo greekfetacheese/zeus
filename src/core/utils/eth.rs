@@ -178,7 +178,11 @@ pub async fn across_bridge(
          tx_details,
       );
    });
-   ctx.save_tx_db();
+
+   let ctx_clone = ctx.clone();
+   RT.spawn_blocking(move || {
+      ctx_clone.save_tx_db();
+   });
 
    let chain = params.chain.id();
    let owner = params.signer.borrow().address();
@@ -187,7 +191,6 @@ pub async fn across_bridge(
       get_eth_balance(ctx_clone.clone(), chain, owner)
          .await
          .unwrap();
-      ctx_clone.update_portfolio_value(chain, owner);
    });
 
    // TODO: Add revert reason
@@ -254,7 +257,6 @@ pub async fn across_bridge(
    if exists {
       RT.spawn(async move {
          let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
-         ctx.update_portfolio_value(dest_chain, recipient);
       });
    }
 
@@ -339,13 +341,16 @@ pub async fn send_crypto(
          tx_details,
       );
    });
-   ctx.save_tx_db();
+   
+   let ctx_clone = ctx.clone();
+   RT.spawn_blocking(move || {
+      ctx_clone.save_tx_db();
+   });
 
    // update owner balance
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       let _ = get_eth_balance(ctx_clone.clone(), params.chain.id(), signer_address).await;
-      ctx_clone.update_portfolio_value(params.chain.id(), signer_address);
    });
 
    // if recipient is a wallet owned by this account, update its balance
@@ -353,7 +358,6 @@ pub async fn send_crypto(
    if exists {
       RT.spawn(async move {
          let _ = get_eth_balance(ctx.clone(), params.chain.id(), recipient).await;
-         ctx.update_portfolio_value(params.chain.id(), recipient);
       });
    }
 
@@ -376,9 +380,12 @@ pub async fn get_eth_balance(ctx: ZeusCtx, chain: u64, owner: Address) -> Result
          &NativeCurrency::from_chain_id(chain).unwrap(),
       );
    });
-   ctx.update_portfolio_value(chain, owner);
-   let _ = ctx.save_balance_db();
-   let _ = ctx.save_portfolio_db();
+
+   RT.spawn_blocking(move || {
+      ctx.update_portfolio_value(chain, owner);
+      let _ = ctx.save_balance_db();
+      let _ = ctx.save_portfolio_db();
+   });
 
    Ok(value)
 }
@@ -396,9 +403,11 @@ pub async fn get_token_balance(ctx: ZeusCtx, owner: Address, token: ERC20Token) 
          .insert_token_balance(token.chain_id, owner, balance, &token);
    });
 
-   ctx.update_portfolio_value(token.chain_id, owner);
-   let _ = ctx.save_balance_db();
-   let _ = ctx.save_portfolio_db();
+   RT.spawn_blocking(move || {
+      ctx.update_portfolio_value(token.chain_id, owner);
+      let _ = ctx.save_balance_db();
+      let _ = ctx.save_portfolio_db();
+   });
 
    Ok(value)
 }
@@ -476,9 +485,12 @@ pub async fn get_erc20_token(
             );
          }
       }
+
+      RT.spawn_blocking(move || {
       ctx_clone.update_portfolio_value(chain, owner);
       ctx_clone.write(|ctx| ctx.data_syncing = false);
       ctx_clone.save_all();
+      });
    });
 
    Ok(token)

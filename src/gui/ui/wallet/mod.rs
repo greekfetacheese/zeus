@@ -4,7 +4,7 @@ pub use add::AddWalletUi;
 pub use details::{ViewKeyUi, DeleteWalletUi};
 
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, ZeusCtx};
+use crate::core::{Wallet, ZeusCtx, utils::RT};
 use crate::gui::
    SHARED_GUI;
 use eframe::egui::{
@@ -210,7 +210,7 @@ impl WalletUi {
          ctx.write(|ctx| {
             ctx.account.current_wallet = wallet.clone();
          });
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
             gui.top_left_area.wallet_select.wallet = wallet_clone;
             });

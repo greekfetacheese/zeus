@@ -624,7 +624,11 @@ impl PortfolioUi {
          ctx.portfolio_db
             .add_currency(chain_id, owner, currency.clone());
       });
-      let _ = ctx.save_portfolio_db();
+
+      let ctx_clone = ctx.clone();
+      RT.spawn_blocking(move || {
+         let _ = ctx_clone.save_portfolio_db();
+      });
 
       if currency.is_native() {
          return;
@@ -681,8 +685,10 @@ impl PortfolioUi {
             ctx.balance_db
                .insert_token_balance(chain_id, owner, balance.wei().unwrap(), &token);
          });
-         ctx2.update_portfolio_value(chain_id, owner);
-         let _ = ctx2.save_all();
+         RT.spawn_blocking(move || {
+            ctx2.update_portfolio_value(chain_id, owner);
+            ctx2.save_all();
+         });
       });
    }
 

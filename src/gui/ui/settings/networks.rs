@@ -154,7 +154,10 @@ impl NetworkSettings {
                                  rpc.enabled = !rpc.enabled;
                               }
                            });
-                           let _ = ctx.save_providers();
+                           let ctx_clone = ctx.clone();
+                           RT.spawn_blocking(move || {
+                              ctx_clone.save_providers();
+                           });
                         }
 
                         // Latency column
@@ -173,7 +176,10 @@ impl NetworkSettings {
                                  ctx.write(|ctx| {
                                     ctx.providers.remove_rpc(chain, rpc.url.clone());
                                  });
-                                 let _ = ctx.save_providers();
+                                 let ctx_clone = ctx.clone();
+                                 RT.spawn_blocking(move || {
+                                    ctx_clone.save_providers();
+                                 });
                               }
                            }
                         });
@@ -230,7 +236,10 @@ impl NetworkSettings {
                      ctx.write(|ctx| {
                         ctx.providers.add_user_rpc(chain, self.url_to_add.clone());
                      });
-                     let _ = ctx.save_providers();
+                     let ctx_clone = ctx.clone();
+                     RT.spawn_blocking(move || {
+                        ctx_clone.save_providers();
+                     });
                   }
                }
             });

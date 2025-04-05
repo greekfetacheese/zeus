@@ -1,4 +1,4 @@
-use crate::core::{Account, ZeusCtx};
+use crate::core::{Account, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{Align2, Button, FontId, Frame, RichText, TextEdit, Ui, Window, vec2};
 use egui::Margin;
@@ -149,7 +149,7 @@ impl LoginUi {
    }
 
    fn login(&self, ctx: ZeusCtx, mut account: Account) {
-      std::thread::spawn(move || {
+      RT.spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
             gui.loading_window.open("Unlocking account...");
          });
@@ -240,7 +240,7 @@ impl RegisterUi {
                   let mut account = ctx.account();
                   account.credentials = self.credentials_form.credentials.clone();
 
-                  std::thread::spawn(move || {
+                  RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
                         gui.loading_window.open("Creating account...");
                      });

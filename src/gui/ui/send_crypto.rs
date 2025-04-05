@@ -486,8 +486,10 @@ impl SendCryptoUi {
                .insert_currency_balance(owner, balance, &currency);
          });
 
-         ctx.update_portfolio_value(chain, owner);
-         let _ = ctx.save_portfolio_db();
+         RT.spawn_blocking(move || {
+            ctx.update_portfolio_value(chain, owner);
+            ctx.save_portfolio_db();
+         });
       });
    }
 
@@ -540,9 +542,11 @@ impl SendCryptoUi {
                      let client = ctx.get_client_with_id(chain_id).unwrap();
                      let pool_manager = ctx.pool_manager();
                      pool_manager.update(client, chain_id).await.unwrap();
-                     ctx.update_portfolio_value(chain_id, owner);
-                     let _ = ctx.save_pool_manager();
-                     let _ = ctx.save_portfolio_db();
+                     RT.spawn_blocking(move || {
+                        ctx.update_portfolio_value(chain_id, owner);
+                        let _ = ctx.save_pool_manager();
+                        ctx.save_portfolio_db();
+                     });
                   }
                   Err(e) => {
                      tracing::error!("Error getting pools: {:?}", e);

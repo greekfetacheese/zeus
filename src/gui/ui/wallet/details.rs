@@ -1,4 +1,4 @@
-use crate::core::{Wallet, ZeusCtx};
+use crate::core::{Wallet, ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
@@ -120,7 +120,7 @@ impl ViewKeyUi {
       if clicked {
          let mut account = ctx.account();
          account.credentials = self.credentials_form.credentials.clone();
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting account...");
             });
@@ -213,7 +213,7 @@ impl DeleteWalletUi {
       if clicked {
          let mut account = ctx.account();
          account.credentials = self.credentials_form.credentials.clone();
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting account...");
             });
@@ -307,7 +307,7 @@ impl DeleteWalletUi {
 
          let mut account = ctx.clone().account();
          let wallet = wallet.unwrap();
-         std::thread::spawn(move || {
+         RT.spawn_blocking(move || {
             account.remove_wallet(wallet);
 
             SHARED_GUI.write(|gui| {

@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Grid, RichText, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, utils::*};
@@ -153,7 +153,7 @@ impl SettingsUi {
                      let mut account = ctx.account();
                      account.credentials = self.credentials.credentials.clone();
 
-                     std::thread::spawn(move || {
+                     RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.loading_window.open("Decrypting profile...");
                         });
@@ -191,7 +191,7 @@ impl SettingsUi {
                      let mut account = ctx.account();
                      account.credentials = self.credentials.credentials.clone();
 
-                     std::thread::spawn(move || {
+                     RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.loading_window.open("Encrypting profile...");
                         });
@@ -323,7 +323,7 @@ impl EncryptionSettings {
                         let params = self.argon_params.clone();
                         let account = ctx.account();
 
-                        std::thread::spawn(move || {
+                        RT.spawn_blocking(move || {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.open("Encrypting profile...");
                            });

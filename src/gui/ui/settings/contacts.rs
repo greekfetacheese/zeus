@@ -1,8 +1,10 @@
 use crate::assets::icons::Icons;
-use crate::core::{Contact, ZeusCtx};
-use crate::gui::
-   SHARED_GUI;
-use egui::{Align, Align2, Color32, FontId, Button, RichText, Frame, Label, Layout, Margin, ScrollArea, TextEdit, Ui, Window, vec2};
+use crate::core::{Contact, ZeusCtx, utils::RT};
+use crate::gui::SHARED_GUI;
+use egui::{
+   Align, Align2, Button, Color32, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, TextEdit, Ui, Window,
+   vec2,
+};
 use egui_theme::{Theme, utils::*};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -181,8 +183,12 @@ impl ContactsUi {
                ui.label(RichText::new(&contact.name).size(theme.text_sizes.normal));
                ui.label(RichText::new(&contact.address_short()).size(theme.text_sizes.normal));
 
-               let res_delete = ui.add(Button::new(RichText::new("Delete").size(theme.text_sizes.normal)));
-               let res_cancel = ui.add(Button::new(RichText::new("Cancel").size(theme.text_sizes.normal)));
+               let res_delete = ui.add(Button::new(
+                  RichText::new("Delete").size(theme.text_sizes.normal),
+               ));
+               let res_cancel = ui.add(Button::new(
+                  RichText::new("Cancel").size(theme.text_sizes.normal),
+               ));
 
                if res_cancel.clicked() {
                   self.delete_contact = false;
@@ -194,7 +200,9 @@ impl ContactsUi {
                   ctx.write(|ctx| {
                      ctx.contact_db.remove_contact(contact.address);
                   });
-                  ctx.save_contact_db();
+                  RT.spawn_blocking(move || {
+                     ctx.save_contact_db();
+                  });
                   self.delete_contact = false;
                   self.main_ui = true;
                   self.contact_to_delete = None;
@@ -250,12 +258,14 @@ impl ContactsUi {
                );
 
                if ui
-                  .add(Button::new(RichText::new("Add").size(theme.text_sizes.normal)))
+                  .add(Button::new(
+                     RichText::new("Add").size(theme.text_sizes.normal),
+                  ))
                   .clicked()
                {
                   let contact = self.contact_to_add.clone();
 
-                  std::thread::spawn(move || {
+                  RT.spawn_blocking(move || {
                      // make sure the address is valid
                      let _ = match Address::from_str(&contact.address) {
                         Ok(address) => address,
@@ -350,13 +360,15 @@ impl ContactsUi {
                self.contact_to_edit = Some(contact.clone());
 
                if ui
-                  .add(Button::new(RichText::new("Save").size(theme.text_sizes.normal)))
+                  .add(Button::new(
+                     RichText::new("Save").size(theme.text_sizes.normal),
+                  ))
                   .clicked()
                {
                   let old_contact = self.old_contact.clone().unwrap();
                   let new_contact = self.contact_to_edit.clone().unwrap();
 
-                  std::thread::spawn(move || {
+                  RT.spawn_blocking(move || {
                      // make sure the address is valid
                      let _ = match Address::from_str(&contact.address) {
                         Ok(address) => address,
