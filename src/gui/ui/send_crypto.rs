@@ -19,7 +19,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      RecipientSelectionWindow, TokenSelectionWindow,
+      RecipientSelectionWindow, ContactsUi, TokenSelectionWindow,
       misc::{ChainSelect, WalletSelect},
    },
 };
@@ -135,13 +135,14 @@ impl SendCryptoUi {
       theme: &Theme,
       token_selection: &mut TokenSelectionWindow,
       recipient_selection: &mut RecipientSelectionWindow,
+      contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
       if !self.open {
          return;
       }
 
-      recipient_selection.show(ctx.clone(), theme, &self.wallet_select, ui);
+      recipient_selection.show(ctx.clone(), theme, &self.wallet_select, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
       self.review_transaction(

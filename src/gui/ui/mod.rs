@@ -15,6 +15,7 @@ pub use send_crypto::SendCryptoUi;
 pub use token_selection::TokenSelectionWindow;
 pub use recipient_selection::RecipientSelectionWindow;
 pub use wallet::WalletUi;
+pub use settings::{ContactsUi, SettingsUi, EncryptionSettings, NetworkSettings};
 
 
 pub const GREEN_CIRCLE: &str = "🟢";

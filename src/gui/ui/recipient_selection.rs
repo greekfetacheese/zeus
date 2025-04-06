@@ -1,12 +1,14 @@
 use eframe::egui::{
-   Align, Align2, Color32, Button, FontId, Frame, Grid, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
+   Window, vec2,
 };
 
-use std::str::FromStr;
 use crate::core::{Contact, Wallet, ZeusCtx};
-use crate::gui::ui::WalletSelect;
+use crate::gui::ui::{WalletSelect, ContactsUi};
 use egui_theme::{Theme, utils::widget_visuals};
+use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
+
 
 pub struct RecipientSelectionWindow {
    pub open: bool,
@@ -42,11 +44,31 @@ impl RecipientSelectionWindow {
       self.recipient_name.clone()
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, wallet_select: &WalletSelect, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      wallet_select: &WalletSelect,
+      contacts_ui: &mut ContactsUi,
+      ui: &mut Ui,
+   ) {
       let mut open = self.open;
       let mut close_window = false;
       let frame = Frame::window(ui.style());
       let bg_color = frame.fill;
+
+      let window_size = Some((self.size.0 + 10.0, self.size.1 + 10.0));
+      contacts_ui
+         .add_contact
+         .show(ctx.clone(), theme, window_size, false, ui);
+      let contact_added = contacts_ui.add_contact.contact_added();
+      if contact_added {
+         let contact = contacts_ui.add_contact.get_contact().clone();
+         self.recipient = contact.address;
+         self.recipient_name = Some(contact.name);
+         contacts_ui.add_contact.reset();
+         open = false;
+      }
 
       Window::new("Recipient")
          .open(&mut open)
@@ -60,10 +82,16 @@ impl RecipientSelectionWindow {
             ui.set_height(350.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
             let ui_width = ui.available_width();
-            let column_width = ui.available_width() / 3.0;
+            let column_width = ui.available_width() * 0.33;
 
             // Search bar
             ui.vertical_centered(|ui| {
+               ui.add_space(20.0);
+               let add_contact = Button::new(RichText::new("Add a contact").size(theme.text_sizes.small));
+               if ui.add(add_contact).clicked() {
+                  contacts_ui.add_contact.open = true;
+               }
+
                widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.add_space(20.0);
                ui.add(
@@ -161,35 +189,26 @@ impl RecipientSelectionWindow {
       Grid::new("recipient_select_wallet_grid")
          .spacing(vec2(5.0, 10.0))
          .show(ui, |ui| {
-            ui.label(RichText::new("Wallet Name").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Address").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Value").size(theme.text_sizes.normal));
-            ui.end_row();
-
             for wallet in &wallets {
                let address = wallet.address();
                let valid_search = valid_wallet_search(wallet, &self.search_query);
                let value = ctx.get_portfolio_value_all_chains(address);
 
                if valid_search {
-                  /* 
-                  // exclude the current wallet
-                  if address == wallet_select.wallet.address() {
-                     continue;
-                  }
-                  */
-
                   // Wallet Name
                   ui.with_layout(
                      Layout::left_to_right(Align::Min).with_main_wrap(true),
                      |ui| {
                         ui.set_width(column_width);
                         let name = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
-                        if ui.add(Button::new(name)).clicked() {
-                           self.recipient = address.to_string();
-                           self.recipient_name = Some(wallet.name.clone());
-                           *close_window = true;
-                        }
+                        ui.scope(|ui| {
+                           ui.set_width(column_width * 0.8);
+                           if ui.add(Button::new(name)).clicked() {
+                              self.recipient = address.to_string();
+                              self.recipient_name = Some(wallet.name.clone());
+                              *close_window = true;
+                           }
+                        });
                      },
                   );
 
@@ -228,7 +247,7 @@ impl RecipientSelectionWindow {
       let contacts = ctx.contacts();
 
       ui.vertical_centered(|ui| {
-         ui.label(RichText::new("Contacts").size(theme.text_sizes.large));
+         ui.label(RichText::new("Your Contacts").size(theme.text_sizes.large));
       });
 
       ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
@@ -238,10 +257,6 @@ impl RecipientSelectionWindow {
       Grid::new("recipient_select_contact_grid")
          .spacing(vec2(5.0, 10.0))
          .show(ui, |ui| {
-            ui.label(RichText::new("Contact Name").size(theme.text_sizes.normal));
-            ui.label(RichText::new("Address").size(theme.text_sizes.normal));
-            ui.end_row();
-
             for contact in &contacts {
                let valid_search = valid_contact_search(contact, &self.search_query);
 
@@ -252,11 +267,14 @@ impl RecipientSelectionWindow {
                      |ui| {
                         ui.set_width(column_width);
                         let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
-                        if ui.add(Button::new(name)).clicked() {
-                           self.recipient = contact.address.clone();
-                           self.recipient_name = Some(contact.name.clone());
-                           *close_window = true;
-                        }
+                        ui.scope(|ui| {
+                           ui.set_width(column_width * 0.8);
+                           if ui.add(Button::new(name)).clicked() {
+                              self.recipient = contact.address.clone();
+                              self.recipient_name = Some(contact.name.clone());
+                              *close_window = true;
+                           }
+                        });
                      },
                   );
 

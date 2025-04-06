@@ -9,6 +9,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
    let recipient_selection = &mut gui.recipient_selection;
+   let contacts_ui = &mut gui.settings.contacts_ui;
 
    gui.testing_window.show(theme, ui);
    gui.msg_window.show(theme, ui);
@@ -26,17 +27,18 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       gui.portofolio.open = false;
    }
 
+   gui.across_bridge.show(ctx.clone(), theme, icons.clone(), recipient_selection, contacts_ui, ui);
+   gui.send_crypto
+   .show(ctx.clone(), icons.clone(), theme, token_selection, recipient_selection, contacts_ui, ui);
    gui.portofolio
       .show(ctx.clone(), theme, icons.clone(), token_selection, ui);
    gui.swap_ui
       .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
-   gui.send_crypto
-      .show(ctx.clone(), icons.clone(), theme, token_selection, recipient_selection, ui);
+
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.tx_history.show(ctx.clone(), theme, icons.clone(), ui);
-   gui.across_bridge.show(ctx.clone(), theme, icons.clone(), recipient_selection, ui);
 
    #[cfg(feature = "dev")]
    {

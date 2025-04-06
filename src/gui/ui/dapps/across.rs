@@ -9,7 +9,7 @@ use crate::core::{
 };
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, GREEN_CHECK, RecipientSelectionWindow, WalletSelect},
+   ui::{ChainSelect, ContactsUi, GREEN_CHECK, RecipientSelectionWindow, WalletSelect},
 };
 use egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui, Window,
@@ -89,6 +89,7 @@ impl AcrossBridge {
       theme: &Theme,
       icons: Arc<Icons>,
       recipient_selection: &mut RecipientSelectionWindow,
+      contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
       if !self.open {
@@ -97,7 +98,7 @@ impl AcrossBridge {
 
       self.progress_window.show(theme, ui);
 
-      recipient_selection.show(ctx.clone(), theme, &self.from_wallet, ui);
+      recipient_selection.show(ctx.clone(), theme, &self.from_wallet, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
       let from_chain = self.from_chain.chain.id();

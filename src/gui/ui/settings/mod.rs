@@ -58,7 +58,7 @@ impl SettingsUi {
       self
          .network
          .show(ctx.clone(), theme, icons.clone(), &mut main_ui, ui);
-      self.contacts_ui.show(ctx, theme, icons, &mut main_ui, ui);
+      self.contacts_ui.show(ctx, theme, icons, ui);
       self.main_ui = main_ui;
    }
 

@@ -25,7 +25,7 @@ const CONTACTS_FILE: &str = "contacts.json";
 pub mod db;
 pub mod providers;
 
-pub use db::{BalanceDB, CurrencyDB, TransactionsDB, Portfolio, PortfolioDB};
+pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB};
 pub use providers::{Rpc, RpcProviders};
 
 #[derive(Clone)]
@@ -83,24 +83,24 @@ impl ZeusCtx {
    }
 
    pub fn save_balance_db(&self) {
-      self.read(|ctx| match ctx.balance_db.save(){
+      self.read(|ctx| match ctx.balance_db.save() {
          Ok(_) => {
             tracing::info!("BalanceDB saved");
          }
          Err(e) => {
             tracing::error!("Error saving DB: {:?}", e);
-         },
+         }
       })
    }
 
    pub fn save_currency_db(&self) {
-      self.read(|ctx| match ctx.currency_db.save(){
+      self.read(|ctx| match ctx.currency_db.save() {
          Ok(_) => {
             tracing::info!("CurrencyDB saved");
          }
          Err(e) => {
             tracing::error!("Error saving DB: {:?}", e);
-         },
+         }
       })
    }
 
@@ -111,7 +111,7 @@ impl ZeusCtx {
          }
          Err(e) => {
             tracing::error!("Error saving DB: {:?}", e);
-         },
+         }
       })
    }
 
@@ -122,7 +122,7 @@ impl ZeusCtx {
          }
          Err(e) => {
             tracing::error!("Error saving DB: {:?}", e);
-         },
+         }
       })
    }
 
@@ -133,7 +133,7 @@ impl ZeusCtx {
          }
          Err(e) => {
             tracing::error!("Error saving DB: {:?}", e);
-         },
+         }
       })
    }
 
@@ -159,7 +159,7 @@ impl ZeusCtx {
          }
          Err(e) => {
             tracing::error!("Error saving Pool Manager: {:?}", e);
-         },
+         }
       }
    }
 
@@ -170,7 +170,7 @@ impl ZeusCtx {
          }
          Err(e) => {
             tracing::error!("Error saving TxDB: {:?}", e);
-         },
+         }
       })
    }
 
@@ -407,6 +407,8 @@ pub struct ContactDB {
 }
 
 impl ContactDB {
+   const MAX_CHARS: usize = 20;
+
    pub fn new() -> Self {
       Self {
          contacts: Vec::new(),
@@ -436,7 +438,25 @@ impl ContactDB {
       self.contacts.iter().any(|c| &c.name == name)
    }
 
+   pub fn contact_mut(&mut self, contact: &Contact) -> Option<&mut Contact> {
+      self
+         .contacts
+         .iter_mut()
+         .find(|c| c.address == contact.address)
+   }
+
    pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
+      if contact.name.is_empty() {
+         return Err(anyhow!("Contact name cannot be empty"));
+      }
+
+      if contact.name.len() > Self::MAX_CHARS {
+         return Err(anyhow!(
+            "Contact name cannot be longer than {} characters",
+            Self::MAX_CHARS
+         ));
+      }
+
       // make sure name and address are unique
       if self.contacts.iter().any(|c| c.name == contact.name) {
          return Err(anyhow!("Contact with name {} already exists", contact.name));

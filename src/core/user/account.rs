@@ -33,6 +33,8 @@ impl Default for Account {
 }
 
 impl Account {
+   const MAX_CHARS: usize = 20;
+
    pub fn new_wallet_from_key_or_phrase(
       &mut self,
       mut name: String,
@@ -42,6 +44,13 @@ impl Account {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
+         }
+
+         if name.len() > Self::MAX_CHARS {
+            return Err(anyhow!(
+               "Wallet name cannot be longer than {} characters",
+               Self::MAX_CHARS
+            ));
          }
       } else {
          name = self.generate_wallet_name();
@@ -68,6 +77,13 @@ impl Account {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
+         }
+
+         if name.len() > Self::MAX_CHARS {
+            return Err(anyhow!(
+               "Wallet name cannot be longer than {} characters",
+               Self::MAX_CHARS
+            ));
          }
       } else {
          name = self.generate_wallet_name();
