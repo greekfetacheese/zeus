@@ -1,6 +1,6 @@
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, Response, RichText, Spinner, TextEdit,
-   Ui, Vec2, Window, vec2,
+   Ui, Window, vec2,
 };
 
 use std::str::FromStr;
@@ -19,7 +19,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      RecipientSelectionWindow, ContactsUi, TokenSelectionWindow,
+      ContactsUi, GREEN_CHECK, RecipientSelectionWindow, TokenSelectionWindow,
       misc::{ChainSelect, WalletSelect},
    },
 };
@@ -30,64 +30,6 @@ use zeus_eth::{
    currency::{Currency, NativeCurrency},
    utils::NumericValue,
 };
-
-// This is a temporary solution to just show that the transaction was sent
-pub struct TxSuccessWindow {
-   pub open: bool,
-   pub explorer: String,
-   pub size: Vec2,
-}
-
-impl TxSuccessWindow {
-   pub fn new() -> Self {
-      Self {
-         open: false,
-         explorer: String::new(),
-         size: vec2(350.0, 150.0),
-      }
-   }
-
-   pub fn open(&mut self, explorer_link: impl Into<String>) {
-      self.open = true;
-      self.explorer = explorer_link.into();
-   }
-
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      let msg = RichText::new("Transaction Sent!").size(theme.text_sizes.very_large);
-      let msg2 = RichText::new("View on:").size(theme.text_sizes.very_large);
-      let ok = Button::new(RichText::new("Ok").size(theme.text_sizes.normal));
-
-      Window::new("Tx Success")
-         .title_bar(false)
-         .resizable(false)
-         .movable(true)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               ui.set_min_size(self.size);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
-
-               ui.label(msg);
-               ui.add_space(5.0);
-               ui.label(msg2);
-               ui.add_space(5.0);
-               ui.hyperlink(&self.explorer);
-               ui.add_space(20.0);
-
-               if ui.add(ok).clicked() {
-                  self.open = false;
-               }
-            });
-         });
-   }
-}
 
 pub struct SendCryptoUi {
    pub open: bool,
@@ -100,12 +42,12 @@ pub struct SendCryptoUi {
    pub recipient_name: Option<String>,
    pub search_query: String,
    pub size: (f32, f32),
-   pub tx_success_window: TxSuccessWindow,
    /// Flag to not spam the rpc when fetching pool data
    pub pool_data_syncing: bool,
    pub syncing_balance: bool,
    /// Review Transaction window
    pub review_tx_window: bool,
+   pub progress_window: ProgressWindow,
 }
 
 impl SendCryptoUi {
@@ -121,10 +63,10 @@ impl SendCryptoUi {
          recipient_name: None,
          search_query: String::new(),
          size: (500.0, 750.0),
-         tx_success_window: TxSuccessWindow::new(),
          pool_data_syncing: false,
          syncing_balance: false,
          review_tx_window: false,
+         progress_window: ProgressWindow::new("send_crypto_progress_window".to_string()),
       }
    }
 
@@ -153,6 +95,7 @@ impl SendCryptoUi {
          recipient_name.clone(),
          ui,
       );
+      self.progress_window.show(theme, icons.clone(), ui);
 
       let frame = theme.frame1;
       let bg_color = frame.fill;
@@ -173,6 +116,20 @@ impl SendCryptoUi {
                ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
                ui.add_space(20.0);
             });
+
+            #[cfg(feature = "dev")]
+            {
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  if ui
+                     .add(Button::new(
+                        RichText::new("Test Progress Window").size(theme.text_sizes.small),
+                     ))
+                     .clicked()
+                  {
+                     test_progress_window();
+                  }
+               });
+            }
 
             // Chain Selection
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -199,8 +156,6 @@ impl SendCryptoUi {
             let chain = self.chain_select.chain.id();
             let owner = self.wallet_select.wallet.key.borrow().address();
             let currencies = ctx.get_currencies(chain);
-
-            
 
             // From Wallet
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -328,6 +283,21 @@ impl SendCryptoUi {
                   ui.end_row();
                });
 
+            ui.add_space(5.0);
+
+            ui.horizontal(|ui| {
+               ui.set_width(ui_width * 0.5);
+               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               ui.add(
+                  TextEdit::singleline(&mut self.amount)
+                     .hint_text("0")
+                     .font(egui::FontId::proportional(theme.text_sizes.large))
+                     .background_color(theme.colors.text_edit_bg2)
+                     .min_size(vec2(ui_width * 0.5, 25.0))
+                     .margin(Margin::same(10)),
+               );
+            });
+
             // Amount check
             if !self.amount.is_empty() && !self.valid_amount() {
                ui.label(
@@ -346,20 +316,6 @@ impl SendCryptoUi {
                );
             }
 
-            ui.add_space(5.0);
-
-            ui.horizontal(|ui| {
-               ui.set_width(ui_width * 0.5);
-               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-               ui.add(
-                  TextEdit::singleline(&mut self.amount)
-                     .hint_text("0")
-                     .font(egui::FontId::proportional(theme.text_sizes.large))
-                     .background_color(theme.colors.text_edit_bg2)
-                     .min_size(vec2(ui_width * 0.5, 25.0))
-                     .margin(Margin::same(10)),
-               );
-            });
             ui.add_space(space);
 
             // Priority Fee
@@ -620,7 +576,7 @@ impl SendCryptoUi {
       let fee = self.priority_fee.parse().unwrap_or(0.0);
       let chain = self.chain_select.chain;
       if chain.uses_priority_fee() {
-      fee == 0.0
+         fee == 0.0
       } else {
          false
       }
@@ -665,9 +621,7 @@ impl SendCryptoUi {
 
       let amount = self.amount.clone();
       let value = self.value(ctx.clone());
-      let chain = self.chain_select.chain;
       let currency = self.currency.clone();
-      let explorer = chain.block_explorer().to_owned();
 
       let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
 
@@ -787,26 +741,150 @@ impl SendCryptoUi {
          );
 
          RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Sending Transaction...");
-            });
-
-            match send_crypto(ctx.clone(), currency.clone(), recipient_address, params.clone()).await {
-               Ok(tx) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     let link = format!("{}/tx/{}", explorer, tx.transaction_hash);
-                     gui.send_crypto.tx_success_window.open(link);
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", &e.to_string());
-                  });
-               }
-            }
+            let _ = send_crypto(
+               ctx.clone(),
+               currency.clone(),
+               recipient_address,
+               params.clone(),
+            )
+            .await;
          });
       }
    }
+}
+
+pub struct ProgressWindow {
+   pub id: String,
+   pub open: bool,
+   pub sending: bool,
+   pub sending_done: bool,
+   pub currency: Currency,
+   pub amount: NumericValue,
+   pub amount_usd: NumericValue,
+   pub size: (f32, f32),
+}
+
+impl ProgressWindow {
+   pub fn new(id: String) -> Self {
+      Self {
+         id,
+         open: false,
+         sending: true,
+         sending_done: false,
+         currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
+         amount: NumericValue::default(),
+         amount_usd: NumericValue::default(),
+         size: (350.0, 150.0),
+      }
+   }
+
+   /// Open the progress window
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn set_currency(&mut self, currency: Currency) {
+      self.currency = currency;
+   }
+
+   pub fn set_amount(&mut self, amount: NumericValue) {
+      self.amount = amount;
+   }
+
+   pub fn set_amount_usd(&mut self, amount: NumericValue) {
+      self.amount_usd = amount;
+   }
+
+   pub fn sending(&mut self) {
+      self.sending = true;
+      self.sending_done = false;
+   }
+
+   pub fn done_sending(&mut self) {
+      self.sending = false;
+      self.sending_done = true;
+   }
+
+   pub fn reset_and_close(&mut self) {
+      self.open = false;
+      self.sending();
+   }
+
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new(&self.id)
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .frame(Frame::window(ui.style()))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.vertical_centered(|ui| {
+               ui.add_space(20.0);
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let ui_width = ui.available_width();
+
+               ui.add_sized(vec2(ui_width * 0.6, self.size.1), |ui: &mut Ui| {
+                  let res = Grid::new("across_progress_window")
+                     .spacing(vec2(5.0, 10.0))
+                     .show(ui, |ui| {
+                        ui.label(RichText::new("Sending Transaction").size(theme.text_sizes.normal));
+                        if self.sending {
+                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                        }
+                        if self.sending_done {
+                           ui.label(RichText::new(GREEN_CHECK).size(theme.text_sizes.normal));
+                        }
+                        ui.end_row();
+
+                        let text = format!(
+                           "You have sent {} {} (${})",
+                           self.amount.formatted(),
+                           self.currency.symbol(),
+                           self.amount_usd.formatted(),
+                        );
+
+                        if self.sending_done {
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                           ui.add(icons.currency_icon(&self.currency));
+                           ui.end_row();
+                        }
+                     });
+                  res.response
+               });
+
+               if ui
+                  .add(Button::new(
+                     RichText::new("Ok").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  self.reset_and_close();
+               }
+            });
+         });
+   }
+}
+
+#[cfg(feature = "dev")]
+fn test_progress_window() {
+   RT.spawn(async move {
+      SHARED_GUI.write(|gui| {
+         gui.send_crypto.progress_window.open();
+      });
+
+      tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+      SHARED_GUI.write(|gui| {
+         gui.send_crypto.progress_window.done_sending();
+      });
+   });
 }

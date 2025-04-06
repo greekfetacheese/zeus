@@ -244,12 +244,20 @@ pub async fn across_bridge(
       bail!(err);
    }
 
+   let currency_price = ctx.get_currency_price(&currency);
+   let amount_usd = NumericValue::value(minimum_received.f64(), currency_price.f64());
+
    SHARED_GUI.write(|gui| {
       gui.across_bridge.progress_window.done_order_filling();
-      gui.across_bridge.progress_window.funds_received = true;
-      gui.across_bridge.progress_window.currency_received = currency;
-      gui.across_bridge.progress_window.amount_received = minimum_received;
-      gui.across_bridge.progress_window.dest_chain = dest_chain_id;
+      gui.across_bridge.progress_window.set_funds_received(true);
+      gui.across_bridge.progress_window.set_currency(currency);
+      gui.across_bridge
+         .progress_window
+         .set_amount_sent(minimum_received);
+      gui.across_bridge.progress_window.set_amount_usd(amount_usd);
+      gui.across_bridge
+         .progress_window
+         .set_dest_chain(dest_chain_id);
    });
 
    // if recipient is a wallet owned by this account, update its balance
@@ -270,6 +278,10 @@ pub async fn send_crypto(
    mut params: TxParams,
 ) -> Result<TransactionReceipt, anyhow::Error> {
    let client = ctx.get_client_with_id(params.chain.id())?;
+
+   SHARED_GUI.write(|gui| {
+      gui.send_crypto.progress_window.open();
+   });
 
    // override the base fee incase has been increased since the last update
    let base_fee = update::get_base_fee(ctx.clone(), params.chain.id()).await?;
@@ -307,6 +319,21 @@ pub async fn send_crypto(
       time.elapsed().as_secs_f32()
    );
 
+   let currency_price = ctx.get_currency_price(&currency);
+   let amount_sent = if params.tx_method.is_transfer() {
+      NumericValue::format_wei(params.value, currency.decimals())
+   } else {
+      params.tx_method.erc20_transfer_info().unwrap().1.clone()
+   };
+   let amount_usd = NumericValue::value(amount_sent.f64(), currency_price.f64());
+
+   SHARED_GUI.write(|gui| {
+      gui.send_crypto.progress_window.done_sending();
+      gui.send_crypto.progress_window.set_currency(currency);
+      gui.send_crypto.progress_window.set_amount(amount_sent);
+      gui.send_crypto.progress_window.set_amount_usd(amount_usd);
+   });
+
    let native_token = ERC20Token::wrapped_native_token(params.chain.id());
 
    let tx_type = receipt.inner.tx_type();
@@ -341,7 +368,7 @@ pub async fn send_crypto(
          tx_details,
       );
    });
-   
+
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
       ctx_clone.save_tx_db();
@@ -487,9 +514,9 @@ pub async fn get_erc20_token(
       }
 
       RT.spawn_blocking(move || {
-      ctx_clone.update_portfolio_value(chain, owner);
-      ctx_clone.write(|ctx| ctx.data_syncing = false);
-      ctx_clone.save_all();
+         ctx_clone.update_portfolio_value(chain, owner);
+         ctx_clone.write(|ctx| ctx.data_syncing = false);
+         ctx_clone.save_all();
       });
    });
 

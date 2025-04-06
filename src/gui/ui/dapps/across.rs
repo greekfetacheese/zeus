@@ -143,6 +143,11 @@ impl AcrossBridge {
                {
                   self.get_balance(ctx.clone(), depositor);
                }
+
+               #[cfg(feature = "dev")]
+               if ui.button("Test Progress Window").clicked() {
+                  test_progress_window();
+               }
             });
 
             widget_visuals(ui, theme.get_widget_visuals(bg_color));
@@ -336,16 +341,16 @@ impl AcrossBridge {
 
             // Priority Fee
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Priority Fee").size(theme.text_sizes.normal));
-               ui.add_space(2.0);
+               ui.label(RichText::new("Priority Fee").size(theme.text_sizes.large));
+               ui.add_space(4.0);
                ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
             });
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.set_width(ui_width * 0.25);
+               ui.set_width(ui_width * 0.2);
                ui.add(
                   TextEdit::singleline(&mut self.priority_fee)
-                     .min_size(vec2(ui_width * 0.25, 25.0))
+                     .min_size(vec2(ui_width * 0.2, 25.0))
                      .margin(Margin::same(10))
                      .background_color(theme.colors.text_edit_bg2)
                      .font(FontId::proportional(theme.text_sizes.normal)),
@@ -466,7 +471,7 @@ impl AcrossBridge {
       let fee = self.priority_fee.parse().unwrap_or(0.0);
       let chain = self.from_chain.chain;
       if chain.uses_priority_fee() {
-      fee == 0.0
+         fee == 0.0
       } else {
          false
       }
@@ -933,8 +938,9 @@ pub struct ProgressWindow {
    pub order_filling: bool,
    pub order_filling_done: bool,
    pub funds_received: bool,
-   pub currency_received: Currency,
-   pub amount_received: NumericValue,
+   pub currency_sent: Currency,
+   pub amount_sent: NumericValue,
+   pub amount_usd: NumericValue,
    pub dest_chain: ChainId,
    pub size: (f32, f32),
 }
@@ -951,15 +957,36 @@ impl ProgressWindow {
          order_filling: false,
          order_filling_done: false,
          funds_received: false,
-         currency_received: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
-         amount_received: NumericValue::default(),
+         currency_sent: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
+         amount_sent: NumericValue::default(),
+         amount_usd: NumericValue::default(),
          dest_chain: ChainId::new(1).unwrap(),
-         size: (200.0, 150.0),
+         size: (350.0, 150.0),
       }
    }
 
    pub fn open(&mut self) {
       self.open = true;
+   }
+
+   pub fn set_currency(&mut self, currency: Currency) {
+      self.currency_sent = currency;
+   }
+
+   pub fn set_funds_received(&mut self, b: bool) {
+      self.funds_received = b;
+   }
+
+   pub fn set_dest_chain(&mut self, chain: ChainId) {
+      self.dest_chain = chain;
+   }
+
+   pub fn set_amount_sent(&mut self, amount: NumericValue) {
+      self.amount_sent = amount;
+   }
+
+   pub fn set_amount_usd(&mut self, amount: NumericValue) {
+      self.amount_usd = amount;
    }
 
    pub fn reset_and_close(&mut self) {
@@ -1016,6 +1043,7 @@ impl ProgressWindow {
          .movable(false)
          .resizable(false)
          .collapsible(false)
+         .order(Order::Foreground)
          .frame(Frame::window(ui.style()))
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
@@ -1027,7 +1055,7 @@ impl ProgressWindow {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.add_sized(vec2(ui_width * 0.33, ui_width * 0.10), |ui: &mut Ui| {
+               ui.add_sized(vec2(ui_width * 0.6, self.size.1), |ui: &mut Ui| {
                   let res = Grid::new("across_progress_window")
                      .spacing(vec2(5.0, 10.0))
                      .show(ui, |ui| {
@@ -1063,15 +1091,16 @@ impl ProgressWindow {
 
                         if self.funds_received {
                            let text = format!(
-                              "You have sent {} {} on the {} chain {}",
-                              self.amount_received.formatted(),
-                              self.currency_received.symbol(),
+                              "You have sent {} {} (${}) on the {} chain",
+                              self.amount_sent.formatted(),
+                              self.currency_sent.symbol(),
+                              self.amount_usd.formatted(),
                               self.dest_chain.name(),
-                              GREEN_CHECK
                            );
                            ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                          // ui.add(icons.currency_icon(&self.currency_sent));
+                           ui.end_row();
                         }
-                        ui.end_row();
                      });
                   res.response
                });
@@ -1087,4 +1116,34 @@ impl ProgressWindow {
             });
          });
    }
+}
+
+#[cfg(feature = "dev")]
+fn test_progress_window() {
+   RT.spawn(async move {
+      SHARED_GUI.write(|gui| {
+         gui.across_bridge.progress_window.open();
+      });
+
+     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+      SHARED_GUI.write(|gui| {
+         gui.across_bridge.progress_window.done_simulating();
+         gui.across_bridge.progress_window.sending();
+      });
+
+     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+      SHARED_GUI.write(|gui| {
+         gui.across_bridge.progress_window.done_sending();
+         gui.across_bridge.progress_window.order_filling();
+      });
+
+     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+      SHARED_GUI.write(|gui| {
+         gui.across_bridge.progress_window.done_order_filling();
+         gui.across_bridge.progress_window.funds_received = true;
+      });
+   });
 }

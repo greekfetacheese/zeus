@@ -1,6 +1,7 @@
 use crate::gui::GUI;
 use eframe::egui::Ui;
 
+
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
    let logged_in = ctx.logged_in();
@@ -14,7 +15,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.testing_window.show(theme, ui);
    gui.msg_window.show(theme, ui);
    gui.loading_window.show(ui);
-   gui.send_crypto.tx_success_window.show(theme, ui);
 
    if !account {
       gui.register.show(ctx.clone(), theme, ui);
