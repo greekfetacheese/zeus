@@ -84,7 +84,7 @@ impl SendCryptoUi {
          return;
       }
 
-      recipient_selection.show(ctx.clone(), theme, &self.wallet_select, contacts_ui, ui);
+      recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
       self.review_transaction(

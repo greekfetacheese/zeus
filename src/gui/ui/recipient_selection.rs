@@ -1,14 +1,14 @@
+use crate::assets::icons::Icons;
+use crate::core::{Contact, Wallet, ZeusCtx};
+use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
    Window, vec2,
 };
-
-use crate::core::{Contact, Wallet, ZeusCtx};
-use crate::gui::ui::{WalletSelect, ContactsUi};
 use egui_theme::{Theme, utils::widget_visuals};
 use std::str::FromStr;
-use zeus_eth::alloy_primitives::Address;
-
+use std::sync::Arc;
+use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 
 pub struct RecipientSelectionWindow {
    pub open: bool,
@@ -44,14 +44,7 @@ impl RecipientSelectionWindow {
       self.recipient_name.clone()
    }
 
-   pub fn show(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      wallet_select: &WalletSelect,
-      contacts_ui: &mut ContactsUi,
-      ui: &mut Ui,
-   ) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, contacts_ui: &mut ContactsUi, ui: &mut Ui) {
       let mut open = self.open;
       let mut close_window = false;
       let frame = Frame::window(ui.style());
@@ -121,7 +114,7 @@ impl RecipientSelectionWindow {
                      self.account_wallets(
                         ctx.clone(),
                         theme,
-                        wallet_select,
+                        icons.clone(),
                         bg_color,
                         column_width,
                         &mut close_window,
@@ -169,13 +162,44 @@ impl RecipientSelectionWindow {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
-      _wallet_select: &WalletSelect,
+      icons: Arc<Icons>,
       bg_color: Color32,
       column_width: f32,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let wallets = ctx.account().wallets;
+      let mut wallets = ctx.account().wallets;
+      let mut portfolios = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         for wallet in &wallets {
+            portfolios.push(ctx.get_portfolio(chain, wallet.address()));
+         }
+      }
+
+      wallets.sort_by(|a, b| {
+         let addr_a = a.address();
+         let addr_b = b.address();
+
+         // Find the portfolio for each wallet
+         let portfolio_a = portfolios.iter().find(|p| p.owner == addr_a);
+         let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
+
+         // Extract the portfolio value (or use a default if not found)
+         let value_a = portfolio_a
+            .map(|p| p.value.clone())
+            .unwrap_or(NumericValue::default());
+         let value_b = portfolio_b
+            .map(|p| p.value.clone())
+            .unwrap_or(NumericValue::default());
+
+         // Sort in descending order (highest value first)
+         // If values are equal, sort by name as a secondary criterion
+         value_b
+            .f64()
+            .partial_cmp(&value_a.f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+      });
 
       ui.vertical_centered(|ui| {
          ui.label(RichText::new("Your Wallets").size(theme.text_sizes.large));
@@ -186,53 +210,57 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
       widget_visuals(ui, theme.get_button_visuals(bg_color));
 
-      Grid::new("recipient_select_wallet_grid")
-         .spacing(vec2(5.0, 10.0))
-         .show(ui, |ui| {
-            for wallet in &wallets {
-               let address = wallet.address();
-               let valid_search = valid_wallet_search(wallet, &self.search_query);
-               let value = ctx.get_portfolio_value_all_chains(address);
+      for wallet in &wallets {
+         let address = wallet.address();
+         let valid_search = valid_wallet_search(wallet, &self.search_query);
+         let value = ctx.get_portfolio_value_all_chains(address);
+         let chains = ctx.get_owner_chains(address);
 
-               if valid_search {
-                  // Wallet Name
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        let name = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
-                        ui.scope(|ui| {
-                           ui.set_width(column_width * 0.8);
-                           if ui.add(Button::new(name)).clicked() {
-                              self.recipient = address.to_string();
-                              self.recipient_name = Some(wallet.name.clone());
-                              *close_window = true;
-                           }
-                        });
-                     },
-                  );
+         if valid_search {
+            // Main Row
+            ui.horizontal(|ui| {
+               ui.set_max_width(ui.available_width() * 0.95);
 
-                  // Address
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new(wallet.address_truncated()).size(theme.text_sizes.normal));
-                     },
-                  );
+               // Wallet
+               ui.with_layout(
+                  Layout::left_to_right(Align::Min).with_main_wrap(true),
+                  |ui| {
+                     ui.set_width(column_width);
+                     let name = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
+                     ui.scope(|ui| {
+                        ui.set_width(column_width * 0.8);
+                        if ui.add(Button::new(name)).clicked() {
+                           self.recipient = address.to_string();
+                           self.recipient_name = Some(wallet.name.clone());
+                           *close_window = true;
+                        }
+                     });
+                  },
+               );
 
-                  // Value
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
-                     },
-                  );
-                  ui.end_row();
-               }
-            }
-         });
+               // Address
+               ui.horizontal(|ui| {
+                  ui.set_width(column_width);
+                  ui.label(RichText::new(wallet.address_truncated()).size(theme.text_sizes.small));
+               });
+
+               // Value
+               ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+               ui.horizontal(|ui| {
+                  ui.vertical(|ui| {
+                     ui.set_width(column_width);
+                     ui.horizontal(|ui| {
+                        for chain in chains {
+                           let icon = icons.chain_icon_x16(&chain);
+                           ui.add(icon);
+                        }
+                     });
+                     ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
+                  });
+               });
+            });
+         }
+      }
    }
 
    fn account_contacts(

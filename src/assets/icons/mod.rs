@@ -51,6 +51,11 @@ pub struct ChainIcons {
    pub bsc: TextureHandle,
    pub base: TextureHandle,
    pub arbitrum: TextureHandle,
+   pub eth_x16: TextureHandle,
+   pub op_x16: TextureHandle,
+   pub bsc_x16: TextureHandle,
+   pub base_x16: TextureHandle,
+   pub arbitrum_x16: TextureHandle,
 }
 
 #[derive(Clone)]
@@ -76,6 +81,11 @@ impl Icons {
       let bsc_icon = load_image(include_bytes!("chain/resized/bsc.png"))?;
       let base_icon = load_image(include_bytes!("chain/resized/base.png"))?;
       let arbitrum_icon = load_image(include_bytes!("chain/resized/arbitrum.png"))?;
+      let eth_x16 = load_image(include_bytes!("chain/resized/x16/ethereum.png"))?;
+      let op_x16 = load_image(include_bytes!("chain/resized/x16/op.png"))?;
+      let bsc_x16 = load_image(include_bytes!("chain/resized/x16/bsc.png"))?;
+      let base_x16 = load_image(include_bytes!("chain/resized/x16/base.png"))?;
+      let arbitrum_x16 = load_image(include_bytes!("chain/resized/x16/arbitrum.png"))?;
 
       // Currency icons
       let eth_coin = load_image(include_bytes!("currency/resized/ethereum.png"))?;
@@ -100,6 +110,11 @@ impl Icons {
          bsc: ctx.load_texture("bsc", bsc_icon, texture_options),
          base: ctx.load_texture("base", base_icon, texture_options),
          arbitrum: ctx.load_texture("arbitrum", arbitrum_icon, texture_options),
+         eth_x16: ctx.load_texture("eth_x16", eth_x16, texture_options),
+         op_x16: ctx.load_texture("op_x16", op_x16, texture_options),
+         bsc_x16: ctx.load_texture("bsc_x16", bsc_x16, texture_options),
+         base_x16: ctx.load_texture("base_x16", base_x16, texture_options),
+         arbitrum_x16: ctx.load_texture("arbitrum_x16", arbitrum_x16, texture_options),
       };
 
       let currency_icons = CurrencyIcons {
@@ -137,6 +152,17 @@ impl Icons {
          8453 => Image::new(&self.chain.base),
          42161 => Image::new(&self.chain.arbitrum),
          _ => Image::new(&self.chain.eth),
+      }
+   }
+
+   pub fn chain_icon_x16(&self, id: &u64) -> Image<'static> {
+      match id {
+         1 => Image::new(&self.chain.eth_x16),
+         10 => Image::new(&self.chain.op_x16),
+         56 => Image::new(&self.chain.bsc_x16),
+         8453 => Image::new(&self.chain.base_x16),
+         42161 => Image::new(&self.chain.arbitrum_x16),
+         _ => Image::new(&self.chain.eth_x16),
       }
    }
 

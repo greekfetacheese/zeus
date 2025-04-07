@@ -182,6 +182,18 @@ impl ZeusCtx {
       })
    }
 
+   /// Return the chains which the owner has balance in
+   pub fn get_owner_chains(&self, owner: Address) -> Vec<u64> {
+      let mut chains = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         let balance = self.get_eth_balance(chain, owner).unwrap_or_default();
+         if !balance.is_zero() {
+            chains.push(chain);
+         }
+      }
+      chains
+   }
+
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> Option<NumericValue> {
       self.read(|ctx| ctx.balance_db.get_eth_balance(chain, owner).cloned())
    }

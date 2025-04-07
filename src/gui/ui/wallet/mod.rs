@@ -1,17 +1,18 @@
 pub mod add;
 pub mod details;
 pub use add::AddWalletUi;
-pub use details::{ViewKeyUi, DeleteWalletUi};
+pub use details::{DeleteWalletUi, ViewKeyUi};
 
 use crate::assets::icons::Icons;
 use crate::core::{Wallet, ZeusCtx, utils::RT};
-use crate::gui::
-   SHARED_GUI;
+use crate::gui::SHARED_GUI;
 use eframe::egui::{
-   Align, Align2, FontId, Button, RichText, Frame, Label, Layout, Margin, ScrollArea, Sense, TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, Vec2,
+   Window, vec2,
 };
 use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
+use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -57,14 +58,45 @@ impl WalletUi {
    /// This is the first Ui we show to the user when this [WalletUi] is open.
    ///
    /// We can see, manage and add new wallets.
-   pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
 
       let account = ctx.account();
       let current_wallet = &account.current_wallet;
-      let wallets = &account.wallets;
+      let mut wallets = account.wallets.clone();
+      let mut portfolios = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         for wallet in &wallets {
+            portfolios.push(ctx.get_portfolio(chain, wallet.address()));
+         }
+      }
+
+      wallets.sort_by(|a, b| {
+         let addr_a = a.address();
+         let addr_b = b.address();
+
+         // Find the portfolio for each wallet
+         let portfolio_a = portfolios.iter().find(|p| p.owner == addr_a);
+         let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
+
+         // Extract the portfolio value (or use a default if not found)
+         let value_a = portfolio_a
+            .map(|p| p.value.clone())
+            .unwrap_or(NumericValue::default());
+         let value_b = portfolio_b
+            .map(|p| p.value.clone())
+            .unwrap_or(NumericValue::default());
+
+         // Sort in descending order (highest value first)
+         // If values are equal, sort by name as a secondary criterion
+         value_b
+            .f64()
+            .partial_cmp(&value_a.f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+      });
 
       let frame = theme.frame1;
       Window::new("wallet_main_ui")
@@ -97,7 +129,7 @@ impl WalletUi {
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
-               self.wallet(ctx.clone(), theme, current_wallet, true, ui);
+               self.wallet(ctx.clone(), theme, icons.clone(), current_wallet, true, ui);
 
                // Search bar
                ui.add_space(8.0);
@@ -122,7 +154,7 @@ impl WalletUi {
                            .to_lowercase()
                            .contains(&self.search_query.to_lowercase())
                      {
-                        self.wallet(ctx.clone(), theme, wallet, false, ui);
+                        self.wallet(ctx.clone(), theme, icons.clone(), wallet, false, ui);
 
                         ui.add_space(4.0);
                      }
@@ -133,7 +165,15 @@ impl WalletUi {
    }
 
    /// Show a wallet
-   fn wallet(&mut self, ctx: ZeusCtx, theme: &Theme, wallet: &Wallet, is_current: bool, ui: &mut Ui) {
+   fn wallet(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      wallet: &Wallet,
+      is_current: bool,
+      ui: &mut Ui,
+   ) {
       let overlay = theme.colors.extreme_bg_color2;
       let bg_color = if is_current {
          overlay
@@ -167,8 +207,8 @@ impl WalletUi {
                   // Details button
                   let visuals = theme.get_button_visuals(bg_color);
                   widget_visuals(ui, visuals);
-                  let view_key = Button::new(RichText::new("View Key").size(theme.text_sizes.small));
-                  if ui.add(view_key).clicked() {
+                  let export_key = Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
+                  if ui.add(export_key).clicked() {
                      self.view_key_ui.open = true;
                      self.view_key_ui.exporter.wallet = Some(wallet.clone());
                      self.view_key_ui.credentials_form.open = true;
@@ -184,21 +224,33 @@ impl WalletUi {
 
                // Address and value
                ui.horizontal(|ui| {
-                  let res = ui.selectable_label(false, RichText::new(wallet.address_truncated()).size(theme.text_sizes.small));
+                  let res = ui.selectable_label(
+                     false,
+                     RichText::new(wallet.address_truncated()).size(theme.text_sizes.small),
+                  );
                   if res.clicked() {
                      // Copy the address to the clipboard
                      ui.ctx().copy_text(wallet.address_string());
                   }
 
-                  ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                     let chain = ctx.chain().id();
-                     let owner = wallet.key.borrow().address();
-                     let portfolio = ctx.get_portfolio(chain, owner);
-                     ui.label(
-                        RichText::new(format!("${}", portfolio.value.formatted()))
-                           .color(theme.colors.text_secondary)
-                           .size(theme.text_sizes.small),
-                     );
+                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                     ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                     ui.vertical(|ui| {
+                        let owner = wallet.key.borrow().address();
+                        let chains = ctx.get_owner_chains(owner);
+                        let value = ctx.get_portfolio_value_all_chains(owner);
+                        ui.horizontal(|ui| {
+                           for chain in chains {
+                              let icon = icons.chain_icon_x16(&chain);
+                              ui.add(icon);
+                           }
+                        });
+                        ui.label(
+                           RichText::new(format!("${}", value.formatted()))
+                              .color(theme.colors.text_secondary)
+                              .size(theme.text_sizes.small),
+                        );
+                     });
                   });
                });
             });
@@ -212,7 +264,7 @@ impl WalletUi {
          });
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-            gui.top_left_area.wallet_select.wallet = wallet_clone;
+               gui.top_left_area.wallet_select.wallet = wallet_clone;
             });
          });
       }
