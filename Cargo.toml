@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth"]
+members = ["crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth", "crates/egui-widgets"]
 
 [package]
 name = "zeus-desktop"
@@ -15,6 +15,7 @@ default-run = "zeus-desktop"
 eframe = {version = "0.31.0", features = ["wgpu"]}
 egui = {version = "0.31.0", features = ["serde"]}
 egui_extras = {version = "0.31.0", features = ["image"]}
+egui-widgets = {path = "crates/egui-widgets"}
 image = "0.25.1"
 
 

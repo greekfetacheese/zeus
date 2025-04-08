@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, ComboBox, Frame, Grid, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2,
-   Window, vec2,
+   Align, Align2, Button, Color32, ComboBox, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Spinner,
+   Ui, Label, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::utils::NumericValue;
@@ -14,6 +14,7 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
+use egui_widgets::LabelWithImage;
 use egui_theme::{Theme, utils::*};
 use zeus_eth::{currency::Currency, types::ChainId};
 
@@ -190,91 +191,58 @@ impl WalletSelect {
 /// Testing Window
 pub struct TestingWindow {
    pub open: bool,
-   pub msg1: String,
-   pub msg2: String,
-   pub msg3: String,
-   pub msg4: String,
-   pub panic: bool,
    pub size: (f32, f32),
+   pub id: Id,
 }
 
 impl TestingWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         msg1: String::new(),
-         msg2: String::new(),
-         msg3: String::new(),
-         msg4: String::new(),
-         panic: false,
          size: (500.0, 400.0),
+         id: Id::new("test_window"),
       }
    }
 
-   pub fn open(&mut self, msg1: impl Into<String>, msg2: impl Into<String>, msg3: impl Into<String>, msg4: impl Into<String>) {
+   pub fn open(&mut self) {
       self.open = true;
-      self.msg1 = msg1.into();
-      self.msg2 = msg2.into();
-      self.msg3 = msg3.into();
-      self.msg4 = msg4.into();
    }
 
    pub fn reset(&mut self) {
       self.open = false;
-      self.msg1.clear();
-      self.msg2.clear();
-      self.msg3.clear();
-      self.msg4.clear();
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      let msg1 = RichText::new(&self.msg1).size(theme.text_sizes.very_large);
-      let msg2 = RichText::new(&self.msg2).size(theme.text_sizes.very_large);
-      let msg3 = RichText::new(&self.msg3).size(theme.text_sizes.very_large);
-      let msg4 = RichText::new(&self.msg4).size(theme.text_sizes.very_large);
-      let ok = Button::new(RichText::new("Close").size(theme.text_sizes.normal));
-      let panic_btn = Button::new(RichText::new("Panic").size(theme.text_sizes.normal));
 
-      Window::new("Testing Window")
-         .title_bar(false)
+      Window::new(RichText::new("Testing Window").size(theme.text_sizes.normal))
+         .title_bar(true)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
-               ui.set_min_size(self.size.into());
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               let text = RichText::new("Ethereum Chain").size(theme.text_sizes.normal);
+               let image = icons.chain_icon(&1);
+               let label = LabelWithImage::new(text.clone(), Some(image)).selectable(false);
+               ui.add(label);
+               ui.add(Label::new(text).wrap());
 
-               ui.add(Spinner::new().size(40.0).color(Color32::WHITE));
-
-               ui.label(msg1);
-               ui.add_space(5.0);
-               ui.label(msg2);
-               ui.add_space(5.0);
-               ui.label(msg3);
-               ui.add_space(5.0);
-               ui.label(msg4);
-               ui.add_space(20.0);
-
-               if ui.add(ok).clicked() {
-                  self.reset();
+               if ui.button("Close").clicked() {
+                  self.open = false;
                }
 
-               if ui.add(panic_btn).clicked() {
-                  self.panic = true;
-               }
             });
          });
    }
 }
-
-
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    pub open: bool,

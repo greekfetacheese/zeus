@@ -16,6 +16,7 @@ use egui::{
    vec2,
 };
 use egui_theme::{Theme, utils::widget_visuals};
+use egui_widgets::LabelWithImage;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
@@ -96,7 +97,7 @@ impl AcrossBridge {
          return;
       }
 
-      self.progress_window.show(theme, ui);
+      self.progress_window.show(theme, icons.clone(), ui);
 
       recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
@@ -1033,7 +1034,7 @@ impl ProgressWindow {
       self.order_filling_done = true;
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -1091,14 +1092,14 @@ impl ProgressWindow {
 
                         if self.funds_received {
                            let text = format!(
-                              "You have sent {} {} (${}) on the {} chain",
+                              "You have sent {} {} (${})",
                               self.amount_sent.formatted(),
                               self.currency_sent.symbol(),
                               self.amount_usd.formatted(),
-                              self.dest_chain.name(),
                            );
-                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
-                          // ui.add(icons.currency_icon(&self.currency_sent));
+                           let text = RichText::new(text).size(theme.text_sizes.normal);
+                           let icon = icons.currency_icon(&self.currency_sent);
+                           ui.add(LabelWithImage::new(text, Some(icon)).selectable(false));
                            ui.end_row();
                         }
                      });
@@ -1125,21 +1126,21 @@ fn test_progress_window() {
          gui.across_bridge.progress_window.open();
       });
 
-     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_simulating();
          gui.across_bridge.progress_window.sending();
       });
 
-     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_sending();
          gui.across_bridge.progress_window.order_filling();
       });
 
-     // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_order_filling();

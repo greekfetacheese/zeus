@@ -24,6 +24,7 @@ use crate::gui::{
    },
 };
 use egui_theme::{Theme, utils::*};
+use egui_widgets::LabelWithImage;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256, utils::parse_units},
@@ -851,10 +852,11 @@ impl ProgressWindow {
                            self.currency.symbol(),
                            self.amount_usd.formatted(),
                         );
+                        let text = RichText::new(text).size(theme.text_sizes.normal);
 
                         if self.sending_done {
-                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
-                           ui.add(icons.currency_icon(&self.currency));
+                           let icon = icons.currency_icon(&self.currency);
+                           ui.add(LabelWithImage::new(text, Some(icon)).selectable(false));
                            ui.end_row();
                         }
                      });

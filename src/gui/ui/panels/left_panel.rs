@@ -6,12 +6,6 @@ use egui_theme::{Theme, utils};
 use std::sync::Arc;
 use zeus_eth::{amm::UniswapV2Pool, types::ChainId};
 
-#[cfg(feature = "dev")]
-use std::time::Duration;
-#[cfg(feature = "dev")]
-use crate::core::utils::RT;
-#[cfg(feature = "dev")]
-use crate::gui::SHARED_GUI;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -147,51 +141,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
      #[cfg(feature = "dev")]
       {
-         let test_locks_button = ui.add(Button::new(RichText::new("Test Locks").size(20.0)));
-         if test_locks_button.clicked() {
+         let test_window = ui.add(Button::new(RichText::new("Test Window").size(20.0)));
+         if test_window.clicked() {
             gui.testing_window.open = true;
-            RT.spawn(async move {
-               test_locks(ctx).await;
-            });
          }
       }
    });
 }
 
-#[cfg(feature = "dev")]
-async fn test_locks(ctx: ZeusCtx) {
-   for i in 0..1001 {
-      // do nothing just aquire the lock
-      ctx.write(|_ctx| {});
-      SHARED_GUI.write(|gui| {
-         gui.testing_window.msg1 = format!("Aquared Lock On GUI and Context: {}", i);
-      });
-   }
-   tokio::time::sleep(Duration::from_secs(1)).await;
-
-   for i in 0..1001 {
-      ctx.write(|_ctx| {});
-      SHARED_GUI.write(|gui| {
-         gui.testing_window.msg2 = format!("Aquared Lock On GUI and Context: {}", i);
-      });
-   }
-   tokio::time::sleep(Duration::from_secs(1)).await;
-
-   for i in 0..1001 {
-      ctx.write(|_ctx| {});
-      SHARED_GUI.write(|gui| {
-         gui.testing_window.msg3 = format!("Aquared Lock On GUI and Context: {}", i);
-      });
-   }
-
-   loop {
-      tokio::time::sleep(Duration::from_millis(50)).await;
-      let panic = SHARED_GUI.read(|gui| gui.testing_window.panic);
-      if panic {
-         panic!("Panic Button Pressed!");
-      }
-   }
-}
 
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {

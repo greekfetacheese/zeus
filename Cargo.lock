@@ -2510,6 +2510,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-widgets"
+version = "0.1.0"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "egui-winit"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8563,6 +8570,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-theme",
+ "egui-widgets",
  "egui_extras",
  "futures",
  "image",
