@@ -16,7 +16,7 @@ use egui::{
    vec2,
 };
 use egui_theme::{Theme, utils::widget_visuals};
-use egui_widgets::LabelWithImage;
+use egui_widgets::Label;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
@@ -163,6 +163,7 @@ impl AcrossBridge {
             });
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.spacing_mut().button_padding = vec2(10.0, 12.0);
                ctx.read(|ctx| {
                   let wallets = &ctx.account.wallets;
                   self.from_wallet.show(theme, wallets, icons.clone(), ui);
@@ -1099,7 +1100,7 @@ impl ProgressWindow {
                            );
                            let text = RichText::new(text).size(theme.text_sizes.normal);
                            let icon = icons.currency_icon(&self.currency_sent);
-                           ui.add(LabelWithImage::new(text, Some(icon)).selectable(false));
+                           ui.add(Label::new(text, Some(icon)).selectable(false));
                            ui.end_row();
                         }
                      });

@@ -85,6 +85,7 @@ impl TopLeftArea {
          }
 
          // Wallet Select
+         ui.spacing_mut().button_padding = vec2(10.0, 12.0);
          let wallets = ctx.account().wallets;
          let clicked = self.wallet_select.show(theme, &wallets, icons.clone(), ui);
          if clicked {
@@ -93,7 +94,6 @@ impl TopLeftArea {
                ctx.account.current_wallet = self.wallet_select.wallet.clone();
             });
          }
-         ui.end_row();
 
          let wallet = ctx.account().current_wallet;
          let address = wallet.address_truncated();

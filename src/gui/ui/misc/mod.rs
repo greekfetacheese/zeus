@@ -1,7 +1,8 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, ComboBox, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Spinner,
-   Ui, Label, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window,
+   vec2,
 };
+use egui::Sense;
 use std::sync::Arc;
 use zeus_eth::utils::NumericValue;
 
@@ -14,8 +15,8 @@ use crate::core::{
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
-use egui_widgets::LabelWithImage;
 use egui_theme::{Theme, utils::*};
+use egui_widgets::{ComboBox, Label};
 use zeus_eth::{currency::Currency, types::ChainId};
 
 pub mod tx_history;
@@ -54,55 +55,38 @@ impl ChainSelect {
    ///
    /// Returns true if the chain was changed
    pub fn show(&mut self, ignore_chain: u64, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> bool {
-      let selected_chain = self.chain.id();
+      let selected_chain = self.chain;
       let mut clicked = false;
-
-      // hack to keep the icon centered relative to the combobox
-      // But if show_icon is true we cannot center the combobox
-      if self.show_icon {
-         Grid::new(self.grid_id)
-            .spacing(vec2(0.0, 0.0))
-            .show(ui, |ui| {
-               let icon = icons.chain_icon(&selected_chain);
-               ui.add(icon);
-               clicked = self.combo_box(ignore_chain, theme, ui);
-            });
-      } else {
-         clicked = self.combo_box(ignore_chain, theme, ui);
-      }
-
-      clicked
-   }
-
-   fn combo_box(&mut self, ignore_chain: u64, theme: &Theme, ui: &mut Ui) -> bool {
-      let mut selected_chain = self.chain.clone();
       let supported_chains = ChainId::supported_chains();
-      let mut clicked = false;
+      let icon = icons.chain_icon(&selected_chain.id());
+      let selected_chain = Label::new(
+         RichText::new(selected_chain.name()).size(theme.text_sizes.normal),
+         Some(icon),
+      )
+      .text_first(false)
+      .sense(Sense::click());
 
       // Add the ComboBox with the specified size
-      ui.add_sized(self.size, |ui: &mut Ui| {
-         ComboBox::from_id_salt(self.id)
-            .width(self.size.x)
-            .selected_text(RichText::new(selected_chain.name()).size(theme.text_sizes.normal))
-            .show_ui(ui, |ui| {
-               for chain in supported_chains {
-                  if chain.id() == ignore_chain {
-                     continue;
-                  }
-
-                  let value = ui.selectable_value(
-                     &mut selected_chain,
-                     chain.clone(),
-                     RichText::new(chain.name()).size(theme.text_sizes.normal),
-                  );
-                  if value.clicked() {
-                     self.chain = selected_chain.clone();
-                     clicked = true;
-                  }
+      ComboBox::new(self.id, selected_chain)
+         .width(self.size.x)
+         .show_ui(ui, |ui| {
+            for chain in supported_chains {
+               if chain.id() == ignore_chain {
+                  continue;
                }
-            })
-            .response
-      });
+
+               let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+               let icon = icons.chain_icon(&chain.id());
+               let chain_label = Label::new(text.clone(), Some(icon))
+                  .text_first(false)
+                  .sense(Sense::click());
+
+               if ui.add(chain_label).clicked() {
+                  self.chain = chain.clone();
+                  clicked = true;
+               }
+            }
+         });
       clicked
    }
 }
@@ -113,7 +97,7 @@ pub struct WalletSelect {
    /// Selected Wallet
    pub wallet: Wallet,
    pub size: Vec2,
-   pub show_icon: bool,
+   pub button_padding: Vec2,
 }
 
 impl WalletSelect {
@@ -122,7 +106,7 @@ impl WalletSelect {
          id,
          wallet: Wallet::new_rng(String::new()),
          size: (200.0, 25.0).into(),
-         show_icon: true,
+         button_padding: vec2(10.0, 4.0),
       }
    }
 
@@ -131,67 +115,44 @@ impl WalletSelect {
       self
    }
 
-   pub fn show_icon(mut self, show_icon: bool) -> Self {
-      self.show_icon = show_icon;
+   pub fn button_padding(mut self, button_padding: impl Into<Vec2>) -> Self {
+      self.button_padding = button_padding.into();
       self
    }
 
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, theme: &Theme, wallets: &Vec<Wallet>, icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(&mut self, theme: &Theme, wallets: &Vec<Wallet>, _icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let mut clicked = false;
+      let text = RichText::new(&self.wallet.name).size(theme.text_sizes.normal);
 
-      if self.show_icon {
-         Grid::new("wallet_select")
-            .spacing(vec2(0.0, 0.0))
-            .show(ui, |ui| {
-               ui.add(icons.wallet());
-               clicked = self.combo_box(theme, wallets, ui);
-            });
-      } else {
-         clicked = self.combo_box(theme, wallets, ui);
-      }
+      ComboBox::new(self.id, Label::new(text, None).sense(Sense::click()))
+         .width(self.size.x)
+         .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 5.0;
+            ui.spacing_mut().button_padding = self.button_padding;
 
-      clicked
-   }
+            for wallet in wallets {
+               let text = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
+               let wallet_label = Label::new(text, None).sense(Sense::click());
 
-   fn combo_box(&mut self, theme: &Theme, wallets: &Vec<Wallet>, ui: &mut Ui) -> bool {
-      let mut clicked = false;
-
-      // Add the ComboBox with the specified size
-      ui.add_sized(self.size, |ui: &mut Ui| {
-         ComboBox::from_id_salt(self.id)
-            .width(self.size.x)
-            .selected_text(RichText::new(self.wallet.name.clone()).size(theme.text_sizes.normal))
-            .show_ui(ui, |ui| {
-               ui.spacing_mut().item_spacing.y = 10.0;
-
-               for wallet in wallets {
-                  let value = ui.selectable_value(
-                     &mut self.wallet,
-                     wallet.clone(),
-                     RichText::new(wallet.name.clone()).size(theme.text_sizes.normal),
-                  );
-
-                  if value.clicked() {
-                     clicked = true;
-                     self.wallet = wallet.clone();
-                  }
+               if ui.add(wallet_label).clicked() {
+                  self.wallet = wallet.clone();
+                  clicked = true;
                }
-            })
-            .response
-      });
+            }
+         });
+
       clicked
    }
 }
-
-
 
 /// Testing Window
 pub struct TestingWindow {
    pub open: bool,
    pub size: (f32, f32),
+   pub chain: ChainId,
    pub id: Id,
 }
 
@@ -200,6 +161,7 @@ impl TestingWindow {
       Self {
          open: false,
          size: (500.0, 400.0),
+         chain: ChainId::new(1).unwrap(),
          id: Id::new("test_window"),
       }
    }
@@ -212,11 +174,10 @@ impl TestingWindow {
       self.open = false;
    }
 
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
-
 
       Window::new(RichText::new("Testing Window").size(theme.text_sizes.normal))
          .title_bar(true)
@@ -227,18 +188,13 @@ impl TestingWindow {
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               let text = RichText::new("Ethereum Chain").size(theme.text_sizes.normal);
-               let image = icons.chain_icon(&1);
-               let label = LabelWithImage::new(text.clone(), Some(image)).selectable(false);
-               ui.add(label);
-               ui.add(Label::new(text).wrap());
 
                if ui.button("Close").clicked() {
                   self.open = false;
                }
-
             });
          });
    }

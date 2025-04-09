@@ -24,7 +24,7 @@ use crate::gui::{
    },
 };
 use egui_theme::{Theme, utils::*};
-use egui_widgets::LabelWithImage;
+use egui_widgets::Label;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256, utils::parse_units},
@@ -168,6 +168,7 @@ impl SendCryptoUi {
                let wallets = &ctx.account.wallets;
                ui.scope(|ui| {
                   widget_visuals(ui, theme.get_widget_visuals(bg_color));
+                  ui.spacing_mut().button_padding = vec2(10.0, 12.0);
                   self.wallet_select.show(theme, wallets, icons.clone(), ui);
                });
             });
@@ -856,7 +857,7 @@ impl ProgressWindow {
 
                         if self.sending_done {
                            let icon = icons.currency_icon(&self.currency);
-                           ui.add(LabelWithImage::new(text, Some(icon)).selectable(false));
+                           ui.add(Label::new(text, Some(icon)).selectable(false));
                            ui.end_row();
                         }
                      });
