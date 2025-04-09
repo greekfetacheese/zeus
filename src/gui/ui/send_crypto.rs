@@ -18,10 +18,7 @@ use crate::core::{
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
-   ui::{
-      ContactsUi, GREEN_CHECK, RecipientSelectionWindow, TokenSelectionWindow,
-      misc::{ChainSelect, WalletSelect},
-   },
+   ui::{ContactsUi, GREEN_CHECK, RecipientSelectionWindow, TokenSelectionWindow},
 };
 use egui_theme::{Theme, utils::*};
 use egui_widgets::Label;
@@ -29,13 +26,12 @@ use egui_widgets::Label;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256, utils::parse_units},
    currency::{Currency, NativeCurrency},
+   types::ChainId,
    utils::NumericValue,
 };
 
 pub struct SendCryptoUi {
    pub open: bool,
-   pub chain_select: ChainSelect,
-   pub wallet_select: WalletSelect,
    pub priority_fee: String,
    pub currency: Currency,
    pub amount: String,
@@ -55,8 +51,6 @@ impl SendCryptoUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         chain_select: ChainSelect::new("chain_select_2", 1),
-         wallet_select: WalletSelect::new("wallet_select_2"),
          priority_fee: "1".to_string(),
          currency: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
          amount: String::new(),
@@ -69,6 +63,20 @@ impl SendCryptoUi {
          review_tx_window: false,
          progress_window: ProgressWindow::new("send_crypto_progress_window".to_string()),
       }
+   }
+
+   pub fn set_priority_fee(&mut self, chain: ChainId, fee: String) {
+      // No priority fee for Binance Smart Chain
+      // Set empty to avoid frame shutter due to invalid fee
+      if chain.is_bsc() {
+         self.priority_fee = String::new();
+      } else {
+         self.priority_fee = fee;
+      }
+   }
+
+   pub fn set_currency(&mut self, currency: Currency) {
+      self.currency = currency;
    }
 
    pub fn show(
@@ -131,76 +139,27 @@ impl SendCryptoUi {
                   }
                });
             }
-
-            // Chain Selection
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Chain").size(theme.text_sizes.large));
-            });
-            ui.add_space(5.0);
-
-            ui.scope(|ui| {
-               widget_visuals(ui, theme.get_widget_visuals(bg_color));
-               let changed = self.chain_select.show(0, theme, icons.clone(), ui);
-               if changed {
-                  let chain = self.chain_select.chain.id();
-                  self.priority_fee = ctx
-                     .get_priority_fee(chain)
-                     .unwrap_or_default()
-                     .formatted()
-                     .clone();
-                  self.currency = Currency::from_native(NativeCurrency::from_chain_id(chain).unwrap());
-               }
-            });
-
             ui.add_space(space);
 
-            let chain = self.chain_select.chain.id();
-            let owner = self.wallet_select.wallet.key.borrow().address();
-            let currencies = ctx.get_currencies(chain);
-
-            // From Wallet
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("From").size(theme.text_sizes.large));
-            });
-            ui.add_space(5.0);
-
-            ctx.read(|ctx| {
-               let wallets = &ctx.account.wallets;
-               ui.scope(|ui| {
-                  widget_visuals(ui, theme.get_widget_visuals(bg_color));
-                  ui.spacing_mut().button_padding = vec2(10.0, 12.0);
-                  self.wallet_select.show(theme, wallets, icons.clone(), ui);
-               });
-            });
-            ui.add_space(space);
+            let chain = ctx.chain();
+            let owner = ctx.account().current_wallet.address();
+            let currencies = ctx.get_currencies(chain.id());
 
             // Recipient Input
             Grid::new("recipient_name")
                .spacing(vec2(3.0, 0.0))
                .show(ui, |ui| {
-                  ui.label(RichText::new("To").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Recipient  ").size(theme.text_sizes.normal));
                   if !recipient.is_empty() {
                      if let Some(name) = &recipient_name {
-                        ui.label(RichText::new(name.clone()).size(theme.text_sizes.normal));
+                        ui.label(
+                           RichText::new(name.clone())
+                              .size(theme.text_sizes.normal)
+                              .strong(),
+                        );
                      } else {
                         ui.label(
                            RichText::new("Unknown Address")
-                              .size(theme.text_sizes.normal)
-                              .color(Color32::RED),
-                        );
-                     }
-
-                     if !self.valid_recipient(recipient.clone()) {
-                        ui.label(
-                           RichText::new("Invalid Address")
-                              .size(theme.text_sizes.normal)
-                              .color(Color32::RED),
-                        );
-                     }
-
-                     if self.recipient_is_sender(recipient.clone()) {
-                        ui.label(
-                           RichText::new("Cannot send to yourself")
                               .size(theme.text_sizes.normal)
                               .color(Color32::RED),
                         );
@@ -224,8 +183,27 @@ impl SendCryptoUi {
                   recipient_selection.open = true;
                }
             });
-            ui.add_space(space);
+            ui.add_space(5.0);
 
+            if !recipient.is_empty() {
+               if !self.valid_recipient(&recipient) {
+                  ui.label(
+                     RichText::new("Invalid Address")
+                        .size(theme.text_sizes.normal)
+                        .color(Color32::RED),
+                  );
+               }
+
+               if self.recipient_is_sender(ctx.clone(), &recipient) {
+                  ui.label(
+                     RichText::new("Cannot send to yourself")
+                        .size(theme.text_sizes.normal)
+                        .color(Color32::RED),
+                  );
+               }
+            }
+
+            ui.add_space(space);
             // Token Selection
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(RichText::new("Asset").size(theme.text_sizes.large));
@@ -241,7 +219,7 @@ impl SendCryptoUi {
                      token_selection.open = true;
                   }
 
-                  let balance = ctx.get_currency_balance(chain, owner, &self.currency);
+                  let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
                   ui.label(
                      RichText::new(format!("Balance: {}", balance.formatted()))
                         .color(theme.colors.text_secondary)
@@ -256,7 +234,7 @@ impl SendCryptoUi {
                      ctx.clone(),
                      theme,
                      icons.clone(),
-                     chain,
+                     chain.id(),
                      owner,
                      &currencies,
                      ui,
@@ -333,6 +311,9 @@ impl SendCryptoUi {
             ui.add_space(5.0);
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               if chain.is_bsc() {
+                  ui.disable();
+               }
                ui.set_width(ui_width * 0.2);
                ui.add(
                   TextEdit::singleline(&mut self.priority_fee)
@@ -353,8 +334,9 @@ impl SendCryptoUi {
                   self.reset_priority_fee(ctx.clone());
                }
             });
+
             if !self.priority_fee.is_empty() {
-               if self.fee_is_zero() {
+               if self.fee_is_zero(chain) {
                   ui.label(
                      RichText::new("Fee cannot be zero")
                         .size(theme.text_sizes.normal)
@@ -396,7 +378,7 @@ impl SendCryptoUi {
             let send =
                Button::new(RichText::new("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.9, 40.0));
 
-            if !self.valid_inputs(ctx.clone(), recipient) {
+            if !self.valid_inputs(ctx.clone(), &recipient) {
                ui.disable();
             }
 
@@ -420,8 +402,8 @@ impl SendCryptoUi {
 
    fn sync_balance(&mut self, ctx: ZeusCtx) {
       self.syncing_balance = true;
-      let chain = self.chain_select.chain.id();
-      let owner = self.wallet_select.wallet.key.borrow().address();
+      let chain = ctx.chain().id();
+      let owner = ctx.account().current_wallet.address();
       let currency = self.currency.clone();
       RT.spawn(async move {
          let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
@@ -480,8 +462,8 @@ impl SendCryptoUi {
 
          let v2_pools = ctx.get_v2_pools(&token);
          let v3_pools = ctx.get_v3_pools(&token);
-         let owner = self.wallet_select.wallet.key.borrow().address();
-         let chain_id = self.chain_select.chain.id();
+         let owner = ctx.account().current_wallet.address();
+         let chain_id = ctx.chain().id();
 
          if v2_pools.is_empty() || v3_pools.is_empty() {
             self.pool_data_syncing = true;
@@ -523,9 +505,9 @@ impl SendCryptoUi {
 
    /// Max amount = Balance - Cost
    fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
-      let chain = self.chain_select.chain;
+      let chain = ctx.chain();
       let currency = self.currency.clone();
-      let owner = self.wallet_select.wallet.key.borrow().address();
+      let owner = ctx.account().current_wallet.address();
       let balance = ctx.get_currency_balance(chain.id(), owner, &currency);
       let (cost_wei, _) = self.cost(ctx.clone());
 
@@ -549,7 +531,7 @@ impl SendCryptoUi {
             .get_absolute()
       };
 
-      let chain = self.chain_select.chain;
+      let chain = ctx.chain();
       let gas_used = if self.currency.is_native() {
          chain.transfer_gas()
       } else {
@@ -559,14 +541,14 @@ impl SendCryptoUi {
       estimate_gas_cost(ctx, chain.id(), gas_used, fee)
    }
 
-   fn valid_recipient(&self, recipient: String) -> bool {
+   fn valid_recipient(&self, recipient: &String) -> bool {
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
       recipient != Address::ZERO
    }
 
-   fn recipient_is_sender(&self, recipient: String) -> bool {
+   fn recipient_is_sender(&self, ctx: ZeusCtx, recipient: &String) -> bool {
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
-      recipient == self.wallet_select.wallet.key.borrow().address()
+      recipient == ctx.account().current_wallet.address()
    }
 
    fn valid_amount(&self) -> bool {
@@ -574,9 +556,8 @@ impl SendCryptoUi {
       amount > 0.0
    }
 
-   fn fee_is_zero(&self) -> bool {
+   fn fee_is_zero(&self, chain: ChainId) -> bool {
       let fee = self.priority_fee.parse().unwrap_or(0.0);
-      let chain = self.chain_select.chain;
       if chain.uses_priority_fee() {
          fee == 0.0
       } else {
@@ -586,22 +567,22 @@ impl SendCryptoUi {
 
    /// Reset priority fee to the suggested fee
    fn reset_priority_fee(&mut self, ctx: ZeusCtx) {
-      let chain = self.chain_select.chain.id();
+      let chain = ctx.chain().id();
       let fee = ctx.get_priority_fee(chain).unwrap_or_default();
       self.priority_fee = fee.formatted().clone();
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, recipient: String) -> bool {
-      self.valid_recipient(recipient.clone())
+   fn valid_inputs(&self, ctx: ZeusCtx, recipient: &String) -> bool {
+      self.valid_recipient(recipient)
          && self.valid_amount()
-         && self.sufficient_balance(ctx)
-         && !self.recipient_is_sender(recipient)
+         && self.sufficient_balance(ctx.clone())
+         && !self.recipient_is_sender(ctx, recipient)
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
-      let sender = self.wallet_select.wallet.key.borrow().address();
+      let sender = ctx.account().current_wallet.address();
       let balance = ctx
-         .get_eth_balance(self.chain_select.chain.id(), sender)
+         .get_eth_balance(ctx.chain().id(), sender)
          .unwrap_or_default();
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let amount = amount.wei().unwrap();
@@ -684,11 +665,11 @@ impl SendCryptoUi {
          });
 
       if should_send_tx {
-         let from = self.wallet_select.wallet.clone();
+         let from = ctx.account().current_wallet.clone();
          let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
          let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
          let currency = self.currency.clone();
-         let chain = self.chain_select.chain;
+         let chain = ctx.chain();
          let fee = self.priority_fee.clone();
 
          let fee = if fee.is_empty() {

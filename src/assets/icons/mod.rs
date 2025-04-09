@@ -71,6 +71,8 @@ pub struct MiscIcons {
    pub arrow_left: TextureHandle,
    pub trash: TextureHandle,
    pub edit: TextureHandle,
+   pub down: TextureHandle,
+   pub right: TextureHandle,
 }
 
 impl Icons {
@@ -101,6 +103,8 @@ impl Icons {
       let arrow_left = load_image(include_bytes!("misc/resized/arrow-left.png"))?;
       let trash = load_image(include_bytes!("misc/resized/trash.png"))?;
       let edit = load_image(include_bytes!("misc/resized/edit.png"))?;
+      let down = load_image(include_bytes!("misc/down.png"))?;
+      let right = load_image(include_bytes!("misc/right.png"))?;
 
       let texture_options = TextureOptions::default();
 
@@ -131,6 +135,8 @@ impl Icons {
          arrow_left: ctx.load_texture("arrow_left", arrow_left, texture_options),
          trash: ctx.load_texture("trash", trash, texture_options),
          edit: ctx.load_texture("edit", edit, texture_options),
+         down: ctx.load_texture("down", down, texture_options),
+         right: ctx.load_texture("right", right, texture_options)
       };
 
       Ok(Self {
@@ -229,6 +235,14 @@ impl Icons {
 
    pub fn arrow_left(&self) -> Image<'static> {
       Image::new(&self.misc.arrow_left).sense(Sense::click())
+   }
+
+   pub fn arrow_down(&self) -> Image<'static> {
+      Image::new(&self.misc.down).sense(Sense::click())
+   }
+
+   pub fn arrow_right(&self) -> Image<'static> {
+      Image::new(&self.misc.right).sense(Sense::click())
    }
 
    pub fn trash(&self) -> Image<'static> {

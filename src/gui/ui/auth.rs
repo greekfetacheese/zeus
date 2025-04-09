@@ -175,10 +175,9 @@ impl LoginUi {
                   gui.login.credentials_form.erase();
                   gui.settings.encryption.argon_params = info.argon2_params.clone();
                   gui.portofolio.open = true;
-                  gui.top_left_area.open = true;
-                  gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
-                  gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
-                  gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
+                  gui.wallet_selection.open = true;
+                  gui.wallet_selection.wallet_select.wallet = account.current_wallet.clone();
+                  gui.chain_selection.open = true;
                   gui.loading_window.open = false;
                });
 
@@ -262,12 +261,11 @@ impl RegisterUi {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.open = false;
-                              gui.top_left_area.wallet_select.wallet = account.current_wallet.clone();
-                              gui.send_crypto.wallet_select.wallet = account.current_wallet.clone();
-                              gui.across_bridge.from_wallet.wallet = account.current_wallet.clone();
+                              gui.wallet_selection.wallet_select.wallet = account.current_wallet.clone();
                               gui.register.credentials_form.erase();
                               gui.portofolio.open = true;
-                              gui.top_left_area.open = true;
+                              gui.wallet_selection.open = true;
+                              gui.chain_selection.open = true;
                            });
 
                            ctx.write(|ctx| {

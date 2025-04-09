@@ -43,13 +43,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
 
-         let chain = gui.send_crypto.chain_select.chain.id();
+         let chain = ctx.chain();
          let fee = ctx
-            .get_priority_fee(chain)
+            .get_priority_fee(chain.id())
             .unwrap_or_default()
             .formatted()
             .clone();
-         gui.send_crypto.priority_fee = fee;
+         gui.send_crypto.set_priority_fee(chain, fee);
       }
 
       let bridge = Button::new(RichText::new("Bridge").size(21.0));
@@ -64,13 +64,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.recipient_selection.reset();
          gui.across_bridge.open = true;
 
-         let chain = gui.send_crypto.chain_select.chain.id();
+         let chain = gui.across_bridge.from_chain.chain.id();
          let fee = ctx
             .get_priority_fee(chain)
             .unwrap_or_default()
             .formatted()
             .clone();
-         gui.across_bridge.priority_fee = fee;
+         gui.across_bridge.set_priority_fee(fee);
       }
 
       let wallets = Button::new(RichText::new("Wallets").size(21.0));

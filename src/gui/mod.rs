@@ -44,6 +44,10 @@ pub struct GUI {
 
    pub theme: Theme,
 
+   pub chain_selection: ui::panels::top_panel::ChainSelection,
+
+   pub wallet_selection: ui::panels::top_panel::WalletSelection,
+
    /// True if there is any [egui::Window] open
    pub show_overlay: bool,
 
@@ -73,7 +77,6 @@ pub struct GUI {
 
    pub loading_window: ui::LoadingWindow,
 
-   pub top_left_area: ui::panels::top_panel::TopLeftArea,
 
    pub settings: ui::settings::SettingsUi,
 
@@ -89,8 +92,9 @@ impl GUI {
       let token_selection = ui::TokenSelectionWindow::new();
       let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
-      let top_left_area = ui::panels::top_panel::TopLeftArea::new();
       let across_bridge = ui::dapps::across::AcrossBridge::new();
+      let chain_selection = ui::panels::top_panel::ChainSelection::new();
+      let wallet_selection = ui::panels::top_panel::WalletSelection::new();
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
@@ -102,6 +106,8 @@ impl GUI {
          egui_ctx,
          ctx: ZeusCtx::new(),
          theme,
+         chain_selection,
+         wallet_selection,
          show_overlay: false,
          editor: ThemeEditor::new(),
          icons,
@@ -116,7 +122,6 @@ impl GUI {
          send_crypto,
          msg_window,
          loading_window,
-         top_left_area,
          settings,
          tx_history,
          data_inspection: false,

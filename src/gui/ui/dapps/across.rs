@@ -9,7 +9,7 @@ use crate::core::{
 };
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, GREEN_CHECK, RecipientSelectionWindow, WalletSelect},
+   ui::{ChainSelect, ContactsUi, GREEN_CHECK, RecipientSelectionWindow},
 };
 use egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui, Window,
@@ -45,7 +45,6 @@ pub struct AcrossBridge {
    pub progress_window: ProgressWindow,
    pub currency: NativeCurrency,
    pub amount: String,
-   pub from_wallet: WalletSelect,
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
    pub priority_fee: String,
@@ -70,7 +69,6 @@ impl AcrossBridge {
          progress_window,
          currency: NativeCurrency::from_chain_id(1).unwrap(),
          amount: String::new(),
-         from_wallet: WalletSelect::new("across_bridge_wallet_select"),
          from_chain: ChainSelect::new("across_bridge_from_chain", 1),
          to_chain: ChainSelect::new("across_bridge_to_chain", 10),
          priority_fee: "1".to_string(),
@@ -82,6 +80,14 @@ impl AcrossBridge {
          api_res_cache: HashMap::new(),
          size: (550.0, 700.0),
       }
+   }
+
+   pub fn set_currency(&mut self, currency: Currency) {
+      self.currency = currency.native().cloned().unwrap();
+   }
+
+   pub fn set_priority_fee(&mut self, fee: String) {
+      self.priority_fee = fee;
    }
 
    pub fn show(
@@ -103,10 +109,10 @@ impl AcrossBridge {
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
       let from_chain = self.from_chain.chain.id();
-      let depositor = self.from_wallet.wallet.key.borrow().address();
+      let depositor = ctx.account().current_wallet.address();
       self.currency = NativeCurrency::from_chain_id(from_chain).unwrap();
 
-      self.get_suggested_fees(ctx.clone(), depositor, recipient.clone());
+      self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
       self.review_transaction(
          ctx.clone(),
@@ -150,26 +156,6 @@ impl AcrossBridge {
                   test_progress_window();
                }
             });
-
-            widget_visuals(ui, theme.get_widget_visuals(bg_color));
-
-            // Sender
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  RichText::new("Sender")
-                     .color(theme.colors.text_secondary)
-                     .size(theme.text_sizes.large),
-               );
-            });
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.spacing_mut().button_padding = vec2(10.0, 12.0);
-               ctx.read(|ctx| {
-                  let wallets = &ctx.account.wallets;
-                  self.from_wallet.show(theme, wallets, icons.clone(), ui);
-               });
-            });
-            ui.add_space(10.0);
 
             // Asset and amount selection
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -268,7 +254,7 @@ impl AcrossBridge {
                                  .color(Color32::RED),
                            );
                         }
-                        if !self.valid_recipient(recipient.clone()) {
+                        if !self.valid_recipient(&recipient) {
                            ui.label(
                               RichText::new("Invalid Address")
                                  .size(theme.text_sizes.normal)
@@ -423,7 +409,7 @@ impl AcrossBridge {
             let bridge =
                Button::new(RichText::new("Bridge").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.90, 40.0));
 
-            if !self.valid_inputs(ctx, depositor, recipient.clone()) {
+            if !self.valid_inputs(ctx, depositor, &recipient) {
                ui.disable();
             }
 
@@ -447,7 +433,7 @@ impl AcrossBridge {
    /// Max amount = Balance - cost
    fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
       let chain = self.from_chain.chain;
-      let owner = self.from_wallet.wallet.key.borrow().address();
+      let owner = ctx.account().current_wallet.address();
       let balance = ctx.get_eth_balance(chain.id(), owner).unwrap_or_default();
       let (cost_wei, _) = self.cost(ctx.clone());
 
@@ -459,8 +445,8 @@ impl AcrossBridge {
       NumericValue::format_wei(max, self.currency.decimals)
    }
 
-   fn valid_recipient(&self, recipient: String) -> bool {
-      let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+   fn valid_recipient(&self, recipient: &String) -> bool {
+      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
       recipient != Address::ZERO
    }
 
@@ -486,11 +472,11 @@ impl AcrossBridge {
       self.priority_fee = fee.formatted().clone();
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: String) -> bool {
+   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
       self.valid_recipient(recipient) && self.valid_amount() && self.sufficient_balance(ctx, depositor)
    }
 
-   fn should_get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: String) -> bool {
+   fn should_get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
       // Don't request if already in progress
       if self.requesting {
          return false;
@@ -589,8 +575,8 @@ impl AcrossBridge {
       });
    }
 
-   fn get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: String) {
-      if !self.should_get_suggested_fees(ctx, depositor, recipient.clone()) {
+   fn get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: &String) {
+      if !self.should_get_suggested_fees(ctx, depositor, recipient) {
          return;
       }
 
@@ -706,7 +692,8 @@ impl AcrossBridge {
       };
 
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let depositor = self.from_wallet.wallet.key.borrow().address();
+      let signer = ctx.account().current_wallet.key.clone();
+      let depositor = signer.borrow().address();
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
 
       // Despite we are bridging from native to native, we still need to use the wrapped token in the call
@@ -728,90 +715,113 @@ impl AcrossBridge {
          .show(ui.ctx(), |ui| {
             ui.set_width(400.0);
             ui.set_height(300.0);
-            ui.spacing_mut().item_spacing.y = 15.0;
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let width = ui.available_width();
+            ui.spacing_mut().button_padding = vec2(15.0, 10.0);
 
             ui.vertical_centered(|ui| {
+               ui.add_space(20.0);
+
                if cache.is_none() {
                   ui.label(
-                     RichText::new("Failed to get suggested fees, try again later or try with a higher amount")
-                        .size(theme.text_sizes.normal),
+                     RichText::new("Failed to get suggested fees, try again later or increase the amount")
+                        .size(theme.text_sizes.large),
                   );
+                  if ui
+                     .add(Button::new(
+                        RichText::new("Close").size(theme.text_sizes.small),
+                     ))
+                     .clicked()
+                  {
+                     self.review_tx_window = false;
+                  }
                   return;
                }
 
-               ui.add_space(20.0);
-               ui.label(RichText::new("You are about to Bridge").size(theme.text_sizes.heading));
-
-               // Amount - Currency - Value
-               ui.add_sized(vec2(width * 0.33, 20.0), |ui: &mut Ui| {
-                  let res = Grid::new("amount_value")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.label(
-                           RichText::new(format!(
-                              "{} {}",
-                              input_amount.formatted(),
-                              self.currency.symbol
-                           ))
-                           .size(theme.text_sizes.normal),
-                        );
-                        ui.add(icons.currency_icon(&Currency::from(self.currency.clone())));
-                        ui.label(
-                           RichText::new(format!(
-                              "${}",
-                              self.value(ctx.clone(), input_amount.f64()).formatted()
-                           ))
-                           .size(theme.text_sizes.normal),
-                        );
-                        ui.end_row();
-                     });
-                  res.response
-               });
-
-               ui.label(RichText::new("You will receive at least").size(theme.text_sizes.normal));
-
-               // Minimum amount received - Value
-               ui.add_sized(vec2(width * 0.33, 20.0), |ui: &mut Ui| {
-                  let res = Grid::new("min_received_value")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.label(
-                           RichText::new(format!(
-                              "{} {}",
-                              output_amount.formatted(),
-                              self.currency.symbol
-                           ))
-                           .size(theme.text_sizes.normal),
-                        );
-
-                        ui.label(
-                           RichText::new(format!("${}", min_received_value.formatted())).size(theme.text_sizes.normal),
-                        );
-                        ui.end_row();
-                     });
-                  res.response
-               });
-
-               // Source - Destination
-               let text = format!(
-                  "{} -> {}",
-                  self.from_chain.chain.name(),
-                  self.to_chain.chain.name()
+               // Heading
+               ui.label(
+                  RichText::new("You are about to Bridge")
+                     .size(theme.text_sizes.heading)
+                     .strong(),
                );
-               ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
-               let confirm = Button::new(RichText::new("Confirm").size(theme.text_sizes.normal));
-               if ui.add(confirm).clicked() {
-                  should_send_tx = true;
-                  self.review_tx_window = false;
-               }
+               // Transaction Details Section
+               ui.vertical_centered(|ui| {
+                  let icon = icons.currency_icon(&Currency::from(self.currency.clone()));
+                  let value = self
+                     .value(ctx.clone(), input_amount.f64())
+                     .formatted()
+                     .clone();
+                  let text = format!(
+                     "{} {} (${})",
+                     input_amount.formatted(),
+                     self.currency.symbol,
+                     value
+                  );
+                  ui.add(Label::new(
+                     RichText::new(text).size(theme.text_sizes.normal),
+                     Some(icon.clone()),
+                  ));
+                  let text = RichText::new("You will receive at least").size(theme.text_sizes.large);
+                  ui.add(Label::new(text, None));
+                  let min_text = format!(
+                     "{} {} (${})",
+                     output_amount.formatted(),
+                     self.currency.symbol,
+                     min_received_value.formatted()
+                  );
+                  ui.add(Label::new(
+                     RichText::new(min_text).size(theme.text_sizes.normal),
+                     Some(icon),
+                  ));
+               });
 
-               let cancel = Button::new(RichText::new("Cancel").size(theme.text_sizes.normal));
-               if ui.add(cancel).clicked() {
-                  self.review_tx_window = false;
-               }
+               ui.add_space(15.0);
+
+               // Chain Information Section
+               ui.horizontal(|ui| {
+                  ui.add_space(80.0);
+                  let from_chain_icon = icons.chain_icon(&from_chain.id());
+                  ui.add(
+                     Label::new(
+                        RichText::new(from_chain.name()).size(theme.text_sizes.normal),
+                        Some(from_chain_icon),
+                     )
+                     .text_first(false),
+                  );
+                  ui.add(icons.arrow_right());
+                  let to_chain_icon = icons.chain_icon(&to_chain.id());
+                  ui.add(
+                     Label::new(
+                        RichText::new(to_chain.name()).size(theme.text_sizes.normal),
+                        Some(to_chain_icon),
+                     )
+                     .text_first(false),
+                  );
+               });
+
+               ui.add_space(10.0);
+
+               // Action Buttons Section
+               ui.horizontal(|ui| {
+                  ui.add_space(100.0); // Center buttons
+                  if ui
+                     .add(Button::new(
+                        RichText::new("Confirm").size(theme.text_sizes.normal),
+                     ))
+                     .clicked()
+                  {
+                     should_send_tx = true;
+                     self.review_tx_window = false;
+                  }
+                  ui.add_space(10.0);
+                  if ui
+                     .add(Button::new(
+                        RichText::new("Cancel").size(theme.text_sizes.normal),
+                     ))
+                     .clicked()
+                  {
+                     self.review_tx_window = false;
+                  }
+               });
             });
          });
 
@@ -857,7 +867,7 @@ impl AcrossBridge {
 
          let params = TxParams::new(
             tx_method,
-            self.from_wallet.wallet.key.clone(),
+            signer,
             transact_to,
             input_amount.wei().unwrap(),
             self.from_chain.chain,

@@ -28,3 +28,4 @@ pub const LOCK: &str = "🔒";
 pub const UNLOCK: &str = "🔓";
 pub const PENDING: &str = "⏳";
 pub const REFRESH: &str = "⟲";
+pub const DOWN_ARROW: &str = "⬇️";

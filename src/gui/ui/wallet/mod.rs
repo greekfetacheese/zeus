@@ -264,7 +264,7 @@ impl WalletUi {
          });
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-               gui.top_left_area.wallet_select.wallet = wallet_clone;
+               gui.wallet_selection.wallet_select.wallet = wallet_clone;
             });
          });
       }
