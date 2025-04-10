@@ -44,32 +44,33 @@ pub async fn on_startup(ctx: ZeusCtx) {
       update_pool_manager(ctx.clone());
    }
 
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      match update_eth_balance(ctx_clone).await {
-         Ok(_) => tracing::info!("Updated eth balance"),
-         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
-      }
-   });
+   let eth_fut = update_eth_balance(ctx.clone());
+   let token_fut = update_token_balance(ctx.clone());
 
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      match update_token_balance(ctx_clone).await {
-         Ok(_) => tracing::info!("Updated token balance"),
-         Err(e) => tracing::error!("Error updating token balance: {:?}", e),
-      }
-   });
+   match eth_fut.await {
+      Ok(_) => tracing::info!("Updated ETH balances"),
+      Err(e) => tracing::error!("Error updating ETH balance: {:?}", e),
+   }
+
+   match token_fut.await {
+      Ok(_) => tracing::info!("Updated token balances"),
+      Err(e) => tracing::error!("Error updating token balance: {:?}", e),
+   }
 
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
       portfolio_update(ctx_clone.clone());
+      tracing::info!("Updated portfolio value");
    });
 
    for chain in SUPPORTED_CHAINS {
-      match get_base_fee(ctx.clone(), chain).await {
-         Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
-         Err(e) => tracing::error!("Error updating base fee: {:?}", e),
-      }
+      let ctx = ctx.clone();
+      RT.spawn(async move {
+         match get_base_fee(ctx.clone(), chain).await {
+            Ok(_) => tracing::info!("Updated base fee for chain: {}", chain),
+            Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+         }
+      });
    }
 
    let ctx_clone = ctx.clone();
@@ -182,13 +183,10 @@ pub fn update_pool_manager(ctx: ZeusCtx) {
             Err(e) => tracing::error!("Error updating price manager for chain {}: {:?}", chain, e),
          }
 
-         RT.spawn_blocking(move || {
-         match ctx_clone.save_pool_manager() {
+         RT.spawn_blocking(move || match ctx_clone.save_pool_manager() {
             Ok(_) => tracing::info!("Pool data saved for chain: {}", chain),
             Err(e) => tracing::error!("Error saving pool data for chain {}: {:?}", chain, e),
-         }
          });
-         
       });
    }
 }
@@ -197,17 +195,37 @@ pub fn update_pool_manager(ctx: ZeusCtx) {
 pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let wallets = ctx.account().wallets;
 
+   let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
-      let client = ctx.get_client_with_id(chain).unwrap();
+      let wallets = wallets.clone();
+      let ctx = ctx.clone();
 
-      for wallet in &wallets {
-         let owner = wallet.key.borrow().address();
-         let balance = client.get_balance(owner).await?;
-         let native = NativeCurrency::from_chain_id(chain)?;
-         ctx.write(|ctx| {
-            ctx.balance_db
-               .insert_eth_balance(chain, owner, balance, &native);
-         })
+      let task = RT.spawn(async move {
+         let client = ctx.get_client_with_id(chain).unwrap();
+
+         for wallet in &wallets {
+            let owner = wallet.key.borrow().address();
+            let balance = match client.get_balance(owner).await {
+               Ok(balance) => balance,
+               Err(e) => {
+                  tracing::error!("Error getting balance for chain {}: {:?}", chain, e);
+                  continue;
+               }
+            };
+            let native = NativeCurrency::from_chain_id(chain).unwrap();
+
+            ctx.write(|ctx| {
+               ctx.balance_db
+                  .insert_eth_balance(chain, owner, balance, &native);
+            })
+         }
+      });
+      tasks.push(task);
+   }
+
+   for task in tasks {
+      if let Err(e) = task.await {
+         tracing::error!("Error updating ETH balance: {:?}", e);
       }
    }
 
@@ -255,17 +273,34 @@ pub async fn update_tokens_balance_for_chain(
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let wallets = ctx.account().wallets;
 
+   let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
-      for wallet in &wallets {
-         let owner = wallet.address();
-         let portfolio = ctx.get_portfolio(chain, owner);
-         let tokens = portfolio.erc20_tokens();
+      let wallets = wallets.clone();
+      let ctx = ctx.clone();
+      let task = RT.spawn(async move {
+         for wallet in &wallets {
+            let owner = wallet.address();
+            let portfolio = ctx.get_portfolio(chain, owner);
+            let tokens = portfolio.erc20_tokens();
 
-         if tokens.is_empty() {
-            continue;
+            if tokens.is_empty() {
+               continue;
+            }
+
+            match update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error updating token balance for chain {}: {:?}", chain, e);
+               }
+            }
          }
+      });
+      tasks.push(task);
+   }
 
-         update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await?;
+   for task in tasks {
+      if let Err(e) = task.await {
+         tracing::error!("Error updating token balance: {:?}", e);
       }
    }
    Ok(())
@@ -453,12 +488,12 @@ pub async fn resync_pools(ctx: ZeusCtx) -> bool {
       });
 
       RT.spawn_blocking(move || {
-      portfolio_update(ctx.clone());
+         portfolio_update(ctx.clone());
 
-      match ctx.save_pool_manager() {
-         Ok(_) => tracing::info!("Pool data saved for"),
-         Err(e) => tracing::error!("Error saving pool data: {:?}", e),
-      }
+         match ctx.save_pool_manager() {
+            Ok(_) => tracing::info!("Pool data saved for"),
+            Err(e) => tracing::error!("Error saving pool data: {:?}", e),
+         }
       });
 
       // resynced
