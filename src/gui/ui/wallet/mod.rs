@@ -191,66 +191,66 @@ impl WalletUi {
 
       let res = frame_it(&mut frame, visuals, ui, |ui| {
          ui.set_width(ui.available_width() * 0.7);
+         ui.spacing_mut().button_padding = Vec2::new(8.0, 8.0);
+         let visuals = theme.get_button_visuals(bg_color);
+         widget_visuals(ui, visuals);
 
-         ui.horizontal(|ui| {
-            // Wallet info column
-            ui.vertical(|ui| {
-               ui.set_width(ui.available_width() * 0.7);
-
-               ui.horizontal(|ui| {
-                  ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
+         // Wallet info column
+         ui.vertical(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               // Wallet name
+               let name = Label::new(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
+               ui.scope(|ui| {
                   ui.set_width(ui.available_width() * 0.45);
-
-                  let name = Label::new(RichText::new(wallet.name.clone()).heading()).wrap();
                   ui.add(name);
-
-                  // Details button
-                  let visuals = theme.get_button_visuals(bg_color);
-                  widget_visuals(ui, visuals);
-                  let export_key = Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
-                  if ui.add(export_key).clicked() {
-                     self.view_key_ui.open = true;
-                     self.view_key_ui.exporter.wallet = Some(wallet.clone());
-                     self.view_key_ui.credentials_form.open = true;
-                  }
-                  ui.add_space(5.0);
-
-                  let delete_wallet = Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
-                  if ui.add(delete_wallet).clicked() {
-                     self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
-                     self.delete_wallet_ui.credentials_form.open = true;
-                  }
                });
 
-               // Address and value
-               ui.horizontal(|ui| {
-                  let res = ui.selectable_label(
-                     false,
-                     RichText::new(wallet.address_truncated()).size(theme.text_sizes.small),
-                  );
-                  if res.clicked() {
-                     // Copy the address to the clipboard
-                     ui.ctx().copy_text(wallet.address_string());
-                  }
+               // Export button
+               let export_key = Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
+               if ui.add(export_key).clicked() {
+                  self.view_key_ui.open = true;
+                  self.view_key_ui.exporter.wallet = Some(wallet.clone());
+                  self.view_key_ui.credentials_form.open = true;
+               }
+               ui.add_space(8.0);
 
-                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                     ui.vertical(|ui| {
-                        let owner = wallet.key.borrow().address();
-                        let chains = ctx.get_owner_chains(owner);
-                        let value = ctx.get_portfolio_value_all_chains(owner);
-                        ui.horizontal(|ui| {
-                           for chain in chains {
-                              let icon = icons.chain_icon_x16(&chain);
-                              ui.add(icon);
-                           }
-                        });
-                        ui.label(
-                           RichText::new(format!("${}", value.formatted()))
-                              .color(theme.colors.text_secondary)
-                              .size(theme.text_sizes.small),
-                        );
+               // Delete button
+               let delete_wallet = Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
+               if ui.add(delete_wallet).clicked() {
+                  self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
+                  self.delete_wallet_ui.credentials_form.open = true;
+               }
+            });
+
+            // Address and value
+            ui.horizontal(|ui| {
+               let res = ui.selectable_label(
+                  false,
+                  RichText::new(wallet.address_truncated()).size(theme.text_sizes.small),
+               );
+               if res.clicked() {
+                  // Copy the address to the clipboard
+                  ui.ctx().copy_text(wallet.address_string());
+               }
+
+               ui.add_space(10.0);
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                  ui.vertical(|ui| {
+                     let owner = wallet.key.borrow().address();
+                     let chains = ctx.get_owner_chains(owner);
+                     let value = ctx.get_portfolio_value_all_chains(owner);
+                     ui.horizontal(|ui| {
+                        for chain in chains {
+                           let icon = icons.chain_icon_x16(&chain);
+                           ui.add(icon);
+                        }
                      });
+                     ui.label(
+                        RichText::new(format!("${}", value.formatted()))
+                           .color(theme.colors.text_secondary)
+                           .size(theme.text_sizes.small),
+                     );
                   });
                });
             });

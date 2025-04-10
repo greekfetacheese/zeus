@@ -206,7 +206,7 @@ impl RecipientSelectionWindow {
          ui.add_space(20.0);
       });
 
-      ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
+      ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
       widget_visuals(ui, theme.get_button_visuals(bg_color));
 

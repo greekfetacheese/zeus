@@ -149,7 +149,7 @@ impl SendCryptoUi {
             Grid::new("recipient_name")
                .spacing(vec2(3.0, 0.0))
                .show(ui, |ui| {
-                  ui.label(RichText::new("Recipient  ").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("Recipient  ").size(theme.text_sizes.large));
                   if !recipient.is_empty() {
                      if let Some(name) = &recipient_name {
                         ui.label(
@@ -302,7 +302,6 @@ impl SendCryptoUi {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(
                   RichText::new("Priority Fee")
-                     .color(theme.colors.text_secondary)
                      .size(theme.text_sizes.large),
                );
                ui.add_space(2.0);

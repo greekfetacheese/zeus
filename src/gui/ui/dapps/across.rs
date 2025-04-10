@@ -49,7 +49,6 @@ pub struct AcrossBridge {
    pub to_chain: ChainSelect,
    pub priority_fee: String,
    pub review_tx_window: bool,
-   pub data_syncing: bool,
    pub balance_syncing: bool,
    /// API request in progress
    pub requesting: bool,
@@ -73,12 +72,11 @@ impl AcrossBridge {
          to_chain: ChainSelect::new("across_bridge_to_chain", 10),
          priority_fee: "1".to_string(),
          review_tx_window: false,
-         data_syncing: false,
          balance_syncing: false,
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
-         size: (550.0, 700.0),
+         size: (550.0, 670.0),
       }
    }
 
@@ -134,7 +132,7 @@ impl AcrossBridge {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
             let ui_width = ui.available_width();
 
@@ -180,8 +178,8 @@ impl AcrossBridge {
                            .margin(Margin::same(10)),
                      );
                      let icon = icons.native_currency_icon(self.currency.chain_id);
-                     ui.label(RichText::new(&self.currency.symbol).size(theme.text_sizes.normal));
-                     ui.add(icon);
+                     let text = RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
+                     ui.add(Label::new(text, Some(icon)));
                      let text = format!("Balance: {}", balance.formatted());
                      ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
@@ -240,7 +238,6 @@ impl AcrossBridge {
                   .show(ui, |ui| {
                      ui.label(
                         RichText::new("Recipient")
-                           .color(theme.colors.text_secondary)
                            .size(theme.text_sizes.large),
                      );
 
@@ -292,7 +289,6 @@ impl AcrossBridge {
                   .show(ui, |ui| {
                      ui.label(
                         RichText::new("From")
-                           .color(theme.colors.text_secondary)
                            .size(theme.text_sizes.large),
                      );
 
@@ -317,7 +313,6 @@ impl AcrossBridge {
                   .show(ui, |ui| {
                      ui.label(
                         RichText::new("To")
-                           .color(theme.colors.text_secondary)
                            .size(theme.text_sizes.large),
                      );
                      self.to_chain.grid_id = "across_bridge_to_chain";
@@ -386,6 +381,10 @@ impl AcrossBridge {
                   ))
                   .size(theme.text_sizes.normal),
                );
+               if self.requesting {
+                  ui.add_space(10.0);
+                  ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
+               }
             });
 
             // Estimated time to fill

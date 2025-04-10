@@ -373,7 +373,7 @@ pub async fn measure_rpcs(ctx: ZeusCtx) {
          let rpc = rpc.clone();
          let ctx = ctx.clone();
          let task = RT.spawn(async move {
-            let retry = client::retry_layer(10, 400, 600);
+            let retry = client::retry_layer(2, 400, 600);
             let throttle = client::throttle_layer(5);
             let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
             let time = Instant::now();

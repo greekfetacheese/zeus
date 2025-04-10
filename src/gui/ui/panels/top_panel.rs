@@ -45,6 +45,10 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
    ui.horizontal(|ui| {
+      if gui.send_crypto.review_tx_window {
+         ui.disable();
+      }
+      
       gui.chain_selection
          .show(ctx.clone(), theme, icons.clone(), ui);
    });
