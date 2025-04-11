@@ -3,10 +3,9 @@ use crate::gui::SHARED_GUI;
 use eframe::egui::{Align2, Button, FontId, Frame, RichText, TextEdit, Ui, Window, vec2};
 use egui::Margin;
 use egui_theme::Theme;
-use ncrypt_me::{Argon2Params, Credentials};
 #[cfg(feature = "dev")]
 use ncrypt_me::secure_types::SecureString;
-
+use ncrypt_me::{Argon2Params, Credentials};
 
 pub struct CredentialsForm {
    pub open: bool,
@@ -127,7 +126,7 @@ impl LoginUi {
                   .min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
-                  let mut account = ctx.account();
+                  let mut account = ctx.get_account();
                   account.credentials = self.credentials_form.credentials.clone();
                   self.login(ctx.clone(), account);
                }
@@ -139,11 +138,10 @@ impl LoginUi {
                      SecureString::from("dev"),
                      SecureString::from("dev"),
                   );
-                  let mut account = ctx.account();
+                  let mut account = ctx.get_account();
                   account.credentials = credentials;
                   self.login(ctx, account);
                }
-
             });
          });
    }
@@ -182,9 +180,9 @@ impl LoginUi {
                });
 
                ctx.write(|ctx| {
-                  ctx.account = account;
                   ctx.logged_in = true;
                });
+               ctx.set_account(account);
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
@@ -236,7 +234,7 @@ impl RegisterUi {
                   .min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
-                  let mut account = ctx.account();
+                  let mut account = ctx.get_account();
                   account.credentials = self.credentials_form.credentials.clone();
 
                   RT.spawn_blocking(move || {
@@ -271,8 +269,8 @@ impl RegisterUi {
                            ctx.write(|ctx| {
                               ctx.account_exists = true;
                               ctx.logged_in = true;
-                              ctx.account = account;
                            });
+                           ctx.set_account(account);
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {

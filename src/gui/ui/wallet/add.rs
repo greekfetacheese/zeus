@@ -1,4 +1,7 @@
-use crate::core::{ZeusCtx, utils::RT};
+use crate::core::{
+   ZeusCtx,
+   utils::{RT, update::update_eth_balance},
+};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2};
 use egui_theme::{Theme, utils::*};
@@ -93,7 +96,7 @@ impl ImportWallet {
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
 
          RT.spawn_blocking(move || {
-            let mut account = ctx.account();
+            let mut account = ctx.get_account();
 
             // Import the wallet
             match account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
@@ -104,7 +107,7 @@ impl ImportWallet {
                   });
                   return;
                }
-            }
+            };
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting account...");
@@ -153,8 +156,11 @@ impl ImportWallet {
                }
             }
 
-            ctx.write(|ctx| {
-               ctx.account = account;
+            ctx.set_account(account);
+
+            // Fetch any balances for the new wallet
+            RT.spawn(async move {
+               let _ = update_eth_balance(ctx.clone()).await;
             });
          });
       }
@@ -309,7 +315,7 @@ impl AddWalletUi {
          let name = self.wallet_name.clone();
 
          RT.spawn_blocking(move || {
-            let mut account = ctx.account();
+            let mut account = ctx.get_account();
 
             match account.new_wallet_rng(name) {
                Ok(_) => {}
@@ -326,10 +332,8 @@ impl AddWalletUi {
             });
 
             // Encrypt the account
-            let data =match account.encrypt(None) {
-               Ok(data) => {
-                  data
-               }
+            let data = match account.encrypt(None) {
+               Ok(data) => data,
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Failed to encrypt account", e.to_string());
@@ -356,9 +360,7 @@ impl AddWalletUi {
                }
             };
 
-            ctx.write(|ctx| {
-               ctx.account = account;
-            });
+            ctx.set_account(account);
          });
       }
       self.generate_wallet = open;

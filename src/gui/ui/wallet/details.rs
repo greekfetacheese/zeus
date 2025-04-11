@@ -1,4 +1,4 @@
-use crate::core::{Wallet, ZeusCtx, utils::RT};
+use crate::core::{WalletInfo, ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
@@ -7,7 +7,7 @@ const VIEW_KEY_MSG: &str = "The key has been copied! In 60 seconds it will be cl
 const CLIPBOARD_EXPIRY: u64 = 60;
 
 pub struct KeyExporter {
-   pub wallet: Option<Wallet>,
+   pub wallet: Option<WalletInfo>,
    /// When the key was copied to the clipboard
    pub key_copied_time: Option<std::time::Instant>,
 
@@ -24,11 +24,11 @@ impl KeyExporter {
       }
    }
 
-   pub fn export_key(&mut self, ctx: egui::Context) {
-      let key = self.wallet.take().unwrap().key_string();
-      ctx.copy_text(key.to_string());
+   pub fn export_key(&mut self, zeus_ctx: ZeusCtx, ctx: egui::Context) {
+      let info = self.wallet.take().unwrap();
+      let wallet = zeus_ctx.get_wallet(info.address);
+      ctx.copy_text(wallet.key_string().to_string());
       self.key_copied_time = Some(std::time::Instant::now());
-      self.wallet = None;
       tracing::info!("Key copied to clipboard");
    }
 
@@ -53,7 +53,7 @@ impl KeyExporter {
    }
 }
 
-pub struct ViewKeyUi {
+pub struct ExportKeyUi {
    pub open: bool,
    pub credentials_form: CredentialsForm,
    pub verified_credentials: bool,
@@ -62,7 +62,7 @@ pub struct ViewKeyUi {
    pub anchor: (Align2, Vec2),
 }
 
-impl ViewKeyUi {
+impl ExportKeyUi {
    pub fn new() -> Self {
       Self {
          open: false,
@@ -118,20 +118,23 @@ impl ViewKeyUi {
          });
 
       if clicked {
-         let mut account = ctx.account();
+         let mut account = ctx.get_account();
          account.credentials = self.credentials_form.credentials.clone();
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting account...");
             });
-            
+
             // Verify the credentials by just decrypting the account
             match account.decrypt(None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     let ctx = gui.egui_ctx.clone();
-                     gui.wallet_ui.view_key_ui.exporter.export_key(ctx);
-                     gui.wallet_ui.view_key_ui.reset();
+                     let egui_ctx = gui.egui_ctx.clone();
+                     gui.wallet_ui
+                        .export_key_ui
+                        .exporter
+                        .export_key(ctx.clone(), egui_ctx);
+                     gui.wallet_ui.export_key_ui.reset();
                      gui.open_msg_window("", VIEW_KEY_MSG);
                      gui.loading_window.open = false;
                   });
@@ -157,7 +160,7 @@ pub struct DeleteWalletUi {
    pub open: bool,
    pub credentials_form: CredentialsForm,
    pub verified_credentials: bool,
-   pub wallet_to_delete: Option<Wallet>,
+   pub wallet_to_delete: Option<WalletInfo>,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
@@ -211,7 +214,7 @@ impl DeleteWalletUi {
          });
 
       if clicked {
-         let mut account = ctx.account();
+         let mut account = ctx.get_account();
          account.credentials = self.credentials_form.credentials.clone();
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
@@ -259,7 +262,7 @@ impl DeleteWalletUi {
       let mut open = self.open;
       let mut clicked = false;
 
-      let wallet = self.wallet_to_delete.clone();
+      let wallet = self.wallet_to_delete.take().unwrap();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
       Window::new(RichText::new("Delete this wallet?").size(theme.text_sizes.large))
@@ -279,25 +282,19 @@ impl DeleteWalletUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               // should not happen
-               if wallet.is_none() {
-                  ui.label(RichText::new("No wallet to delete"));
-               } else {
-                  let wallet = wallet.clone().unwrap();
-                  ui.label(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
-                  ui.label(RichText::new(wallet.address_string()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.address_string()).size(theme.text_sizes.normal));
 
-                  let value = ctx.get_portfolio_value_all_chains(wallet.key.borrow().address());
-                  ui.label(RichText::new(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
+               let value = ctx.get_portfolio_value_all_chains(wallet.address);
+               ui.label(RichText::new(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
 
-                  if ui
-                     .add(Button::new(
-                        RichText::new("Yes").size(theme.text_sizes.normal),
-                     ))
-                     .clicked()
-                  {
-                     clicked = true;
-                  }
+               if ui
+                  .add(Button::new(
+                     RichText::new("Yes").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  clicked = true;
                }
             });
          });
@@ -305,21 +302,17 @@ impl DeleteWalletUi {
       if clicked {
          open = false;
 
-         let mut account = ctx.clone().account();
-         let wallet = wallet.unwrap();
+         let mut account = ctx.clone().get_account();
          RT.spawn_blocking(move || {
-            account.remove_wallet(wallet);
+            account.remove_wallet(&wallet);
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting account...");
             });
 
-
             // Encrypt the account
-           let data = match account.encrypt(None) {
-               Ok(data) => {
-                  data
-               }
+            let data = match account.encrypt(None) {
+               Ok(data) => data,
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
@@ -348,9 +341,7 @@ impl DeleteWalletUi {
                }
             };
 
-            ctx.write(|ctx| {
-               ctx.account = account;
-            });
+            ctx.set_account(account);
          });
       }
       self.open = open;

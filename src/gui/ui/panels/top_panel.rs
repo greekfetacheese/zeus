@@ -26,14 +26,20 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
 
    // For now no need to call ctx.request_repaint() here
    // because the spinner does that even when the window is minimized
-   if gui.wallet_ui.view_key_ui.exporter.key_copied_time.is_some() {
+   if gui
+      .wallet_ui
+      .export_key_ui
+      .exporter
+      .key_copied_time
+      .is_some()
+   {
       ui.vertical_centered(|ui| {
          Grid::new("key_copied_grid")
             .spacing([0.0, 0.0])
             .show(ui, |ui| {
                ui.add(Spinner::new().size(20.0));
                gui.wallet_ui
-                  .view_key_ui
+                  .export_key_ui
                   .exporter
                   .update(theme, ui.ctx().clone(), ui);
                ui.end_row();
@@ -48,7 +54,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
       if gui.send_crypto.review_tx_window {
          ui.disable();
       }
-      
+
       gui.chain_selection
          .show(ctx.clone(), theme, icons.clone(), ui);
    });
@@ -69,7 +75,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    });
 
    ui.horizontal(|ui| {
-      let wallet = ctx.account().current_wallet;
+      let wallet = ctx.current_wallet();
       let address = wallet.address_truncated();
 
       let address_text = RichText::new(address).size(theme.text_sizes.normal);
@@ -156,12 +162,12 @@ impl WalletSelection {
 
          // Wallet Select
          ui.spacing_mut().button_padding = vec2(10.0, 12.0);
-         let wallets = ctx.account().wallets;
+         let wallets = ctx.wallets_info();
          let clicked = self.wallet_select.show(theme, &wallets, icons.clone(), ui);
          if clicked {
             // update the wallet
-            ctx.write(|ctx| {
-               ctx.account.current_wallet = self.wallet_select.wallet.clone();
+            ctx.write_account(|account| {
+               account.current_wallet = self.wallet_select.wallet.clone();
             });
          }
       });

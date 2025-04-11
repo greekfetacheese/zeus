@@ -38,20 +38,22 @@ impl TxHistory {
 
          #[cfg(feature = "dev")]
          if ui.add(Button::new("Add Dummy Tx")).clicked() {
+            let wallet = ctx.current_wallet();
             ctx.write(|ctx| {
                let chain = ctx.chain.clone();
-               let owner = ctx.account.current_wallet.address();
-               ctx.tx_db.add_tx(chain.id(), owner, TxDetails::default());
+               ctx.tx_db
+                  .add_tx(chain.id(), wallet.address, TxDetails::default());
             });
          }
 
          #[cfg(feature = "dev")]
          if ui.add(Button::new("Add 50 Dummy Txs")).clicked() {
+            let wallet = ctx.current_wallet();
             ctx.write(|ctx| {
                let chain = ctx.chain.clone();
-               let owner = ctx.account.current_wallet.address();
                for _ in 0..50 {
-                  ctx.tx_db.add_tx(chain.id(), owner, TxDetails::default());
+                  ctx.tx_db
+                     .add_tx(chain.id(), wallet.address, TxDetails::default());
                }
             });
          }
@@ -61,11 +63,11 @@ impl TxHistory {
             ctx.save_tx_db();
          }
 
-         let account = ctx.account();
+         let current_wallet = ctx.current_wallet();
          let chain = ctx.chain();
          let all_txs = ctx.read(|ctx| {
             ctx.tx_db
-               .get_txs(chain.id(), account.current_wallet.address())
+               .get_txs(chain.id(), current_wallet.address)
                .cloned()
          });
 
@@ -208,17 +210,15 @@ impl TxHistory {
    }
 
    fn get_recipient_name(&self, ctx: ZeusCtx, tx: &TxDetails) -> Option<String> {
-      ctx.read(|ctx| {
-         let contacts = &ctx.contact_db.contacts;
-         let account = &ctx.account;
-         if let Some(contact) = contacts.iter().find(|c| c.address == tx.to.to_string()) {
-            Some(contact.name.clone())
-         } else if let Some(wallet) = account.wallets.iter().find(|w| w.address() == tx.to) {
-            Some(wallet.name.clone())
-         } else {
-            None
-         }
-      })
+      let contacts = ctx.contacts();
+      let wallets = ctx.wallets_info();
+      if let Some(contact) = contacts.iter().find(|c| c.address == tx.to.to_string()) {
+         Some(contact.name.clone())
+      } else if let Some(wallet) = wallets.iter().find(|w| w.address == tx.to) {
+         Some(wallet.name.clone())
+      } else {
+         None
+      }
    }
 
    fn show_tx_details(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {

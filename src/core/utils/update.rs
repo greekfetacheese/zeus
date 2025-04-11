@@ -118,11 +118,10 @@ pub fn portfolio_update_interval(ctx: ZeusCtx) {
 
 /// Update the portfolio value for all wallets across all chains
 pub fn portfolio_update(ctx: ZeusCtx) {
-   let wallets = ctx.account().wallets;
+   let wallets = ctx.wallets_info();
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
-         let owner = wallet.address();
-         ctx.update_portfolio_value(chain, owner);
+         ctx.update_portfolio_value(chain, wallet.address);
       }
    }
 
@@ -193,7 +192,7 @@ pub fn update_pool_manager(ctx: ZeusCtx) {
 
 /// Update the eth balance for all wallets across all chains
 pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let wallets = ctx.account().wallets;
+   let wallets = ctx.wallets_info();
 
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
@@ -204,8 +203,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
          let client = ctx.get_client_with_id(chain).unwrap();
 
          for wallet in &wallets {
-            let owner = wallet.key.borrow().address();
-            let balance = match client.get_balance(owner).await {
+            let balance = match client.get_balance(wallet.address).await {
                Ok(balance) => balance,
                Err(e) => {
                   tracing::error!("Error getting balance for chain {}: {:?}", chain, e);
@@ -216,7 +214,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 
             ctx.write(|ctx| {
                ctx.balance_db
-                  .insert_eth_balance(chain, owner, balance, &native);
+                  .insert_eth_balance(chain, wallet.address, balance, &native);
             })
          }
       });
@@ -271,7 +269,7 @@ pub async fn update_tokens_balance_for_chain(
 
 /// Update the token balance for all wallets across all chains
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let wallets = ctx.account().wallets;
+   let wallets = ctx.wallets_info();
 
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
@@ -279,15 +277,14 @@ pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
          for wallet in &wallets {
-            let owner = wallet.address();
-            let portfolio = ctx.get_portfolio(chain, owner);
+            let portfolio = ctx.get_portfolio(chain, wallet.address);
             let tokens = portfolio.erc20_tokens();
 
             if tokens.is_empty() {
                continue;
             }
 
-            match update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens).await {
+            match update_tokens_balance_for_chain(ctx.clone(), chain, wallet.address, tokens).await {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Error updating token balance for chain {}: {:?}", chain, e);

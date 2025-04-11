@@ -1,5 +1,8 @@
-use super::utils::{data_dir, pool_data_dir};
-use crate::core::Account;
+use super::{
+   Wallet,
+   utils::{data_dir, pool_data_dir},
+};
+use crate::core::{Account, WalletInfo};
 use anyhow::anyhow;
 use std::{
    collections::HashMap,
@@ -70,8 +73,53 @@ impl ZeusCtx {
       self.read(|ctx| ctx.providers.clone())
    }
 
-   pub fn account(&self) -> Account {
+   /// Mutable access to the account
+   pub fn write_account<R>(&self, writer: impl FnOnce(&mut Account) -> R) -> R {
+      writer(&mut self.0.write().unwrap().account)
+   }
+
+   pub fn set_account(&self, new_account: Account) {
+      self.0.write().unwrap().account = new_account;
+   }
+
+   pub fn get_account(&self) -> Account {
       self.read(|ctx| ctx.account.clone())
+   }
+
+   /// Get the wallet with the given address
+   ///
+   /// Should only used if we need the wallet's private key
+   pub fn get_wallet(&self, address: Address) -> Wallet {
+      let mut wallet = Wallet::new_rng(String::new());
+      self.read(|ctx| {
+         let w = &ctx
+            .account
+            .wallets
+            .iter()
+            .find(|w| w.info.address == address)
+            .cloned()
+            .unwrap();
+         wallet = w.clone();
+      });
+      wallet
+   }
+
+   pub fn current_wallet(&self) -> WalletInfo {
+      self.read(|ctx| ctx.account.current_wallet.clone())
+   }
+
+   pub fn wallet_exists(&self, address: Address) -> bool {
+      self.read(|ctx| ctx.account.wallet_address_exists(address))
+   }
+
+   pub fn wallets_info(&self) -> Vec<WalletInfo> {
+      let mut info = Vec::new();
+      self.read(|ctx| {
+         for wallet in &ctx.account.wallets {
+            info.push(wallet.info.clone());
+         }
+      });
+      info
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
@@ -232,11 +280,10 @@ impl ZeusCtx {
    /// Get all the erc20 tokens in all portfolios
    pub fn get_all_erc20_tokens(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let wallets = self.account().wallets;
+      let wallets_info = self.wallets_info();
 
-      for wallet in &wallets {
-         let owner = wallet.address();
-         let portfolio = self.get_portfolio(chain, owner);
+      for wallet in &wallets_info {
+         let portfolio = self.get_portfolio(chain, wallet.address);
          tokens.extend(portfolio.erc20_tokens());
       }
       tokens
@@ -549,7 +596,7 @@ pub struct ZeusContext {
    pub chain: ChainId,
 
    /// Loaded account
-   pub account: Account,
+   account: Account,
 
    pub account_exists: bool,
 

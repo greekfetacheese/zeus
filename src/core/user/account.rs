@@ -1,4 +1,4 @@
-use super::wallet::Wallet;
+use super::wallet::*;
 use crate::core::utils::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2Params, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
@@ -17,7 +17,7 @@ pub struct Account {
    pub wallets: Vec<Wallet>,
 
    /// The current selected wallet from the GUI
-   pub current_wallet: Wallet,
+   pub current_wallet: WalletInfo,
 }
 
 impl Default for Account {
@@ -27,7 +27,7 @@ impl Default for Account {
       Self {
          credentials: Credentials::default(),
          wallets,
-         current_wallet: wallet,
+         current_wallet: wallet.info.clone(),
       }
    }
 }
@@ -40,7 +40,7 @@ impl Account {
       mut name: String,
       from_key: bool,
       key: SecureString,
-   ) -> Result<(), anyhow::Error> {
+   ) -> Result<Address, anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
             return Err(anyhow!("Wallet with name {} already exists", name));
@@ -57,20 +57,21 @@ impl Account {
       }
 
       let wallet = if from_key {
-         Wallet::new_from_key(name, String::new(), false, key)?
+         Wallet::new_from_key(name, key)?
       } else {
-         Wallet::new_from_mnemonic(name, String::new(), false, key)?
+         Wallet::new_from_mnemonic(name, key)?
       };
 
-      if self.wallet_address_exists(wallet.address()) {
+      if self.wallet_address_exists(wallet.info.address) {
          return Err(anyhow!(
             "Wallet with address {} already exists",
-            wallet.address()
+            wallet.info.address
          ));
       }
 
+      let wallet_address = wallet.info.address;
       self.wallets.push(wallet);
-      Ok(())
+      Ok(wallet_address)
    }
 
    pub fn new_wallet_rng(&mut self, mut name: String) -> Result<(), anyhow::Error> {
@@ -106,7 +107,7 @@ impl Account {
    }
 
    pub fn wallet_name_exists(&self, name: &str) -> bool {
-      self.wallets.iter().any(|w| w.name == name)
+      self.wallets.iter().any(|w| w.info.name == name)
    }
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
@@ -163,13 +164,13 @@ impl Account {
       Ok(())
    }
 
-   pub fn remove_wallet(&mut self, wallet: Wallet) {
-      self.wallets.retain(|w| w != &wallet);
+   pub fn remove_wallet(&mut self, wallet: &WalletInfo) {
+      self.wallets.retain(|w| &w.info != wallet);
    }
 
    /// Get the current wallet address
    pub fn wallet_address(&self) -> Address {
-      self.current_wallet.key.borrow().address()
+      self.current_wallet.address
    }
 
    pub fn encrypted_info(&self) -> Result<EncryptedInfo, anyhow::Error> {
@@ -213,7 +214,7 @@ mod tests {
       let mut account = Account {
          credentials,
          wallets: vec![wallet_1.clone(), wallet_2],
-         current_wallet: wallet_1,
+         current_wallet: wallet_1.info.clone(),
       };
 
       let dir = PathBuf::from("account_test.data");
@@ -235,8 +236,8 @@ mod tests {
       let recovered_wallet_1 = account.wallets.get(0).unwrap();
       let recovered_wallet_2 = account.wallets.get(1).unwrap();
 
-      assert_eq!(recovered_wallet_1.name, "Wallet 1");
-      assert_eq!(recovered_wallet_2.name, "Wallet 2");
+      assert_eq!(recovered_wallet_1.info.name, "Wallet 1");
+      assert_eq!(recovered_wallet_2.info.name, "Wallet 2");
 
       let key_1 = recovered_wallet_1.key_string();
       let key_2 = recovered_wallet_2.key_string();

@@ -142,6 +142,7 @@ impl SettingsUi {
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
 
+               // Credentials Not Verified
                if !self.verified_credentials {
                   self.credentials.confrim_password = false;
                   self.credentials.show(theme, ui);
@@ -150,7 +151,7 @@ impl SettingsUi {
 
                   let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.normal));
                   if ui.add(verify).clicked() {
-                     let mut account = ctx.account();
+                     let mut account = ctx.get_account();
                      account.credentials = self.credentials.credentials.clone();
 
                      RT.spawn_blocking(move || {
@@ -179,6 +180,7 @@ impl SettingsUi {
                   }
                }
 
+               // Credentials Verified
                if self.verified_credentials {
                   self.credentials.confrim_password = true;
                   self.credentials.show(theme, ui);
@@ -188,7 +190,7 @@ impl SettingsUi {
                   let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
 
                   if ui.add(save).clicked() {
-                     let mut account = ctx.account();
+                     let mut account = ctx.get_account();
                      account.credentials = self.credentials.credentials.clone();
 
                      RT.spawn_blocking(move || {
@@ -232,9 +234,7 @@ impl SettingsUi {
                            }
                         }
 
-                        ctx.write(|ctx| {
-                           ctx.account = account;
-                        });
+                        ctx.set_account(account);
                      });
                   }
                }
@@ -321,7 +321,7 @@ impl EncryptionSettings {
                      let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
                      if ui.add(save).clicked() {
                         let params = self.argon_params.clone();
-                        let account = ctx.account();
+                        let account = ctx.get_account();
 
                         RT.spawn_blocking(move || {
                            SHARED_GUI.write(|gui| {
@@ -330,15 +330,7 @@ impl EncryptionSettings {
 
                            // Encrypt the account with the new params
                            let data = match account.encrypt(Some(params.clone())) {
-                              Ok(data) => {
-                                 SHARED_GUI.write(|gui| {
-                                    gui.open_msg_window("Encryption settings have been updated", "");
-                                    gui.settings.encryption.open = false;
-                                    gui.settings.encryption.argon_params = params;
-                                    gui.loading_window.open = false;
-                                 });
-                                 data
-                              }
+                              Ok(data) => data,
                               Err(e) => {
                                  SHARED_GUI.write(|gui| {
                                     gui.open_msg_window("Failed to update encryption settings", &format!("{}", e));
@@ -352,6 +344,10 @@ impl EncryptionSettings {
                            match account.save(None, data) {
                               Ok(_) => {
                                  SHARED_GUI.write(|gui| {
+                                    gui.loading_window.open = false;
+                                    gui.open_msg_window("Encryption settings have been updated", "");
+                                    gui.settings.encryption.open = false;
+                                    gui.settings.encryption.argon_params = params;
                                     gui.loading_window.open = false;
                                  });
                               }

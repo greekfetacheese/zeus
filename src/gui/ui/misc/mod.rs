@@ -9,7 +9,7 @@ use zeus_eth::utils::NumericValue;
 use crate::assets::icons::Icons;
 use crate::core::utils::update::update_portfolio_state;
 use crate::core::{
-   Wallet, ZeusCtx,
+   WalletInfo, ZeusCtx,
    utils::{RT, eth},
 };
 use crate::gui::SHARED_GUI;
@@ -17,7 +17,7 @@ use crate::gui::ui::TokenSelectionWindow;
 
 use egui_theme::{Theme, utils::*};
 use egui_widgets::{ComboBox, Label};
-use zeus_eth::{currency::Currency, types::ChainId};
+use zeus_eth::{currency::Currency, types::ChainId, alloy_primitives::Address};
 
 pub mod tx_history;
 
@@ -95,7 +95,7 @@ impl ChainSelect {
 pub struct WalletSelect {
    pub id: &'static str,
    /// Selected Wallet
-   pub wallet: Wallet,
+   pub wallet: WalletInfo,
    pub size: Vec2,
    pub button_padding: Vec2,
 }
@@ -104,7 +104,7 @@ impl WalletSelect {
    pub fn new(id: &'static str) -> Self {
       Self {
          id,
-         wallet: Wallet::new_rng(String::new()),
+         wallet: WalletInfo::default(),
          size: (200.0, 25.0).into(),
          button_padding: vec2(10.0, 4.0),
       }
@@ -123,7 +123,7 @@ impl WalletSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, theme: &Theme, wallets: &Vec<Wallet>, _icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(&mut self, theme: &Theme, wallets: &Vec<WalletInfo>, _icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let mut clicked = false;
       let text = RichText::new(&self.wallet.name).size(theme.text_sizes.normal);
 
@@ -340,8 +340,8 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let current_wallet = ctx.account().current_wallet.clone();
-      let owner = current_wallet.key.borrow().address();
+      let current_wallet = ctx.current_wallet();
+      let owner = current_wallet.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
       let currencies = portfolio.currencies();
 
@@ -363,7 +363,7 @@ impl PortfolioUi {
 
                let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
-                  self.refresh(ctx.clone());
+                  self.refresh(owner, ctx.clone());
                }
 
                if self.show_spinner {
@@ -431,15 +431,15 @@ impl PortfolioUi {
 
                         if let Some(native) = native_currency {
                            self.token(theme, icons.clone(), native, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, native, ui, column_widths[0]);
-                           self.remove_currency(ctx.clone(), native, ui, column_widths[4]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, native, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), owner, native, ui, column_widths[4]);
                            ui.end_row();
                         }
 
                         if let Some(wrapped) = native_wrapped {
                            self.token(theme, icons.clone(), wrapped, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, wrapped, ui, column_widths[0]);
-                           self.remove_currency(ctx.clone(), wrapped, ui, column_widths[4]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, wrapped, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), owner, wrapped, ui, column_widths[4]);
                            ui.end_row();
                         }
 
@@ -448,8 +448,8 @@ impl PortfolioUi {
                               continue;
                            }
                            self.token(theme, icons.clone(), token, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, token, ui, column_widths[0]);
-                           self.remove_currency(ctx.clone(), token, ui, column_widths[4]);
+                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, token, ui, column_widths[0]);
+                           self.remove_currency(ctx.clone(), owner, token, ui, column_widths[4]);
                            ui.end_row();
                         }
                      });
@@ -471,7 +471,7 @@ impl PortfolioUi {
                if let Some(currency) = currency {
                   let token_fetched = token_selection.token_fetched;
                   token_selection.reset();
-                  self.add_currency(ctx.clone(), token_fetched, currency);
+                  self.add_currency(ctx.clone(), owner, token_fetched, currency);
                }
             });
       });
@@ -492,6 +492,7 @@ impl PortfolioUi {
       ctx: ZeusCtx,
       theme: &Theme,
       chain: u64,
+      owner: Address,
       currency: &Currency,
       ui: &mut Ui,
       width: f32,
@@ -503,7 +504,6 @@ impl PortfolioUi {
          ui.label(RichText::new(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
 
-      let owner = ctx.account().current_wallet.key.borrow().address();
       let balance = ctx.get_currency_balance(chain, owner, currency);
 
       ui.horizontal(|ui| {
@@ -518,11 +518,10 @@ impl PortfolioUi {
       });
    }
 
-   fn refresh(&mut self, ctx: ZeusCtx) {
+   fn refresh(&mut self, owner: Address, ctx: ZeusCtx) {
       self.show_spinner = true;
       RT.spawn(async move {
          let chain = ctx.chain().id();
-         let owner = ctx.account().current_wallet.address();
 
          match update_portfolio_state(ctx, chain, owner).await {
             Ok(_) => {
@@ -540,9 +539,8 @@ impl PortfolioUi {
    }
 
    // Add a currency to the portfolio and update the portfolio value
-   fn add_currency(&mut self, ctx: ZeusCtx, token_fetched: bool, currency: Currency) {
+   fn add_currency(&mut self, ctx: ZeusCtx, owner: Address, token_fetched: bool, currency: Currency) {
       let chain_id = ctx.chain().id();
-      let owner = ctx.account().current_wallet.address();
 
       ctx.write(|ctx| {
          ctx.portfolio_db
@@ -616,16 +614,18 @@ impl PortfolioUi {
       });
    }
 
-   fn remove_currency(&self, ctx: ZeusCtx, currency: &Currency, ui: &mut Ui, width: f32) {
+   fn remove_currency(&self, ctx: ZeusCtx, owner: Address, currency: &Currency, ui: &mut Ui, width: f32) {
       ui.horizontal(|ui| {
          ui.set_width(width);
          if ui.button("X").clicked() {
-            let owner = ctx.account().current_wallet.key.borrow().address();
             let chain = ctx.chain().id();
             ctx.write(|ctx| {
                ctx.portfolio_db.remove_currency(chain, owner, currency);
             });
-            let _ = ctx.save_portfolio_db();
+            RT.spawn_blocking(move || {
+            ctx.update_portfolio_value(chain, owner);
+            ctx.save_all();
+            });
          }
       });
    }

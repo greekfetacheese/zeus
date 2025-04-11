@@ -93,6 +93,8 @@ impl SendCryptoUi {
          return;
       }
 
+      let owner = ctx.current_wallet().address;
+
       recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
@@ -100,6 +102,7 @@ impl SendCryptoUi {
          ctx.clone(),
          theme,
          icons.clone(),
+         owner,
          recipient.clone(),
          recipient_name.clone(),
          ui,
@@ -142,7 +145,6 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             let chain = ctx.chain();
-            let owner = ctx.account().current_wallet.address();
             let currencies = ctx.get_currencies(chain.id());
 
             // Recipient Input
@@ -194,7 +196,7 @@ impl SendCryptoUi {
                   );
                }
 
-               if self.recipient_is_sender(ctx.clone(), &recipient) {
+               if self.recipient_is_sender(owner, &recipient) {
                   ui.label(
                      RichText::new("Cannot send to yourself")
                         .size(theme.text_sizes.normal)
@@ -243,7 +245,7 @@ impl SendCryptoUi {
                   if let Some(currency) = token_selection.get_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
-                     self.sync_balance(ctx.clone());
+                     self.sync_balance(owner, ctx.clone());
                   }
                   ui.end_row();
                });
@@ -258,7 +260,7 @@ impl SendCryptoUi {
                   ui.spacing_mut().button_padding = vec2(5.0, 5.0);
                   let max_button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
                   if ui.add(max_button).clicked() {
-                     self.amount = self.max_amount(ctx.clone()).flatten().clone();
+                     self.amount = self.max_amount(owner, ctx.clone()).flatten().clone();
                   }
                   ui.end_row();
                });
@@ -288,7 +290,7 @@ impl SendCryptoUi {
             }
 
             // Balance check
-            if !self.sufficient_balance(ctx.clone()) {
+            if !self.sufficient_balance(ctx.clone(), owner) {
                ui.label(
                   RichText::new("Insufficient balance")
                      .size(theme.text_sizes.small)
@@ -346,7 +348,7 @@ impl SendCryptoUi {
             ui.add_space(space);
 
             // Value
-            let value = self.value(ctx.clone());
+            let value = self.value(owner, ctx.clone());
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.label(
                   RichText::new(format!("Value≈ ${}", value.formatted()))
@@ -377,7 +379,7 @@ impl SendCryptoUi {
             let send =
                Button::new(RichText::new("Send").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.9, 40.0));
 
-            if !self.valid_inputs(ctx.clone(), &recipient) {
+            if !self.valid_inputs(ctx.clone(), owner, &recipient) {
                ui.disable();
             }
 
@@ -399,10 +401,9 @@ impl SendCryptoUi {
       ui.add(button)
    }
 
-   fn sync_balance(&mut self, ctx: ZeusCtx) {
+   fn sync_balance(&mut self, owner: Address, ctx: ZeusCtx) {
       self.syncing_balance = true;
       let chain = ctx.chain().id();
-      let owner = ctx.account().current_wallet.address();
       let currency = self.currency.clone();
       RT.spawn(async move {
          let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
@@ -433,7 +434,7 @@ impl SendCryptoUi {
       });
    }
 
-   fn value(&mut self, ctx: ZeusCtx) -> NumericValue {
+   fn value(&mut self, owner: Address, ctx: ZeusCtx) -> NumericValue {
       let price = ctx.get_currency_price_opt(&self.currency);
       let amount = self.amount.parse().unwrap_or(0.0);
 
@@ -461,7 +462,6 @@ impl SendCryptoUi {
 
          let v2_pools = ctx.get_v2_pools(&token);
          let v3_pools = ctx.get_v3_pools(&token);
-         let owner = ctx.account().current_wallet.address();
          let chain_id = ctx.chain().id();
 
          if v2_pools.is_empty() || v3_pools.is_empty() {
@@ -503,10 +503,9 @@ impl SendCryptoUi {
    }
 
    /// Max amount = Balance - Cost
-   fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
+   fn max_amount(&self, owner: Address, ctx: ZeusCtx) -> NumericValue {
       let chain = ctx.chain();
       let currency = self.currency.clone();
-      let owner = ctx.account().current_wallet.address();
       let balance = ctx.get_currency_balance(chain.id(), owner, &currency);
       let (cost_wei, _) = self.cost(ctx.clone());
 
@@ -545,9 +544,9 @@ impl SendCryptoUi {
       recipient != Address::ZERO
    }
 
-   fn recipient_is_sender(&self, ctx: ZeusCtx, recipient: &String) -> bool {
+   fn recipient_is_sender(&self, owner: Address, recipient: &String) -> bool {
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
-      recipient == ctx.account().current_wallet.address()
+      recipient == owner
    }
 
    fn valid_amount(&self) -> bool {
@@ -571,15 +570,14 @@ impl SendCryptoUi {
       self.priority_fee = fee.formatted().clone();
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, recipient: &String) -> bool {
+   fn valid_inputs(&self, ctx: ZeusCtx, owner: Address, recipient: &String) -> bool {
       self.valid_recipient(recipient)
          && self.valid_amount()
-         && self.sufficient_balance(ctx.clone())
-         && !self.recipient_is_sender(ctx, recipient)
+         && self.sufficient_balance(ctx.clone(), owner)
+         && !self.recipient_is_sender(owner, recipient)
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
-      let sender = ctx.account().current_wallet.address();
+   fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
       let balance = ctx
          .get_eth_balance(ctx.chain().id(), sender)
          .unwrap_or_default();
@@ -593,6 +591,7 @@ impl SendCryptoUi {
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
+      sender: Address,
       recipient: String,
       recipient_name: Option<String>,
       ui: &mut Ui,
@@ -602,7 +601,7 @@ impl SendCryptoUi {
       }
 
       let amount = self.amount.clone();
-      let value = self.value(ctx.clone());
+      let value = self.value(sender, ctx.clone());
       let currency = self.currency.clone();
 
       let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
@@ -664,7 +663,6 @@ impl SendCryptoUi {
          });
 
       if should_send_tx {
-         let from = ctx.account().current_wallet.clone();
          let to = Address::from_str(&recipient).unwrap_or(Address::ZERO);
          let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
          let currency = self.currency.clone();
@@ -710,9 +708,11 @@ impl SendCryptoUi {
             TxMethod::ERC20Transfer((token, amount))
          };
 
+         let signer = ctx.get_wallet(sender).key;
+
          let params = TxParams::new(
             tx_method,
-            from.key.clone(),
+            signer,
             to,
             value,
             chain,

@@ -1,21 +1,33 @@
 use alloy_signer_local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English};
-use std::str::FromStr;
 use anyhow::anyhow;
 use secure_types::SecureString;
+use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, wallet::SecureSigner};
+
+#[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct WalletInfo {
+   pub name: String,
+   pub address: Address,
+}
+
+impl WalletInfo {
+   pub fn address_string(&self) -> String {
+      self.address.to_string()
+   }
+
+   pub fn address_truncated(&self) -> String {
+      format!(
+         "{}...{}",
+         &self.address_string()[..6],
+         &self.address_string()[36..]
+      )
+   }
+}
 
 /// User Wallet
 #[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Wallet {
-   /// Name of the wallet (if empty, we generate a name)
-   pub name: String,
-
-   pub notes: String,
-
-   /// Hide this wallet from the GUI?
-   pub hidden: bool,
-
-   /// The key of the wallet
+   pub info: WalletInfo,
    pub key: SecureSigner,
 }
 
@@ -32,67 +44,41 @@ impl Wallet {
    /// Create a new wallet from a random private key
    pub fn new_rng(name: String) -> Self {
       let key = SecureSigner::random();
-
-      Self {
+      let info = WalletInfo {
          name,
-         notes: String::new(),
-         hidden: false,
-         key,
-      }
+         address: key.borrow().address(),
+      };
+
+      Self { info, key }
    }
 
    /// Create a new wallet from a given private key
-   pub fn new_from_key(
-      name: String,
-      notes: String,
-      hidden: bool,
-      key_str: SecureString,
-   ) -> Result<Self, anyhow::Error> {
+   pub fn new_from_key(name: String, key_str: SecureString) -> Result<Self, anyhow::Error> {
       let key = PrivateKeySigner::from_str(key_str.borrow())?;
       let key = SecureSigner::new(key);
-
-      Ok(Self {
+      let info = WalletInfo {
          name,
-         notes,
-         hidden,
-         key,
-      })
+         address: key.borrow().address(),
+      };
+
+      Ok(Self { info, key })
    }
 
    /// Create a new wallet from a mnemonic phrase
-   pub fn new_from_mnemonic(
-      name: String,
-      notes: String,
-      hidden: bool,
-      phrase: SecureString,
-   ) -> Result<Self, anyhow::Error> {
-
+   pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, anyhow::Error> {
       // return a custom error to not expose the phrase in case it just has a typo
       let wallet = MnemonicBuilder::<English>::default()
          .phrase(phrase.to_string())
          .index(0)?
-         .build().map_err(|_| anyhow!("It seems that the given phrase is invalid"))?;
+         .build()
+         .map_err(|_| anyhow!("It seems that the given phrase is invalid"))?;
       let key = SecureSigner::new(wallet);
 
-      Ok(Self {
+      let info = WalletInfo {
          name,
-         notes,
-         hidden,
-         key,
-      })
-   }
+         address: key.borrow().address(),
+      };
 
-   pub fn address(&self) -> Address {
-      self.key.borrow().address()
-   }
-
-   pub fn address_string(&self) -> String {
-      self.key.borrow().address().to_string()
-   }
-
-   /// Get the wallet address truncated
-   pub fn address_truncated(&self) -> String {
-      let address = self.key.borrow().address().to_string();
-      format!("{}...{}", &address[..6], &address[36..])
+      Ok(Self { info, key })
    }
 }

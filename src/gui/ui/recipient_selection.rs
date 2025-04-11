@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{Contact, Wallet, ZeusCtx};
+use crate::core::{Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
@@ -97,7 +97,7 @@ impl RecipientSelectionWindow {
                ui.add_space(20.0);
             });
 
-            let wallets = ctx.account().wallets;
+            let wallets = ctx.wallets_info();
             let contacts = ctx.contacts();
 
             // TODO: Optimize this
@@ -168,17 +168,17 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let mut wallets = ctx.account().wallets;
+      let mut wallets = ctx.wallets_info();
       let mut portfolios = Vec::new();
       for chain in SUPPORTED_CHAINS {
          for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address()));
+            portfolios.push(ctx.get_portfolio(chain, wallet.address));
          }
       }
 
       wallets.sort_by(|a, b| {
-         let addr_a = a.address();
-         let addr_b = b.address();
+         let addr_a = a.address;
+         let addr_b = b.address;
 
          // Find the portfolio for each wallet
          let portfolio_a = portfolios.iter().find(|p| p.owner == addr_a);
@@ -211,10 +211,9 @@ impl RecipientSelectionWindow {
       widget_visuals(ui, theme.get_button_visuals(bg_color));
 
       for wallet in &wallets {
-         let address = wallet.address();
          let valid_search = valid_wallet_search(wallet, &self.search_query);
-         let value = ctx.get_portfolio_value_all_chains(address);
-         let chains = ctx.get_owner_chains(address);
+         let value = ctx.get_portfolio_value_all_chains(wallet.address);
+         let chains = ctx.get_owner_chains(wallet.address);
 
          if valid_search {
             // Main Row
@@ -230,7 +229,7 @@ impl RecipientSelectionWindow {
                      ui.scope(|ui| {
                         ui.set_width(column_width * 0.8);
                         if ui.add(Button::new(name)).clicked() {
-                           self.recipient = address.to_string();
+                           self.recipient = wallet.address_string();
                            self.recipient_name = Some(wallet.name.clone());
                            *close_window = true;
                         }
@@ -331,7 +330,7 @@ fn valid_contact_search(contact: &Contact, query: &str) -> bool {
    contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
 }
 
-fn valid_wallet_search(wallet: &Wallet, query: &str) -> bool {
+fn valid_wallet_search(wallet: &WalletInfo, query: &str) -> bool {
    let query = query.to_lowercase();
 
    if query.is_empty() {

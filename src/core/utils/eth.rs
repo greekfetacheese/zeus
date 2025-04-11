@@ -261,7 +261,7 @@ pub async fn across_bridge(
    });
 
    // if recipient is a wallet owned by this account, update its balance
-   let exists = ctx.account().wallet_address_exists(recipient);
+   let exists = ctx.wallet_exists(recipient);
    if exists {
       RT.spawn(async move {
          let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
@@ -381,7 +381,7 @@ pub async fn send_crypto(
    });
 
    // if recipient is a wallet owned by this account, update its balance
-   let exists = ctx.account().wallet_address_exists(recipient);
+   let exists = ctx.wallet_exists(recipient);
    if exists {
       RT.spawn(async move {
          let _ = get_eth_balance(ctx.clone(), params.chain.id(), recipient).await;
