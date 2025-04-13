@@ -262,7 +262,11 @@ impl DeleteWalletUi {
       let mut open = self.open;
       let mut clicked = false;
 
-      let wallet = self.wallet_to_delete.take().unwrap();
+      let wallet = self.wallet_to_delete.clone();
+      if wallet.is_none() {
+         return;
+      }
+      let wallet = wallet.unwrap();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
       Window::new(RichText::new("Delete this wallet?").size(theme.text_sizes.large))
@@ -305,6 +309,16 @@ impl DeleteWalletUi {
          let mut account = ctx.clone().get_account();
          RT.spawn_blocking(move || {
             account.remove_wallet(&wallet);
+
+            // update the current wallet to the first available
+            let wallets = &account.wallets;
+            if let Some(wallet) = wallets.first() {
+               account.current_wallet = wallet.info.clone();
+
+               SHARED_GUI.write(|gui| {
+                  gui.wallet_selection.wallet_select.wallet = wallet.info.clone();
+               });
+            }
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting account...");

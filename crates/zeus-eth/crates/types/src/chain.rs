@@ -111,6 +111,10 @@ impl ChainId {
       }
    }
 
+   pub fn id_as_hex(&self) -> String {
+      format!("0x{:x}", self.id())
+   }
+
    pub fn name(&self) -> &str {
       match self {
          ChainId::Ethereum(_) => "Ethereum",

@@ -1,4 +1,5 @@
 use crate::assets::icons::Icons;
+use crate::server::run_server;
 use crate::core::{
    ZeusCtx,
    utils::{RT, update},
@@ -58,8 +59,13 @@ impl ZeusApp {
       let ctx = self.ctx.clone();
       let logged_in = self.ctx.logged_in();
       if logged_in && !self.updated_started {
+         let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            update::on_startup(ctx).await;
+            update::on_startup(ctx_clone).await;
+         });
+         let ctx_clone = ctx.clone();
+         RT.spawn(async move {
+           // let _ = run_server(ctx_clone).await;
          });
          self.updated_started = true;
       }

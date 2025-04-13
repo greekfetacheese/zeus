@@ -4,6 +4,7 @@ use eframe::egui;
 use gui::app::ZeusApp;
 
 pub mod assets;
+pub mod server;
 pub mod core;
 pub mod gui;
 

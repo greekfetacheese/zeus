@@ -103,7 +103,7 @@ impl RecipientSelectionWindow {
             // TODO: Optimize this
             let query = self.search_query.clone();
             let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
-            let are_valid_wallets = wallets.len() >= 2 && wallets.iter().any(|w| valid_wallet_search(w, &query));
+            let are_valid_wallets = wallets.len() >= 1 && wallets.iter().any(|w| valid_wallet_search(w, &query));
 
             ScrollArea::vertical()
                .id_salt("recipient_select_scroll")
