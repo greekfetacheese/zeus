@@ -38,8 +38,8 @@ pub struct SwapUi {
 impl SwapUi {
    pub fn new() -> Self {
       let currency = NativeCurrency::from_chain_id(1).unwrap();
-      let currency_in = Currency::from_native(currency);
-      let currency_out = Currency::from_erc20(ERC20Token::wrapped_native_token(1));
+      let currency_in = Currency::from(currency);
+      let currency_out = Currency::from(ERC20Token::wrapped_native_token(1));
       Self {
          open: false,
          currency_in,
@@ -80,12 +80,12 @@ impl SwapUi {
    /// Give a default input currency based on the selected chain id
    pub fn default_currency_in(&mut self, id: u64) {
       let native = NativeCurrency::from_chain_id(id).unwrap_or_default();
-      self.currency_in = Currency::from_native(native);
+      self.currency_in = Currency::from(native);
    }
 
    /// Give a default output currency based on the selected chain id
    pub fn default_currency_out(&mut self, id: u64) {
-      self.currency_out = Currency::from_erc20(ERC20Token::wrapped_native_token(id));
+      self.currency_out = Currency::from(ERC20Token::wrapped_native_token(id));
    }
 
    pub fn show(

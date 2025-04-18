@@ -21,6 +21,12 @@ impl Default for NativeCurrency {
    }
 }
 
+impl From<u64> for NativeCurrency {
+   fn from(id: u64) -> Self {
+      Self::from_chain_id(id).unwrap()
+   }
+}
+
 impl NativeCurrency {
    pub fn new(chain_id: u64, symbol: String, name: String, decimals: u8) -> Self {
       Self {

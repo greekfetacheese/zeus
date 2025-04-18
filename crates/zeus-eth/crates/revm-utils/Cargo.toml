@@ -6,6 +6,9 @@ edition = "2021"
 [dependencies]
 abi = { path = "../abi" }
 dapps = { path = "../dapps" }
+types = { path = "../types" }
+currency = { path = "../currency" }
+utils = { path = "../utils" }
 
 revm = { version = "21.0.0", features = [
     "std",

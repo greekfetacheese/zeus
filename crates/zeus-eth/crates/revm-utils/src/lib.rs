@@ -9,6 +9,7 @@ use revm::{
 };
 
 pub use revm;
+pub use revm::{ExecuteEvm, interpreter::Host, ExecuteCommitEvm, database::InMemoryDB};
 
 pub type Evm2<DB> = Evm<
    Context<BlockEnv, TxEnv, CfgEnv, DB>,

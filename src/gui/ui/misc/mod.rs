@@ -1,13 +1,18 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window,
-   vec2,
+   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Sense,
+   Spinner, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui::Sense;
+use egui::Margin;
 use std::sync::Arc;
+use zeus_eth::currency::NativeCurrency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::core::utils::update::update_portfolio_state;
+use crate::core::utils::tx::TxSummary;
+use crate::core::utils::{
+   action::OnChainAction, estimate_tx_cost, truncate_address, truncate_hash,
+   update::update_portfolio_state,
+};
 use crate::core::{
    WalletInfo, ZeusCtx,
    utils::{RT, eth},
@@ -17,9 +22,66 @@ use crate::gui::ui::TokenSelectionWindow;
 
 use egui_theme::{Theme, utils::*};
 use egui_widgets::{ComboBox, Label};
-use zeus_eth::{currency::Currency, types::ChainId, alloy_primitives::Address};
+use zeus_eth::{
+   alloy_primitives::{Address, TxHash},
+   currency::Currency,
+   types::ChainId,
+};
+
+use super::GREEN_CHECK;
 
 pub mod tx_history;
+
+pub struct PriorityFeeTextBox {
+   chain: ChainId,
+   fee: String,
+}
+
+impl PriorityFeeTextBox {
+   pub fn new() -> Self {
+      Self {
+         chain: ChainId::default(),
+         fee: "1".to_string(),
+      }
+   }
+
+   pub fn set_priority_fee(&mut self, chain: ChainId, fee: String) {
+      // No priority fee for Binance Smart Chain
+      // Set empty to avoid frame shutter due to invalid fee
+      if chain.is_bsc() {
+         self.fee = String::new();
+         self.chain = chain;
+      } else {
+         self.fee = fee;
+         self.chain = chain;
+      }
+   }
+
+   pub fn get_chain(&self) -> ChainId {
+      self.chain
+   }
+
+   pub fn get_fee(&self) -> String {
+      self.fee.clone()
+   }
+
+   pub fn show(
+      &mut self,
+      min_size: Vec2,
+      margin: Margin,
+      bg_color: Color32,
+      font_size: f32,
+      ui: &mut Ui,
+   ) {
+      ui.add(
+         TextEdit::singleline(&mut self.fee)
+            .min_size(min_size)
+            .margin(margin)
+            .background_color(bg_color)
+            .font(egui::FontId::proportional(font_size)),
+      );
+   }
+}
 
 /// A ComboBox to select a chain
 pub struct ChainSelect {
@@ -54,7 +116,13 @@ impl ChainSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the chain was changed
-   pub fn show(&mut self, ignore_chain: u64, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(
+      &mut self,
+      ignore_chain: u64,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) -> bool {
       let selected_chain = self.chain;
       let mut clicked = false;
       let supported_chains = ChainId::supported_chains();
@@ -123,26 +191,35 @@ impl WalletSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, theme: &Theme, wallets: &Vec<WalletInfo>, _icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(
+      &mut self,
+      theme: &Theme,
+      wallets: &Vec<WalletInfo>,
+      _icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) -> bool {
       let mut clicked = false;
       let text = RichText::new(&self.wallet.name).size(theme.text_sizes.normal);
 
-      ComboBox::new(self.id, Label::new(text, None).sense(Sense::click()))
-         .width(self.size.x)
-         .show_ui(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 5.0;
-            ui.spacing_mut().button_padding = self.button_padding;
+      ComboBox::new(
+         self.id,
+         Label::new(text, None).sense(Sense::click()),
+      )
+      .width(self.size.x)
+      .show_ui(ui, |ui| {
+         ui.spacing_mut().item_spacing.y = 5.0;
+         ui.spacing_mut().button_padding = self.button_padding;
 
-            for wallet in wallets {
-               let text = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
-               let wallet_label = Label::new(text, None).sense(Sense::click());
+         for wallet in wallets {
+            let text = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
+            let wallet_label = Label::new(text, None).sense(Sense::click());
 
-               if ui.add(wallet_label).clicked() {
-                  self.wallet = wallet.clone();
-                  clicked = true;
-               }
+            if ui.add(wallet_label).clicked() {
+               self.wallet = wallet.clone();
+               clicked = true;
             }
-         });
+         }
+      });
 
       clicked
    }
@@ -174,7 +251,7 @@ impl TestingWindow {
       self.open = false;
    }
 
-   pub fn show(&mut self, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -186,11 +263,24 @@ impl TestingWindow {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+            ui.vertical(|ui| {
+               // ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
+
+               let icon = icons.eth_black_x24();
+               let label = Label::new(
+                  RichText::new("Ethereum").size(theme.text_sizes.normal),
+                  Some(icon),
+               );
+               ui.horizontal(|ui| {
+                  ui.add(label);
+               });
+
+               ui.horizontal(|ui| {
+                  ui.label(RichText::new("Ethereum").size(theme.text_sizes.normal));
+               });
 
                if ui.button("Close").clicked() {
                   self.open = false;
@@ -199,6 +289,902 @@ impl TestingWindow {
          });
    }
 }
+
+pub struct Step {
+   pub id: &'static str,
+   pub in_progress: bool,
+   pub finished: bool,
+   pub msg: String,
+}
+
+pub struct ProgressWindow2 {
+   open: bool,
+   steps: Vec<Step>,
+   final_msg: String,
+   tx_summary: Option<TxSummary>,
+   size: (f32, f32),
+}
+
+impl ProgressWindow2 {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         steps: Vec::new(),
+         final_msg: String::new(),
+         tx_summary: None,
+         size: (350.0, 150.0),
+      }
+   }
+
+   pub fn open_test(&mut self) {
+      let steps = vec![
+         Step {
+            id: "step1",
+            in_progress: true,
+            finished: false,
+            msg: "Step 1".to_string(),
+         },
+         Step {
+            id: "step2",
+            in_progress: false,
+            finished: false,
+            msg: "Step 2".to_string(),
+         },
+         Step {
+            id: "step3",
+            in_progress: false,
+            finished: false,
+            msg: "Step 3".to_string(),
+         },
+      ];
+      self.open_with(steps, "Done".to_string());
+   }
+
+   /// Open the progress window
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn set_tx_summary(&mut self, summary: TxSummary) {
+      self.tx_summary = Some(summary);
+   }
+
+   pub fn add_step(&mut self, id: &'static str, in_progress: bool, finished: bool, msg: String) {
+      self.steps.push(Step {
+         id,
+         in_progress,
+         finished,
+         msg,
+      });
+   }
+
+   /// 1st Step must always be in progress
+   pub fn open_with(&mut self, steps: Vec<Step>, final_msg: String) {
+      self.open = true;
+      self.steps = steps;
+      self.final_msg = final_msg;
+   }
+
+   pub fn current_step(&mut self) -> Option<&mut Step> {
+      self.steps.iter_mut().find(|s| s.in_progress)
+   }
+
+   pub fn next_step(&mut self, step_id: &str) -> Option<&mut Step> {
+      self.steps.iter_mut().find(|s| s.id == step_id)
+   }
+
+   /// Proceed to the next step, finishing the current one
+   pub fn proceed_with(&mut self, step_id: &str) {
+      if let Some(step) = self.current_step() {
+         step.in_progress = false;
+         step.finished = true;
+      }
+
+      if let Some(step) = self.next_step(step_id) {
+         step.in_progress = true;
+      } else {
+         tracing::error!("Step with id {} not found", step_id);
+      }
+   }
+
+   pub fn finish_last_step(&mut self) {
+      if let Some(step) = self.current_step() {
+         step.in_progress = false;
+         step.finished = true;
+      }
+   }
+
+   pub fn finished(&self) -> bool {
+      self.steps.iter().all(|s| s.finished)
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.tx_summary = None;
+      self.final_msg.clear();
+      self.steps.clear();
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("Progress Window")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .frame(Frame::window(ui.style()))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            Frame::new().inner_margin(Margin::same(20)).show(ui, |ui| {
+               let normal = theme.text_sizes.normal;
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               ui.vertical(|ui| {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+                  for step in self.steps.iter_mut() {
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        ui.add_space(120.0);
+                        ui.label(RichText::new(step.msg.clone()).size(normal));
+                        if step.in_progress {
+                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                        }
+
+                        if step.finished {
+                           ui.label(RichText::new(GREEN_CHECK).size(normal));
+                        }
+                     });
+                  }
+
+                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                     ui.add_space(120.0);
+                     if self.finished() {
+                        ui.label(RichText::new(self.final_msg.clone()).size(normal));
+                     } else {
+                        // occupy the space
+                        ui.label(RichText::new("").size(normal));
+                     }
+                  });
+                  ui.add_space(20.0);
+
+                  ui.horizontal(|ui| {
+                     ui.add_space(110.0);
+                     let close = Button::new(RichText::new("Close").size(normal));
+                     if ui.add(close).clicked() {
+                        self.open = false;
+                     }
+
+                     let summary = Button::new(RichText::new("Summary").size(normal));
+                     if self.finished() {
+                        if ui.add(summary).clicked() {
+                           self.reset();
+                           let summary = self.tx_summary.take();
+
+                           RT.spawn_blocking(move || {
+                              SHARED_GUI.write(|gui| {
+                                 gui.tx_confirm_window
+                                    .open_with_summary(summary.unwrap_or_default());
+                              });
+                           });
+                        }
+                     }
+                  });
+               });
+            });
+         });
+   }
+}
+
+/// A Window to confirm a transaction from a dapp
+pub struct TxConfirmWindow {
+   open: bool,
+   /// Use this Window as a Tx summary or to confirm a transaction
+   ///
+   /// True for confirming a transaction and False for showing a summary
+   confrim_window: bool,
+   simulating: bool,
+   confirm: Option<bool>,
+   dapp: String,
+   chain: ChainId,
+   native_currency: NativeCurrency,
+   /// Not tx cost but how much eth is being sent
+   eth_spent: NumericValue,
+   eth_spent_value: NumericValue,
+   /// Tx cost
+   tx_cost: NumericValue,
+   tx_cost_usd: NumericValue,
+   gas_used: u64,
+   sender: Address,
+   interact_to: Address,
+   tx_hash: TxHash,
+   /// Is this a contract interaction?
+   ///
+   /// If not interact to is an EOA
+   contract_interact: bool,
+   /// The action that is being performed
+   action: OnChainAction,
+   priority_fee: String,
+   size: (f32, f32),
+}
+
+impl TxConfirmWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         confrim_window: true,
+         simulating: false,
+         confirm: None,
+         dapp: String::new(),
+         chain: ChainId::default(),
+         native_currency: NativeCurrency::default(),
+         eth_spent: NumericValue::default(),
+         eth_spent_value: NumericValue::default(),
+         tx_cost: NumericValue::default(),
+         tx_cost_usd: NumericValue::default(),
+         gas_used: 60_000,
+         sender: Address::ZERO,
+         interact_to: Address::ZERO,
+         tx_hash: TxHash::ZERO,
+         contract_interact: false,
+         action: OnChainAction::dummy_swap(),
+         priority_fee: "1".to_string(),
+         size: (400.0, 550.0),
+      }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn open_with_summary(&mut self, summary: TxSummary) {
+      self.open = true;
+      let chain = summary.chain;
+      let native = NativeCurrency::from_chain_id(chain).unwrap();
+
+      self.confrim_window = false;
+      self.chain = chain.into();
+      self.native_currency = native;
+      self.eth_spent = summary.eth_spent.clone();
+      self.eth_spent_value = summary.eth_spent_usd.clone();
+      self.tx_cost = summary.tx_cost.clone();
+      self.tx_cost_usd = summary.tx_cost_usd.clone();
+      self.gas_used = summary.gas_used;
+      self.sender = summary.from;
+      self.interact_to = summary.to;
+      self.tx_hash = summary.hash;
+      self.contract_interact = summary.contract_interact;
+      self.action = summary.action;
+   }
+
+   pub fn open_with(
+      &mut self,
+      dapp: String,
+      chain: ChainId,
+      confrim_window: bool,
+      eth_spent: NumericValue,
+      eth_spent_value: NumericValue,
+      tx_cost: NumericValue,
+      tx_cost_usd: NumericValue,
+      gas_used: u64,
+      sender: Address,
+      interact_to: Address,
+      contract_interact: bool,
+      action: OnChainAction,
+      priority_fee: String,
+   ) {
+      let native = NativeCurrency::from_chain_id(chain.id()).unwrap();
+      self.set_priority_fee(chain, priority_fee);
+      self.dapp = dapp;
+      self.chain = chain;
+      self.confrim_window = confrim_window;
+      self.native_currency = native;
+      self.eth_spent = eth_spent;
+      self.eth_spent_value = eth_spent_value;
+      self.tx_cost = tx_cost;
+      self.tx_cost_usd = tx_cost_usd;
+      self.gas_used = gas_used;
+      self.sender = sender;
+      self.interact_to = interact_to;
+      self.contract_interact = contract_interact;
+      self.action = action;
+      self.open = true;
+   }
+
+   pub fn get_confirm(&self) -> Option<bool> {
+      self.confirm
+   }
+
+   pub fn set_confirm_window(&mut self, confrim_window: bool) {
+      self.confrim_window = confrim_window;
+   }
+
+   pub fn set_priority_fee(&mut self, chain: ChainId, fee: String) {
+      // No priority fee for Binance Smart Chain
+      // Set empty to avoid frame shutter due to invalid fee
+      if chain.is_bsc() {
+         self.priority_fee = String::new();
+      } else {
+         self.priority_fee = fee;
+      }
+   }
+
+   pub fn get_priority_fee(&self) -> NumericValue {
+      NumericValue::parse_to_gwei(&self.priority_fee)
+   }
+
+   pub fn simulating(&mut self) {
+      self.simulating = true;
+   }
+
+   pub fn done_simulating(&mut self) {
+      self.simulating = false;
+   }
+
+   pub fn set_confirm(&mut self, confirm: Option<bool>) {
+      self.confirm = confirm;
+   }
+
+   pub fn set_dapp(&mut self, dapp: String) {
+      self.dapp = dapp;
+   }
+
+   pub fn set_chain(&mut self, chain: ChainId) {
+      self.chain = chain;
+   }
+
+   pub fn set_sender(&mut self, sender: Address) {
+      self.sender = sender;
+   }
+
+   pub fn set_action(&mut self, action: OnChainAction) {
+      self.action = action;
+   }
+
+   pub fn set_native_currency(&mut self, native_currency: NativeCurrency) {
+      self.native_currency = native_currency;
+   }
+
+   pub fn set_eth_spent(&mut self, eth_spent: NumericValue) {
+      self.eth_spent = eth_spent;
+   }
+
+   pub fn set_eth_spent_value(&mut self, eth_spent_value: NumericValue) {
+      self.eth_spent_value = eth_spent_value;
+   }
+
+   pub fn set_interact_to(&mut self, interact_to: Address) {
+      self.interact_to = interact_to;
+   }
+
+   pub fn set_contract_interact(&mut self, contract_interact: bool) {
+      self.contract_interact = contract_interact;
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.simulating = false;
+      self.confirm = None;
+   }
+
+   /// (Cost in ETH, Cost in USD)
+   fn cost(&mut self, ctx: ZeusCtx) {
+      let chain = self.chain;
+      let fee = NumericValue::parse_to_gwei(&self.priority_fee);
+      let fee = if fee.is_zero() {
+         NumericValue::parse_to_gwei("1")
+      } else {
+         fee
+      };
+
+      let (cost_in_wei, cost_in_usd) = estimate_tx_cost(ctx, chain.id(), self.gas_used, fee.wei2());
+      self.tx_cost = cost_in_wei;
+      self.tx_cost_usd = cost_in_usd;
+   }
+
+   fn pay_column(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if self.action.is_other() {
+         return;
+      }
+
+      let text = if self.action.is_transfer() {
+         "Send"
+      } else {
+         "Pay"
+      };
+
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new(text).size(theme.text_sizes.normal));
+         });
+
+         // Currency to Pay/Send
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let currency = self.action.input_currency();
+            let amount = self.action.amount();
+            let icon = icons.currency_icon_x24(&currency);
+            let text = RichText::new(format!(
+               "{} {}",
+               amount.formatted(),
+               currency.symbol()
+            ))
+            .size(theme.text_sizes.normal);
+            let label = Label::new(text, Some(icon)).text_first(false);
+            ui.add(label);
+         });
+      });
+
+      if self.action.is_bridge() {
+         // Origin Chain Column
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Origin Chain").size(theme.text_sizes.normal));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let chain: ChainId = self.action.bridge_params().origin_chain.into();
+               let icon = icons.chain_icon(&chain.id());
+               let label = Label::new(
+                  RichText::new(chain.name()).size(theme.text_sizes.normal),
+                  Some(icon),
+               )
+               .text_first(false);
+               ui.add(label);
+            });
+         });
+      }
+   }
+
+   fn receive_column(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if self.action.is_other() || self.action.is_transfer() {
+         return;
+      }
+
+      // Currency to Receive
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Receive").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let currency = self.action.output_currency();
+            let amount = self.action.received();
+            let icon = icons.currency_icon_x24(&currency);
+            let text = RichText::new(format!(
+               "{} {}",
+               amount.formatted(),
+               currency.symbol()
+            ))
+            .size(theme.text_sizes.normal);
+            let label = Label::new(text, Some(icon)).text_first(false);
+            ui.add(label);
+         });
+      });
+
+      if self.action.is_bridge() {
+         // Destination Chain Column
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Destination Chain").size(theme.text_sizes.normal));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let chain: ChainId = self.action.bridge_params().destination_chain.into();
+               let icon = icons.chain_icon(&chain.id());
+               let label = Label::new(
+                  RichText::new(chain.name()).size(theme.text_sizes.normal),
+                  Some(icon),
+               )
+               .text_first(false);
+               ui.add(label);
+            });
+         });
+      }
+   }
+
+   fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
+      let balance = ctx
+         .get_eth_balance(self.chain.id(), sender)
+         .unwrap_or_default();
+      let total_cost = self.eth_spent.wei2() + self.tx_cost.wei2();
+      balance.wei2() >= total_cost
+   }
+
+   pub fn simulation_result(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = if self.confrim_window {
+            "Simulation Results"
+         } else {
+            "Transaction Summary"
+         };
+         ui.label(RichText::new(text).size(theme.text_sizes.large));
+      });
+
+      // * If the Action is unknown or a transfer we just show the eth spent (Tx cost)
+      // * For Swaps and Cross Swaps we show the currency spent and currency received
+
+      if self.action.is_other() || self.action.is_transfer() {
+         // Eth spent Column
+         ui.horizontal(|ui| {
+            let icon = icons.eth_x24();
+            let text = RichText::new(&format!(
+               "- {} {} ",
+               self.eth_spent.formatted(),
+               self.native_currency.symbol
+            ))
+            .size(theme.text_sizes.normal)
+            .color(Color32::RED);
+            let label = Label::new(text, Some(icon)).text_first(false);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.add(label);
+            });
+
+            // Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(
+                  RichText::new(&format!(
+                     "~ ${}",
+                     self.eth_spent_value.formatted()
+                  ))
+                  .size(theme.text_sizes.small),
+               );
+            });
+         });
+      }
+
+      if self.action.is_bridge() || self.action.is_swap() {
+         // Currency to Pay/Send
+         ui.horizontal(|ui| {
+            let currency = self.action.input_currency();
+            let amount = self.action.amount();
+            let icon = icons.currency_icon_x24(&currency);
+            let text = RichText::new(&format!(
+               "- {} {} ",
+               amount.formatted(),
+               currency.symbol()
+            ))
+            .size(theme.text_sizes.normal)
+            .color(Color32::RED);
+            let label = Label::new(text, Some(icon)).text_first(false);
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.add(label);
+            });
+
+            // Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let value = self.action.amount_usd().unwrap_or_default();
+               ui.label(
+                  RichText::new(&format!("~ ${}", value.formatted())).size(theme.text_sizes.small),
+               );
+            });
+         });
+
+         // Received Currency and Value Column
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let currency = self.action.output_currency();
+               let amount = self.action.received();
+               let icon = icons.currency_icon_x24(&currency);
+               let text = RichText::new(format!(
+                  "+ {} {}",
+                  amount.formatted(),
+                  currency.symbol()
+               ))
+               .size(theme.text_sizes.normal)
+               .color(Color32::GREEN);
+               let label = Label::new(text, Some(icon)).text_first(false);
+               ui.add(label);
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let value = self.action.received_usd().unwrap_or_default();
+               let text =
+                  RichText::new(format!("~ ${}", value.formatted())).size(theme.text_sizes.small);
+               ui.label(text);
+            });
+         });
+      }
+   }
+
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("Tx Confirm")
+         .title_bar(false)
+         .resizable(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .collapsible(false)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+
+            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+               ui.vertical(|ui| {
+                  ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  let normal = theme.text_sizes.normal;
+                  let large = theme.text_sizes.large;
+
+                  if self.simulating {
+                     ui.horizontal(|ui| {
+                        ui.add_space(150.0);
+                        ui.label(RichText::new("Simulating").size(large));
+                        ui.add_space(5.0);
+                        ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                     });
+                  } else {
+                     // Dapp Url
+                     ui.vertical_centered(|ui| {
+                        if self.confrim_window {
+                           ui.label(RichText::new(&self.dapp).size(large));
+                        }
+                     });
+
+                     self.simulation_result(theme, icons.clone(), ui);
+
+                     // Action Name Column
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        let action_name = self.action.name();
+                        ui.label(RichText::new(action_name).size(large).strong());
+                     });
+
+                     // Chain Column
+                     ui.horizontal(|ui| {
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           ui.label(RichText::new("Chain").size(normal));
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                           let chain = self.chain.name();
+                           let icon = icons.chain_icon(&self.chain.id());
+                           let label = Label::new(RichText::new(chain).size(normal), Some(icon))
+                              .text_first(false);
+                           ui.add(label);
+                        });
+                     });
+
+                     self.pay_column(theme, icons.clone(), ui);
+                     self.receive_column(theme, icons.clone(), ui);
+
+                     // Contract interaction / Recipient Column
+                     ui.horizontal(|ui| {
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           let text = if self.contract_interact {
+                              "Contract interaction"
+                           } else {
+                              "Recipient"
+                           };
+                           ui.label(RichText::new(text).size(normal));
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                           let address = truncate_address(self.interact_to.to_string());
+                           let explorer = self.chain.block_explorer();
+                           let link = format!(
+                              "{}/address/{}",
+                              explorer,
+                              self.interact_to.to_string()
+                           );
+                           ui.hyperlink_to(RichText::new(address).size(normal).strong(), link);
+                        });
+                     });
+
+                     if !self.confrim_window {
+                        ui.horizontal(|ui| {
+                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                              let text = "Transaction hash";
+                              ui.label(RichText::new(text).size(normal));
+                           });
+
+                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                              let hash_str = truncate_hash(self.tx_hash.to_string());
+                              let explorer = self.chain.block_explorer();
+                              let link = format!("{}/tx/{}", explorer, self.tx_hash.to_string());
+                              ui.hyperlink_to(
+                                 RichText::new(hash_str).size(normal).strong(),
+                                 link,
+                              );
+                           });
+                        });
+                     }
+
+                     self.cost(ctx.clone());
+
+                     // Transaction cost
+                     ui.horizontal(|ui| {
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           let cost = format!(
+                              "Cost {} {}",
+                              self.tx_cost.formatted(),
+                              self.native_currency.symbol
+                           );
+                           ui.label(RichText::new(cost).size(normal));
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                           ui.label(
+                              RichText::new(format!("${}", self.tx_cost_usd.formatted()))
+                                 .size(theme.text_sizes.small),
+                           );
+                        });
+                     });
+
+                     // Priority Fee
+                     let sufficient_balance = self.sufficient_balance(ctx.clone(), self.sender);
+                     if self.confrim_window {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           ui.label(RichText::new("Priority Fee").size(theme.text_sizes.normal));
+                           ui.add_space(2.0);
+                           ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
+                        });
+
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           if self.chain.is_bsc() {
+                              ui.disable();
+                           }
+                           ui.set_width(ui.available_width() * 0.2);
+                           ui.set_height(10.0);
+                           ui.add(
+                              TextEdit::singleline(&mut self.priority_fee)
+                                 .margin(Margin::same(10))
+                                 .background_color(theme.colors.text_edit_bg2)
+                                 .font(egui::FontId::proportional(
+                                    theme.text_sizes.normal,
+                                 )),
+                           );
+                        });
+                        if !sufficient_balance {
+                           ui.label(
+                              RichText::new("Insufficient balance to send transaction")
+                                 .size(theme.text_sizes.normal)
+                                 .color(Color32::RED),
+                           );
+                        }
+                     }
+                     ui.add_space(15.0);
+
+                     ui.horizontal(|ui| {
+                        let width = ui.available_width() * 0.9;
+
+                        if self.confrim_window {
+                           ui.scope(|ui| {
+                              if !sufficient_balance {
+                                 ui.disable();
+                              }
+                              if ui
+                                 .add(
+                                    Button::new(RichText::new("Confirm").size(normal))
+                                       .min_size(vec2(width * 0.75, 50.0)),
+                                 )
+                                 .clicked()
+                              {
+                                 self.open = false;
+                                 self.confirm = Some(true);
+                              }
+                           });
+
+                           ui.add_space(10.0);
+
+                           if ui
+                              .add(
+                                 Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
+                                    .min_size(vec2(width * 0.25, 50.0)),
+                              )
+                              .clicked()
+                           {
+                              self.open = false;
+                              self.confirm = Some(false);
+                           }
+                        } else {
+                           if ui
+                              .add(Button::new("Close").min_size(vec2(width * 0.75, 50.0)))
+                              .clicked()
+                           {
+                              self.open = false;
+                           }
+                        }
+                     });
+                  } // end of else
+               });
+            });
+         });
+   }
+}
+
+/// A Window to prompt the user to confirm an action
+pub struct ConfirmWindow {
+   pub open: bool,
+   pub confirm: Option<bool>,
+   pub msg: String,
+   pub msg2: Option<String>,
+   pub size: (f32, f32),
+}
+
+impl ConfirmWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         confirm: None,
+         msg: String::new(),
+         msg2: None,
+         size: (200.0, 100.0),
+      }
+   }
+
+   pub fn open(&mut self, msg: impl Into<String>) {
+      self.open = true;
+      self.msg = msg.into();
+   }
+
+   pub fn set_msg2(&mut self, msg: impl Into<String>) {
+      self.msg2 = Some(msg.into());
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.msg.clear();
+      self.msg2.take();
+      self.confirm = None;
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("confirm_window")
+         .title_bar(false)
+         .resizable(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .collapsible(false)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 15.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               ui.label(RichText::new(&self.msg).size(theme.text_sizes.normal));
+
+               if let Some(msg) = &self.msg2 {
+                  ui.label(RichText::new(msg).size(theme.text_sizes.normal));
+               }
+
+               if ui
+                  .add(Button::new(
+                     RichText::new("Confirm").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  self.open = false;
+                  self.confirm = Some(true);
+               }
+
+               if ui
+                  .add(Button::new(
+                     RichText::new("Reject").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  self.open = false;
+                  self.confirm = Some(false);
+               }
+            });
+         });
+   }
+}
+
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    pub open: bool,
@@ -356,7 +1342,8 @@ impl PortfolioUi {
                let visuals = theme.get_button_visuals(theme.colors.bg_color);
                widget_visuals(ui, visuals);
 
-               let add_token = Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
+               let add_token =
+                  Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
                if ui.add(add_token).clicked() {
                   token_selection.open = true;
                }
@@ -431,14 +1418,36 @@ impl PortfolioUi {
 
                         if let Some(native) = native_currency {
                            self.token(theme, icons.clone(), native, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, native, ui, column_widths[0]);
+                           self.price_balance_value(
+                              ctx.clone(),
+                              theme,
+                              chain_id,
+                              owner,
+                              native,
+                              ui,
+                              column_widths[0],
+                           );
                            self.remove_currency(ctx.clone(), owner, native, ui, column_widths[4]);
                            ui.end_row();
                         }
 
                         if let Some(wrapped) = native_wrapped {
-                           self.token(theme, icons.clone(), wrapped, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, wrapped, ui, column_widths[0]);
+                           self.token(
+                              theme,
+                              icons.clone(),
+                              wrapped,
+                              ui,
+                              column_widths[0],
+                           );
+                           self.price_balance_value(
+                              ctx.clone(),
+                              theme,
+                              chain_id,
+                              owner,
+                              wrapped,
+                              ui,
+                              column_widths[0],
+                           );
                            self.remove_currency(ctx.clone(), owner, wrapped, ui, column_widths[4]);
                            ui.end_row();
                         }
@@ -448,7 +1457,15 @@ impl PortfolioUi {
                               continue;
                            }
                            self.token(theme, icons.clone(), token, ui, column_widths[0]);
-                           self.price_balance_value(ctx.clone(), theme, chain_id, owner, token, ui, column_widths[0]);
+                           self.price_balance_value(
+                              ctx.clone(),
+                              theme,
+                              chain_id,
+                              owner,
+                              token,
+                              ui,
+                              column_widths[0],
+                           );
                            self.remove_currency(ctx.clone(), owner, token, ui, column_widths[4]);
                            ui.end_row();
                         }
@@ -539,7 +1556,13 @@ impl PortfolioUi {
    }
 
    // Add a currency to the portfolio and update the portfolio value
-   fn add_currency(&mut self, ctx: ZeusCtx, owner: Address, token_fetched: bool, currency: Currency) {
+   fn add_currency(
+      &mut self,
+      ctx: ZeusCtx,
+      owner: Address,
+      token_fetched: bool,
+      currency: Currency,
+   ) {
       let chain_id = ctx.chain().id();
 
       ctx.write(|ctx| {
@@ -572,11 +1595,22 @@ impl PortfolioUi {
       let ctx2 = ctx.clone();
       self.show_spinner = true;
       RT.spawn(async move {
-         match eth::sync_pools_for_token(ctx2.clone(), token2.clone(), true, v3_pools.is_empty()).await {
+         match eth::sync_pools_for_token(
+            ctx2.clone(),
+            token2.clone(),
+            true,
+            v3_pools.is_empty(),
+         )
+         .await
+         {
             Ok(_) => {
                tracing::info!("Synced Pools for {}", token2.symbol);
             }
-            Err(e) => tracing::error!("Error syncing pools for {}: {:?}", token2.symbol, e),
+            Err(e) => tracing::error!(
+               "Error syncing pools for {}: {:?}",
+               token2.symbol,
+               e
+            ),
          }
 
          let pool_manager = ctx2.pool_manager();
@@ -589,7 +1623,11 @@ impl PortfolioUi {
                });
             }
             Err(e) => {
-               tracing::error!("Error updating pool state for {}: {:?}", token2.symbol, e);
+               tracing::error!(
+                  "Error updating pool state for {}: {:?}",
+                  token2.symbol,
+                  e
+               );
                SHARED_GUI.write(|gui| {
                   gui.portofolio.show_spinner = false;
                });
@@ -614,7 +1652,14 @@ impl PortfolioUi {
       });
    }
 
-   fn remove_currency(&self, ctx: ZeusCtx, owner: Address, currency: &Currency, ui: &mut Ui, width: f32) {
+   fn remove_currency(
+      &self,
+      ctx: ZeusCtx,
+      owner: Address,
+      currency: &Currency,
+      ui: &mut Ui,
+      width: f32,
+   ) {
       ui.horizontal(|ui| {
          ui.set_width(width);
          if ui.button("X").clicked() {
@@ -623,8 +1668,8 @@ impl PortfolioUi {
                ctx.portfolio_db.remove_currency(chain, owner, currency);
             });
             RT.spawn_blocking(move || {
-            ctx.update_portfolio_value(chain, owner);
-            ctx.save_all();
+               ctx.update_portfolio_value(chain, owner);
+               ctx.save_all();
             });
          }
       });

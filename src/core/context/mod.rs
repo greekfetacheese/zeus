@@ -126,6 +126,14 @@ impl ZeusCtx {
       self.read(|ctx| ctx.get_client_with_id(id))
    }
 
+   pub fn get_flashbots_client(&self) -> Result<HttpClient, anyhow::Error> {
+      self.read(|ctx| ctx.get_flashbots_client())
+   }
+
+   pub fn get_flashbots_fast_client(&self) -> Result<HttpClient, anyhow::Error> {
+      self.read(|ctx| ctx.get_flashbots_fast_client())
+   }
+
    pub fn chain(&self) -> ChainId {
       self.read(|ctx| ctx.chain.clone())
    }
@@ -340,6 +348,12 @@ impl ZeusCtx {
       let price = self.get_currency_price(currency);
       let balance = self.get_currency_balance(chain, owner, currency);
       NumericValue::value(balance.f64(), price.f64())
+   }
+
+   /// Get the value of the given amount in the given currency
+   pub fn get_currency_value2(&self, amount: f64, currency: &Currency) -> NumericValue {
+      let price = self.get_currency_price(currency);
+      NumericValue::value(amount, price.f64())
    }
 
    pub fn get_currency_balance(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
@@ -705,6 +719,18 @@ impl ZeusContext {
          base_fee: HashMap::new(),
          priority_fee,
       }
+   }
+
+   /// This only for ETH mainnet
+   pub fn get_flashbots_client(&self) -> Result<HttpClient, anyhow::Error> {
+      let url = "https://rpc.flashbots.net";
+      get_http_client(&url, retry_layer(100, 10, 1000), throttle_layer(5))
+   }
+
+   /// This only for ETH mainnet
+   pub fn get_flashbots_fast_client(&self) -> Result<HttpClient, anyhow::Error> {
+      let url = "https://rpc.flashbots.net/fast";
+      get_http_client(&url, retry_layer(100, 10, 1000), throttle_layer(5))
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {

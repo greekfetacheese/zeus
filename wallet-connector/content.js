@@ -22,9 +22,8 @@ injectScript('injected.js');
 
 
 
-// --- Relay messages between injected script and background ---
 
-// 1. Listen for messages FROM the injected script (window.postMessage)
+// Listen for messages FROM the injected script (window.postMessage)
 window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.target !== 'content') {
         return;
@@ -33,7 +32,6 @@ window.addEventListener("message", (event) => {
     const message = event.data;
     let messageToBackground = null;
 
-    // Determine message type to send to background
     if (message.type === 'fetch_request') {
         messageToBackground = { target: 'background', type: 'fetch', payload: message.payload };
     } else if (message.type === 'connection_request') {
@@ -41,23 +39,30 @@ window.addEventListener("message", (event) => {
     }
 
     if (messageToBackground) {
-        // console.log('Content Script: Forwarding message to background:', messageToBackground);
-        // Forward the request to the background script
         chrome.runtime.sendMessage(messageToBackground, (response) => {
             if (chrome.runtime.lastError) {
                 console.error('Content Script: Error sending/receiving message:', chrome.runtime.lastError.message);
-                // Send error back to injected script (use original request ID)
                 window.postMessage({ target: 'injected', type: 'fetch_response', success: false, error: chrome.runtime.lastError.message, id: message.id }, "*");
             } else {
-                // console.log('Content Script: Received response from background:', response);
-                // Add the original request ID back for correlation
                 response.id = message.id;
-                // Forward the response back to the injected script
-                // Use 'fetch_response' type consistently for simplicity in injected listener
                 window.postMessage({ target: 'injected', type: 'fetch_response', ...response }, "*");
             }
         });
     }
+});
+
+
+// ***** Listen for messages FROM background script *****
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'accountsChanged' || message.type === 'chainChanged') {
+        console.log(`Content Script: Received ${message.type} from background. Relaying to injected script.`);
+        window.postMessage({
+            target: 'injected',
+            type: message.type,
+            payload: message.payload
+        }, "*");
+    }
+    return false;
 });
 
 

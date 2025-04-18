@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 #![allow(unused_variables)]
 
-use eframe::egui::{ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions};
+use eframe::egui::{
+   ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
+};
 
 use image::imageops::FilterType;
 use std::collections::HashMap;
@@ -22,7 +24,8 @@ pub struct Icons {
 
 #[derive(Clone, Default)]
 pub struct TokenIcons {
-   pub icon: HashMap<(Address, u64), TextureHandle>,
+   pub icon_x32: HashMap<(Address, u64), TextureHandle>,
+   pub icon_x24: HashMap<(Address, u64), TextureHandle>,
 }
 
 impl TokenIcons {
@@ -30,17 +33,25 @@ impl TokenIcons {
       let icon_data: Vec<TokenIconData> = serde_json::from_str(TOKEN_ICONS)?;
 
       let mut icons = HashMap::new();
+      let mut icons_x24 = HashMap::new();
 
       let texture_options = TextureOptions::default();
       for icon in icon_data {
          let img = load_and_resize_image(&icon.icon_data, 32, 32)?;
+         let img_x24 = load_and_resize_image(&icon.icon_data, 24, 24)?;
          let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
+         let texture_handle_x24 = ctx.load_texture(icon.address.to_string(), img_x24, texture_options);
+         icons_x24.insert(
+            (Address::from_str(&icon.address)?, icon.chain_id),
+            texture_handle_x24,
+         );
+
          icons.insert(
             (Address::from_str(&icon.address)?, icon.chain_id),
             texture_handle,
          );
       }
-      Ok(Self { icon: icons })
+      Ok(Self { icon_x32: icons, icon_x24: icons_x24 })
    }
 }
 
@@ -61,7 +72,11 @@ pub struct ChainIcons {
 #[derive(Clone)]
 pub struct CurrencyIcons {
    pub eth: TextureHandle,
+   pub eth_black: TextureHandle,
+   pub eth_black_x24: TextureHandle,
+   pub eth_x24: TextureHandle,
    pub bnb: TextureHandle,
+   pub bnb_x24: TextureHandle,
 }
 
 #[derive(Clone)]
@@ -91,7 +106,15 @@ impl Icons {
 
       // Currency icons
       let eth_coin = load_image(include_bytes!("currency/resized/ethereum.png"))?;
+      let eth_coin_x24 = load_image(include_bytes!(
+         "currency/resized/x24/ethereum.png"
+      ))?;
+      let eth_black = load_image(include_bytes!("currency/resized/eth-black.png"))?;
+      let eth_black_x24 = load_image(include_bytes!(
+         "currency/resized/x24/eth-black.png"
+      ))?;
       let bnb_coin = load_image(include_bytes!("currency/resized/bnb.png"))?;
+      let bnb_coin_x24 = load_image(include_bytes!("currency/resized/x24/bnb.png"))?;
 
       // ERC20 & BEP20 Placeholders
       let erc20 = load_image(include_bytes!("currency/resized/erc20.png"))?;
@@ -123,7 +146,15 @@ impl Icons {
 
       let currency_icons = CurrencyIcons {
          eth: ctx.load_texture("eth_coin", eth_coin, texture_options),
+         eth_black: ctx.load_texture("eth_coin_black", eth_black, texture_options),
+         eth_black_x24: ctx.load_texture(
+            "eth_coin_black_x24",
+            eth_black_x24,
+            texture_options,
+         ),
+         eth_x24: ctx.load_texture("eth_coin_x24", eth_coin_x24, texture_options),
          bnb: ctx.load_texture("bnb_coin", bnb_coin, texture_options),
+         bnb_x24: ctx.load_texture("bnb_coin_x24", bnb_coin_x24, texture_options),
       };
 
       let erc20 = ctx.load_texture("erc20", erc20, texture_options);
@@ -136,7 +167,7 @@ impl Icons {
          trash: ctx.load_texture("trash", trash, texture_options),
          edit: ctx.load_texture("edit", edit, texture_options),
          down: ctx.load_texture("down", down, texture_options),
-         right: ctx.load_texture("right", right, texture_options)
+         right: ctx.load_texture("right", right, texture_options),
       };
 
       Ok(Self {
@@ -172,10 +203,33 @@ impl Icons {
       }
    }
 
+   pub fn eth_black(&self) -> Image<'static> {
+      Image::new(&self.currency.eth_black)
+   }
+
+   pub fn eth_black_x24(&self) -> Image<'static> {
+      Image::new(&self.currency.eth_black_x24)
+   }
+
+   pub fn eth_x24(&self) -> Image<'static> {
+      Image::new(&self.currency.eth_x24)
+   }
+
+   pub fn bnb_x24(&self) -> Image<'static> {
+      Image::new(&self.currency.bnb_x24)
+   }
+
    pub fn native_currency_icon(&self, chain: u64) -> Image<'static> {
       match chain {
          56 => Image::new(&self.currency.bnb),
          _ => Image::new(&self.currency.eth),
+      }
+   }
+
+   pub fn native_currency_icon_x24(&self, chain: u64) -> Image<'static> {
+      match chain {
+         56 => Image::new(&self.currency.bnb_x24),
+         _ => Image::new(&self.currency.eth_x24),
       }
    }
 
@@ -193,12 +247,33 @@ impl Icons {
       }
    }
 
-   /// Return the token icon based on its address and chain id
+   pub fn currency_icon_x24(&self, currency: &Currency) -> Image<'static> {
+      if currency.is_native() {
+         self.native_currency_icon_x24(currency.native().unwrap().chain_id)
+      } else {
+         let token = currency.erc20().unwrap();
+         self.token_icon_x24(token.address, token.chain_id)
+      }
+   }
+
+   /// Return the token icon (32 x 32) based on its address and chain id
    ///
    /// If it does not exist we return a placeholder
    pub fn token_icon(&self, address: Address, chain_id: u64) -> Image<'static> {
       let key = &(address, chain_id);
-      if let Some(icon) = self.tokens.icon.get(key) {
+      if let Some(icon) = self.tokens.icon_x32.get(key) {
+         return Image::new(icon);
+      } else {
+         self.token_placeholder(chain_id)
+      }
+   }
+
+   /// Return the token icon (24 x 24) based on its address and chain id
+   ///
+   /// If it does not exist we return a placeholder
+   pub fn token_icon_x24(&self, address: Address, chain_id: u64) -> Image<'static> {
+      let key = &(address, chain_id);
+      if let Some(icon) = self.tokens.icon_x24.get(key) {
          return Image::new(icon);
       } else {
          self.token_placeholder(chain_id)
@@ -254,13 +329,20 @@ impl Icons {
    }
 }
 
-fn load_and_resize_image(image_data: &[u8], width: u32, height: u32) -> Result<ColorImage, image::ImageError> {
+fn load_and_resize_image(
+   image_data: &[u8],
+   width: u32,
+   height: u32,
+) -> Result<ColorImage, image::ImageError> {
    let image = image::load_from_memory(image_data)?;
    let resized_image = image.resize(width, height, FilterType::Lanczos3);
    let size = [resized_image.width() as _, resized_image.height() as _];
    let image_buffer = resized_image.to_rgba8();
    let pixels = image_buffer.as_flat_samples();
-   Ok(ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()))
+   Ok(ColorImage::from_rgba_unmultiplied(
+      size,
+      pixels.as_slice(),
+   ))
 }
 
 fn load_image(image_data: &[u8]) -> Result<ColorImage, image::ImageError> {
@@ -268,5 +350,8 @@ fn load_image(image_data: &[u8]) -> Result<ColorImage, image::ImageError> {
    let size = [image.width() as _, image.height() as _];
    let image_buffer = image.to_rgba8();
    let pixels = image_buffer.as_flat_samples();
-   Ok(ColorImage::from_rgba_unmultiplied(size, pixels.as_slice()))
+   Ok(ColorImage::from_rgba_unmultiplied(
+      size,
+      pixels.as_slice(),
+   ))
 }

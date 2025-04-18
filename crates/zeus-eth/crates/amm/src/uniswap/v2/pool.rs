@@ -62,6 +62,30 @@ impl UniswapV2Pool {
       }
    }
 
+   pub async fn from_address<P, N>(client: P, chain_id: u64, address: Address) -> Result<Self, anyhow::Error>
+   where
+      P: Provider<(), N> + Clone + 'static,
+      N: Network,
+   {
+      let dex_kind = DexKind::UniswapV2;
+      let token0 = v2::pool::token0(address, client.clone()).await?;
+      let token1 = v2::pool::token1(address, client.clone()).await?;
+
+      let erc_token0 = if let Some(token) = ERC20Token::base_token(chain_id, token0) {
+         token
+      } else {
+         ERC20Token::new(client.clone(), token0, chain_id).await?
+      };
+
+      let erc_token1 = if let Some(token) = ERC20Token::base_token(chain_id, token1) {
+         token
+      } else {
+         ERC20Token::new(client.clone(), token1, chain_id).await?
+      };
+
+      Ok(Self::new(chain_id, address, erc_token0, erc_token1, dex_kind))
+   }
+
    /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
    pub async fn from<P, N>(
       client: P,

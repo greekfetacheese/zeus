@@ -13,6 +13,12 @@ pub enum Currency {
    ERC20(ERC20Token),
 }
 
+impl Default for Currency {
+   fn default() -> Self {
+      Self::Native(NativeCurrency::default())
+   }
+}
+
 impl From<NativeCurrency> for Currency {
    fn from(native: NativeCurrency) -> Self {
       Self::Native(native)
@@ -26,16 +32,7 @@ impl From<ERC20Token> for Currency {
 }
 
 impl Currency {
-   /// Create a new Currency from a [NativeCurrency]
-   pub fn from_native(native: NativeCurrency) -> Self {
-      Self::Native(native)
-   }
-
-   /// Create a new Currency from an [ERC20Token]
-   pub fn from_erc20(erc20: ERC20Token) -> Self {
-      Self::ERC20(erc20)
-   }
-
+   
    pub fn is_native(&self) -> bool {
       matches!(self, Self::Native(_))
    }

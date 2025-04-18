@@ -184,6 +184,7 @@ impl Default for RpcProviders {
             Rpc::new("https://ethereum-rpc.publicnode.com", 1, true, true),
             Rpc::new("https://rpc.mevblocker.io", 1, true, true),
             Rpc::new("https://rpc.flashbots.net", 1, true, true),
+            Rpc::new("https://rpc.flashbots.net/fast", 1, true, true),
          ],
       );
 

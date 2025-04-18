@@ -45,7 +45,7 @@ window.addEventListener("message", (event) => {
         return;
     }
     const message = event.data;
-   // console.log('Injected Script: Received message from content:', message);
+    // console.log('Injected Script: Received message from content:', message);
 
     if (message.type === 'fetch_response' && pendingRequests.has(message.id)) {
         const { resolve, reject } = pendingRequests.get(message.id);
@@ -56,6 +56,52 @@ window.addEventListener("message", (event) => {
         } else {
             console.error('Injected Script: Received error response:', message.error);
             reject(new Error(message.error || 'Background fetch failed'));
+        }
+    } // ***** Handle State Change Events from Background *****
+    else if (message.type === 'accountsChanged') {
+        // console.log('Injected Script: Received accountsChanged event:', message.payload);
+        const newAccounts = message.payload || [];
+        const currentAccountsJson = JSON.stringify(window.ethereum?._accounts || []);
+        const newAccountsJson = JSON.stringify(newAccounts);
+
+        console.log('Comparing accounts:', currentAccountsJson, 'vs', newAccountsJson);
+
+
+        // Compare with current state to avoid redundant emits
+        if (JSON.stringify(window.ethereum?._accounts || []) !== JSON.stringify(newAccounts)) {
+            if (window.ethereum) {
+                window.ethereum._accounts = newAccounts;
+                // Check connection status based on accounts
+                const wasConnected = window.ethereum._isConnected;
+                window.ethereum._isConnected = newAccounts.length > 0;
+
+                window.ethereum.emit('accountsChanged', newAccounts); // Emit EIP-1193 event
+                console.log("Emitted 'accountsChanged' event.");
+
+                // Handle disconnect transition
+                if (wasConnected && !window.ethereum._isConnected) {
+                    console.log("Injected Script: Accounts empty, emitting disconnect.");
+                    // Construct EIP-1193 disconnect error
+                    const error = new Error("Provider disconnected.");
+                    error.code = 4900;
+                    window.ethereum.emit('disconnect', error);
+                }
+            }
+        }
+    } else if (message.type === 'chainChanged') {
+        // console.log('Injected Script: Received chainChanged event:', message.payload);
+        const newChainId = message.payload || null;
+        const currentChainId = window.ethereum?._chainId;
+
+        console.log('Comparing chainId:', currentChainId, 'vs', newChainId);
+
+        // Compare with current state
+        if (window.ethereum?._chainId !== newChainId) {
+            if (window.ethereum) {
+                window.ethereum._chainId = newChainId; // Update internal state
+                window.ethereum.emit('chainChanged', newChainId); // Emit EIP-1193 event
+                console.log("Emitted 'chainChanged' event.");
+            }
         }
     }
 });
@@ -90,9 +136,7 @@ function backgroundFetch(url, options) {
 
 function backgroundConfirmConnection(origin, requestId) {
     return new Promise((resolve, reject) => {
-        // Use the same pendingRequests map as backgroundFetch
         pendingRequests.set(requestId, { resolve, reject });
-        console.log(`Injected Script: Sending connection request ${requestId} for origin ${origin}`);
         window.postMessage(
             {
                 target: 'content',
@@ -108,7 +152,6 @@ function backgroundConfirmConnection(origin, requestId) {
             if (pendingRequests.has(requestId)) {
                 pendingRequests.delete(requestId);
                 console.warn(`Connection request ${requestId} timed out waiting for user action.`);
-                // Reject with a specific error or a generic one
                 reject(new Error('Connection request timed out.'));
             }
         }, 300000); // 5 minutes timeout
@@ -143,13 +186,8 @@ class ZeusProvider extends EventEmitter {
             })
         });
         window.dispatchEvent(announceEvent);
-        //  console.log("Zeus Provider announced");
-
         // Listen for requests specifically for this provider
         window.addEventListener("eip6963:requestProvider", (event) => {
-            // EIP-6963 specifies that the provider should respond by announcing itself again
-            // if it hasn't already been announced or if the dapp specifically requests.
-            // Re-announcing is safe.
             this._announceProvider();
         });
     }
@@ -157,80 +195,54 @@ class ZeusProvider extends EventEmitter {
 
     async _initializeState() {
         try {
-            const statusData = await backgroundFetch('/status', {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
-
-            // Just log the status and continue
+            const statusData = await backgroundFetch('/status', { method: "GET", headers: { "Content-Type": "application/json" } });
             if (statusData.status) {
-                console.log("Zeus is running, all good.");
                 this._isConnected = true;
-                this._accounts = [];
-                this._chainId = null;
-            } else {
-                console.log("Zeus is not running");
-                this._isConnected = false;
-                this._accounts = [];
-                this._chainId = null;
+                this._accounts = statusData.accounts || [];
+                this._chainId = statusData.chainId || null;
+                if (this._accounts.length > 0) {
+                    this.emit("connect", { chainId: this._chainId });
+                }
             }
-
         } catch (e) {
-            // Error handling might change slightly depending on what background sends back
-            console.error("Error initializing ZeusProvider state:", e);
-            // Assume connection failed if init fails
             this._isConnected = false;
-            this._accounts = [];
-            this._chainId = null;
-            // Decide if you want to warn the user more explicitly here
+            this.emit("disconnect", new Error("Zeus server unavailable"));
         } finally {
             window.dispatchEvent(new Event("ethereum#initialized"));
-            console.log("Dispatched ethereum#initialized event.");
         }
     }
 
 
-    // --- EIP-1193 Methods ---
-
     isConnected() {
-        // console.log("ZeusProvider isConnected check:", this._isConnected);
         return this._isConnected;
     }
 
 
-
     async request({ method, params }) {
-       console.log(`ZeusProvider request received: Method=${method}, Params=`, params);
+        // console.log(`ZeusProvider request received: Method=${method}, Params=`, params);
 
         try {
             let data;
+            const origin = window.location.origin;
 
             if (method === 'eth_requestAccounts' || method === 'wallet_requestPermissions') {
                 console.log("Wallet connection requested, sending request to Zeus");
                 const requestId = requestIdCounter++; // Generate unique ID for this request
-                const origin = window.location.origin;
 
                 try {
-                    // Initiate confirmation flow and wait for result
                     const confirmationResult = await backgroundConfirmConnection(origin, requestId);
 
-                    // Background script should resolve with { approved: true, accounts: [...] } on success
                     if (confirmationResult && confirmationResult.approved) {
                         console.log("Connection approved by user. Accounts:", confirmationResult.accounts);
-                        // We directly receive the accounts upon approval
-                        // Construct the expected JSON-RPC like structure for processing below
                         data = { result: confirmationResult.accounts, error: null };
                     } else {
-                        // Should have been rejected by backgroundConfirmConnection, but double-check
                         console.warn("Connection confirmation flow did not return approved status.");
-                        throw new Error("User rejected the connection request."); // Default rejection
+                        throw new Error("User rejected the connection request.");
                     }
                 } catch (e) {
-                    // Handle rejection or timeout from backgroundConfirmConnection
                     console.error("Connection confirmation failed:", e.message);
-                    // Throw EIP-1193 specific error for user rejection
                     const error = new Error(e.message || "User rejected the connection request.");
-                    error.code = 4001; // EIP-1193 User Rejected Request
+                    error.code = 4001;
                     throw error;
                 }
 
@@ -239,12 +251,11 @@ class ZeusProvider extends EventEmitter {
                 data = await backgroundFetch('/api', {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ jsonrpc: "2.0", id: "bg-" + Date.now(), method, params }),
+                    body: JSON.stringify({ origin: origin, jsonrpc: "2.0", id: "bg-" + Date.now(), method, params }),
                 });
             }
 
-            // Process the data (whether from confirmation or standard fetch)
-            console.log("ZeusProvider processing response data:", data);
+            // console.log("ZeusProvider processing response data:", data);
 
             if (data.error) {
                 console.error("Zeus API or Confirmation returned error:", data.error);
@@ -260,11 +271,6 @@ class ZeusProvider extends EventEmitter {
 
         } catch (e) {
             console.error(`ZeusProvider Error during request ${method}:`, e);
-            // Optional: Trigger disconnect if appropriate
-            // if (e.message.includes('Background fetch failed') || e.message.includes('timed out')) {
-            //     if (this._isConnected) this._handleDisconnect("Connection to Zeus lost.");
-            // }
-            // Rethrow a user-friendly error or the specific error
             if (e.message.includes('Background fetch failed') || e.message.includes('timed out')) {
                 throw new Error("Connection to Zeus Wallet failed. Please ensure Zeus is running and accessible.");
             }
@@ -294,23 +300,19 @@ class ZeusProvider extends EventEmitter {
         }
     }
 
-
+    // Legacy Support
+    async enable() {
+        return this.request({ method: "eth_requestAccounts" });
+    }
+    async send(method, params) {
+        return this.request({ method, params });
+    }
 }
 
 // --- Injection Check ---
 // Prevent multiple injections if script somehow runs twice
 if (!window.ethereum?.isZeus) {
-    // Instantiate and inject the provider into the window object
     window.ethereum = new ZeusProvider();
-
-    // Optional: You might want to dispatch an event SOME dapps listen for
-    // This is not standard EIP-1193 but used by some older patterns
-    // Handled by _initializeState now.
-    // window.dispatchEvent(new Event('ethereum#initialized'));
-    // console.log("Dispatched ethereum#initialized event.");
-
 } else {
     console.warn("Zeus EIP-1193 Provider already injected. Skipping.");
-    // If another provider exists, you might want to log it or decide how to handle it.
-    // EIP-6963 helps manage multiple providers gracefully.
 }

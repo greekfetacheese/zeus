@@ -2,13 +2,14 @@ use lazy_static::lazy_static;
 use std::path::PathBuf;
 use tokio::runtime::Runtime;
 use zeus_eth::{
-   alloy_primitives::{U256, utils::format_units},
-   currency::ERC20Token,
+   alloy_primitives::{utils::format_units, TxHash, U256},
+   currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
 
 use super::ZeusCtx;
 
+pub mod action;
 pub mod eth;
 pub mod trace;
 pub mod tx;
@@ -37,10 +38,43 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
+
+/// Estimate the cost for a transaction
+///
+/// Returns (cost_in_wei, cost_in_usd)
+pub fn estimate_tx_cost(
+   ctx: ZeusCtx,
+   chain: u64,
+   gas_used: u64,
+   priority_fee: U256,
+) -> (NumericValue, NumericValue) {
+   let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
+   let total_fee = priority_fee + U256::from(base_fee);
+
+   // native currency price
+   let native = NativeCurrency::from_chain_id(chain).unwrap();
+   let price = ctx.get_currency_price(&Currency::from(native.clone()));
+
+   let cost_in_wei = total_fee * U256::from(gas_used);
+   let cost =
+      format_units(cost_in_wei, native.decimals).unwrap_or_default();
+   let cost: f64 = cost.parse().unwrap_or_default();
+
+   let cost_in_usd = NumericValue::value(cost, price.f64());
+   let cost_in_wei = NumericValue::format_wei(cost_in_wei, 18);
+
+   (cost_in_wei, cost_in_usd)
+}
+
 /// Estimate the gas cost for a transaction
 ///
 /// Returns (cost_in_wei, cost_in_usd)
-pub fn estimate_gas_cost(ctx: ZeusCtx, chain: u64, gas_used: u64, priority_fee: U256) -> (U256, NumericValue) {
+pub fn estimate_gas_cost(
+   ctx: ZeusCtx,
+   chain: u64,
+   gas_used: u64,
+   priority_fee: U256,
+) -> (U256, NumericValue) {
    let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
    let total_fee = priority_fee + U256::from(base_fee);
 
@@ -49,10 +83,23 @@ pub fn estimate_gas_cost(ctx: ZeusCtx, chain: u64, gas_used: u64, priority_fee: 
    let price = ctx.get_token_price(&wrapped_token).unwrap_or_default();
 
    let cost_in_wei = total_fee * U256::from(gas_used);
-   let cost = format_units(cost_in_wei, wrapped_token.decimals).unwrap_or_default();
+   let cost =
+      format_units(cost_in_wei, wrapped_token.decimals).unwrap_or_default();
    let cost: f64 = cost.parse().unwrap_or_default();
 
    let cost_in_usd = NumericValue::value(cost, price.f64());
 
    (cost_in_wei, cost_in_usd)
+}
+
+pub fn truncate_address(address: String) -> String {
+   format!("{}...{}", &address[..6], &address[36..])
+}
+
+pub fn truncate_hash(hash: String) -> String {
+   if hash.len() > 38 {
+      format!("{}...{}", &hash[..6], &hash[hash.len()-4..])
+   } else {
+      hash
+   }
 }

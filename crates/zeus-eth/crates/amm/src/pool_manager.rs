@@ -106,6 +106,14 @@ impl PoolStateManagerHandle {
       self.read(|manager| manager.v3_pools.clone())
    }
 
+   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV2Pool> {
+      self.read(|manager| manager.get_v2_pool_from_address(chain_id, address))
+   }
+
+   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV3Pool> {
+      self.read(|manager| manager.get_v3_pool_from_address(chain_id, address))
+   }
+
    /// Get a specific v2 pools for the given chain and token pair
    ///
    /// token order does not matter
@@ -445,6 +453,16 @@ impl PoolStateManager {
          .next();
 
       (v2_pool, v3_pool)
+   }
+
+   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV2Pool> {
+      let pools = self.v2_pools.clone().into_values().collect::<Vec<_>>();
+      pools.iter().find(|p| p.address == address && p.chain_id == chain_id).cloned()
+   }
+
+   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV3Pool> {
+      let pools = self.v3_pools.clone().into_values().collect::<Vec<_>>();
+      pools.iter().find(|p| p.address == address && p.chain_id == chain_id).cloned()
    }
 
    pub fn get_v2_pool(&self, chain_id: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {

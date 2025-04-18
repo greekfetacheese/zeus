@@ -85,6 +85,12 @@ pub struct GUI {
    pub data_inspection: bool,
 
    pub testing_window: ui::misc::TestingWindow,
+   pub ui_testing: ui::panels::central_panel::UiTesting,
+   pub progress_window2: ui::misc::ProgressWindow2,
+
+   pub confirm_window: ui::misc::ConfirmWindow,
+
+   pub tx_confirm_window: ui::misc::TxConfirmWindow
 }
 
 impl GUI {
@@ -98,9 +104,13 @@ impl GUI {
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
+      let confirm_window = ui::misc::ConfirmWindow::new();
+      let tx_confirm_window = ui::misc::TxConfirmWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new();
       let tx_history = ui::tx_history::TxHistory::new();
+      let ui_testing = ui::panels::central_panel::UiTesting::new();
+      let progress_window2 = ui::misc::ProgressWindow2::new();
 
       Self {
          egui_ctx,
@@ -126,6 +136,10 @@ impl GUI {
          tx_history,
          data_inspection: false,
          testing_window: ui::misc::TestingWindow::new(),
+         ui_testing,
+         confirm_window,
+         tx_confirm_window,
+         progress_window2,
       }
    }
 

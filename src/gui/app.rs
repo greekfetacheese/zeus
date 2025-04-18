@@ -61,11 +61,11 @@ impl ZeusApp {
       if logged_in && !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            update::on_startup(ctx_clone).await;
+           update::on_startup(ctx_clone).await;
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-           // let _ = run_server(ctx_clone).await;
+            let _ = run_server(ctx_clone).await;
          });
          self.updated_started = true;
       }

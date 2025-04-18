@@ -1,8 +1,9 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, LogData, Bytes, U256};
 use alloy_rpc_types::BlockId;
-use alloy_sol_types::{SolCall, sol};
+use alloy_sol_types::{SolCall, SolEvent, sol};
 
 use alloy_contract::private::{Network, Provider};
+use IUniswapV2Pair::Swap;
 
 sol! {
 
@@ -61,6 +62,14 @@ sol! {
         function sync() external;
 
     }
+}
+
+pub fn swap_signature() -> &'static str {
+   IUniswapV2Pair::swapCall::SIGNATURE
+}
+
+pub fn swap_selector() -> [u8; 4] {
+   IUniswapV2Pair::swapCall::SELECTOR
 }
 
 /// Return the factory address that created this pair
@@ -170,7 +179,11 @@ where
    Ok(())
 }
 
-// * ABI Encode the functions
+
+pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
+   let b = IUniswapV2Pair::Swap::decode_raw_log(log.topics(), &log.data, true)?;
+   Ok(b)
+}
 
 /// Encode the function with signature `factory()` and selector `0xc45a0155`
 pub fn encode_factory() -> Bytes {

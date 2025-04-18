@@ -1,6 +1,6 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, LogData, Bytes, U256};
 use alloy_rpc_types::BlockId;
-use alloy_sol_types::{SolCall, sol};
+use alloy_sol_types::{sol, SolCall, SolEvent};
 
 use alloy_contract::private::{Network, Provider};
 
@@ -20,6 +20,22 @@ sol! {
         function decimals() external view returns (uint8);
         function totalSupply() external view returns (uint256);
 }
+}
+
+pub fn approve_signature() -> &'static str {
+   IERC20::approveCall::SIGNATURE
+}
+
+pub fn transfer_signature() -> &'static str {
+   IERC20::transferCall::SIGNATURE
+}
+
+pub fn transfer_selector() -> [u8; 4] {
+   IERC20::transferCall::SELECTOR
+}
+
+pub fn transfer_from_signature() -> &'static str {
+   IERC20::transferFromCall::SIGNATURE
 }
 
 pub async fn balance_of<P, N>(
@@ -111,6 +127,16 @@ pub fn encode_transfer(recipient: Address, amount: U256) -> Bytes {
 }
 
 // ** ABI Decode Functions
+
+pub fn decode_transfer_log(log: &LogData) -> Result<IERC20::Transfer, anyhow::Error> {
+   let b = IERC20::Transfer::decode_raw_log(log.topics(), &log.data, true)?;
+   Ok(b)
+}
+
+pub fn decode_transfer_call(bytes: &Bytes) -> Result<(Address, U256), anyhow::Error> {
+   let b = IERC20::transferCall::abi_decode(&bytes, true)?;
+   Ok((b.recipient, b.amount))
+}
 
 pub fn decode_balance_of(bytes: &Bytes) -> Result<U256, anyhow::Error> {
    let b = IERC20::balanceOfCall::abi_decode_returns(&bytes, true)?;

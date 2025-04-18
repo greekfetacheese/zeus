@@ -208,7 +208,7 @@ impl TokenSelectionWindow {
                      return;
                   }
                };
-               let currency = Currency::from_erc20(token);
+               let currency = Currency::from(token);
                SHARED_GUI.write(|gui| {
                gui.token_selection.selected_currency = Some(currency);
                });

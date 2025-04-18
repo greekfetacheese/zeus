@@ -121,7 +121,7 @@ impl ChainSelection {
 
                // Update the pririty fee in the send_crypto
                SHARED_GUI.write(|gui| {
-                  let currency = Currency::from_native(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
+                  let currency = Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
                   let priority_fee = ctx_clone
                      .get_priority_fee(new_chain.id())
                      .unwrap_or_default()

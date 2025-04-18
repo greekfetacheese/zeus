@@ -20,6 +20,7 @@ use egui_widgets::Label;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
+   abi::protocols::across::{DepositV3Args, encode_deposit_v3},
    alloy_primitives::{Address, Bytes, U256, utils::parse_units},
    currency::{Currency, NativeCurrency},
    dapps::across::*,
@@ -634,7 +635,7 @@ impl AcrossBridge {
 
    /// Currency value
    fn value(&self, ctx: ZeusCtx, amount: f64) -> NumericValue {
-      let price = ctx.get_currency_price(&Currency::from_native(self.currency.clone()));
+      let price = ctx.get_currency_price(&Currency::from(self.currency.clone()));
 
       if amount == 0.0 {
          return NumericValue::default();
@@ -1137,21 +1138,21 @@ fn test_progress_window() {
          gui.across_bridge.progress_window.open();
       });
 
-      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_simulating();
          gui.across_bridge.progress_window.sending();
       });
 
-      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_sending();
          gui.across_bridge.progress_window.order_filling();
       });
 
-      // tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
       SHARED_GUI.write(|gui| {
          gui.across_bridge.progress_window.done_order_filling();

@@ -35,7 +35,7 @@ impl Portfolio {
    /// An empty portfolio with the native currency of the chain
    pub fn empty(chain: u64, owner: Address) -> Self {
       let chain = ChainId::new(chain).unwrap_or_default();
-      let currencies = vec![Currency::from_native(
+      let currencies = vec![Currency::from(
          NativeCurrency::from_chain_id(chain.id()).unwrap(),
       )];
       Self {

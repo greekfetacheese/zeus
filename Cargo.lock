@@ -2157,6 +2157,7 @@ checksum = "96a6ac251f4a2aca6b3f91340350eab87ae57c3f127ffeb585e92bd336717991"
 name = "dapps"
 version = "0.1.0"
 dependencies = [
+ "abi",
  "alloy-contract",
  "alloy-primitives",
  "alloy-provider",
@@ -5974,6 +5975,7 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport",
  "anyhow",
+ "currency",
  "dapps",
  "eyre",
  "futures",
@@ -5981,6 +5983,8 @@ dependencies = [
  "revm",
  "thiserror 1.0.69",
  "tokio",
+ "types",
+ "utils",
 ]
 
 [[package]]

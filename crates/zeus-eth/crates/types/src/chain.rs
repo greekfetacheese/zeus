@@ -10,7 +10,7 @@ pub const SUPPORTED_CHAINS: [u64; 5] = [ETH, OPTIMISM, BSC, BASE, ARBITRUM];
 
 const ERR_MSG: &str = "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ChainId {
    Ethereum(u64),
    Optimism(u64),

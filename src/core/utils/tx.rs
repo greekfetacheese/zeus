@@ -1,14 +1,16 @@
-use anyhow::anyhow;
+use crate::core::utils::action::OnChainAction;
 use alloy_consensus::TxType;
+use anyhow::anyhow;
+use std::time::Duration;
 use zeus_eth::{
    alloy_contract::private::Provider,
    alloy_network::{Ethereum, TransactionBuilder},
-   alloy_primitives::{Address, TxHash, Bytes, U256},
+   alloy_primitives::{Address, Bytes, TxHash, U256},
    alloy_rpc_types::{TransactionReceipt, TransactionRequest},
+   currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
    wallet::{SecureSigner, SecureWallet},
-   currency::{Currency, ERC20Token, NativeCurrency},
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -92,14 +94,79 @@ pub struct SwapDetails {
 impl Default for SwapDetails {
    fn default() -> Self {
       Self {
-         token_in: Currency::from_erc20(ERC20Token::weth()),
-         token_out: Currency::from_erc20(ERC20Token::dai()),
+         token_in: Currency::from(ERC20Token::weth()),
+         token_out: Currency::from(ERC20Token::dai()),
          amount_in: NumericValue::default(),
          amount_out: NumericValue::default(),
       }
    }
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TxSummary {
+   pub success: bool,
+   pub chain: u64,
+   pub block: u64,
+   pub from: Address,
+   pub to: Address,
+   pub eth_spent: NumericValue,
+   pub eth_spent_usd: NumericValue,
+   pub tx_cost: NumericValue,
+   pub tx_cost_usd: NumericValue,
+   pub gas_used: u64,
+   pub hash: TxHash,
+   pub action: OnChainAction,
+   pub contract_interact: bool,
+}
+
+impl Default for TxSummary {
+   fn default() -> Self {
+      Self {
+         success: false,
+         chain: 1,
+         block: 0,
+         from: Address::ZERO,
+         to: Address::ZERO,
+         eth_spent: NumericValue::default(),
+         eth_spent_usd: NumericValue::default(),
+         tx_cost: NumericValue::default(),
+         tx_cost_usd: NumericValue::default(),
+         gas_used: 60_000,
+         hash: TxHash::ZERO,
+         action: OnChainAction::dummy_transfer(),
+         contract_interact: false,
+      }
+   }
+}
+
+impl TxSummary {
+   pub fn dummy_swap() -> Self {
+      let tx_cost = NumericValue::parse_to_wei("0.0001", 18);
+      let tx_cost_usd = NumericValue::value(tx_cost.f64(), 1600.0);
+      Self {
+         success: true,
+         chain: 1,
+         block: 0,
+         from: Address::ZERO,
+         to: Address::ZERO,
+         eth_spent: NumericValue::default(),
+         eth_spent_usd: NumericValue::default(),
+         tx_cost,
+         tx_cost_usd,
+         gas_used: 120_000,
+         hash: TxHash::ZERO,
+         action: OnChainAction::dummy_swap(),
+         contract_interact: true,
+      }
+   }
+
+   pub fn success_str(&self) -> &str {
+      match self.success {
+         true => "Success",
+         false => "Failed",
+      }
+   }
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TxDetails {
@@ -185,7 +252,7 @@ impl TxDetails {
    }
 
    pub fn success_str(&self) -> &str {
-      match self.success{
+      match self.success {
          true => "Success",
          false => "Failed",
       }
@@ -193,12 +260,13 @@ impl TxDetails {
 
    /// Base fee + Priority fee
    pub fn gas_price(&self) -> NumericValue {
-      let fee = self.base_fee.wei().unwrap_or_default() + self.priority_fee.wei().unwrap_or_default();
+      let fee =
+         self.base_fee.wei().unwrap_or_default() + self.priority_fee.wei().unwrap_or_default();
       NumericValue::format_to_gwei(fee)
    }
 
    /// Gas used * Gas Price
-   /// 
+   ///
    /// Amount paid in native currency to include the tx
    pub fn fee_in_eth(&self) -> NumericValue {
       let gas_price = self.gas_price().wei().unwrap_or_default();
@@ -215,6 +283,80 @@ impl TxDetails {
    /// Tx value in USD at the time of the transaction
    pub fn value_in_usd(&self) -> NumericValue {
       NumericValue::value(self.value.f64(), self.eth_price.f64())
+   }
+}
+
+#[derive(Clone)]
+pub struct TxParams2 {
+   pub signer: SecureSigner,
+   pub transcact_to: Address,
+   pub nonce: u64,
+   pub value: U256,
+   pub chain: ChainId,
+   pub miner_tip: U256,
+   pub base_fee: u64,
+   pub call_data: Bytes,
+   pub gas_used: u64,
+   pub gas_limit: u64,
+}
+
+impl TxParams2 {
+   pub fn new(
+      signer: SecureSigner,
+      transcact_to: Address,
+      nonce: u64,
+      value: U256,
+      chain: ChainId,
+      miner_tip: U256,
+      base_fee: u64,
+      call_data: Bytes,
+      gas_used: u64,
+      gas_limit: u64,
+   ) -> Self {
+      Self {
+         signer,
+         transcact_to,
+         nonce,
+         value,
+         chain,
+         miner_tip,
+         base_fee,
+         call_data,
+         gas_used,
+         gas_limit,
+      }
+   }
+
+   pub fn max_fee_per_gas(&self) -> U256 {
+      let fee = self.miner_tip + U256::from(self.base_fee);
+      // add a 10% tolerance
+      fee * U256::from(110) / U256::from(100)
+   }
+
+   pub fn gas_cost(&self) -> U256 {
+      if self.chain.is_ethereum() || self.chain.is_optimism() || self.chain.is_base() {
+         U256::from(U256::from(self.gas_used) * self.max_fee_per_gas())
+      } else {
+         U256::from(self.gas_used * self.base_fee)
+      }
+   }
+
+   pub fn sufficient_balance(&self, balance: NumericValue) -> Result<(), anyhow::Error> {
+      let coin = self.chain.coin_symbol();
+      let cost_in_eth = self.gas_cost();
+      let cost = NumericValue::format_wei(cost_in_eth, 18);
+
+      if balance.wei2() < cost.wei2() {
+         return Err(anyhow!(
+            "Insufficient balance to cover gas fees, need at least {} {} but you have {} {}",
+            cost.formatted(),
+            coin,
+            balance.formatted(),
+            coin
+         ));
+      }
+
+      Ok(())
    }
 }
 
@@ -289,6 +431,30 @@ impl TxParams {
    }
 }
 
+pub async fn send_tx2<P>(client: P, params: TxParams2) -> Result<TransactionReceipt, anyhow::Error>
+where
+   P: Provider<(), Ethereum> + Clone + 'static,
+{
+   let tx = legacy_or_eip1559_2(params.clone());
+   let wallet = SecureWallet::from(params.signer.clone());
+   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
+
+   tracing::info!("Sending Transaction...");
+   let time = std::time::Instant::now();
+   let receipt = client
+      .send_tx_envelope(tx_envelope)
+      .await?
+      .with_timeout(Some(Duration::from_secs(60)))
+      .get_receipt()
+      .await?;
+   tracing::info!(
+      "Time take to send tx: {:?}secs",
+      time.elapsed().as_secs_f32()
+   );
+
+   Ok(receipt)
+}
+
 pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
 where
    P: Provider<(), Ethereum> + Clone + 'static,
@@ -316,6 +482,32 @@ where
    );
 
    Ok(receipt)
+}
+
+pub fn legacy_or_eip1559_2(params: TxParams2) -> TransactionRequest {
+   // Eip1559
+   if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
+      return TransactionRequest::default()
+         .with_from(params.signer.borrow().address())
+         .with_to(params.transcact_to)
+         .with_chain_id(params.chain.id())
+         .with_value(params.value)
+         .with_nonce(params.nonce)
+         .with_input(params.call_data.clone())
+         .with_gas_limit(params.gas_limit)
+         .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
+         .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
+   } else {
+      // Legacy
+      return TransactionRequest::default()
+         .with_from(params.signer.borrow().address())
+         .with_to(params.transcact_to)
+         .with_value(params.value)
+         .with_nonce(params.nonce)
+         .with_input(params.call_data)
+         .with_gas_limit(params.gas_limit)
+         .with_gas_price(params.base_fee.into());
+   }
 }
 
 pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {

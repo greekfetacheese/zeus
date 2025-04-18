@@ -1,12 +1,10 @@
-use abi::alloy_primitives::{Address, Bytes, U256, address};
-use abi::alloy_rpc_types::BlockId;
+use abi::{alloy_contract::private::{Network, Provider}, alloy_primitives::{address, Address, Bytes, U256}, alloy_rpc_types::BlockId};
 use types::{ARBITRUM, BASE, BSC, ChainId, ETH, OPTIMISM};
 use utils::{
    address::{dai, usdc, usdt, wbnb, weth},
    batch_request,
 };
 
-use abi::alloy_contract::private::{Network, Provider};
 
 use serde::{Deserialize, Serialize};
 

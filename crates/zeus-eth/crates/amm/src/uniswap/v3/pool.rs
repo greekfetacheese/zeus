@@ -5,7 +5,10 @@ use alloy_primitives::{
 };
 use alloy_rpc_types::{BlockId, Log};
 
-use crate::{DexKind, minimum_liquidity, uniswap::{SwapData, PoolVolume}};
+use crate::{
+   DexKind, minimum_liquidity,
+   uniswap::{PoolVolume, SwapData},
+};
 use abi::uniswap::v3;
 use currency::erc20::ERC20Token;
 use utils::{
@@ -14,10 +17,10 @@ use utils::{
    price_feed::get_base_token_price,
 };
 
-use std::collections::HashMap;
-use std::str::FromStr;
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::str::FromStr;
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
@@ -122,6 +125,33 @@ impl UniswapV3Pool {
          dex,
          state: None,
       }
+   }
+
+   pub async fn from_address<P, N>(client: P, chain_id: u64, address: Address) -> Result<Self, anyhow::Error>
+   where
+      P: Provider<(), N> + Clone + 'static,
+      N: Network,
+   {
+      let dex_kind = DexKind::UniswapV3;
+      let token0 = v3::pool::token0(address, client.clone()).await?;
+      let token1 = v3::pool::token1(address, client.clone()).await?;
+      let fee = v3::pool::fee(address, client.clone()).await?;
+
+      let erc_token0 = if let Some(token) = ERC20Token::base_token(chain_id, token0) {
+         token
+      } else {
+         ERC20Token::new(client.clone(), token0, chain_id).await?
+      };
+
+      let erc_token1 = if let Some(token) = ERC20Token::base_token(chain_id, token1) {
+         token
+      } else {
+         ERC20Token::new(client.clone(), token1, chain_id).await?
+      };
+
+      Ok(Self::new(
+         chain_id, address, fee, erc_token0, erc_token1, dex_kind,
+      ))
    }
 
    pub async fn from<P, N>(
@@ -344,9 +374,7 @@ impl UniswapV3Pool {
 
    /// Decode a swap log against this pool
    pub fn decode_swap(&self, log: &Log) -> Result<SwapData, anyhow::Error> {
-      let v3::pool::IUniswapV3Pool::Swap {
-         amount0, amount1, ..
-      } = log.log_decode()?.inner.data;
+      let swap = v3::pool::decode_swap_log(log.data())?;
 
       let pair_address = log.address();
       let block = log.block_number;
@@ -355,16 +383,16 @@ impl UniswapV3Pool {
          return Err(anyhow::anyhow!("Pool Address mismatch"));
       }
 
-      let (amount_in, token_in) = if amount0.is_positive() {
-         (amount0, self.token0.clone())
+      let (amount_in, token_in) = if swap.amount0.is_positive() {
+         (swap.amount0, self.token0.clone())
       } else {
-         (amount1, self.token1.clone())
+         (swap.amount1, self.token1.clone())
       };
 
-      let (amount_out, token_out) = if amount1.is_negative() {
-         (amount1, self.token1.clone())
+      let (amount_out, token_out) = if swap.amount1.is_negative() {
+         (swap.amount1, self.token1.clone())
       } else {
-         (amount0, self.token0.clone())
+         (swap.amount0, self.token0.clone())
       };
 
       if block.is_none() {
@@ -386,7 +414,6 @@ impl UniswapV3Pool {
          .parse::<U256>()?;
 
       Ok(SwapData {
-         account: None,
          token_in,
          token_out,
          amount_in,

@@ -52,7 +52,7 @@ impl SendCryptoUi {
       Self {
          open: false,
          priority_fee: "1".to_string(),
-         currency: Currency::from_native(NativeCurrency::from_chain_id(1).unwrap()),
+         currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
          amount: String::new(),
          recipient: String::new(),
          recipient_name: None,

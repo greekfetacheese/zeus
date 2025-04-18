@@ -1,7 +1,7 @@
 pub mod v2;
 pub mod v3;
 
-use alloy_primitives::{Address, U256, utils::format_units};
+use alloy_primitives::{U256, utils::format_units};
 use serde::{Deserialize, Serialize};
 
 use currency::ERC20Token;
@@ -32,7 +32,6 @@ impl PoolVolume {
 /// A swap that took place on a DEX (Uniswap)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SwapData {
-   pub account: Option<Address>,
    pub token_in: ERC20Token,
    pub token_out: ERC20Token,
    pub amount_in: U256,
@@ -43,7 +42,6 @@ pub struct SwapData {
 
 impl SwapData {
    pub fn new(
-      account: Option<Address>,
       token_in: ERC20Token,
       token_out: ERC20Token,
       amount_in: U256,
@@ -52,7 +50,6 @@ impl SwapData {
       tx_hash: String,
    ) -> Self {
       Self {
-         account,
          token_in,
          token_out,
          amount_in,
@@ -64,17 +61,10 @@ impl SwapData {
 
    /// Return a formatted string to print in the console
    pub fn pretty(&self) -> Result<String, anyhow::Error> {
-      let from = if let Some(account) = self.account {
-         account.to_string()
-      } else {
-         "Unknown".to_string()
-      };
-
       let s = format!(
-         "Swap: {} -> {} | From: {} | Amount: {} -> {} | Block: {} | Tx: {}",
+         "Swap: {} -> {} | Amount: {} -> {} | Block: {} | Tx: {}",
          self.token_in.symbol,
          self.token_out.symbol,
-         from,
          format_units(self.amount_in, self.token_in.decimals)?,
          format_units(self.amount_out, self.token_out.decimals)?,
          self.block,

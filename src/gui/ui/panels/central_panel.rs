@@ -1,6 +1,14 @@
-use crate::gui::GUI;
-use eframe::egui::Ui;
-
+use crate::{
+   assets::icons::Icons,
+   core::{
+      ZeusCtx,
+      utils::{RT, tx::TxSummary},
+   },
+   gui::{GUI, SHARED_GUI},
+};
+use eframe::egui::{Button, Ui, vec2};
+use egui_theme::Theme;
+use std::sync::Arc;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -12,9 +20,15 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
+   gui.tx_confirm_window
+      .show(ctx.clone(), theme, icons.clone(), ui);
+   gui.confirm_window.show(theme, ui);
    gui.testing_window.show(theme, icons.clone(), ui);
+   gui.progress_window2.show(theme, ui);
    gui.msg_window.show(theme, ui);
    gui.loading_window.show(ui);
+
+   gui.ui_testing.show(ctx.clone(), theme, icons.clone(), ui);
 
    if !account {
       gui.register.show(ctx.clone(), theme, ui);
@@ -27,27 +41,49 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       gui.portofolio.open = false;
    }
 
-   gui.across_bridge.show(ctx.clone(), theme, icons.clone(), recipient_selection, contacts_ui, ui);
-   gui.send_crypto
-   .show(ctx.clone(), icons.clone(), theme, token_selection, recipient_selection, contacts_ui, ui);
-   gui.portofolio
-      .show(ctx.clone(), theme, icons.clone(), token_selection, ui);
-   gui.swap_ui
-      .show(ctx.clone(), icons.clone(), theme, token_selection, ui);
+   gui.across_bridge.show(
+      ctx.clone(),
+      theme,
+      icons.clone(),
+      recipient_selection,
+      contacts_ui,
+      ui,
+   );
+   gui.send_crypto.show(
+      ctx.clone(),
+      icons.clone(),
+      theme,
+      token_selection,
+      recipient_selection,
+      contacts_ui,
+      ui,
+   );
+   gui.portofolio.show(
+      ctx.clone(),
+      theme,
+      icons.clone(),
+      token_selection,
+      ui,
+   );
+   gui.swap_ui.show(
+      ctx.clone(),
+      icons.clone(),
+      theme,
+      token_selection,
+      ui,
+   );
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
-
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.tx_history.show(ctx.clone(), theme, icons.clone(), ui);
 
    #[cfg(feature = "dev")]
    {
-   let theme = gui.editor.show(&mut gui.theme, ui);
-   if let Some(theme) = theme {
-      gui.theme = theme;
+      let theme = gui.editor.show(&mut gui.theme, ui);
+      if let Some(theme) = theme {
+         gui.theme = theme;
+      }
    }
-   }
-   
 }
 
 #[allow(dead_code)]
@@ -66,5 +102,69 @@ fn should_show_overlay(gui: &mut GUI) {
       gui.show_overlay = true;
    } else {
       gui.show_overlay = false;
+   }
+}
+
+pub struct UiTesting {
+   pub show: bool,
+}
+
+impl UiTesting {
+   pub fn new() -> Self {
+      Self { show: false }
+   }
+
+   pub fn show(&mut self, _ctx: ZeusCtx, _theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.show {
+         return;
+      }
+
+      ui.vertical_centered(|ui| {
+         ui.set_min_size(vec2(500.0, 500.0));
+         ui.spacing_mut().item_spacing.y = 10.0;
+         let btn_size = vec2(100.0, 25.0);
+
+         let button = Button::new("Swap Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_swap();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_with_summary(summary);
+               });
+            });
+         }
+
+         let progress_window = Button::new("Progress Window").min_size(btn_size);
+         if ui.add(progress_window).clicked() {
+            RT.spawn_blocking(move || {
+
+               SHARED_GUI.write(|gui| {
+                  gui.progress_window2.open_test();
+               });
+
+               std::thread::sleep(std::time::Duration::from_secs(1));
+               SHARED_GUI.write(|gui| {
+                  gui.progress_window2.proceed_with("step2");
+               });
+
+               std::thread::sleep(std::time::Duration::from_secs(1));
+               SHARED_GUI.write(|gui| {
+                  gui.progress_window2.proceed_with("step3");
+               });
+
+               std::thread::sleep(std::time::Duration::from_secs(1));
+               SHARED_GUI.write(|gui| {
+                  gui.progress_window2.finish_last_step();
+               });
+
+               
+            });
+         }
+
+         let close = Button::new("Close").min_size(btn_size);
+         if ui.add(close).clicked() {
+            self.show = false;
+         }
+      });
    }
 }

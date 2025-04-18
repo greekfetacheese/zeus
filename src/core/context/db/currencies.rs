@@ -8,7 +8,7 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    types,
 };
-use zeus_token_list::{ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM, tokens::UniswapToken};
+use zeus_token_list::{tokens::UniswapToken, ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM};
 
 const FILE_NAME: &str = "currencies.json";
 
@@ -52,6 +52,24 @@ impl CurrencyDB {
       self.currencies.get(&chain_id).cloned().unwrap_or_default()
    }
 
+   /// Get the ERC20Tokens for the given chain
+   pub fn get_erc20_tokens(&self, chain_id: u64) -> Vec<ERC20Token> {
+     let currencies = self.get_currencies(chain_id);
+     let mut tokens = Vec::new();
+     for currency in currencies.iter() {
+        if let Some(token) = currency.erc20() {
+           tokens.push(token.clone());
+        }
+     }
+     tokens
+   }
+
+   /// Get an ERC20Token for the given chain and address
+   pub fn get_erc20_token(&self, chain_id: u64, address: Address) -> Option<ERC20Token> {
+      let tokens = self.get_erc20_tokens(chain_id);
+      tokens.iter().find(|t| t.address == address).cloned()
+   }
+
    /// Remove any duplicate currencies
    pub fn dedup(&mut self) {
       for (_, currencies) in self.currencies.iter_mut() {
@@ -63,6 +81,9 @@ impl CurrencyDB {
    pub fn insert_currency(&mut self, chain_id: u64, currency: Currency) {
       if let Some(currencies_arc) = self.currencies.get_mut(&chain_id) {
          let currencies = Arc::make_mut(currencies_arc);
+         if currencies.iter().any(|c| c == &currency) {
+            return;
+         }
          currencies.push(currency);
       } else {
          self.currencies.insert(chain_id, Arc::new(vec![currency]));
@@ -81,20 +102,20 @@ impl CurrencyDB {
 
       // Ethereum
       let eth_native = NativeCurrency::from_chain_id(types::ETH)?;
-      self.insert_currency(types::ETH, Currency::from_native(eth_native.clone()));
+      self.insert_currency(types::ETH, Currency::from(eth_native.clone()));
 
       // Binance Smart Chain
       let bnb_native = NativeCurrency::from_chain_id(types::BSC)?;
-      self.insert_currency(types::BSC, Currency::from_native(bnb_native));
+      self.insert_currency(types::BSC, Currency::from(bnb_native));
 
       // Optimism
-      self.insert_currency(types::OPTIMISM, Currency::from_native(eth_native.clone()));
+      self.insert_currency(types::OPTIMISM, Currency::from(eth_native.clone()));
 
       // Base Network
-      self.insert_currency(types::BASE, Currency::from_native(eth_native.clone()));
+      self.insert_currency(types::BASE, Currency::from(eth_native.clone()));
 
       // Arbitrum
-      self.insert_currency(types::ARBITRUM, Currency::from_native(eth_native));
+      self.insert_currency(types::ARBITRUM, Currency::from(eth_native));
 
       // Load the default token list
       let mut default_tokens: Vec<ERC20Token> = Vec::new();
@@ -166,7 +187,7 @@ impl CurrencyDB {
 
       for token in default_tokens {
          let chain_id = token.chain_id;
-         let currency = Currency::from_erc20(token);
+         let currency = Currency::from(token);
          self.insert_currency(chain_id, currency);
       }
 

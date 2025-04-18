@@ -419,6 +419,11 @@ impl NumericValue {
       self.wei
    }
 
+   /// Panics if [Self::wei] is None
+   pub fn wei2(&self) -> U256 {
+      self.wei.unwrap()
+   }
+
    pub fn f64(&self) -> f64 {
       self.f64
    }
