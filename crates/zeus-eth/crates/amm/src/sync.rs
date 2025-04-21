@@ -105,7 +105,7 @@ pub async fn sync_from_checkpoint<P, N>(
    checkpoint: Checkpoint,
 ) -> Result<SyncedPools, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let from_block = BlockTime::Block(checkpoint.block);
@@ -132,7 +132,7 @@ where
 /// See [SyncConfig]
 pub async fn sync_pools<P, N>(client: P, config: SyncConfig) -> Result<Vec<SyncedPools>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let chain = client.get_chain_id().await?;
@@ -192,7 +192,7 @@ async fn do_sync_pools<P, N>(
    from_block: Option<BlockTime>,
 ) -> Result<SyncedPools, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let dex = dex;
@@ -296,7 +296,7 @@ async fn v2_pool_from_log<P, N>(
    log: &Log,
 ) -> Result<UniswapV2Pool, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let IUniswapV2Factory::PairCreated {
@@ -329,7 +329,7 @@ async fn v3_pool_from_log<P, N>(
    log: &Log,
 ) -> Result<UniswapV3Pool, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let IUniswapV3Factory::PoolCreated {

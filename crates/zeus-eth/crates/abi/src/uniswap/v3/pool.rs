@@ -118,23 +118,23 @@ pub fn swap_selector() -> [u8; 4] {
 /// Return the factory address that created this pool
 pub async fn factory<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let factory = contract.factory().call().await?;
-   Ok(factory._0)
+   Ok(factory)
 }
 
 /// Return the fee of this pool
 pub async fn fee<P, N>(pool_address: Address, client: P) -> Result<u32, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let fee = contract.fee().call().await?;
-   let fee: u32 = fee._0.to_string().parse().context("Failed to parse fee")?;
+   let fee: u32 = fee.to_string().parse().context("Failed to parse fee")?;
    Ok(fee)
 }
 
@@ -145,13 +145,13 @@ pub async fn fee_growth_global0_x128<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<U256, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
    let contract = IUniswapV3Pool::new(pool_address, client);
    let fee_growth_global0_x128 = contract.feeGrowthGlobal0X128().block(block).call().await?;
-   Ok(fee_growth_global0_x128._0)
+   Ok(fee_growth_global0_x128)
 }
 
 /// Return the feeGrowthGlobal1X128 of this pool
@@ -161,36 +161,36 @@ pub async fn fee_growth_global1_x128<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<U256, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
    let contract = IUniswapV3Pool::new(pool_address, client);
    let fee_growth_global1_x128 = contract.feeGrowthGlobal1X128().block(block).call().await?;
-   Ok(fee_growth_global1_x128._0)
+   Ok(fee_growth_global1_x128)
 }
 
 /// Return the liquidity of this pool
 pub async fn liquidity<P, N>(pool_address: Address, client: P, block_id: Option<BlockId>) -> Result<u128, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
    let contract = IUniswapV3Pool::new(pool_address, client);
    let liquidity = contract.liquidity().block(block).call().await?;
-   Ok(liquidity._0)
+   Ok(liquidity)
 }
 
 /// Return the maxLiquidityPerTick of this pool
 pub async fn max_liquidity_per_tick<P, N>(pool_address: Address, client: P) -> Result<u128, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let max_liquidity_per_tick = contract.maxLiquidityPerTick().call().await?;
-   Ok(max_liquidity_per_tick._0)
+   Ok(max_liquidity_per_tick)
 }
 
 /// Return the observations of this pool
@@ -201,7 +201,7 @@ pub async fn observations<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(u32, i128, U256, bool), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -229,7 +229,7 @@ pub async fn observe<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(Vec<Signed<56, 1>>, Vec<Uint<160, 3>>), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -250,7 +250,7 @@ pub async fn positions<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(u128, U256, U256, u128, u128), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -274,7 +274,7 @@ pub async fn protocol_fees<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(u128, u128), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -292,7 +292,7 @@ pub async fn slot0<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(U256, i32, u16, u16, u16, u8, bool), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -324,7 +324,7 @@ pub async fn snapshot_cumulatives_inside<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(i64, U256, u32), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let tick_lower: Signed<24, 1> = Signed::from_str(&tick_lower.to_string()).context("Failed to parse tick lower")?;
@@ -361,7 +361,7 @@ pub async fn tick_bitmap<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<U256, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -372,18 +372,18 @@ where
       .block(block)
       .call()
       .await?;
-   Ok(tick_bitmap._0)
+   Ok(tick_bitmap)
 }
 
 /// Return the tickSpacing of this pool
 pub async fn tick_spacing<P, N>(pool_address: Address, client: P) -> Result<i32, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let tick_spacing = contract.tickSpacing().call().await?;
-   let tick_spacing = tick_spacing._0.to_string();
+   let tick_spacing = tick_spacing.to_string();
    let tick_spacing = tick_spacing
       .parse::<i32>()
       .context("Failed to parse tick spacing")?;
@@ -398,7 +398,7 @@ pub async fn ticks<P, N>(
    block_id: Option<BlockId>,
 ) -> Result<(u128, i128, U256, U256, i64, U256, u32, bool), anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block_id.unwrap_or(BlockId::latest());
@@ -429,28 +429,28 @@ where
 /// Return the token0 of this pool
 pub async fn token0<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let token0 = contract.token0().call().await?;
-   Ok(token0._0)
+   Ok(token0)
 }
 
 /// Return the token1 of this pool
 pub async fn token1<P, N>(pool_address: Address, client: P) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let contract = IUniswapV3Pool::new(pool_address, client);
    let token1 = contract.token1().call().await?;
-   Ok(token1._0)
+   Ok(token1)
 }
 
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
-   let b = IUniswapV3Pool::Swap::decode_raw_log(log.topics(), &log.data, true)?;
+   let b = IUniswapV3Pool::Swap::decode_raw_log(log.topics(), &log.data)?;
    Ok(b)
 }
 
@@ -492,7 +492,7 @@ pub fn encode_max_liquidity_per_tick() -> Bytes {
 
 /// Encode the function with signature `observations(uint256)` and selector `0x252c09d7`
 pub fn encode_observations(index: U256) -> Bytes {
-   let abi = IUniswapV3Pool::observationsCall { _0: index };
+   let abi = IUniswapV3Pool::observationsCall(index);
    Bytes::from(abi.abi_encode())
 }
 
@@ -506,7 +506,7 @@ pub fn encode_observe(seconds_ago: Vec<u32>) -> Bytes {
 
 /// Encode the function with signature `positions(bytes32)` and selector `0x514ea4bf`
 pub fn encode_positions(key: FixedBytes<32>) -> Bytes {
-   let abi = IUniswapV3Pool::positionsCall { _0: key };
+   let abi = IUniswapV3Pool::positionsCall(key);
    Bytes::from(abi.abi_encode())
 }
 
@@ -569,7 +569,7 @@ pub fn encode_token1() -> Bytes {
 // ABI Decode the functions
 
 pub fn decode_positions(data: &Bytes) -> Result<(u128, U256, U256, u128, u128), anyhow::Error> {
-   let abi = IUniswapV3Pool::positionsCall::abi_decode_returns(data, true)?;
+   let abi = IUniswapV3Pool::positionsCall::abi_decode_returns(data)?;
    Ok((
       abi.liquidity,
       abi.feeGrowthInside0LastX128,

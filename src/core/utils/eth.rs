@@ -1,33 +1,82 @@
-use super::{
-   RT, eth,
-   tx::{TxParams, TxParams2, legacy_or_eip1559},
-   update,
-};
+use super::{RT, eth, tx::TxParams, update};
 use crate::core::ZeusCtx;
+use crate::core::utils::parse_typed_data;
+use crate::core::utils::sign::SignMsgType;
 use crate::core::utils::{
    action::OnChainAction,
    estimate_tx_cost,
-   tx::{self, TxDetails, TxSummary},
+   tx::{self, TxSummary},
 };
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, ui::Step};
+use alloy_signer::{Signature, Signer};
 use anyhow::bail;
+use serde_json::Value;
 use std::future::IntoFuture;
 use std::time::Duration;
 use zeus_eth::{
    abi::protocols::across::*,
-   alloy_network::TransactionBuilder,
    alloy_primitives::{Address, Bytes, TxKind, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, Log, TransactionReceipt},
    amm::DexKind,
    currency::{Currency, ERC20Token, NativeCurrency},
    dapps::across::spoke_pool_address,
-   revm_utils::{ExecuteCommitEvm, ForkFactory, Host, new_evm, revert_msg, simulate},
+   revm_utils::{ExecuteCommitEvm, ForkFactory, Host, new_evm, revert_msg},
    types::ChainId,
    utils::NumericValue,
-   wallet::SecureWallet,
 };
 
+pub async fn sign_message(
+   ctx: ZeusCtx,
+   dapp: String,
+   chain: ChainId,
+   msg: Value,
+) -> Result<Signature, anyhow::Error> {
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Loading...");
+      gui.request_repaint();
+   });
+
+   let typed_data = parse_typed_data(msg)?;
+   let msg_type = SignMsgType::new(ctx.clone(), chain.id(), typed_data.clone()).await;
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.reset();
+      gui.sign_msg_window.open(dapp, chain.id(), msg_type);
+      gui.request_repaint();
+   });
+
+   // Wait for the user to sign or cancel
+   let mut signed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+      SHARED_GUI.read(|gui| {
+         signed = gui.sign_msg_window.is_signed();
+      });
+
+      if signed.is_some() {
+         SHARED_GUI.write(|gui| {
+            gui.sign_msg_window.reset();
+         });
+         break;
+      }
+   }
+
+   let signed = signed.unwrap();
+
+   if !signed {
+      return Err(anyhow::anyhow!("You cancelled the transaction"));
+   }
+
+   let wallet = ctx.current_wallet();
+   let signer = ctx.get_wallet(wallet.address).key;
+   let signature = signer.borrow().sign_dynamic_typed_data(&typed_data).await?;
+
+   Ok(signature)
+}
+
+// Wallet balances are updated and the tx summary is added to the ZeusCtx
 pub async fn send_transaction(
    ctx: ZeusCtx,
    dapp: String,
@@ -37,7 +86,7 @@ pub async fn send_transaction(
    interact_to: Address,
    call_data: Bytes,
    value: U256,
-) -> Result<(), anyhow::Error> {
+) -> Result<(TransactionReceipt, TxSummary), anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.tx_confirm_window.open();
       gui.tx_confirm_window.simulating();
@@ -51,7 +100,7 @@ pub async fn send_transaction(
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), None, None);
    let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain.id(), block, fork_db);
+   let mut evm = new_evm(chain.id(), block.clone(), fork_db);
 
    evm.tx.caller = from;
    evm.tx.kind = TxKind::Call(interact_to);
@@ -134,6 +183,7 @@ pub async fn send_transaction(
          action,
          priority_fee.formatted().clone(),
       );
+      gui.request_repaint();
    });
 
    // wait for the user to confirm or reject the transaction
@@ -158,6 +208,11 @@ pub async fn send_transaction(
       bail!("Transaction rejected");
    }
 
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Sending Transaction...");
+      gui.request_repaint();
+   });
+
    let fee = SHARED_GUI.read(|gui| gui.tx_confirm_window.get_priority_fee());
    let priority_fee = if fee.is_zero() {
       ctx.get_priority_fee(chain.id()).unwrap_or_default()
@@ -171,7 +226,7 @@ pub async fn send_transaction(
    // give a 10% buffer to the gas limit
    let gas_limit = gas_used * 11 / 10;
 
-   let tx_params = TxParams2::new(
+   let tx_params = TxParams::new(
       signer,
       interact_to,
       nonce,
@@ -190,19 +245,13 @@ pub async fn send_transaction(
       ctx.get_client_with_id(chain.id()).unwrap()
    };
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Sending Transaction...");
-   });
+   let receipt = tx::send_tx(client, tx_params).await?;
 
-   let receipt = tx::send_tx2(client, tx_params).await?;
-
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.reset();
-      gui.msg_window.open("Transaction Sent", "");
-   });
-   
    let logs: Vec<Log> = receipt.logs().to_vec();
-   let log_data = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+   let log_data = logs
+      .iter()
+      .map(|l| l.clone().into_inner())
+      .collect::<Vec<_>>();
 
    let action = OnChainAction::new(
       ctx.clone(),
@@ -215,10 +264,20 @@ pub async fn send_transaction(
    )
    .await;
 
+   let timestamp = if let Some(block) = block {
+      block.header.timestamp
+   } else {
+      std::time::SystemTime::now()
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap()
+         .as_secs()
+   };
+
    let tx_summary = TxSummary {
       success: receipt.status(),
       chain: chain.id(),
       block: receipt.block_number.unwrap_or_default(),
+      timestamp,
       from,
       to: interact_to,
       eth_spent,
@@ -228,12 +287,14 @@ pub async fn send_transaction(
       gas_used,
       hash: receipt.transaction_hash,
       action,
-      contract_interact
+      contract_interact,
    };
 
    let ctx_clone = ctx.clone();
+   let summary = tx_summary.clone();
    RT.spawn_blocking(move || {
-      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx_summary));
+      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, summary));
+      ctx_clone.save_tx_db();
    });
 
    // update wallet balances
@@ -253,199 +314,69 @@ pub async fn send_transaction(
       bail!("Transaction Failed");
    }
 
-   Ok(())
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.reset();
+   });
+
+   Ok((receipt, tx_summary))
 }
 
-/// Bridges the given currency using the Across protocol
 pub async fn across_bridge(
    ctx: ZeusCtx,
-   currency: Currency,
+   chain: ChainId,
+   dest_chain: ChainId,
    deadline: u32,
-   expected_output_amount: NumericValue,
-   dest_chain: u64,
+   action: OnChainAction,
+   from: Address,
    recipient: Address,
-   mut params: TxParams,
-) -> Result<TransactionReceipt, anyhow::Error> {
-   let client = ctx.get_client_with_id(params.chain.id())?;
-
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
-      gui.across_bridge.progress_window.open = true;
+      gui.tx_confirm_window.open();
+      gui.tx_confirm_window.simulating();
    });
-
-   // override the base fee incase has been increased since the last update
-   let base_fee = update::get_base_fee(ctx.clone(), params.chain.id()).await?;
-   params.base_fee = base_fee.next;
-
-   // check for sufficient balance again
-   let balance = ctx.get_currency_balance(
-      params.chain.id(),
-      params.signer.borrow().address(),
-      &currency,
-   );
-
-   params.sufficient_balance(balance)?;
-
-   // Simulate the deposit
-   let fork_block = client.get_block(BlockId::latest()).await?;
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), None, None);
-   let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(params.chain.id(), fork_block, fork_db);
-
-   let time = std::time::Instant::now();
-   let res = simulate::across_deposit_v3(
-      &mut evm,
-      params.call_data.clone(),
-      params.value,
-      params.signer.borrow().address(),
-      params.transcact_to,
-      false,
-   )?;
-   tracing::info!(
-      "Simulated DepositV3 in {:?} seconds",
-      time.elapsed().as_secs_f32()
-   );
-
-   let logs = res.into_logs();
-   tracing::debug!("Logs: {:#?}", logs);
-   let mut minimum_received = NumericValue::default();
-   for log in logs {
-      if let Ok(decoded) = decode_funds_deposited_log(&log) {
-         tracing::debug!("Log Decoded: {:#?}", decoded);
-         // make sure the output amount is between an 1% tolerance
-         minimum_received = NumericValue::format_wei(decoded.output_amount, currency.decimals());
-         if minimum_received.f64() < expected_output_amount.f64() * 0.99 {
-            let err = format!(
-               "Expected output amount of {} but received {}",
-               expected_output_amount.formatted(),
-               minimum_received.formatted()
-            );
-            bail!(err);
-         } else {
-            tracing::info!("Output amount is ok");
-         }
-      }
-   }
-
-   // this actually should not happen
-   if minimum_received.is_zero() {
-      bail!("Minimum received is zero");
-   }
-
-   SHARED_GUI.write(|gui| {
-      gui.across_bridge.progress_window.done_simulating();
-      gui.across_bridge.progress_window.sending();
-   });
-
-   let signer = params.signer.clone();
-   let nonce = client
-      .get_transaction_count(signer.borrow().address())
-      .await?;
-
-   let mut tx = legacy_or_eip1559(params.clone());
-   tx.set_nonce(nonce);
-   let gas_limit = params.gas_used * 15 / 10; // +50%
-   tx.set_gas_limit(gas_limit);
-
-   let wallet = SecureWallet::from(params.signer.clone());
-   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
-   let timeout = Duration::from_secs(60);
 
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
-   let dest_chain_id = ChainId::new(dest_chain)?;
-   let dest_client = ctx.get_client_with_id(dest_chain)?;
+   let dest_client = ctx.get_client_with_id(dest_chain.id())?;
    let from_block = dest_client.get_block_number().await?;
-   tracing::info!(
-      "Will Query the destination {} chain from block {}",
-      dest_chain_id.name(),
-      from_block
-   );
 
-   tracing::info!("Sending Transaction...");
-   let time = std::time::Instant::now();
-   let receipt = client
-      .send_tx_envelope(tx_envelope)
-      .await?
-      .with_timeout(Some(timeout))
-      .get_receipt()
-      .await?;
-   tracing::info!(
-      "Time take to send tx: {:?}secs",
-      time.elapsed().as_secs_f32()
-   );
-
-   let logs = receipt.logs();
-   let log_data = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
-   let native = Currency::from(NativeCurrency::from(params.chain.id()));
-   let tx_type = receipt.inner.tx_type();
-   let value = NumericValue::format_wei(params.value, native.decimals());
-   let value_usd = ctx.get_currency_value2(value.f64(), &native);
-   let base_fee = NumericValue::format_to_gwei(U256::from(params.base_fee));
-   let priority_fee = NumericValue::format_to_gwei(params.miner_tip);
-   let tx_cost = NumericValue::format_wei(params.gas_cost(), native.decimals());
-   let tx_cost_usd = ctx.get_currency_value2(tx_cost.f64(), &native);
-
-   let action = OnChainAction::new(
-      ctx.clone(),
-      params.chain.id(),
-      params.signer.borrow().address(),
-      params.transcact_to,
-      params.call_data.clone(),
-      params.value,
-      log_data,
+   let (_, tx_summary) = send_transaction(
+      ctx,
+      "".to_string(),
+      Some(action),
+      chain,
+      from,
+      interact_to,
+      call_data,
+      value,
    )
-   .await;
+   .await?;
 
-   let tx_summary = TxSummary {
-      success: receipt.status(),
-      chain: params.chain.id(),
-      block: receipt.block_number.unwrap_or_default(),
-      from: params.signer.borrow().address(),
-      to: params.transcact_to,
-      eth_spent: value,
-      eth_spent_usd: value_usd,
-      tx_cost,
-      tx_cost_usd,
-      gas_used: params.gas_used,
-      hash: receipt.transaction_hash,
-      action,
-      contract_interact: true
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   let step2 = Step {
+      id: "step2",
+      in_progress: true,
+      finished: false,
+      msg: "Waiting for the order to be filled".to_string(),
    };
 
    SHARED_GUI.write(|gui| {
-      gui.across_bridge.progress_window.done_sending();
-      gui.across_bridge.progress_window.order_filling();
+      gui.progress_window
+         .open_with(vec![step1, step2], "Success!".to_string());
+      gui.request_repaint();
    });
 
-   ctx.write(|ctx| {
-      ctx.tx_db.add_tx(
-         params.chain.id(),
-         params.signer.borrow().address(),
-         tx_summary,
-      );
-   });
-
-   let ctx_clone = ctx.clone();
-   RT.spawn_blocking(move || {
-      ctx_clone.save_tx_db();
-   });
-
-   let chain = params.chain.id();
-   let owner = params.signer.borrow().address();
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      get_eth_balance(ctx_clone.clone(), chain, owner)
-         .await
-         .unwrap();
-   });
-
-   // TODO: Add revert reason
-   if !receipt.status() {
-      bail!("Deposit Failed");
-   }
-
-   let mut block_time_ms = dest_chain_id.block_time();
-   if dest_chain_id.is_arbitrum() {
+   let mut block_time_ms = dest_chain.block_time();
+   if dest_chain.is_arbitrum() {
       // give more time so we dont spam the rpc
       block_time_ms *= 3;
    }
@@ -453,14 +384,15 @@ pub async fn across_bridge(
    let now = std::time::Instant::now();
    let mut funds_received = false;
 
+   let target = spoke_pool_address(dest_chain.id())?;
+   let filter = Filter::new()
+      .from_block(BlockNumberOrTag::Number(from_block))
+      .address(vec![target])
+      .event(filled_relay_signature());
+
    // Wait for the order to be filled at the destination chain
    while now.elapsed().as_secs() < deadline as u64 {
-      let filter = Filter::new()
-         .from_block(BlockNumberOrTag::Number(from_block))
-         .address(spoke_pool_address(dest_chain)?)
-         .event(filled_relay_signature());
       let logs = dest_client.get_logs(&filter).await?;
-      tracing::info!("Found {} Filled Relay Logs", logs.len());
       for log in logs {
          if let Ok(decoded) = decode_filled_relay_log(log.data()) {
             tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
@@ -483,175 +415,63 @@ pub async fn across_bridge(
    if !funds_received {
       let err = format!(
          "Deadline exceeded\n
-      No funds received on the {} chain\n
-      Your deposit should be refunded shortly",
-         dest_chain_id.name(),
+         No funds received on the {} chain\n
+         Your deposit should be refunded shortly",
+         dest_chain.name(),
       );
       bail!(err);
    }
 
-   let currency_price = ctx.get_currency_price(&currency);
-   let amount_usd = NumericValue::value(minimum_received.f64(), currency_price.f64());
-
    SHARED_GUI.write(|gui| {
-      gui.across_bridge.progress_window.done_order_filling();
-      gui.across_bridge.progress_window.set_funds_received(true);
-      gui.across_bridge.progress_window.set_currency(currency);
-      gui.across_bridge
-         .progress_window
-         .set_amount_sent(minimum_received);
-      gui.across_bridge.progress_window.set_amount_usd(amount_usd);
-      gui.across_bridge
-         .progress_window
-         .set_dest_chain(dest_chain_id);
+      gui.progress_window.finish_last_step();
+      gui.progress_window.set_tx_summary(tx_summary);
+      gui.request_repaint();
    });
 
-   // if recipient is a wallet owned by this account, update its balance
-   let exists = ctx.wallet_exists(recipient);
-   if exists {
-      RT.spawn(async move {
-         let _ = get_eth_balance(ctx.clone(), dest_chain, recipient).await;
-      });
-   }
-
-   Ok(receipt)
+   Ok(())
 }
 
 pub async fn send_crypto(
    ctx: ZeusCtx,
-   currency: Currency,
+   chain: ChainId,
+   from: Address,
    recipient: Address,
-   mut params: TxParams,
-) -> Result<TransactionReceipt, anyhow::Error> {
-   let client = ctx.get_client_with_id(params.chain.id())?;
-
+   call_data: Bytes,
+   value: U256,
+   action: OnChainAction,
+) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
-      gui.send_crypto.progress_window.open();
+      gui.tx_confirm_window.open();
+      gui.tx_confirm_window.simulating();
    });
 
-   // override the base fee incase has been increased since the last update
-   let base_fee = update::get_base_fee(ctx.clone(), params.chain.id()).await?;
-   params.base_fee = base_fee.next;
-
-   // check for sufficient balance again
-   let balance = ctx.get_currency_balance(
-      params.chain.id(),
-      params.signer.borrow().address(),
-      &currency,
-   );
-   params.sufficient_balance(balance)?;
-
-   let signer_address = params.signer.borrow().address();
-   let nonce = client.get_transaction_count(signer_address).await?;
-
-   let mut tx = legacy_or_eip1559(params.clone());
-   tx.set_nonce(nonce);
-   let gas_limit = params.gas_used * 15 / 10; // +50%
-   tx.set_gas_limit(gas_limit);
-
-   let wallet = SecureWallet::from(params.signer.clone());
-   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
-
-   tracing::info!("Sending Transaction...");
-   let time = std::time::Instant::now();
-   let receipt = client
-      .send_tx_envelope(tx_envelope)
-      .await?
-      .with_timeout(Some(Duration::from_secs(60)))
-      .get_receipt()
-      .await?;
-   tracing::info!(
-      "Time take to send tx: {:?}secs",
-      time.elapsed().as_secs_f32()
-   );
-
-   let logs = receipt.logs();
-   let log_data = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
-
-   let currency_price = ctx.get_currency_price(&currency);
-   let amount_sent = if params.tx_method.is_transfer() {
-      NumericValue::format_wei(params.value, currency.decimals())
-   } else {
-      params.tx_method.erc20_transfer_info().unwrap().1.clone()
-   };
-   let amount_usd = NumericValue::value(amount_sent.f64(), currency_price.f64());
-
-   SHARED_GUI.write(|gui| {
-      gui.send_crypto.progress_window.done_sending();
-      gui.send_crypto.progress_window.set_currency(currency);
-      gui.send_crypto.progress_window.set_amount(amount_sent);
-      gui.send_crypto.progress_window.set_amount_usd(amount_usd);
-   });
-
-   let native = Currency::from(NativeCurrency::from(params.chain.id()));
-   let tx_type = receipt.inner.tx_type();
-   let value = NumericValue::format_wei(params.value, 18);
-   let value_usd = ctx.get_currency_value2(value.f64(), &native);
-   let tx_cost = NumericValue::format_wei(params.gas_cost(), native.decimals());
-   let tx_cost_usd = ctx.get_currency_value2(tx_cost.f64(), &native);
-   let base_fee = NumericValue::format_to_gwei(U256::from(params.base_fee));
-   let priority_fee = NumericValue::format_to_gwei(params.miner_tip);
-
-   let action = OnChainAction::new(
-      ctx.clone(),
-      params.chain.id(),
-      params.signer.borrow().address(),
-      params.transcact_to,
-      params.call_data.clone(),
-      params.value,
-      log_data,
+   let (_, summary) = send_transaction(
+      ctx,
+      "".to_string(),
+      Some(action),
+      chain,
+      from,
+      recipient,
+      call_data,
+      value,
    )
-   .await;
+   .await?;
 
-   let tx_summary = TxSummary {
-      success: receipt.status(),
-      chain: params.chain.id(),
-      block: receipt.block_number.unwrap_or_default(),
-      from: params.signer.borrow().address(),
-      to: params.transcact_to,
-      eth_spent: value,
-      eth_spent_usd: value_usd,
-      tx_cost,
-      tx_cost_usd,
-      gas_used: params.gas_used,
-      hash: receipt.transaction_hash,
-      action,
-      contract_interact: false
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
    };
 
-   ctx.write(|ctx| {
-      ctx.tx_db.add_tx(
-         params.chain.id(),
-         params.signer.borrow().address(),
-         tx_summary,
-      );
+   SHARED_GUI.write(|gui| {
+      gui.progress_window
+         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx_summary(summary);
+      gui.request_repaint();
    });
 
-   let ctx_clone = ctx.clone();
-   RT.spawn_blocking(move || {
-      ctx_clone.save_tx_db();
-   });
-
-   // update owner balance
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      let _ = get_eth_balance(
-         ctx_clone.clone(),
-         params.chain.id(),
-         signer_address,
-      )
-      .await;
-   });
-
-   // if recipient is a wallet owned by this account, update its balance
-   let exists = ctx.wallet_exists(recipient);
-   if exists {
-      RT.spawn(async move {
-         let _ = get_eth_balance(ctx.clone(), params.chain.id(), recipient).await;
-      });
-   }
-
-   Ok(receipt)
+   Ok(())
 }
 
 /// Get the balance of the given owner in the given chain

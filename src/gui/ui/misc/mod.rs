@@ -2,12 +2,14 @@ use eframe::egui::{
    Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Sense,
    Spinner, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui::Margin;
+use egui::{FontId, Margin};
 use std::sync::Arc;
 use zeus_eth::currency::NativeCurrency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
+use crate::core::utils::format_expiry;
+use crate::core::utils::sign::SignMsgType;
 use crate::core::utils::tx::TxSummary;
 use crate::core::utils::{
    action::OnChainAction, estimate_tx_cost, truncate_address, truncate_hash,
@@ -263,24 +265,14 @@ impl TestingWindow {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.vertical(|ui| {
+            ui.vertical_centered(|ui| {
                // ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
 
-               let icon = icons.eth_black_x24();
-               let label = Label::new(
-                  RichText::new("Ethereum").size(theme.text_sizes.normal),
-                  Some(icon),
-               );
-               ui.horizontal(|ui| {
-                  ui.add(label);
-               });
-
-               ui.horizontal(|ui| {
-                  ui.label(RichText::new("Ethereum").size(theme.text_sizes.normal));
-               });
+               let mut chain_select = ChainSelect::new("testing13232", 1);
+               chain_select.show(0, theme, icons.clone(), ui);
 
                if ui.button("Close").clicked() {
                   self.open = false;
@@ -297,7 +289,7 @@ pub struct Step {
    pub msg: String,
 }
 
-pub struct ProgressWindow2 {
+pub struct ProgressWindow {
    open: bool,
    steps: Vec<Step>,
    final_msg: String,
@@ -305,7 +297,7 @@ pub struct ProgressWindow2 {
    size: (f32, f32),
 }
 
-impl ProgressWindow2 {
+impl ProgressWindow {
    pub fn new() -> Self {
       Self {
          open: false,
@@ -340,7 +332,6 @@ impl ProgressWindow2 {
       self.open_with(steps, "Done".to_string());
    }
 
-   /// Open the progress window
    pub fn open(&mut self) {
       self.open = true;
    }
@@ -358,8 +349,8 @@ impl ProgressWindow2 {
       });
    }
 
-   /// 1st Step must always be in progress
    pub fn open_with(&mut self, steps: Vec<Step>, final_msg: String) {
+      self.reset();
       self.open = true;
       self.steps = steps;
       self.final_msg = final_msg;
@@ -427,7 +418,7 @@ impl ProgressWindow2 {
                   ui.spacing_mut().item_spacing.y = 10.0;
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  for step in self.steps.iter_mut() {
+                  for step in &self.steps {
                      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                         ui.add_space(120.0);
                         ui.label(RichText::new(step.msg.clone()).size(normal));
@@ -459,11 +450,11 @@ impl ProgressWindow2 {
                         self.open = false;
                      }
 
-                     let summary = Button::new(RichText::new("Summary").size(normal));
+                     let summary_btn = Button::new(RichText::new("Summary").size(normal));
                      if self.finished() {
-                        if ui.add(summary).clicked() {
-                           self.reset();
+                        if ui.add(summary_btn).clicked() {
                            let summary = self.tx_summary.take();
+                           self.reset();
 
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
@@ -474,6 +465,220 @@ impl ProgressWindow2 {
                         }
                      }
                   });
+               });
+            });
+         });
+   }
+}
+
+pub struct SignMsgWindow {
+   open: bool,
+   dapp: String,
+   chain: ChainId,
+   msg: Option<SignMsgType>,
+   signed: Option<bool>,
+   size: (f32, f32),
+}
+
+impl SignMsgWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         dapp: String::new(),
+         chain: ChainId::default(),
+         msg: None,
+         signed: None,
+         size: (400.0, 550.0),
+      }
+   }
+
+   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
+      self.dapp = dapp;
+      self.chain = chain.into();
+      self.open = true;
+      self.msg = Some(msg);
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.dapp.clear();
+      self.msg = None;
+      self.signed = None;
+   }
+
+   pub fn is_signed(&self) -> Option<bool> {
+      self.signed
+   }
+
+   fn permit2_approval(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let msg = self.msg.as_ref().unwrap();
+      if !msg.is_permit2() {
+         return;
+      }
+
+      let details = msg.permit2_details();
+
+      ui.label(RichText::new("Permit2 Token Approval").size(theme.text_sizes.normal));
+
+      // Chain
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Chain").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let text = RichText::new(self.chain.name()).size(theme.text_sizes.normal);
+            let icon = icons.chain_icon(&self.chain.id());
+            let label = Label::new(text, Some(icon)).text_first(false);
+            ui.add(label);
+         });
+      });
+
+      // Token
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Approve Token").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = details.amount_str();
+            let text = format!("{} {}", amount, details.token.symbol);
+            let icon = icons.token_icon_x24(details.token.address, details.token.chain_id);
+            let label = Label::new(
+               RichText::new(text).size(theme.text_sizes.normal),
+               Some(icon),
+            )
+            .wrap();
+            ui.add(label);
+         });
+      });
+
+      // Approval expire
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Approval expire").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let expire = format_expiry(details.expiration);
+            let text = RichText::new(expire).size(theme.text_sizes.normal);
+            ui.label(text);
+         });
+      });
+
+      // Permit2 Contract
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Permit2 Contract").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let contract = details.permit2_contract;
+            let explorer = self.chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, contract);
+            ui.hyperlink_to(
+               RichText::new(truncate_address(contract.to_string()))
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
+            );
+         });
+      });
+
+      // Spender
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Spender").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let spender = details.spender;
+            let explorer = self.chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, spender);
+            ui.hyperlink_to(
+               RichText::new(truncate_address(spender.to_string()))
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
+            );
+         });
+      });
+
+      // Protocol/Dapp
+      // TODO:
+   }
+
+   fn unknown_msg(&mut self, theme: &Theme, ui: &mut Ui) {
+      let msg = self.msg.as_ref().unwrap();
+      if msg.is_other() {
+         ui.label(RichText::new("Unknown Message").size(theme.text_sizes.large));
+      }
+   }
+
+   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("Sign Message")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()).inner_margin(Margin::same(20)))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 15.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               if self.msg.is_none() {
+                  ui.label("No message to sign");
+                  return;
+               }
+
+               ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
+
+               self.permit2_approval(theme, icons, ui);
+               self.unknown_msg(theme, ui);
+
+               ui.add_space(20.0);
+
+               // Show the JSON value
+               let msg = self.msg.as_ref().unwrap();
+               let mut value = msg.msg_value().clone().to_string();
+
+               let text_edit = TextEdit::multiline(&mut value)
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .margin(Margin::same(10))
+                  .background_color(theme.colors.text_edit_bg);
+
+               ui.label(RichText::new("Sign Data").size(theme.text_sizes.normal));
+               ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+                  ui.add(text_edit);
+               });
+
+               ui.add_space(20.0);
+               ui.horizontal(|ui| {
+                  let width = ui.available_width() * 0.9;
+
+                  let ok_btn = Button::new(RichText::new("Sign").size(theme.text_sizes.normal))
+                     .min_size(vec2(width * 0.75, 50.0));
+                  if ui.add(ok_btn).clicked() {
+                     self.open = false;
+                     self.signed = Some(true)
+                  }
+
+                  let cancel_btn =
+                     Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
+                        .min_size(vec2(width * 0.25, 50.0));
+                  if ui.add(cancel_btn).clicked() {
+                     self.open = false;
+                     self.signed = Some(false)
+                  }
                });
             });
          });
@@ -535,6 +740,10 @@ impl TxConfirmWindow {
          priority_fee: "1".to_string(),
          size: (400.0, 550.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
    }
 
    pub fn open(&mut self) {
@@ -599,10 +808,6 @@ impl TxConfirmWindow {
       self.confirm
    }
 
-   pub fn set_confirm_window(&mut self, confrim_window: bool) {
-      self.confrim_window = confrim_window;
-   }
-
    pub fn set_priority_fee(&mut self, chain: ChainId, fee: String) {
       // No priority fee for Binance Smart Chain
       // Set empty to avoid frame shutter due to invalid fee
@@ -623,46 +828,6 @@ impl TxConfirmWindow {
 
    pub fn done_simulating(&mut self) {
       self.simulating = false;
-   }
-
-   pub fn set_confirm(&mut self, confirm: Option<bool>) {
-      self.confirm = confirm;
-   }
-
-   pub fn set_dapp(&mut self, dapp: String) {
-      self.dapp = dapp;
-   }
-
-   pub fn set_chain(&mut self, chain: ChainId) {
-      self.chain = chain;
-   }
-
-   pub fn set_sender(&mut self, sender: Address) {
-      self.sender = sender;
-   }
-
-   pub fn set_action(&mut self, action: OnChainAction) {
-      self.action = action;
-   }
-
-   pub fn set_native_currency(&mut self, native_currency: NativeCurrency) {
-      self.native_currency = native_currency;
-   }
-
-   pub fn set_eth_spent(&mut self, eth_spent: NumericValue) {
-      self.eth_spent = eth_spent;
-   }
-
-   pub fn set_eth_spent_value(&mut self, eth_spent_value: NumericValue) {
-      self.eth_spent_value = eth_spent_value;
-   }
-
-   pub fn set_interact_to(&mut self, interact_to: Address) {
-      self.interact_to = interact_to;
-   }
-
-   pub fn set_contract_interact(&mut self, contract_interact: bool) {
-      self.contract_interact = contract_interact;
    }
 
    pub fn reset(&mut self) {
@@ -691,10 +856,10 @@ impl TxConfirmWindow {
          return;
       }
 
-      let text = if self.action.is_transfer() {
-         "Send"
-      } else {
-         "Pay"
+      let text = match self.action {
+         OnChainAction::Transfer(_) => "Send",
+         OnChainAction::TokenApprove(_) => "Approve",
+         _ => "Pay",
       };
 
       ui.horizontal(|ui| {
@@ -702,17 +867,18 @@ impl TxConfirmWindow {
             ui.label(RichText::new(text).size(theme.text_sizes.normal));
          });
 
-         // Currency to Pay/Send
+         // Currency to Pay/Send/Approve
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let currency = self.action.input_currency();
-            let amount = self.action.amount();
+            let amount = if self.action.is_token_approval() {
+               self.action.token_approval_amount_str()
+            } else {
+               self.action.amount().formatted().clone()
+            };
+
             let icon = icons.currency_icon_x24(&currency);
-            let text = RichText::new(format!(
-               "{} {}",
-               amount.formatted(),
-               currency.symbol()
-            ))
-            .size(theme.text_sizes.normal);
+            let text = RichText::new(format!("{} {}", amount, currency.symbol()))
+               .size(theme.text_sizes.normal);
             let label = Label::new(text, Some(icon)).text_first(false);
             ui.add(label);
          });
@@ -740,7 +906,7 @@ impl TxConfirmWindow {
    }
 
    fn receive_column(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if self.action.is_other() || self.action.is_transfer() {
+      if self.action.is_other() || self.action.is_transfer() || self.action.is_token_approval() {
          return;
       }
 
@@ -804,10 +970,10 @@ impl TxConfirmWindow {
          ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
 
-      // * If the Action is unknown or a transfer we just show the eth spent (Tx cost)
+      // * If the Action is unknown/Transfer/Token Approval we just show the eth spent (Tx cost)
       // * For Swaps and Cross Swaps we show the currency spent and currency received
 
-      if self.action.is_other() || self.action.is_transfer() {
+      if self.action.is_other() || self.action.is_transfer() || self.action.is_token_approval() {
          // Eth spent Column
          ui.horizontal(|ui| {
             let icon = icons.eth_x24();
@@ -957,22 +1123,33 @@ impl TxConfirmWindow {
                      // Contract interaction / Recipient Column
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = if self.contract_interact {
-                              "Contract interaction"
+                           let text = if self.action.is_token_approval() {
+                              "Spender"
                            } else {
-                              "Recipient"
+                              match self.contract_interact {
+                                 true => "Contract interaction",
+                                 false => "Recipient",
+                              }
                            };
                            ui.label(RichText::new(text).size(normal));
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let address = truncate_address(self.interact_to.to_string());
+                           let (address, address_full) = if self.action.is_token_approval() {
+                              let p = self.action.token_approval_params();
+                              (
+                                 truncate_address(p.spender.to_string()),
+                                 p.spender.to_string(),
+                              )
+                           } else {
+                              (
+                                 truncate_address(self.interact_to.to_string()),
+                                 self.interact_to.to_string(),
+                              )
+                           };
+
                            let explorer = self.chain.block_explorer();
-                           let link = format!(
-                              "{}/address/{}",
-                              explorer,
-                              self.interact_to.to_string()
-                           );
+                           let link = format!("{}/address/{}", explorer, address_full);
                            ui.hyperlink_to(RichText::new(address).size(normal).strong(), link);
                         });
                      });

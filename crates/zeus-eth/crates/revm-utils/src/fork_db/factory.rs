@@ -25,7 +25,7 @@ pub struct ForkFactory<P> {
 
 impl<P> ForkFactory<P>
 where
-   P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+   P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
    // Create a new `ForkFactory` instance
    //

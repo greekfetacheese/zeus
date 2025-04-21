@@ -1,19 +1,14 @@
-use crate::core::utils::action::OnChainAction;
 use crate::core::ZeusCtx;
-use crate::core::utils::RT;
 use crate::gui::GUI;
-use crate::{assets::icons::Icons, gui::SHARED_GUI};
+use crate::assets::icons::Icons;
 use eframe::egui::{
    Align2, Button, Color32, Frame, RichText, ScrollArea, Ui, Window,
 };
 use egui_theme::{Theme, utils};
-use zeus_eth::alloy_primitives::Address;
 use std::sync::Arc;
-use zeus_eth::utils::NumericValue;
 use zeus_eth::{amm::UniswapV2Pool, types::ChainId};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
-   let ctx = gui.ctx.clone();
    ui.vertical_centered(|ui| {
       ui.add_space(20.0);
       ui.spacing_mut().item_spacing.y = 30.0;
@@ -47,14 +42,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.send_crypto.open = true;
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
-
-         let chain = ctx.chain();
-         let fee = ctx
-            .get_priority_fee(chain.id())
-            .unwrap_or_default()
-            .formatted()
-            .clone();
-         gui.send_crypto.set_priority_fee(chain, fee);
       }
 
       let bridge = Button::new(RichText::new("Bridge").size(21.0));
@@ -68,14 +55,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
          gui.across_bridge.open = true;
-
-         let chain = gui.across_bridge.from_chain.chain.id();
-         let fee = ctx
-            .get_priority_fee(chain)
-            .unwrap_or_default()
-            .formatted()
-            .clone();
-         gui.across_bridge.set_priority_fee(fee);
       }
 
       let wallets = Button::new(RichText::new("Wallets").size(21.0));
@@ -161,69 +140,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    });
 }
 
-fn set_tx_confirm_params(action: OnChainAction, sender: Address, contract_interact: bool) {
-   let spent = NumericValue::parse_to_wei("0", 18);
-   let value = NumericValue::value(spent.f64(), 1600.0);
 
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.done_simulating();
-      gui.tx_confirm_window.set_action(action);
-      gui.tx_confirm_window.set_eth_spent(spent);
-      gui.tx_confirm_window.set_sender(sender);
-      gui.tx_confirm_window.set_eth_spent_value(value);
-      gui.tx_confirm_window
-         .set_dapp("https://app.across.to".to_string());
-      gui.tx_confirm_window.set_contract_interact(contract_interact);
-   });
-}
-
-#[allow(dead_code)]
-fn dummy_transfer_tx(ctx: ZeusCtx) {
-   RT.spawn_blocking(move || {
-      SHARED_GUI.write(|gui| {
-         gui.tx_confirm_window.open();
-         gui.tx_confirm_window.simulating();
-      });
-
-      std::thread::sleep(std::time::Duration::from_secs(1));
-
-      let action = OnChainAction::dummy_transfer();
-      let sender = ctx.current_wallet().address;
-      set_tx_confirm_params(action, sender, false);
-   });
-}
-
-#[allow(dead_code)]
-fn dummy_bridge_tx(ctx: ZeusCtx) {
-   RT.spawn_blocking(move || {
-      SHARED_GUI.write(|gui| {
-         gui.tx_confirm_window.open();
-         gui.tx_confirm_window.simulating();
-      });
-
-      std::thread::sleep(std::time::Duration::from_secs(1));
-
-      let action = OnChainAction::dummy_bridge();
-      let sender = ctx.current_wallet().address;
-      set_tx_confirm_params(action, sender, true);
-   });
-}
-
-#[allow(dead_code)]
-fn dummy_swap_tx(ctx: ZeusCtx) {
-   RT.spawn_blocking(move || {
-      SHARED_GUI.write(|gui| {
-         gui.tx_confirm_window.open();
-         gui.tx_confirm_window.simulating();
-      });
-
-      std::thread::sleep(std::time::Duration::from_secs(1));
-
-      let action = OnChainAction::dummy_swap();
-      let sender = ctx.current_wallet().address;
-      set_tx_confirm_params(action, sender, true);
-   });
-}
 
 #[allow(dead_code)]
 fn show_data_insp(gui: &mut GUI, ui: &mut Ui) {

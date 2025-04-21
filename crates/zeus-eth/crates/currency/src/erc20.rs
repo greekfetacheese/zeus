@@ -36,7 +36,7 @@ impl ERC20Token {
    /// Create a new ERC20Token by retrieving the token information from the blockchain
    pub async fn new<P, N>(client: P, token: Address, chain_id: u64) -> Result<Self, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let info = batch_request::get_erc20_info(client, token).await?;
@@ -77,7 +77,7 @@ impl ERC20Token {
       block: Option<BlockId>,
    ) -> Result<U256, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let balance = abi::erc20::balance_of(self.address, owner, client, block).await?;
@@ -86,7 +86,7 @@ impl ERC20Token {
 
    pub async fn allowance<P, N>(&self, client: P, owner: Address, spender: Address) -> Result<U256, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let allowance = abi::erc20::allowance(self.address, owner, spender, client).await?;

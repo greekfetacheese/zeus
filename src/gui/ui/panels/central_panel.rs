@@ -1,8 +1,7 @@
 use crate::{
    assets::icons::Icons,
    core::{
-      ZeusCtx,
-      utils::{RT, tx::TxSummary},
+      utils::{sign::SignMsgType, tx::TxSummary, RT}, ZeusCtx
    },
    gui::{GUI, SHARED_GUI},
 };
@@ -24,10 +23,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       .show(ctx.clone(), theme, icons.clone(), ui);
    gui.confirm_window.show(theme, ui);
    gui.testing_window.show(theme, icons.clone(), ui);
-   gui.progress_window2.show(theme, ui);
+   gui.progress_window.show(theme, ui);
    gui.msg_window.show(theme, ui);
    gui.loading_window.show(ui);
 
+   gui.sign_msg_window.show(theme, icons.clone(), ui);
    gui.ui_testing.show(ctx.clone(), theme, icons.clone(), ui);
 
    if !account {
@@ -75,7 +75,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
-   gui.tx_history.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_history.show(ctx.clone(), theme, ui);
 
    #[cfg(feature = "dev")]
    {
@@ -134,27 +134,47 @@ impl UiTesting {
             });
          }
 
+         let button = Button::new("Token Approval Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_token_approve();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_with_summary(summary);
+               });
+            });
+         }
+
+         let button = Button::new("Sign Message").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let msg = SignMsgType::dummy_permit2();
+               SHARED_GUI.write(|gui| {
+                  gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
+               });
+            });
+         }
+
          let progress_window = Button::new("Progress Window").min_size(btn_size);
          if ui.add(progress_window).clicked() {
             RT.spawn_blocking(move || {
 
                SHARED_GUI.write(|gui| {
-                  gui.progress_window2.open_test();
+                  gui.progress_window.open_test();
                });
 
                std::thread::sleep(std::time::Duration::from_secs(1));
                SHARED_GUI.write(|gui| {
-                  gui.progress_window2.proceed_with("step2");
+                  gui.progress_window.proceed_with("step2");
                });
 
                std::thread::sleep(std::time::Duration::from_secs(1));
                SHARED_GUI.write(|gui| {
-                  gui.progress_window2.proceed_with("step3");
+                  gui.progress_window.proceed_with("step3");
                });
 
                std::thread::sleep(std::time::Duration::from_secs(1));
                SHARED_GUI.write(|gui| {
-                  gui.progress_window2.finish_last_step();
+                  gui.progress_window.finish_last_step();
                });
 
                

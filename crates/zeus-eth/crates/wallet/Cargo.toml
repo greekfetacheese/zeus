@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy-signer-local = "0.13.0"
-alloy-network = "0.13.0"
-alloy-primitives = "0.8.20"
+alloy-signer-local = "0.14.0"
+alloy-network = "0.14.0"
+alloy-primitives = "1.0.0"
 
 serde = "1.0.217"
 serde_json = "1.0.138"

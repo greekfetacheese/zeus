@@ -53,7 +53,7 @@ pub async fn get_logs_for<P, N>(
    concurrency: usize,
 ) -> Result<Vec<Log>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let latest_block = client.get_block_number().await?;

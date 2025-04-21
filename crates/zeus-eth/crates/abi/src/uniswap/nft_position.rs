@@ -211,22 +211,22 @@ pub fn encode_mint(params: MintParams) -> Vec<u8> {
 // ABI Decode functions
 
 pub fn decode_create_pool(data: &Bytes) -> Result<Address, anyhow::Error> {
-    let abi = INonfungiblePositionManager::createAndInitializePoolIfNecessaryCall::abi_decode_returns(data, true)?;
-    Ok(abi.pool)
+    let abi = INonfungiblePositionManager::createAndInitializePoolIfNecessaryCall::abi_decode_returns(data)?;
+    Ok(abi)
 }
 
 pub fn decode_increase_liquidity(data: &Bytes) -> Result<(u128, U256, U256), anyhow::Error> {
-    let abi = INonfungiblePositionManager::increaseLiquidityCall::abi_decode_returns(data, true)?;
+    let abi = INonfungiblePositionManager::increaseLiquidityCall::abi_decode_returns(data)?;
     Ok((abi.liquidity, abi.amount0, abi.amount1))
 }
 
 pub fn decode_decrease_liquidity(data: &Bytes) -> Result<(U256, U256), anyhow::Error> {
-    let abi = INonfungiblePositionManager::decreaseLiquidityCall::abi_decode_returns(data, true)?;
+    let abi = INonfungiblePositionManager::decreaseLiquidityCall::abi_decode_returns(data)?;
     Ok((abi.amount0, abi.amount1))
 }
 
 pub fn decode_positions(data: &Bytes) -> Result<PositionsReturn, anyhow::Error> {
-    let abi = INonfungiblePositionManager::positionsCall::abi_decode_returns(data, true)?;
+    let abi = INonfungiblePositionManager::positionsCall::abi_decode_returns(data)?;
 
     let nonce = abi.nonce.to_string().parse::<u128>().context("Failed to parse nonce")?;
     let fee = abi.fee.to_string().parse::<u32>().context("Failed to parse fee")?;
@@ -249,14 +249,14 @@ pub fn decode_positions(data: &Bytes) -> Result<PositionsReturn, anyhow::Error> 
 }
 
 pub fn decode_collect(data: &Bytes) -> Result<(U256, U256), anyhow::Error> {
-    let abi = INonfungiblePositionManager::collectCall::abi_decode_returns(data, true)?;
+    let abi = INonfungiblePositionManager::collectCall::abi_decode_returns(data)?;
     Ok((abi.amount0, abi.amount1))
 }
 
 
 /// Decode the output of the Mint function of the NFT Position Manager
 pub fn decode_mint(bytes: &Bytes) -> Result<MintReturn, anyhow::Error> {
-    let res = INonfungiblePositionManager::mintCall::abi_decode_returns(&bytes, true)?;
+    let res = INonfungiblePositionManager::mintCall::abi_decode_returns(&bytes)?;
     Ok(MintReturn {
         token_id: res.tokenId,
         liquidity: res.liquidity,

@@ -112,6 +112,19 @@ impl ZeusCtx {
       self.read(|ctx| ctx.account.wallet_address_exists(address))
    }
 
+   pub fn get_wallet_info(&self, address: Address) -> Option<WalletInfo> {
+      let mut info = None;
+      self.read(|ctx| {
+         for wallet in &ctx.account.wallets {
+            if wallet.info.address == address {
+               info = Some(wallet.info.clone());
+               break;
+            }
+         }
+      });
+      info
+   }
+
    pub fn wallets_info(&self) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
@@ -230,7 +243,12 @@ impl ZeusCtx {
       })
    }
 
-   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<NumericValue> {
+   pub fn get_token_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      token: Address,
+   ) -> Option<NumericValue> {
       self.read(|ctx| {
          ctx.balance_db
             .get_token_balance(chain, owner, token)
@@ -344,7 +362,12 @@ impl ZeusCtx {
       }
    }
 
-   pub fn get_currency_value(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
+   pub fn get_currency_value(
+      &self,
+      chain: u64,
+      owner: Address,
+      currency: &Currency,
+   ) -> NumericValue {
       let price = self.get_currency_price(currency);
       let balance = self.get_currency_balance(chain, owner, currency);
       NumericValue::value(balance.f64(), price.f64())
@@ -356,7 +379,12 @@ impl ZeusCtx {
       NumericValue::value(amount, price.f64())
    }
 
-   pub fn get_currency_balance(&self, chain: u64, owner: Address, currency: &Currency) -> NumericValue {
+   pub fn get_currency_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      currency: &Currency,
+   ) -> NumericValue {
       if currency.is_native() {
          self.get_eth_balance(chain, owner).unwrap_or_default()
       } else {
@@ -367,7 +395,12 @@ impl ZeusCtx {
       }
    }
 
-   pub fn get_currency_balance_opt(&self, chain: u64, owner: Address, currency: &Currency) -> Option<NumericValue> {
+   pub fn get_currency_balance_opt(
+      &self,
+      chain: u64,
+      owner: Address,
+      currency: &Currency,
+   ) -> Option<NumericValue> {
       if currency.is_native() {
          self.get_eth_balance(chain, owner)
       } else {
@@ -377,12 +410,23 @@ impl ZeusCtx {
    }
 
    /// Get the v2 pool for the pair, token order does not matter
-   pub fn get_v2_pool(&self, chain: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
+   pub fn get_v2_pool(
+      &self,
+      chain: u64,
+      token0: Address,
+      token1: Address,
+   ) -> Option<UniswapV2Pool> {
       self.read(|ctx| ctx.pool_manager.get_v2_pool(chain, token0, token1))
    }
 
    /// Get the v3 pool for the pair, token order does not matter
-   pub fn get_v3_pool(&self, chain: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
+   pub fn get_v3_pool(
+      &self,
+      chain: u64,
+      fee: u32,
+      token0: Address,
+      token1: Address,
+   ) -> Option<UniswapV3Pool> {
       self.read(|ctx| ctx.pool_manager.get_v3_pool(chain, fee, token0, token1))
    }
 
@@ -405,7 +449,12 @@ impl ZeusCtx {
          }
 
          for fee in FEE_TIERS {
-            if let Some(pool) = self.get_v3_pool(token.chain_id, fee, base_token.address, token.address) {
+            if let Some(pool) = self.get_v3_pool(
+               token.chain_id,
+               fee,
+               base_token.address,
+               token.address,
+            ) {
                pools.push(pool);
             }
          }
@@ -532,7 +581,10 @@ impl ContactDB {
 
       // make sure name and address are unique
       if self.contacts.iter().any(|c| c.name == contact.name) {
-         return Err(anyhow!("Contact with name {} already exists", contact.name));
+         return Err(anyhow!(
+            "Contact with name {} already exists",
+            contact.name
+         ));
       } else if self.contacts.iter().any(|c| c.address == contact.address) {
          return Err(anyhow!(
             "Contact with address {} already exists",
@@ -724,13 +776,21 @@ impl ZeusContext {
    /// This only for ETH mainnet
    pub fn get_flashbots_client(&self) -> Result<HttpClient, anyhow::Error> {
       let url = "https://rpc.flashbots.net";
-      get_http_client(&url, retry_layer(100, 10, 1000), throttle_layer(5))
+      get_http_client(
+         &url,
+         retry_layer(100, 10, 1000),
+         throttle_layer(5),
+      )
    }
 
    /// This only for ETH mainnet
    pub fn get_flashbots_fast_client(&self) -> Result<HttpClient, anyhow::Error> {
       let url = "https://rpc.flashbots.net/fast";
-      get_http_client(&url, retry_layer(100, 10, 1000), throttle_layer(5))
+      get_http_client(
+         &url,
+         retry_layer(100, 10, 1000),
+         throttle_layer(5),
+      )
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {

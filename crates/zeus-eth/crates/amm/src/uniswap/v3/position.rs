@@ -193,7 +193,7 @@ pub async fn simulate_position<P>(
    args: PositionArgs,
 ) -> Result<PositionResult, anyhow::Error>
 where
-   P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+   P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
    let full_block = client.get_block(BlockId::latest()).await?.unwrap();
    let chain_id = client.get_chain_id().await?;
@@ -549,7 +549,7 @@ pub async fn get_average_price<P>(
    pool: UniswapV3Pool,
 ) -> Result<AvgPrice, anyhow::Error>
 where
-   P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+   P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
    let prices = Arc::new(Mutex::new(Vec::new()));
    let shared_pool = Arc::new(Mutex::new(pool.clone()));

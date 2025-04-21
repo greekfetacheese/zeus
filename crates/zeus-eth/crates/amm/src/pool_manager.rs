@@ -151,7 +151,7 @@ impl PoolStateManagerHandle {
    /// Update everything in the manager
    pub async fn update<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       self.update_pool_state(client.clone(), chain).await?;
@@ -164,7 +164,7 @@ impl PoolStateManagerHandle {
    /// Update the state of all the pools for the given chain
    async fn update_pool_state<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let v2_pool_map = self.read(|manager| manager.v2_pools.clone());
@@ -191,7 +191,7 @@ impl PoolStateManagerHandle {
       v3_pools: Vec<UniswapV3Pool>,
    ) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let concurrency = self.read(|manager| manager.concurrency);
@@ -203,7 +203,7 @@ impl PoolStateManagerHandle {
    /// Update the base token prices for the given tokens
    pub async fn update_base_token_prices<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let tokens = ERC20Token::base_tokens(chain);
@@ -224,7 +224,7 @@ impl PoolStateManagerHandle {
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
@@ -291,7 +291,7 @@ impl PoolStateManagerHandle {
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let base_tokens = ERC20Token::base_tokens(token.chain_id);
@@ -653,7 +653,7 @@ impl PoolStateManager {
 impl PoolStateManager {
    pub async fn fetch_base_token_prices<P, N>(client: P, tokens: Vec<ERC20Token>) -> Result<TokenPrices, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let mut prices = HashMap::new();
@@ -675,7 +675,7 @@ impl PoolStateManager {
       v3_pools: Vec<UniswapV3Pool>,
    ) -> Result<(Vec<V2PoolReserves>, Vec<V3PoolData>), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       const BATCH_SIZE: usize = 100;

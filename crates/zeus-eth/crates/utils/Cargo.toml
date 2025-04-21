@@ -6,15 +6,15 @@ edition = "2021"
 [dependencies]
 types = { path = "../types" }
 
-alloy-sol-types = {version = "0.8.20", features = ["json"]}
-alloy-primitives = "0.8.20"
+alloy-sol-types = {version = "1", features = ["json"]}
+alloy-primitives = "1.0.0"
 
-alloy-rpc-types = "0.13.0"
-alloy-contract = "0.13.0"
-alloy-provider = "0.13.0"
-alloy-network = "0.13.0"
-alloy-transport = {version = "0.13.0", features = ["throttle"]}
-alloy-rpc-client = {version = "0.13.0", features = ["reqwest"]}
+alloy-rpc-types = "0.14.0"
+alloy-contract = "0.14.0"
+alloy-provider = "0.14.0"
+alloy-network = "0.14.0"
+alloy-transport = {version = "0.14.0", features = ["throttle"]}
+alloy-rpc-client = {version = "0.14.0", features = ["reqwest"]}
 
 anyhow = "1.0.95"
 tracing = "0.1.41"

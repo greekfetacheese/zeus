@@ -100,14 +100,14 @@ pub async fn get_erc20_balance<P, N>(
    tokens: Vec<Address>,
 ) -> Result<Vec<TokenBalance>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block.unwrap_or(BlockId::latest());
    let deployer = IGetErc20Balance::deploy_builder(client, tokens, owner).block(block);
    let res = deployer.call_raw().await?;
 
-   let data = <Vec<TokenBalance> as SolValue>::abi_decode(&res, false)
+   let data = <Vec<TokenBalance> as SolValue>::abi_decode(&res)
       .map_err(|e| anyhow!("Failed to decode token balances: {:?}", e))?;
    Ok(data)
 }
@@ -115,14 +115,14 @@ where
 /// Get the ERC20 token info
 pub async fn get_erc20_info<P, N>(client: P, token: Address) -> Result<ERC20Info, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let deployer = IGetERC20::deploy_builder(client, token);
    let res = deployer.call_raw().await?;
 
    let data =
-      <ERC20Info as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+      <ERC20Info as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
    Ok(data)
 }
@@ -139,14 +139,14 @@ pub async fn get_v3_pools<P, N>(
    factory: Address,
 ) -> Result<Vec<V3Pool>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let deployer = IGetV3Pools::deploy_builder(client, factory, token_a, token_b);
    let res = deployer.call_raw().await?;
 
    let data =
-      <Vec<V3Pool> as SolValue>::abi_decode(&res, false).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
+      <Vec<V3Pool> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
 
    Ok(data)
 }
@@ -160,14 +160,14 @@ pub async fn get_v2_pool_reserves<P, N>(
    pools: Vec<Address>,
 ) -> Result<Vec<V2PoolReserves>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block.unwrap_or(BlockId::latest());
    let deployer = IGetV2PoolsReserves::deploy_builder(client, pools).block(block);
    let res = deployer.call_raw().await?;
 
-   let data = <Vec<V2PoolReserves> as SolValue>::abi_decode(&res, false)
+   let data = <Vec<V2PoolReserves> as SolValue>::abi_decode(&res)
       .map_err(|e| anyhow!("Failed to decode V2 pool reserves: {:?}", e))?;
 
    Ok(data)
@@ -182,14 +182,14 @@ pub async fn get_v3_state<P, N>(
    pools: Vec<V3Pool2>,
 ) -> Result<Vec<V3PoolData>, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block.unwrap_or(BlockId::latest());
    let deployer = IGetV3State::deploy_builder(client, pools).block(block);
    let res = deployer.call_raw().await?;
 
-   let data = <Vec<V3PoolData> as SolValue>::abi_decode(&res, false)
+   let data = <Vec<V3PoolData> as SolValue>::abi_decode(&res)
       .map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
 
    Ok(data)

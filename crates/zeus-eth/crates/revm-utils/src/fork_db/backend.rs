@@ -78,7 +78,7 @@ pub struct GlobalBackend<P> {
 
 impl<P> GlobalBackend<P>
 where
-   P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+   P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
    // not so elegeant but create sim env from state diffs
    pub fn new(
@@ -234,7 +234,7 @@ where
 
 impl<P> Future for GlobalBackend<P>
 where
-   P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+   P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
    type Output = ();
 

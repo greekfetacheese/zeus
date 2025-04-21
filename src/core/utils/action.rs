@@ -20,12 +20,34 @@ pub enum OnChainAction {
    /// Token Swap
    SwapToken(SwapParams),
 
+   /// ERC20 Token Approval
+   TokenApprove(TokenApproveParams),
+
    Transfer(TransferParams),
 
    Other,
 }
 
 impl OnChainAction {
+
+   pub fn dummy_token_approve() -> Self {
+      let token = Currency::from(ERC20Token::weth());
+      let amount = NumericValue::parse_to_wei("1", 18);
+      let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+      let owner = Address::ZERO;
+      let spender = Address::ZERO;
+
+      let params = TokenApproveParams {
+         token,
+         amount,
+         amount_usd: Some(amount_usd),
+         owner,
+         spender,
+      };
+
+      Self::TokenApprove(params)
+   }
+
    pub fn dummy_swap() -> Self {
       let input_token = Currency::from(ERC20Token::weth());
       let output_token = Currency::from(ERC20Token::dai());
@@ -86,6 +108,54 @@ impl OnChainAction {
       Self::Transfer(params)
    }
 
+   pub fn new_transfer(
+      currency: Currency,
+      amount: NumericValue,
+      amount_usd: NumericValue,
+      sender: Address,
+      recipient: Address,
+   ) -> Self {
+      let params = TransferParams {
+         currency,
+         amount,
+         amount_usd: Some(amount_usd),
+         sender,
+         recipient,
+      };
+
+      Self::Transfer(params)
+   }
+
+   pub fn new_bridge(
+      dapp: Dapp,
+      origin_chain: u64,
+      destination_chain: u64,
+      input_currency: Currency,
+      output_currency: Currency,
+      amount_in: NumericValue,
+      amount_usd: NumericValue,
+      received: NumericValue,
+      received_usd: NumericValue,
+      sender: Address,
+      recipient: Address,
+   ) -> Self {
+      let params = BridgeParams {
+         dapp,
+         origin_chain,
+         destination_chain,
+         input_currency,
+         output_currency,
+         amount: amount_in,
+         amount_usd: Some(amount_usd),
+         received,
+         received_usd: Some(received_usd),
+         sender,
+         recipient,
+      };
+
+      Self::Bridge(params)
+   }
+
    pub async fn new(
       ctx: ZeusCtx,
       chain: u64,
@@ -126,6 +196,10 @@ impl OnChainAction {
          action = Self::Transfer(params);
       }
 
+      if let Ok(params) = TokenApproveParams::new(ctx, chain, call_data, logs).await {
+         action = Self::TokenApprove(params);
+      }
+
       action
    }
 
@@ -134,6 +208,7 @@ impl OnChainAction {
          Self::Bridge(_) => "Bridge",
          Self::SwapToken(_) => "Swap Token",
          Self::Transfer(_) => "Transfer",
+         Self::TokenApprove(_) => "Token Approval",
          Self::Other => "Unknown interaction",
       }
    }
@@ -141,12 +216,16 @@ impl OnChainAction {
    /// Get the currency to be payed
    ///
    /// Eg. For a bridge & swap, it will be the `input_currency`
+   /// 
    /// For a transfer, it will be the `currency` to be sent
+   /// 
+   /// For Token Approval, it will be the `token` to be approved
    pub fn input_currency(&self) -> Currency {
       match self {
          Self::Bridge(params) => params.input_currency.clone(),
          Self::SwapToken(params) => params.input_currency.clone(),
          Self::Transfer(params) => params.currency.clone(),
+         Self::TokenApprove(params) => params.token.clone(),
          Self::Other => Currency::default(),
       }
    }
@@ -159,6 +238,7 @@ impl OnChainAction {
          Self::Bridge(params) => params.output_currency.clone(),
          Self::SwapToken(params) => params.output_currency.clone(),
          Self::Transfer(_) => Currency::default(),
+         Self::TokenApprove(_) => Currency::default(),
          Self::Other => Currency::default(),
       }
    }
@@ -166,15 +246,29 @@ impl OnChainAction {
    /// Get the amount to be payed
    ///
    /// Eg. For a bridge & swap, it will be the `amount_in`
+   /// 
    /// For a transfer, it will be the `amount`
+   /// 
+   /// For Token Approval, it will be the `amount` to be approved
    pub fn amount(&self) -> NumericValue {
       match self {
          Self::Bridge(params) => params.amount.clone(),
          Self::SwapToken(params) => params.amount_in.clone(),
          Self::Transfer(params) => params.amount.clone(),
+         Self::TokenApprove(params) => params.amount.clone(),
          Self::Other => NumericValue::default(),
       }
    }
+
+   pub fn token_approval_amount_str(&self) -> String {
+      let amount = self.amount();
+      let unlimited = amount.wei2() == U256::MAX;
+      if unlimited {
+         return "Unlimited".to_string()
+      } else {
+        return amount.formatted().clone()
+      }
+      }
 
    /// Get the amount usd value to be payed
    ///
@@ -185,6 +279,7 @@ impl OnChainAction {
          Self::Bridge(params) => params.amount_usd.clone(),
          Self::SwapToken(params) => params.amount_in_usd.clone(),
          Self::Transfer(params) => params.amount_usd.clone(),
+         Self::TokenApprove(params) => params.amount_usd.clone(),
          Self::Other => None,
       }
    }
@@ -197,6 +292,7 @@ impl OnChainAction {
          Self::Bridge(params) => params.received.clone(),
          Self::SwapToken(params) => params.received.clone(),
          Self::Transfer(_) => NumericValue::default(),
+         Self::TokenApprove(_) => NumericValue::default(),
          Self::Other => NumericValue::default(),
       }
    }
@@ -209,6 +305,7 @@ impl OnChainAction {
          Self::Bridge(params) => params.received_usd.clone(),
          Self::SwapToken(params) => params.received_usd.clone(),
          Self::Transfer(_) => None,
+         Self::TokenApprove(_) => None,
          Self::Other => None,
       }
    }
@@ -243,6 +340,16 @@ impl OnChainAction {
       }
    }
 
+   /// Get the token approval params
+   ///
+   /// Panics if the action is not a token approval
+   pub fn token_approval_params(&self) -> TokenApproveParams {
+      match self {
+         Self::TokenApprove(params) => params.clone(),
+         _ => panic!("Action is not a token approval"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -253,6 +360,10 @@ impl OnChainAction {
 
    pub fn is_transfer(&self) -> bool {
       matches!(self, Self::Transfer(_))
+   }
+
+   pub fn is_token_approval(&self) -> bool {
+      matches!(self, Self::TokenApprove(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -671,5 +782,73 @@ impl TransferParams {
       } else {
          bail!("Not a transfer")
       }
+   }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TokenApproveParams {
+   pub token: Currency,
+   pub amount: NumericValue,
+   pub amount_usd: Option<NumericValue>,
+   pub owner: Address,
+   pub spender: Address,
+}
+
+impl TokenApproveParams {
+   pub async fn new(
+      ctx: ZeusCtx,
+      chain: u64,
+      call_data: Bytes,
+      logs: Vec<Log>,
+   ) -> Result<Self, anyhow::Error> {
+      let selector = call_data.get(0..4).unwrap_or_default();
+      if selector != erc20::approve_selector() {
+         bail!("Call is not an approve");
+      }
+
+      let mut decoded = None;
+      let mut token_addr = None;
+      for log in logs {
+         if let Ok(decoded_log) = erc20::decode_approve_log(&log) {
+            decoded = Some(decoded_log);
+            token_addr = Some(log.address);
+            break;
+         }
+      }
+
+      if decoded.is_none() {
+         bail!("Failed to decode approve log");
+      }
+
+      let decoded = decoded.unwrap();
+      let token_addr = token_addr.unwrap();
+      let client = ctx.get_client_with_id(chain)?;
+      let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
+
+      let token = if let Some(token) = cached {
+         token
+      } else {
+         let token = ERC20Token::new(client, token_addr, chain).await?;
+         ctx.write(|ctx| {
+            ctx.currency_db
+               .insert_currency(chain, Currency::from(token.clone()))
+         });
+         token
+      };
+
+      let amount = NumericValue::format_wei(decoded.value, token.decimals);
+      let amount_usd = ctx.get_currency_value2(amount.f64(), &Currency::from(token.clone()));
+      let owner = decoded.owner;
+      let spender = decoded.spender;
+
+      let params = TokenApproveParams {
+         token: Currency::from(token),
+         amount,
+         amount_usd: Some(amount_usd),
+         owner,
+         spender,
+      };
+
+      Ok(params)
    }
 }

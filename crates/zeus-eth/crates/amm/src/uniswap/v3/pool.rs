@@ -129,7 +129,7 @@ impl UniswapV3Pool {
 
    pub async fn from_address<P, N>(client: P, chain_id: u64, address: Address) -> Result<Self, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let dex_kind = DexKind::UniswapV3;
@@ -163,7 +163,7 @@ impl UniswapV3Pool {
       dex: DexKind,
    ) -> Result<Self, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let factory = dex.factory(chain_id)?;
@@ -252,7 +252,7 @@ impl UniswapV3Pool {
       block: Option<BlockId>,
    ) -> Result<V3PoolState, anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let address = pool.address;
@@ -330,7 +330,7 @@ impl UniswapV3Pool {
    /// - (base_price, quote_price)
    pub async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
    where
-      P: Provider<(), N> + Clone + 'static,
+      P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let chain_id = self.chain_id;

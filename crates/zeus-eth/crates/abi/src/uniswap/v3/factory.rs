@@ -32,22 +32,22 @@ contract IUniswapV3Factory {
 
 pub async fn owner<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV3Factory::new(factory, client);
    let owner = factory.owner().call().await?;
-   Ok(owner._0)
+   Ok(owner)
 }
 
 pub async fn fee_amount_tick_spacing<P, N>(client: P, factory: Address, fee: u32) -> Result<i32, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV3Factory::new(factory, client);
    let tick_spacing = factory.feeAmountTickSpacing(Uint::from(fee)).call().await?;
-   let tick_spacing = tick_spacing._0.bits();
+   let tick_spacing = tick_spacing.bits();
    Ok(tick_spacing as i32)
 }
 
@@ -59,7 +59,7 @@ pub async fn get_pool<P, N>(
    fee: u32,
 ) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV3Factory::new(factory, client);
@@ -67,7 +67,7 @@ where
       .getPool(token0, token1, Uint::from(fee))
       .call()
       .await?;
-   Ok(pool.pool)
+   Ok(pool)
 }
 
 pub fn encode_create_pool(token0: Address, token1: Address, fee: u32) -> Bytes {
@@ -80,6 +80,6 @@ pub fn encode_create_pool(token0: Address, token1: Address, fee: u32) -> Bytes {
 }
 
 pub fn decode_create_pool(data: &Bytes) -> Result<Address, anyhow::Error> {
-   let abi = IUniswapV3Factory::createPoolCall::abi_decode_returns(data, true)?;
-   Ok(abi.pool)
+   let abi = IUniswapV3Factory::createPoolCall::abi_decode_returns(data)?;
+   Ok(abi)
 }

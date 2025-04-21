@@ -42,7 +42,7 @@ impl DummyAccount {
       amount: U256,
    ) -> Result<Option<U256>, anyhow::Error>
    where
-      P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+      P: Provider<Ethereum> + Clone + 'static + Unpin,
    {
       if amount == U256::ZERO {
          return Ok(Some(U256::ZERO));
@@ -75,7 +75,7 @@ impl DummyAccount {
    /// If you don't know the storage slot of the token you want to fund the account with, use this function
    pub fn insert<P>(&self, fork_factory: &mut ForkFactory<P>, token: Address, amount: U256) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+      P: Provider<Ethereum> + Clone + 'static + Unpin,
    {
       let slot = self.find_balance_slot(fork_factory, token.clone(), amount)?;
       if let Some(slot) = slot {
@@ -99,7 +99,7 @@ impl DummyAccount {
       amount: U256,
    ) -> Result<(), anyhow::Error>
    where
-      P: Provider<(), Ethereum> + Clone + 'static + Unpin,
+      P: Provider<Ethereum> + Clone + 'static + Unpin,
    {
       let code = match &self.account_type {
          AccountType::EOA => Bytecode::default(),

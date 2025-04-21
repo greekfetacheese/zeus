@@ -3,8 +3,8 @@ pub mod ui;
 pub mod window;
 
 use eframe::egui::{Context, Ui};
-use ui::settings;
 use std::sync::{Arc, RwLock};
+use ui::settings;
 
 use crate::assets::icons::Icons;
 use crate::core::context::ZeusCtx;
@@ -28,6 +28,10 @@ impl SharedGUI {
    pub fn write<R>(&self, writer: impl FnOnce(&mut GUI) -> R) -> R {
       writer(&mut self.0.write().unwrap())
    }
+
+   pub fn request_repaint(&self) {
+      self.read(|gui| gui.request_repaint());
+   }
 }
 
 impl Default for SharedGUI {
@@ -35,7 +39,6 @@ impl Default for SharedGUI {
       Self(Arc::new(RwLock::new(GUI::default())))
    }
 }
-
 
 pub struct GUI {
    pub egui_ctx: Context,
@@ -77,7 +80,6 @@ pub struct GUI {
 
    pub loading_window: ui::LoadingWindow,
 
-
    pub settings: ui::settings::SettingsUi,
 
    pub tx_history: ui::tx_history::TxHistory,
@@ -85,12 +87,16 @@ pub struct GUI {
    pub data_inspection: bool,
 
    pub testing_window: ui::misc::TestingWindow,
+
    pub ui_testing: ui::panels::central_panel::UiTesting,
-   pub progress_window2: ui::misc::ProgressWindow2,
+
+   pub progress_window: ui::misc::ProgressWindow,
 
    pub confirm_window: ui::misc::ConfirmWindow,
 
-   pub tx_confirm_window: ui::misc::TxConfirmWindow
+   pub tx_confirm_window: ui::misc::TxConfirmWindow,
+
+   pub sign_msg_window: ui::misc::SignMsgWindow,
 }
 
 impl GUI {
@@ -110,7 +116,8 @@ impl GUI {
       let settings = settings::SettingsUi::new();
       let tx_history = ui::tx_history::TxHistory::new();
       let ui_testing = ui::panels::central_panel::UiTesting::new();
-      let progress_window2 = ui::misc::ProgressWindow2::new();
+      let progress_window = ui::misc::ProgressWindow::new();
+      let sign_msg_window = ui::misc::SignMsgWindow::new();
 
       Self {
          egui_ctx,
@@ -139,7 +146,8 @@ impl GUI {
          ui_testing,
          confirm_window,
          tx_confirm_window,
-         progress_window2,
+         progress_window,
+         sign_msg_window,
       }
    }
 
@@ -158,11 +166,19 @@ impl GUI {
    pub fn open_msg_window(&mut self, title: impl Into<String>, msg: impl Into<String>) {
       self.msg_window.open(title, msg);
    }
+
+   pub fn request_repaint(&self) {
+      self.egui_ctx.request_repaint();
+   }
 }
 
 impl Default for GUI {
    fn default() -> Self {
       let icons = Arc::new(Icons::new(&Context::default()).unwrap());
-      GUI::new(icons, Theme::new(ThemeKind::Mocha), Context::default())
+      GUI::new(
+         icons,
+         Theme::new(ThemeKind::Mocha),
+         Context::default(),
+      )
    }
 }

@@ -41,6 +41,6 @@ pub fn encode_swap(params: Params) -> Vec<u8> {
 
 /// Decodes the output of the swap of the [SwapRouter] contract
 pub fn decode_swap(bytes: &Bytes) -> Result<U256, anyhow::Error> {
-   let amount = SwapRouter::do_swapCall::abi_decode_returns(&bytes, true)?;
-   Ok(amount.real_amount)
+   let amount = SwapRouter::do_swapCall::abi_decode_returns(&bytes)?;
+   Ok(amount)
 }

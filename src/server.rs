@@ -1,10 +1,9 @@
-use crate::core::utils::{action::OnChainAction, update};
-use crate::core::{ZeusCtx, utils::tx};
-use crate::gui::SHARED_GUI;
+use crate::core::ZeusCtx;
+use crate::core::utils::eth;
+use crate::gui::{SHARED_GUI, ui::Step};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::convert::Infallible;
-use std::future::IntoFuture;
 use std::net::SocketAddr;
 use tracing::{error, info};
 use warp::Filter;
@@ -12,13 +11,10 @@ use warp::Filter;
 use std::str::FromStr;
 use zeus_eth::{
    alloy_network::TransactionBuilder,
-   alloy_primitives::{Address, Bytes, TxKind, U256, hex},
+   alloy_primitives::{Address, Bytes, U256, hex},
    alloy_provider::Provider,
-   alloy_rpc_types::{BlockId, TransactionRequest},
-   currency::{Currency, NativeCurrency},
-   revm_utils::{ExecuteCommitEvm, ForkFactory, Host, new_evm, revert_msg},
+   alloy_rpc_types::TransactionRequest,
    types::ChainId,
-   utils::NumericValue,
 };
 
 pub const SERVER_PORT: u16 = 65534;
@@ -74,6 +70,7 @@ pub enum RequestMethod {
    NewFilter,
    NewPendingTransactionFilter,
    SendRawTransaction,
+   EthSignedTypedDataV4,
 }
 
 impl RequestMethod {
@@ -120,6 +117,7 @@ impl RequestMethod {
          RequestMethod::NewFilter => "eth_newFilter",
          RequestMethod::NewPendingTransactionFilter => "eth_newPendingTransactionFilter",
          RequestMethod::SendRawTransaction => "eth_sendRawTransaction",
+         RequestMethod::EthSignedTypedDataV4 => "eth_signTypedData_v4",
       }
    }
 
@@ -162,6 +160,7 @@ impl RequestMethod {
          RequestMethod::NewFilter,
          RequestMethod::NewPendingTransactionFilter,
          RequestMethod::SendRawTransaction,
+         RequestMethod::EthSignedTypedDataV4,
       ]
    }
 }
@@ -715,6 +714,54 @@ async fn estimate_gas(
    Ok(response)
 }
 
+async fn eth_sign_typed_data_v4(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let typed_data_str = match payload.params.get(1) {
+      Some(Value::String(s)) => s,
+      _ => {
+         error!("Invalid params for eth_signTypedData_v4: expected string at params[1]");
+         return Ok(JsonRpcResponse::error(
+            -32602,
+            payload.id,
+         ));
+      }
+   };
+
+   let typed_data_value: Value = match serde_json::from_str(typed_data_str) {
+      Ok(v) => v,
+      Err(e) => {
+         error!("Failed to parse typed data string: {:?}", e);
+         return Ok(JsonRpcResponse::error(
+            -32602,
+            payload.id,
+         ));
+      }
+   };
+
+   let chain = ctx.chain();
+   let signature = match eth::sign_message(ctx, payload.origin.clone(), chain, typed_data_value).await
+   {
+      Ok(signature) => signature,
+      Err(e) => {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.reset();
+            gui.msg_window.open("Error Signing Message", e.to_string());
+            gui.request_repaint();
+         });
+         error!("Error signing message: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let sig_bytes = signature.as_bytes();
+   let sig_hex = hex::encode(sig_bytes);
+
+   let response = JsonRpcResponse::ok(Some(Value::String(sig_hex)), payload.id);
+   Ok(response)
+}
+
 fn switch_ethereum_chain(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
@@ -788,6 +835,11 @@ fn switch_ethereum_chain(
 
    ctx.write(|ctx| {
       ctx.chain = chain;
+   });
+
+   SHARED_GUI.write(|gui| {
+      gui.chain_selection.chain_select.chain = chain;
+      gui.request_repaint();
    });
 
    let response = JsonRpcResponse {
@@ -918,200 +970,45 @@ async fn eth_send_transaction(
       }
    };
 
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.open();
-      gui.tx_confirm_window.simulating();
-   });
+   let chain = ctx.chain();
 
-   let chain = ctx.chain().id();
-   let client = ctx.get_client_with_id(chain).unwrap();
-   let base_fee_fut = update::get_base_fee(ctx.clone(), chain);
-   let bytecode_fut = client.get_code_at(to).into_future();
-
-   let block = match client.get_block(BlockId::latest()).await {
-      Ok(block) => block,
-      Err(e) => {
-         error!("Error getting latest block: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), None, None);
-   let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain, block, fork_db);
-
-   evm.tx.caller = from;
-   evm.tx.kind = TxKind::Call(to);
-   evm.tx.data = call_data.clone();
-   evm.tx.value = value;
-
-   let sim_res = match evm.transact_commit(evm.tx.clone()) {
+   let (_, tx_summary) = match eth::send_transaction(
+      ctx.clone(),
+      payload.origin.clone(),
+      None,
+      chain,
+      from,
+      to,
+      call_data,
+      value,
+   )
+   .await
+   {
       Ok(res) => res,
       Err(e) => {
-         error!("Error simulating tx: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let output = sim_res.output().unwrap_or_default();
-
-   if !sim_res.is_success() {
-      let err = revert_msg(&output);
-      error!("Simulation failed: {}", err);
-      return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-   }
-
-   let gas_used = sim_res.gas_used();
-   let logs = sim_res.into_logs();
-   let balance_before = ctx.get_eth_balance(chain, from).unwrap_or_default();
-   let state = evm.balance(from);
-   let balance_after = if let Some(state) = state {
-      NumericValue::format_wei(state.data, 18).wei2()
-   } else {
-      NumericValue::default().wei().unwrap_or_default()
-   };
-
-   let eth_spent = balance_before.wei2().checked_sub(balance_after);
-   if eth_spent.is_none() {
-      error!(
-         "Error calculating eth spent, overflow occured, balance_before: {}, balance_after: {}",
-         balance_before.wei2(),
-         balance_after
-      );
-      return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-   }
-
-   let bytecode = match bytecode_fut.await {
-      Ok(bytecode) => bytecode,
-      Err(e) => {
-         error!("Error getting bytecode: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let native_currency = NativeCurrency::from_chain_id(chain).unwrap();
-   let dapp = payload.origin.clone();
-   let chain_id = ChainId::new(chain).unwrap();
-   let eth_spent = NumericValue::format_wei(eth_spent.unwrap(), 18);
-   let eth_price = ctx.get_currency_price(&Currency::from(native_currency.clone()));
-   let eth_spent_value = NumericValue::value(eth_spent.f64(), eth_price.f64());
-   let interact_to = to;
-   let contract_interact = bytecode.len() > 0;
-   let action = OnChainAction::new(ctx.clone(), chain, from, to, call_data.clone(), value, logs).await;
-   let priority_fee = ctx.get_priority_fee(chain).unwrap_or_default();
-
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.done_simulating();
-      gui.tx_confirm_window.open_with(
-         dapp,
-         chain_id,
-         true,
-         eth_spent,
-         eth_spent_value,
-         NumericValue::default(),
-         NumericValue::default(),
-         gas_used,
-         from,
-         interact_to,
-         contract_interact,
-         action,
-         priority_fee.formatted().clone(),
-      );
-   });
-
-   // wait for the user to confirm or reject the transaction
-   let mut confirmed = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-      SHARED_GUI.read(|gui| {
-         confirmed = gui.tx_confirm_window.get_confirm();
-      });
-
-      if confirmed.is_some() {
-         SHARED_GUI.write(|gui| {
-            gui.tx_confirm_window.reset();
-         });
-         break;
-      }
-   }
-
-   let confirmed = confirmed.unwrap();
-   if !confirmed {
-      return Ok(JsonRpcResponse::error(
-         USER_REJECTED_REQUEST,
-         payload.id,
-      ));
-   }
-   let fee = SHARED_GUI.read(|gui| gui.tx_confirm_window.get_priority_fee());
-   let priority_fee = if fee.is_zero() {
-      ctx.get_priority_fee(chain).unwrap_or_default()
-   } else {
-      fee
-   };
-
-   let tx_method = tx::TxMethod::Other;
-   if !ctx.wallet_exists(from) {
-      return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
-   }
-
-   let base_fee = match base_fee_fut.await {
-      Ok(base_fee) => base_fee,
-      Err(e) => {
-         error!("Error getting base fee: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let signer = ctx.get_wallet(from).key;
-
-   let tx_params = tx::TxParams::new(
-      tx_method,
-      signer,
-      to,
-      value,
-      chain_id,
-      priority_fee.wei2(),
-      base_fee.next,
-      call_data,
-      gas_used,
-   );
-
-   let res = tx_params.sufficient_balance(balance_before);
-   if let Err(e) = res {
-      SHARED_GUI.write(|gui| {
-         gui.msg_window
-            .open("Insufficient Balance".to_string(), e.to_string());
-      });
-      return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-   }
-
-   let client = if chain_id.is_ethereum() {
-      ctx.get_flashbots_fast_client().unwrap()
-   } else {
-      ctx.get_client_with_id(chain_id.id()).unwrap()
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Sending Transaction...");
-   });
-
-   let _receipt = match tx::send_tx(client, tx_params).await {
-      Ok(receipt) => receipt,
-      Err(e) => {
-         error!("Error sending tx: {:?}", e);
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
             gui.msg_window
                .open("Error Sending Transaction", e.to_string());
+            gui.request_repaint();
          });
+         error!("Error sending tx: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
    };
 
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
    SHARED_GUI.write(|gui| {
-      gui.loading_window.reset();
-      gui.msg_window.open("Transaction Sent", "");
+      gui.progress_window
+         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx_summary(tx_summary);
+      gui.request_repaint();
    });
 
    Ok(JsonRpcResponse::ok(None, payload.id))
@@ -1143,6 +1040,8 @@ async fn handle_request(
       switch_ethereum_chain(ctx, payload)?
    } else if method == RequestMethod::SendTransaction.as_str() {
       eth_send_transaction(ctx, payload).await?
+   } else if method == RequestMethod::EthSignedTypedDataV4.as_str() {
+      eth_sign_typed_data_v4(ctx, payload).await?
    } else {
       // TODO
       error!("Method '{}' not supported.", payload.method);

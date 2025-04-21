@@ -26,10 +26,11 @@ egui-theme = { path = "crates/egui-theme" }
 
 
 # Alloy
-alloy-consensus = "0.13.0"
-alloy-signer = "0.13.0"
-alloy-signer-local = {version = "0.13.0", features = ["mnemonic"]}
-alloy-network = "0.13.0"
+alloy-consensus = "0.14.0"
+alloy-signer = {version = "0.14.0", features = ["eip712"]}
+alloy-signer-local = {version = "0.14.0", features = ["mnemonic"]}
+alloy-network = "0.14.0"
+alloy-dyn-abi = {version = "1.0.0", features = ["eip712"]}
 
 # Encryption
 ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }

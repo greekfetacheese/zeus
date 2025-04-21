@@ -231,13 +231,13 @@ pub fn encode_deposit_v3(args: DepositV3Args) -> Bytes {
  }
 
  pub fn decode_deposit_v3_call(data: &Bytes) -> Result<depositV3Call, anyhow::Error> {
-    let args = depositV3Call::abi_decode(data, false)?;
+    let args = depositV3Call::abi_decode(data)?;
     Ok(args)
  }
 
 
  pub fn decode_funds_deposited_log(log: &LogData) -> Result<FundsDeposited, anyhow::Error> {
-    let decoded = V3SpokePoolInterface::FundsDeposited::decode_raw_log(log.topics(), &log.data, true)?;
+    let decoded = V3SpokePoolInterface::FundsDeposited::decode_raw_log(log.topics(), &log.data)?;
  
     let input_token = Address::from_slice(&decoded.inputToken[12..]);
     let output_token = Address::from_slice(&decoded.outputToken[12..]);
@@ -264,7 +264,7 @@ pub fn encode_deposit_v3(args: DepositV3Args) -> Bytes {
 
 
  pub fn decode_filled_relay_log(log: &LogData) -> Result<FilledRelay, anyhow::Error> {
-    let decoded = V3SpokePoolInterface::FilledRelay::decode_raw_log(log.topics(), &log.data, true)?;
+    let decoded = V3SpokePoolInterface::FilledRelay::decode_raw_log(log.topics(), &log.data)?;
  
     let input_token = Address::from_slice(&decoded.inputToken[12..]);
     let output_token = Address::from_slice(&decoded.outputToken[12..]);

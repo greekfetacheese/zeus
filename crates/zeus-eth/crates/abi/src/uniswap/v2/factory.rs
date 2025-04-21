@@ -21,22 +21,22 @@ sol! {
 
 pub async fn fee_to<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV2Factory::new(factory, client);
    let fee_to = factory.feeTo().call().await?;
-   Ok(fee_to._0)
+   Ok(fee_to)
 }
 
 pub async fn fee_to_setter<P, N>(client: P, factory: Address) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV2Factory::new(factory, client);
    let fee_to_setter = factory.feeToSetter().call().await?;
-   Ok(fee_to_setter._0)
+   Ok(fee_to_setter)
 }
 
 pub async fn get_pair<P, N>(
@@ -46,32 +46,32 @@ pub async fn get_pair<P, N>(
    token1: Address,
 ) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV2Factory::new(factory, client);
    let pair = factory.getPair(token0, token1).call().await?;
-   Ok(pair.pair)
+   Ok(pair)
 }
 
 pub async fn all_pairs<P, N>(client: P, factory: Address, index: U256) -> Result<Address, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV2Factory::new(factory, client);
    let pair = factory.allPairs(index).call().await?;
-   Ok(pair.pair)
+   Ok(pair)
 }
 
 pub async fn all_pairs_length<P, N>(client: P, factory: Address) -> Result<U256, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let factory = IUniswapV2Factory::new(factory, client);
    let length = factory.allPairsLength().call().await?;
-   Ok(length.length)
+   Ok(length)
 }
 
 pub fn encode_create_pair(token0: Address, token1: Address) -> Bytes {
@@ -83,6 +83,6 @@ pub fn encode_create_pair(token0: Address, token1: Address) -> Bytes {
 }
 
 pub fn decode_create_pair(data: &Bytes) -> Result<Address, anyhow::Error> {
-   let abi = IUniswapV2Factory::createPairCall::abi_decode_returns(data, true)?;
-   Ok(abi.pair)
+   let abi = IUniswapV2Factory::createPairCall::abi_decode_returns(data)?;
+   Ok(abi)
 }

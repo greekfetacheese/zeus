@@ -19,7 +19,7 @@ sol!(
 /// - `block_id` The block to query the price at. If None, the latest block is used.
 pub async fn get_eth_price<P, N>(client: P, chain_id: u64, block_id: Option<BlockId>) -> Result<f64, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let chain = ChainId::new(chain_id)?;
@@ -35,7 +35,7 @@ where
    let block_id = block_id.unwrap_or(BlockId::latest());
 
    let oracle = ChainLinkOracle::new(feed, client);
-   let eth_usd = oracle.latestAnswer().block(block_id).call().await?._0;
+   let eth_usd = oracle.latestAnswer().block(block_id).call().await?;
 
    let eth_usd = eth_usd.to_string().parse::<U256>()?;
    let formatted = format_units(eth_usd, 8)?.parse::<f64>()?;
@@ -47,14 +47,14 @@ where
 /// - `block_id` The block to query the price at. If None, the latest block is used.
 pub async fn get_bnb_price<P, N>(client: P, block_id: Option<BlockId>) -> Result<f64, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block_id = block_id.unwrap_or(BlockId::latest());
 
    let feed = super::address::bnb_usd_price_feed();
    let oracle = ChainLinkOracle::new(feed, client);
-   let bnb_usd = oracle.latestAnswer().block(block_id).call().await?._0;
+   let bnb_usd = oracle.latestAnswer().block(block_id).call().await?;
 
    let bnb_usd = bnb_usd.to_string().parse::<U256>()?;
    let formatted = format_units(bnb_usd, 8)?.parse::<f64>()?;
@@ -69,7 +69,7 @@ pub async fn get_base_token_price<P, N>(
    block: Option<BlockId>,
 ) -> Result<f64, anyhow::Error>
 where
-   P: Provider<(), N> + Clone + 'static,
+   P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let chain = ChainId::new(chain_id)?;

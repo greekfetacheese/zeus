@@ -51,7 +51,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
    ui.horizontal(|ui| {
-      if gui.send_crypto.review_tx_window {
+      if gui.tx_confirm_window.is_open() {
          ui.disable();
       }
 
@@ -62,11 +62,11 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    ui.horizontal(|ui| {
       // Disable the wallet selection when we are in the review window
       // To avoid any mistakes
-      if gui.send_crypto.review_tx_window {
+      if gui.tx_confirm_window.is_open() {
          ui.disable();
       }
 
-      if gui.across_bridge.review_tx_window {
+      if gui.tx_confirm_window.is_open() {
          ui.disable();
       }
 
@@ -122,14 +122,7 @@ impl ChainSelection {
                // Update the pririty fee in the send_crypto
                SHARED_GUI.write(|gui| {
                   let currency = Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
-                  let priority_fee = ctx_clone
-                     .get_priority_fee(new_chain.id())
-                     .unwrap_or_default()
-                     .formatted()
-                     .clone();
                   gui.send_crypto.set_currency(currency.clone());
-                  gui.send_crypto
-                     .set_priority_fee(new_chain, priority_fee.clone());
                });
             });
          }

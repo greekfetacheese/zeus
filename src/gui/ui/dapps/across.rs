@@ -1,30 +1,30 @@
 use crate::assets::icons::Icons;
+use crate::core::utils::action::OnChainAction;
 use crate::core::utils::eth::get_eth_balance;
 use crate::core::{
    ZeusCtx,
    utils::{
-      RT, estimate_gas_cost, eth,
-      tx::{TxMethod, TxParams},
+      RT, estimate_tx_cost, eth,
    },
 };
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, GREEN_CHECK, RecipientSelectionWindow},
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow},
 };
 use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui, Window,
-   vec2,
+   vec2, Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, RichText, Spinner, TextEdit, Ui, Window
 };
 use egui_theme::{Theme, utils::widget_visuals};
 use egui_widgets::Label;
+use zeus_eth::dapps::Dapp;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
    abi::protocols::across::{DepositV3Args, encode_deposit_v3},
-   alloy_primitives::{Address, Bytes, U256, utils::parse_units},
+   alloy_primitives::{Address, Bytes, U256},
    currency::{Currency, NativeCurrency},
    dapps::across::*,
-   types::{BSC, ChainId},
+   types::BSC,
    utils::NumericValue,
 };
 
@@ -43,13 +43,10 @@ pub struct ApiResCache {
 
 pub struct AcrossBridge {
    pub open: bool,
-   pub progress_window: ProgressWindow,
    pub currency: NativeCurrency,
    pub amount: String,
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
-   pub priority_fee: String,
-   pub review_tx_window: bool,
    pub balance_syncing: bool,
    /// API request in progress
    pub requesting: bool,
@@ -62,31 +59,23 @@ pub struct AcrossBridge {
 
 impl AcrossBridge {
    pub fn new() -> Self {
-      let progress_window = ProgressWindow::new("across_bridge_multi_step".to_string());
 
       Self {
          open: false,
-         progress_window,
          currency: NativeCurrency::from_chain_id(1).unwrap(),
          amount: String::new(),
          from_chain: ChainSelect::new("across_bridge_from_chain", 1),
          to_chain: ChainSelect::new("across_bridge_to_chain", 10),
-         priority_fee: "1".to_string(),
-         review_tx_window: false,
          balance_syncing: false,
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
-         size: (550.0, 670.0),
+         size: (550.0, 750.0),
       }
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
       self.currency = currency.native().cloned().unwrap();
-   }
-
-   pub fn set_priority_fee(&mut self, fee: String) {
-      self.priority_fee = fee;
    }
 
    pub fn show(
@@ -102,8 +91,6 @@ impl AcrossBridge {
          return;
       }
 
-      self.progress_window.show(theme, icons.clone(), ui);
-
       recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
@@ -113,14 +100,6 @@ impl AcrossBridge {
 
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
-      self.review_transaction(
-         ctx.clone(),
-         theme,
-         icons.clone(),
-         recipient.clone(),
-         recipient_name.clone(),
-         ui,
-      );
 
       let frame = theme.frame1;
       let bg_color = frame.fill;
@@ -131,8 +110,9 @@ impl AcrossBridge {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+            ui.set_max_width(self.size.0);
+            ui.set_max_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
             let ui_width = ui.available_width();
@@ -144,16 +124,14 @@ impl AcrossBridge {
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                if ui
-                  .add(Button::new(RichText::new("⟲").size(theme.text_sizes.small)))
+                  .add(Button::new(
+                     RichText::new("⟲").size(theme.text_sizes.small),
+                  ))
                   .clicked()
                {
                   self.get_balance(ctx.clone(), depositor);
                }
 
-               #[cfg(feature = "dev")]
-               if ui.button("Test Progress Window").clicked() {
-                  test_progress_window();
-               }
             });
 
             // Asset and amount selection
@@ -166,7 +144,7 @@ impl AcrossBridge {
                .unwrap_or_default();
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.set_max_width(ui_width * 0.15);
+               ui.set_max_width(ui_width * 0.25);
                Grid::new("asset_and_amount")
                   .spacing(vec2(5.0, 0.0))
                   .show(ui, |ui| {
@@ -174,7 +152,7 @@ impl AcrossBridge {
                         TextEdit::singleline(&mut self.amount)
                            .hint_text("0")
                            .font(FontId::proportional(theme.text_sizes.normal))
-                           .min_size(vec2(ui_width * 0.15, 25.0))
+                           .min_size(vec2(ui_width * 0.25, 25.0))
                            .background_color(theme.colors.text_edit_bg2)
                            .margin(Margin::same(10)),
                      );
@@ -237,10 +215,7 @@ impl AcrossBridge {
                Grid::new("recipient")
                   .spacing(vec2(5.0, 0.0))
                   .show(ui, |ui| {
-                     ui.label(
-                        RichText::new("Recipient")
-                           .size(theme.text_sizes.large),
-                     );
+                     ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
 
                      if !recipient.is_empty() {
                         if let Some(name) = &recipient_name {
@@ -288,20 +263,8 @@ impl AcrossBridge {
                Grid::new("from_chain")
                   .spacing(vec2(5.0, 0.0))
                   .show(ui, |ui| {
-                     ui.label(
-                        RichText::new("From")
-                           .size(theme.text_sizes.large),
-                     );
-
-                     let changed = self.from_chain.show(BSC, theme, icons.clone(), ui);
-                     if changed {
-                        let chain = self.from_chain.chain.id();
-                        self.priority_fee = ctx
-                           .get_priority_fee(chain)
-                           .unwrap_or_default()
-                           .formatted()
-                           .clone();
-                     }
+                     ui.label(RichText::new("From").size(theme.text_sizes.large));
+                     self.from_chain.show(BSC, theme, icons.clone(), ui);
                      ui.end_row();
                   });
             });
@@ -312,10 +275,7 @@ impl AcrossBridge {
                Grid::new("to_chain")
                   .spacing(vec2(5.0, 0.0))
                   .show(ui, |ui| {
-                     ui.label(
-                        RichText::new("To")
-                           .size(theme.text_sizes.large),
-                     );
+                     ui.label(RichText::new("To").size(theme.text_sizes.large));
                      self.to_chain.grid_id = "across_bridge_to_chain";
                      self.to_chain.show(BSC, theme, icons.clone(), ui);
                      ui.end_row();
@@ -323,44 +283,6 @@ impl AcrossBridge {
             });
             ui.add_space(10.0);
 
-            // Priority Fee
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Priority Fee").size(theme.text_sizes.large));
-               ui.add_space(4.0);
-               ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
-            });
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.set_width(ui_width * 0.2);
-               ui.add(
-                  TextEdit::singleline(&mut self.priority_fee)
-                     .min_size(vec2(ui_width * 0.2, 25.0))
-                     .margin(Margin::same(10))
-                     .background_color(theme.colors.text_edit_bg2)
-                     .font(FontId::proportional(theme.text_sizes.normal)),
-               );
-               ui.add_space(5.0);
-               ui.spacing_mut().button_padding = vec2(5.0, 5.0);
-               widget_visuals(ui, theme.get_button_visuals(bg_color));
-               if ui
-                  .add(Button::new(
-                     RichText::new("Reset").size(theme.text_sizes.small),
-                  ))
-                  .clicked()
-               {
-                  self.reset_priority_fee(ctx.clone());
-               }
-            });
-
-            if !self.priority_fee.is_empty() {
-               if self.fee_is_zero() {
-                  ui.label(
-                     RichText::new("Fee cannot be zero")
-                        .size(theme.text_sizes.normal)
-                        .color(Color32::RED),
-                  );
-               }
-            }
 
             // Network Fee
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -391,12 +313,19 @@ impl AcrossBridge {
             // Estimated time to fill
             let fill_time = self
                .api_res_cache
-               .get(&(self.from_chain.chain.id(), self.to_chain.chain.id()))
+               .get(&(
+                  self.from_chain.chain.id(),
+                  self.to_chain.chain.id(),
+               ))
                .map(|c| c.res.suggested_fees.estimated_fill_time_sec);
             if let Some(fill_time) = fill_time {
                ui.add_space(10.0);
                ui.label(
-                  RichText::new(format!("Estimated time to fill: {} seconds", fill_time)).size(theme.text_sizes.normal),
+                  RichText::new(format!(
+                     "Estimated time to fill: {} seconds",
+                     fill_time
+                  ))
+                  .size(theme.text_sizes.normal),
                );
                ui.add_space(20.0);
             } else {
@@ -406,19 +335,20 @@ impl AcrossBridge {
             // Bridge Button
             widget_visuals(ui, theme.get_button_visuals(bg_color));
 
-            let bridge =
-               Button::new(RichText::new("Bridge").size(theme.text_sizes.normal)).min_size(vec2(ui_width * 0.90, 40.0));
+            let bridge = Button::new(RichText::new("Bridge").size(theme.text_sizes.normal))
+               .min_size(vec2(ui_width * 0.90, 40.0));
 
-            if !self.valid_inputs(ctx, depositor, &recipient) {
+            if !self.valid_inputs(ctx.clone(), depositor, &recipient) {
                ui.disable();
             }
 
             ui.vertical_centered(|ui| {
                if ui.add(bridge).clicked() {
-                  self.review_tx_window = true;
+                 self.send_transaction(ctx, recipient);
                }
             });
          });
+      });
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
@@ -426,8 +356,8 @@ impl AcrossBridge {
          .get_eth_balance(self.from_chain.chain.id(), depositor)
          .unwrap_or_default();
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let amount = amount.wei().unwrap();
-      balance.wei().unwrap() >= amount
+      let amount = amount.wei2();
+      balance.wei2() >= amount
    }
 
    /// Max amount = Balance - cost
@@ -437,11 +367,11 @@ impl AcrossBridge {
       let balance = ctx.get_eth_balance(chain.id(), owner).unwrap_or_default();
       let (cost_wei, _) = self.cost(ctx.clone());
 
-      if balance.wei().unwrap() < cost_wei {
+      if balance.wei2() < cost_wei.wei2() {
          return NumericValue::default();
       }
 
-      let max = balance.wei().unwrap() - cost_wei;
+      let max = balance.wei2() - cost_wei.wei2();
       NumericValue::format_wei(max, self.currency.decimals)
    }
 
@@ -455,28 +385,19 @@ impl AcrossBridge {
       amount > 0.0
    }
 
-   fn fee_is_zero(&self) -> bool {
-      let fee = self.priority_fee.parse().unwrap_or(0.0);
-      let chain = self.from_chain.chain;
-      if chain.uses_priority_fee() {
-         fee == 0.0
-      } else {
-         false
-      }
-   }
-
-   /// Reset priority fee to the suggested fee
-   fn reset_priority_fee(&mut self, ctx: ZeusCtx) {
-      let chain = self.from_chain.chain.id();
-      let fee = ctx.get_priority_fee(chain).unwrap_or_default();
-      self.priority_fee = fee.formatted().clone();
-   }
 
    fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
-      self.valid_recipient(recipient) && self.valid_amount() && self.sufficient_balance(ctx, depositor)
+      self.valid_recipient(recipient)
+         && self.valid_amount()
+         && self.sufficient_balance(ctx, depositor)
    }
 
-   fn should_get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
+   fn should_get_suggested_fees(
+      &mut self,
+      ctx: ZeusCtx,
+      depositor: Address,
+      recipient: &String,
+   ) -> bool {
       // Don't request if already in progress
       if self.requesting {
          return false;
@@ -487,7 +408,10 @@ impl AcrossBridge {
          return false;
       }
 
-      let chain_path = (self.from_chain.chain.id(), self.to_chain.chain.id());
+      let chain_path = (
+         self.from_chain.chain.id(),
+         self.to_chain.chain.id(),
+      );
       let now = Instant::now();
 
       // Check cache
@@ -523,7 +447,11 @@ impl AcrossBridge {
             if let Some(last_updated) = cache.last_updated {
                let elapsed = last_updated.elapsed().as_secs();
                if elapsed <= CACHE_EXPIRE {
-                  tracing::debug!("Cache still valid ({}s <= {}s)", elapsed, CACHE_EXPIRE);
+                  tracing::debug!(
+                     "Cache still valid ({}s <= {}s)",
+                     elapsed,
+                     CACHE_EXPIRE
+                  );
                   return false; // Cache is valid, no need to request
                }
                // Cache expired, check rate limit
@@ -617,9 +545,10 @@ impl AcrossBridge {
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals)
          .wei()
          .unwrap();
-      let cache = self
-         .api_res_cache
-         .get(&(self.from_chain.chain.id(), self.to_chain.chain.id()));
+      let cache = self.api_res_cache.get(&(
+         self.from_chain.chain.id(),
+         self.to_chain.chain.id(),
+      ));
       if cache.is_some() {
          let cache = cache.unwrap();
          let fee_pct = cache.res.suggested_fees.total_relay_fee.pct.clone();
@@ -647,269 +576,145 @@ impl AcrossBridge {
    /// Estimated cost of the transaction
    ///
    /// Returns (cost_wei, cost_usd)
-   fn cost(&self, ctx: ZeusCtx) -> (U256, NumericValue) {
-      let priority_fee = if self.priority_fee.is_empty() {
-         parse_units("1", "gwei").unwrap().get_absolute()
-      } else {
-         parse_units(&self.priority_fee, "gwei")
-            .unwrap_or(parse_units("1", "gwei").unwrap())
-            .get_absolute()
-      };
-
+   fn cost(&self, ctx: ZeusCtx) -> (NumericValue, NumericValue) {
       let chain = self.from_chain.chain;
       let gas_used: u64 = 70_000;
+      let fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
 
-      estimate_gas_cost(ctx, chain.id(), gas_used, priority_fee)
+      estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei2())
    }
 
-   fn review_transaction(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      recipient: String,
-      _recipient_name: Option<String>,
-      ui: &mut Ui,
-   ) {
-      if !self.review_tx_window {
+   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
+      let cache = self
+         .api_res_cache
+         .get(&(
+            self.from_chain.chain.id(),
+            self.to_chain.chain.id(),
+         ))
+         .cloned();
+
+      if cache.is_none() {
+         RT.spawn_blocking(move || {
+            SHARED_GUI.write(|gui| {
+               gui.msg_window.open(
+                  "Failed to get suggested fees, try again later or increase the amount",
+                  String::new(),
+               );
+            });
+         });
          return;
       }
 
       let from_chain = self.from_chain.chain.clone();
       let to_chain = self.to_chain.chain.clone();
 
-      let cache = self
-         .api_res_cache
-         .get(&(self.from_chain.chain.id(), self.to_chain.chain.id()))
-         .cloned();
-
-      let miner_tip = if self.priority_fee.is_empty() {
-         parse_units("1", "gwei").unwrap().get_absolute()
-      } else {
-         parse_units(&self.priority_fee, "gwei")
-            .unwrap_or(parse_units("1", "gwei").unwrap())
-            .get_absolute()
-      };
-
+      // Despite we are bridging from native to native, we still need to use the wrapped token in the call
+      let input_token = ERC20Token::wrapped_native_token(from_chain.id());
+      let output_token = ERC20Token::wrapped_native_token(to_chain.id());
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
+      let input_usd = ctx.get_currency_value2(input_amount.f64(), &Currency::from(input_token.clone()));
+      let output_amount = self.minimum_amount();
+      let output_usd = ctx.get_currency_value2(output_amount.f64(), &Currency::from(output_token.clone()));
+
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).key;
       let depositor = signer.borrow().address();
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
 
-      // Despite we are bridging from native to native, we still need to use the wrapped token in the call
-      let input_token = ERC20Token::wrapped_native_token(from_chain.id());
-      let output_token = ERC20Token::wrapped_native_token(to_chain.id());
-      let output_amount = self.minimum_amount();
+      let cache = cache.unwrap();
+      let relayer = cache.res.suggested_fees.exclusive_relayer;
+      let timestamp = u32::from_str(&cache.res.suggested_fees.timestamp).unwrap_or_default();
+      let fill_deadline =
+         u32::from_str(&cache.res.suggested_fees.fill_deadline).unwrap_or_default();
+      let exclusivity_deadline = cache.res.suggested_fees.exclusivity_deadline;
 
-      let min_received_value = self.value(ctx.clone(), output_amount.f64());
+      // add a 5 minute deadline, because the fill deadline from the api is very high
+      let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+      let deadline: u32 = now
+         .is_ok()
+         .then(|| (now.unwrap().as_secs() + 300) as u32)
+         .unwrap_or(fill_deadline);
 
-      let mut should_send_tx = false;
+      let deposit_args = DepositV3Args {
+         depositor,
+         recipient,
+         input_token: input_token.address,
+         output_token: output_token.address,
+         input_amount: input_amount.wei2(),
+         output_amount: output_amount.wei2(),
+         destination_chain_id: to_chain.id(),
+         exclusive_relayer: relayer,
+         quote_timestamp: timestamp,
+         fill_deadline: deadline,
+         exclusivity_deadline,
+         message: Bytes::default(),
+      };
 
-      Window::new("Review Transaction")
-         .title_bar(false)
-         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(400.0);
-            ui.set_height(300.0);
-            ui.spacing_mut().button_padding = vec2(15.0, 10.0);
+      let call_data = encode_deposit_v3(deposit_args.clone());
+      let transact_to = spoke_pool_address(self.from_chain.chain.id()).unwrap();
+      let action = OnChainAction::new_bridge(
+         Dapp::Across,
+         from_chain.id(),
+         to_chain.id(),
+         input_token.into(),
+         output_token.into(),
+         input_amount.clone(),
+         input_usd,
+         output_amount,
+         output_usd,
+         depositor,
+         recipient,
+      );
 
-            ui.vertical_centered(|ui| {
-               ui.add_space(20.0);
-
-               if cache.is_none() {
-                  ui.label(
-                     RichText::new("Failed to get suggested fees, try again later or increase the amount")
-                        .size(theme.text_sizes.large),
-                  );
-                  if ui
-                     .add(Button::new(
-                        RichText::new("Close").size(theme.text_sizes.small),
-                     ))
-                     .clicked()
-                  {
-                     self.review_tx_window = false;
-                  }
-                  return;
-               }
-
-               // Heading
-               ui.label(
-                  RichText::new("You are about to Bridge")
-                     .size(theme.text_sizes.heading)
-                     .strong(),
-               );
-
-               // Transaction Details Section
-               ui.vertical_centered(|ui| {
-                  let icon = icons.currency_icon(&Currency::from(self.currency.clone()));
-                  let value = self
-                     .value(ctx.clone(), input_amount.f64())
-                     .formatted()
-                     .clone();
-                  let text = format!(
-                     "{} {} (${})",
-                     input_amount.formatted(),
-                     self.currency.symbol,
-                     value
-                  );
-                  ui.add(Label::new(
-                     RichText::new(text).size(theme.text_sizes.normal),
-                     Some(icon.clone()),
-                  ));
-                  let text = RichText::new("You will receive at least").size(theme.text_sizes.large);
-                  ui.add(Label::new(text, None));
-                  let min_text = format!(
-                     "{} {} (${})",
-                     output_amount.formatted(),
-                     self.currency.symbol,
-                     min_received_value.formatted()
-                  );
-                  ui.add(Label::new(
-                     RichText::new(min_text).size(theme.text_sizes.normal),
-                     Some(icon),
-                  ));
-               });
-
-               ui.add_space(15.0);
-
-               // Chain Information Section
-               ui.horizontal(|ui| {
-                  ui.add_space(80.0);
-                  let from_chain_icon = icons.chain_icon(&from_chain.id());
-                  ui.add(
-                     Label::new(
-                        RichText::new(from_chain.name()).size(theme.text_sizes.normal),
-                        Some(from_chain_icon),
-                     )
-                     .text_first(false),
-                  );
-                  ui.add(icons.arrow_right());
-                  let to_chain_icon = icons.chain_icon(&to_chain.id());
-                  ui.add(
-                     Label::new(
-                        RichText::new(to_chain.name()).size(theme.text_sizes.normal),
-                        Some(to_chain_icon),
-                     )
-                     .text_first(false),
-                  );
-               });
-
-               ui.add_space(10.0);
-
-               // Action Buttons Section
-               ui.horizontal(|ui| {
-                  ui.add_space(100.0); // Center buttons
-                  if ui
-                     .add(Button::new(
-                        RichText::new("Confirm").size(theme.text_sizes.normal),
-                     ))
-                     .clicked()
-                  {
-                     should_send_tx = true;
-                     self.review_tx_window = false;
-                  }
-                  ui.add_space(10.0);
-                  if ui
-                     .add(Button::new(
-                        RichText::new("Cancel").size(theme.text_sizes.normal),
-                     ))
-                     .clicked()
-                  {
-                     self.review_tx_window = false;
-                  }
-               });
-            });
-         });
-
-      if should_send_tx {
-         let currency = Currency::from(self.currency.clone());
-         let tx_method = TxMethod::Bridge((currency.clone(), input_amount.clone()));
-         let base_fee = ctx
-            .get_base_fee(self.from_chain.chain.id())
-            .unwrap_or_default()
-            .next;
-         let cache = cache.unwrap();
-         let relayer = cache.res.suggested_fees.exclusive_relayer;
-         let timestamp = u32::from_str(&cache.res.suggested_fees.timestamp).unwrap_or_default();
-         let fill_deadline = u32::from_str(&cache.res.suggested_fees.fill_deadline).unwrap_or_default();
-         let exclusivity_deadline = cache.res.suggested_fees.exclusivity_deadline;
-
-         // add a 5 minute deadline, because the fill deadline from the api is very high
-         let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-         let deadline: u32 = now
-            .is_ok()
-            .then(|| (now.unwrap().as_secs() + 300) as u32)
-            .unwrap_or(fill_deadline);
-         tracing::info!("Deadline: {}", deadline);
-
-         let deposit_args = DepositV3Args {
+      RT.spawn(async move {
+         match eth::across_bridge(
+            ctx.clone(),
+            from_chain,
+            to_chain,
+            deadline,
+            action,
             depositor,
             recipient,
-            input_token: input_token.address,
-            output_token: output_token.address,
-            input_amount: input_amount.wei().unwrap(),
-            output_amount: output_amount.wei().unwrap(),
-            destination_chain_id: to_chain.id(),
-            exclusive_relayer: relayer,
-            quote_timestamp: timestamp,
-            fill_deadline: deadline,
-            exclusivity_deadline,
-            message: Bytes::default(),
-         };
-
-         let call_data = encode_deposit_v3(deposit_args.clone());
-
-         let transact_to = spoke_pool_address(self.from_chain.chain.id()).unwrap();
-
-         let params = TxParams::new(
-            tx_method,
-            signer,
             transact_to,
-            input_amount.wei().unwrap(),
-            self.from_chain.chain,
-            miner_tip,
-            base_fee,
             call_data,
-            70_000,
-         );
-
-         let dest_chain = self.to_chain.chain.id();
-         RT.spawn(async move {
-            match eth::across_bridge(
-               ctx.clone(),
-               currency,
-               deadline,
-               output_amount.clone(),
-               dest_chain,
-               recipient,
-               params,
-            )
-            .await
-            {
-               Ok(_) => {
-                  tracing::info!("Bridge Transaction Sent");
-               }
-               Err(e) => {
-                  tracing::error!("Bridge Transaction Error: {:?}", e);
-                  SHARED_GUI.write(|gui| {
-                     gui.across_bridge.progress_window.reset_and_close();
-                     gui.msg_window.open("Transaction Error", &e.to_string());
-                  });
-               }
+            input_amount.wei2(),
+         )
+         .await
+         {
+            Ok(_) => {
+               tracing::info!("Bridge Transaction Sent");
             }
-         });
-      }
+            Err(e) => {
+               tracing::error!("Bridge Transaction Error: {:?}", e);
+               SHARED_GUI.write(|gui| {
+                  gui.progress_window.reset();
+                  gui.loading_window.reset();
+                  gui.msg_window.open("Transaction Error", &e.to_string());
+               });
+            }
+         }
+      });
    }
+
 }
 
-fn request_suggested_fees(from_chain: u64, to_chain: u64, input_token: Address, output_token: Address, amount: U256) {
+fn request_suggested_fees(
+   from_chain: u64,
+   to_chain: u64,
+   input_token: Address,
+   output_token: Address,
+   amount: U256,
+) {
    RT.spawn(async move {
-      let res = match get_suggested_fees(input_token, output_token, from_chain, to_chain, amount).await {
+      let res = match get_suggested_fees(
+         input_token,
+         output_token,
+         from_chain,
+         to_chain,
+         amount,
+      )
+      .await
+      {
          Ok(res) => res,
          Err(e) => {
             tracing::error!("Failed to get suggested fees: {:?}", e);
@@ -933,230 +738,6 @@ fn request_suggested_fees(from_chain: u64, to_chain: u64, input_token: Address, 
          );
          gui.across_bridge.requesting = false;
          gui.across_bridge.last_request_time = Some(Instant::now())
-      });
-   });
-}
-
-/// A progress window
-pub struct ProgressWindow {
-   pub id: String,
-   pub open: bool,
-   // Step 1
-   pub simulating: bool,
-   pub simulating_done: bool,
-   // Step 2
-   pub sending: bool,
-   pub sending_done: bool,
-   // Step 3
-   pub order_filling: bool,
-   pub order_filling_done: bool,
-   pub funds_received: bool,
-   pub currency_sent: Currency,
-   pub amount_sent: NumericValue,
-   pub amount_usd: NumericValue,
-   pub dest_chain: ChainId,
-   pub size: (f32, f32),
-}
-
-impl ProgressWindow {
-   pub fn new(id: String) -> Self {
-      Self {
-         id,
-         open: false,
-         simulating: true,
-         simulating_done: false,
-         sending: false,
-         sending_done: false,
-         order_filling: false,
-         order_filling_done: false,
-         funds_received: false,
-         currency_sent: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
-         amount_sent: NumericValue::default(),
-         amount_usd: NumericValue::default(),
-         dest_chain: ChainId::new(1).unwrap(),
-         size: (350.0, 150.0),
-      }
-   }
-
-   pub fn open(&mut self) {
-      self.open = true;
-   }
-
-   pub fn set_currency(&mut self, currency: Currency) {
-      self.currency_sent = currency;
-   }
-
-   pub fn set_funds_received(&mut self, b: bool) {
-      self.funds_received = b;
-   }
-
-   pub fn set_dest_chain(&mut self, chain: ChainId) {
-      self.dest_chain = chain;
-   }
-
-   pub fn set_amount_sent(&mut self, amount: NumericValue) {
-      self.amount_sent = amount;
-   }
-
-   pub fn set_amount_usd(&mut self, amount: NumericValue) {
-      self.amount_usd = amount;
-   }
-
-   pub fn reset_and_close(&mut self) {
-      self.open = false;
-      self.sending = false;
-      self.sending_done = false;
-      self.order_filling = false;
-      self.order_filling_done = false;
-      self.funds_received = false;
-      self.simulating();
-   }
-
-   pub fn simulating(&mut self) {
-      self.simulating = true;
-      self.simulating_done = false;
-   }
-
-   pub fn done_simulating(&mut self) {
-      self.simulating = false;
-      self.simulating_done = true;
-   }
-
-   pub fn sending(&mut self) {
-      self.sending = true;
-      self.sending_done = false;
-   }
-
-   pub fn done_sending(&mut self) {
-      self.sending = false;
-      self.sending_done = true;
-   }
-
-   /// Deposit was success
-   ///
-   /// Now waiting for the order to be filled
-   pub fn order_filling(&mut self) {
-      self.order_filling = true;
-      self.order_filling_done = false;
-   }
-
-   /// Order was filled
-   pub fn done_order_filling(&mut self) {
-      self.order_filling = false;
-      self.order_filling_done = true;
-   }
-
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      Window::new(&self.id)
-         .title_bar(false)
-         .movable(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .frame(Frame::window(ui.style()))
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.vertical_centered(|ui| {
-               ui.add_space(20.0);
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let ui_width = ui.available_width();
-
-               ui.add_sized(vec2(ui_width * 0.6, self.size.1), |ui: &mut Ui| {
-                  let res = Grid::new("across_progress_window")
-                     .spacing(vec2(5.0, 10.0))
-                     .show(ui, |ui| {
-                        // Step 1
-                        ui.label(RichText::new("Simulating Transaction").size(theme.text_sizes.normal));
-                        if self.simulating {
-                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                        }
-                        if self.simulating_done {
-                           ui.label(RichText::new(GREEN_CHECK).size(theme.text_sizes.normal));
-                        }
-                        ui.end_row();
-
-                        // Step 2
-                        ui.label(RichText::new("Sending the Deposit").size(theme.text_sizes.normal));
-                        if self.sending {
-                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                        }
-                        if self.sending_done {
-                           ui.label(RichText::new(GREEN_CHECK).size(theme.text_sizes.normal));
-                        }
-                        ui.end_row();
-
-                        // Step 3
-                        ui.label(RichText::new("Waiting for the order to be filled").size(theme.text_sizes.normal));
-                        if self.order_filling {
-                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                        }
-                        if self.order_filling_done {
-                           ui.label(RichText::new(GREEN_CHECK).size(theme.text_sizes.normal));
-                        }
-                        ui.end_row();
-
-                        if self.funds_received {
-                           let text = format!(
-                              "You have sent {} {} (${})",
-                              self.amount_sent.formatted(),
-                              self.currency_sent.symbol(),
-                              self.amount_usd.formatted(),
-                           );
-                           let text = RichText::new(text).size(theme.text_sizes.normal);
-                           let icon = icons.currency_icon(&self.currency_sent);
-                           ui.add(Label::new(text, Some(icon)).selectable(false));
-                           ui.end_row();
-                        }
-                     });
-                  res.response
-               });
-
-               if ui
-                  .add(Button::new(
-                     RichText::new("Ok").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
-                  self.reset_and_close();
-               }
-            });
-         });
-   }
-}
-
-#[cfg(feature = "dev")]
-fn test_progress_window() {
-   RT.spawn(async move {
-      SHARED_GUI.write(|gui| {
-         gui.across_bridge.progress_window.open();
-      });
-
-       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-      SHARED_GUI.write(|gui| {
-         gui.across_bridge.progress_window.done_simulating();
-         gui.across_bridge.progress_window.sending();
-      });
-
-       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-      SHARED_GUI.write(|gui| {
-         gui.across_bridge.progress_window.done_sending();
-         gui.across_bridge.progress_window.order_filling();
-      });
-
-       tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-      SHARED_GUI.write(|gui| {
-         gui.across_bridge.progress_window.done_order_filling();
-         gui.across_bridge.progress_window.funds_received = true;
       });
    });
 }
