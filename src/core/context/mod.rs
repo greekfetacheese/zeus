@@ -499,6 +499,51 @@ impl ZeusCtx {
          ctx.priority_fee.fee.insert(chain, fee);
       });
    }
+
+   pub fn connect_dapp(&self, dapp: String) {
+      self.write(|ctx| {
+         ctx.connected_dapps.connect_dapp(dapp);
+      });
+   }
+
+   pub fn disconnect_dapp(&self, dapp: &str) {
+      self.write(|ctx| {
+         ctx.connected_dapps.disconnect_dapp(dapp);
+      });
+   }
+
+   pub fn remove_dapp(&self, dapp: String) {
+      self.write(|ctx| {
+         ctx.connected_dapps.remove_dapp(dapp);
+      });
+   }
+
+   pub fn is_dapp_connected(&self, dapp: &str) -> bool {
+      self.read(|ctx| ctx.connected_dapps.is_connected(dapp))
+   }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConnectedDapps {
+   pub dapps: HashMap<String, bool>,
+}
+
+impl ConnectedDapps {
+   pub fn connect_dapp(&mut self, dapp: String) {
+      self.dapps.insert(dapp, true);
+   }
+
+   pub fn disconnect_dapp(&mut self, dapp: &str) {
+      self.dapps.get_mut(dapp).map(|b| *b = false);
+   }
+
+   pub fn remove_dapp(&mut self, dapp: String) {
+      self.dapps.remove(&dapp);
+   }
+
+   pub fn is_connected(&self, dapp: &str) -> bool {
+      self.dapps.get(dapp).map(|b| *b).unwrap_or(false)
+   }
 }
 
 /// Saved contact by the user
@@ -681,6 +726,7 @@ pub struct ZeusContext {
 
    pub base_fee: HashMap<u64, BaseFee>,
    pub priority_fee: PriorityFee,
+   pub connected_dapps: ConnectedDapps,
 }
 
 impl ZeusContext {
@@ -770,6 +816,7 @@ impl ZeusContext {
          data_syncing: false,
          base_fee: HashMap::new(),
          priority_fee,
+         connected_dapps: ConnectedDapps::default(),
       }
    }
 

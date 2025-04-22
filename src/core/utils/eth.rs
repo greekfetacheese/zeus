@@ -113,7 +113,7 @@ pub async fn send_transaction(
 
    if !sim_res.is_success() {
       let err = revert_msg(&output);
-      tracing::error!("Simulation failed: {}", err);
+      tracing::error!("Simulation failed: {} \n Gas Used {}", err, gas_used);
       bail!("Simulation failed: {}", err);
    }
 

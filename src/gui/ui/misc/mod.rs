@@ -492,6 +492,10 @@ impl SignMsgWindow {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
       self.dapp = dapp;
       self.chain = chain.into();

@@ -41,35 +41,12 @@ pub enum RequestMethod {
    EthAccounts,
    RequestAccounts,
    SendTransaction,
-   Subscribe,
-   Unsubscribe,
    BlockNumber,
    EthCall,
    ChainId,
-   Coinbase,
    EstimateGas,
-   FeeHistory,
    EthGasPrice,
    GetBalance,
-   GetBlockByHash,
-   GetBlockByNumber,
-   GetBlockTransactionCountByHash,
-   GetBlockTransactionCountByNumber,
-   GetCode,
-   GetFilterChanges,
-   GetFilterLogs,
-   GetLogs,
-   GetProof,
-   GetStorageAt,
-   GetTransactionByBlockHashAndIndex,
-   GetTransactionByBlockNumberAndIndex,
-   GetTransactionByHash,
-   GetTransactionCount,
-   GetTransactionReceipt,
-   NewBlockFilter,
-   NewFilter,
-   NewPendingTransactionFilter,
-   SendRawTransaction,
    EthSignedTypedDataV4,
 }
 
@@ -84,39 +61,12 @@ impl RequestMethod {
          RequestMethod::EthAccounts => "eth_accounts",
          RequestMethod::RequestAccounts => "eth_requestAccounts",
          RequestMethod::SendTransaction => "eth_sendTransaction",
-         RequestMethod::Subscribe => "eth_subscribe",
-         RequestMethod::Unsubscribe => "eth_unsubscribe",
          RequestMethod::BlockNumber => "eth_blockNumber",
          RequestMethod::EthCall => "eth_call",
          RequestMethod::ChainId => "eth_chainId",
-         RequestMethod::Coinbase => "eth_coinbase",
          RequestMethod::EstimateGas => "eth_estimateGas",
-         RequestMethod::FeeHistory => "eth_feeHistory",
          RequestMethod::EthGasPrice => "eth_gasPrice",
          RequestMethod::GetBalance => "eth_getBalance",
-         RequestMethod::GetBlockByHash => "eth_getBlockByHash",
-         RequestMethod::GetBlockByNumber => "eth_getBlockByNumber",
-         RequestMethod::GetBlockTransactionCountByHash => "eth_getBlockTransactionCountByHash",
-         RequestMethod::GetBlockTransactionCountByNumber => "eth_getBlockTransactionCountByNumber",
-         RequestMethod::GetCode => "eth_getCode",
-         RequestMethod::GetFilterChanges => "eth_getFilterChanges",
-         RequestMethod::GetFilterLogs => "eth_getFilterLogs",
-         RequestMethod::GetLogs => "eth_getLogs",
-         RequestMethod::GetProof => "eth_getProof",
-         RequestMethod::GetStorageAt => "eth_getStorageAt",
-         RequestMethod::GetTransactionByBlockHashAndIndex => {
-            "eth_getTransactionByBlockHashAndIndex"
-         }
-         RequestMethod::GetTransactionByBlockNumberAndIndex => {
-            "eth_getTransactionByBlockNumberAndIndex"
-         }
-         RequestMethod::GetTransactionByHash => "eth_getTransactionByHash",
-         RequestMethod::GetTransactionCount => "eth_getTransactionCount",
-         RequestMethod::GetTransactionReceipt => "eth_getTransactionReceipt",
-         RequestMethod::NewBlockFilter => "eth_newBlockFilter",
-         RequestMethod::NewFilter => "eth_newFilter",
-         RequestMethod::NewPendingTransactionFilter => "eth_newPendingTransactionFilter",
-         RequestMethod::SendRawTransaction => "eth_sendRawTransaction",
          RequestMethod::EthSignedTypedDataV4 => "eth_signTypedData_v4",
       }
    }
@@ -131,50 +81,15 @@ impl RequestMethod {
          RequestMethod::EthAccounts,
          RequestMethod::RequestAccounts,
          RequestMethod::SendTransaction,
-         RequestMethod::Subscribe,
-         RequestMethod::Unsubscribe,
          RequestMethod::BlockNumber,
          RequestMethod::EthCall,
          RequestMethod::ChainId,
-         RequestMethod::Coinbase,
          RequestMethod::EstimateGas,
-         RequestMethod::FeeHistory,
          RequestMethod::EthGasPrice,
          RequestMethod::GetBalance,
-         RequestMethod::GetBlockByHash,
-         RequestMethod::GetBlockByNumber,
-         RequestMethod::GetBlockTransactionCountByHash,
-         RequestMethod::GetBlockTransactionCountByNumber,
-         RequestMethod::GetCode,
-         RequestMethod::GetFilterChanges,
-         RequestMethod::GetFilterLogs,
-         RequestMethod::GetLogs,
-         RequestMethod::GetProof,
-         RequestMethod::GetStorageAt,
-         RequestMethod::GetTransactionByBlockHashAndIndex,
-         RequestMethod::GetTransactionByBlockNumberAndIndex,
-         RequestMethod::GetTransactionByHash,
-         RequestMethod::GetTransactionCount,
-         RequestMethod::GetTransactionReceipt,
-         RequestMethod::NewBlockFilter,
-         RequestMethod::NewFilter,
-         RequestMethod::NewPendingTransactionFilter,
-         RequestMethod::SendRawTransaction,
          RequestMethod::EthSignedTypedDataV4,
       ]
    }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct ConnectionRequest {
-   origin: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConnectionResponse {
-   /// approved or rejected
-   pub status: String,
-   pub accounts: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -183,9 +98,15 @@ pub struct StatusResponse {
 }
 
 #[derive(Deserialize, Debug)]
+struct ApiRequestBody {
+   origin: String,
+   #[serde(flatten)]
+   rpc_request: JsonRpcRequest,
+}
+
+#[derive(Deserialize, Debug)]
 /// Request received from the extension
 struct JsonRpcRequest {
-   origin: String,
    #[allow(dead_code)]
    jsonrpc: String,
    id: Value,
@@ -305,20 +226,64 @@ impl JsonRpcError {
    }
 }
 
-/// Request a wallet connection
-async fn request_connection(
-   ctx: ZeusCtx,
-   payload: ConnectionRequest,
-) -> Result<impl warp::Reply, Infallible> {
-   info!(
-      "request-connection for origin: {}",
-      payload.origin
-   );
+// Handler for GET /status
+async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
+   let chain = ctx.chain().id_as_hex();
+   let current_wallet = ctx.current_wallet();
 
+   let res = json!({
+    "status": true,
+    "accounts": vec![current_wallet.address_string()],
+    "chainId": chain,
+   });
+
+   Ok(warp::reply::json(&res))
+}
+
+async fn request_accounts(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let wallets = ctx.wallets_info();
+   let accounts = wallets
+      .iter()
+      .map(|w| w.address_string())
+      .collect::<Vec<_>>();
+
+   Ok(JsonRpcResponse {
+      jsonrpc: "2.0".to_string(),
+      id: payload.id,
+      result: Some(json!(accounts)),
+      error: None,
+   })
+}
+
+/// Aka disconnect
+fn wallet_revoke_permissions(
+   ctx: ZeusCtx,
+   origin: String,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   ctx.disconnect_dapp(&origin);
+   Ok(JsonRpcResponse {
+      jsonrpc: "2.0".to_string(),
+      id: payload.id,
+      result: Some(Value::Null),
+      error: None,
+   })
+}
+
+/// Depending on the dapp, we may receive eth_requestAccounts or wallet_getPermissions
+/// as the request method for connection
+async fn connect(
+   ctx: ZeusCtx,
+   origin: String,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
    // open the confirmation window
    SHARED_GUI.write(|gui| {
       gui.confirm_window.open("Connect to Dapp");
-      gui.confirm_window.set_msg2(payload.origin);
+      gui.confirm_window.set_msg2(origin.clone());
    });
 
    // wait for the user to confirm or reject the connection
@@ -339,57 +304,20 @@ async fn request_connection(
    }
 
    let confirmed = confirmed.unwrap();
+
    if !confirmed {
-      return Ok(warp::reply::with_status(
-         warp::reply::json(&json!({ "status": "rejected" })),
-         warp::http::StatusCode::OK,
-      ));
+      let res = JsonRpcResponse::error(USER_REJECTED_REQUEST, payload.id);
+      return Ok(res);
    }
 
-   let current_wallet = ctx.current_wallet();
-   info!("Connection approved by user");
-
-   let response = ConnectionResponse {
-      status: "approved".to_string(),
-      accounts: vec![current_wallet.address_string()],
-   };
-
-   Ok(warp::reply::with_status(
-      warp::reply::json(&response),
-      warp::http::StatusCode::OK,
-   ))
-}
-
-// Handler for GET /status
-async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
-   let chain = ctx.chain().id();
-   let chain = format!("0x{:x}", chain);
-   let current_wallet = ctx.current_wallet();
-
-   let res = json!({
-    "status": true,
-    "accounts": vec![current_wallet.address_string()],
-    "chainId": chain,
-   });
-
-   Ok(warp::reply::json(&res))
-}
-
-fn request_accounts(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
-   let wallets = ctx.wallets_info();
-   let mut accounts = Vec::new();
-   for wallet in wallets {
-      accounts.push(wallet.address_string());
-   }
-
-   let response = JsonRpcResponse {
+   ctx.connect_dapp(origin.clone());
+   let current_wallet = ctx.current_wallet().address_string();
+   return Ok(JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
-      result: Some(json!(accounts)),
+      result: Some(json!(vec![current_wallet])),
       error: None,
-   };
-
-   Ok(response)
+   });
 }
 
 fn chain_id(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
@@ -585,6 +513,10 @@ async fn estimate_gas(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
+   info!(
+      "Received estimateGas params {:#?}",
+      payload.params
+   );
    let params_array = match payload.params {
       Value::Array(params) => params,
       _ => {
@@ -716,16 +648,14 @@ async fn estimate_gas(
 
 async fn eth_sign_typed_data_v4(
    ctx: ZeusCtx,
+   origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let typed_data_str = match payload.params.get(1) {
       Some(Value::String(s)) => s,
       _ => {
          error!("Invalid params for eth_signTypedData_v4: expected string at params[1]");
-         return Ok(JsonRpcResponse::error(
-            -32602,
-            payload.id,
-         ));
+         return Ok(JsonRpcResponse::error(-32602, payload.id));
       }
    };
 
@@ -733,16 +663,12 @@ async fn eth_sign_typed_data_v4(
       Ok(v) => v,
       Err(e) => {
          error!("Failed to parse typed data string: {:?}", e);
-         return Ok(JsonRpcResponse::error(
-            -32602,
-            payload.id,
-         ));
+         return Ok(JsonRpcResponse::error(-32602, payload.id));
       }
    };
 
    let chain = ctx.chain();
-   let signature = match eth::sign_message(ctx, payload.origin.clone(), chain, typed_data_value).await
-   {
+   let signature = match eth::sign_message(ctx, origin.clone(), chain, typed_data_value).await {
       Ok(signature) => signature,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -757,6 +683,7 @@ async fn eth_sign_typed_data_v4(
 
    let sig_bytes = signature.as_bytes();
    let sig_hex = hex::encode(sig_bytes);
+   let sig_hex = format!("0x{}", sig_hex);
 
    let response = JsonRpcResponse::ok(Some(Value::String(sig_hex)), payload.id);
    Ok(response)
@@ -854,6 +781,7 @@ fn switch_ethereum_chain(
 
 async fn eth_send_transaction(
    ctx: ZeusCtx,
+   origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let params_array = match payload.params {
@@ -972,9 +900,15 @@ async fn eth_send_transaction(
 
    let chain = ctx.chain();
 
-   let (_, tx_summary) = match eth::send_transaction(
+   info!("Sending Tx in Chain: {:?}", chain.name());
+   info!("From: {:?}", from);
+   info!("To: {:?}", to);
+   info!("Value: {:?}", value);
+   info!("Data: {:?}", call_data);
+
+   let (receipt, tx_summary) = match eth::send_transaction(
       ctx.clone(),
-      payload.origin.clone(),
+      origin.clone(),
       None,
       chain,
       from,
@@ -988,6 +922,7 @@ async fn eth_send_transaction(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
+            gui.tx_confirm_window.reset();
             gui.msg_window
                .open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
@@ -1011,21 +946,31 @@ async fn eth_send_transaction(
       gui.request_repaint();
    });
 
-   Ok(JsonRpcResponse::ok(None, payload.id))
+   let hash = receipt.transaction_hash;
+   let hash_str = format!("0x{}", hash.to_string());
+
+   let response = JsonRpcResponse::ok(Some(Value::String(hash_str)), payload.id);
+   Ok(response)
 }
 
 async fn handle_request(
    ctx: ZeusCtx,
+   origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   // info!("Request received from dapp {}", payload.origin);
    let method = payload.method.as_str();
-   let res_body = if method == RequestMethod::RequestAccounts.as_str()
+
+   if !ctx.is_dapp_connected(&origin) {
+      let res = connect(ctx, origin, payload).await?;
+      return Ok(res);
+   }
+
+   let res_body = if method == RequestMethod::ChainId.as_str() {
+      chain_id(ctx, payload)?
+   } else if method == RequestMethod::RequestAccounts.as_str()
       || method == RequestMethod::EthAccounts.as_str()
    {
-      request_accounts(ctx, payload)?
-   } else if payload.method.as_str() == RequestMethod::ChainId.as_str() {
-      chain_id(ctx, payload)?
+      request_accounts(ctx, payload).await?
    } else if payload.method.as_str() == RequestMethod::BlockNumber.as_str() {
       block_number(ctx, payload).await?
    } else if method == RequestMethod::GetBalance.as_str() {
@@ -1039,9 +984,11 @@ async fn handle_request(
    } else if method == RequestMethod::WallletSwitchEthereumChain.as_str() {
       switch_ethereum_chain(ctx, payload)?
    } else if method == RequestMethod::SendTransaction.as_str() {
-      eth_send_transaction(ctx, payload).await?
+      eth_send_transaction(ctx, origin, payload).await?
    } else if method == RequestMethod::EthSignedTypedDataV4.as_str() {
-      eth_sign_typed_data_v4(ctx, payload).await?
+      eth_sign_typed_data_v4(ctx, origin, payload).await?
+   } else if method == RequestMethod::WalletRevokePermissions.as_str() {
+      wallet_revoke_permissions(ctx, origin, payload)?
    } else {
       // TODO
       error!("Method '{}' not supported.", payload.method);
@@ -1051,13 +998,10 @@ async fn handle_request(
 }
 
 // Handler for POST /api (JSON-RPC)
-async fn api_handler(
-   ctx: ZeusCtx,
-   payload: JsonRpcRequest,
-) -> Result<impl warp::Reply, Infallible> {
-   // info!("POST /api requested with method: {}", payload.method);
-
-   let response_body = handle_request(ctx, payload).await?;
+async fn api_handler(ctx: ZeusCtx, body: ApiRequestBody) -> Result<impl warp::Reply, Infallible> {
+   let origin = body.origin;
+   let payload = body.rpc_request;
+   let response_body = handle_request(ctx, origin, payload).await?;
 
    Ok(warp::reply::json(&response_body))
 }
@@ -1082,19 +1026,12 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
    let api_route = warp::path!("api")
       .and(warp::post())
       .and(with_ctx(ctx.clone()))
-      .and(warp::body::json::<JsonRpcRequest>()) // payload
+      .and(warp::body::json::<ApiRequestBody>())
       .and_then(api_handler);
-
-   let request_connection_route = warp::path!("request-connection")
-      .and(warp::post())
-      .and(with_ctx(ctx.clone()))
-      .and(warp::body::json::<ConnectionRequest>())
-      .and_then(request_connection);
 
    // --- Combine Routes ---
    let routes = status_route
       .or(api_route)
-      .or(request_connection_route)
       .with(cors)
       .with(warp::trace::request());
 

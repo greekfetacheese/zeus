@@ -55,6 +55,10 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          ui.disable();
       }
 
+      if gui.sign_msg_window.is_open() {
+         ui.disable();
+      }
+
       gui.chain_selection
          .show(ctx.clone(), theme, icons.clone(), ui);
    });
@@ -66,7 +70,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          ui.disable();
       }
 
-      if gui.tx_confirm_window.is_open() {
+      if gui.sign_msg_window.is_open() {
          ui.disable();
       }
 
