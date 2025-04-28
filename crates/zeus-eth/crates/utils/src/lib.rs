@@ -4,6 +4,7 @@ pub mod block;
 pub mod client;
 pub mod price_feed;
 
+use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
    Address, U256,
@@ -19,10 +20,34 @@ use tokio::{
 };
 use tracing::trace;
 use types::BlockTime;
+use serde_json::Value;
+use anyhow::anyhow;
 
 pub use alloy_network;
 pub use alloy_rpc_client;
 pub use alloy_transport;
+
+
+
+
+pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
+   let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;
+   let types: Eip712Types = serde_json::from_value(json["types"].clone())?;
+   let resolver = Resolver::from(&types);
+   let primary_type = json["primaryType"]
+      .as_str()
+      .ok_or(anyhow!("Missing primaryType"))?
+      .to_string();
+
+   let message = json["message"].clone();
+
+   Ok(TypedData {
+      domain,
+      resolver,
+      primary_type,
+      message,
+   })
+}
 
 /// Is this token a base token?
 ///

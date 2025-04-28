@@ -1,19 +1,21 @@
 use alloy_primitives::{
-   Signed, U256, Uint,
+   Signed, U256,
    utils::{format_units, parse_units},
 };
 
 use alloy_contract::private::{Ethereum, Provider};
-use alloy_rpc_types::BlockId;
+use alloy_rpc_types::{Log, BlockId};
 use alloy_sol_types::SolEvent;
 
 use std::sync::Arc;
+use std::str::FromStr;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
+use serde::{Deserialize, Serialize};
 use super::fee_math::*;
-use super::pool::UniswapV3Pool;
-use abi::uniswap::{nft_position::INonfungiblePositionManager, v3::pool::IUniswapV3Pool};
+use super::{UniswapPool, pool::UniswapV3Pool};
+use abi::uniswap::{nft_position::INonfungiblePositionManager, v3::{self, pool::IUniswapV3Pool}};
 use currency::ERC20Token;
 use types::BlockTime;
 use utils::{get_logs_for, address::uniswap_nft_position_manager};
@@ -24,7 +26,7 @@ use revm_utils::{
    revm::state::Bytecode,
 };
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use tracing::trace;
 
 #[derive(Debug, Clone)]
@@ -217,7 +219,7 @@ where
    )
    .await?;
 
-   let volume = args.pool.get_volume_from_logs(logs)?;
+   let volume = get_volume_from_logs(&args.pool, logs)?;
 
    let state = UniswapV3Pool::fetch_state(client.clone(), args.pool.clone(), Some(fork_block.clone())).await?;
    pool.set_state(state);
@@ -243,14 +245,14 @@ where
       args.deposit_amount,
    );
 
-   let amount0 = parse_units(&deposit.amount0.to_string(), args.pool.token0.decimals)?.get_absolute();
-   let amount1 = parse_units(&deposit.amount1.to_string(), args.pool.token1.decimals)?.get_absolute();
+   let amount0 = parse_units(&deposit.amount0.to_string(), args.pool.token0().decimals)?.get_absolute();
+   let amount1 = parse_units(&deposit.amount1.to_string(), args.pool.token1().decimals)?.get_absolute();
 
    let lower_tick = get_tick_from_price(args.lower_range);
    let upper_tick = get_tick_from_price(args.upper_range);
 
    // prepare the fork enviroment
-   let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), None, Some(fork_block));
+   let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(fork_block));
 
    // a simple router to simulate uniswap swaps
    let bytecode = Bytecode::new_raw(abi::misc::SWAP_ROUTER_BYTECODE.parse()?);
@@ -262,34 +264,27 @@ where
    // a dummy account that act as the lp provider
    let lp_provider = DummyAccount::new(AccountType::EOA, U256::ZERO);
 
-   let amount_to_fund_0 = args.pool.token0.total_supply;
-   let amount_to_fund_1 = args.pool.token1.total_supply;
+   // insert the accounts into the fork factory
+   fork_factory.insert_dummy_account(swap_router.clone());
+   fork_factory.insert_dummy_account(swapper.clone());
+   fork_factory.insert_dummy_account(lp_provider.clone());
 
-   swap_router.insert(&mut fork_factory, args.pool.token0.address, U256::from(1))?;
-   swapper.insert(
-      &mut fork_factory,
-      args.pool.token0.address,
-      amount_to_fund_0,
-   )?;
-   swapper.insert(
-      &mut fork_factory,
-      args.pool.token1.address,
-      amount_to_fund_1,
-   )?;
+   let amount_to_fund_0 = args.pool.token0().total_supply;
+   let amount_to_fund_1 = args.pool.token1().total_supply;
+
+
+   // Fund the accounts
+   fork_factory.give_token(swapper.address, args.pool.token0().address, amount_to_fund_0)?;
+   fork_factory.give_token(swapper.address, args.pool.token1().address, amount_to_fund_1)?;
 
    // we give the lp provider just as much to create the position
-   lp_provider.insert(&mut fork_factory, args.pool.token0.address, amount0)?;
-   lp_provider.insert(&mut fork_factory, args.pool.token1.address, amount1)?;
+   fork_factory.give_token(lp_provider.address, args.pool.token0().address, amount0)?;
+   fork_factory.give_token(lp_provider.address, args.pool.token1().address, amount1)?;
 
    let fork_db = fork_factory.new_sandbox_fork();
    let mut evm = new_evm(chain_id, Some(full_block.clone()), fork_db);
 
-   let fee: Uint<24, 1> = args
-      .pool
-      .fee
-      .to_string()
-      .parse()
-      .context("Failed to parse fee")?;
+   let fee = args.pool.fee.fee_u24();
    let lower_tick: Signed<24, 1> = lower_tick
       .to_string()
       .parse()
@@ -300,8 +295,8 @@ where
       .context("Failed to parse tick")?;
 
    let mint_params = INonfungiblePositionManager::MintParams {
-      token0: args.pool.token0.address,
-      token1: args.pool.token1.address,
+      token0: args.pool.token0().address,
+      token1: args.pool.token1().address,
       fee,
       tickLower: lower_tick,
       tickUpper: upper_tick,
@@ -316,7 +311,7 @@ where
    let nft_contract = uniswap_nft_position_manager(chain_id)?;
 
    // aprove the nft and swapper contract to spent the tokens
-   let tokens = vec![args.pool.token0.clone(), args.pool.token1.clone()];
+   let tokens = vec![args.pool.token0().clone(), args.pool.token1().clone()];
    for token in tokens {
       // approve the nft and swapper contract to spent the tokens
       simulate::approve_token(
@@ -427,8 +422,8 @@ where
       true,
    )?;
 
-   let earned0 = format_units(amount0, args.pool.token0.decimals)?.parse::<f64>()?;
-   let earned1 = format_units(amount1, args.pool.token1.decimals)?.parse::<f64>()?;
+   let earned0 = format_units(amount0, args.pool.token0().decimals)?.parse::<f64>()?;
+   let earned1 = format_units(amount1, args.pool.token1().decimals)?.parse::<f64>()?;
 
    // get the current usd price of token0 and token1
    let state = UniswapV3Pool::fetch_state(client.clone(), args.pool.clone(), None).await?;
@@ -447,11 +442,11 @@ where
    let earned1_usd = latest_token1_usd * earned1;
 
    // not sure what's most correct but calculate the volume based on the latest prices
-   let buy_volume_usd = volume.buy_volume_usd(latest_token0_usd, pool.token0.decimals)?;
-   let sell_volume_usd = volume.sell_volume_usd(latest_token1_usd, pool.token1.decimals)?;
+   let buy_volume_usd = volume.buy_volume_usd(latest_token0_usd, pool.token0().decimals)?;
+   let sell_volume_usd = volume.sell_volume_usd(latest_token1_usd, pool.token1().decimals)?;
 
-   let total_fee0 = divide_by_fee(args.pool.fee, buy_volume_usd);
-   let total_fee1 = divide_by_fee(args.pool.fee, sell_volume_usd);
+   let total_fee0 = divide_by_fee(args.pool.fee.fee(), buy_volume_usd);
+   let total_fee1 = divide_by_fee(args.pool.fee.fee(), sell_volume_usd);
 
    // calculate how many times we were out of the range
    let out_of_range = price_ranges.iter().filter(|r| !r.is_in_range).count();
@@ -477,8 +472,8 @@ where
    }
 
    let result = PositionResult {
-      token0: args.pool.token0.clone(),
-      token1: args.pool.token1.clone(),
+      token0: args.pool.token0().into_owned(),
+      token1: args.pool.token1().into_owned(),
       deposit: deposit.clone(),
       past_token0_usd,
       past_token1_usd,
@@ -572,7 +567,7 @@ where
 
          let mut pool = shared_pool.lock().await;
          pool.set_state(state);
-         let price = pool.calculate_price(pool.token0.address)?;
+         let price = pool.calculate_price(pool.token0().address)?;
          prices.lock().await.push(price);
          Ok(())
       });
@@ -594,6 +589,154 @@ where
 
    Ok(average_price)
 }
+
+
+/// Represents the volume of a pool that occured at some point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PoolVolume {
+    pub buy_volume: U256,
+    pub sell_volume: U256,
+    pub swaps: Vec<SwapData>,
+}
+
+impl PoolVolume {
+   /// Return the total buy volume in USD based on the token0 usd value
+    pub fn buy_volume_usd(&self, usd_value: f64, decimals: u8) -> Result<f64, anyhow::Error> {
+        let formatted = format_units(self.buy_volume, decimals)?.parse::<f64>()?;
+        Ok(formatted * usd_value)
+    }
+
+    /// Return the total sell volume in USD based on the token1 usd value
+    pub fn sell_volume_usd(&self, usd_value: f64, decimals: u8) -> Result<f64, anyhow::Error> {
+        let formatted = format_units(self.sell_volume, decimals)?.parse::<f64>()?;
+        Ok(formatted * usd_value)
+}
+}
+
+/// A swap that took place on a DEX (Uniswap)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SwapData {
+   pub token_in: ERC20Token,
+   pub token_out: ERC20Token,
+   pub amount_in: U256,
+   pub amount_out: U256,
+   pub block: u64,
+   pub tx_hash: String,
+}
+
+impl SwapData {
+   pub fn new(
+      token_in: ERC20Token,
+      token_out: ERC20Token,
+      amount_in: U256,
+      amount_out: U256,
+      block: u64,
+      tx_hash: String,
+   ) -> Self {
+      Self {
+         token_in,
+         token_out,
+         amount_in,
+         amount_out,
+         block,
+         tx_hash,
+      }
+   }
+
+   /// Return a formatted string to print in the console
+   pub fn pretty(&self) -> Result<String, anyhow::Error> {
+      let s = format!(
+         "Swap: {} -> {} | Amount: {} -> {} | Block: {} | Tx: {}",
+         self.token_in.symbol,
+         self.token_out.symbol,
+         format_units(self.amount_in, self.token_in.decimals)?,
+         format_units(self.amount_out, self.token_out.decimals)?,
+         self.block,
+         self.tx_hash,
+      );
+      Ok(s)
+   }
+}
+
+
+   /// Get the volume of the pool
+   fn get_volume_from_logs(pool: &UniswapV3Pool, logs: Vec<Log>) -> Result<PoolVolume, anyhow::Error> {
+      let mut buy_volume = U256::ZERO;
+      let mut sell_volume = U256::ZERO;
+      let mut swaps = Vec::new();
+
+      for log in &logs {
+         let swap_data = decode_swap(pool, log)?;
+         if swap_data.token_in.address == pool.token1().address {
+            buy_volume += swap_data.amount_in;
+         }
+
+         if swap_data.token_out.address == pool.token0().address {
+            sell_volume += swap_data.amount_out;
+         }
+         swaps.push(swap_data);
+      }
+
+      // sort swaps by the newest block to oldest
+      swaps.sort_by(|a, b| a.block.cmp(&b.block));
+
+      Ok(PoolVolume {
+         buy_volume,
+         sell_volume,
+         swaps,
+      })
+   }
+
+   /// Decode a swap log against this pool
+   fn decode_swap(pool: &UniswapV3Pool, log: &Log) -> Result<SwapData, anyhow::Error> {
+      let swap = v3::pool::decode_swap_log(log.data())?;
+
+      let pair_address = log.address();
+      let block = log.block_number;
+
+      if pair_address != pool.address {
+         return Err(anyhow::anyhow!("Pool Address mismatch"));
+      }
+
+      let (amount_in, token_in) = if swap.amount0.is_positive() {
+         (swap.amount0, pool.token0().into_owned())
+      } else {
+         (swap.amount1, pool.token1().into_owned())
+      };
+
+      let (amount_out, token_out) = if swap.amount1.is_negative() {
+         (swap.amount1, pool.token1().into_owned())
+      } else {
+         (swap.amount0, pool.token0().into_owned())
+      };
+
+      if block.is_none() {
+         // this should never happen
+         return Err(anyhow!("Block number is missing"));
+      }
+
+      let tx_hash = if let Some(hash) = log.transaction_hash {
+         hash
+      } else {
+         return Err(anyhow!("Transaction hash is missing"));
+      };
+
+      let amount_in = U256::from_str(&amount_in.to_string())?;
+      // remove the - sign
+      let amount_out = amount_out
+         .to_string()
+         .trim_start_matches('-')
+         .parse::<U256>()?;
+
+      Ok(SwapData {
+         token_in,
+         token_out,
+         amount_in,
+         amount_out,
+         block: block.unwrap(),
+         tx_hash: tx_hash.to_string(),
+      })
+   }
 
 
 #[cfg(test)]

@@ -103,10 +103,7 @@ mod tests {
       let bytecode = Bytecode::new_raw(bytecode_str.parse().unwrap());
       let dummy_contract = DummyAccount::new(AccountType::Contract(bytecode), U256::ZERO);
 
-      let mut factory = ForkFactory::new_sandbox_factory(client, None, None);
-      dummy_contract
-         .insert(&mut factory, Address::ZERO, U256::ZERO)
-         .unwrap();
+      let factory = ForkFactory::new_sandbox_factory(client, 1, None, None);
 
       let fork_db = factory.new_sandbox_fork();
       let mut evm = new_evm(1, None, fork_db);
@@ -142,7 +139,7 @@ mod tests {
       let recipient = address!("0x000000000000000000000000000000000000dEaD");
       let amount = U256::from(1000000000000000000_u128);
 
-      let factory = ForkFactory::new_sandbox_factory(client.clone(), None, None);
+      let factory = ForkFactory::new_sandbox_factory(client.clone(), 1, None, None);
      // dummy.insert(&mut factory, weth, amount).unwrap();
       let fork_db = factory.new_sandbox_fork();
       let mut evm = new_evm(1, None, fork_db);

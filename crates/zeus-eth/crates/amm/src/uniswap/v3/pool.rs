@@ -1,16 +1,18 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
-   Address, U256, address,
+   Address, B256, U256, address,
    utils::{format_units, parse_units},
 };
-use alloy_rpc_types::{BlockId, Log};
+use alloy_rpc_types::BlockId;
+use std::borrow::Cow;
 
+use crate::uniswap::PoolKey;
 use crate::{
    DexKind, minimum_liquidity,
-   uniswap::{PoolVolume, SwapData},
+   uniswap::{State, UniswapPool, v4::FeeAmount},
 };
 use abi::uniswap::v3;
-use currency::erc20::ERC20Token;
+use currency::{Currency, ERC20Token};
 use utils::{
    batch_request::{self, V3Pool2},
    is_base_token,
@@ -20,7 +22,6 @@ use utils::{
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::str::FromStr;
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
@@ -29,15 +30,15 @@ pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 pub struct UniswapV3Pool {
    pub chain_id: u64,
    pub address: Address,
-   pub fee: u32,
-   pub token0: ERC20Token,
-   pub token1: ERC20Token,
+   pub fee: FeeAmount,
+   pub currency0: Currency,
+   pub currency1: Currency,
    pub dex: DexKind,
-   pub state: Option<V3PoolState>,
+   pub state: State,
 }
 
 /// The state of a Uniswap V3 Pool
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct V3PoolState {
    pub base_token_liquidity: U256,
    pub liquidity: u128,
@@ -56,7 +57,7 @@ pub struct TickInfo {
    pub initialized: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PoolTick {
    pub tick: i32,
    pub liquidity_net: i128,
@@ -116,14 +117,17 @@ impl UniswapV3Pool {
          (token1, token0)
       };
 
+      let currency0 = Currency::from(token0);
+      let currency1 = Currency::from(token1);
+
       Self {
          chain_id,
          address,
-         fee,
-         token0,
-         token1,
+         fee: FeeAmount::CUSTOM(fee),
+         currency0,
+         currency1,
          dex,
-         state: None,
+         state: State::none(),
       }
    }
 
@@ -176,251 +180,36 @@ impl UniswapV3Pool {
 
    /// Switch the tokens in the pool
    pub fn toggle(&mut self) {
-      std::mem::swap(&mut self.token0, &mut self.token1);
+      std::mem::swap(&mut self.currency0, &mut self.currency1);
    }
 
    /// Restore the original order of the tokens
    pub fn reorder(&mut self) {
-      if self.token0.address > self.token1.address {
-         std::mem::swap(&mut self.token0, &mut self.token1);
+      if self.token0().address > self.token1().address {
+         std::mem::swap(&mut self.currency0, &mut self.currency1);
       }
    }
 
-   /// Return a reference to the state of this pool
-   pub fn state(&self) -> Option<&V3PoolState> {
-      self.state.as_ref()
+   pub fn token0(&self) -> Cow<ERC20Token> {
+      self.currency0.to_erc20()
    }
 
-   /// Set the state for this pool
-   pub fn set_state(&mut self, state: V3PoolState) {
-      self.state = Some(state);
+   pub fn token1(&self) -> Cow<ERC20Token> {
+      self.currency1.to_erc20()
    }
 
-   pub fn is_token0(&self, token: Address) -> bool {
-      self.token0.address == token
+   pub fn base_token(&self) -> Cow<ERC20Token> {
+      self.base_currency().to_erc20()
    }
 
-   pub fn is_token1(&self, token: Address) -> bool {
-      self.token1.address == token
+   pub fn quote_token(&self) -> Cow<ERC20Token> {
+      self.quote_currency().to_erc20()
    }
 
-   /// Does this pool have enough liquidity
-   ///
-   /// If state is None, it will return true so we dont accidentally remove pools
-   pub fn enough_liquidity(&self) -> bool {
-      let threshold = minimum_liquidity(self.base_token());
-      if self.state.is_none() {
-         return true;
-      } else {
-         return self.state.as_ref().unwrap().base_token_liquidity >= threshold;
-      }
-   }
-
-   pub fn base_token_exists(&self) -> bool {
-      if is_base_token(self.chain_id, self.token0.address) {
-         true
-      } else if is_base_token(self.chain_id, self.token1.address) {
-         true
-      } else {
-         false
-      }
-   }
-
-   /// See [is_base_token]
-   pub fn base_token(&self) -> &ERC20Token {
-      if is_base_token(self.chain_id, self.token0.address) {
-         &self.token0
-      } else {
-         &self.token1
-      }
-   }
-
-   /// Anything that is not [is_base_token]
-   pub fn quote_token(&self) -> &ERC20Token {
-      if is_base_token(self.chain_id, self.token0.address) {
-         &self.token1
-      } else {
-         &self.token0
-      }
-   }
-
-   /// Fetch the state of the pool at a given block
-   /// If block is None, the latest block is used
-   pub async fn fetch_state<P, N>(
-      client: P,
-      pool: UniswapV3Pool,
-      block: Option<BlockId>,
-   ) -> Result<V3PoolState, anyhow::Error>
-   where
-      P: Provider<N> + Clone + 'static,
-      N: Network,
-   {
-      let address = pool.address;
-      let base_token = pool.base_token().address;
-      let pool2 = V3Pool2 {
-         pool: address,
-         base_token,
-      };
-
-      let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool2]).await?;
-      let data = pool_data
-         .get(0)
-         .cloned()
-         .ok_or_else(|| anyhow!("Pool data not found"))?;
-
-      let state = V3PoolState::new(data, block)?;
-      Ok(state)
-   }
-
-   pub fn simulate_swap(&self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let (amount_out, _) = super::calculate_swap(&self, token_in, amount_in)?;
-      Ok(amount_out)
-   }
-
-   pub fn simulate_swap_mut(&mut self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let (amount_out, current_state) = super::calculate_swap(&self, token_in, amount_in)?;
-
-      // update the state of the pool
-      let mut state = self
-         .state()
-         .ok_or(anyhow!("State not initialized"))?
-         .clone();
-      state.liquidity = current_state.liquidity;
-      state.sqrt_price = current_state.sqrt_price_x_96;
-      state.tick = current_state.tick;
-
-      self.set_state(state);
-
-      Ok(amount_out)
-   }
-
-   /// Quote token USD price but we need to know the usd price of base token
-   pub fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
-      if base_usd == 0.0 {
-         return Ok(0.0);
-      }
-
-      if !self.base_token_exists() {
-         bail!("Base token not found in the pool");
-      }
-
-      let unit = parse_units("1", self.base_token().decimals)?.get_absolute();
-      let amount_out = self.simulate_swap(self.base_token().address, unit)?;
-      if amount_out == U256::ZERO {
-         return Ok(0.0);
-      }
-
-      let amount_out = format_units(amount_out, self.quote_token().decimals)?.parse::<f64>()?;
-      let price = base_usd / amount_out;
-
+   pub fn calculate_price(&self, token_in: Address) -> Result<f64, anyhow::Error> {
+      let zero_for_one = self.zero_for_one_v3(token_in);
+      let price = super::calculate_price(self, zero_for_one)?;
       Ok(price)
-   }
-
-   /// Calculate the price of token in terms of quote token
-   pub fn calculate_price(&self, base_token: Address) -> Result<f64, anyhow::Error> {
-      let price = super::calculate_price(&self, base_token)?;
-      Ok(price)
-   }
-
-   /// Get the usd value of Base and Quote token at a given block
-   /// If block is None, the latest block is used
-   ///
-   /// ## Returns
-   ///
-   /// - (base_price, quote_price)
-   pub async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
-   where
-      P: Provider<N> + Clone + 'static,
-      N: Network,
-   {
-      let chain_id = self.chain_id;
-
-      if !self.base_token_exists() {
-         bail!("Base token not found in the pool");
-      }
-
-      let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
-      let quote_price = self.quote_price(base_price)?;
-      Ok((base_price, quote_price))
-   }
-
-   /// Get the volume of the pool
-   pub fn get_volume_from_logs(&self, logs: Vec<Log>) -> Result<PoolVolume, anyhow::Error> {
-      let mut buy_volume = U256::ZERO;
-      let mut sell_volume = U256::ZERO;
-      let mut swaps = Vec::new();
-
-      for log in &logs {
-         let swap_data = self.decode_swap(log)?;
-         if swap_data.token_in.address == self.token1.address {
-            buy_volume += swap_data.amount_in;
-         }
-
-         if swap_data.token_out.address == self.token0.address {
-            sell_volume += swap_data.amount_out;
-         }
-         swaps.push(swap_data);
-      }
-
-      // sort swaps by the newest block to oldest
-      swaps.sort_by(|a, b| a.block.cmp(&b.block));
-
-      Ok(PoolVolume {
-         buy_volume,
-         sell_volume,
-         swaps,
-      })
-   }
-
-   /// Decode a swap log against this pool
-   pub fn decode_swap(&self, log: &Log) -> Result<SwapData, anyhow::Error> {
-      let swap = v3::pool::decode_swap_log(log.data())?;
-
-      let pair_address = log.address();
-      let block = log.block_number;
-
-      if pair_address != self.address {
-         return Err(anyhow::anyhow!("Pool Address mismatch"));
-      }
-
-      let (amount_in, token_in) = if swap.amount0.is_positive() {
-         (swap.amount0, self.token0.clone())
-      } else {
-         (swap.amount1, self.token1.clone())
-      };
-
-      let (amount_out, token_out) = if swap.amount1.is_negative() {
-         (swap.amount1, self.token1.clone())
-      } else {
-         (swap.amount0, self.token0.clone())
-      };
-
-      if block.is_none() {
-         // this should never happen
-         return Err(anyhow!("Block number is missing"));
-      }
-
-      let tx_hash = if let Some(hash) = log.transaction_hash {
-         hash
-      } else {
-         return Err(anyhow!("Transaction hash is missing"));
-      };
-
-      let amount_in = U256::from_str(&amount_in.to_string())?;
-      // remove the - sign
-      let amount_out = amount_out
-         .to_string()
-         .trim_start_matches('-')
-         .parse::<U256>()?;
-
-      Ok(SwapData {
-         token_in,
-         token_out,
-         amount_in,
-         amount_out,
-         block: block.unwrap(),
-         tx_hash: tx_hash.to_string(),
-      })
    }
 
    /// Test pool
@@ -438,6 +227,224 @@ impl UniswapV3Pool {
 
       let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
       UniswapV3Pool::new(1, pool_address, 3000, usdt, uni, DexKind::UniswapV3)
+   }
+
+   pub fn weth_usdc() -> Self {
+      let pool_address = address!("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640");
+      UniswapV3Pool::new(
+         1,
+         pool_address,
+         500,
+         ERC20Token::weth(),
+         ERC20Token::usdc(),
+         DexKind::UniswapV3,
+      )
+   }
+}
+
+impl UniswapPool for UniswapV3Pool {
+   fn chain_id(&self) -> u64 {
+      self.chain_id
+   }
+
+   fn address(&self) -> Address {
+      self.address
+   }
+
+   fn fee(&self) -> FeeAmount {
+      self.fee
+   }
+
+   fn pool_id(&self) -> B256 {
+      B256::ZERO
+   }
+
+   fn dex_kind(&self) -> DexKind {
+      self.dex
+   }
+
+   fn zero_for_one_v3(&self, token_in: Address) -> bool {
+      token_in == self.token0().address
+   }
+
+   fn zero_for_one_v4(&self, _currency_in: &Currency) -> bool {
+      panic!("You should call zero_for_one_v3 instead");
+   }
+
+   fn is_token0(&self, token: Address) -> bool {
+      self.token0().address == token
+   }
+
+   fn is_token1(&self, token: Address) -> bool {
+      self.token1().address == token
+   }
+
+   fn currency0(&self) -> &Currency {
+      &self.currency0
+   }
+
+   fn currency1(&self) -> &Currency {
+      &self.currency1
+   }
+
+   fn is_currency0(&self, currency: &Currency) -> bool {
+      &self.currency0 == currency
+   }
+
+   fn is_currency1(&self, currency: &Currency) -> bool {
+      &self.currency1 == currency
+   }
+
+   fn state(&self) -> &State {
+      &self.state
+   }
+
+   fn set_state(&mut self, state: State) {
+      self.state = state;
+   }
+
+   fn set_state_res(&mut self, state: State) -> Result<(), anyhow::Error> {
+      if state.is_v3() {
+         self.state = state;
+         Ok(())
+      } else {
+         Err(anyhow::anyhow!("Pool state is not for v3"))
+      }
+   }
+
+   fn enough_liquidity(&self) -> bool {
+      let threshold = minimum_liquidity(&self.base_token());
+      if !self.state.is_v3() {
+         return true;
+      } else {
+         return self.state.v3_state().unwrap().base_token_liquidity >= threshold;
+      }
+   }
+
+   fn base_token_exists(&self) -> bool {
+      if is_base_token(self.chain_id, self.token0().address) {
+         true
+      } else if is_base_token(self.chain_id, self.token1().address) {
+         true
+      } else {
+         false
+      }
+   }
+
+   fn base_currency(&self) -> &Currency {
+      // If currency0 is native (e.g., ETH) or a base token, use it as the base.
+      // Otherwise, use currency1.
+      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+         &self.currency0
+      } else {
+         &self.currency1
+      }
+   }
+
+   fn quote_currency(&self) -> &Currency {
+      // Return the opposite currency of base_currency.
+      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+         &self.currency1
+      } else {
+         &self.currency0
+      }
+   }
+
+   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
+      bail!("Pool Key method only applies to V4");
+   }
+
+   /// Fetch the state of the pool at a given block
+   /// If block is None, the latest block is used
+   async fn fetch_state<P, N>(client: P, pool: impl UniswapPool, block: Option<BlockId>) -> Result<State, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let address = pool.address();
+      let base_token = pool.base_currency().to_erc20().address;
+      let pool2 = V3Pool2 {
+         pool: address,
+         base_token,
+      };
+
+      let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool2]).await?;
+      let data = pool_data
+         .get(0)
+         .cloned()
+         .ok_or_else(|| anyhow!("Pool data not found"))?;
+
+      let v3_pool_state = V3PoolState::new(data, block)?;
+      Ok(State::v3(v3_pool_state))
+   }
+
+   fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let (amount_out, _) = super::calculate_swap(self, zero_for_one, amount_in)?;
+      Ok(amount_out)
+   }
+
+   fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let (amount_out, current_state) = super::calculate_swap(self, zero_for_one, amount_in)?;
+
+      // update the state of the pool
+      let mut state = self
+         .state()
+         .v3_state()
+         .ok_or(anyhow!("State not initialized"))?
+         .clone();
+      state.liquidity = current_state.liquidity;
+      state.sqrt_price = current_state.sqrt_price_x_96;
+      state.tick = current_state.tick;
+
+      self.set_state(State::v3(state));
+
+      Ok(amount_out)
+   }
+
+   fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
+      if base_usd == 0.0 {
+         return Ok(0.0);
+      }
+
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
+      }
+
+      let base = self.base_currency();
+      let unit = parse_units("1", base.decimals())?.get_absolute();
+      let amount_out = self.simulate_swap(base, unit)?;
+      if amount_out == U256::ZERO {
+         return Ok(0.0);
+      }
+
+      let amount_out = format_units(amount_out, self.quote_token().decimals)?.parse::<f64>()?;
+      let price = base_usd / amount_out;
+
+      Ok(price)
+   }
+
+   /// Get the usd value of Base and Quote token at a given block
+   /// If block is None, the latest block is used
+   ///
+   /// ## Returns
+   ///
+   /// - (base_price, quote_price)
+   async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let chain_id = self.chain_id;
+
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
+      }
+
+      let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
+      let quote_price = self.quote_price(base_price)?;
+      Ok((base_price, quote_price))
    }
 }
 
@@ -462,21 +469,22 @@ mod tests {
       pool.set_state(state);
 
       // Swap 1 USDT for UNI
-      let base_token = pool.base_token().clone();
-      let quote_token = pool.quote_token().clone();
+      let base = pool.base_currency();
+      let quote = pool.quote_currency();
 
-      let amount_in = parse_units("1", base_token.decimals)
-         .unwrap()
-         .get_absolute();
-      let amount_out = pool.simulate_swap(base_token.address, amount_in).unwrap();
+      let amount_in = parse_units("1", base.decimals()).unwrap().get_absolute();
+      let amount_out = pool.simulate_swap(base, amount_in).unwrap();
 
-      let amount_in = format_units(amount_in, base_token.decimals).unwrap();
-      let amount_out = format_units(amount_out, quote_token.decimals).unwrap();
+      let amount_in = format_units(amount_in, base.decimals()).unwrap();
+      let amount_out = format_units(amount_out, quote.decimals()).unwrap();
 
       println!("=== V3 Swap Test ===");
       println!(
          "Swapped {} {} For {} {}",
-         amount_in, base_token.symbol, amount_out, quote_token.symbol
+         amount_in,
+         base.symbol(),
+         amount_out,
+         quote.symbol()
       );
    }
 
@@ -524,7 +532,13 @@ mod tests {
       let base_token = pool.base_token();
       let quote_token = pool.quote_token();
 
+      // UNI in terms of USDT
+      // let uni_in_usdt = pool.calculate_price(quote_token.address).unwrap();
+      // let usdt_in_uni = pool.calculate_price(base_token.address).unwrap();
+
       println!("{} Price: ${}", base_token.symbol, base_price);
       println!("{} Price: ${}", quote_token.symbol, quote_price);
+      // println!("UNI in terms of USDT: {}", uni_in_usdt);
+      // println!("USDT in terms of UNI: {}", usdt_in_uni);
    }
 }

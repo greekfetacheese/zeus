@@ -7,6 +7,7 @@ pub mod send_crypto;
 pub mod settings;
 pub mod token_selection;
 pub mod wallet;
+pub mod tx_confirm;
 
 pub use auth::{CredentialsForm, LoginUi, RegisterUi};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
@@ -16,6 +17,7 @@ pub use send_crypto::SendCryptoUi;
 pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
 pub use wallet::WalletUi;
+pub use tx_confirm::TxConfirmWindow;
 
 pub const GREEN_CIRCLE: &str = "🟢";
 pub const RED_CIRCLE: &str = "🔴";

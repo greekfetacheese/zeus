@@ -2,6 +2,9 @@ pub mod erc20;
 pub mod native;
 
 use serde::{Deserialize, Serialize};
+use abi::alloy_primitives::Address;
+use utils::is_base_token;
+use std::borrow::Cow;
 
 pub use erc20::ERC20Token;
 pub use native::NativeCurrency;
@@ -32,7 +35,6 @@ impl From<ERC20Token> for Currency {
 }
 
 impl Currency {
-   
    pub fn is_native(&self) -> bool {
       matches!(self, Self::Native(_))
    }
@@ -41,10 +43,50 @@ impl Currency {
       matches!(self, Self::ERC20(_))
    }
 
-   /// is it WETH or WBNB
+   /// eg. is it WETH or WBNB
    pub fn is_native_wrapped(&self) -> bool {
       matches!(self, Self::ERC20(erc20) if erc20.is_weth() || erc20.is_wbnb())
    }
+
+   /// Is this Currency a base currency?
+   /// 
+   /// See [is_base_token]
+   pub fn is_base(&self) -> bool {
+      if self.is_native() {
+         return true;
+      }
+
+      let erc20 = self.to_erc20();
+      is_base_token(erc20.chain_id, erc20.address)
+   }
+
+   /// Convert this currency to a wrapped native currency
+   /// eg. WETH
+   ///
+   /// Shortcut for [ERC20Token::wrapped_native_token]
+   pub fn to_wrapped_native(&self) -> ERC20Token {
+      ERC20Token::wrapped_native_token(self.chain_id())
+   }
+
+   /// Convert this currency to an [ERC20Token]
+   ///
+   /// If it's already an `ERC20Token`, we just return it
+   ///
+   /// If it's a `NativeCurrency`, we convert it to it's `ERC20Token` version
+   /// for example ETH will become WETH
+   pub fn to_erc20(&self) -> Cow<ERC20Token> {
+      match self {
+          Currency::ERC20(erc20) => Cow::Borrowed(erc20),
+          Currency::Native(_) => Cow::Owned(self.to_wrapped_native()),
+      }
+  }
+
+  /// Get the address of the ERC20 token
+  /// 
+  /// Shortcut for [Self::to_erc20()]
+  pub fn address(&self) -> Address {
+      self.to_erc20().address
+  }
 
    /// Get the ERC20 inside
    pub fn erc20(&self) -> Option<&ERC20Token> {

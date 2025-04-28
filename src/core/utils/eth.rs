@@ -98,7 +98,7 @@ pub async fn send_transaction(
    let bytecode_fut = client.get_code_at(interact_to).into_future();
    let block = client.get_block(BlockId::latest()).await?;
 
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), None, None);
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
    let mut evm = new_evm(chain.id(), block.clone(), fork_db);
 
@@ -127,21 +127,28 @@ pub async fn send_transaction(
       NumericValue::default().wei().unwrap_or_default()
    };
 
-   let eth_spent = balance_before.wei2().checked_sub(balance_after);
-   if eth_spent.is_none() {
-      tracing::error!(
-         "Error calculating eth spent, overflow occured, balance_before: {}, balance_after: {}",
-         balance_before.wei2(),
-         balance_after
-      );
-      bail!("Error calculating eth spent, overflow occured");
-   }
+   let eth_spent_opt = balance_before.wei2().checked_sub(balance_after);
+   let eth_gained_opt = balance_after.checked_sub(balance_before.wei2());
+   let eth_price = ctx.get_currency_price(&Currency::from(native_currency.clone()));
+
+   let (eth_spent, eth_spent_usd) = if let Some(eth_spent) = eth_spent_opt {
+      let eth_spent = NumericValue::format_wei(eth_spent, native_currency.decimals);
+      let eth_spent_value = NumericValue::value(eth_spent.f64(), eth_price.f64());
+      (eth_spent, eth_spent_value)
+   } else {
+      (NumericValue::default(), NumericValue::default())
+   };
+
+   let (eth_received, eth_received_usd) = if let Some(eth_gained) = eth_gained_opt {
+      let eth_gained = NumericValue::format_wei(eth_gained, native_currency.decimals);
+      let eth_gained_usd = NumericValue::value(eth_gained.f64(), eth_price.f64());
+      (eth_gained, eth_gained_usd)
+   } else {
+      (NumericValue::default(), NumericValue::default())
+   };
 
    let base_fee = base_fee_fut.await?;
    let bytecode = bytecode_fut.await?;
-   let eth_spent = NumericValue::format_wei(eth_spent.unwrap(), native_currency.decimals);
-   let eth_price = ctx.get_currency_price(&Currency::from(native_currency.clone()));
-   let eth_spent_value = NumericValue::value(eth_spent.f64(), eth_price.f64());
    let contract_interact = bytecode.len() > 0;
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let (tx_cost_wei, tx_cost_usd) = estimate_tx_cost(
@@ -173,7 +180,9 @@ pub async fn send_transaction(
          chain,
          true, // confrim window
          eth_spent.clone(),
-         eth_spent_value.clone(),
+         eth_spent_usd.clone(),
+         eth_received.clone(),
+         eth_received_usd.clone(),
          tx_cost_wei.clone(),
          tx_cost_usd.clone(),
          gas_used,
@@ -281,7 +290,9 @@ pub async fn send_transaction(
       from,
       to: interact_to,
       eth_spent,
-      eth_spent_usd: eth_spent_value,
+      eth_spent_usd,
+      eth_received,
+      eth_received_usd,
       tx_cost: tx_cost_wei,
       tx_cost_usd,
       gas_used,

@@ -2,6 +2,21 @@ use alloy_primitives::{Address, address};
 use anyhow::bail;
 use types::ChainId;
 
+
+// https://docs.uniswap.org/contracts/v3/reference/deployments/
+/// Returns the Permit2 contract address for the given chain id.
+pub fn permit2_contract(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
+      ChainId::Optimism(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
+      ChainId::Base(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
+      ChainId::Arbitrum(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
+   }
+}
+
+
 /// ETH-USD Price Feed Chainlink
 pub fn eth_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
@@ -84,6 +99,54 @@ pub fn wbtc(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::BinanceSmartChain(_) => Ok(address!("0555E30da8f98308EdB960aa94C0Db47230d2B9c")),
       ChainId::Base(_) => Ok(address!("0555E30da8f98308EdB960aa94C0Db47230d2B9c")),
       ChainId::Arbitrum(_) => Ok(address!("2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f")),
+   }
+}
+
+/// Return the address of the UniswapV4 Stateview contract on the given chain id.
+pub fn uniswap_v4_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227")),
+      ChainId::Optimism(_) => Ok(address!("0xc18a3169788F4F75A170290584ECA6395C75Ecdb")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0xd13Dd3D6E93f276FAfc9Db9E6BB47C1180aeE0c4")),
+      ChainId::Base(_) => Ok(address!("0xA3c0c9b65baD0b08107Aa264b0f3dB444b867A71")),
+      ChainId::Arbitrum(_) => Ok(address!("0x76Fd297e2D437cd7f76d50F01AfE6160f86e9990")),
+   }
+}
+
+/// Return the address of the UniswapV4 PoolManager contract on the given chain id.
+pub fn uniswap_v4_pool_manager(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x000000000004444c5dc75cB358380D2e3dE08A90")),
+      ChainId::Optimism(_) => Ok(address!("0x9a13F98Cb987694C9F086b1F5eB990EeA8264Ec3")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x28e2ea090877bf75740558f6bfb36a5ffee9e9df")),
+      ChainId::Base(_) => Ok(address!("0x498581fF718922c3f8e6A244956aF099B2652b2b")),
+      ChainId::Arbitrum(_) => Ok(address!("0x360e68faccca8ca495c1b759fd9eee466db9fb32")),
+   }
+}
+
+/// Return the address of the UniswapV4 UniversalRouter contract on the given chain id.
+pub fn uniswap_v4_universal_router(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x66a9893cc07d91d95644aedd05d03f95e1dba8af")),
+      ChainId::Optimism(_) => Ok(address!("0x851116d9223fabed8e56c0e6b8ad0c31d98b3507")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x1906c1d672b88cd1b9ac7593301ca990f94eae07")),
+      ChainId::Base(_) => Ok(address!("0x6ff5693b99212da76ad316178a184ab56d299b43")),
+      ChainId::Arbitrum(_) => Ok(address!("0xa51afafe0263b40edaef0df8781ea9aa03e381a3")),
+   }
+}
+
+/// Return the address of the UniswapV4 Quoter contract on the given chain id.
+pub fn uniswap_v4_quoter(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x52f0e24d1c21c8a0cb1e5a5dd6198556bd9e1203")),
+      ChainId::Optimism(_) => Ok(address!("0x1f3131a13296fb91c90870043742c3cdbff1a8d7")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x9f75dd27d6664c475b90e105573e550ff69437b0")),
+      ChainId::Base(_) => Ok(address!("0x0d5e0f971ed27fbff6c2837bf31316121532048d")),
+      ChainId::Arbitrum(_) => Ok(address!("0x76fd297e2d437cd7f76d50f01afe6160f86e9990")),
    }
 }
 

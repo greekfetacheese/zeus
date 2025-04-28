@@ -28,11 +28,11 @@ impl From<u64> for NativeCurrency {
 }
 
 impl NativeCurrency {
-   pub fn new(chain_id: u64, symbol: String, name: String, decimals: u8) -> Self {
+   pub fn new(chain_id: u64, symbol: impl Into<String>, name: impl Into<String>, decimals: u8) -> Self {
       Self {
          chain_id,
-         symbol,
-         name,
+         symbol: symbol.into(),
+         name: name.into(),
          decimals,
       }
    }
@@ -41,31 +41,31 @@ impl NativeCurrency {
    pub fn from_chain_id(id: u64) -> Result<Self, anyhow::Error> {
       let chain = ChainId::new(id)?;
       match chain {
-         ChainId::Ethereum(_) => Ok(NativeCurrency::default()),
-         ChainId::Optimism(_) => Ok(NativeCurrency::new(
-            chain.id(),
-            "ETH".to_string(),
-            "Ethereum".to_string(),
-            18,
-         )),
-         ChainId::BinanceSmartChain(_) => Ok(NativeCurrency::new(
-            chain.id(),
-            "BNB".to_string(),
-            "Binance Smart Chain".to_string(),
-            18,
-         )),
-         ChainId::Base(_) => Ok(NativeCurrency::new(
-            chain.id(),
-            "ETH".to_string(),
-            "Ethereum".to_string(),
-            18,
-         )),
-         ChainId::Arbitrum(_) => Ok(NativeCurrency::new(
-            chain.id(),
-            "ETH".to_string(),
-            "Ethereum".to_string(),
-            18,
-         )),
+         ChainId::Ethereum(_) => Ok(Self::eth()),
+         ChainId::Optimism(_) => Ok(Self::eth_optimism()),
+         ChainId::Base(_) => Ok(Self::eth_base()),
+         ChainId::Arbitrum(_) => Ok(Self::eth_arbitrum()),
+         ChainId::BinanceSmartChain(_) => Ok(Self::bnb()),
       }
+   }
+
+   pub fn eth() -> Self {
+      Self::default()
+   }
+
+   pub fn eth_optimism() -> Self {
+      Self::new(10, "ETH", "Ethereum", 18)
+   }
+
+   pub fn eth_base() -> Self {
+      Self::new(8453, "ETH", "Ethereum", 18)
+   }
+
+   pub fn eth_arbitrum() -> Self {
+      Self::new(42161, "ETH", "Ethereum", 18)
+   }
+
+   pub fn bnb() -> Self {
+      Self::new(56, "BNB", "Binance Smart Chain", 18)
    }
 }

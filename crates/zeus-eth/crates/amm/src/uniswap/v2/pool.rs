@@ -1,12 +1,17 @@
 use alloy_primitives::{
-   Address, U256, address,
+   Address, B256, U256, address,
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::BlockId;
+use std::borrow::Cow;
 
-use crate::{DexKind, minimum_liquidity};
+use crate::{
+   DexKind, minimum_liquidity,
+   uniswap::{State, UniswapPool, v4::FeeAmount},
+};
 use abi::uniswap::v2;
-use currency::erc20::ERC20Token;
+use crate::uniswap::PoolKey;
+use currency::{Currency, ERC20Token};
 use utils::{is_base_token, price_feed::get_base_token_price};
 
 use alloy_contract::private::{Network, Provider};
@@ -19,10 +24,11 @@ use serde::{Deserialize, Serialize};
 pub struct UniswapV2Pool {
    pub chain_id: u64,
    pub address: Address,
-   pub token0: ERC20Token,
-   pub token1: ERC20Token,
+   pub currency0: Currency,
+   pub currency1: Currency,
+   pub fee: FeeAmount,
    pub dex: DexKind,
-   pub state: Option<PoolReserves>,
+   pub state: State,
 }
 
 /// Represents the state of a Uniswap V2 Pool
@@ -55,10 +61,11 @@ impl UniswapV2Pool {
       Self {
          chain_id,
          address,
-         token0,
-         token1,
+         currency0: Currency::from(token0),
+         currency1: Currency::from(token1),
+         fee: FeeAmount::CUSTOM(300), // 0.3% fee
          dex,
-         state: None,
+         state: State::none(),
       }
    }
 
@@ -83,7 +90,9 @@ impl UniswapV2Pool {
          ERC20Token::new(client.clone(), token1, chain_id).await?
       };
 
-      Ok(Self::new(chain_id, address, erc_token0, erc_token1, dex_kind))
+      Ok(Self::new(
+         chain_id, address, erc_token0, erc_token1, dex_kind,
+      ))
    }
 
    /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
@@ -108,188 +117,30 @@ impl UniswapV2Pool {
 
    /// Switch the tokens in the pool
    pub fn toggle(&mut self) {
-      std::mem::swap(&mut self.token0, &mut self.token1);
+      std::mem::swap(&mut self.currency0, &mut self.currency1);
    }
 
    /// Restore the original order of the tokens
    pub fn reorder(&mut self) {
-      if self.token0.address > self.token1.address {
-         std::mem::swap(&mut self.token0, &mut self.token1);
+      if self.token0().address > self.token1().address {
+         std::mem::swap(&mut self.currency0, &mut self.currency1);
       }
    }
 
-   /// Return a reference to the state of this pool
-   pub fn state(&self) -> Option<&PoolReserves> {
-      self.state.as_ref()
+   pub fn token0(&self) -> Cow<ERC20Token> {
+      self.currency0.to_erc20()
    }
 
-   /// Set the state for this pool
-   pub fn set_state(&mut self, state: PoolReserves) {
-      self.state = Some(state);
+   pub fn token1(&self) -> Cow<ERC20Token> {
+      self.currency1.to_erc20()
    }
 
-   pub fn is_token0(&self, token: Address) -> bool {
-      self.token0.address == token
+   pub fn base_token(&self) -> Cow<ERC20Token> {
+      self.base_currency().to_erc20()
    }
 
-   pub fn is_token1(&self, token: Address) -> bool {
-      self.token1.address == token
-   }
-
-   /// Does this pool have enough liquidity
-   ///
-   /// If state is None, it will return true so we dont accidentally remove pools
-   pub fn enough_liquidity(&self) -> bool {
-      let base_token = self.base_token();
-      let reserve = if self.is_token0(base_token.address) && self.state.is_some() {
-         self.state.as_ref().unwrap().reserve0
-      } else if self.is_token1(base_token.address) && self.state.is_some() {
-         self.state.as_ref().unwrap().reserve1
-      } else {
-         return true;
-      };
-      let threshold = minimum_liquidity(base_token);
-      reserve >= threshold
-   }
-
-   pub fn base_token_exists(&self) -> bool {
-      if is_base_token(self.chain_id, self.token0.address) {
-         true
-      } else if is_base_token(self.chain_id, self.token1.address) {
-         true
-      } else {
-         false
-      }
-   }
-
-   /// Get the base token of this pool
-   ///
-   /// See [is_base_token]
-   pub fn base_token(&self) -> &ERC20Token {
-      if is_base_token(self.chain_id, self.token0.address) {
-         &self.token0
-      } else {
-         &self.token1
-      }
-   }
-
-   /// Get the quote token of this pool
-   ///
-   /// Anything that is not [is_base_token]
-   pub fn quote_token(&self) -> &ERC20Token {
-      if is_base_token(self.chain_id, self.token0.address) {
-         &self.token1
-      } else {
-         &self.token0
-      }
-   }
-
-   /// Fetch the state of the pool at a given block
-   /// If block is None, the latest block is used
-   pub async fn fetch_state<P, N>(
-      client: P,
-      pool: Address,
-      block: Option<BlockId>,
-   ) -> Result<PoolReserves, anyhow::Error>
-   where
-      P: Provider<N> + Clone + 'static,
-      N: Network,
-   {
-      let reserves = v2::pool::get_reserves(pool, client, block).await?;
-      let reserve0 = U256::from(reserves.0);
-      let reserve1 = U256::from(reserves.1);
-
-      Ok(PoolReserves::new(reserve0, reserve1, reserves.2 as u64))
-   }
-
-   pub fn simulate_swap(&self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let state = self
-         .state
-         .as_ref()
-         .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
-
-      if self.token0.address == token_in {
-         Ok(super::get_amount_out(
-            amount_in,
-            state.reserve0,
-            state.reserve1,
-         ))
-      } else {
-         Ok(super::get_amount_out(
-            amount_in,
-            state.reserve1,
-            state.reserve0,
-         ))
-      }
-   }
-
-   pub fn simulate_swap_mut(&mut self, token_in: Address, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let mut state = self
-         .state
-         .clone()
-         .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
-
-      if self.token0.address == token_in {
-         let amount_out = super::get_amount_out(amount_in, state.reserve0, state.reserve1);
-
-         state.reserve0 += amount_in;
-         state.reserve1 -= amount_out;
-         self.state = Some(state);
-
-         Ok(amount_out)
-      } else {
-         let amount_out = super::get_amount_out(amount_in, state.reserve1, state.reserve0);
-
-         state.reserve0 -= amount_out;
-         state.reserve1 += amount_in;
-         self.state = Some(state);
-
-         Ok(amount_out)
-      }
-   }
-
-   /// Quote token USD price but we need to know the usd price of base token
-   pub fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
-      if base_usd == 0.0 {
-         return Ok(0.0);
-      }
-
-      if !self.base_token_exists() {
-         bail!("Base token not found in the pool");
-      }
-
-      let unit = parse_units("1", self.base_token().decimals)?.get_absolute();
-      let amount_out = self.simulate_swap(self.base_token().address, unit)?;
-      if amount_out == U256::ZERO {
-         return Ok(0.0);
-      }
-
-      let amount_out = format_units(amount_out, self.quote_token().decimals)?.parse::<f64>()?;
-      let price = base_usd / amount_out;
-
-      Ok(price)
-   }
-
-   /// Get the usd value of Base and Quote token at a given block
-   /// If block is None, the latest block is used
-   ///
-   /// ## Returns
-   ///
-   /// - (base_price, quote_price)
-   pub async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
-   where
-      P: Provider<N> + Clone + 'static,
-      N: Network,
-   {
-      let chain_id = self.chain_id;
-
-      if !self.base_token_exists() {
-         bail!("Base token not found in the pool");
-      }
-
-      let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
-      let quote_price = self.quote_price(base_price)?;
-      Ok((base_price, quote_price))
+   pub fn quote_token(&self) -> Cow<ERC20Token> {
+      self.quote_currency().to_erc20()
    }
 
    /// Test pool
@@ -310,6 +161,232 @@ impl UniswapV2Pool {
    }
 }
 
+impl UniswapPool for UniswapV2Pool {
+   fn chain_id(&self) -> u64 {
+      self.chain_id
+   }
+
+   fn address(&self) -> Address {
+      self.address
+   }
+
+   fn fee(&self) -> FeeAmount {
+      self.fee
+   }
+
+   fn pool_id(&self) -> B256 {
+      B256::ZERO
+   }
+
+   fn dex_kind(&self) -> DexKind {
+      self.dex
+   }
+
+   fn state(&self) -> &State {
+      &self.state
+   }
+
+   fn zero_for_one_v3(&self, _token_in: Address) -> bool {
+      panic!("This method only applies to V3");
+   }
+
+   fn zero_for_one_v4(&self, _currency_in: &Currency) -> bool {
+      panic!("This method only applies to V4");
+   }
+
+   fn currency0(&self) -> &Currency {
+      &self.currency0
+   }
+
+   fn currency1(&self) -> &Currency {
+      &self.currency1
+   }
+
+   fn is_currency0(&self, currency: &Currency) -> bool {
+      &self.currency0 == currency
+   }
+
+   fn is_currency1(&self, currency: &Currency) -> bool {
+      &self.currency1 == currency
+   }
+
+   fn set_state(&mut self, state: State) {
+      self.state = state;
+   }
+
+   fn set_state_res(&mut self, state: State) -> Result<(), anyhow::Error> {
+      if state.is_v2() {
+         self.state = state;
+         Ok(())
+      } else {
+         Err(anyhow::anyhow!("Pool state is not for v2"))
+      }
+   }
+
+   fn is_token0(&self, token: Address) -> bool {
+      self.token0().address == token
+   }
+
+   fn is_token1(&self, token: Address) -> bool {
+      self.token1().address == token
+   }
+
+   fn enough_liquidity(&self) -> bool {
+      if !self.state.is_v2() {
+         return true;
+      }
+      let state = self.state.v2_reserves().unwrap();
+      let base_token = self.base_token();
+      let reserve = if self.is_token0(base_token.address) {
+         state.reserve0
+      } else {
+         state.reserve1
+      };
+
+      let threshold = minimum_liquidity(&base_token);
+      reserve >= threshold
+   }
+
+   fn base_token_exists(&self) -> bool {
+      if is_base_token(self.chain_id, self.token0().address) {
+         true
+      } else if is_base_token(self.chain_id, self.token1().address) {
+         true
+      } else {
+         false
+      }
+   }
+
+   fn base_currency(&self) -> &Currency {
+      // If currency0 is native (e.g., ETH) or a base token, use it as the base.
+      // Otherwise, use currency1.
+      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+         &self.currency0
+      } else {
+         &self.currency1
+      }
+   }
+
+   fn quote_currency(&self) -> &Currency {
+      // Return the opposite currency of base_currency.
+      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+         &self.currency1
+      } else {
+         &self.currency0
+      }
+   }
+
+   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
+      bail!("Pool Key method only applies to V4");
+   }
+
+   /// Fetch the state of the pool at a given block
+   /// If block is None, the latest block is used
+   async fn fetch_state<P, N>(client: P, pool: impl UniswapPool, block: Option<BlockId>) -> Result<State, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let reserves = v2::pool::get_reserves(pool.address(), client, block).await?;
+      let reserve0 = U256::from(reserves.0);
+      let reserve1 = U256::from(reserves.1);
+      let reserves = PoolReserves::new(reserve0, reserve1, reserves.2 as u64);
+
+      Ok(State::v2(reserves))
+   }
+
+   fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let state = self
+         .state
+         .v2_reserves()
+         .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
+
+      let token_in = currency_in.to_erc20().address;
+
+      if self.currency0.to_erc20().address == token_in {
+         Ok(super::get_amount_out(
+            amount_in,
+            self.fee.fee(),
+            state.reserve0,
+            state.reserve1,
+         ))
+      } else {
+         Ok(super::get_amount_out(
+            amount_in,
+            self.fee.fee(),
+            state.reserve1,
+            state.reserve0,
+         ))
+      }
+   }
+
+   fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let mut state = self
+         .state
+         .v2_reserves()
+         .cloned()
+         .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
+
+      let token_in = currency_in.to_erc20().address;
+
+      if self.currency0.to_erc20().address == token_in {
+         let amount_out = super::get_amount_out(amount_in, self.fee.fee(), state.reserve0, state.reserve1);
+
+         state.reserve0 += amount_in;
+         state.reserve1 -= amount_out;
+         self.state = State::v2(state);
+
+         Ok(amount_out)
+      } else {
+         let amount_out = super::get_amount_out(amount_in, self.fee.fee(), state.reserve1, state.reserve0);
+
+         state.reserve0 -= amount_out;
+         state.reserve1 += amount_in;
+         self.state = State::v2(state);
+
+         Ok(amount_out)
+      }
+   }
+
+   fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
+      if base_usd == 0.0 {
+         return Ok(0.0);
+      }
+
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
+      }
+
+      let base_currency = self.base_currency();
+      let unit = parse_units("1", base_currency.decimals())?.get_absolute();
+      let amount_out = self.simulate_swap(base_currency, unit)?;
+      if amount_out == U256::ZERO {
+         return Ok(0.0);
+      }
+
+      let amount_out = format_units(amount_out, self.quote_currency().decimals())?.parse::<f64>()?;
+      let price = base_usd / amount_out;
+
+      Ok(price)
+   }
+
+   async fn tokens_price<P, N>(&self, client: P, block: Option<BlockId>) -> Result<(f64, f64), anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let chain_id = self.chain_id;
+
+      if !self.base_token_exists() {
+         bail!("Base token not found in the pool");
+      }
+
+      let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
+      let quote_price = self.quote_price(base_price)?;
+      Ok((base_price, quote_price))
+   }
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -325,27 +402,28 @@ mod tests {
 
       let mut pool = UniswapV2Pool::weth_uni();
 
-      let state = UniswapV2Pool::fetch_state(client.clone(), pool.address, None)
+      let state = UniswapV2Pool::fetch_state(client.clone(), pool.clone(), None)
          .await
          .unwrap();
       pool.set_state(state);
 
       // Swap 1 WETH for UNI
-      let base_token = pool.base_token().clone();
-      let quote_token = pool.quote_token().clone();
+      let base = pool.base_currency();
+      let quote = pool.quote_currency();
 
-      let amount_in = parse_units("1", base_token.decimals)
-         .unwrap()
-         .get_absolute();
-      let amount_out = pool.simulate_swap(base_token.address, amount_in).unwrap();
+      let amount_in = parse_units("1", base.decimals()).unwrap().get_absolute();
+      let amount_out = pool.simulate_swap(base, amount_in).unwrap();
 
-      let amount_in = format_units(amount_in, base_token.decimals).unwrap();
-      let amount_out = format_units(amount_out, quote_token.decimals).unwrap();
+      let amount_in = format_units(amount_in, base.decimals()).unwrap();
+      let amount_out = format_units(amount_out, quote.decimals()).unwrap();
 
       println!("=== V2 Swap Test ===");
       println!(
          "Swapped {} {} For {} {}",
-         amount_in, base_token.symbol, amount_out, quote_token.symbol
+         amount_in,
+         base.symbol(),
+         amount_out,
+         quote.symbol()
       );
    }
 
@@ -384,7 +462,7 @@ mod tests {
 
       let mut pool = UniswapV2Pool::weth_uni();
 
-      let state = UniswapV2Pool::fetch_state(client.clone(), pool.address, None)
+      let state = UniswapV2Pool::fetch_state(client.clone(), pool.clone(), None)
          .await
          .unwrap();
       pool.set_state(state);

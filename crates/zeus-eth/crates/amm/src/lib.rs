@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, U256, utils::parse_units};
 use anyhow::bail;
-use currency::ERC20Token;
+use currency::{Currency, ERC20Token};
 use types::ChainId;
 use utils::address;
 
@@ -13,6 +13,19 @@ pub mod uniswap;
 
 pub use uniswap::v2::pool::UniswapV2Pool;
 pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
+
+pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
+   if currency_a.is_native() {
+      return true;
+   }
+
+   if currency_b.is_native() {
+      return false;
+   }
+
+   // Both are ERC20 tokens
+   currency_a.to_erc20().address < currency_b.to_erc20().address
+}
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
 // TODO: This should be based on a USD value
@@ -87,13 +100,14 @@ pub fn get_possible_v3_pairs(dex_kind: DexKind, token: ERC20Token, base_tokens: 
 pub enum DexKind {
    UniswapV2,
    UniswapV3,
+   UniswapV4,
    PancakeSwapV2,
    PancakeSwapV3,
 }
 
 impl DexKind {
    /// Get the main DexKind for the given chain
-   /// 
+   ///
    /// Panics if the chain is not supported
    pub fn main_dexes(chain: u64) -> Vec<DexKind> {
       let chain = ChainId::new(chain).unwrap();
@@ -107,7 +121,7 @@ impl DexKind {
    }
 
    /// Get all possible DEX kinds based on the chain
-   /// 
+   ///
    /// Panics if the chain is not supported
    pub fn all(chain: u64) -> Vec<DexKind> {
       let chain = ChainId::new(chain).unwrap();
@@ -162,6 +176,7 @@ impl DexKind {
       let addr = match self {
          DexKind::UniswapV2 => address::uniswap_v2_factory(chain)?,
          DexKind::UniswapV3 => address::uniswap_v3_factory(chain)?,
+         DexKind::UniswapV4 => panic!("Uniswap V4 does not have a factory"),
          DexKind::PancakeSwapV2 => address::pancakeswap_v2_factory(chain)?,
          DexKind::PancakeSwapV3 => address::pancakeswap_v3_factory(chain)?,
       };
@@ -174,9 +189,18 @@ impl DexKind {
       match self {
          DexKind::UniswapV2 => uniswap_v2_factory_creation_block(chain),
          DexKind::UniswapV3 => uniswap_v3_factory_creation_block(chain),
+         DexKind::UniswapV4 => panic!("Uniswap V4 does not have a factory"),
          DexKind::PancakeSwapV2 => pancakeswap_v2_factory_creation_block(chain),
          DexKind::PancakeSwapV3 => pancakeswap_v3_factory_creation_block(chain),
       }
+   }
+
+   pub fn is_uniswap(&self) -> bool {
+      matches!(self, DexKind::UniswapV2 | DexKind::UniswapV3 | DexKind::UniswapV4)
+   }
+
+   pub fn is_pancake(&self) -> bool {
+      matches!(self, DexKind::PancakeSwapV2 | DexKind::PancakeSwapV3)
    }
 
    pub fn is_uniswap_v2(&self) -> bool {
@@ -185,6 +209,10 @@ impl DexKind {
 
    pub fn is_uniswap_v3(&self) -> bool {
       matches!(self, DexKind::UniswapV3)
+   }
+
+   pub fn is_uniswap_v4(&self) -> bool {
+      matches!(self, DexKind::UniswapV4)
    }
 
    pub fn is_pancakeswap_v2(&self) -> bool {
@@ -199,6 +227,7 @@ impl DexKind {
       match self {
          DexKind::UniswapV2 => "UniswapV2",
          DexKind::UniswapV3 => "UniswapV3",
+         DexKind::UniswapV4 => "UniswapV4",
          DexKind::PancakeSwapV2 => "PancakeSwapV2",
          DexKind::PancakeSwapV3 => "PancakeSwapV3",
       }
@@ -260,7 +289,7 @@ mod tests {
       let base_tokens = ERC20Token::base_tokens(1);
       let pools = get_possible_v2_pairs(DexKind::UniswapV2, usdc.clone(), base_tokens.clone());
       for pool in pools {
-         println!("{}/{}", pool.token0.symbol, pool.token1.symbol);
+         println!("{}/{}", pool.token0().symbol, pool.token1().symbol);
       }
    }
 
@@ -271,7 +300,12 @@ mod tests {
       let base_tokens = ERC20Token::base_tokens(1);
       let pools = get_possible_v3_pairs(DexKind::UniswapV3, usdc.clone(), base_tokens.clone());
       for pool in pools {
-         println!("{}/{} - Fee: {}", pool.token0.symbol, pool.token1.symbol, pool.fee);
+         println!(
+            "{}/{} - Fee: {}",
+            pool.token0().symbol,
+            pool.token1().symbol,
+            pool.fee.fee()
+         );
       }
    }
 }

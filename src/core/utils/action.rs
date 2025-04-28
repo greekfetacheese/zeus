@@ -580,25 +580,25 @@ impl SwapParams {
          ctx.write(|ctx| ctx.pool_manager.add_v2_pools(vec![pool.clone()]));
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token0.clone()))
+               .insert_currency(chain, Currency::from(pool.token0().into_owned()))
          });
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token1.clone()))
+               .insert_currency(chain, Currency::from(pool.token1().into_owned()))
          });
          pool
       };
 
       let (amount_in, token_in) = if swap_log.amount0In > swap_log.amount1In {
-         (swap_log.amount0In, pool.token0.clone())
+         (swap_log.amount0In, pool.token0().into_owned())
       } else {
-         (swap_log.amount1In, pool.token1.clone())
+         (swap_log.amount1In, pool.token1().into_owned())
       };
 
       let (amount_out, token_out) = if swap_log.amount0Out > swap_log.amount1Out {
-         (swap_log.amount0Out, pool.token0.clone())
+         (swap_log.amount0Out, pool.token0().into_owned())
       } else {
-         (swap_log.amount1Out, pool.token1.clone())
+         (swap_log.amount1Out, pool.token1().into_owned())
       };
 
       let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
@@ -660,25 +660,25 @@ impl SwapParams {
          ctx.write(|ctx| ctx.pool_manager.add_v3_pools(vec![pool.clone()]));
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token0.clone()))
+               .insert_currency(chain, Currency::from(pool.token0().into_owned()))
          });
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token1.clone()))
+               .insert_currency(chain, Currency::from(pool.token1().into_owned()))
          });
          pool
       };
 
       let (amount_in, token_in) = if swap_log.amount0.is_positive() {
-         (swap_log.amount0, pool.token0.clone())
+         (swap_log.amount0, pool.token0().into_owned())
       } else {
-         (swap_log.amount1, pool.token1.clone())
+         (swap_log.amount1, pool.token1().into_owned())
       };
 
       let (amount_out, token_out) = if swap_log.amount1.is_negative() {
-         (swap_log.amount0, pool.token0.clone())
+         (swap_log.amount0, pool.token0().into_owned())
       } else {
-         (swap_log.amount1, pool.token1.clone())
+         (swap_log.amount1, pool.token1().into_owned())
       };
 
       let amount_in = U256::from_str(&amount_in.to_string())?;

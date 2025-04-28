@@ -94,7 +94,7 @@ pub struct GUI {
 
    pub confirm_window: ui::misc::ConfirmWindow,
 
-   pub tx_confirm_window: ui::misc::TxConfirmWindow,
+   pub tx_confirm_window: ui::TxConfirmWindow,
 
    pub sign_msg_window: ui::misc::SignMsgWindow,
 }
@@ -111,7 +111,7 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::misc::ConfirmWindow::new();
-      let tx_confirm_window = ui::misc::TxConfirmWindow::new();
+      let tx_confirm_window = ui::TxConfirmWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new();
       let tx_history = ui::tx_history::TxHistory::new();

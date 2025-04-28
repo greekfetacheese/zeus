@@ -12,3 +12,4 @@ alloy-contract = "0.14.0"
 alloy-provider = "0.14.0"
 
 anyhow = "1.0.95"
+serde = "1.0.217"

@@ -28,6 +28,7 @@ dependencies = [
  "alloy-rpc-types",
  "alloy-sol-types",
  "anyhow",
+ "serde",
 ]
 
 [[package]]
@@ -750,6 +751,7 @@ version = "0.1.0"
 dependencies = [
  "abi",
  "alloy-contract",
+ "alloy-dyn-abi",
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
@@ -765,6 +767,7 @@ dependencies = [
  "uniswap_v3_math",
  "url",
  "utils",
+ "wallet",
 ]
 
 [[package]]
@@ -7433,6 +7436,7 @@ name = "utils"
 version = "0.1.0"
 dependencies = [
  "alloy-contract",
+ "alloy-dyn-abi",
  "alloy-network",
  "alloy-primitives",
  "alloy-provider",
@@ -7442,6 +7446,7 @@ dependencies = [
  "alloy-transport",
  "anyhow",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "types",
@@ -7508,6 +7513,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-network",
  "alloy-primitives",
+ "alloy-signer",
  "alloy-signer-local",
  "memsec",
  "secure-types",

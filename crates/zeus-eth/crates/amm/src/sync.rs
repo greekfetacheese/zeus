@@ -202,6 +202,7 @@ where
       DexKind::PancakeSwapV2 => vec![IUniswapV2Factory::PairCreated::SIGNATURE],
       DexKind::UniswapV3 => vec![IUniswapV3Factory::PoolCreated::SIGNATURE],
       DexKind::PancakeSwapV3 => vec![IUniswapV3Factory::PoolCreated::SIGNATURE],
+      DexKind::UniswapV4 => panic!("Uniswap V4 not supported"),
    };
 
    let from_block = if from_block.is_none() {

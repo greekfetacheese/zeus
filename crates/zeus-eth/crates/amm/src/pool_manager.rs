@@ -11,6 +11,8 @@ use alloy_contract::private::{Network, Provider};
 
 use crate::DexKind;
 use crate::uniswap::{
+   UniswapPool,
+   State,
    v2::pool::{PoolReserves, UniswapV2Pool},
    v3::pool::{UniswapV3Pool, V3PoolState},
 };
@@ -268,8 +270,8 @@ impl PoolStateManagerHandle {
                info!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{}",
                   dex.to_str(),
-                  pool.token0.symbol,
-                  pool.token1.symbol
+                  pool.token0().symbol,
+                  pool.token1().symbol
                );
                pools.push(pool);
             }
@@ -355,9 +357,9 @@ impl PoolStateManagerHandle {
                info!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{} - Fee: {}",
                   dex.to_str(),
-                  v3_pool.token0.symbol,
-                  v3_pool.token1.symbol,
-                  v3_pool.fee
+                  v3_pool.token0().symbol,
+                  v3_pool.token1().symbol,
+                  v3_pool.fee.fee()
                );
                pool_result.push(v3_pool);
             }
@@ -441,14 +443,14 @@ impl PoolStateManager {
       let v2_pool = self
          .v2_pools
          .iter()
-         .filter(|(_, pool)| pool.token0.address == token.address || pool.token1.address == token.address)
+         .filter(|(_, pool)| pool.token0().address == token.address || pool.token1().address == token.address)
          .map(|(_, pool)| pool.clone())
          .next();
 
       let v3_pool = self
          .v3_pools
          .iter()
-         .filter(|(_, pool)| pool.token0.address == token.address || pool.token1.address == token.address)
+         .filter(|(_, pool)| pool.token0().address == token.address || pool.token1().address == token.address)
          .map(|(_, pool)| pool.clone())
          .next();
 
@@ -488,7 +490,7 @@ impl PoolStateManager {
    pub fn add_v2_pools(&mut self, pools: Vec<UniswapV2Pool>) {
       for pool in pools {
          self.v2_pools.insert(
-            (pool.chain_id, pool.token0.address, pool.token1.address),
+            (pool.chain_id, pool.token0().address, pool.token1().address),
             pool,
          );
       }
@@ -499,9 +501,9 @@ impl PoolStateManager {
          self.v3_pools.insert(
             (
                pool.chain_id,
-               pool.fee,
-               pool.token0.address,
-               pool.token1.address,
+               pool.fee.fee(),
+               pool.token0().address,
+               pool.token1().address,
             ),
             pool,
          );
@@ -537,7 +539,7 @@ impl PoolStateManager {
 
       for pool in pools {
          if let Some(data) = v2_state_map.get(&pool.address) {
-            let key = &(pool.chain_id, pool.token0.address, pool.token1.address);
+            let key = &(pool.chain_id, pool.token0().address, pool.token1().address);
             let pool = self
                .v2_pools
                .get_mut(key)
@@ -545,7 +547,7 @@ impl PoolStateManager {
             let reserve0 = U256::from(data.reserve0);
             let reserve1 = U256::from(data.reserve1);
             let v2_state = PoolReserves::new(reserve0, reserve1, data.blockTimestampLast as u64);
-            pool.set_state(v2_state);
+            pool.set_state(State::v2(v2_state));
          }
       }
 
@@ -559,16 +561,16 @@ impl PoolStateManager {
          if let Some(data) = v3_state_map.get(&pool.address) {
             let key = &(
                pool.chain_id,
-               pool.fee,
-               pool.token0.address,
-               pool.token1.address,
+               pool.fee.fee(),
+               pool.token0().address,
+               pool.token1().address,
             );
             let pool = self
                .v3_pools
                .get_mut(key)
                .map_or_else(|| Err(anyhow::anyhow!("V3 Pool not found")), Ok)?;
             let v3_state = V3PoolState::new(data.clone(), None)?;
-            pool.set_state(v3_state);
+            pool.set_state(State::v3(v3_state));
          }
       }
 

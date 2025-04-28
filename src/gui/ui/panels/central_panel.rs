@@ -1,7 +1,8 @@
 use crate::{
    assets::icons::Icons,
    core::{
-      utils::{sign::SignMsgType, tx::TxSummary, RT}, ZeusCtx
+      ZeusCtx,
+      utils::{RT, sign::SignMsgType, tx::TxSummary},
    },
    gui::{GUI, SHARED_GUI},
 };
@@ -144,12 +145,43 @@ impl UiTesting {
             });
          }
 
+         let button = Button::new("Transfer Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_transfer();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_with_summary(summary);
+               });
+            });
+         }
+
+         let button = Button::new("Bridge Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_bridge();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_with_summary(summary);
+               });
+            });
+         }
+
+         let button = Button::new("Other Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_other();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_with_summary(summary);
+               });
+            });
+         }
+
          let button = Button::new("Sign Message").min_size(btn_size);
          if ui.add(button).clicked() {
             RT.spawn_blocking(move || {
                let msg = SignMsgType::dummy_permit2();
                SHARED_GUI.write(|gui| {
-                  gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
+                  gui.sign_msg_window
+                     .open("app.uniswap.org".to_string(), 8453, msg);
                });
             });
          }
@@ -157,7 +189,6 @@ impl UiTesting {
          let progress_window = Button::new("Progress Window").min_size(btn_size);
          if ui.add(progress_window).clicked() {
             RT.spawn_blocking(move || {
-
                SHARED_GUI.write(|gui| {
                   gui.progress_window.open_test();
                });
@@ -176,8 +207,6 @@ impl UiTesting {
                SHARED_GUI.write(|gui| {
                   gui.progress_window.finish_last_step();
                });
-
-               
             });
          }
 

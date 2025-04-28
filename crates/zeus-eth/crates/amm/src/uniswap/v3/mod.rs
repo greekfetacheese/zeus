@@ -2,22 +2,23 @@ pub mod pool;
 pub mod fee_math;
 pub mod position;
 
-use alloy_primitives::{Address, I256, U256};
+use alloy_primitives::{I256, U256};
 
 use crate::consts::U256_1;
+use super::UniswapPool;
 use std::cmp::Ordering;
 use uniswap_v3_math::tick_math::*;
 
 use anyhow::anyhow;
-use pool::UniswapV3Pool;
+
 
 #[derive(Default)]
 pub struct CurrentState {
-   amount_specified_remaining: I256,
-   amount_calculated: I256,
-   sqrt_price_x_96: U256,
-   tick: i32,
-   liquidity: u128,
+   pub amount_specified_remaining: I256,
+   pub amount_calculated: I256,
+   pub sqrt_price_x_96: U256,
+   pub tick: i32,
+   pub liquidity: u128,
 }
 
 #[derive(Default)]
@@ -32,8 +33,8 @@ struct StepComputations {
 }
 
 pub fn calculate_swap(
-   pool: &UniswapV3Pool,
-   token_in: Address,
+   pool: &impl UniswapPool,
+   zero_for_one: bool,
    amount_in: U256,
 ) -> Result<(U256, CurrentState), anyhow::Error> {
    if amount_in.is_zero() {
@@ -42,10 +43,10 @@ pub fn calculate_swap(
 
    let state = pool
       .state()
+      .v3_or_v4_state()
       .ok_or_else(|| anyhow!("State not initialized"))?;
-   let fee = pool.fee;
+   let fee = pool.fee();
 
-   let zero_for_one = token_in == pool.token0.address;
 
    // Set sqrt_price_limit_x_96 to the max or min sqrt price in the pool depending on zero_for_one
    let sqrt_price_limit_x_96 = if zero_for_one {
@@ -112,7 +113,7 @@ pub fn calculate_swap(
          swap_target_sqrt_ratio,
          current_state.liquidity,
          current_state.amount_specified_remaining,
-         fee,
+         fee.fee(),
       )?;
 
       // Decrement the amount remaining to be swapped and amount received from the step
@@ -167,13 +168,14 @@ pub fn calculate_swap(
    Ok((amount_out, current_state))
 }
 
-pub fn calculate_price(pool: &UniswapV3Pool, base_token: Address) -> Result<f64, anyhow::Error> {
+pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f64, anyhow::Error> {
    let state = pool
       .state()
+      .v3_state()
       .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
    let tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;
-   let shift = (pool.token0.decimals as i8) - (pool.token1.decimals as i8);
+   let shift = (pool.currency0().decimals() as i8) - (pool.currency1().decimals() as i8);
 
    let price = match shift.cmp(&0) {
       Ordering::Less => (1.0001_f64).powi(tick) / (10_f64).powi(-shift as i32),
@@ -181,7 +183,7 @@ pub fn calculate_price(pool: &UniswapV3Pool, base_token: Address) -> Result<f64,
       Ordering::Equal => (1.0001_f64).powi(tick),
    };
 
-   if base_token == pool.token0.address {
+   if zero_for_one {
       Ok(price)
    } else {
       Ok(1.0 / price)
