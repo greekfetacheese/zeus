@@ -123,10 +123,11 @@ impl ChainSelection {
                   ctx.chain = new_chain;
                });
 
-               // Update the pririty fee in the send_crypto
                SHARED_GUI.write(|gui| {
                   let currency = Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
                   gui.send_crypto.set_currency(currency.clone());
+                  gui.swap_ui.default_currency_in(new_chain.id());
+                  gui.swap_ui.default_currency_out(new_chain.id());
                });
             });
          }

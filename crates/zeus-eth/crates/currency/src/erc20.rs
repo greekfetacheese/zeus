@@ -2,14 +2,14 @@ use abi::{alloy_contract::private::{Network, Provider}, alloy_primitives::{addre
 use types::{ARBITRUM, BASE, BSC, ChainId, ETH, OPTIMISM};
 use utils::{
    address::{dai, usdc, usdt, wbnb, weth},
-   batch_request,
+   batch,
 };
 
 
 use serde::{Deserialize, Serialize};
 
 /// Represents an ERC20 token.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ERC20Token {
    pub chain_id: u64,
    pub address: Address,
@@ -39,7 +39,7 @@ impl ERC20Token {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let info = batch_request::get_erc20_info(client, token).await?;
+      let info = batch::get_erc20_info(client, token).await?;
 
       Ok(Self {
          chain_id,

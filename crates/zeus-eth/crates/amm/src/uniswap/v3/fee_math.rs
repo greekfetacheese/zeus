@@ -2,7 +2,7 @@
 
 use alloy_primitives::U256;
 use uniswap_v3_math::sqrt_price_math::Q96;
-use super::pool::PoolTick;
+use crate::uniswap::state::PoolTick;
 
 
 

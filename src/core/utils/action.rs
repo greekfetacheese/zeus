@@ -5,7 +5,10 @@ use zeus_eth::{
    abi::{erc20, protocols::across, uniswap},
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
-   amm::{UniswapV2Pool, UniswapV3Pool},
+   amm::{
+      UniswapV2Pool, UniswapV3Pool,
+      uniswap::{AnyUniswapPool, UniswapPool},
+   },
    currency::{Currency, ERC20Token, NativeCurrency},
    dapps::Dapp,
    utils::NumericValue,
@@ -29,7 +32,6 @@ pub enum OnChainAction {
 }
 
 impl OnChainAction {
-
    pub fn dummy_token_approve() -> Self {
       let token = Currency::from(ERC20Token::weth());
       let amount = NumericValue::parse_to_wei("1", 18);
@@ -216,9 +218,9 @@ impl OnChainAction {
    /// Get the currency to be payed
    ///
    /// Eg. For a bridge & swap, it will be the `input_currency`
-   /// 
+   ///
    /// For a transfer, it will be the `currency` to be sent
-   /// 
+   ///
    /// For Token Approval, it will be the `token` to be approved
    pub fn input_currency(&self) -> Currency {
       match self {
@@ -246,9 +248,9 @@ impl OnChainAction {
    /// Get the amount to be payed
    ///
    /// Eg. For a bridge & swap, it will be the `amount_in`
-   /// 
+   ///
    /// For a transfer, it will be the `amount`
-   /// 
+   ///
    /// For Token Approval, it will be the `amount` to be approved
    pub fn amount(&self) -> NumericValue {
       match self {
@@ -264,11 +266,11 @@ impl OnChainAction {
       let amount = self.amount();
       let unlimited = amount.wei2() == U256::MAX;
       if unlimited {
-         return "Unlimited".to_string()
+         return "Unlimited".to_string();
       } else {
-        return amount.formatted().clone()
+         return amount.formatted().clone();
       }
-      }
+   }
 
    /// Get the amount usd value to be payed
    ///
@@ -577,28 +579,41 @@ impl SwapParams {
          pool
       } else {
          let pool = UniswapV2Pool::from_address(client.clone(), chain, pool_address).await?;
-         ctx.write(|ctx| ctx.pool_manager.add_v2_pools(vec![pool.clone()]));
+         let pool = AnyUniswapPool::from_pool(pool);
+         ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token0().into_owned()))
+               .insert_currency(chain, pool.currency0().clone())
          });
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token1().into_owned()))
+               .insert_currency(chain, pool.currency1().clone())
          });
          pool
       };
 
       let (amount_in, token_in) = if swap_log.amount0In > swap_log.amount1In {
-         (swap_log.amount0In, pool.token0().into_owned())
+         (
+            swap_log.amount0In,
+            pool.currency0().to_erc20().into_owned(),
+         )
       } else {
-         (swap_log.amount1In, pool.token1().into_owned())
+         (
+            swap_log.amount1In,
+            pool.currency1().to_erc20().into_owned(),
+         )
       };
 
       let (amount_out, token_out) = if swap_log.amount0Out > swap_log.amount1Out {
-         (swap_log.amount0Out, pool.token0().into_owned())
+         (
+            swap_log.amount0Out,
+            pool.currency0().to_erc20().into_owned(),
+         )
       } else {
-         (swap_log.amount1Out, pool.token1().into_owned())
+         (
+            swap_log.amount1Out,
+            pool.currency1().to_erc20().into_owned(),
+         )
       };
 
       let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
@@ -657,28 +672,41 @@ impl SwapParams {
          pool
       } else {
          let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
-         ctx.write(|ctx| ctx.pool_manager.add_v3_pools(vec![pool.clone()]));
+         let pool = AnyUniswapPool::from_pool(pool);
+         ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token0().into_owned()))
+               .insert_currency(chain, pool.currency0().clone())
          });
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(pool.token1().into_owned()))
+               .insert_currency(chain, pool.currency1().clone())
          });
          pool
       };
 
       let (amount_in, token_in) = if swap_log.amount0.is_positive() {
-         (swap_log.amount0, pool.token0().into_owned())
+         (
+            swap_log.amount0,
+            pool.currency0().to_erc20().into_owned(),
+         )
       } else {
-         (swap_log.amount1, pool.token1().into_owned())
+         (
+            swap_log.amount1,
+            pool.currency1().to_erc20().into_owned(),
+         )
       };
 
       let (amount_out, token_out) = if swap_log.amount1.is_negative() {
-         (swap_log.amount0, pool.token0().into_owned())
+         (
+            swap_log.amount0,
+            pool.currency0().to_erc20().into_owned(),
+         )
       } else {
-         (swap_log.amount1, pool.token1().into_owned())
+         (
+            swap_log.amount1,
+            pool.currency1().to_erc20().into_owned(),
+         )
       };
 
       let amount_in = U256::from_str(&amount_in.to_string())?;

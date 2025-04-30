@@ -1,95 +1,61 @@
-use alloy_primitives::{Address, U256};
-
+use alloy_contract::private::{Network, Provider};
+use alloy_primitives::{Address, B256, U256};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use tokio::{
-   sync::{Mutex, Semaphore},
-   task::JoinHandle,
-};
 
-use alloy_contract::private::{Network, Provider};
-
-use crate::DexKind;
-use crate::uniswap::{
-   UniswapPool,
-   State,
-   v2::pool::{PoolReserves, UniswapV2Pool},
-   v3::pool::{UniswapV3Pool, V3PoolState},
+use crate::{
+   DexKind,
+   uniswap::{AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*},
 };
-use currency::erc20::ERC20Token;
-use utils::{
-   NumericValue,
-   batch_request::{V2PoolReserves, V3Pool2, V3PoolData, get_v2_pool_reserves, get_v3_pools, get_v3_state},
-   price_feed::get_base_token_price,
-};
-
+use currency::{Currency, ERC20Token};
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::info;
+use utils::{NumericValue, batch, price_feed::get_base_token_price};
 
-/// Thread-safe handle to the [PoolStateManager]
+/// Thread-safe handle to the [PoolManager]
 #[derive(Clone)]
-pub struct PoolStateManagerHandle(Arc<RwLock<PoolStateManager>>);
+pub struct PoolManagerHandle(Arc<RwLock<PoolManager>>);
 
-impl Default for PoolStateManagerHandle {
+impl Default for PoolManagerHandle {
    fn default() -> Self {
-      Self::new(PoolStateManager::default())
+      Self(Arc::new(RwLock::new(PoolManager::default())))
    }
 }
 
-impl serde::Serialize for PoolStateManagerHandle {
-   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-   where
-      S: serde::Serializer,
-   {
-      use serde_pool_manage_handle::serialize;
-      serialize(self, serializer)
-   }
-}
-
-impl<'de> serde::Deserialize<'de> for PoolStateManagerHandle {
-   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-   where
-      D: serde::Deserializer<'de>,
-   {
-      use serde_pool_manage_handle::deserialize;
-      deserialize(deserializer)
-   }
-}
-
-impl PoolStateManagerHandle {
-   pub fn new(state: PoolStateManager) -> Self {
-      Self(Arc::new(RwLock::new(state)))
+impl PoolManagerHandle {
+   pub fn new(pool_manager: PoolManager) -> Self {
+      Self(Arc::new(RwLock::new(pool_manager)))
    }
 
-   /// Shared access to the market price watcher
-   pub fn read<R>(&self, reader: impl FnOnce(&PoolStateManager) -> R) -> R {
+   /// Shared access to the pool manager
+   pub fn read<R>(&self, reader: impl FnOnce(&PoolManager) -> R) -> R {
       reader(&self.0.read().unwrap())
    }
 
-   /// Exclusive mutable access to the market price watcher
-   pub fn write<R>(&self, writer: impl FnOnce(&mut PoolStateManager) -> R) -> R {
+   /// Exclusive mutable access to the pool manager
+   pub fn write<R>(&self, writer: impl FnOnce(&mut PoolManager) -> R) -> R {
       writer(&mut self.0.write().unwrap())
    }
 
-   /// Deserialize the [PoolStateManager] from a JSON string
+   /// Deserialize the [PoolManager] from a JSON string
    pub fn from_string(json: &str) -> Result<Self, serde_json::Error> {
       let manager = serde_json::from_str(json)?;
       Ok(Self(Arc::new(RwLock::new(manager))))
    }
 
-   /// Serialize the [PoolStateManager] to a JSON string
+   /// Serialize the [PoolManager] to a JSON string
    pub fn to_string(&self) -> Result<String, serde_json::Error> {
       self.read(|manager| serde_json::to_string(manager))
    }
 
-   /// Deserialize the [PoolStateManager] from a JSON file
+   /// Deserialize the [PoolManager] from a JSON file
    pub fn from_dir(dir: &std::path::PathBuf) -> Result<Self, anyhow::Error> {
       let data = std::fs::read(dir)?;
       let manager = serde_json::from_slice(&data)?;
       Ok(Self(Arc::new(RwLock::new(manager))))
    }
 
-   /// Serialize the [PoolStateManager] to a JSON file
+   /// Serialize the [PoolManager] to a JSON file
    pub fn save_to_dir(&self, dir: &std::path::PathBuf) -> Result<(), anyhow::Error> {
       let data = self.read(|manager| serde_json::to_string(manager))?;
       std::fs::write(dir, data)?;
@@ -100,57 +66,49 @@ impl PoolStateManagerHandle {
       self.write(|manager| manager.token_prices.clear());
    }
 
-   pub fn v2_pools(&self) -> V2Pools {
-      self.read(|manager| manager.v2_pools.clone())
+   /// Get all pools that include the given currency
+   pub fn get_pools_from_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
+      self.read(|manager| manager.get_pools_from_currency(currency))
    }
 
-   pub fn v3_pools(&self) -> V3Pools {
-      self.read(|manager| manager.v3_pools.clone())
+   pub fn get_pool(&self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) -> Option<AnyUniswapPool> {
+      self.read(|manager| {
+         manager
+            .get_pool(chain_id, fee, currency0, currency1)
+            .cloned()
+      })
    }
 
-   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV2Pool> {
-      self.read(|manager| manager.get_v2_pool_from_address(chain_id, address))
+   pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
+      self.read(|manager| manager.get_pool_from_address(chain_id, address).cloned())
    }
 
-   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV3Pool> {
-      self.read(|manager| manager.get_v3_pool_from_address(chain_id, address))
+   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
+      self.read(|manager| manager.get_v2_pool_from_address(chain_id, address).cloned())
    }
 
-   /// Get a specific v2 pools for the given chain and token pair
-   ///
-   /// token order does not matter
-   pub fn get_v2_pool(&self, chain_id: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
-      self.read(|manager| manager.get_v2_pool(chain_id, token0, token1))
+   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
+      self.read(|manager| manager.get_v3_pool_from_address(chain_id, address).cloned())
    }
 
-   /// Get a specific v3 pools for the given chain, fee and token pair
-   ///
-   /// token order does not matter
-   pub fn get_v3_pool(&self, chain_id: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
-      self.read(|manager| manager.get_v3_pool(chain_id, fee, token0, token1))
+   /// This is V4 specific
+   pub fn get_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<AnyUniswapPool> {
+      self.read(|manager| manager.get_pool_from_id(chain_id, pool_id).cloned())
    }
 
-   /// Add these v2 pools to the manager
-   pub fn add_v2_pools(&self, pools: Vec<UniswapV2Pool>) {
-      self.write(|manager| manager.add_v2_pools(pools))
+   pub fn add_pool(&self, pool: impl UniswapPool) {
+      self.write(|manager| manager.add_pool(pool));
    }
 
-   /// Add these v3 pools to the manager
-   pub fn add_v3_pools(&self, pools: Vec<UniswapV3Pool>) {
-      self.write(|manager| manager.add_v3_pools(pools))
+   pub fn remove_pool(&self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) {
+      self.write(|manager| manager.remove_pool(chain_id, fee, currency0, currency1));
    }
 
-   /// Remove a v2 pool from the manager
-   pub fn remove_v2_pool(&self, chain_id: u64, token0: Address, token1: Address) {
-      self.write(|manager| manager.remove_v2_pool(chain_id, token0, token1))
+   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
+      self.read(|manager| manager.get_token_price(token))
    }
 
-   /// Remove a v3 pool from the manager
-   pub fn remove_v3_pool(&self, chain_id: u64, fee: u32, token0: Address, token1: Address) {
-      self.write(|manager| manager.remove_v3_pool(chain_id, fee, token0, token1))
-   }
-
-   /// Update everything in the manager
+   /// Update the state of the manager for the given chain
    pub async fn update<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
@@ -159,47 +117,49 @@ impl PoolStateManagerHandle {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
       self.cleanup_pools();
-      self.calculate_prices()?;
+      self.calculate_prices();
       Ok(())
    }
 
-   /// Update the state of all the pools for the given chain
-   async fn update_pool_state<P, N>(&self, client: P, chain: u64) -> Result<(), anyhow::Error>
+   async fn update_pool_state<P, N>(&self, client: P, chain_id: u64) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let v2_pool_map = self.read(|manager| manager.v2_pools.clone());
-      let v3_pool_map = self.read(|manager| manager.v3_pools.clone());
+      let pools = self.read(|manager| manager.pools.clone().into_values().collect::<Vec<_>>());
       let concurrency = self.read(|manager| manager.concurrency);
-      let v2_pools = v2_pool_map.into_values().collect::<Vec<_>>();
-      let v3_pools = v3_pool_map.into_values().collect::<Vec<_>>();
-      let (v2_reserves, v3_state) =
-         PoolStateManager::fetch_state(client, chain, concurrency, v2_pools, v3_pools).await?;
-      self.write(|manager| manager.set_state(v2_reserves, v3_state))
+      let pools = batch_update_state(client, chain_id, concurrency, pools).await?;
+      self.write(|manager| {
+         for pool in pools {
+            manager.add_pool(pool);
+         }
+      });
+      Ok(())
    }
 
-   /// Cleanup pools that do not have sufficient liquidity
-   pub fn cleanup_pools(&self) {
-      self.write(|manager| manager.cleanup_pools())
-   }
-
-   /// Update the state for the given pools for the given chain
+   /// Update the state for the given pools
    pub async fn update_state_for_pools<P, N>(
       &self,
       client: P,
       chain: u64,
-      v2_pools: Vec<UniswapV2Pool>,
-      v3_pools: Vec<UniswapV3Pool>,
+      pools: Vec<impl UniswapPool>,
    ) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
+      let pools = pools
+         .into_iter()
+         .map(|p| AnyUniswapPool::from_pool(p))
+         .collect::<Vec<_>>();
       let concurrency = self.read(|manager| manager.concurrency);
-      let (v2_reserves, v3_state) =
-         PoolStateManager::fetch_state(client, chain, concurrency, v2_pools, v3_pools).await?;
-      self.write(|manager| manager.set_state(v2_reserves, v3_state))
+      let pools = batch_update_state(client, chain, concurrency, pools).await?;
+      self.write(|manager| {
+         for pool in pools {
+            manager.add_pool(pool);
+         }
+      });
+      Ok(())
    }
 
    /// Update the base token prices for the given tokens
@@ -208,12 +168,45 @@ impl PoolStateManagerHandle {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let tokens = ERC20Token::base_tokens(chain);
-      let prices = PoolStateManager::fetch_base_token_prices(client, tokens).await?;
-      self.write(|manager| manager.update_base_token_prices(prices));
+      let prices = PoolManager::fetch_base_token_prices(client, chain).await?;
+      self.write(|manager| manager.set_token_prices(prices));
       Ok(())
    }
 
+   /// Cleanup pools that do not have sufficient liquidity
+   pub fn cleanup_pools(&self) {
+      self.write(|manager| manager.cleanup_pools())
+   }
+
+   pub fn calculate_prices(&self) {
+      self.write(|manager| manager.calculate_prices())
+   }
+
+   /// Sync V2 & V3 pools for the given token based on:
+   ///
+   /// - The token's chain id
+   /// - All the possible [DexKind] for the chain
+   /// - Base Tokens [ERC20Token::base_tokens()]
+   pub async fn sync_pools_for_token<P, N>(
+      &self,
+      client: P,
+      token: ERC20Token,
+      dex_kinds: Vec<DexKind>,
+   ) -> Result<(), anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      self
+         .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
+         .await?;
+      self
+         .sync_v3_pools_for_token(client, token, dex_kinds)
+         .await?;
+      Ok(())
+   }
+
+   // TODO: Do batch requests
    /// Sync all the possible v2 pools for the given token based on:
    ///
    /// - The token's chain id
@@ -229,7 +222,8 @@ impl PoolStateManagerHandle {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let base_tokens = ERC20Token::base_tokens(token.chain_id);
+      let chain = token.chain_id;
+      let base_tokens = ERC20Token::base_tokens(chain);
       let mut pools = Vec::new();
 
       for base_token in base_tokens {
@@ -237,16 +231,15 @@ impl PoolStateManagerHandle {
             continue;
          }
 
+         let currency_a = base_token.clone().into();
+         let currency_b = token.clone().into();
          // if pool already exist, skip
-         if self
-            .get_v2_pool(token.chain_id, base_token.address, token.address)
-            .is_some()
-         {
+         if self.get_pool(chain, 300, currency_a, currency_b).is_some() {
             continue;
          }
 
          for dex in &dex_kinds {
-            if dex.is_pancakeswap_v3() || dex.is_uniswap_v3() {
+            if dex.is_v3() {
                continue;
             }
 
@@ -266,6 +259,7 @@ impl PoolStateManagerHandle {
                *dex,
             )
             .await;
+
             if let Ok(pool) = pool {
                info!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{}",
@@ -277,7 +271,9 @@ impl PoolStateManagerHandle {
             }
          }
       }
-      self.add_v2_pools(pools);
+      for pool in pools {
+         self.add_pool(pool);
+      }
       Ok(())
    }
 
@@ -309,7 +305,7 @@ impl PoolStateManagerHandle {
          }
 
          for dex in &dex_kinds {
-            if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
+            if dex.is_v2() {
                continue;
             }
 
@@ -321,7 +317,8 @@ impl PoolStateManagerHandle {
                base_token.symbol,
                token.chain_id
             );
-            let v3_pools = get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
+
+            let v3_pools = batch::get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
             pools.extend(v3_pools);
          }
       }
@@ -329,9 +326,10 @@ impl PoolStateManagerHandle {
       let mut pool_result = Vec::new();
 
       for dex in &dex_kinds {
-         if dex.is_pancakeswap_v2() || dex.is_uniswap_v2() {
+         if dex.is_v2() {
             continue;
          }
+
          for pool in &pools {
             if !pool.addr.is_zero() {
                let fee: u32 = pool.fee.to_string().parse()?;
@@ -346,6 +344,7 @@ impl PoolStateManagerHandle {
                      pool.token1
                   );
                };
+
                let v3_pool = UniswapV3Pool::new(
                   token.chain_id,
                   pool.addr,
@@ -366,44 +365,25 @@ impl PoolStateManagerHandle {
          }
       }
 
-      self.add_v3_pools(pool_result);
+      for pool in pool_result {
+         self.add_pool(pool);
+      }
       Ok(())
-   }
-
-   /// Calculate the prices for all the pools
-   pub fn calculate_prices(&self) -> Result<(), anyhow::Error> {
-      self.write(|manager| manager.calculate_prices())
-   }
-
-   /// Get the price of the given token
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
-      self.read(|manager| manager.get_token_price(token))
    }
 }
 
-/// Uniswap V2 Pools
-///
-/// Key: (chain_id, tokenA, tokenB) -> Value: Pool
-pub type V2Pools = HashMap<(u64, Address, Address), UniswapV2Pool>;
-
-/// Uniswap V3 Pools
-///
 /// Key: (chain_id, fee, tokenA, tokenB) -> Value: Pool
-pub type V3Pools = HashMap<(u64, u32, Address, Address), UniswapV3Pool>;
+pub type Pools = HashMap<(u64, u32, Currency, Currency), AnyUniswapPool>;
 
 /// Token Prices
 ///
 /// Key: (chain_id, token) -> Value: Price
 pub type TokenPrices = HashMap<(u64, Address), NumericValue>;
 
-/// Multi-chain pool state manager for Uniswap V2 and V3 type of pools
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PoolStateManager {
+pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
-   pub v2_pools: V2Pools,
-
-   #[serde(with = "serde_hashmap")]
-   pub v3_pools: V3Pools,
+   pub pools: Pools,
 
    #[serde(with = "serde_hashmap")]
    pub token_prices: TokenPrices,
@@ -412,110 +392,23 @@ pub struct PoolStateManager {
    pub concurrency: u8,
 }
 
-impl Default for PoolStateManager {
+impl Default for PoolManager {
    fn default() -> Self {
       Self {
-         v2_pools: HashMap::new(),
-         v3_pools: HashMap::new(),
+         pools: HashMap::new(),
          token_prices: HashMap::new(),
          concurrency: 1,
       }
    }
 }
 
-impl PoolStateManager {
-   pub fn new(v2_pools: V2Pools, v3_pools: V3Pools, token_prices: TokenPrices, concurrency: u8) -> Self {
+impl PoolManager {
+   pub fn new(pools: Pools, token_prices: TokenPrices, concurrency: u8) -> Self {
       Self {
-         v2_pools,
-         v3_pools,
+         pools,
          token_prices,
          concurrency,
       }
-   }
-
-   pub fn cleanup_pools(&mut self) {
-      self.v2_pools.retain(|_, pool| pool.enough_liquidity());
-      self.v3_pools.retain(|_, pool| pool.enough_liquidity());
-   }
-
-   /// Get only 1 pool for the given token
-   pub fn grab_pool_for(&self, token: ERC20Token) -> (Option<UniswapV2Pool>, Option<UniswapV3Pool>) {
-      let v2_pool = self
-         .v2_pools
-         .iter()
-         .filter(|(_, pool)| pool.token0().address == token.address || pool.token1().address == token.address)
-         .map(|(_, pool)| pool.clone())
-         .next();
-
-      let v3_pool = self
-         .v3_pools
-         .iter()
-         .filter(|(_, pool)| pool.token0().address == token.address || pool.token1().address == token.address)
-         .map(|(_, pool)| pool.clone())
-         .next();
-
-      (v2_pool, v3_pool)
-   }
-
-   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV2Pool> {
-      let pools = self.v2_pools.clone().into_values().collect::<Vec<_>>();
-      pools.iter().find(|p| p.address == address && p.chain_id == chain_id).cloned()
-   }
-
-   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<UniswapV3Pool> {
-      let pools = self.v3_pools.clone().into_values().collect::<Vec<_>>();
-      pools.iter().find(|p| p.address == address && p.chain_id == chain_id).cloned()
-   }
-
-   pub fn get_v2_pool(&self, chain_id: u64, token0: Address, token1: Address) -> Option<UniswapV2Pool> {
-      let mut pool = None;
-      if let Some(p) = self.v2_pools.get(&(chain_id, token0, token1)) {
-         pool = Some(p.clone());
-      } else if let Some(p) = self.v2_pools.get(&(chain_id, token1, token0)) {
-         pool = Some(p.clone());
-      }
-      pool
-   }
-
-   pub fn get_v3_pool(&self, chain_id: u64, fee: u32, token0: Address, token1: Address) -> Option<UniswapV3Pool> {
-      let mut pool = None;
-      if let Some(p) = self.v3_pools.get(&(chain_id, fee, token0, token1)) {
-         pool = Some(p.clone());
-      } else if let Some(p) = self.v3_pools.get(&(chain_id, fee, token1, token0)) {
-         pool = Some(p.clone());
-      }
-      pool
-   }
-
-   pub fn add_v2_pools(&mut self, pools: Vec<UniswapV2Pool>) {
-      for pool in pools {
-         self.v2_pools.insert(
-            (pool.chain_id, pool.token0().address, pool.token1().address),
-            pool,
-         );
-      }
-   }
-
-   pub fn add_v3_pools(&mut self, pools: Vec<UniswapV3Pool>) {
-      for pool in pools {
-         self.v3_pools.insert(
-            (
-               pool.chain_id,
-               pool.fee.fee(),
-               pool.token0().address,
-               pool.token1().address,
-            ),
-            pool,
-         );
-      }
-   }
-
-   pub fn remove_v2_pool(&mut self, chain_id: u64, token0: Address, token1: Address) {
-      self.v2_pools.remove(&(chain_id, token0, token1));
-   }
-
-   pub fn remove_v3_pool(&mut self, chain_id: u64, fee: u32, token0: Address, token1: Address) {
-      self.v3_pools.remove(&(chain_id, fee, token0, token1));
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
@@ -525,140 +418,204 @@ impl PoolStateManager {
          .cloned()
    }
 
-   pub fn set_state(&mut self, v2_state: Vec<V2PoolReserves>, v3_state: Vec<V3PoolData>) -> Result<(), anyhow::Error> {
-      // make sure no matter the order of the pools, we can match them
-      let v2_state_map: HashMap<Address, _> = v2_state.into_iter().map(|s| (s.pool, s)).collect();
-
-      let v3_state_map: HashMap<Address, _> = v3_state.into_iter().map(|d| (d.pool, d)).collect();
-
-      let pools = self
-         .v2_pools
-         .iter()
-         .map(|(_, pool)| pool.clone())
-         .collect::<Vec<_>>();
-
-      for pool in pools {
-         if let Some(data) = v2_state_map.get(&pool.address) {
-            let key = &(pool.chain_id, pool.token0().address, pool.token1().address);
-            let pool = self
-               .v2_pools
-               .get_mut(key)
-               .map_or_else(|| Err(anyhow::anyhow!("V2 Pool not found")), Ok)?;
-            let reserve0 = U256::from(data.reserve0);
-            let reserve1 = U256::from(data.reserve1);
-            let v2_state = PoolReserves::new(reserve0, reserve1, data.blockTimestampLast as u64);
-            pool.set_state(State::v2(v2_state));
-         }
-      }
-
-      let pool_addr = self
-         .v3_pools
-         .iter()
-         .map(|(_, pool)| pool.clone())
-         .collect::<Vec<_>>();
-
-      for pool in pool_addr {
-         if let Some(data) = v3_state_map.get(&pool.address) {
-            let key = &(
-               pool.chain_id,
-               pool.fee.fee(),
-               pool.token0().address,
-               pool.token1().address,
-            );
-            let pool = self
-               .v3_pools
-               .get_mut(key)
-               .map_or_else(|| Err(anyhow::anyhow!("V3 Pool not found")), Ok)?;
-            let v3_state = V3PoolState::new(data.clone(), None)?;
-            pool.set_state(State::v3(v3_state));
-         }
-      }
-
-      Ok(())
-   }
-
-   pub fn calculate_prices(&mut self) -> Result<(), anyhow::Error> {
-      for (_, pool) in self.v2_pools.iter_mut() {
-         if !pool.enough_liquidity() {
-            continue;
-         }
-
-         let chain = pool.chain_id;
-         let base_tokens = ERC20Token::base_tokens(chain);
-         let quote = pool.quote_token().clone();
-         let base_token = pool.base_token().clone();
-
-         // if both tokens are base tokens, skip because we are gonna a get very weird number
-         if base_tokens.contains(&quote) && base_tokens.contains(&base_token) {
-            continue;
-         }
-
-         let base_price = self
-            .token_prices
-            .get(&(chain, base_token.address))
-            .cloned()
-            .unwrap_or_default()
-            .f64();
-
-         let quote_price = pool.quote_price(base_price).unwrap_or_default();
-         if quote_price == 0.0 {
-            continue;
-         }
-
-         let key = (chain, quote.address);
-         let quote_price = NumericValue::currency_price(quote_price);
-         self.token_prices.insert(key, quote_price);
-      }
-
-      for (_, pool) in self.v3_pools.iter_mut() {
-         if !pool.enough_liquidity() {
-            continue;
-         }
-
-         let chain = pool.chain_id;
-         let base_tokens = ERC20Token::base_tokens(chain);
-         let quote = pool.quote_token().clone();
-         let base_token = pool.base_token().clone();
-
-         if base_tokens.contains(&quote) && base_tokens.contains(&base_token) {
-            continue;
-         }
-
-         let base_price = self
-            .token_prices
-            .get(&(chain, base_token.address))
-            .cloned()
-            .unwrap_or_default()
-            .f64();
-
-         let quote_price = pool.quote_price(base_price).unwrap_or_default();
-         if quote_price == 0.0 {
-            continue;
-         }
-         let key = (pool.chain_id, quote.address);
-         let quote_price = NumericValue::currency_price(quote_price);
-         self.token_prices.insert(key, quote_price);
-      }
-
-      Ok(())
-   }
-
-   pub fn update_base_token_prices(&mut self, prices: TokenPrices) {
+   pub fn set_token_prices(&mut self, prices: TokenPrices) {
       for (key, price) in prices {
          self.token_prices.insert(key, price);
       }
    }
-}
 
-// * Fetchers
+   pub fn cleanup_pools(&mut self) {
+      self.pools.retain(|_, pool| pool.enough_liquidity());
+   }
 
-impl PoolStateManager {
-   pub async fn fetch_base_token_prices<P, N>(client: P, tokens: Vec<ERC20Token>) -> Result<TokenPrices, anyhow::Error>
+   pub fn add_pool(&mut self, pool: impl UniswapPool) {
+      let any_pool = AnyUniswapPool::from_pool(pool);
+
+      self.pools.insert(
+         (
+            any_pool.chain_id(),
+            any_pool.fee().fee(),
+            any_pool.currency0().clone(),
+            any_pool.currency1().clone(),
+         ),
+         any_pool,
+      );
+   }
+
+   pub fn remove_pool(&mut self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) {
+      self.pools.remove(&(chain_id, fee, currency0, currency1));
+   }
+
+   /// Get any pools that includes the given currency
+   pub fn get_pools_from_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
+      let mut pools = Vec::new();
+      for (_, pool) in &self.pools {
+         if pool.chain_id() != currency.chain_id() {
+            continue;
+         }
+         if pool.is_currency0(currency) || pool.is_currency1(currency) {
+            pools.push(pool.clone());
+         }
+      }
+      pools
+   }
+
+   pub fn get_pool(
+      &self,
+      chain_id: u64,
+      fee: u32,
+      currency_a: Currency,
+      currency_b: Currency,
+   ) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .get(&(chain_id, fee, currency_a.clone(), currency_b.clone()))
+      {
+         Some(pool)
+      } else if let Some(pool) = self.pools.get(&(chain_id, fee, currency_b, currency_a)) {
+         Some(pool)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .iter()
+         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id)
+      {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_v2_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .iter()
+         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v2())
+      {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .iter()
+         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v3())
+      {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .iter()
+         .find(|(_, p)| p.pool_id() == pool_id && p.chain_id() == chain_id)
+      {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   /// Get all pools for the given currency pair.
+   pub fn get_pools_from_pair(&self, chain: u64, currency_a: &Currency, currency_b: &Currency) -> Vec<AnyUniswapPool> {
+      let mut pools = Vec::new();
+      for (_, pool) in &self.pools {
+         if pool.chain_id() != chain {
+            continue;
+         }
+         if pool.is_currency0(currency_a) && pool.is_currency1(currency_b) {
+            pools.push(pool.clone());
+         } else if pool.is_currency0(currency_b) && pool.is_currency1(currency_a) {
+            pools.push(pool.clone());
+         }
+      }
+      pools
+   }
+
+   /// Get a quote for the given currency pair.
+   ///
+   /// Returns the amount out and the pool which the swap is executed on.
+   pub fn get_quote_single(
+      &self,
+      chain: u64,
+      amount_in: U256,
+      currency_in: &Currency,
+      currency_out: &Currency,
+   ) -> Option<(NumericValue, AnyUniswapPool)> {
+      let pools = self.get_pools_from_pair(chain, currency_in, currency_out);
+      if pools.is_empty() {
+         return None;
+      }
+
+      let mut best_amount_out = U256::ZERO;
+      let mut best_pool = None;
+
+      for pool in pools {
+         let amount_out = pool
+            .simulate_swap(currency_in, amount_in)
+            .unwrap_or_default();
+         if amount_out > best_amount_out {
+            best_amount_out = amount_out;
+            best_pool = Some(pool);
+         }
+      }
+
+      let res = if let Some(pool) = best_pool {
+         let amount = NumericValue::format_wei(best_amount_out, currency_out.decimals());
+         Some((amount, pool))
+      } else {
+         None
+      };
+
+      res
+   }
+
+   pub fn calculate_prices(&mut self) {
+      for (_, pool) in &self.pools {
+         if !pool.enough_liquidity() {
+            continue;
+         }
+
+         let chain = pool.chain_id();
+         let base_tokens = ERC20Token::base_tokens(chain);
+         let quote_token = pool.quote_currency().to_erc20();
+         let base_token = pool.base_currency().to_erc20();
+
+         // if both tokens are base tokens, skip
+         if base_tokens.contains(&quote_token) && base_tokens.contains(&base_token) {
+            continue;
+         }
+
+         let base_price = self.get_token_price(&base_token).unwrap_or_default();
+         let quote_price = pool.quote_price(base_price.f64()).unwrap_or_default();
+         if quote_price == 0.0 {
+            continue;
+         }
+
+         let key = (chain, quote_token.address);
+         let quote_price = NumericValue::currency_price(quote_price);
+         self.token_prices.insert(key, quote_price);
+      }
+   }
+
+   async fn fetch_base_token_prices<P, N>(client: P, chain_id: u64) -> Result<TokenPrices, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let mut prices = HashMap::new();
+      let tokens = ERC20Token::base_tokens(chain_id);
       for token in tokens {
          let price = get_base_token_price(client.clone(), token.chain_id, token.address, None).await?;
          prices.insert(
@@ -667,133 +624,6 @@ impl PoolStateManager {
          );
       }
       Ok(prices)
-   }
-
-   pub async fn fetch_state<P, N>(
-      client: P,
-      chain_id: u64,
-      concurrency: u8,
-      v2_pools: Vec<UniswapV2Pool>,
-      v3_pools: Vec<UniswapV3Pool>,
-   ) -> Result<(Vec<V2PoolReserves>, Vec<V3PoolData>), anyhow::Error>
-   where
-      P: Provider<N> + Clone + 'static,
-      N: Network,
-   {
-      const BATCH_SIZE: usize = 100;
-      const BATCH_SIZE_2: usize = 5;
-
-      let v2_addresses: Vec<Address> = v2_pools
-         .iter()
-         .filter(|p| p.chain_id == chain_id)
-         .map(|p| p.address)
-         .collect();
-
-      let v2_reserves = Arc::new(Mutex::new(Vec::new()));
-      let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-      let semaphore = Arc::new(Semaphore::new(concurrency as usize));
-
-      for chunk in v2_addresses.chunks(BATCH_SIZE) {
-         let chunk_clone = chunk.to_vec();
-         let client = client.clone();
-         let semaphore = semaphore.clone();
-         let v2_reserves = v2_reserves.clone();
-
-         let task = tokio::spawn({
-            async move {
-               let _permit = semaphore.acquire().await?;
-               match get_v2_pool_reserves(client.clone(), None, chunk_clone.clone()).await {
-                  Ok(data) => {
-                     v2_reserves.lock().await.extend(data);
-                  }
-                  Err(e) => {
-                     error!(target: "zeus_eth::amm::pool_manager","Error fetching v2 pool reserves: {:?}", e);
-                  }
-               }
-               Ok(())
-            }
-         });
-         v2_tasks.push(task);
-      }
-
-      let pools: Vec<UniswapV3Pool> = v3_pools
-         .iter()
-         .filter(|p| p.chain_id == chain_id)
-         .map(|p| p.clone())
-         .collect();
-
-      let v3_data = Arc::new(Mutex::new(Vec::new()));
-      let mut v3_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-
-      for pool in pools.chunks(BATCH_SIZE_2) {
-         let client = client.clone();
-         let semaphore = semaphore.clone();
-         let v3_data = v3_data.clone();
-
-         let mut pools2 = Vec::new();
-         for pool in pool {
-            pools2.push(V3Pool2 {
-               pool: pool.address,
-               base_token: pool.base_token().address,
-            });
-         }
-
-         let task = tokio::spawn({
-            async move {
-               let _permit = semaphore.acquire().await?;
-               match get_v3_state(client.clone(), None, pools2.clone()).await {
-                  Ok(data) => {
-                     v3_data.lock().await.extend(data);
-                  }
-                  Err(e) => {
-                     error!(target: "zeus_eth::amm::pool_manager", "Error fetching v3 pool data: {:?}", e);
-                  }
-               }
-               Ok(())
-            }
-         });
-         v3_tasks.push(task);
-      }
-
-      for task in v2_tasks {
-         if let Err(e) = task.await? {
-            error!(target: "zeus_eth::amm::pool_manager", "Error fetching v2 pool reserves: {:?}", e);
-         }
-      }
-
-      for task in v3_tasks {
-         if let Err(e) = task.await? {
-            error!(target: "zeus_eth::amm::pool_manager", "Error fetching v3 pool data: {:?}", e);
-         }
-      }
-
-      let v2_reserves = Arc::try_unwrap(v2_reserves).unwrap().into_inner();
-      let v3_data = Arc::try_unwrap(v3_data).unwrap().into_inner();
-
-      Ok((v2_reserves, v3_data))
-   }
-}
-
-mod serde_pool_manage_handle {
-   use super::PoolStateManagerHandle;
-   use serde::{Deserialize, Deserializer, Serializer};
-
-   pub fn serialize<S>(pool_manager: &PoolStateManagerHandle, serializer: S) -> Result<S::Ok, S::Error>
-   where
-      S: Serializer,
-   {
-      let string = pool_manager
-         .to_string()
-         .map_err(serde::ser::Error::custom)?;
-      serializer.serialize_str(&string)
-   }
-
-   pub fn deserialize<'de, D>(deserializer: D) -> Result<PoolStateManagerHandle, D::Error>
-   where
-      D: Deserializer<'de>,
-   {
-      let string = String::deserialize(deserializer)?;
-      PoolStateManagerHandle::from_string(&string).map_err(serde::de::Error::custom)
    }
 }
 
@@ -828,5 +658,24 @@ mod serde_hashmap {
             Ok((key, v))
          })
          .collect()
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use crate::UniswapV2Pool;
+
+   use super::*;
+
+   #[test]
+   fn serde_works() {
+      let pool = UniswapV2Pool::weth_uni();
+      let pool_manager = PoolManager::default();
+      let handle = PoolManagerHandle::new(pool_manager);
+
+      handle.add_pool(pool);
+      let json = handle.to_string().unwrap();
+
+      let _handle2 = PoolManagerHandle::from_string(&json).unwrap();
    }
 }

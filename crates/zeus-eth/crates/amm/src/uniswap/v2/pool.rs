@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use crate::{
    DexKind, minimum_liquidity,
-   uniswap::{State, UniswapPool, v4::FeeAmount},
+   uniswap::{state::{State, get_v2_pool_state}, UniswapPool, v4::FeeAmount},
 };
 use abi::uniswap::v2;
 use crate::uniswap::PoolKey;
@@ -20,7 +20,7 @@ use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
 /// Represents a Uniswap V2 Pool
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UniswapV2Pool {
    pub chain_id: u64,
    pub address: Address,
@@ -31,23 +31,6 @@ pub struct UniswapV2Pool {
    pub state: State,
 }
 
-/// Represents the state of a Uniswap V2 Pool
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PoolReserves {
-   pub reserve0: U256,
-   pub reserve1: U256,
-   pub block: u64,
-}
-
-impl PoolReserves {
-   pub fn new(reserve0: U256, reserve1: U256, block: u64) -> Self {
-      Self {
-         reserve0,
-         reserve1,
-         block,
-      }
-   }
-}
 
 impl UniswapV2Pool {
    /// Tokens are re-ordered as per the Uniswap protocol
@@ -186,6 +169,10 @@ impl UniswapPool for UniswapV2Pool {
       &self.state
    }
 
+   fn hooks(&self) -> Address {
+      Address::ZERO
+   }
+
    fn zero_for_one_v3(&self, _token_in: Address) -> bool {
       panic!("This method only applies to V3");
    }
@@ -280,19 +267,15 @@ impl UniswapPool for UniswapV2Pool {
       bail!("Pool Key method only applies to V4");
    }
 
-   /// Fetch the state of the pool at a given block
-   /// If block is None, the latest block is used
-   async fn fetch_state<P, N>(client: P, pool: impl UniswapPool, block: Option<BlockId>) -> Result<State, anyhow::Error>
+
+   async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let reserves = v2::pool::get_reserves(pool.address(), client, block).await?;
-      let reserve0 = U256::from(reserves.0);
-      let reserve1 = U256::from(reserves.1);
-      let reserves = PoolReserves::new(reserve0, reserve1, reserves.2 as u64);
-
-      Ok(State::v2(reserves))
+      let state = get_v2_pool_state(client, self, block).await?;
+      self.set_state(state);
+      Ok(())
    }
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
@@ -402,10 +385,7 @@ mod tests {
 
       let mut pool = UniswapV2Pool::weth_uni();
 
-      let state = UniswapV2Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       // Swap 1 WETH for UNI
       let base = pool.base_currency();
@@ -461,11 +441,7 @@ mod tests {
       let client = ProviderBuilder::new().on_http(url);
 
       let mut pool = UniswapV2Pool::weth_uni();
-
-      let state = UniswapV2Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
       let base_token = pool.base_token();

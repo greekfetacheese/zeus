@@ -1,13 +1,19 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::ui::*;
-use egui::{Align, Align2, Sense, RichText, Button, Color32, FontId, Frame, Grid, Layout, TextEdit, Ui, Window, vec2};
-use egui_theme::Theme;
+use egui::{
+   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, RichText, TextEdit, Ui, Window,
+   vec2,
+};
+use egui_theme::{Theme, utils::widget_visuals};
 use std::sync::Arc;
-use zeus_eth::currency::{Currency, erc20::ERC20Token, native::NativeCurrency};
+use zeus_eth::{
+   alloy_primitives::Address,
+   currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
+};
 
 /// Currency direction
-#[derive(Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum InOrOut {
    In,
    Out,
@@ -16,8 +22,8 @@ pub enum InOrOut {
 impl InOrOut {
    pub fn to_string(&self) -> String {
       (match self {
-         Self::In => "In",
-         Self::Out => "Out",
+         Self::In => "Sell",
+         Self::Out => "Buy",
       })
       .to_string()
    }
@@ -25,13 +31,9 @@ impl InOrOut {
 
 pub struct SwapUi {
    pub open: bool,
-
    pub currency_in: Currency,
-
    pub currency_out: Currency,
-
    pub amount_in: String,
-
    pub amount_out: String,
 }
 
@@ -46,22 +48,6 @@ impl SwapUi {
          currency_out,
          amount_in: "".to_string(),
          amount_out: "".to_string(),
-      }
-   }
-
-   fn amount_in(&mut self) -> &mut String {
-      &mut self.amount_in
-   }
-
-   fn amount_out(&mut self) -> &mut String {
-      &mut self.amount_out
-   }
-
-   /// Get the currency_in or currency_out based on the direction
-   fn get_currency(&self, in_or_out: &InOrOut) -> &Currency {
-      match in_or_out {
-         InOrOut::In => &self.currency_in,
-         InOrOut::Out => &self.currency_out,
       }
    }
 
@@ -88,6 +74,11 @@ impl SwapUi {
       self.currency_out = Currency::from(ERC20Token::wrapped_native_token(id));
    }
 
+   fn swap_currencies(&mut self) {
+      std::mem::swap(&mut self.currency_in, &mut self.currency_out);
+      std::mem::swap(&mut self.amount_in, &mut self.amount_out);
+   }
+
    pub fn show(
       &mut self,
       ctx: ZeusCtx,
@@ -100,151 +91,190 @@ impl SwapUi {
          return;
       }
 
-
       let chain_id = ctx.chain().id();
       let owner = ctx.current_wallet().address;
       let currencies = ctx.get_currencies(chain_id);
 
-     // let sell_text = RichText::new("Sell").size(23.0);
-     // let buy_text = RichText::new("Buy").size(23.0);
-
-      let frame2 = theme.frame2;
-      let bg_color = frame2.fill;
-
       let mut open = self.open;
-      Window::new("Swap_ui")
+      let window_frame = Frame::new().inner_margin(Margin::symmetric(15, 20));
+
+      Window::new("Swap")
          .open(&mut open)
          .title_bar(false)
          .resizable(false)
-         .movable(false)
+         .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::new())
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.vertical_centered_justified(|ui| {
-               ui.set_width(500.0);
-               ui.set_height(550.0);
+            ui.vertical(|ui| {
+               ui.set_width(450.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
 
+               // --- Sell Section ---
+               Self::swap_section(
+                  ui,
+                  ctx.clone(),
+                  theme,
+                  icons.clone(),
+                  token_selection,
+                  InOrOut::In,
+                  &mut self.amount_in,
+                  &self.currency_in,
+                  chain_id,
+                  owner,
+               );
 
-               Grid::new("swap_ui")
-                  .min_col_width(50.0)
-                  .spacing((0.0, 10.0))
-                  .show(ui, |ui| {
-                     // Sell currency field
-                     frame2.show(ui, |ui| {
-                        ui.set_width(400.0);
-                        ui.set_height(100.0);
+               // --- Swap Currencies ---
+               ui.add_space(5.0);
+               ui.vertical_centered(|ui| {
+                  let swap_button =
+                     Button::new(RichText::new("🡫").size(theme.text_sizes.large).strong())
+                        .min_size(vec2(40.0, 40.0));
 
-                        ui.with_layout(Layout::left_to_right(Align::TOP), |ui| {
-                           ui.label(RichText::new("Sell").size(theme.text_sizes.large));
-                        });
+                  if ui.add(swap_button).clicked() {
+                     self.swap_currencies();
+                  }
+               });
+               ui.add_space(5.0);
 
-                        self.amount_field(ui, InOrOut::In);
+               // --- Buy Section ---
+               Self::swap_section(
+                  ui,
+                  ctx.clone(),
+                  theme,
+                  icons.clone(),
+                  token_selection,
+                  InOrOut::Out,
+                  &mut self.amount_out,
+                  &self.currency_out,
+                  chain_id,
+                  owner,
+               );
 
-                        ui.scope(|ui| {
-                          // ui.set_max_width(30.0);
-                          // ui.set_max_height(20.0);
+               let swap_button = Button::new(
+                  RichText::new("Swap")
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.text_color),
+               )
+               .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
-                           self.token_button(ui, icons.clone(), InOrOut::In, token_selection);
-                           ui.add_space(10.0);
+               let valid = self.valid_amounts();
 
-                           let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-                           ui.label(balance.formatted());
-                           ui.add_space(5.0);
-
-                           let max = RichText::new("Max").size(17.0).color(Color32::RED);
-                           // TODO: on hover change the cursor to a pointer
-                           if ui.label(max).clicked() {
-                              *self.amount_in() = balance.formatted().clone();
-                           }
-                        });
-                     });
-
-                     ui.end_row();
-
-                     frame2.show(ui, |ui| {
-                        ui.set_width(400.0);
-                        ui.set_height(100.0);
-
-                        ui.with_layout(Layout::left_to_right(Align::TOP), |ui| {
-                           ui.label(RichText::new("Buy").size(theme.text_sizes.large));
-                        });
-
-                        self.amount_field(ui, InOrOut::Out);
-
-                        ui.scope(|ui| {
-                         //  ui.set_max_width(30.0);
-                         //  ui.set_max_height(20.0);
-
-                           self.token_button(ui, icons.clone(), InOrOut::Out, token_selection);
-                           ui.add_space(10.0);
-                           let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_out);
-                           ui.label(balance.formatted());
-
-                           ui.add_space(5.0);
-
-                           let max = RichText::new("Max").size(17.0).color(Color32::RED);
-                           if ui.label(max).clicked() {
-                              *self.amount_out() = balance.wei().unwrap_or_default().to_string();
-                           }
-                        });
-                     });
-
-                     token_selection.show(ctx, theme, icons, chain_id, owner, &currencies, ui);
-
-                     let selected_currency = token_selection.get_currency();
-                     let direction = token_selection.get_currency_direction();
-
-                     if let Some(currency) = selected_currency {
-                        self.replace_currency(&direction, currency.clone());
-                        token_selection.reset();
-                     }
-                  });
+               ui.vertical_centered(|ui| {
+                  if ui.add_enabled(valid, swap_button).clicked() {
+                     println!(
+                        "Initiate Swap: {} {} for {}",
+                        self.amount_in,
+                        self.currency_in.symbol(),
+                        self.currency_out.symbol()
+                     );
+                  }
+               });
             });
+
+            token_selection.show(
+               ctx.clone(),
+               theme,
+               icons,
+               chain_id,
+               owner,
+               &currencies,
+               ui,
+            );
+
+            let selected_currency = token_selection.get_currency();
+            let direction = token_selection.get_currency_direction();
+
+            if let Some(currency) = selected_currency {
+               self.replace_currency(&direction, currency.clone());
+
+               token_selection.reset();
+            }
          });
+
       self.open = open;
    }
 
-   /// Creates the amount field
-   fn amount_field(&mut self, ui: &mut Ui, in_or_out: InOrOut) {
-      let font = FontId::proportional(23.0);
-      let hint = RichText::new("0").size(23.0);
+   /// Helper function to draw one section (Sell or Buy) of the swap UI
+   fn swap_section(
+      ui: &mut Ui,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      token_selection: &mut TokenSelectionWindow,
+      direction: InOrOut,
+      amount_str: &mut String,
+      currency: &Currency,
+      chain_id: u64,
+      owner: Address,
+   ) {
+      let frame = theme.frame1;
+      let _frame_bg_color = frame.fill;
 
-      let amount = match in_or_out {
-         InOrOut::In => self.amount_in(),
-         InOrOut::Out => self.amount_out(),
-      };
+      frame.show(ui, |ui| {
+         ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+            ui.horizontal(|ui| {
+               ui.label(
+                  RichText::new(direction.to_string())
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.text_secondary),
+               );
+            });
 
-      let field = TextEdit::singleline(amount)
-         .font(font)
-         .min_size(vec2(100.0, 30.0))
-         .hint_text(hint);
+            ui.horizontal(|ui| {
+               let amount_input = TextEdit::singleline(amount_str)
+                  .font(FontId::proportional(theme.text_sizes.heading))
+                  .hint_text(RichText::new("0").color(theme.colors.text_secondary))
+                  .background_color(theme.colors.text_edit_bg2)
+                  .margin(Margin::same(10))
+                  .desired_width(ui.available_width() * 0.6)
+                  .min_size(vec2(0.0, 50.0));
 
-      ui.add(field);
+               ui.add(amount_input);
+
+               // Currency Selector Button
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                  let icon = icons.currency_icon(currency);
+                  let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
+
+                  let button =
+                     Button::image_and_text(icon, button_text).min_size(vec2(100.0, 40.0));
+
+                  if ui.add(button).clicked() {
+                     token_selection.currency_direction = direction.clone();
+                     token_selection.open = true;
+                  }
+               });
+            });
+
+            // Balance and Max Button
+            ui.horizontal(|ui| {
+               let balance = ctx.get_currency_balance(chain_id, owner, currency);
+               let balance_text = format!("Balance: {}", balance.formatted());
+               ui.label(
+                  RichText::new(balance_text)
+                     .size(theme.text_sizes.normal)
+                     .color(theme.colors.text_secondary),
+               );
+
+               // Max button
+               let max_text = RichText::new("Max").size(theme.text_sizes.small);
+               let max_button = Button::new(max_text).min_size(vec2(40.0, 20.0));
+
+               if direction == InOrOut::In {
+                  if ui.add(max_button).clicked() {
+                     *amount_str = balance.formatted().clone();
+                  }
+               }
+            });
+         });
+      });
    }
 
-   /// Create the token button
-   ///
-   /// If clicked it will show the [TokenSelectionWindow]
-   fn token_button(
-      &mut self,
-      ui: &mut Ui,
-      icons: Arc<Icons>,
-      in_or_out: InOrOut,
-      token_selection: &mut TokenSelectionWindow,
-   ) {
-      ui.push_id(in_or_out.to_string(), |ui| {
-         let currency = self.get_currency(&in_or_out);
-         let symbol_text = RichText::new(currency.symbol()).size(17.0);
-
-         let icon = icons.currency_icon(currency);
-         let button = Button::image_and_text(icon, symbol_text)
-            .min_size(vec2(50.0, 25.0))
-            .sense(Sense::click());
-
-         if ui.add(button).clicked() {
-            token_selection.currency_direction = in_or_out;
-            token_selection.open = true;
-         }
-      });
+   fn valid_amounts(&self) -> bool {
+      let amount_in = self.amount_in.parse().unwrap_or(0.0);
+      let amount_out = self.amount_out.parse().unwrap_or(0.0);
+      amount_in > 0.0 && amount_out > 0.0
    }
 }

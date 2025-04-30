@@ -8,13 +8,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::amm::{
-   pool_manager::PoolStateManagerHandle,
-   uniswap::{
-      v2::pool::UniswapV2Pool,
-      v3::pool::{FEE_TIERS, UniswapV3Pool},
-   },
-};
+use zeus_eth::amm::{pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, erc20::ERC20Token},
@@ -49,7 +43,7 @@ impl ZeusCtx {
       writer(&mut self.0.write().unwrap())
    }
 
-   pub fn pool_manager(&self) -> PoolStateManagerHandle {
+   pub fn pool_manager(&self) -> PoolManagerHandle {
       self.read(|ctx| ctx.pool_manager.clone())
    }
 
@@ -409,74 +403,17 @@ impl ZeusCtx {
       }
    }
 
-   /// Get the v2 pool for the pair, token order does not matter
-   pub fn get_v2_pool(
-      &self,
-      chain: u64,
-      token0: Address,
-      token1: Address,
-   ) -> Option<UniswapV2Pool> {
-      self.read(|ctx| ctx.pool_manager.get_v2_pool(chain, token0, token1))
-   }
-
-   /// Get the v3 pool for the pair, token order does not matter
-   pub fn get_v3_pool(
+   pub fn get_pool(
       &self,
       chain: u64,
       fee: u32,
-      token0: Address,
-      token1: Address,
-   ) -> Option<UniswapV3Pool> {
-      self.read(|ctx| ctx.pool_manager.get_v3_pool(chain, fee, token0, token1))
-   }
-
-   pub fn add_v2_pools(&self, pools: Vec<UniswapV2Pool>) {
-      self.write(|ctx| ctx.pool_manager.add_v2_pools(pools));
-   }
-
-   pub fn add_v3_pools(&self, pools: Vec<UniswapV3Pool>) {
-      self.write(|ctx| ctx.pool_manager.add_v3_pools(pools));
-   }
-
-   /// Get all v3 pools that include the given token and [FEE_TIERS]
-   pub fn get_v3_pools(&self, token: &ERC20Token) -> Vec<UniswapV3Pool> {
-      let base_tokens = ERC20Token::base_tokens(token.chain_id);
-      let mut pools = Vec::new();
-
-      for base_token in base_tokens {
-         if base_token.address == token.address {
-            continue;
-         }
-
-         for fee in FEE_TIERS {
-            if let Some(pool) = self.get_v3_pool(
-               token.chain_id,
-               fee,
-               base_token.address,
-               token.address,
-            ) {
-               pools.push(pool);
-            }
-         }
-      }
-      pools
-   }
-
-   /// Get all v2 pools for the given token
-   pub fn get_v2_pools(&self, token: &ERC20Token) -> Vec<UniswapV2Pool> {
-      let base_tokens = ERC20Token::base_tokens(token.chain_id);
-      let mut pools = Vec::new();
-
-      for base_token in base_tokens {
-         if base_token.address == token.address {
-            continue;
-         }
-
-         if let Some(pool) = self.get_v2_pool(token.chain_id, base_token.address, token.address) {
-            pools.push(pool);
-         }
-      }
-      pools
+      currency_a: Currency,
+      currency_b: Currency,
+   ) -> Option<AnyUniswapPool> {
+      self.read(|ctx| {
+         ctx.pool_manager
+            .get_pool(chain, fee, currency_a, currency_b)
+      })
    }
 
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
@@ -719,7 +656,7 @@ pub struct ZeusContext {
    pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
 
-   pub pool_manager: PoolStateManagerHandle,
+   pub pool_manager: PoolManagerHandle,
 
    /// True if we are syncing important data and need to show a msg
    pub data_syncing: bool,
@@ -778,7 +715,7 @@ impl ZeusContext {
 
       let account_exists = Account::exists().is_ok_and(|p| p);
 
-      let mut pool_manager = PoolStateManagerHandle::default();
+      let mut pool_manager = PoolManagerHandle::default();
 
       let pool_dir_exists = match pool_data_dir() {
          Ok(dir) => dir.exists(),
@@ -790,11 +727,11 @@ impl ZeusContext {
 
       if pool_dir_exists {
          let dir = pool_data_dir().unwrap();
-         let manager = match PoolStateManagerHandle::from_dir(&dir) {
+         let manager = match PoolManagerHandle::from_dir(&dir) {
             Ok(manager) => manager,
             Err(e) => {
                tracing::error!("Failed to load pool data, {:?}", e);
-               PoolStateManagerHandle::default()
+               PoolManagerHandle::default()
             }
          };
          pool_manager = manager;

@@ -1,5 +1,6 @@
 pub mod address;
-pub mod batch_request;
+//pub mod batch_request;
+pub mod batch;
 pub mod block;
 pub mod client;
 pub mod price_feed;

@@ -546,10 +546,7 @@ mod tests {
       let chain_id = 1;
 
       let mut pool = UniswapV2Pool::weth_uni();
-      let state = UniswapV2Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let weth = pool.base_currency().clone();
       let uni = pool.quote_currency().clone();
@@ -660,11 +657,7 @@ mod tests {
       let chain_id = 1;
 
       let mut pool = UniswapV3Pool::usdt_uni();
-
-      let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let usdt = pool.base_currency().clone();
       let uni = pool.quote_currency().clone();
@@ -776,15 +769,8 @@ mod tests {
       let mut weth_uni = UniswapV2Pool::weth_uni();
       let mut weth_usdc = UniswapV3Pool::weth_usdc();
 
-      let state = UniswapV3Pool::fetch_state(client.clone(), weth_usdc.clone(), None)
-         .await
-         .unwrap();
-      weth_usdc.set_state(state);
-
-      let state = UniswapV2Pool::fetch_state(client.clone(), weth_uni.clone(), None)
-         .await
-         .unwrap();
-      weth_uni.set_state(state);
+      weth_usdc.update_state(client.clone(), None).await.unwrap();
+      weth_uni.update_state(client.clone(), None).await.unwrap();
 
       let weth = weth_uni.base_currency().clone();
       let uni = weth_uni.quote_currency().clone();
@@ -928,11 +914,7 @@ mod tests {
       let chain_id = 1;
 
       let mut pool = UniswapV4Pool::eth_uni();
-
-      let state = UniswapV4Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let eth = pool.base_currency().clone();
       let uni = pool.quote_currency().clone();

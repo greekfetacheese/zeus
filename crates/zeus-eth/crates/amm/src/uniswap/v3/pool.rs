@@ -9,24 +9,23 @@ use std::borrow::Cow;
 use crate::uniswap::PoolKey;
 use crate::{
    DexKind, minimum_liquidity,
-   uniswap::{State, UniswapPool, v4::FeeAmount},
+   uniswap::{
+      UniswapPool,
+      state::{State, get_v3_pool_state},
+      v4::FeeAmount,
+   },
 };
 use abi::uniswap::v3;
 use currency::{Currency, ERC20Token};
-use utils::{
-   batch_request::{self, V3Pool2},
-   is_base_token,
-   price_feed::get_base_token_price,
-};
+use utils::{is_base_token, price_feed::get_base_token_price};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
 /// Represents a Uniswap V3 Pool
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UniswapV3Pool {
    pub chain_id: u64,
    pub address: Address,
@@ -35,75 +34,6 @@ pub struct UniswapV3Pool {
    pub currency1: Currency,
    pub dex: DexKind,
    pub state: State,
-}
-
-/// The state of a Uniswap V3 Pool
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct V3PoolState {
-   pub base_token_liquidity: U256,
-   pub liquidity: u128,
-   pub sqrt_price: U256,
-   pub tick: i32,
-   pub tick_spacing: i32,
-   pub tick_bitmap: HashMap<i16, U256>,
-   pub ticks: HashMap<i32, TickInfo>,
-   pub pool_tick: PoolTick,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickInfo {
-   pub liquidity_gross: u128,
-   pub liquidity_net: i128,
-   pub initialized: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PoolTick {
-   pub tick: i32,
-   pub liquidity_net: i128,
-   pub block: u64,
-}
-
-impl V3PoolState {
-   pub fn new(pool_data: batch_request::V3PoolData, block: Option<BlockId>) -> Result<Self, anyhow::Error> {
-      let mut tick_bitmap_map = HashMap::new();
-      tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
-
-      let ticks_info = TickInfo {
-         liquidity_gross: pool_data.liquidityGross,
-         liquidity_net: pool_data.liquidityNet,
-         initialized: pool_data.initialized,
-      };
-
-      let block = if let Some(b) = block {
-         b.as_u64().unwrap_or(0)
-      } else {
-         0
-      };
-      let tick: i32 = pool_data.tick.to_string().parse()?;
-
-      let pool_tick = PoolTick {
-         tick,
-         liquidity_net: pool_data.liquidityNet,
-         block,
-      };
-
-      let mut ticks_map = HashMap::new();
-      ticks_map.insert(tick, ticks_info);
-
-      let tick_spacing: i32 = pool_data.tickSpacing.to_string().parse()?;
-
-      Ok(Self {
-         base_token_liquidity: pool_data.base_token_liquidity,
-         liquidity: pool_data.liquidity,
-         sqrt_price: U256::from(pool_data.sqrtPrice),
-         tick,
-         tick_spacing,
-         tick_bitmap: tick_bitmap_map,
-         ticks: ticks_map,
-         pool_tick,
-      })
-   }
 }
 
 impl UniswapV3Pool {
@@ -212,6 +142,15 @@ impl UniswapV3Pool {
       Ok(price)
    }
 
+   fn _tick_to_word(tick: i32, tick_spacing: i32) -> i32 {
+      let mut compressed = tick / tick_spacing;
+      if tick < 0 && tick % tick_spacing != 0 {
+         compressed -= 1;
+      }
+
+      compressed >> 8
+   }
+
    /// Test pool
    pub fn usdt_uni() -> Self {
       let usdt = ERC20Token::usdt();
@@ -261,6 +200,10 @@ impl UniswapPool for UniswapV3Pool {
 
    fn dex_kind(&self) -> DexKind {
       self.dex
+   }
+
+   fn hooks(&self) -> Address {
+      Address::ZERO
    }
 
    fn zero_for_one_v3(&self, token_in: Address) -> bool {
@@ -354,28 +297,14 @@ impl UniswapPool for UniswapV3Pool {
       bail!("Pool Key method only applies to V4");
    }
 
-   /// Fetch the state of the pool at a given block
-   /// If block is None, the latest block is used
-   async fn fetch_state<P, N>(client: P, pool: impl UniswapPool, block: Option<BlockId>) -> Result<State, anyhow::Error>
+   async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let address = pool.address();
-      let base_token = pool.base_currency().to_erc20().address;
-      let pool2 = V3Pool2 {
-         pool: address,
-         base_token,
-      };
-
-      let pool_data = batch_request::get_v3_state(client.clone(), block, vec![pool2]).await?;
-      let data = pool_data
-         .get(0)
-         .cloned()
-         .ok_or_else(|| anyhow!("Pool data not found"))?;
-
-      let v3_pool_state = V3PoolState::new(data, block)?;
-      Ok(State::v3(v3_pool_state))
+      let state = get_v3_pool_state(client, self, block).await?;
+      self.set_state(state);
+      Ok(())
    }
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
@@ -462,17 +391,13 @@ mod tests {
       let client = ProviderBuilder::new().on_http(url);
 
       let mut pool = UniswapV3Pool::usdt_uni();
-
-      let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       // Swap 1 USDT for UNI
       let base = pool.base_currency();
       let quote = pool.quote_currency();
 
-      let amount_in = parse_units("1", base.decimals()).unwrap().get_absolute();
+      let amount_in = parse_units("100000", base.decimals()).unwrap().get_absolute();
       let amount_out = pool.simulate_swap(base, amount_in).unwrap();
 
       let amount_in = format_units(amount_in, base.decimals()).unwrap();
@@ -522,11 +447,7 @@ mod tests {
       let client = ProviderBuilder::new().on_http(url);
 
       let mut pool = UniswapV3Pool::usdt_uni();
-
-      let state = UniswapV3Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
       let base_token = pool.base_token();

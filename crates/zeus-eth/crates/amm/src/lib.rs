@@ -13,6 +13,8 @@ pub mod uniswap;
 
 pub use uniswap::v2::pool::UniswapV2Pool;
 pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
+pub use uniswap::v4::pool::UniswapV4Pool;
+pub use uniswap::{AnyUniswapPool, UniswapPool};
 
 pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
    if currency_a.is_native() {
@@ -201,6 +203,18 @@ impl DexKind {
 
    pub fn is_pancake(&self) -> bool {
       matches!(self, DexKind::PancakeSwapV2 | DexKind::PancakeSwapV3)
+   }
+
+   pub fn is_v2(&self) -> bool {
+      matches!(self, DexKind::UniswapV2 | DexKind::PancakeSwapV2)
+   }
+
+   pub fn is_v3(&self) -> bool {
+      matches!(self, DexKind::UniswapV3 | DexKind::PancakeSwapV3)
+   }
+
+   pub fn is_v4(&self) -> bool {
+      matches!(self, DexKind::UniswapV4)
    }
 
    pub fn is_uniswap_v2(&self) -> bool {

@@ -3,6 +3,7 @@ use eframe::egui::{
    Spinner, TextEdit, Ui, Vec2, Window, vec2,
 };
 use egui::{FontId, Margin};
+use zeus_eth::amm::DexKind;
 use std::sync::Arc;
 use zeus_eth::utils::NumericValue;
 
@@ -1160,7 +1161,7 @@ impl PortfolioUi {
          return;
       }
 
-      let token = currency.erc20().cloned().unwrap();
+      let token = currency.to_erc20().into_owned();
 
       // if token was fetched from the blockchain, we don't need to sync the pools or the balance
       if token_fetched {
@@ -1171,34 +1172,32 @@ impl PortfolioUi {
          return;
       }
 
-      let v3_pools = ctx.get_v3_pools(&token);
-      let token2 = token.clone();
-      let ctx2 = ctx.clone();
+      let manager = ctx.pool_manager();
+      let client = ctx.get_client_with_id(chain_id).unwrap();
+      let ctx_clone = ctx.clone();
+      let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-         match eth::sync_pools_for_token(
-            ctx2.clone(),
-            token2.clone(),
-            true,
-            v3_pools.is_empty(),
+         match manager.sync_pools_for_token(
+            client.clone(),
+            token.clone(),
+            dex_kinds
          )
          .await
          {
             Ok(_) => {
-               tracing::info!("Synced Pools for {}", token2.symbol);
+               tracing::info!("Synced Pools for {}", token.symbol);
             }
             Err(e) => tracing::error!(
                "Error syncing pools for {}: {:?}",
-               token2.symbol,
+               token.symbol,
                e
             ),
          }
 
-         let pool_manager = ctx2.pool_manager();
-         let client = ctx2.get_client_with_id(chain_id).unwrap();
-         match pool_manager.update(client, chain_id).await {
+         match manager.update(client, chain_id).await {
             Ok(_) => {
-               tracing::info!("Updated pool state for {}", token2.symbol);
+               tracing::info!("Updated pool state for {}", token.symbol);
                SHARED_GUI.write(|gui| {
                   gui.portofolio.show_spinner = false;
                });
@@ -1206,7 +1205,7 @@ impl PortfolioUi {
             Err(e) => {
                tracing::error!(
                   "Error updating pool state for {}: {:?}",
-                  token2.symbol,
+                  token.symbol,
                   e
                );
                SHARED_GUI.write(|gui| {
@@ -1215,20 +1214,20 @@ impl PortfolioUi {
             }
          }
 
-         let balance = match eth::get_token_balance(ctx2.clone(), owner, token.clone()).await {
+         let balance = match eth::get_token_balance(ctx_clone.clone(), owner, token.clone()).await {
             Ok(b) => b,
             Err(e) => {
                tracing::error!("Error getting token balance: {:?}", e);
                NumericValue::default()
             }
          };
-         ctx2.write(|ctx| {
+         ctx_clone.write(|ctx| {
             ctx.balance_db
                .insert_token_balance(chain_id, owner, balance.wei().unwrap(), &token);
          });
          RT.spawn_blocking(move || {
-            ctx2.update_portfolio_value(chain_id, owner);
-            ctx2.save_all();
+            ctx_clone.update_portfolio_value(chain_id, owner);
+            ctx_clone.save_all();
          });
       });
    }

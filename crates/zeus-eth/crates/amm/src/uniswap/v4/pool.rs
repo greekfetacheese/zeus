@@ -6,29 +6,23 @@ use alloy_primitives::{
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::SolValue;
 
-use abi::uniswap::v4::PoolKey;
 use crate::{
    DexKind, sorts_before,
    uniswap::{
-      State, UniswapPool,
-      v3::{
-         calculate_price, calculate_swap,
-         pool::{PoolTick, TickInfo, V3PoolState},
-      },
+      UniswapPool,
+      state::*,
+      v3::{calculate_price, calculate_swap},
       v4::FeeAmount,
    },
 };
-use abi::uniswap::v4::state_view;
+use abi::uniswap::v4::PoolKey;
 use currency::{Currency, ERC20Token, NativeCurrency};
-use utils::{address::uniswap_v4_stateview, is_base_token, price_feed::get_base_token_price};
+use utils::{is_base_token, price_feed::get_base_token_price};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-use std::collections::HashMap;
-use uniswap_v3_math::tick_bitmap::position;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UniswapV4Pool {
    pub chain_id: u64,
    pub fee: FeeAmount,
@@ -211,6 +205,10 @@ impl UniswapPool for UniswapV4Pool {
       self.dex
    }
 
+   fn hooks(&self) -> Address {
+      self.hooks
+   }
+
    fn zero_for_one_v3(&self, _token_in: Address) -> bool {
       panic!("This method only applies to V3");
    }
@@ -312,68 +310,14 @@ impl UniswapPool for UniswapV4Pool {
       Ok(self.pool_key.clone())
    }
 
-   /// Fetch the state of the pool at a given block
-   /// If block is None, the latest block is used
-   async fn fetch_state<P, N>(client: P, pool: impl UniswapPool, block: Option<BlockId>) -> Result<State, anyhow::Error>
+   async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let state_view = uniswap_v4_stateview(pool.chain_id())?;
-      let slot0 = state_view::get_slot0(client.clone(), state_view, pool.pool_id(), block).await?;
-      let tick_spacing = pool.fee().tick_spacing_i32();
-      let tick: i32 = slot0.tick.to_string().parse()?;
-      let (word_pos, _) = position(tick / tick_spacing);
-
-      let tick_bitmap =
-         state_view::get_tick_bitmap(client.clone(), state_view, pool.pool_id(), word_pos, block).await?;
-      let tick_liquidity = state_view::get_tick_liquidity(
-         client.clone(),
-         state_view,
-         pool.pool_id(),
-         slot0.tick,
-         block,
-      )
-      .await?;
-
-      let liquidity = state_view::get_liquidity(client.clone(), state_view, pool.pool_id(), block).await?;
-
-      let mut tick_bitmap_map = HashMap::new();
-      tick_bitmap_map.insert(word_pos, tick_bitmap);
-
-      let tick_info = TickInfo {
-         liquidity_gross: tick_liquidity.liquidityGross,
-         liquidity_net: tick_liquidity.liquidityNet,
-         initialized: true,
-      };
-
-      let block = if let Some(b) = block {
-         b.as_u64().unwrap_or(0)
-      } else {
-         0
-      };
-
-      let mut ticks_map = HashMap::new();
-      ticks_map.insert(tick, tick_info);
-
-      let pool_tick = PoolTick {
-         tick,
-         liquidity_net: tick_liquidity.liquidityNet,
-         block,
-      };
-
-      let state = State::V4(V3PoolState {
-         base_token_liquidity: U256::ZERO, //TODO: get base token liquidity
-         liquidity,
-         sqrt_price: U256::from(slot0.sqrtPriceX96),
-         tick,
-         tick_spacing: pool.fee().tick_spacing_i32(),
-         tick_bitmap: tick_bitmap_map,
-         ticks: ticks_map,
-         pool_tick,
-      });
-
-      Ok(state)
+      let state = get_v4_pool_state(client, self, block).await?;
+      self.set_state(state);
+      Ok(())
    }
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
@@ -470,18 +414,13 @@ mod tests {
       let client = ProviderBuilder::new().on_http(url);
 
       let mut pool = UniswapV4Pool::eth_uni();
-
-      let state = UniswapV4Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      println!("State: {:?}", state);
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       // Swap 1 ETH for UNI
       let base = pool.base_currency();
       let quote = pool.quote_currency();
 
-      let amount_in = parse_units("1", base.decimals()).unwrap().get_absolute();
+      let amount_in = parse_units("10", base.decimals()).unwrap().get_absolute();
       let amount_out = pool.simulate_swap(base, amount_in).unwrap();
 
       let amount_in = format_units(amount_in, base.decimals()).unwrap();
@@ -503,11 +442,7 @@ mod tests {
       let client = ProviderBuilder::new().on_http(url);
 
       let mut pool = UniswapV4Pool::eth_uni();
-
-      let state = UniswapV4Pool::fetch_state(client.clone(), pool.clone(), None)
-         .await
-         .unwrap();
-      pool.set_state(state);
+      pool.update_state(client.clone(), None).await.unwrap();
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
 
