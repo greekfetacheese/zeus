@@ -18,6 +18,14 @@ revm = { version = "22.0.1", features = [
     "optional_eip3607",
 ] }
 
+op-revm = { version = " 3.0.2", features = [
+    "std",
+    "optional_block_gas_limit",
+    "optional_no_base_fee",
+    "optional_balance_check",
+    "optional_eip3607",
+] }
+
 alloy-sol-types = {version = "1", features = ["json"]}
 alloy-primitives = "1.0.0"
 alloy-signer = "0.14.0"

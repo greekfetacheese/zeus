@@ -3,8 +3,6 @@ pub mod pool;
 use crate::consts::*;
 use alloy_primitives::U256;
 
-
-
 pub fn div_uu(x: U256, y: U256) -> Result<u128, anyhow::Error> {
    if !y.is_zero() {
       let mut answer;

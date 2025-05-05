@@ -2,7 +2,8 @@ use crate::assets::icons::Icons;
 use crate::core::{Contact, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use egui::{
-   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, Order, RichText, ScrollArea,
+   TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
 use std::str::FromStr;
@@ -43,7 +44,14 @@ impl AddContact {
    /// `size`: Optional pass a sliglthy bigger size if this is shown on top of another window
    ///
    /// So we dont lose it if click on window behind it
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, size: Option<(f32, f32)>, reset_on_success: bool, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      size: Option<(f32, f32)>,
+      reset_on_success: bool,
+      ui: &mut Ui,
+   ) {
       let mut open = self.open;
 
       let (width, height) = size.unwrap_or((self.size.0, self.size.1));
@@ -96,7 +104,10 @@ impl AddContact {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                              gui.open_msg_window(
+                                 "Address is not an Ethereum address",
+                                 &format!("{}", e),
+                              );
                            });
                            return;
                         }
@@ -178,7 +189,10 @@ impl DeleteContact {
                ui.add_space(20.0);
 
                let contact = self.contact_to_delete.clone();
-               ui.label(RichText::new("Are you sure you want to delete this contact?").size(theme.text_sizes.large));
+               ui.label(
+                  RichText::new("Are you sure you want to delete this contact?")
+                     .size(theme.text_sizes.large),
+               );
                ui.label(RichText::new(&contact.name).size(theme.text_sizes.normal));
                ui.label(RichText::new(&contact.address).size(theme.text_sizes.normal));
 
@@ -284,7 +298,10 @@ impl EditContact {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Address is not an Ethereum address", &format!("{}", e));
+                              gui.open_msg_window(
+                                 "Address is not an Ethereum address",
+                                 &format!("{}", e),
+                              );
                            });
                            return;
                         }
@@ -342,7 +359,9 @@ impl ContactsUi {
       let window_size = Some((self.size.0 + 10.0, self.size.1 + 10.0));
 
       self.main_ui(ctx.clone(), theme, ui);
-      self.add_contact.show(ctx.clone(), theme, window_size, true, ui);
+      self
+         .add_contact
+         .show(ctx.clone(), theme, window_size, true, ui);
       self
          .delete_contact
          .show(ctx.clone(), theme, window_size, ui);
@@ -410,13 +429,17 @@ impl ContactsUi {
             ui.set_max_width(200.0);
 
             // Name
-            let name_label = Label::new(RichText::new(&contact.name).size(theme.text_sizes.normal)).wrap();
+            let name_label =
+               Label::new(RichText::new(&contact.name).size(theme.text_sizes.normal)).wrap();
             ui.add(name_label);
 
             // Address
             let address = contact.address_short();
             if ui
-               .selectable_label(false, RichText::new(&address).size(theme.text_sizes.normal))
+               .selectable_label(
+                  false,
+                  RichText::new(&address).size(theme.text_sizes.normal),
+               )
                .clicked()
             {
                ui.ctx().copy_text(contact.address.clone());

@@ -8,7 +8,8 @@ pub const ARBITRUM: u64 = 42161;
 
 pub const SUPPORTED_CHAINS: [u64; 5] = [ETH, OPTIMISM, BSC, BASE, ARBITRUM];
 
-const ERR_MSG: &str = "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
+const ERR_MSG: &str =
+   "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ChainId {
@@ -182,7 +183,7 @@ impl ChainId {
    }
 
    /// Gas needed for an ERC20 Transfer
-   /// 
+   ///
    /// This is an estimate since the actual gas cost may vary depending on the token
    pub fn erc20_transfer_gas(&self) -> u64 {
       match self {
@@ -202,7 +203,7 @@ impl ChainId {
          ChainId::Base(_) => true,
          ChainId::Arbitrum(_) => false,
       }
-}
+   }
 }
 
 #[cfg(test)]

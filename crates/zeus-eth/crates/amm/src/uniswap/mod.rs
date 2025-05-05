@@ -1,5 +1,6 @@
 pub mod router;
 pub mod state;
+pub mod quoter;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -36,6 +37,12 @@ pub trait UniswapPool {
 
    fn currency1(&self) -> &Currency;
 
+   /// V3/V4 specific
+   fn min_word(&self) -> i32;
+
+   /// V3/V4 specific
+   fn max_word(&self) -> i32;
+
    /// Zero for one is true if the token_in address equals the token0 address of the pool
    ///
    /// This is V3 specific
@@ -45,6 +52,8 @@ pub trait UniswapPool {
    ///
    /// This is V4 specific
    fn zero_for_one_v4(&self, currency_in: &Currency) -> bool;
+
+   fn have(&self, currency: &Currency) -> bool;
 
    fn is_currency0(&self, currency: &Currency) -> bool;
 
@@ -114,6 +123,12 @@ pub enum AnyUniswapPool {
    V2(UniswapV2Pool),
    V3(UniswapV3Pool),
    V4(UniswapV4Pool),
+}
+
+impl Default for AnyUniswapPool {
+   fn default() -> Self {
+      Self::V2(UniswapV2Pool::weth_uni())
+   }
 }
 
 impl AnyUniswapPool {
@@ -205,6 +220,30 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.dex_kind(),
          AnyUniswapPool::V3(pool) => pool.dex_kind(),
          AnyUniswapPool::V4(pool) => pool.dex_kind(),
+      }
+   }
+
+   fn min_word(&self) -> i32 {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.min_word(),
+         AnyUniswapPool::V3(pool) => pool.min_word(),
+         AnyUniswapPool::V4(pool) => pool.min_word(),
+      }
+   }
+
+   fn max_word(&self) -> i32 {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.max_word(),
+         AnyUniswapPool::V3(pool) => pool.max_word(),
+         AnyUniswapPool::V4(pool) => pool.max_word(),
+      }
+   }
+
+   fn have(&self, currency: &Currency) -> bool {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.have(currency),
+         AnyUniswapPool::V3(pool) => pool.have(currency),
+         AnyUniswapPool::V4(pool) => pool.have(currency),
       }
    }
 

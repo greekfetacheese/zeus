@@ -75,7 +75,12 @@ pub fn encode_execute_manually(commands: Bytes, inputs: Vec<Bytes>) -> Bytes {
 }
 
 pub fn encode_execute_with_deadline(commands: Bytes, inputs: Vec<Bytes>, deadline: U256) -> Bytes {
-   let data = UniversalRouter::execute_1Call { commands, inputs, deadline }.abi_encode();
+   let data = UniversalRouter::execute_1Call {
+      commands,
+      inputs,
+      deadline,
+   }
+   .abi_encode();
    data.into()
 }
 

@@ -16,8 +16,7 @@ const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
     You probably want to just increase the Memory cost to a sensible value 256mb - 1024mb as this is the most important parameter for security.";
 
-const T_COST_TIP: &str =
-   "The number of iterations the Argon2 algorithm will run. Higher values are more secure but slower.";
+const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run. Higher values are more secure but slower.";
 
 const P_COST_TIP: &str = "You should probably leave this to 1.";
 
@@ -55,9 +54,13 @@ impl SettingsUi {
       self.main_ui(theme, &mut main_ui, ui);
       self.encryption.show(ctx.clone(), theme, ui);
       self.change_credentials_ui(ctx.clone(), theme, ui);
-      self
-         .network
-         .show(ctx.clone(), theme, icons.clone(), &mut main_ui, ui);
+      self.network.show(
+         ctx.clone(),
+         theme,
+         icons.clone(),
+         &mut main_ui,
+         ui,
+      );
       self.contacts_ui.show(ctx, theme, icons, ui);
       self.main_ui = main_ui;
    }
@@ -86,17 +89,20 @@ impl SettingsUi {
                ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
                let size = vec2(self.size.0, 50.0);
-               let credentials = Button::new(RichText::new("Change your Credentials").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let credentials = Button::new(
+                  RichText::new("Change your Credentials").size(theme.text_sizes.large),
+               )
+               .corner_radius(5)
+               .min_size(size);
                if ui.add(credentials).clicked() {
                   *open = false;
                   self.credentials.open = true;
                }
 
-               let encryption_settings = Button::new(RichText::new("Encryption Settings").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let encryption_settings =
+                  Button::new(RichText::new("Encryption Settings").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
                if ui.add(encryption_settings).clicked() {
                   *open = false;
                   self.encryption.open = true;
@@ -110,9 +116,10 @@ impl SettingsUi {
                   self.contacts_ui.open = true;
                }
 
-               let network = Button::new(RichText::new("Network Settings").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let network =
+                  Button::new(RichText::new("Network Settings").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
                if ui.add(network).clicked() {
                   *open = false;
                   self.network.open = true;
@@ -171,7 +178,10 @@ impl SettingsUi {
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.open = false;
-                                 gui.open_msg_window("Failed to decrypt profile", &format!("{}", e));
+                                 gui.open_msg_window(
+                                    "Failed to decrypt profile",
+                                    &format!("{}", e),
+                                 );
                               });
                               return;
                            }
@@ -213,7 +223,10 @@ impl SettingsUi {
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.open = false;
-                                 gui.open_msg_window("Failed to update credentials", &format!("{}", e));
+                                 gui.open_msg_window(
+                                    "Failed to update credentials",
+                                    &format!("{}", e),
+                                 );
                               });
                               return;
                            }
@@ -308,7 +321,10 @@ impl EncryptionSettings {
                         .on_hover_text(T_COST_TIP);
                      ui.end_row();
 
-                     ui.add(Slider::new(&mut self.argon_params.t_cost, 5..=200));
+                     ui.add(Slider::new(
+                        &mut self.argon_params.t_cost,
+                        5..=200,
+                     ));
                      ui.end_row();
 
                      ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal))
@@ -333,7 +349,10 @@ impl EncryptionSettings {
                               Ok(data) => data,
                               Err(e) => {
                                  SHARED_GUI.write(|gui| {
-                                    gui.open_msg_window("Failed to update encryption settings", &format!("{}", e));
+                                    gui.open_msg_window(
+                                       "Failed to update encryption settings",
+                                       &format!("{}", e),
+                                    );
                                     gui.loading_window.open = false;
                                  });
                                  return;
@@ -345,7 +364,10 @@ impl EncryptionSettings {
                               Ok(_) => {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.open = false;
-                                    gui.open_msg_window("Encryption settings have been updated", "");
+                                    gui.open_msg_window(
+                                       "Encryption settings have been updated",
+                                       "",
+                                    );
                                     gui.settings.encryption.open = false;
                                     gui.settings.encryption.argon_params = params;
                                     gui.loading_window.open = false;
@@ -354,7 +376,10 @@ impl EncryptionSettings {
                               Err(e) => {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.open = false;
-                                    gui.open_msg_window("Failed to save account", &format!("{}", e));
+                                    gui.open_msg_window(
+                                       "Failed to save account",
+                                       &format!("{}", e),
+                                    );
                                  });
                               }
                            };

@@ -18,6 +18,7 @@ use crate::{
 use abi::uniswap::v3;
 use currency::{Currency, ERC20Token};
 use utils::{is_base_token, price_feed::get_base_token_price};
+use uniswap_v3_math::tick_math::{MIN_TICK, MAX_TICK};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -142,7 +143,7 @@ impl UniswapV3Pool {
       Ok(price)
    }
 
-   fn _tick_to_word(tick: i32, tick_spacing: i32) -> i32 {
+   pub fn tick_to_word(&self, tick: i32, tick_spacing: i32) -> i32 {
       let mut compressed = tick / tick_spacing;
       if tick < 0 && tick % tick_spacing != 0 {
          compressed -= 1;
@@ -176,6 +177,18 @@ impl UniswapV3Pool {
          500,
          ERC20Token::weth(),
          ERC20Token::usdc(),
+         DexKind::UniswapV3,
+      )
+   }
+
+   pub fn weth_usdc_base() -> Self {
+      let pool_address = address!("0xd0b53D9277642d899DF5C87A3966A349A798F224");
+      UniswapV3Pool::new(
+         8453,
+         pool_address,
+         500,
+         ERC20Token::weth_base(),
+         ERC20Token::usdc_base(),
          DexKind::UniswapV3,
       )
    }
@@ -220,6 +233,18 @@ impl UniswapPool for UniswapV3Pool {
 
    fn is_token1(&self, token: Address) -> bool {
       self.token1().address == token
+   }
+
+   fn have(&self, currency: &Currency) -> bool {
+      self.is_currency0(currency) || self.is_currency1(currency)
+   }
+
+   fn min_word(&self) -> i32 {
+      self.tick_to_word(MIN_TICK, self.fee.tick_spacing_i32())
+   }
+
+   fn max_word(&self) -> i32 {
+      self.tick_to_word(MAX_TICK, self.fee.tick_spacing_i32())
    }
 
    fn currency0(&self) -> &Currency {
@@ -381,6 +406,7 @@ impl UniswapPool for UniswapV3Pool {
 mod tests {
    use super::*;
    use alloy_primitives::utils::{format_units, parse_units};
+   use utils::batch;
 
    use alloy_provider::ProviderBuilder;
    use url::Url;
@@ -397,7 +423,9 @@ mod tests {
       let base = pool.base_currency();
       let quote = pool.quote_currency();
 
-      let amount_in = parse_units("100000", base.decimals()).unwrap().get_absolute();
+      let amount_in = parse_units("100000", base.decimals())
+         .unwrap()
+         .get_absolute();
       let amount_out = pool.simulate_swap(base, amount_in).unwrap();
 
       let amount_in = format_units(amount_in, base.decimals()).unwrap();
@@ -461,5 +489,26 @@ mod tests {
       println!("{} Price: ${}", quote_token.symbol, quote_price);
       // println!("UNI in terms of USDT: {}", uni_in_usdt);
       // println!("USDT in terms of UNI: {}", usdt_in_uni);
+   }
+
+   #[tokio::test]
+   async fn test_pool_fetch_tickbitmaps() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().on_http(url);
+
+      let pool = UniswapV3Pool::usdt_uni();
+
+      let info = batch::GetV3PoolTickBitmaps::PoolInfo {
+         pool: pool.address(),
+         tickSpacing: pool.fee().tick_spacing(),
+         minWord: pool.min_word().try_into().unwrap(),
+         maxWord: pool.max_word().try_into().unwrap(),
+      };
+
+      let tick_bitmaps = batch::get_v3_pool_tick_bitmaps(client, None, vec![info]).await.unwrap();
+      for tick_bitmap in tick_bitmaps {
+         println!("Tick Bitmap: {:?}", tick_bitmap);
+      }
+
    }
 }

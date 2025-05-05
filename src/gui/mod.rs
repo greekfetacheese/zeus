@@ -32,6 +32,14 @@ impl SharedGUI {
    pub fn request_repaint(&self) {
       self.read(|gui| gui.request_repaint());
    }
+
+   pub fn open_loading(&self, msg: impl Into<String>) {
+      self.write(|gui| gui.loading_window.open(msg));
+   }
+
+   pub fn reset_loading(&self) {
+      self.write(|gui| gui.loading_window.reset());
+   }
 }
 
 impl Default for SharedGUI {

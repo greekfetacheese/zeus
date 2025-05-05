@@ -3,7 +3,6 @@ use alloy_signer_local::PrivateKeySigner;
 
 use revm::state::Bytecode;
 
-
 #[derive(Clone, Debug)]
 pub enum AccountType {
    /// Externally Owned Account

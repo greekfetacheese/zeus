@@ -1,8 +1,5 @@
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::{
-   Address, B256, U256,
-   aliases::I24,
-};
+use alloy_primitives::{Address, B256, U256, aliases::I24};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::sol;
 

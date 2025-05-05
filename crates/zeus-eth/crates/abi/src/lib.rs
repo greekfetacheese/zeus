@@ -1,9 +1,9 @@
 pub mod erc20;
 pub mod misc;
-pub mod uniswap;
-pub mod weth9;
 pub mod permit;
 pub mod protocols;
+pub mod uniswap;
+pub mod weth9;
 
 // Re-Exports
 pub use alloy_contract;

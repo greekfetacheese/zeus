@@ -8,7 +8,9 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    types,
 };
-use zeus_token_list::{tokens::UniswapToken, ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM};
+use zeus_token_list::{
+   ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM, tokens::UniswapToken,
+};
 
 const FILE_NAME: &str = "currencies.json";
 
@@ -19,34 +21,33 @@ pub struct CurrencyDB {
 }
 
 impl Default for CurrencyDB {
-    fn default() -> Self {
-        let mut currencies = CurrencyDB::new();
-        currencies.load_default_currencies().unwrap_or_default();
-        currencies
-    }
+   fn default() -> Self {
+      let mut currencies = CurrencyDB::new();
+      currencies.load_default_currencies().unwrap_or_default();
+      currencies
+   }
 }
 
 impl CurrencyDB {
-
    pub fn new() -> Self {
       Self {
          currencies: HashMap::new(),
       }
    }
 
-    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-        let dir = data_dir()?.join(FILE_NAME);
-        let data = std::fs::read(dir)?;
-        let db = serde_json::from_slice(&data)?;
-        Ok(db)
-    }
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = data_dir()?.join(FILE_NAME);
+      let data = std::fs::read(dir)?;
+      let db = serde_json::from_slice(&data)?;
+      Ok(db)
+   }
 
-    pub fn save(&self) -> Result<(), anyhow::Error> {
-        let db = serde_json::to_string(&self)?;
-        let dir = data_dir()?.join(FILE_NAME);
-        std::fs::write(dir, db)?;
-        Ok(())
-    }
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let db = serde_json::to_string(&self)?;
+      let dir = data_dir()?.join(FILE_NAME);
+      std::fs::write(dir, db)?;
+      Ok(())
+   }
 
    pub fn get_currencies(&self, chain_id: u64) -> Arc<Vec<Currency>> {
       self.currencies.get(&chain_id).cloned().unwrap_or_default()
@@ -54,14 +55,14 @@ impl CurrencyDB {
 
    /// Get the ERC20Tokens for the given chain
    pub fn get_erc20_tokens(&self, chain_id: u64) -> Vec<ERC20Token> {
-     let currencies = self.get_currencies(chain_id);
-     let mut tokens = Vec::new();
-     for currency in currencies.iter() {
-        if let Some(token) = currency.erc20() {
-           tokens.push(token.clone());
-        }
-     }
-     tokens
+      let currencies = self.get_currencies(chain_id);
+      let mut tokens = Vec::new();
+      for currency in currencies.iter() {
+         if let Some(token) = currency.erc20() {
+            tokens.push(token.clone());
+         }
+      }
+      tokens
    }
 
    /// Get an ERC20Token for the given chain and address
@@ -109,7 +110,10 @@ impl CurrencyDB {
       self.insert_currency(types::BSC, Currency::from(bnb_native));
 
       // Optimism
-      self.insert_currency(types::OPTIMISM, Currency::from(eth_native.clone()));
+      self.insert_currency(
+         types::OPTIMISM,
+         Currency::from(eth_native.clone()),
+      );
 
       // Base Network
       self.insert_currency(types::BASE, Currency::from(eth_native.clone()));

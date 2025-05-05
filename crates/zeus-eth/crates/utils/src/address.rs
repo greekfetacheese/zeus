@@ -2,7 +2,6 @@ use alloy_primitives::{Address, address};
 use anyhow::bail;
 use types::ChainId;
 
-
 // https://docs.uniswap.org/contracts/v3/reference/deployments/
 /// Returns the Permit2 contract address for the given chain id.
 pub fn permit2_contract(chain_id: u64) -> Result<Address, anyhow::Error> {
@@ -15,7 +14,6 @@ pub fn permit2_contract(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::Arbitrum(_) => Ok(address!("0x000000000022D473030F116dDEE9F6B43aC78BA3")),
    }
 }
-
 
 /// ETH-USD Price Feed Chainlink
 pub fn eth_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {

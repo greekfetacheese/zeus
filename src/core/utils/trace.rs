@@ -1,7 +1,9 @@
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::Registry;
 
-use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, prelude::*, util::SubscriberInitExt};
+use tracing_subscriber::{
+   EnvFilter, fmt, layer::SubscriberExt, prelude::*, util::SubscriberInitExt,
+};
 
 pub fn setup_tracing() -> (WorkerGuard, WorkerGuard) {
    // Setup for file appenders

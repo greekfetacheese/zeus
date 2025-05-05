@@ -465,13 +465,13 @@ impl SendCryptoUi {
 
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let amount_usd = ctx.get_currency_value2(amount.f64(), &currency);
-      let call_data = if currency.is_native() {
-         Bytes::default()
+      let (call_data, interact_to) = if currency.is_native() {
+         (Bytes::default(), recipient_address)
       } else {
          let c = currency.clone();
          let token = c.erc20().unwrap();
          let data = token.encode_transfer(recipient_address, amount.wei2());
-         data
+         (data, token.address)
       };
 
       let value = if currency.is_native() {
@@ -493,7 +493,7 @@ impl SendCryptoUi {
             ctx.clone(),
             chain,
             from,
-            recipient_address,
+            interact_to,
             call_data,
             value,
             action,

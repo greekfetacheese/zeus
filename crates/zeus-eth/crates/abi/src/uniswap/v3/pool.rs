@@ -1,8 +1,8 @@
-use alloy_primitives::{Address, LogData, Bytes, FixedBytes, Signed, U256, Uint};
-use alloy_rpc_types::BlockId;
-use alloy_sol_types::{SolCall, SolEvent, sol};
 use IUniswapV3Pool::Swap;
 use alloy_contract::private::{Network, Provider};
+use alloy_primitives::{Address, Bytes, FixedBytes, LogData, Signed, U256, Uint};
+use alloy_rpc_types::BlockId;
+use alloy_sol_types::{SolCall, SolEvent, sol};
 
 use anyhow::Context;
 use std::str::FromStr;
@@ -447,7 +447,6 @@ where
    let token1 = contract.token1().call().await?;
    Ok(token1)
 }
-
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let b = IUniswapV3Pool::Swap::decode_raw_log(log.topics(), &log.data)?;

@@ -1,3 +1,4 @@
+use super::action::TokenApproveParams;
 use super::{RT, eth, tx::TxParams, update};
 use crate::core::ZeusCtx;
 use crate::core::utils::parse_typed_data;
@@ -9,72 +10,28 @@ use crate::core::utils::{
 };
 use crate::gui::{SHARED_GUI, ui::Step};
 use alloy_signer::{Signature, Signer};
+use anyhow::anyhow;
 use anyhow::bail;
 use serde_json::Value;
 use std::future::IntoFuture;
 use std::time::Duration;
+use zeus_eth::amm::uniswap::router::v4::build_execute_params;
+use zeus_eth::utils::address::{permit2_contract, uniswap_v4_universal_router};
 use zeus_eth::{
    abi::protocols::across::*,
    alloy_primitives::{Address, Bytes, TxKind, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, Log, TransactionReceipt},
-   amm::DexKind,
+   amm::{DexKind, UniswapPool, uniswap::router::*},
    currency::{Currency, ERC20Token, NativeCurrency},
    dapps::across::spoke_pool_address,
-   revm_utils::{ExecuteCommitEvm, ForkFactory, Host, new_evm, revert_msg},
+   revm_utils::{
+      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkFactory, Host,
+      new_evm, revert_msg,
+   },
    types::ChainId,
    utils::NumericValue,
 };
-
-pub async fn sign_message(
-   ctx: ZeusCtx,
-   dapp: String,
-   chain: ChainId,
-   msg: Value,
-) -> Result<Signature, anyhow::Error> {
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Loading...");
-      gui.request_repaint();
-   });
-
-   let typed_data = parse_typed_data(msg)?;
-   let msg_type = SignMsgType::new(ctx.clone(), chain.id(), typed_data.clone()).await;
-
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.reset();
-      gui.sign_msg_window.open(dapp, chain.id(), msg_type);
-      gui.request_repaint();
-   });
-
-   // Wait for the user to sign or cancel
-   let mut signed = None;
-   loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-      SHARED_GUI.read(|gui| {
-         signed = gui.sign_msg_window.is_signed();
-      });
-
-      if signed.is_some() {
-         SHARED_GUI.write(|gui| {
-            gui.sign_msg_window.reset();
-         });
-         break;
-      }
-   }
-
-   let signed = signed.unwrap();
-
-   if !signed {
-      return Err(anyhow::anyhow!("You cancelled the transaction"));
-   }
-
-   let wallet = ctx.current_wallet();
-   let signer = ctx.get_wallet(wallet.address).key;
-   let signature = signer.borrow().sign_dynamic_typed_data(&typed_data).await?;
-
-   Ok(signature)
-}
 
 // Wallet balances are updated and the tx summary is added to the ZeusCtx
 pub async fn send_transaction(
@@ -82,6 +39,7 @@ pub async fn send_transaction(
    dapp: String,
    action: Option<OnChainAction>,
    chain: ChainId,
+   mev_protect: bool,
    from: Address,
    interact_to: Address,
    call_data: Bytes,
@@ -100,27 +58,23 @@ pub async fn send_transaction(
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain.id(), block.clone(), fork_db);
+   let mut evm = new_evm(chain, block.as_ref(), fork_db);
 
-   evm.tx.caller = from;
-   evm.tx.kind = TxKind::Call(interact_to);
-   evm.tx.data = call_data.clone();
-   evm.tx.value = value;
+   let sim_res = simulate_transaction(
+      &mut evm,
+      from,
+      interact_to,
+      call_data.clone(),
+      value,
+   )
+   .await?;
 
-   let sim_res = evm.transact_commit(evm.tx.clone()).unwrap();
-   let output = sim_res.output().unwrap_or_default();
    let gas_used = sim_res.gas_used();
-
-   if !sim_res.is_success() {
-      let err = revert_msg(&output);
-      tracing::error!("Simulation failed: {} \n Gas Used {}", err, gas_used);
-      bail!("Simulation failed: {}", err);
-   }
-
    let logs = sim_res.into_logs();
    let native_currency = NativeCurrency::from_chain_id(chain.id()).unwrap();
    let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
    let state = evm.balance(from);
+
    let balance_after = if let Some(state) = state {
       NumericValue::format_wei(state.data, native_currency.decimals).wei2()
    } else {
@@ -248,7 +202,7 @@ pub async fn send_transaction(
       gas_limit,
    );
 
-   let client = if chain.is_ethereum() {
+   let client = if chain.is_ethereum() && mev_protect {
       ctx.get_flashbots_fast_client().unwrap()
    } else {
       ctx.get_client_with_id(chain.id()).unwrap()
@@ -332,6 +286,215 @@ pub async fn send_transaction(
    Ok((receipt, tx_summary))
 }
 
+pub async fn simulate_transaction<DB>(
+   evm: &mut Evm2<DB>,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+) -> Result<ExecutionResult, anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   evm.tx.caller = from;
+   evm.tx.kind = TxKind::Call(interact_to);
+   evm.tx.data = call_data.clone();
+   evm.tx.value = value;
+
+   let sim_res = evm
+      .transact_commit(evm.tx.clone())
+      .map_err(|e| anyhow!("Simulation failed: {:?}", e))?;
+   let output = sim_res.output().unwrap_or_default();
+   let gas_used = sim_res.gas_used();
+
+   if !sim_res.is_success() {
+      let err = revert_msg(&output);
+      tracing::error!(
+         "Simulation failed: {} \n Gas Used {}",
+         err,
+         gas_used
+      );
+      return Err(anyhow!("Failed to simulate transaction: {}", err));
+   }
+
+   Ok(sim_res)
+}
+
+pub async fn sign_message(
+   ctx: ZeusCtx,
+   dapp: String,
+   chain: ChainId,
+   msg: Value,
+) -> Result<Signature, anyhow::Error> {
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Loading...");
+      gui.request_repaint();
+   });
+
+   let typed_data = parse_typed_data(msg)?;
+   let msg_type = SignMsgType::new(ctx.clone(), chain.id(), typed_data.clone()).await;
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.reset();
+      gui.sign_msg_window.open(dapp, chain.id(), msg_type);
+      gui.request_repaint();
+   });
+
+   // Wait for the user to sign or cancel
+   let mut signed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+      SHARED_GUI.read(|gui| {
+         signed = gui.sign_msg_window.is_signed();
+      });
+
+      if signed.is_some() {
+         SHARED_GUI.write(|gui| {
+            gui.sign_msg_window.reset();
+         });
+         break;
+      }
+   }
+
+   let signed = signed.unwrap();
+
+   if !signed {
+      return Err(anyhow::anyhow!("You cancelled the transaction"));
+   }
+
+   let wallet = ctx.current_wallet();
+   let signer = ctx.get_wallet(wallet.address).key;
+   let signature = signer.borrow().sign_dynamic_typed_data(&typed_data).await?;
+
+   Ok(signature)
+}
+
+pub async fn swap(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   mev_protect: bool,
+   from: Address,
+   swap_type: SwapType,
+   amount_in: NumericValue,
+   amount_out_min: NumericValue,
+   currency_in: Currency,
+   currency_out: Currency,
+   swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client_with_id(chain.id())?;
+   let signer = ctx.get_wallet(from).key;
+
+   SHARED_GUI.open_loading("Wait while magic happens");
+   SHARED_GUI.request_repaint();
+
+   let execute_params = build_execute_params(
+      client.clone(),
+      chain.id(),
+      swap_steps,
+      swap_type,
+      amount_in.wei2(),
+      amount_out_min.wei2(),
+      currency_in.clone(),
+      currency_out.clone(),
+      signer,
+      from,
+   )
+   .await?;
+
+   SHARED_GUI.reset_loading();
+   SHARED_GUI.request_repaint();
+
+   if execute_params.token_needs_approval {
+      let msg_value = execute_params.message.clone();
+      if msg_value.is_none() {
+         return Err(anyhow!("Missing message"));
+      }
+
+      let msg_value = msg_value.unwrap();
+      let _ = sign_message(ctx.clone(), "".to_string(), chain, msg_value).await?;
+
+      let permit2 = permit2_contract(chain.id())?;
+      let token = currency_in.to_erc20();
+
+      let call_data = token.encode_approve(permit2, U256::MAX);
+      let dapp = "".to_string();
+      let interact_to = token.address;
+      let value = U256::ZERO;
+
+      let approve_params = TokenApproveParams {
+         token: currency_in.clone(),
+         amount: NumericValue::format_wei(U256::MAX, token.decimals),
+         amount_usd: None,
+         owner: from,
+         spender: permit2,
+      };
+      let action = OnChainAction::TokenApprove(approve_params);
+
+      let (receipt, _) = send_transaction(
+         ctx.clone(),
+         dapp,
+         Some(action),
+         chain,
+         mev_protect,
+         from,
+         interact_to,
+         call_data,
+         value,
+      )
+      .await?;
+
+      // this actually should never fail
+      if !receipt.status() {
+         return Err(anyhow!("Token Approval Failed"));
+      }
+   }
+
+   // now we can proceed with the swap
+   let call_data = execute_params.call_data.clone();
+   let value = execute_params.value;
+   let dapp = "".to_string();
+   let interact_to = uniswap_v4_universal_router(chain.id())?;
+
+   let (_, tx_summary) = send_transaction(
+      ctx.clone(),
+      dapp,
+      None,
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window
+         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx_summary(tx_summary);
+      gui.request_repaint();
+   });
+
+   let tokens = vec![
+      currency_in.to_erc20().into_owned(),
+      currency_out.to_erc20().into_owned(),
+   ];
+   RT.spawn(async move {
+      let _ = update::update_tokens_balance_for_chain(ctx.clone(), chain.id(), from, tokens).await;
+      ctx.save_balance_db();
+   });
+
+   Ok(())
+}
+
 pub async fn across_bridge(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -359,6 +522,7 @@ pub async fn across_bridge(
       "".to_string(),
       Some(action),
       chain,
+      false,
       from,
       interact_to,
       call_data,
@@ -446,7 +610,7 @@ pub async fn send_crypto(
    ctx: ZeusCtx,
    chain: ChainId,
    from: Address,
-   recipient: Address,
+   interact_to: Address,
    call_data: Bytes,
    value: U256,
    action: OnChainAction,
@@ -461,8 +625,9 @@ pub async fn send_crypto(
       "".to_string(),
       Some(action),
       chain,
+      false,
       from,
-      recipient,
+      interact_to,
       call_data,
       value,
    )

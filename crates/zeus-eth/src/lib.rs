@@ -1,7 +1,7 @@
 pub use abi;
 pub use amm;
-pub use dapps;
 pub use currency;
+pub use dapps;
 pub use revm_utils;
 pub use types;
 #[cfg(feature = "utils")]

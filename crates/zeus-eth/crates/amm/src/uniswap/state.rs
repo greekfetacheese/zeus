@@ -13,8 +13,6 @@ use tokio::{
 };
 use utils::batch::{self, V2PoolReserves, V3Pool, V3PoolData};
 
-
-
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum State {
    V2(PoolReserves),
@@ -320,11 +318,11 @@ where
    Ok(state)
 }
 
-
-
 // TODO: Add V4 support
 /// Update the state of all the pools for the given chain
 /// 
+/// Supports V2 & V3 pools
+///
 /// Returns the pools with updated state
 pub async fn batch_update_state<P, N>(
    client: P,
@@ -336,8 +334,8 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   const BATCH_SIZE: usize = 100;
-   const BATCH_SIZE_2: usize = 5;
+   const BATCH_SIZE: usize = 20;
+   const BATCH_SIZE_2: usize = 3;
 
    let v2_addresses: Vec<Address> = pools
       .iter()
@@ -345,6 +343,7 @@ where
       .map(|p| p.address())
       .collect();
 
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V2 pools", v2_addresses.len());
    let v2_reserves = Arc::new(Mutex::new(Vec::new()));
    let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let semaphore = Arc::new(Semaphore::new(concurrency as usize));
@@ -382,18 +381,22 @@ where
             tickSpacing: pool.fee().tick_spacing(),
          });
       }
-   }
+   };
 
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V3 pools", v3_pool_info.len());
    for pool in v3_pool_info.chunks(BATCH_SIZE_2) {
       let client = client.clone();
       let semaphore = semaphore.clone();
       let v3_data = v3_data.clone();
       let pool_chunk = pool.to_vec();
 
+      let addr = pool_chunk.iter().map(|p| p.pool).collect::<Vec<_>>();
+
       let task = tokio::spawn(async move {
          let _permit = semaphore.acquire_owned().await.unwrap();
          match batch::get_v3_state(client.clone(), None, pool_chunk).await {
             Ok(data) => {
+               tracing::debug!(target: "zeus_eth::amm::uniswap::state", "Got V3 pool data for pools: {:?}", addr);
                v3_data.lock().await.extend(data);
             }
             Err(e) => {

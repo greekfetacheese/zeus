@@ -11,8 +11,6 @@ use zeus_eth::{
    wallet::{SecureSigner, SecureWallet},
 };
 
-
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TxSummary {
    pub success: bool,
@@ -57,7 +55,6 @@ impl Default for TxSummary {
 }
 
 impl TxSummary {
-
    pub fn dummy_token_approve() -> Self {
       let tx_cost = NumericValue::parse_to_wei("0.0001", 18);
       let tx_cost_usd = NumericValue::value(tx_cost.f64(), 1600.0);
@@ -223,7 +220,6 @@ impl TxSummary {
    }
 }
 
-
 #[derive(Clone)]
 pub struct TxParams {
    pub signer: SecureSigner,
@@ -298,8 +294,6 @@ impl TxParams {
    }
 }
 
-
-
 pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
 where
    P: Provider<Ethereum> + Clone + 'static,
@@ -322,8 +316,6 @@ where
 
    Ok(receipt)
 }
-
-
 
 pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    // Eip1559

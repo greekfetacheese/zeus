@@ -1,8 +1,8 @@
 use alloy_signer_local::PrivateKeySigner;
 use core::fmt;
-use secure_types::{Zeroize, SecureString};
-use std::borrow::Borrow;
 use memsec::{mlock, munlock};
+use secure_types::{SecureString, Zeroize};
+use std::borrow::Borrow;
 
 /// Wrapper type around [PrivateKeySigner]
 ///
@@ -205,6 +205,9 @@ mod tests {
       let secure_signer = SecureSigner::random();
       let serialized = serde_json::to_string(&secure_signer).unwrap();
       let deserialized: SecureSigner = serde_json::from_str(&serialized).unwrap();
-      assert_eq!(deserialized.key_string().borrow(), secure_signer.key_string().borrow());
+      assert_eq!(
+         deserialized.key_string().borrow(),
+         secure_signer.key_string().borrow()
+      );
    }
 }

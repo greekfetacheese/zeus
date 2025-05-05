@@ -1,5 +1,5 @@
-pub mod state_view;
 pub mod router;
+pub mod state_view;
 
 use alloy_sol_types::sol;
 

@@ -73,8 +73,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = true;
       }
 
-      
-      #[cfg(feature = "dev")]
+     // #[cfg(feature = "dev")]
       {
          let swap = Button::new(RichText::new("Swap").size(21.0));
          if ui.add(swap).clicked() {
@@ -87,7 +86,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.swap_ui.open = true;
          }
       }
-      
 
       let settings = Button::new(RichText::new("Settings").size(21.0));
       if ui.add(settings).clicked() {
@@ -109,7 +107,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       {
          gui.editor.open = true;
       }
-
 
       #[cfg(feature = "dev")]
       {

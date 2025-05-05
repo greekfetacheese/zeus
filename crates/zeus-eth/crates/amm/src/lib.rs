@@ -198,7 +198,10 @@ impl DexKind {
    }
 
    pub fn is_uniswap(&self) -> bool {
-      matches!(self, DexKind::UniswapV2 | DexKind::UniswapV3 | DexKind::UniswapV4)
+      matches!(
+         self,
+         DexKind::UniswapV2 | DexKind::UniswapV3 | DexKind::UniswapV4
+      )
    }
 
    pub fn is_pancake(&self) -> bool {
@@ -291,6 +294,8 @@ fn pancakeswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Erro
       ChainId::Arbitrum(_) => Ok(101028949),
    }
 }
+
+
 
 mod tests {
    #[allow(unused_imports)]

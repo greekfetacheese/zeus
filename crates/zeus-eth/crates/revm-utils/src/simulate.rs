@@ -3,11 +3,9 @@ use alloy_primitives::{Address, Bytes, TxKind, U256};
 
 use super::Evm2;
 use anyhow::anyhow;
-use revm::{context::result::ExecutionResult, database::Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm};
+use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, context::result::ExecutionResult, database::Database};
 
 use abi::uniswap::nft_position::{INonfungiblePositionManager, MintReturn};
-
-
 
 /// Simulate the depositV3 of the SpokePool contract
 pub fn across_deposit_v3<DB>(
@@ -109,7 +107,7 @@ pub fn transfer_token<DB>(
    from: Address,
    to: Address,
    amount: U256,
-   commit: bool
+   commit: bool,
 ) -> Result<(), anyhow::Error>
 where
    DB: Database + DatabaseCommit,

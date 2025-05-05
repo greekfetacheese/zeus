@@ -18,6 +18,7 @@ use crate::{
 use abi::uniswap::v4::PoolKey;
 use currency::{Currency, ERC20Token, NativeCurrency};
 use utils::{is_base_token, price_feed::get_base_token_price};
+use uniswap_v3_math::tick_math::{MIN_TICK, MAX_TICK};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -157,6 +158,15 @@ impl UniswapV4Pool {
       super::has_swap_permissions(self.hooks)
    }
 
+   pub fn tick_to_word(&self, tick: i32, tick_spacing: i32) -> i32 {
+      let mut compressed = tick / tick_spacing;
+      if tick < 0 && tick % tick_spacing != 0 {
+         compressed -= 1;
+      }
+
+      compressed >> 8
+   }
+
    /// Test pool
    pub fn eth_uni() -> Self {
       let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
@@ -209,6 +219,14 @@ impl UniswapPool for UniswapV4Pool {
       self.hooks
    }
 
+   fn min_word(&self) -> i32 {
+      self.tick_to_word(MIN_TICK, self.fee.tick_spacing_i32())
+   }
+
+   fn max_word(&self) -> i32 {
+      self.tick_to_word(MAX_TICK, self.fee.tick_spacing_i32())
+   }
+
    fn zero_for_one_v3(&self, _token_in: Address) -> bool {
       panic!("This method only applies to V3");
    }
@@ -237,6 +255,10 @@ impl UniswapPool for UniswapV4Pool {
 
    fn currency1(&self) -> &Currency {
       &self.currency1
+   }
+
+   fn have(&self, currency: &Currency) -> bool {
+      self.is_currency0(currency) || self.is_currency1(currency)
    }
 
    fn is_currency0(&self, currency: &Currency) -> bool {

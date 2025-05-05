@@ -5,12 +5,16 @@ use alloy_primitives::{
 use alloy_rpc_types::BlockId;
 use std::borrow::Cow;
 
+use crate::uniswap::PoolKey;
 use crate::{
    DexKind, minimum_liquidity,
-   uniswap::{state::{State, get_v2_pool_state}, UniswapPool, v4::FeeAmount},
+   uniswap::{
+      UniswapPool,
+      state::{State, get_v2_pool_state},
+      v4::FeeAmount,
+   },
 };
 use abi::uniswap::v2;
-use crate::uniswap::PoolKey;
 use currency::{Currency, ERC20Token};
 use utils::{is_base_token, price_feed::get_base_token_price};
 
@@ -30,7 +34,6 @@ pub struct UniswapV2Pool {
    pub dex: DexKind,
    pub state: State,
 }
-
 
 impl UniswapV2Pool {
    /// Tokens are re-ordered as per the Uniswap protocol
@@ -181,6 +184,18 @@ impl UniswapPool for UniswapV2Pool {
       panic!("This method only applies to V4");
    }
 
+   fn have(&self, currency: &Currency) -> bool {
+      self.is_currency0(currency) || self.is_currency1(currency)
+   }
+
+   fn min_word(&self) -> i32 {
+      0
+   }
+
+   fn max_word(&self) -> i32 {
+      0
+   }
+
    fn currency0(&self) -> &Currency {
       &self.currency0
    }
@@ -266,7 +281,6 @@ impl UniswapPool for UniswapV2Pool {
    fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
       bail!("Pool Key method only applies to V4");
    }
-
 
    async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where

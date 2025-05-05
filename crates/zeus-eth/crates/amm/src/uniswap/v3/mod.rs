@@ -1,16 +1,15 @@
-pub mod pool;
 pub mod fee_math;
+pub mod pool;
 pub mod position;
 
 use alloy_primitives::{I256, U256};
 
-use crate::consts::U256_1;
 use super::UniswapPool;
+use crate::consts::U256_1;
 use std::cmp::Ordering;
 use uniswap_v3_math::tick_math::*;
 
 use anyhow::anyhow;
-
 
 #[derive(Default)]
 pub struct CurrentState {
@@ -46,7 +45,6 @@ pub fn calculate_swap(
       .v3_or_v4_state()
       .ok_or_else(|| anyhow!("State not initialized"))?;
    let fee = pool.fee();
-
 
    // Set sqrt_price_limit_x_96 to the max or min sqrt price in the pool depending on zero_for_one
    let sqrt_price_limit_x_96 = if zero_for_one {

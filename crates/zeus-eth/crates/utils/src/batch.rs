@@ -38,6 +38,12 @@ sol! {
 }
 
 sol! {
+   #[sol(rpc)]
+   GetV3PoolTickBitmaps,
+   "src/abi/GetV3PoolTickBitmaps.json",
+}
+
+sol! {
 
     #[derive(Debug)]
     struct TokenBalance {
@@ -83,6 +89,29 @@ sol! {
         bool initialized;
     }
 
+    #[derive(Debug)]
+    struct TickInfo {
+      uint128 liquidityGross;
+      int128 liquidityNet;
+      bool initialized;
+  }
+
+    #[derive(Debug)]
+    struct PoolData {
+      address pool;
+      uint256[] tickBitmap;
+      int24[] tickIndices;
+      TickInfo[] ticks;
+    }
+
+    #[derive(Debug)]
+    struct PoolInfo {
+      address pool;
+      int24 tickSpacing;
+      int16 minWord;
+      int16 maxWord;
+  }
+
 }
 
 /// Query the balance of multiple ERC20 tokens for the given owner
@@ -107,12 +136,8 @@ where
    Ok(data)
 }
 
-
 /// Query the ERC20 token info for the given token
-pub async fn get_erc20_info<P, N>(
-   client: P,
-   token: Address,
-) -> Result<ERC20Info, anyhow::Error>
+pub async fn get_erc20_info<P, N>(client: P, token: Address) -> Result<ERC20Info, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -120,15 +145,13 @@ where
    let deployer = GetERC20::deploy_builder(client, token);
    let res = deployer.call_raw().await?;
 
-   let data = <ERC20Info as SolValue>::abi_decode(&res)
-      .map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+   let data = <ERC20Info as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
    Ok(data)
 }
 
-
 /// Query the reserves for the given v2 pools
-/// 
+///
 /// If `block` is None, the latest block is used
 pub async fn get_v2_pool_reserves<P, N>(
    client: P,
@@ -149,52 +172,71 @@ where
    Ok(data)
 }
 
-
 /// Retrieve all V3 pools for tokenA and tokenB based on the fee tiers
 ///
 /// If no pools exists it will return an empty vector
 pub async fn get_v3_pools<P, N>(
-    client: P,
-    token_a: Address,
-    token_b: Address,
-    factory: Address,
- ) -> Result<Vec<V3PoolInfo>, anyhow::Error>
- where
-    P: Provider<N> + Clone + 'static,
-    N: Network,
- {
-    let deployer = GetV3Pools::deploy_builder(client, factory, token_a, token_b);
-    let res = deployer.call_raw().await?;
- 
-    let data =
-       <Vec<V3PoolInfo> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
- 
-    Ok(data)
- }
+   client: P,
+   token_a: Address,
+   token_b: Address,
+   factory: Address,
+) -> Result<Vec<V3PoolInfo>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let deployer = GetV3Pools::deploy_builder(client, factory, token_a, token_b);
+   let res = deployer.call_raw().await?;
 
+   let data =
+      <Vec<V3PoolInfo> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pools: {:?}", e))?;
+
+   Ok(data)
+}
 
 /// Query the state of multiple V3 pools
-/// 
+///
 /// If `block` is `None`, the latest block is used.
 pub async fn get_v3_state<P, N>(
-    client: P,
-    block: Option<BlockId>,
-    pools: Vec<V3Pool>,
- ) -> Result<Vec<V3PoolData>, anyhow::Error>
- where
-    P: Provider<N> + Clone + 'static,
-    N: Network,
- {
-    let block = block.unwrap_or(BlockId::latest());
-    let deployer = GetV3PoolState::deploy_builder(client, pools).block(block);
-    let res = deployer.call_raw().await?;
- 
-    let data = <Vec<V3PoolData> as SolValue>::abi_decode(&res)
-       .map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
- 
-    Ok(data)
- }
+   client: P,
+   block: Option<BlockId>,
+   pools: Vec<V3Pool>,
+) -> Result<Vec<V3PoolData>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = block.unwrap_or(BlockId::latest());
+   let deployer = GetV3PoolState::deploy_builder(client, pools).block(block);
+   let res = deployer.call_raw().await?;
 
+   let data =
+      <Vec<V3PoolData> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
+
+   Ok(data)
+}
+
+/// Get the all the tickBitmaps for the given pools
+/// 
+/// If `block` is None, the latest block is used
+pub async fn get_v3_pool_tick_bitmaps<P, N>(
+   client: P,
+   block: Option<BlockId>,
+   pools: Vec<GetV3PoolTickBitmaps::PoolInfo>,
+) -> Result<Vec<PoolData>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = block.unwrap_or(BlockId::latest());
+   let deployer = GetV3PoolTickBitmaps::deploy_builder(client, pools).block(block);
+   let res = deployer.call_raw().await?;
+
+   let data =
+      <Vec<PoolData> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
+
+   Ok(data)
+}
 
 #[cfg(test)]
 mod tests {
@@ -237,7 +279,6 @@ mod tests {
       assert_eq!(weth_info.decimals, 18);
    }
 
-
    #[tokio::test]
    async fn test_v2_pool_reserves() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
@@ -259,7 +300,6 @@ mod tests {
          );
       }
    }
-
 
    #[tokio::test]
    async fn test_v3_pools() {
@@ -289,7 +329,11 @@ mod tests {
       let pool = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
       let base_token = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
       let tick_spacing = I24::from_limbs([10]);
-      let pool2 = V3Pool { pool, base_token, tickSpacing: tick_spacing };
+      let pool2 = V3Pool {
+         pool,
+         base_token,
+         tickSpacing: tick_spacing,
+      };
 
       let data = get_v3_state(client.clone(), None, vec![pool2])
          .await
@@ -302,4 +346,5 @@ mod tests {
          println!("Pool Data: {:?}", pool);
       }
    }
+
 }

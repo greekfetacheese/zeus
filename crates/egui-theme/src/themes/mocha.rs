@@ -1,12 +1,8 @@
-use super::super::{
-   FrameVisuals, TextSizes, Theme, ThemeColors, ThemeKind, WidgetVisuals as ThemeWidgetVisuals,
-};
+use super::super::{FrameVisuals, TextSizes, Theme, ThemeColors, ThemeKind, WidgetVisuals as ThemeWidgetVisuals};
 use egui::{
    Color32, CornerRadius, Frame, Margin, Shadow, Stroke, Style, Visuals,
    style::{Selection, WidgetVisuals, Widgets},
 };
-
-
 
 const MANTLE: Color32 = Color32::from_rgb(24, 24, 37); // #181825
 
@@ -31,7 +27,7 @@ const BLUE: Color32 = Color32::from_rgb(137, 180, 250); // #89B4FA
 
 // const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
 
-const BLACK_SHADE: Color32 = Color32::from_rgb(24, 25, 37,);
+const BLACK_SHADE: Color32 = Color32::from_rgb(24, 25, 37);
 
 const LIGHT_BLACK_SHADE: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 40);
 
@@ -217,7 +213,6 @@ fn frame2() -> Frame {
       ..Default::default()
    }
 }
-
 
 fn frame1_visuals() -> FrameVisuals {
    FrameVisuals {

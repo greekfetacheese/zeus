@@ -3,7 +3,9 @@ use crate::core::{
    utils::{RT, update::update_eth_balance},
 };
 use crate::gui::SHARED_GUI;
-use eframe::egui::{Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2};
+use eframe::egui::{
+   Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2,
+};
 use egui_theme::{Theme, utils::*};
 use secure_types::SecureString;
 
@@ -226,28 +228,34 @@ impl AddWalletUi {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.add_space(30.0);
                let size = vec2(ui.available_width() * 0.9, 50.0);
-               widget_visuals(ui, theme.get_button_visuals(theme.colors.bg_color));
+               widget_visuals(
+                  ui,
+                  theme.get_button_visuals(theme.colors.bg_color),
+               );
 
                // From private key
-               let button1 = Button::new(RichText::new("From Private Key").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let button1 =
+                  Button::new(RichText::new("From Private Key").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
                if ui.add(button1).clicked() {
                   clicked1 = true;
                }
 
                // From seed phrase
-               let button2 = Button::new(RichText::new("From Seed Phrase").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let button2 =
+                  Button::new(RichText::new("From Seed Phrase").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
                if ui.add(button2).clicked() {
                   clicked2 = true;
                }
 
                // Generate new wallet
-               let button2 = Button::new(RichText::new("Generate New Wallet").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
+               let button2 =
+                  Button::new(RichText::new("Generate New Wallet").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
                if ui.add(button2).clicked() {
                   clicked3 = true;
                }

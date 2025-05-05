@@ -4,7 +4,12 @@ pub const WIDTH: f32 = 1440.0;
 pub const HEIGHT: f32 = 900.0;
 
 /// A Custom window frame for the App
-pub fn window_frame(ctx: &egui::Context, title: &str, frame: Frame, add_contents: impl FnOnce(&mut egui::Ui)) {
+pub fn window_frame(
+   ctx: &egui::Context,
+   title: &str,
+   frame: Frame,
+   add_contents: impl FnOnce(&mut egui::Ui),
+) {
    CentralPanel::default().frame(frame).show(ctx, |ui| {
       ui.visuals_mut().widgets.noninteractive.bg_stroke = Stroke::NONE;
 
@@ -78,12 +83,15 @@ fn title_bar_ui(ui: &mut egui::Ui, title_bar_rect: eframe::epaint::Rect, title: 
       .max_rect(title_bar_rect)
       .style(ui.ctx().style().clone());
    ui.allocate_new_ui(ui_builder, |ui| {
-      ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-         ui.spacing_mut().item_spacing.x = 10.0;
-         ui.visuals_mut().button_frame = false;
-         ui.add_space(8.0);
-         close_maximize_minimize(ui);
-      });
+      ui.with_layout(
+         egui::Layout::right_to_left(egui::Align::Center),
+         |ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.visuals_mut().button_frame = false;
+            ui.add_space(8.0);
+            close_maximize_minimize(ui);
+         },
+      );
    });
 }
 

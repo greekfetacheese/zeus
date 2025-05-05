@@ -259,7 +259,8 @@ impl RegisterUi {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.open = false;
-                              gui.wallet_selection.wallet_select.wallet = account.current_wallet.clone();
+                              gui.wallet_selection.wallet_select.wallet =
+                                 account.current_wallet.clone();
                               gui.register.credentials_form.erase();
                               gui.portofolio.open = true;
                               gui.wallet_selection.open = true;

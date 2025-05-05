@@ -8,10 +8,7 @@ pub use portfolio::{Portfolio, PortfolioDB};
 
 use crate::core::{
    serde_hashmap,
-   utils::{
-      data_dir,
-      tx::TxSummary,
-   },
+   utils::{data_dir, tx::TxSummary},
 };
 use std::collections::HashMap;
 use zeus_eth::alloy_primitives::Address;
@@ -53,7 +50,11 @@ impl TransactionsDB {
    pub fn add_tx(&mut self, chain: u64, owner: Address, summary: TxSummary) {
       self.txs.entry((chain, owner)).or_default().push(summary);
       // sort the txs by newest to oldest
-      self.txs.get_mut(&(chain, owner)).unwrap().sort_by(|a, b| b.block.cmp(&a.block));
+      self
+         .txs
+         .get_mut(&(chain, owner))
+         .unwrap()
+         .sort_by(|a, b| b.block.cmp(&a.block));
    }
 
    pub fn get_txs(&self, chain: u64, owner: Address) -> Option<&Vec<TxSummary>> {
@@ -62,15 +63,21 @@ impl TransactionsDB {
 
    pub fn get_tx_count(&self, chain: u64, owner: Address) -> usize {
       self.txs.get(&(chain, owner)).map_or(0, |v| v.len())
-  }
+   }
 
-  pub fn get_txs_paged(&self, chain: u64, owner: Address, page: usize, per_page: usize) -> Option<Vec<TxSummary>> {
-   self.txs.get(&(chain, owner)).map(|txs| {
-       let mut sorted_txs = txs.clone();
-       sorted_txs.sort_by(|a, b| b.block.cmp(&a.block));
-       let start = page * per_page;
-       let end = (start + per_page).min(sorted_txs.len());
-       sorted_txs[start..end].to_vec()
-   })
-}
+   pub fn get_txs_paged(
+      &self,
+      chain: u64,
+      owner: Address,
+      page: usize,
+      per_page: usize,
+   ) -> Option<Vec<TxSummary>> {
+      self.txs.get(&(chain, owner)).map(|txs| {
+         let mut sorted_txs = txs.clone();
+         sorted_txs.sort_by(|a, b| b.block.cmp(&a.block));
+         let start = page * per_page;
+         let end = (start + per_page).min(sorted_txs.len());
+         sorted_txs[start..end].to_vec()
+      })
+   }
 }

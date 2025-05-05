@@ -33,7 +33,11 @@ fn main() -> Result<(), anyhow::Error> {
    Ok(())
 }
 
-fn get_icon_data(directory: &PathBuf, chain_id: u64, icons: &mut Vec<TokenIconData>) -> Result<(), anyhow::Error> {
+fn get_icon_data(
+   directory: &PathBuf,
+   chain_id: u64,
+   icons: &mut Vec<TokenIconData>,
+) -> Result<(), anyhow::Error> {
    for entry in std::fs::read_dir(directory)? {
       let entry = entry?;
       let path = entry.path();

@@ -40,7 +40,8 @@ impl TokenIcons {
          let img = load_and_resize_image(&icon.icon_data, 32, 32)?;
          let img_x24 = load_and_resize_image(&icon.icon_data, 24, 24)?;
          let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
-         let texture_handle_x24 = ctx.load_texture(icon.address.to_string(), img_x24, texture_options);
+         let texture_handle_x24 =
+            ctx.load_texture(icon.address.to_string(), img_x24, texture_options);
          icons_x24.insert(
             (Address::from_str(&icon.address)?, icon.chain_id),
             texture_handle_x24,
@@ -51,7 +52,10 @@ impl TokenIcons {
             texture_handle,
          );
       }
-      Ok(Self { icon_x32: icons, icon_x24: icons_x24 })
+      Ok(Self {
+         icon_x32: icons,
+         icon_x24: icons_x24,
+      })
    }
 }
 

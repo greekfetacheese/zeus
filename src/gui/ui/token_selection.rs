@@ -1,5 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Color32, Button, RichText, FontId, Order, Frame, Layout, Margin, ScrollArea, TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
+   TextEdit, Ui, Window, emath::Vec2b, vec2,
 };
 
 use std::{str::FromStr, sync::Arc};
@@ -7,8 +8,8 @@ use std::{str::FromStr, sync::Arc};
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
-use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use egui_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
 
@@ -136,7 +137,10 @@ impl TokenSelectionWindow {
                      if valid_search {
                         let text = format!("{} ({})", currency.name(), currency.symbol());
                         let icon = icons.currency_icon(currency);
-                        let button = Button::image_and_text(icon, RichText::new(text).size(theme.text_sizes.normal));
+                        let button = Button::image_and_text(
+                           icon,
+                           RichText::new(text).size(theme.text_sizes.normal),
+                        );
 
                         ui.horizontal(|ui| {
                            ui.set_width(ui_width * 0.9);
@@ -149,7 +153,9 @@ impl TokenSelectionWindow {
                            }
 
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              ui.label(RichText::new(balance.formatted()).size(theme.text_sizes.normal));
+                              ui.label(
+                                 RichText::new(balance.formatted()).size(theme.text_sizes.normal),
+                              );
                            });
                         });
 
@@ -159,7 +165,15 @@ impl TokenSelectionWindow {
 
                   ui.vertical_centered(|ui| {
                      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                     self.get_token_on_valid_address(ctx, currencies, theme, chain_id, owner, &mut close_window, ui);
+                     self.get_token_on_valid_address(
+                        ctx,
+                        currencies,
+                        theme,
+                        chain_id,
+                        owner,
+                        &mut close_window,
+                        ui,
+                     );
                   });
                });
          });
@@ -181,14 +195,16 @@ impl TokenSelectionWindow {
    ) {
       if let Ok(address) = Address::from_str(&self.search_query) {
          // check if currency already exists
-         if currencies.iter().any(|c| c.erc20().map_or(false, |t| t.address == address)) {
+         if currencies
+            .iter()
+            .any(|c| c.erc20().map_or(false, |t| t.address == address))
+         {
             return;
          }
          let button = Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {
-
                SHARED_GUI.write(|gui| {
                   gui.loading_window.open("Retrieving token...");
                });
@@ -202,15 +218,15 @@ impl TokenSelectionWindow {
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to fetch token", e.to_string());
-                     gui.loading_window.open = false;
+                        gui.open_msg_window("Failed to fetch token", e.to_string());
+                        gui.loading_window.open = false;
                      });
                      return;
                   }
                };
                let currency = Currency::from(token);
                SHARED_GUI.write(|gui| {
-               gui.token_selection.selected_currency = Some(currency);
+                  gui.token_selection.selected_currency = Some(currency);
                });
             });
 

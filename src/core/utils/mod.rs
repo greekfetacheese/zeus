@@ -4,10 +4,10 @@ use anyhow::anyhow;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use zeus_eth::{
-   alloy_primitives::{U256, utils::format_units},
+   alloy_primitives::U256,
    currency::{Currency, NativeCurrency},
    utils::NumericValue,
 };
@@ -78,13 +78,11 @@ pub fn estimate_tx_cost(
    let price = ctx.get_currency_price(&Currency::from(native.clone()));
 
    let cost_in_wei = total_fee * U256::from(gas_used);
-   let cost = format_units(cost_in_wei, native.decimals).unwrap_or_default();
-   let cost: f64 = cost.parse().unwrap_or_default();
+   let cost = NumericValue::format_wei(cost_in_wei, native.decimals);
 
-   let cost_in_usd = NumericValue::value(cost, price.f64());
-   let cost_in_wei = NumericValue::format_wei(cost_in_wei, 18);
+   let cost_in_usd = NumericValue::value(cost.f64(), price.f64());
 
-   (cost_in_wei, cost_in_usd)
+   (cost, cost_in_usd)
 }
 
 pub fn format_expiry(timestamp: u64) -> String {

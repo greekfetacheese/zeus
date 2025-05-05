@@ -1,11 +1,12 @@
 use super::UniswapPool;
+use alloy_primitives::{Bytes, U256};
 use currency::Currency;
-use alloy_primitives::{U256, Bytes};
-use alloy_dyn_abi::TypedData;
+use utils::NumericValue;
+use serde_json::Value;
 
 pub mod v4;
+mod tests;
 
-/// The params for the execute function
 pub struct ExecuteParams {
    pub call_data: Bytes,
    /// The eth to be sent along with the transaction
@@ -13,9 +14,9 @@ pub struct ExecuteParams {
    /// Through Permit2
    pub token_needs_approval: bool,
    /// The message to be signed
-   /// 
+   ///
    /// This is just to show it in a UI, the message if any already signed internally
-   pub message: Option<TypedData>,
+   pub message: Option<Value>,
 }
 
 impl ExecuteParams {
@@ -40,24 +41,32 @@ impl ExecuteParams {
       self.token_needs_approval = token_needs_approval;
    }
 
-   pub fn set_message(&mut self, message: Option<TypedData>) {
+   pub fn set_message(&mut self, message: Option<Value>) {
       self.message = message;
    }
 }
 
-
-/// The route a swap will go through
+/// Represents a single atomic swap step within a potentially larger route.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Route<P: UniswapPool> {
-   pub pools: Vec<P>,
+pub struct SwapStep<P: UniswapPool> {
+   /// The specific pool used for this swap step.
+   pub pool: P,
+   /// The exact amount of `currency_in` being swapped in this step.
+   pub amount_in: NumericValue,
+   /// The simulated amount of `currency_out` received from this step.
+   pub amount_out: NumericValue,
+   /// The currency being provided to the pool.
    pub currency_in: Currency,
+   /// The currency being received from the pool.
    pub currency_out: Currency,
 }
 
-impl<P: UniswapPool> Route<P> {
-   pub fn new(pools: Vec<P>, currency_in: Currency, currency_out: Currency) -> Self {
+impl<P: UniswapPool> SwapStep<P> {
+   pub fn new(pool: P, amount_in: NumericValue, amount_out: NumericValue, currency_in: Currency, currency_out: Currency) -> Self {
       Self {
-         pools,
+         pool,
+         amount_in,
+         amount_out,
          currency_in,
          currency_out,
       }
@@ -74,17 +83,16 @@ pub enum SwapType {
 }
 
 impl SwapType {
-    pub fn is_exact_input(&self) -> bool {
-        matches!(self, Self::ExactInput)
-    }
+   pub fn is_exact_input(&self) -> bool {
+      matches!(self, Self::ExactInput)
+   }
 
-    pub fn is_exact_output(&self) -> bool {
-        matches!(self, Self::ExactOutput)
-    }
+   pub fn is_exact_output(&self) -> bool {
+      matches!(self, Self::ExactOutput)
+   }
 }
 
-
-/* 
+/*
 pub fn encode_route_to_path(route: &Route<impl UniswapPool>, exact_output: bool) -> Result<Bytes, anyhow::Error> {
    let mut path: Vec<u8> = Vec::with_capacity(23 * route.pools.len() + 20);
    if exact_output {

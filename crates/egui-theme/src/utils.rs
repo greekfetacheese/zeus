@@ -1,4 +1,4 @@
-use super::{FrameVisuals, WidgetVisuals, Theme, ThemeKind};
+use super::{FrameVisuals, Theme, ThemeKind, WidgetVisuals};
 use egui::{Color32, ComboBox, Frame, Response, Sense, Stroke, Ui};
 
 /// Show a ComboBox to change the theme
@@ -57,7 +57,6 @@ pub fn apply_theme_changes(theme: &Theme, ui: &mut Ui) {
 
 // Helper functions to override the visuals
 
-
 /// Override the visuals for widgets
 pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
    bg_color_on_idle(ui, visuals.bg_color_on_idle);
@@ -69,7 +68,7 @@ pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
    border_on_click(ui, visuals.border_on_click.0, visuals.border_on_click.1);
    border_on_open(ui, visuals.border_on_open.0, visuals.border_on_open.1);
    window_fill(ui, visuals.combobox_bg);
- }
+}
 
 /// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
 ///
@@ -93,7 +92,7 @@ pub fn no_border_on_hover(ui: &mut Ui) {
 }
 
 /// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
-/// 
+///
 /// At any state
 pub fn no_border(ui: &mut Ui) {
    ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
@@ -116,7 +115,7 @@ pub fn border_on_click(ui: &mut Ui, width: f32, color: Color32) {
 }
 
 /// Give a border to widgets like ComboxBox
-/// 
+///
 /// When the widget is open
 pub fn border_on_open(ui: &mut Ui, width: f32, color: Color32) {
    ui.visuals_mut().widgets.open.bg_stroke = Stroke::new(width, color);

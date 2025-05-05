@@ -699,13 +699,13 @@ impl SwapParams {
 
       let (amount_out, token_out) = if swap_log.amount1.is_negative() {
          (
-            swap_log.amount0,
-            pool.currency0().to_erc20().into_owned(),
+            swap_log.amount1,
+            pool.currency1().to_erc20().into_owned(),
          )
       } else {
          (
-            swap_log.amount1,
-            pool.currency1().to_erc20().into_owned(),
+            swap_log.amount0,
+            pool.currency0().to_erc20().into_owned(),
          )
       };
 

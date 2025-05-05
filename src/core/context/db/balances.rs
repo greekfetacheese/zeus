@@ -48,11 +48,21 @@ impl BalanceDB {
       self.eth_balances.get(&(chain, owner))
    }
 
-   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> Option<&NumericValue> {
+   pub fn get_token_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      token: Address,
+   ) -> Option<&NumericValue> {
       self.token_balances.get(&(chain, owner, token))
    }
 
-   pub fn insert_currency_balance(&mut self, owner: Address, balance: NumericValue, currency: &Currency) {
+   pub fn insert_currency_balance(
+      &mut self,
+      owner: Address,
+      balance: NumericValue,
+      currency: &Currency,
+   ) {
       if currency.is_native() {
          let native = currency.native().unwrap();
          let balance = balance.wei().unwrap_or_default();
@@ -64,12 +74,24 @@ impl BalanceDB {
       }
    }
 
-   pub fn insert_eth_balance(&mut self, chain: u64, owner: Address, balance: U256, currency: &NativeCurrency) {
+   pub fn insert_eth_balance(
+      &mut self,
+      chain: u64,
+      owner: Address,
+      balance: U256,
+      currency: &NativeCurrency,
+   ) {
       let balance = NumericValue::currency_balance(balance, currency.decimals);
       self.eth_balances.insert((chain, owner), balance);
    }
 
-   pub fn insert_token_balance(&mut self, chain: u64, owner: Address, balance: U256, token: &ERC20Token) {
+   pub fn insert_token_balance(
+      &mut self,
+      chain: u64,
+      owner: Address,
+      balance: U256,
+      token: &ERC20Token,
+   ) {
       let balance = NumericValue::currency_balance(balance, token.decimals);
       self
          .token_balances

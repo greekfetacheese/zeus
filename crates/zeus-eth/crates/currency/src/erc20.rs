@@ -1,12 +1,16 @@
-use abi::{alloy_contract::private::{Network, Provider}, alloy_primitives::{address, Address, Bytes, U256}, alloy_rpc_types::BlockId};
+use abi::{
+   alloy_contract::private::{Network, Provider},
+   alloy_primitives::{Address, Bytes, U256, address},
+   alloy_rpc_types::BlockId,
+};
 use types::{ARBITRUM, BASE, BSC, ChainId, ETH, OPTIMISM};
 use utils::{
    address::{dai, usdc, usdt, wbnb, weth},
    batch,
 };
 
-
 use serde::{Deserialize, Serialize};
+
 
 /// Represents an ERC20 token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -130,7 +134,7 @@ impl ERC20Token {
 
 impl ERC20Token {
    /// Wrapped Native Token based on the chain_id
-   /// 
+   ///
    /// Panics if the chain is not supported
    pub fn wrapped_native_token(chain_id: u64) -> ERC20Token {
       let chain = ChainId::new(chain_id).unwrap();

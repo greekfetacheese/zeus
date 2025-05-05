@@ -110,7 +110,10 @@ impl ChainSelection {
       ui.vertical(|ui| {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-         widget_visuals(ui, theme.get_widget_visuals(theme.colors.bg_color));
+         widget_visuals(
+            ui,
+            theme.get_widget_visuals(theme.colors.bg_color),
+         );
 
          // Chain Select
          let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
@@ -124,7 +127,8 @@ impl ChainSelection {
                });
 
                SHARED_GUI.write(|gui| {
-                  let currency = Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
+                  let currency =
+                     Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
                   gui.send_crypto.set_currency(currency.clone());
                   gui.swap_ui.default_currency_in(new_chain.id());
                   gui.swap_ui.default_currency_out(new_chain.id());
@@ -156,7 +160,10 @@ impl WalletSelection {
       ui.vertical(|ui| {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-         widget_visuals(ui, theme.get_widget_visuals(theme.colors.bg_color));
+         widget_visuals(
+            ui,
+            theme.get_widget_visuals(theme.colors.bg_color),
+         );
 
          // Wallet Select
          ui.spacing_mut().button_padding = vec2(10.0, 12.0);

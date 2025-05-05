@@ -178,10 +178,17 @@ impl Default for RpcProviders {
             Rpc::new("https://rpc.payload.de", 1, true, true),
             Rpc::new("https://1rpc.io/eth", 1, true, true),
             // Rpc::new("https://eth-mainnet.public.blastapi.io", 1, true, true),
-            Rpc::new("https://eth-pokt.nodies.app", 1, true, true),
+            
+            // Retry layer seems to dont work with this provider
+           // Rpc::new("https://eth-pokt.nodies.app", 1, true, true),
             Rpc::new("https://eth.merkle.io", 1, true, true),
             Rpc::new("https://eth.llamarpc.com", 1, true, true),
-            Rpc::new("https://ethereum-rpc.publicnode.com", 1, true, true),
+            Rpc::new(
+               "https://ethereum-rpc.publicnode.com",
+               1,
+               true,
+               true,
+            ),
             Rpc::new("https://rpc.mevblocker.io", 1, true, true),
             Rpc::new("https://rpc.flashbots.net", 1, true, true),
             Rpc::new("https://rpc.flashbots.net/fast", 1, true, true),
@@ -202,7 +209,12 @@ impl Default for RpcProviders {
             Rpc::new("https://op-pokt.nodies.app", 10, true, true),
             Rpc::new("https://mainnet.optimism.io", 10, true, true),
             Rpc::new("https://1rpc.io/op", 10, true, true),
-            Rpc::new("https://optimism-rpc.publicnode.com", 10, true, true),
+            Rpc::new(
+               "https://optimism-rpc.publicnode.com",
+               10,
+               true,
+               true,
+            ),
             Rpc::new("https://optimism.drpc.org", 10, true, true),
          ],
       );
@@ -215,9 +227,9 @@ impl Default for RpcProviders {
             Rpc::new("https://bsc.blockrazor.xyz", 56, true, true),
             Rpc::new("https://rpc-bsc.48.club", 56, true, true),
             Rpc::new("https://bsc.drpc.org", 56, true, true),
-           // Rpc::new("https://binance.llamarpc.com", 56, true, true),
+            // Rpc::new("https://binance.llamarpc.com", 56, true, true),
             Rpc::new("https://bsc-pokt.nodies.app", 56, true, true),
-           // Rpc::new("https://bsc-dataseed.bnbchain.org", 56, true, true),
+            // Rpc::new("https://bsc-dataseed.bnbchain.org", 56, true, true),
          ],
       );
 
@@ -225,7 +237,12 @@ impl Default for RpcProviders {
       rpcs.insert(
          8453,
          vec![
-            Rpc::new("https://base.api.onfinality.io/public", 8453, true, true),
+            Rpc::new(
+               "https://base.api.onfinality.io/public",
+               8453,
+               true,
+               true,
+            ),
             // Rpc::new("https://base-mainnet.public.blastapi.io", 8453, true, true),
             Rpc::new("https://base.llamarpc.com", 8453, true, true),
             Rpc::new("https://mainnet.base.org", 8453, true, true),
@@ -237,7 +254,12 @@ impl Default for RpcProviders {
             ),
             Rpc::new("https://1rpc.io/base", 8453, true, true),
             Rpc::new("https://base-pokt.nodies.app", 8453, true, true),
-            Rpc::new("https://base-rpc.publicnode.com", 8453, true, true),
+            Rpc::new(
+               "https://base-rpc.publicnode.com",
+               8453,
+               true,
+               true,
+            ),
          ],
       );
 
@@ -245,7 +267,7 @@ impl Default for RpcProviders {
       rpcs.insert(
          42161,
          vec![
-           // Rpc::new("https://arbitrum-one-rpc.publicnode.com", 42161, true, true),
+            // Rpc::new("https://arbitrum-one-rpc.publicnode.com", 42161, true, true),
             // Rpc::new("https://arbitrum-one.public.blastapi.io", 42161, true, true),
             Rpc::new("https://arbitrum.meowrpc.com", 42161, true, true),
             Rpc::new("https://arb1.arbitrum.io/rpc", 42161, true, true),
@@ -262,9 +284,11 @@ impl Default for RpcProviders {
 mod tests {
    use super::*;
    use crate::core::utils::RT;
+   use zeus_eth::amm::uniswap::state::batch_update_state;
    use zeus_eth::{
       alloy_provider::Provider,
       alloy_rpc_types::{BlockNumberOrTag, Filter},
+      amm::{UniswapV2Pool, AnyUniswapPool, UniswapV3Pool},
       types::SUPPORTED_CHAINS,
       utils::client,
    };
@@ -278,43 +302,95 @@ mod tests {
          let rpcs = rpc.get_all(chain);
 
          for rpc in rpcs {
-           let task = RT.spawn(async move {
-            let retry = client::retry_layer(10, 300, 330);
-            let throttle = client::throttle_layer(5);
-            let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
-            let block = match client.get_block_number().await {
-               Ok(block) => block,
-               Err(e) => {
-                  println!("Error getting block number for chain {} Url {}: {:?}", chain, rpc.url, e);
-                  return;
-               }
-            };
+            let task = RT.spawn(async move {
+               let retry = client::retry_layer(10, 300, 330);
+               let throttle = client::throttle_layer(5);
+               let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
+               let block = match client.get_block_number().await {
+                  Ok(block) => block,
+                  Err(e) => {
+                     println!(
+                        "Error getting block number for chain {} Url {}: {:?}",
+                        chain, rpc.url, e
+                     );
+                     return;
+                  }
+               };
 
-            let filter = Filter::new().from_block(BlockNumberOrTag::Number(block));
-            let logs = match client.get_logs(&filter).await {
-               Ok(logs) => logs,
-               Err(e) => {
-                  println!("Error getting logs for chain {} Url {}: {:?}", chain, rpc.url, e);
-                  return;
-               }
-            };
-            let res = format!(
-               "Using {} as RPC for chain {}, got {} logs",
-               rpc.url,
-               chain,
-               logs.len()
-            );
-            println!("{}", res);
-         });
-         tasks.push(task);  
+               let filter = Filter::new().from_block(BlockNumberOrTag::Number(block));
+               let logs = match client.get_logs(&filter).await {
+                  Ok(logs) => logs,
+                  Err(e) => {
+                     println!(
+                        "Error getting logs for chain {} Url {}: {:?}",
+                        chain, rpc.url, e
+                     );
+                     return;
+                  }
+               };
+               let res = format!(
+                  "Using {} as RPC for chain {}, got {} logs",
+                  rpc.url,
+                  chain,
+                  logs.len()
+               );
+               println!("{}", res);
+            });
+            tasks.push(task);
+         }
+      }
+
+      for task in tasks {
+         match task.await {
+            Ok(_) => {}
+            Err(e) => println!("Error testing RPC: {:?}", e),
+         }
       }
    }
 
-   for task in tasks {
-      match task.await {
-         Ok(_) => {}
-         Err(e) => println!("Error testing RPC: {:?}", e),
+   #[tokio::test]
+   async fn test_v3_batch_state() {
+      let rpcs = RpcProviders::default();
+
+      let pool1 = UniswapV2Pool::weth_uni();
+      let pool2 = UniswapV3Pool::usdt_uni();
+      let pool3 = UniswapV3Pool::weth_usdc();
+      let mut pools = Vec::new();
+      pools.push(AnyUniswapPool::from_pool(pool1));
+      pools.push(AnyUniswapPool::from_pool(pool2));
+      pools.push(AnyUniswapPool::from_pool(pool3));
+
+      let mut tasks = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         let rpcs = rpcs.get_all(chain);
+
+         for rpc in rpcs {
+            let pools = pools.clone();
+            let task = RT.spawn(async move {
+               let retry = client::retry_layer(10, 300, 330);
+               let throttle = client::throttle_layer(5);
+               let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
+               let _ = match batch_update_state(client, chain, 1, pools.clone()).await {
+                  Ok(_) => {
+                     println!("Successfully updated state for chain {} using RPC {}", chain, rpc.url);
+                  }
+                  Err(e) => {
+                     println!(
+                        "Error updating state for chain {} using RPC {}: {:?}",
+                        chain, rpc.url, e
+                     );
+                  }
+               };
+            });
+            tasks.push(task);
+         }
+      }
+
+      for task in tasks {
+         match task.await {
+            Ok(_) => {}
+            Err(_) => {},
+         }
       }
    }
-}
 }

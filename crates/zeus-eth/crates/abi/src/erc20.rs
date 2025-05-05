@@ -1,6 +1,6 @@
-use alloy_primitives::{Address, LogData, Bytes, U256};
+use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types::BlockId;
-use alloy_sol_types::{sol, SolCall, SolEvent};
+use alloy_sol_types::{SolCall, SolEvent, sol};
 
 use alloy_contract::private::{Network, Provider};
 

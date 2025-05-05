@@ -3,7 +3,8 @@ use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
 
-const VIEW_KEY_MSG: &str = "The key has been copied! In 60 seconds it will be cleared from the clipboard.";
+const VIEW_KEY_MSG: &str =
+   "The key has been copied! In 60 seconds it will be cleared from the clipboard.";
 const CLIPBOARD_EXPIRY: u64 = 60;
 
 pub struct KeyExporter {
@@ -290,7 +291,10 @@ impl DeleteWalletUi {
                ui.label(RichText::new(wallet.address_string()).size(theme.text_sizes.normal));
 
                let value = ctx.get_portfolio_value_all_chains(wallet.address);
-               ui.label(RichText::new(format!("Value ${}", value.formatted())).size(theme.text_sizes.normal));
+               ui.label(
+                  RichText::new(format!("Value ${}", value.formatted()))
+                     .size(theme.text_sizes.normal),
+               );
 
                if ui
                   .add(Button::new(

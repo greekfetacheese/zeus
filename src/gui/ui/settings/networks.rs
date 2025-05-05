@@ -3,12 +3,10 @@ use crate::core::{
    ZeusCtx,
    utils::{RT, update::measure_rpcs},
 };
-use crate::gui::{
-   SHARED_GUI,
-   ui::ChainSelect,
-};
+use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use eframe::egui::{
-   Align, Align2, Color32, Button, RichText, FontId, Grid, Layout, Margin, Order, ScrollArea, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,
+   Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
 use egui_theme::{Theme, utils::widget_visuals};
@@ -42,7 +40,14 @@ impl NetworkSettings {
       self.url_to_add.starts_with("http://") || self.url_to_add.starts_with("https://")
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, parent_open: &mut bool, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      parent_open: &mut bool,
+      ui: &mut Ui,
+   ) {
       self.add_rpc(ctx.clone(), theme, ui);
 
       let mut open = self.open;
@@ -82,12 +87,13 @@ impl NetworkSettings {
                      RT.spawn(async move {
                         measure_rpcs(ctx.clone()).await;
                         SHARED_GUI.write(|gui| {
-                        gui.settings.network.refreshing = false;
+                           gui.settings.network.refreshing = false;
                         });
                      });
                   }
 
-                  let add_network = Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
+                  let add_network =
+                     Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
                   if ui.add(add_network).clicked() {
                      self.add_rpc = true;
                   }
@@ -167,7 +173,8 @@ impl NetworkSettings {
                         });
 
                         // Remove button column
-                        let button = Button::new(RichText::new("Remove").size(theme.text_sizes.small));
+                        let button =
+                           Button::new(RichText::new("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[3]);
                            // only allow rpcs added by the user to be removed

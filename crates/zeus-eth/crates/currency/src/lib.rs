@@ -1,10 +1,10 @@
 pub mod erc20;
 pub mod native;
 
-use serde::{Deserialize, Serialize};
 use abi::alloy_primitives::Address;
-use utils::is_base_token;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use utils::is_base_token;
 
 pub use erc20::ERC20Token;
 pub use native::NativeCurrency;
@@ -49,7 +49,7 @@ impl Currency {
    }
 
    /// Is this Currency a base currency?
-   /// 
+   ///
    /// See [is_base_token]
    pub fn is_base(&self) -> bool {
       if self.is_native() {
@@ -76,17 +76,17 @@ impl Currency {
    /// for example ETH will become WETH
    pub fn to_erc20(&self) -> Cow<ERC20Token> {
       match self {
-          Currency::ERC20(erc20) => Cow::Borrowed(erc20),
-          Currency::Native(_) => Cow::Owned(self.to_wrapped_native()),
+         Currency::ERC20(erc20) => Cow::Borrowed(erc20),
+         Currency::Native(_) => Cow::Owned(self.to_wrapped_native()),
       }
-  }
+   }
 
-  /// Get the address of the ERC20 token
-  /// 
-  /// Shortcut for [Self::to_erc20()]
-  pub fn address(&self) -> Address {
+   /// Get the address of the ERC20 token
+   ///
+   /// Shortcut for [Self::to_erc20()]
+   pub fn address(&self) -> Address {
       self.to_erc20().address
-  }
+   }
 
    /// Get the ERC20 inside
    pub fn erc20(&self) -> Option<&ERC20Token> {

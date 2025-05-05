@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::{
    DexKind,
-   uniswap::{AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*},
+   uniswap::{AnyUniswapPool, FEE_TIERS, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*},
 };
 use currency::{Currency, ERC20Token};
 use serde::{Deserialize, Serialize};
@@ -71,10 +71,25 @@ impl PoolManagerHandle {
       self.read(|manager| manager.get_pools_from_currency(currency))
    }
 
-   pub fn get_pool(&self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) -> Option<AnyUniswapPool> {
+   pub fn get_pools_from_pair(&self, currency_a: &Currency, currency_b: &Currency) -> Vec<AnyUniswapPool> {
+      self.read(|manager| manager.get_pools_from_pair(currency_a.chain_id(), currency_a, currency_b))
+   }
+
+   pub fn get_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
+      self.read(|manager| manager.get_pools_for_chain(chain_id))
+   }
+
+   pub fn get_pool(
+      &self,
+      chain_id: u64,
+      dex: &DexKind,
+      fee: u32,
+      currency0: &Currency,
+      currency1: &Currency,
+   ) -> Option<AnyUniswapPool> {
       self.read(|manager| {
          manager
-            .get_pool(chain_id, fee, currency0, currency1)
+            .get_pool(chain_id, dex, fee, currency0, currency1)
             .cloned()
       })
    }
@@ -159,6 +174,7 @@ impl PoolManagerHandle {
             manager.add_pool(pool);
          }
       });
+      self.cleanup_pools();
       Ok(())
    }
 
@@ -180,6 +196,18 @@ impl PoolManagerHandle {
 
    pub fn calculate_prices(&self) {
       self.write(|manager| manager.calculate_prices())
+   }
+
+   /// Get a quote for the given currency pair.
+   ///
+   /// Returns the amount out and the pool which the swap is executed on.
+   pub fn get_quote_single(
+      &self,
+      amount_in: U256,
+      currency_in: &Currency,
+      currency_out: &Currency,
+   ) -> Option<(NumericValue, AnyUniswapPool)> {
+      self.read(|manager| manager.get_quote_single(amount_in, currency_in, currency_out))
    }
 
    /// Sync V2 & V3 pools for the given token based on:
@@ -233,13 +261,15 @@ impl PoolManagerHandle {
 
          let currency_a = base_token.clone().into();
          let currency_b = token.clone().into();
-         // if pool already exist, skip
-         if self.get_pool(chain, 300, currency_a, currency_b).is_some() {
-            continue;
-         }
 
          for dex in &dex_kinds {
             if dex.is_v3() {
+               continue;
+            }
+
+            // if pool already exist, skip
+            let pool = self.get_pool(chain, dex, 300, &currency_a, &currency_b);
+            if pool.is_some() {
                continue;
             }
 
@@ -292,12 +322,8 @@ impl PoolManagerHandle {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let base_tokens = ERC20Token::base_tokens(token.chain_id);
-      let base_token_map = base_tokens
-         .iter()
-         .map(|t| (t.address, t))
-         .collect::<HashMap<_, _>>();
-      let mut pools = Vec::new();
+      let chain = token.chain_id;
+      let base_tokens = ERC20Token::base_tokens(chain);
 
       for base_token in &base_tokens {
          if base_token.address == token.address {
@@ -309,7 +335,25 @@ impl PoolManagerHandle {
                continue;
             }
 
+            let currency_a = base_token.clone().into();
+            let currency_b = token.clone().into();
+
+            // check if pool already exists
+            let mut skip = false;
+            for fee in FEE_TIERS {
+               let pool = self.get_pool(chain, dex, fee, &currency_a, &currency_b);
+               if pool.is_some() {
+                     skip = true;
+                     break;
+               }
+            }
+
+            if skip {
+               continue;
+            }
+
             let factory = dex.factory(token.chain_id)?;
+
             info!(
                target: "zeus_eth::amm::pool_manager", "Getting {} pools for: {}-{} Chain Id: {}",
                dex.to_str(),
@@ -318,56 +362,35 @@ impl PoolManagerHandle {
                token.chain_id
             );
 
-            let v3_pools = batch::get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
-            pools.extend(v3_pools);
-         }
-      }
+            let pools = batch::get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
 
-      let mut pool_result = Vec::new();
-
-      for dex in &dex_kinds {
-         if dex.is_v2() {
-            continue;
-         }
-
-         for pool in &pools {
-            if !pool.addr.is_zero() {
-               let fee: u32 = pool.fee.to_string().parse()?;
-               let base_token = if let Some(base_token) = base_token_map.get(&pool.token0).cloned() {
-                  base_token
-               } else if let Some(base_token) = base_token_map.get(&pool.token1).cloned() {
-                  base_token
-               } else {
-                  anyhow::bail!(
-                     "Could not find base token for {}/{} (Shouldn't happen)",
-                     pool.token0,
-                     pool.token1
+            for pool in &pools {
+               if !pool.addr.is_zero() {
+                  let fee: u32 = pool.fee.to_string().parse()?;
+                  let v3_pool = UniswapV3Pool::new(
+                     token.chain_id,
+                     pool.addr,
+                     fee,
+                     token.clone(),
+                     base_token.clone(),
+                     *dex,
                   );
-               };
 
-               let v3_pool = UniswapV3Pool::new(
-                  token.chain_id,
-                  pool.addr,
-                  fee,
-                  token.clone(),
-                  base_token.clone(),
-                  *dex,
-               );
-               info!(
-                  target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{} - Fee: {}",
-                  dex.to_str(),
-                  v3_pool.token0().symbol,
-                  v3_pool.token1().symbol,
-                  v3_pool.fee.fee()
-               );
-               pool_result.push(v3_pool);
+                  info!(
+                     target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
+                     dex.to_str(),
+                     v3_pool.address,
+                     v3_pool.token0().symbol,
+                     v3_pool.token1().symbol,
+                     v3_pool.fee.fee()
+                  );
+
+                  self.add_pool(v3_pool);
+               }
             }
          }
       }
 
-      for pool in pool_result {
-         self.add_pool(pool);
-      }
       Ok(())
    }
 }
@@ -460,23 +483,65 @@ impl PoolManager {
       pools
    }
 
+   /// Get all pools for this currency pair
+   pub fn get_pools_from_pair(
+      &self,
+      chain_id: u64,
+      currency_a: &Currency,
+      currency_b: &Currency,
+   ) -> Vec<AnyUniswapPool> {
+      let mut pools = Vec::new();
+      for (_, pool) in &self.pools {
+         if pool.chain_id() != chain_id {
+            continue;
+         }
+         if pool.is_currency0(currency_a) && pool.is_currency1(currency_b) {
+            pools.push(pool.clone());
+         } else if pool.is_currency0(currency_b) && pool.is_currency1(currency_a) {
+            pools.push(pool.clone());
+         }
+      }
+      pools
+   }
+
+   /// Get all pools for the given chain
+   pub fn get_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
+      self
+         .pools
+         .values()
+         .filter(|p| p.chain_id() == chain_id)
+         .cloned()
+         .collect()
+   }
+
    pub fn get_pool(
       &self,
       chain_id: u64,
+      dex: &DexKind,
       fee: u32,
-      currency_a: Currency,
-      currency_b: Currency,
+      currency_a: &Currency,
+      currency_b: &Currency,
    ) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self
-         .pools
-         .get(&(chain_id, fee, currency_a.clone(), currency_b.clone()))
-      {
-         Some(pool)
-      } else if let Some(pool) = self.pools.get(&(chain_id, fee, currency_b, currency_a)) {
-         Some(pool)
-      } else {
-         None
+      for pool in self.pools.values() {
+         if pool.chain_id() != chain_id {
+            continue;
+         }
+
+         if pool.dex_kind() != *dex {
+            continue;
+         }
+
+         if pool.fee().fee() != fee {
+            continue;
+         }
+
+         if pool.is_currency0(&currency_a) && pool.is_currency1(&currency_b) {
+            return Some(pool);
+         } else if pool.is_currency0(&currency_b) && pool.is_currency1(&currency_a) {
+            return Some(pool);
+         }
       }
+      None
    }
 
    pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
@@ -527,32 +592,16 @@ impl PoolManager {
       }
    }
 
-   /// Get all pools for the given currency pair.
-   pub fn get_pools_from_pair(&self, chain: u64, currency_a: &Currency, currency_b: &Currency) -> Vec<AnyUniswapPool> {
-      let mut pools = Vec::new();
-      for (_, pool) in &self.pools {
-         if pool.chain_id() != chain {
-            continue;
-         }
-         if pool.is_currency0(currency_a) && pool.is_currency1(currency_b) {
-            pools.push(pool.clone());
-         } else if pool.is_currency0(currency_b) && pool.is_currency1(currency_a) {
-            pools.push(pool.clone());
-         }
-      }
-      pools
-   }
-
    /// Get a quote for the given currency pair.
    ///
    /// Returns the amount out and the pool which the swap is executed on.
    pub fn get_quote_single(
       &self,
-      chain: u64,
       amount_in: U256,
       currency_in: &Currency,
       currency_out: &Currency,
    ) -> Option<(NumericValue, AnyUniswapPool)> {
+      let chain = currency_in.chain_id();
       let pools = self.get_pools_from_pair(chain, currency_in, currency_out);
       if pools.is_empty() {
          return None;

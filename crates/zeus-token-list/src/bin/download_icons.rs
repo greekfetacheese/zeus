@@ -73,7 +73,10 @@ async fn main() -> Result<(), anyhow::Error> {
 async fn download_img(token: UniswapToken, path: &PathBuf) -> Result<(), anyhow::Error> {
    let file_name = format!("{}.png", token.address);
    if path.join(&file_name).exists() {
-      println!("Image already exists for {} Skipping...", token.address);
+      println!(
+         "Image already exists for {} Skipping...",
+         token.address
+      );
       return Ok(());
    }
 

@@ -5,8 +5,8 @@ pub mod block;
 pub mod client;
 pub mod price_feed;
 
-use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use alloy_contract::private::{Network, Provider};
+use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use alloy_primitives::{
    Address, U256,
    utils::{format_units, parse_units},
@@ -14,6 +14,8 @@ use alloy_primitives::{
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
 
+use anyhow::anyhow;
+use serde_json::Value;
 use std::sync::Arc;
 use tokio::{
    sync::{Mutex, Semaphore},
@@ -21,15 +23,10 @@ use tokio::{
 };
 use tracing::trace;
 use types::BlockTime;
-use serde_json::Value;
-use anyhow::anyhow;
 
 pub use alloy_network;
 pub use alloy_rpc_client;
 pub use alloy_transport;
-
-
-
 
 pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
    let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;
@@ -155,7 +152,8 @@ pub fn truncate_address(s: &str, max_len: usize) -> String {
    let prefix_len = 6;
    let suffix_len = 6;
    // Ensure "0x" prefix is handled if present
-   if s.starts_with("0x") && max_len > 6 { // 2 for "0x", 3 for "...", 1 for actual char
+   if s.starts_with("0x") && max_len > 6 {
+      // 2 for "0x", 3 for "...", 1 for actual char
       let prefix = &s[..prefix_len.max(2)]; // Keep at least "0x"
       let suffix = &s[s.len() - suffix_len..];
       format!("{}...{}", prefix, suffix)
@@ -262,7 +260,7 @@ pub fn format_price(price: f64) -> String {
 }
 
 /// Represents a numeric value in different formats
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NumericValue {
    /// For [Self::value] & [Self::currency_price] is None
    pub wei: Option<U256>,
@@ -280,11 +278,11 @@ impl Default for NumericValue {
    }
 }
 
+// Builders
+
 impl NumericValue {
-
-
    /// Format a wei value to a readable format
-   /// 
+   ///
    /// Example:
    /// ```
    /// // 1 ETH in wei
@@ -309,7 +307,7 @@ impl NumericValue {
    /// Parse a value doing the 10^decimals conversion
    ///
    /// The wei value is stored and its being formatted to a readable format [f64] and [String]
-   /// 
+   ///
    /// Example:
    /// ```
    /// let amount = "1";
@@ -337,7 +335,7 @@ impl NumericValue {
    }
 
    /// Format a wei value to gwei in a readable format
-   /// 
+   ///
    /// Example:
    /// ```
    /// // 1 GWei in wei
@@ -362,7 +360,7 @@ impl NumericValue {
    /// Parse a value doing the 10^9 conversion
    ///
    /// The wei value is stored and its being formatted to a readable format [f64] and [String]
-   /// 
+   ///
    /// Example:
    /// ```
    /// let amount = "1";
@@ -387,6 +385,21 @@ impl NumericValue {
          f64,
          formatted,
       }
+   }
+
+   /// Computes the new amount by applying the given slippage percentage.
+   /// The `slippage_percent` is in percentage points, e.g., 1.0 for 1%.
+   /// Panics if `self.wei` is `None`.
+   pub fn calc_slippage(&mut self, slippage: f64, decimals: u8) {
+      let wei = self.wei2();
+      let slippage_bps = (slippage * 100.0) as u64;
+      let denominator = 10000u64;
+      let factor_num = denominator - slippage_bps;
+      let wei = (wei * U256::from(factor_num)) / U256::from(denominator);
+      let value = NumericValue::format_wei(wei, decimals);
+      self.wei = Some(wei);
+      self.f64 = value.f64();
+      self.formatted = value.formatted;
    }
 
    /// Create a new NumericValue to represent a currency balance
@@ -475,6 +488,15 @@ mod tests {
       let value = NumericValue::currency_balance(amount, 18);
       assert_eq!(value.f64, 0.001834247995202872);
       assert_eq!(value.formatted, "0.001834");
+   }
+
+   #[test]
+   fn test_calc_slippage() {
+      let mut value = NumericValue::parse_to_wei("1", 18);
+      value.calc_slippage(10.0, 18);
+      assert_eq!(value.wei2(), U256::from(900000000000000000u128));
+      assert_eq!(value.f64, 0.9);
+      assert_eq!(value.formatted, "0.9");
    }
 
    #[test]

@@ -3,8 +3,8 @@ use eframe::egui::{
    Spinner, TextEdit, Ui, Vec2, Window, vec2,
 };
 use egui::{FontId, Margin};
-use zeus_eth::amm::DexKind;
 use std::sync::Arc;
+use zeus_eth::amm::DexKind;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
@@ -1178,12 +1178,9 @@ impl PortfolioUi {
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-         match manager.sync_pools_for_token(
-            client.clone(),
-            token.clone(),
-            dex_kinds
-         )
-         .await
+         match manager
+            .sync_pools_for_token(client.clone(), token.clone(), dex_kinds)
+            .await
          {
             Ok(_) => {
                tracing::info!("Synced Pools for {}", token.symbol);

@@ -3,22 +3,21 @@ use crate::core::utils::action::OnChainAction;
 use crate::core::utils::eth::get_eth_balance;
 use crate::core::{
    ZeusCtx,
-   utils::{
-      RT, estimate_tx_cost, eth,
-   },
+   utils::{RT, estimate_tx_cost, eth},
 };
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow},
 };
 use egui::{
-   vec2, Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, RichText, Spinner, TextEdit, Ui, Window
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, RichText, Spinner,
+   TextEdit, Ui, Window, vec2,
 };
 use egui_theme::{Theme, utils::widget_visuals};
 use egui_widgets::Label;
-use zeus_eth::dapps::Dapp;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
+use zeus_eth::dapps::Dapp;
 use zeus_eth::{
    abi::protocols::across::{DepositV3Args, encode_deposit_v3},
    alloy_primitives::{Address, Bytes, U256},
@@ -59,7 +58,6 @@ pub struct AcrossBridge {
 
 impl AcrossBridge {
    pub fn new() -> Self {
-
       Self {
          open: false,
          currency: NativeCurrency::from_chain_id(1).unwrap(),
@@ -100,7 +98,6 @@ impl AcrossBridge {
 
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
-
       let frame = theme.frame1;
       let bg_color = frame.fill;
       Window::new("Across Bridge")
@@ -111,244 +108,243 @@ impl AcrossBridge {
          .frame(frame)
          .show(ui.ctx(), |ui| {
             Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
-            ui.set_max_width(self.size.0);
-            ui.set_max_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let ui_width = ui.available_width();
+               ui.set_max_width(self.size.0);
+               ui.set_max_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               let ui_width = ui.available_width();
 
-            // Header
-            ui.vertical_centered(|ui| {
-               ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
-            });
+               // Header
+               ui.vertical_centered(|ui| {
+                  ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
+               });
 
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               if ui
-                  .add(Button::new(
-                     RichText::new("⟲").size(theme.text_sizes.small),
-                  ))
-                  .clicked()
-               {
-                  self.get_balance(ctx.clone(), depositor);
-               }
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  if ui
+                     .add(Button::new(
+                        RichText::new("⟲").size(theme.text_sizes.small),
+                     ))
+                     .clicked()
+                  {
+                     self.get_balance(ctx.clone(), depositor);
+                  }
+               });
 
-            });
+               // Asset and amount selection
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(RichText::new("Amount").size(theme.text_sizes.large));
+               });
 
-            // Asset and amount selection
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Amount").size(theme.text_sizes.large));
-            });
+               let balance = ctx
+                  .get_eth_balance(from_chain, depositor)
+                  .unwrap_or_default();
 
-            let balance = ctx
-               .get_eth_balance(from_chain, depositor)
-               .unwrap_or_default();
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.set_max_width(ui_width * 0.25);
-               Grid::new("asset_and_amount")
-                  .spacing(vec2(5.0, 0.0))
-                  .show(ui, |ui| {
-                     ui.add(
-                        TextEdit::singleline(&mut self.amount)
-                           .hint_text("0")
-                           .font(FontId::proportional(theme.text_sizes.normal))
-                           .min_size(vec2(ui_width * 0.25, 25.0))
-                           .background_color(theme.colors.text_edit_bg2)
-                           .margin(Margin::same(10)),
-                     );
-                     let icon = icons.native_currency_icon(self.currency.chain_id);
-                     let text = RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
-                     ui.add(Label::new(text, Some(icon)));
-                     let text = format!("Balance: {}", balance.formatted());
-                     ui.label(RichText::new(text).size(theme.text_sizes.normal));
-
-                     // Max amount button
-                     ui.spacing_mut().button_padding = vec2(5.0, 5.0);
-                     widget_visuals(ui, theme.get_button_visuals(bg_color));
-                     let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
-                     if ui.add(button).clicked() {
-                        self.amount = self.max_amount(ctx.clone()).flatten().clone();
-                     }
-
-                     if self.balance_syncing {
-                        ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                     }
-                     ui.end_row();
-
-                     // Amount check
-                     if !self.amount.is_empty() && !self.valid_amount() {
-                        ui.label(
-                           RichText::new("Invalid Amount")
-                              .size(theme.text_sizes.small)
-                              .color(Color32::RED),
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.set_max_width(ui_width * 0.25);
+                  Grid::new("asset_and_amount")
+                     .spacing(vec2(5.0, 0.0))
+                     .show(ui, |ui| {
+                        ui.add(
+                           TextEdit::singleline(&mut self.amount)
+                              .hint_text("0")
+                              .font(FontId::proportional(theme.text_sizes.normal))
+                              .min_size(vec2(ui_width * 0.25, 25.0))
+                              .background_color(theme.colors.text_edit_bg2)
+                              .margin(Margin::same(10)),
                         );
+                        let icon = icons.native_currency_icon(self.currency.chain_id);
+                        let text =
+                           RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
+                        ui.add(Label::new(text, Some(icon)));
+                        let text = format!("Balance: {}", balance.formatted());
+                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                        // Max amount button
+                        ui.spacing_mut().button_padding = vec2(5.0, 5.0);
+                        widget_visuals(ui, theme.get_button_visuals(bg_color));
+                        let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
+                        if ui.add(button).clicked() {
+                           self.amount = self.max_amount(ctx.clone()).flatten().clone();
+                        }
+
+                        if self.balance_syncing {
+                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                        }
                         ui.end_row();
-                     }
 
-                     // Balance check
-                     if !self.sufficient_balance(ctx.clone(), depositor) {
-                        ui.label(
-                           RichText::new("Insufficient balance")
-                              .size(theme.text_sizes.small)
-                              .color(Color32::RED),
-                        );
-                        ui.end_row();
-                     }
-                  });
-            });
-
-            let amount = self.amount.parse().unwrap_or(0.0);
-            // Value
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  RichText::new(format!(
-                     "Value≈ ${}",
-                     self.value(ctx.clone(), amount).formatted()
-                  ))
-                  .size(theme.text_sizes.normal),
-               );
-            });
-            ui.add_space(10.0);
-
-            // Recipient
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               Grid::new("recipient")
-                  .spacing(vec2(5.0, 0.0))
-                  .show(ui, |ui| {
-                     ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-
-                     if !recipient.is_empty() {
-                        if let Some(name) = &recipient_name {
-                           ui.label(RichText::new(name).size(theme.text_sizes.normal).strong());
-                        } else {
+                        // Amount check
+                        if !self.amount.is_empty() && !self.valid_amount() {
                            ui.label(
-                              RichText::new("Unknown Address")
-                                 .size(theme.text_sizes.normal)
+                              RichText::new("Invalid Amount")
+                                 .size(theme.text_sizes.small)
                                  .color(Color32::RED),
                            );
+                           ui.end_row();
                         }
-                        if !self.valid_recipient(&recipient) {
+
+                        // Balance check
+                        if !self.sufficient_balance(ctx.clone(), depositor) {
                            ui.label(
-                              RichText::new("Invalid Address")
-                                 .size(theme.text_sizes.normal)
+                              RichText::new("Insufficient balance")
+                                 .size(theme.text_sizes.small)
                                  .color(Color32::RED),
                            );
+                           ui.end_row();
                         }
-                     }
-                     ui.end_row();
-                  });
-            });
+                     });
+               });
 
-            // widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let res = ui.add(
-                  TextEdit::singleline(&mut recipient_selection.recipient)
-                     .hint_text("Search contacts or enter an address")
-                     .min_size(vec2(ui_width * 0.5, 25.0))
-                     .margin(Margin::same(10))
-                     .background_color(theme.colors.text_edit_bg2)
-                     .font(FontId::proportional(theme.text_sizes.normal)),
-               );
-
-               if res.clicked() {
-                  recipient_selection.open = true;
-               }
-            });
-            ui.add_space(10.0);
-
-            widget_visuals(ui, theme.get_widget_visuals(bg_color));
-
-            // From Chain
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               Grid::new("from_chain")
-                  .spacing(vec2(5.0, 0.0))
-                  .show(ui, |ui| {
-                     ui.label(RichText::new("From").size(theme.text_sizes.large));
-                     self.from_chain.show(BSC, theme, icons.clone(), ui);
-                     ui.end_row();
-                  });
-            });
-            ui.add_space(10.0);
-
-            // To Chain
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               Grid::new("to_chain")
-                  .spacing(vec2(5.0, 0.0))
-                  .show(ui, |ui| {
-                     ui.label(RichText::new("To").size(theme.text_sizes.large));
-                     self.to_chain.grid_id = "across_bridge_to_chain";
-                     self.to_chain.show(BSC, theme, icons.clone(), ui);
-                     ui.end_row();
-                  });
-            });
-            ui.add_space(10.0);
-
-
-            // Network Fee
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  RichText::new(format!(
-                     "Network Fee≈ ${}",
-                     self.cost(ctx.clone()).1.formatted()
-                  ))
-                  .size(theme.text_sizes.normal),
-               );
-            });
-
-            // Protocol Fee
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(
-                  RichText::new(format!(
-                     "Protocol Fee≈ ${}",
-                     self.protocol_fee(ctx.clone()).formatted()
-                  ))
-                  .size(theme.text_sizes.normal),
-               );
-               if self.requesting {
-                  ui.add_space(10.0);
-                  ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
-               }
-            });
-
-            // Estimated time to fill
-            let fill_time = self
-               .api_res_cache
-               .get(&(
-                  self.from_chain.chain.id(),
-                  self.to_chain.chain.id(),
-               ))
-               .map(|c| c.res.suggested_fees.estimated_fill_time_sec);
-            if let Some(fill_time) = fill_time {
+               let amount = self.amount.parse().unwrap_or(0.0);
+               // Value
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(
+                     RichText::new(format!(
+                        "Value≈ ${}",
+                        self.value(ctx.clone(), amount).formatted()
+                     ))
+                     .size(theme.text_sizes.normal),
+                  );
+               });
                ui.add_space(10.0);
-               ui.label(
-                  RichText::new(format!(
-                     "Estimated time to fill: {} seconds",
-                     fill_time
+
+               // Recipient
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  Grid::new("recipient")
+                     .spacing(vec2(5.0, 0.0))
+                     .show(ui, |ui| {
+                        ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+
+                        if !recipient.is_empty() {
+                           if let Some(name) = &recipient_name {
+                              ui.label(RichText::new(name).size(theme.text_sizes.normal).strong());
+                           } else {
+                              ui.label(
+                                 RichText::new("Unknown Address")
+                                    .size(theme.text_sizes.normal)
+                                    .color(Color32::RED),
+                              );
+                           }
+                           if !self.valid_recipient(&recipient) {
+                              ui.label(
+                                 RichText::new("Invalid Address")
+                                    .size(theme.text_sizes.normal)
+                                    .color(Color32::RED),
+                              );
+                           }
+                        }
+                        ui.end_row();
+                     });
+               });
+
+               // widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let res = ui.add(
+                     TextEdit::singleline(&mut recipient_selection.recipient)
+                        .hint_text("Search contacts or enter an address")
+                        .min_size(vec2(ui_width * 0.5, 25.0))
+                        .margin(Margin::same(10))
+                        .background_color(theme.colors.text_edit_bg2)
+                        .font(FontId::proportional(theme.text_sizes.normal)),
+                  );
+
+                  if res.clicked() {
+                     recipient_selection.open = true;
+                  }
+               });
+               ui.add_space(10.0);
+
+               widget_visuals(ui, theme.get_widget_visuals(bg_color));
+
+               // From Chain
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  Grid::new("from_chain")
+                     .spacing(vec2(5.0, 0.0))
+                     .show(ui, |ui| {
+                        ui.label(RichText::new("From").size(theme.text_sizes.large));
+                        self.from_chain.show(BSC, theme, icons.clone(), ui);
+                        ui.end_row();
+                     });
+               });
+               ui.add_space(10.0);
+
+               // To Chain
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  Grid::new("to_chain")
+                     .spacing(vec2(5.0, 0.0))
+                     .show(ui, |ui| {
+                        ui.label(RichText::new("To").size(theme.text_sizes.large));
+                        self.to_chain.grid_id = "across_bridge_to_chain";
+                        self.to_chain.show(BSC, theme, icons.clone(), ui);
+                        ui.end_row();
+                     });
+               });
+               ui.add_space(10.0);
+
+               // Network Fee
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(
+                     RichText::new(format!(
+                        "Network Fee≈ ${}",
+                        self.cost(ctx.clone()).1.formatted()
+                     ))
+                     .size(theme.text_sizes.normal),
+                  );
+               });
+
+               // Protocol Fee
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.label(
+                     RichText::new(format!(
+                        "Protocol Fee≈ ${}",
+                        self.protocol_fee(ctx.clone()).formatted()
+                     ))
+                     .size(theme.text_sizes.normal),
+                  );
+                  if self.requesting {
+                     ui.add_space(10.0);
+                     ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
+                  }
+               });
+
+               // Estimated time to fill
+               let fill_time = self
+                  .api_res_cache
+                  .get(&(
+                     self.from_chain.chain.id(),
+                     self.to_chain.chain.id(),
                   ))
-                  .size(theme.text_sizes.normal),
-               );
-               ui.add_space(20.0);
-            } else {
-               ui.add_space(20.0);
-            }
-
-            // Bridge Button
-            widget_visuals(ui, theme.get_button_visuals(bg_color));
-
-            let bridge = Button::new(RichText::new("Bridge").size(theme.text_sizes.normal))
-               .min_size(vec2(ui_width * 0.90, 40.0));
-
-            if !self.valid_inputs(ctx.clone(), depositor, &recipient) {
-               ui.disable();
-            }
-
-            ui.vertical_centered(|ui| {
-               if ui.add(bridge).clicked() {
-                 self.send_transaction(ctx, recipient);
+                  .map(|c| c.res.suggested_fees.estimated_fill_time_sec);
+               if let Some(fill_time) = fill_time {
+                  ui.add_space(10.0);
+                  ui.label(
+                     RichText::new(format!(
+                        "Estimated time to fill: {} seconds",
+                        fill_time
+                     ))
+                     .size(theme.text_sizes.normal),
+                  );
+                  ui.add_space(20.0);
+               } else {
+                  ui.add_space(20.0);
                }
+
+               // Bridge Button
+               widget_visuals(ui, theme.get_button_visuals(bg_color));
+
+               let bridge = Button::new(RichText::new("Bridge").size(theme.text_sizes.normal))
+                  .min_size(vec2(ui_width * 0.90, 40.0));
+
+               if !self.valid_inputs(ctx.clone(), depositor, &recipient) {
+                  ui.disable();
+               }
+
+               ui.vertical_centered(|ui| {
+                  if ui.add(bridge).clicked() {
+                     self.send_transaction(ctx, recipient);
+                  }
+               });
             });
          });
-      });
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
@@ -384,7 +380,6 @@ impl AcrossBridge {
       let amount = self.amount.parse().unwrap_or(0.0);
       amount > 0.0
    }
-
 
    fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
       self.valid_recipient(recipient)
@@ -612,9 +607,15 @@ impl AcrossBridge {
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let input_usd = ctx.get_currency_value2(input_amount.f64(), &Currency::from(input_token.clone()));
+      let input_usd = ctx.get_currency_value2(
+         input_amount.f64(),
+         &Currency::from(input_token.clone()),
+      );
       let output_amount = self.minimum_amount();
-      let output_usd = ctx.get_currency_value2(output_amount.f64(), &Currency::from(output_token.clone()));
+      let output_usd = ctx.get_currency_value2(
+         output_amount.f64(),
+         &Currency::from(output_token.clone()),
+      );
 
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).key;
@@ -695,7 +696,6 @@ impl AcrossBridge {
          }
       });
    }
-
 }
 
 fn request_suggested_fees(

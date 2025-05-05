@@ -8,7 +8,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::amm::{pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool};
+use zeus_eth::amm::{pool_manager::PoolManagerHandle, DexKind, uniswap::AnyUniswapPool};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, erc20::ERC20Token},
@@ -127,6 +127,11 @@ impl ZeusCtx {
          }
       });
       info
+   }
+
+   /// Get a contact by it's address
+   pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
+      self.read(|ctx| ctx.contact_db.contacts.iter().find(|c| c.address == address).cloned())
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
@@ -336,6 +341,11 @@ impl ZeusCtx {
       self.read(|ctx| ctx.pool_manager.get_token_price(token))
    }
 
+   pub fn get_eth_price(&self) -> NumericValue {
+      let weth = ERC20Token::weth();
+      self.get_token_price(&weth).unwrap_or_default()
+   }
+
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
       if currency.is_native() {
          let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
@@ -407,12 +417,13 @@ impl ZeusCtx {
       &self,
       chain: u64,
       fee: u32,
-      currency_a: Currency,
-      currency_b: Currency,
+      dex: &DexKind,
+      currency_a: &Currency,
+      currency_b: &Currency,
    ) -> Option<AnyUniswapPool> {
       self.read(|ctx| {
          ctx.pool_manager
-            .get_pool(chain, fee, currency_a, currency_b)
+            .get_pool(chain, dex, fee, currency_a, currency_b)
       })
    }
 
@@ -781,7 +792,7 @@ impl ZeusContext {
       let rpc = self.providers.get_rpc(id)?;
       // for default rpcs we use a throttled client
       let (retry, throttle) = if rpc.default {
-         (retry_layer(10, 400, 600), throttle_layer(5))
+         (retry_layer(10, 1000, 100), throttle_layer(5))
       } else {
          (retry_layer(100, 10, 1000), throttle_layer(1000))
       };

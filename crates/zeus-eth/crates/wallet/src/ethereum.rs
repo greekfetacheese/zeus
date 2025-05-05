@@ -1,10 +1,9 @@
 use crate::signer::SecureSigner;
 use alloy_network::EthereumWallet;
 use alloy_signer_local::PrivateKeySigner;
-use std::borrow::Borrow;
-use secure_types::Zeroize;
 use memsec::{mlock, munlock};
-
+use secure_types::Zeroize;
+use std::borrow::Borrow;
 
 /// Wrapper type around [EthereumWallet]
 ///
@@ -88,7 +87,6 @@ impl From<SecureSigner> for SecureWallet {
       Self::new(signer.into_signer().into())
    }
 }
- 
 
 #[cfg(test)]
 mod tests {
@@ -116,17 +114,18 @@ mod tests {
       assert_eq!(address.len(), 20);
       println!("Wallet Address: {:?}", address);
    }
-   
 
    #[test]
    #[should_panic]
    fn test_erase_wallet() {
       let secure_signer = SecureSigner::random();
       let mut secure_wallet = SecureWallet::from(secure_signer.into_signer());
-      println!("Wallet Address before erase: {:?}", secure_wallet.wallet.default_signer().address());
+      println!(
+         "Wallet Address before erase: {:?}",
+         secure_wallet.wallet.default_signer().address()
+      );
       secure_wallet.erase();
       // this should panic
       let _address = secure_wallet.wallet.default_signer().address();
    }
-   
 }

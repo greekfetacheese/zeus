@@ -7,8 +7,8 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, Vec2,
-   Window, vec2,
+   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense,
+   TextEdit, Ui, Vec2, Window, vec2,
 };
 use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
@@ -128,7 +128,14 @@ impl WalletUi {
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
-               self.wallet(ctx.clone(), theme, icons.clone(), &current_wallet, true, ui);
+               self.wallet(
+                  ctx.clone(),
+                  theme,
+                  icons.clone(),
+                  &current_wallet,
+                  true,
+                  ui,
+               );
 
                // Search bar
                ui.add_space(8.0);
@@ -153,7 +160,14 @@ impl WalletUi {
                            .to_lowercase()
                            .contains(&self.search_query.to_lowercase())
                      {
-                        self.wallet(ctx.clone(), theme, icons.clone(), wallet, false, ui);
+                        self.wallet(
+                           ctx.clone(),
+                           theme,
+                           icons.clone(),
+                           wallet,
+                           false,
+                           ui,
+                        );
 
                         ui.add_space(4.0);
                      }
@@ -198,14 +212,16 @@ impl WalletUi {
          ui.vertical(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                // Wallet name
-               let name = Label::new(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
+               let name =
+                  Label::new(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
                ui.scope(|ui| {
                   ui.set_width(ui.available_width() * 0.45);
                   ui.add(name);
                });
 
                // Export button
-               let export_key = Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
+               let export_key =
+                  Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
                if ui.add(export_key).clicked() {
                   self.export_key_ui.open = true;
                   self.export_key_ui.exporter.wallet = Some(wallet.clone());
@@ -214,7 +230,8 @@ impl WalletUi {
                ui.add_space(8.0);
 
                // Delete button
-               let delete_wallet = Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
+               let delete_wallet =
+                  Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
                if ui.add(delete_wallet).clicked() {
                   self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
                   self.delete_wallet_ui.credentials_form.open = true;

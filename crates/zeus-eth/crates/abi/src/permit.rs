@@ -69,9 +69,6 @@ where
    Ok(allowance)
 }
 
-
-
-
 pub fn encode_permit2_permit_ur_input(
    token: Address,
    amount: U256,

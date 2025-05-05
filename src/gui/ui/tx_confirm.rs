@@ -248,6 +248,14 @@ impl TxConfirmWindow {
    }
 
    fn action_is_token_approval(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let params = self.action.token_approval_params();
+      let amount = params.amount.formatted();
+      let currency = &params.token;
+      let spender_addr = params.spender.to_string();
+      let spender_short = truncate_address(spender_addr.clone());
+      let explorer = self.chain.block_explorer();
+      let link = format!("{}/address/{}", explorer, spender_addr);
+
       ui.horizontal(|ui| {
          let approve_text = RichText::new("Approve").size(theme.text_sizes.normal);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -256,18 +264,33 @@ impl TxConfirmWindow {
 
          // Currency to Approve
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let currency = self.action.input_currency();
-            let amount = self.action.token_approval_amount_str();
-            let icon = icons.currency_icon_x24(&currency);
+            let icon = icons.currency_icon_x24(currency);
             let text = RichText::new(format!("{} {}", amount, currency.symbol()))
                .size(theme.text_sizes.normal);
             let label = Label::new(text, Some(icon)).text_first(false);
             ui.add(label);
          });
       });
+
+      // Spender
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let text = RichText::new("Spender").size(theme.text_sizes.normal);
+            ui.label(text);
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.hyperlink_to(
+               RichText::new(spender_short)
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
+            );
+         });
+      });
    }
 
-   fn action_is_transfer(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn action_is_transfer(&self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       // Currency to Send
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -289,6 +312,39 @@ impl TxConfirmWindow {
             let amount = self.action.amount_usd().unwrap_or_default();
             ui.label(
                RichText::new(&format!("~ ${}", amount.formatted())).size(theme.text_sizes.small),
+            );
+         });
+      });
+
+      // Recipient
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let recipient_address = self.action.transfer_params().recipient;
+            let recipient_short = truncate_address(recipient_address.to_string());
+            let explorer = self.chain.block_explorer();
+            let link = format!(
+               "{}/address/{}",
+               explorer,
+               recipient_address.to_string()
+            );
+            let contact = ctx.get_contact_by_address(&recipient_address.to_string());
+            let wallet = ctx.get_wallet_info(recipient_address);
+            let recipient = if contact.is_some() {
+               contact.unwrap().name
+            } else if wallet.is_some() {
+               wallet.unwrap().name
+            } else {
+               recipient_short
+            };
+            ui.hyperlink_to(
+               RichText::new(recipient)
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
             );
          });
       });
@@ -453,7 +509,7 @@ impl TxConfirmWindow {
                      }
 
                      if self.action.is_transfer() {
-                        self.action_is_transfer(theme, icons.clone(), ui);
+                        self.action_is_transfer(ctx.clone(), theme, icons.clone(), ui);
                         ui.add_space(10.0);
                      }
 
@@ -477,44 +533,30 @@ impl TxConfirmWindow {
                         });
                      }
 
-                     // Contract interaction / Recipient Column
-                     ui.horizontal(|ui| {
-                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = if self.action.is_token_approval() {
-                              "Spender"
-                           } else {
-                              match self.contract_interact {
-                                 true => "Contract interaction",
-                                 false => "Recipient",
-                              }
-                           };
-                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
-                        });
+                     // Contract interaction
+                     if self.contract_interact {
+                        ui.horizontal(|ui| {
+                           ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                              let text = RichText::new("Contract interaction")
+                                 .size(theme.text_sizes.normal);
+                              ui.label(text);
+                           });
 
-                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let (address, address_full) = if self.action.is_token_approval() {
-                              let p = self.action.token_approval_params();
-                              (
-                                 truncate_address(p.spender.to_string()),
-                                 p.spender.to_string(),
-                              )
-                           } else {
-                              (
-                                 truncate_address(self.interact_to.to_string()),
-                                 self.interact_to.to_string(),
-                              )
-                           };
+                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                              let interact_addr = self.interact_to.to_string();
+                              let interact_short = truncate_address(interact_addr.clone());
+                              let explorer = self.chain.block_explorer();
+                              let link = format!("{}/address/{}", explorer, interact_addr);
 
-                           let explorer = self.chain.block_explorer();
-                           let link = format!("{}/address/{}", explorer, address_full);
-                           ui.hyperlink_to(
-                              RichText::new(address)
-                                 .size(theme.text_sizes.normal)
-                                 .strong(),
-                              link,
-                           );
+                              ui.hyperlink_to(
+                                 RichText::new(interact_short)
+                                    .size(theme.text_sizes.normal)
+                                    .strong(),
+                                 link,
+                              );
+                           });
                         });
-                     });
+                     }
 
                      // Show Tx Hash if needed
                      if !self.confrim_window {
@@ -568,6 +610,7 @@ impl TxConfirmWindow {
                            ui.add_space(2.0);
                            ui.label(RichText::new("Gwei").size(theme.text_sizes.small));
                         });
+                        ui.add_space(5.0);
 
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                            if self.chain.is_bsc() {
@@ -595,7 +638,6 @@ impl TxConfirmWindow {
                      ui.add_space(15.0);
 
                      // Buttons
-
                      ui.horizontal(|ui| {
                         let width = ui.available_width() * 0.9;
 

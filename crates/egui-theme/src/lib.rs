@@ -90,7 +90,7 @@ impl Theme {
    /// Get the widget visuals based on the bg color provided
    pub fn get_widget_visuals(&self, bg_color: Color32) -> WidgetVisuals {
       match self.kind {
-         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color ,&self.colors),
+         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color, &self.colors),
          ThemeKind::Custom => panic!("Not implemented"),
       }
    }
@@ -105,7 +105,7 @@ pub struct ThemeColors {
    pub bg_color: Color32,
 
    /// Secondary Background color to make contrast with the main background
-   /// 
+   ///
    /// Eg. Can be used as frame fill
    pub secondary_bg_color: Color32,
 
@@ -216,7 +216,6 @@ pub struct FrameVisuals {
    pub border_on_hover: (f32, Color32),
    pub border_on_click: (f32, Color32),
 }
-
 
 /// Visuals for ComboBoxes, Sliders
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]

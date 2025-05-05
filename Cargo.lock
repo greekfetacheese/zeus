@@ -758,6 +758,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "currency",
+ "rayon",
  "revm-utils",
  "serde",
  "serde_json",
@@ -4932,6 +4933,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
+name = "op-revm"
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12f8646cb935063087579f44da58fe1dea329c280c3b35898d6fd01a928de91f"
+dependencies = [
+ "auto_impl",
+ "once_cell",
+ "revm",
+ "serde",
+]
+
+[[package]]
 name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5962,6 +5975,7 @@ dependencies = [
  "eyre",
  "futures",
  "futures-util",
+ "op-revm",
  "revm",
  "thiserror 1.0.69",
  "tokio",

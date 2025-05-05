@@ -43,7 +43,10 @@ impl Account {
    ) -> Result<Address, anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
-            return Err(anyhow!("Wallet with name {} already exists", name));
+            return Err(anyhow!(
+               "Wallet with name {} already exists",
+               name
+            ));
          }
 
          if name.len() > Self::MAX_CHARS {
@@ -77,7 +80,10 @@ impl Account {
    pub fn new_wallet_rng(&mut self, mut name: String) -> Result<(), anyhow::Error> {
       if !name.is_empty() {
          if self.wallet_name_exists(&name) {
-            return Err(anyhow!("Wallet with name {} already exists", name));
+            return Err(anyhow!(
+               "Wallet with name {} already exists",
+               name
+            ));
          }
 
          if name.len() > Self::MAX_CHARS {
@@ -131,7 +137,11 @@ impl Account {
          Some(params) => params,
          None => self.encrypted_info()?.argon2_params,
       };
-      let encrypted_data = encrypt_data(argon_params, account_data, self.credentials.clone())?;
+      let encrypted_data = encrypt_data(
+         argon_params,
+         account_data,
+         self.credentials.clone(),
+      )?;
       Ok(encrypted_data)
    }
 

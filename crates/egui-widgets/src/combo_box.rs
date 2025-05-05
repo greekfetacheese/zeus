@@ -1,7 +1,7 @@
 use super::Label;
 use egui::{
-   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, PopupCloseBehavior, Rect, Response, ScrollArea, Sense,
-   Stroke, TextWrapMode, Ui, Vec2, WidgetText,
+   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, PopupCloseBehavior, Rect, Response,
+   ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
    epaint::{RectShape, Shape, StrokeKind},
    style::WidgetVisuals,
 };
@@ -51,7 +51,10 @@ impl ComboBoxWithImage {
       self
    }
 
-   pub fn icon(mut self, icon_fn: impl FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow) + 'static) -> Self {
+   pub fn icon(
+      mut self,
+      icon_fn: impl FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow) + 'static,
+   ) -> Self {
       self.icon = Some(Box::new(icon_fn));
       self
    }
@@ -67,7 +70,11 @@ impl ComboBoxWithImage {
       self
    }
 
-   pub fn show_ui<R>(self, ui: &mut Ui, menu_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<Option<R>> {
+   pub fn show_ui<R>(
+      self,
+      ui: &mut Ui,
+      menu_contents: impl FnOnce(&mut Ui) -> R,
+   ) -> InnerResponse<Option<R>> {
       let button_id = ui.make_persistent_id(self.id_salt);
       let popup_id = button_id.with("popup");
 
@@ -101,7 +108,9 @@ impl ComboBoxWithImage {
       let screen_bottom = ui.ctx().screen_rect().bottom();
 
       let space_below = screen_bottom - button_bottom;
-      let above_or_below = if space_below >= popup_current_height || space_below >= ui.spacing().interact_size.y * 4.0 {
+      let above_or_below = if space_below >= popup_current_height
+         || space_below >= ui.spacing().interact_size.y * 4.0
+      {
          AboveOrBelow::Below
       } else {
          AboveOrBelow::Above
@@ -242,15 +251,22 @@ fn combo_box_with_image_button(
       // This check might be slightly inaccurate if the popup size changes drastically,
       // but it's often good enough for the icon direction.
       let popup_peek_height = 50.0;
-      let above_or_below = if response.rect.bottom() + popup_peek_height < ui.ctx().screen_rect().bottom() {
-         AboveOrBelow::Below
-      } else {
-         AboveOrBelow::Above
-      };
+      let above_or_below =
+         if response.rect.bottom() + popup_peek_height < ui.ctx().screen_rect().bottom() {
+            AboveOrBelow::Below
+         } else {
+            AboveOrBelow::Above
+         };
 
       // Paint the icon
       if let Some(icon_painter) = icon_painter {
-         icon_painter(ui, icon_rect, &visuals, is_popup_open, above_or_below);
+         icon_painter(
+            ui,
+            icon_rect,
+            &visuals,
+            is_popup_open,
+            above_or_below,
+         );
       } else {
          paint_default_icon(ui.painter(), icon_rect, &visuals, above_or_below);
       }
@@ -259,7 +275,12 @@ fn combo_box_with_image_button(
    response
 }
 
-fn paint_default_icon(painter: &Painter, rect: Rect, visuals: &WidgetVisuals, above_or_below: AboveOrBelow) {
+fn paint_default_icon(
+   painter: &Painter,
+   rect: Rect,
+   visuals: &WidgetVisuals,
+   above_or_below: AboveOrBelow,
+) {
    let rect = Rect::from_center_size(
       rect.center(),
       Vec2::new(rect.width() * 0.7, rect.height() * 0.45),

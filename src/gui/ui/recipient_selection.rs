@@ -2,8 +2,8 @@ use crate::assets::icons::Icons;
 use crate::core::{Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
-   Window, vec2,
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText,
+   ScrollArea, TextEdit, Ui, Window, vec2,
 };
 use egui_theme::{Theme, utils::widget_visuals};
 use std::str::FromStr;
@@ -44,7 +44,14 @@ impl RecipientSelectionWindow {
       self.recipient_name.clone()
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, contacts_ui: &mut ContactsUi, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      contacts_ui: &mut ContactsUi,
+      ui: &mut Ui,
+   ) {
       let mut open = self.open;
       let mut close_window = false;
       let frame = Frame::window(ui.style());
@@ -80,7 +87,8 @@ impl RecipientSelectionWindow {
             // Search bar
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
-               let add_contact = Button::new(RichText::new("Add a contact").size(theme.text_sizes.small));
+               let add_contact =
+                  Button::new(RichText::new("Add a contact").size(theme.text_sizes.small));
                if ui.add(add_contact).clicked() {
                   contacts_ui.add_contact.open = true;
                }
@@ -103,7 +111,8 @@ impl RecipientSelectionWindow {
             // TODO: Optimize this
             let query = self.search_query.clone();
             let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
-            let are_valid_wallets = wallets.len() >= 1 && wallets.iter().any(|w| valid_wallet_search(w, &query));
+            let are_valid_wallets =
+               wallets.len() >= 1 && wallets.iter().any(|w| valid_wallet_search(w, &query));
 
             ScrollArea::vertical()
                .id_salt("recipient_select_scroll")
@@ -139,7 +148,8 @@ impl RecipientSelectionWindow {
                   ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
                   ui.add_space(20.0);
 
-                  let address_text = RichText::new(address.to_string()).size(theme.text_sizes.normal);
+                  let address_text =
+                     RichText::new(address.to_string()).size(theme.text_sizes.normal);
                   let button = Button::new(address_text);
 
                   if ui.add(button).clicked() {
@@ -254,7 +264,10 @@ impl RecipientSelectionWindow {
                            ui.add(icon);
                         }
                      });
-                     ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
+                     ui.label(
+                        RichText::new(format!("${}", value.formatted()))
+                           .size(theme.text_sizes.normal),
+                     );
                   });
                });
             });
@@ -293,7 +306,8 @@ impl RecipientSelectionWindow {
                      Layout::left_to_right(Align::Min).with_main_wrap(true),
                      |ui| {
                         ui.set_width(column_width);
-                        let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
+                        let name =
+                           RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
                         ui.scope(|ui| {
                            ui.set_width(column_width * 0.8);
                            if ui.add(Button::new(name)).clicked() {
@@ -310,7 +324,9 @@ impl RecipientSelectionWindow {
                      Layout::left_to_right(Align::Min).with_main_wrap(true),
                      |ui| {
                         ui.set_width(column_width);
-                        ui.label(RichText::new(contact.address_short()).size(theme.text_sizes.normal));
+                        ui.label(
+                           RichText::new(contact.address_short()).size(theme.text_sizes.normal),
+                        );
                      },
                   );
                   ui.end_row();
@@ -337,5 +353,6 @@ fn valid_wallet_search(wallet: &WalletInfo, query: &str) -> bool {
       return true;
    }
 
-   wallet.name.to_lowercase().contains(&query) || wallet.address_string().to_lowercase().contains(&query)
+   wallet.name.to_lowercase().contains(&query)
+      || wallet.address_string().to_lowercase().contains(&query)
 }

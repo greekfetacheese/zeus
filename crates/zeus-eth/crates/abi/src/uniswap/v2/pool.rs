@@ -1,9 +1,9 @@
-use alloy_primitives::{Address, LogData, Bytes, U256};
+use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::{SolCall, SolEvent, sol};
 
-use alloy_contract::private::{Network, Provider};
 use IUniswapV2Pair::Swap;
+use alloy_contract::private::{Network, Provider};
 
 sol! {
 
@@ -178,7 +178,6 @@ where
    contract.burn(to).call().await?;
    Ok(())
 }
-
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let b = IUniswapV2Pair::Swap::decode_raw_log(log.topics(), &log.data)?;
