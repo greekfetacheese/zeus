@@ -1,11 +1,11 @@
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::Address;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::{
    DexKind,
-   uniswap::{AnyUniswapPool, FEE_TIERS, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*},
+   uniswap::{AnyUniswapPool, FEE_TIERS, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*, v2::pool::FEE as V2_FEE},
 };
 use currency::{Currency, ERC20Token};
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,7 @@ impl PoolManagerHandle {
    pub fn get_pool(
       &self,
       chain_id: u64,
-      dex: &DexKind,
+      dex: DexKind,
       fee: u32,
       currency0: &Currency,
       currency1: &Currency,
@@ -106,17 +106,12 @@ impl PoolManagerHandle {
       self.read(|manager| manager.get_v3_pool_from_address(chain_id, address).cloned())
    }
 
-   /// This is V4 specific
-   pub fn get_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<AnyUniswapPool> {
-      self.read(|manager| manager.get_pool_from_id(chain_id, pool_id).cloned())
-   }
-
    pub fn add_pool(&self, pool: impl UniswapPool) {
       self.write(|manager| manager.add_pool(pool));
    }
 
-   pub fn remove_pool(&self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) {
-      self.write(|manager| manager.remove_pool(chain_id, fee, currency0, currency1));
+   pub fn remove_pool(&self, chain_id: u64, dex: DexKind, fee: u32, currency0: Currency, currency1: Currency) {
+      self.write(|manager| manager.remove_pool(chain_id, dex, fee, currency0, currency1));
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
@@ -131,7 +126,7 @@ impl PoolManagerHandle {
    {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
-      self.cleanup_pools();
+      // self.cleanup_pools();
       self.calculate_prices();
       Ok(())
    }
@@ -174,7 +169,7 @@ impl PoolManagerHandle {
             manager.add_pool(pool);
          }
       });
-      self.cleanup_pools();
+      // self.cleanup_pools();
       Ok(())
    }
 
@@ -198,39 +193,31 @@ impl PoolManagerHandle {
       self.write(|manager| manager.calculate_prices())
    }
 
-   /// Get a quote for the given currency pair.
-   ///
-   /// Returns the amount out and the pool which the swap is executed on.
-   pub fn get_quote_single(
-      &self,
-      amount_in: U256,
-      currency_in: &Currency,
-      currency_out: &Currency,
-   ) -> Option<(NumericValue, AnyUniswapPool)> {
-      self.read(|manager| manager.get_quote_single(amount_in, currency_in, currency_out))
-   }
-
-   /// Sync V2 & V3 pools for the given token based on:
+   /// Sync V2 & V3 pools for the given tokens based on:
    ///
    /// - The token's chain id
    /// - All the possible [DexKind] for the chain
    /// - Base Tokens [ERC20Token::base_tokens()]
-   pub async fn sync_pools_for_token<P, N>(
+   pub async fn sync_pools_for_tokens<P, N>(
       &self,
       client: P,
-      token: ERC20Token,
+      tokens: Vec<ERC20Token>,
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      self
-         .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
-         .await?;
-      self
-         .sync_v3_pools_for_token(client, token, dex_kinds)
-         .await?;
+      for token in tokens {
+         self
+            .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
+            .await?;
+
+         self
+            .sync_v3_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
+            .await?;
+      }
+
       Ok(())
    }
 
@@ -268,20 +255,20 @@ impl PoolManagerHandle {
             }
 
             // if pool already exist, skip
-            let pool = self.get_pool(chain, dex, 300, &currency_a, &currency_b);
-            if pool.is_some() {
+            let cached_pool = self.get_pool(chain, *dex, V2_FEE, &currency_a, &currency_b);
+            if cached_pool.is_some() {
                continue;
             }
 
             info!(
-               target: "zeus_eth::amm::pool_manager", "Getting {} pool for: {}-{} Chain Id: {}",
+               target: "zeus_eth::amm::pool_manager", "Pool Not in cache: {} {}-{} for Chain Id: {}",
                dex.to_str(),
                token.symbol,
                base_token.symbol,
                token.chain_id
             );
 
-            let pool = UniswapV2Pool::from(
+            let pool_res = UniswapV2Pool::from(
                client.clone(),
                token.chain_id,
                token.clone(),
@@ -290,20 +277,24 @@ impl PoolManagerHandle {
             )
             .await;
 
-            if let Ok(pool) = pool {
+            if let Ok(pool) = pool_res {
                info!(
-                  target: "zeus_eth::amm::pool_manager", "Got {} pool for {}/{}",
+                  target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}-{} for Chain Id: {}",
                   dex.to_str(),
+                  pool.address(),
                   pool.token0().symbol,
-                  pool.token1().symbol
+                  pool.token1().symbol,
+                  token.chain_id
                );
                pools.push(pool);
             }
          }
       }
+
       for pool in pools {
-         self.add_pool(pool);
+         self.add_pool(pool.clone());
       }
+
       Ok(())
    }
 
@@ -339,16 +330,17 @@ impl PoolManagerHandle {
             let currency_b = token.clone().into();
 
             // check if pool already exists
-            let mut skip = false;
-            for fee in FEE_TIERS {
-               let pool = self.get_pool(chain, dex, fee, &currency_a, &currency_b);
+            // TODO: Add a timeout or something because some fee tiers may not exist at all
+            let mut pools_exists = [false; FEE_TIERS.len()];
+            for (i, fee) in FEE_TIERS.iter().enumerate() {
+               let pool = self.get_pool(chain, *dex, *fee, &currency_a, &currency_b);
                if pool.is_some() {
-                     skip = true;
-                     break;
+                  pools_exists[i] = true;
                }
             }
 
-            if skip {
+            // if all true then skip
+            if pools_exists.iter().all(|b| *b == true) {
                continue;
             }
 
@@ -395,8 +387,8 @@ impl PoolManagerHandle {
    }
 }
 
-/// Key: (chain_id, fee, tokenA, tokenB) -> Value: Pool
-pub type Pools = HashMap<(u64, u32, Currency, Currency), AnyUniswapPool>;
+/// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
+pub type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
 
 /// Token Prices
 ///
@@ -447,26 +439,28 @@ impl PoolManager {
       }
    }
 
+   // ! skip that part for now
    pub fn cleanup_pools(&mut self) {
-      self.pools.retain(|_, pool| pool.enough_liquidity());
+      // self.pools.retain(|_, pool| pool.enough_liquidity());
    }
 
    pub fn add_pool(&mut self, pool: impl UniswapPool) {
       let any_pool = AnyUniswapPool::from_pool(pool);
-
-      self.pools.insert(
-         (
-            any_pool.chain_id(),
-            any_pool.fee().fee(),
-            any_pool.currency0().clone(),
-            any_pool.currency1().clone(),
-         ),
-         any_pool,
+      let key = (
+         any_pool.chain_id(),
+         any_pool.dex_kind(),
+         any_pool.fee().fee(),
+         any_pool.currency0().clone(),
+         any_pool.currency1().clone(),
       );
+
+      self.pools.insert(key, any_pool);
    }
 
-   pub fn remove_pool(&mut self, chain_id: u64, fee: u32, currency0: Currency, currency1: Currency) {
-      self.pools.remove(&(chain_id, fee, currency0, currency1));
+   pub fn remove_pool(&mut self, chain_id: u64, dex: DexKind, fee: u32, currency0: Currency, currency1: Currency) {
+      self
+         .pools
+         .remove(&(chain_id, dex, fee, currency0, currency1));
    }
 
    /// Get any pools that includes the given currency
@@ -517,42 +511,23 @@ impl PoolManager {
    pub fn get_pool(
       &self,
       chain_id: u64,
-      dex: &DexKind,
+      dex: DexKind,
       fee: u32,
       currency_a: &Currency,
       currency_b: &Currency,
    ) -> Option<&AnyUniswapPool> {
-      for pool in self.pools.values() {
-         if pool.chain_id() != chain_id {
-            continue;
-         }
-
-         if pool.dex_kind() != *dex {
-            continue;
-         }
-
-         if pool.fee().fee() != fee {
-            continue;
-         }
-
-         if pool.is_currency0(&currency_a) && pool.is_currency1(&currency_b) {
-            return Some(pool);
-         } else if pool.is_currency0(&currency_b) && pool.is_currency1(&currency_a) {
-            return Some(pool);
-         }
-      }
-      None
-   }
-
-   pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
       if let Some(pool) = self
          .pools
-         .iter()
-         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id)
+         .get(&(chain_id, dex, fee, currency_a.clone(), currency_b.clone()))
       {
-         Some(pool.1)
+         return Some(pool);
+      } else if let Some(pool) = self
+         .pools
+         .get(&(chain_id, dex, fee, currency_b.clone(), currency_a.clone()))
+      {
+         return Some(pool);
       } else {
-         None
+         return None;
       }
    }
 
@@ -580,54 +555,16 @@ impl PoolManager {
       }
    }
 
-   pub fn get_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<&AnyUniswapPool> {
+   pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<&AnyUniswapPool> {
       if let Some(pool) = self
          .pools
          .iter()
-         .find(|(_, p)| p.pool_id() == pool_id && p.chain_id() == chain_id)
+         .find(|(_, p)| p.address() == address && p.chain_id() == chain_id)
       {
          Some(pool.1)
       } else {
          None
       }
-   }
-
-   /// Get a quote for the given currency pair.
-   ///
-   /// Returns the amount out and the pool which the swap is executed on.
-   pub fn get_quote_single(
-      &self,
-      amount_in: U256,
-      currency_in: &Currency,
-      currency_out: &Currency,
-   ) -> Option<(NumericValue, AnyUniswapPool)> {
-      let chain = currency_in.chain_id();
-      let pools = self.get_pools_from_pair(chain, currency_in, currency_out);
-      if pools.is_empty() {
-         return None;
-      }
-
-      let mut best_amount_out = U256::ZERO;
-      let mut best_pool = None;
-
-      for pool in pools {
-         let amount_out = pool
-            .simulate_swap(currency_in, amount_in)
-            .unwrap_or_default();
-         if amount_out > best_amount_out {
-            best_amount_out = amount_out;
-            best_pool = Some(pool);
-         }
-      }
-
-      let res = if let Some(pool) = best_pool {
-         let amount = NumericValue::format_wei(best_amount_out, currency_out.decimals());
-         Some((amount, pool))
-      } else {
-         None
-      };
-
-      res
    }
 
    pub fn calculate_prices(&mut self) {
@@ -712,6 +649,8 @@ mod serde_hashmap {
 
 #[cfg(test)]
 mod tests {
+   use alloy_primitives::address;
+
    use crate::UniswapV2Pool;
 
    use super::*;
@@ -726,5 +665,29 @@ mod tests {
       let json = handle.to_string().unwrap();
 
       let _handle2 = PoolManagerHandle::from_string(&json).unwrap();
+   }
+
+   #[test]
+   fn sanity_check() {
+      let pool_manager = PoolManager::default();
+      let handle = PoolManagerHandle::new(pool_manager);
+      let dai = ERC20Token::dai();
+      let usdt = ERC20Token::usdt();
+      let dex = DexKind::UniswapV2;
+      let addr = address!("0xB20bd5D04BE54f870D5C0d3cA85d82b34B836405");
+      let pool = UniswapV2Pool::new(1, addr, dai, usdt, dex);
+      let pool = AnyUniswapPool::from_pool(pool);
+
+      handle.add_pool(pool.clone());
+      let pool2 = handle
+         .get_pool(
+            pool.chain_id(),
+            pool.dex_kind(),
+            pool.fee().fee(),
+            pool.currency0(),
+            pool.currency1(),
+         )
+         .unwrap();
+      assert_eq!(pool, pool2);
    }
 }

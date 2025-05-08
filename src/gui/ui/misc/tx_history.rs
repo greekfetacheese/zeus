@@ -373,7 +373,7 @@ impl TxHistory {
                                  let tx_clone = tx.clone();
                                  RT.spawn_blocking(move || {
                                     SHARED_GUI.write(|gui| {
-                                       gui.tx_confirm_window.open_with_summary(tx_clone)
+                                       gui.tx_confirm_window.open_as_summary(tx_clone);
                                     });
                                  });
                               }

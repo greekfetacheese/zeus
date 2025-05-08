@@ -1,8 +1,8 @@
 use crate::core::ZeusCtx;
-use anyhow::bail;
+use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
-   abi::{erc20, protocols::across, uniswap},
+   abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
    amm::{
@@ -27,6 +27,10 @@ pub enum OnChainAction {
    TokenApprove(TokenApproveParams),
 
    Transfer(TransferParams),
+
+   WrapETH(WrapETHParams),
+
+   UnwrapWETH(UnwrapWETHParams),
 
    Other,
 }
@@ -167,8 +171,6 @@ impl OnChainAction {
       value: U256,
       logs: Vec<Log>,
    ) -> Self {
-      let mut action = Self::Other;
-
       if let Ok(params) = BridgeParams::new(
          ctx.clone(),
          chain,
@@ -178,11 +180,11 @@ impl OnChainAction {
       )
       .await
       {
-         action = Self::Bridge(params);
+         return Self::Bridge(params);
       }
 
       if let Ok(params) = SwapParams::new(ctx.clone(), chain, from, logs.clone()).await {
-         action = Self::SwapToken(params);
+         return Self::SwapToken(params);
       }
 
       if let Ok(params) = TransferParams::new(
@@ -195,14 +197,23 @@ impl OnChainAction {
       )
       .await
       {
-         action = Self::Transfer(params);
+         return Self::Transfer(params);
       }
 
-      if let Ok(params) = TokenApproveParams::new(ctx, chain, call_data, logs).await {
-         action = Self::TokenApprove(params);
+      if let Ok(params) = TokenApproveParams::new(ctx.clone(), chain, call_data.clone(), logs.clone()).await
+      {
+         return Self::TokenApprove(params);
       }
 
-      action
+      if let Ok(params) = WrapETHParams::new(ctx.clone(), chain, from, call_data.clone(), value, logs.clone()) {
+         return Self::WrapETH(params);
+      }
+
+      if let Ok(params) = UnwrapWETHParams::new(ctx, chain, from, call_data, value, logs) {
+         return Self::UnwrapWETH(params);
+      }
+
+      Self::Other
    }
 
    pub fn name(&self) -> &'static str {
@@ -211,104 +222,19 @@ impl OnChainAction {
          Self::SwapToken(_) => "Swap Token",
          Self::Transfer(_) => "Transfer",
          Self::TokenApprove(_) => "Token Approval",
+         Self::WrapETH(_) => "Wrap ETH",
+         Self::UnwrapWETH(_) => "Unwrap WETH",
          Self::Other => "Unknown interaction",
       }
    }
 
-   /// Get the currency to be payed
-   ///
-   /// Eg. For a bridge & swap, it will be the `input_currency`
-   ///
-   /// For a transfer, it will be the `currency` to be sent
-   ///
-   /// For Token Approval, it will be the `token` to be approved
-   pub fn input_currency(&self) -> Currency {
-      match self {
-         Self::Bridge(params) => params.input_currency.clone(),
-         Self::SwapToken(params) => params.input_currency.clone(),
-         Self::Transfer(params) => params.currency.clone(),
-         Self::TokenApprove(params) => params.token.clone(),
-         Self::Other => Currency::default(),
-      }
-   }
-
-   /// Get the currency to be received
-   ///
-   /// Eg. For a bridge & swap, it will be the `output_currency`
-   pub fn output_currency(&self) -> Currency {
-      match self {
-         Self::Bridge(params) => params.output_currency.clone(),
-         Self::SwapToken(params) => params.output_currency.clone(),
-         Self::Transfer(_) => Currency::default(),
-         Self::TokenApprove(_) => Currency::default(),
-         Self::Other => Currency::default(),
-      }
-   }
-
-   /// Get the amount to be payed
-   ///
-   /// Eg. For a bridge & swap, it will be the `amount_in`
-   ///
-   /// For a transfer, it will be the `amount`
-   ///
-   /// For Token Approval, it will be the `amount` to be approved
-   pub fn amount(&self) -> NumericValue {
-      match self {
-         Self::Bridge(params) => params.amount.clone(),
-         Self::SwapToken(params) => params.amount_in.clone(),
-         Self::Transfer(params) => params.amount.clone(),
-         Self::TokenApprove(params) => params.amount.clone(),
-         Self::Other => NumericValue::default(),
-      }
-   }
-
    pub fn token_approval_amount_str(&self) -> String {
-      let amount = self.amount();
+      let amount = self.token_approval_params().amount;
       let unlimited = amount.wei2() == U256::MAX;
       if unlimited {
          return "Unlimited".to_string();
       } else {
          return amount.formatted().clone();
-      }
-   }
-
-   /// Get the amount usd value to be payed
-   ///
-   /// Eg. For a bridge & swap, it will be the `amount_in_usd`
-   /// For a transfer, it will be the `amount_usd`
-   pub fn amount_usd(&self) -> Option<NumericValue> {
-      match self {
-         Self::Bridge(params) => params.amount_usd.clone(),
-         Self::SwapToken(params) => params.amount_in_usd.clone(),
-         Self::Transfer(params) => params.amount_usd.clone(),
-         Self::TokenApprove(params) => params.amount_usd.clone(),
-         Self::Other => None,
-      }
-   }
-
-   /// Get the amount to be received
-   ///
-   /// Eg. For a bridge & swap, it will be the `amount_out`
-   pub fn received(&self) -> NumericValue {
-      match self {
-         Self::Bridge(params) => params.received.clone(),
-         Self::SwapToken(params) => params.received.clone(),
-         Self::Transfer(_) => NumericValue::default(),
-         Self::TokenApprove(_) => NumericValue::default(),
-         Self::Other => NumericValue::default(),
-      }
-   }
-
-   /// Get the amount usd value to be received
-   ///
-   /// Eg. For a bridge & swap, it will be the `received_usd`
-   pub fn received_usd(&self) -> Option<NumericValue> {
-      match self {
-         Self::Bridge(params) => params.received_usd.clone(),
-         Self::SwapToken(params) => params.received_usd.clone(),
-         Self::Transfer(_) => None,
-         Self::TokenApprove(_) => None,
-         Self::Other => None,
       }
    }
 
@@ -352,6 +278,26 @@ impl OnChainAction {
       }
    }
 
+   /// Get the wrap eth params
+   ///
+   /// Panics if the action is not a wrap eth
+   pub fn wrap_eth_params(&self) -> WrapETHParams {
+      match self {
+         Self::WrapETH(params) => params.clone(),
+         _ => panic!("Action is not a wrap eth"),
+      }
+   }
+
+   /// Get the unwrap eth params
+   ///
+   /// Panics if the action is not a unwrap eth
+   pub fn unwrap_eth_params(&self) -> UnwrapWETHParams {
+      match self {
+         Self::UnwrapWETH(params) => params.clone(),
+         _ => panic!("Action is not a unwrap eth"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -366,6 +312,14 @@ impl OnChainAction {
 
    pub fn is_token_approval(&self) -> bool {
       matches!(self, Self::TokenApprove(_))
+   }
+
+   pub fn is_wrap_eth(&self) -> bool {
+      matches!(self, Self::WrapETH(_))
+   }
+
+   pub fn is_unwrap_eth(&self) -> bool {
+      matches!(self, Self::UnwrapWETH(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -418,9 +372,16 @@ impl BridgeParams {
    ) -> Result<Self, anyhow::Error> {
       let selector = call_data.get(0..4).unwrap_or_default();
       if selector == across::deposit_v3_selector() {
-         Self::from_across(ctx, chain, call_data, logs).await
+         match Self::from_across(ctx, chain, call_data, logs).await {
+            Ok(params) => Ok(params),
+            Err(e) => {
+               tracing::error!("Failed to decode across bridge params: {:?}", e);
+               Err(anyhow!("Failed to decode across bridge params"))
+            }
+         }
       } else {
-         bail!("Call is not a bridge")
+         tracing::error!("Call is not a bridge");
+         return Err(anyhow!("Call is not a bridge"));
       }
    }
 
@@ -429,35 +390,40 @@ impl BridgeParams {
    /// https://across.to/
    pub async fn from_across(
       ctx: ZeusCtx,
-      chain: u64,
+      origin_chain: u64,
       call_data: Bytes,
       logs: Vec<Log>,
    ) -> Result<Self, anyhow::Error> {
       let decoded = across::decode_deposit_v3_call(&call_data)?;
-      let client = ctx.get_client_with_id(chain)?;
-      let input_cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, decoded.inputToken));
+      let dest_chain = decoded.destinationChainId.try_into()?;
+      let input_cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(origin_chain, decoded.inputToken));
       let output_cached =
-         ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, decoded.outputToken));
+         ctx.read(|ctx| ctx.currency_db.get_erc20_token(dest_chain, decoded.outputToken));
+
 
       let input_token = if let Some(token) = input_cached {
          token
       } else {
-         let token = ERC20Token::new(client.clone(), decoded.inputToken, chain).await?;
+         let client = ctx.get_client_with_id(dest_chain)?;
+         let token = ERC20Token::new(client.clone(), decoded.inputToken, dest_chain).await?;
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(token.clone()))
+               .insert_currency(dest_chain, Currency::from(token.clone()))
          });
+         ctx.save_currency_db();
          token
       };
 
       let output_token = if let Some(token) = output_cached {
          token
       } else {
-         let token = ERC20Token::new(client.clone(), decoded.outputToken, chain).await?;
+         let client = ctx.get_client_with_id(dest_chain)?;
+         let token = ERC20Token::new(client.clone(), decoded.outputToken, dest_chain).await?;
          ctx.write(|ctx| {
             ctx.currency_db
-               .insert_currency(chain, Currency::from(token.clone()))
+               .insert_currency(dest_chain, Currency::from(token.clone()))
          });
+         ctx.save_currency_db();
          token
       };
 
@@ -472,7 +438,7 @@ impl BridgeParams {
       }
 
       if decode_log.is_none() {
-         bail!("Failed to decode funds deposited log");
+         return Err(anyhow!("Failed to decode funds deposited log"));
       }
 
       let decoded_log = decode_log.unwrap();
@@ -487,8 +453,8 @@ impl BridgeParams {
 
       let params = BridgeParams {
          dapp: Dapp::Across,
-         origin_chain: chain,
-         destination_chain: decoded.destinationChainId.try_into()?,
+         origin_chain,
+         destination_chain: dest_chain,
          input_currency: Currency::from(input_token),
          output_currency: Currency::from(output_token),
          amount,
@@ -539,36 +505,79 @@ impl SwapParams {
       from: Address,
       logs: Vec<Log>,
    ) -> Result<Self, anyhow::Error> {
-      let params =
-         if let Ok(params) = Self::from_uniswap_v2(ctx.clone(), chain, from, logs.clone()).await {
-            params
-         } else {
-            Self::from_uniswap_v3(ctx, chain, from, logs).await?
-         };
+      // if there is multiple swaps make sure to identiafy the start currenct and the end currency
+      let mut swaps = Vec::new();
+      for log in logs {
+         if let Ok(params) = Self::from_uniswap_v2(ctx.clone(), chain, from, log.clone()).await {
+            swaps.push(params);
+         }
 
-      Ok(params)
+         if let Ok(params) = Self::from_uniswap_v3(ctx.clone(), chain, from, log.clone()).await {
+            swaps.push(params);
+         }
+      }
+
+      if swaps.is_empty() {
+         return Err(anyhow::anyhow!("No swap logs found"));
+      }
+
+      let mut dapp = Dapp::Uniswap;
+      let mut input_currency = Currency::default();
+      let mut output_currency = Currency::default();
+      let mut amount_in = NumericValue::default();
+      let mut amount_in_usd = None;
+      let mut amount_out = NumericValue::default();
+      let mut amount_out_usd = None;
+      let mut sender = Address::ZERO;
+      let mut recipient = None;
+      let len = swaps.len();
+      for (i, swap) in swaps.iter().enumerate() {
+         let is_first = i == 0;
+         let is_last = i == len - 1;
+
+         if is_first {
+            dapp = swap.dapp.clone();
+            input_currency = swap.input_currency.clone();
+            amount_in = swap.amount_in.clone();
+            amount_in_usd = swap.amount_in_usd.clone();
+            sender = swap.sender;
+         }
+
+         if is_last {
+            output_currency = swap.output_currency.clone();
+            amount_out = swap.received.clone();
+            amount_out_usd = swap.received_usd.clone();
+            recipient = swap.recipient;
+         }
+      }
+
+      let swap_params = SwapParams {
+         dapp,
+         input_currency,
+         output_currency,
+         amount_in,
+         amount_in_usd,
+         received: amount_out,
+         received_usd: amount_out_usd,
+         sender,
+         recipient,
+      };
+
+      Ok(swap_params)
    }
 
    pub async fn from_uniswap_v2(
       ctx: ZeusCtx,
       chain: u64,
       from: Address,
-      logs: Vec<Log>,
+      log: Log,
    ) -> Result<Self, anyhow::Error> {
-      let mut swap_log = None;
-      let mut pool_address = Address::ZERO;
-      for log in logs {
-         if let Ok(decoded) = uniswap::v2::pool::decode_swap_log(&log) {
-            swap_log = Some(decoded);
-            pool_address = log.address;
-         }
-      }
+      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v2::pool::decode_swap_log(&log) {
+         (decoded, log.address)
+      } else {
+         return Err(anyhow::anyhow!("Log is not a UniswapV2 swap log"));
+      };
 
-      if swap_log.is_none() {
-         bail!("Failed to decode swap log");
-      }
-
-      let swap_log = swap_log.unwrap();
       let client = ctx.get_client_with_id(chain)?;
       let cached = ctx.read(|ctx| {
          ctx.pool_manager
@@ -646,22 +655,14 @@ impl SwapParams {
       ctx: ZeusCtx,
       chain: u64,
       from: Address,
-      logs: Vec<Log>,
+      log: Log,
    ) -> Result<Self, anyhow::Error> {
-      let mut swap_log = None;
-      let mut pool_address = Address::ZERO;
-      for log in logs {
-         if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(&log) {
-            swap_log = Some(decoded);
-            pool_address = log.address;
-         }
-      }
+      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(&log) {
+         (decoded, log.address)
+      } else {
+         return Err(anyhow::anyhow!("Log is not a UniswapV3 swap log"));
+      };
 
-      if swap_log.is_none() {
-         bail!("Failed to decode swap log");
-      }
-
-      let swap_log = swap_log.unwrap();
       let client = ctx.get_client_with_id(chain)?;
       let cached = ctx.read(|ctx| {
          ctx.pool_manager
@@ -808,7 +809,7 @@ impl TransferParams {
             recipient,
          })
       } else {
-         bail!("Not a transfer")
+         return Err(anyhow!("Not a transfer"));
       }
    }
 }
@@ -831,7 +832,7 @@ impl TokenApproveParams {
    ) -> Result<Self, anyhow::Error> {
       let selector = call_data.get(0..4).unwrap_or_default();
       if selector != erc20::approve_selector() {
-         bail!("Call is not an approve");
+         return Err(anyhow!("Call is not an approve"));
       }
 
       let mut decoded = None;
@@ -845,7 +846,7 @@ impl TokenApproveParams {
       }
 
       if decoded.is_none() {
-         bail!("Failed to decode approve log");
+         return Err(anyhow!("Failed to decode approve log"));
       }
 
       let decoded = decoded.unwrap();
@@ -878,5 +879,107 @@ impl TokenApproveParams {
       };
 
       Ok(params)
+   }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WrapETHParams {
+   pub from: Address,
+   pub eth_amount: NumericValue,
+   pub eth_amount_usd: Option<NumericValue>,
+   pub weth_amount: NumericValue,
+   pub weth_amount_usd: Option<NumericValue>,
+}
+
+impl WrapETHParams {
+   pub fn new(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      call_data: Bytes,
+      value: U256,
+      logs: Vec<Log>,
+   ) -> Result<Self, anyhow::Error> {
+      let selector = call_data.get(0..4).unwrap_or_default();
+      if selector != weth9::deposit_selector() {
+         return Err(anyhow::anyhow!("Call is not a WETH deposit"));
+      }
+
+      let mut decoded = None;
+      for log in &logs {
+         if let Ok(decoded_log) = weth9::decode_deposit_log(log) {
+            decoded = Some(decoded_log);
+            break;
+         }
+      }
+
+      let decoded = decoded.ok_or(anyhow::anyhow!("Failed to decode deposit log"))?;
+
+      let currency = Currency::from(NativeCurrency::from_chain_id(chain).unwrap());
+      let eth_amount = NumericValue::format_wei(value, currency.decimals());
+      let eth_amount_usd = ctx.get_currency_value2(eth_amount.f64(), &currency);
+      let weth_amount = NumericValue::format_wei(decoded.wad, currency.decimals());
+      let weth_amount_usd = ctx.get_currency_value2(weth_amount.f64(), &currency);
+
+      Ok(Self {
+         from,
+         eth_amount,
+         eth_amount_usd: Some(eth_amount_usd),
+         weth_amount,
+         weth_amount_usd: Some(weth_amount_usd),
+      })
+   }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UnwrapWETHParams {
+   pub from: Address,
+   pub weth_amount: NumericValue,
+   pub weth_amount_usd: Option<NumericValue>,
+   pub eth_amount: NumericValue,
+   pub eth_amount_usd: Option<NumericValue>,
+}
+
+impl UnwrapWETHParams {
+   pub fn new(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      call_data: Bytes,
+      value: U256,
+      logs: Vec<Log>,
+   ) -> Result<Self, anyhow::Error> {
+      let selector = call_data.get(0..4).unwrap_or_default();
+      if selector != weth9::withdraw_selector() {
+         return Err(anyhow::anyhow!("Call is not a WETH withdraw"));
+      }
+
+      let mut decoded = None;
+      for log in &logs {
+         if let Ok(decoded_log) = weth9::decode_withdraw_log(log) {
+            decoded = Some(decoded_log);
+            break;
+         }
+      }
+
+      if decoded.is_none() {
+         return Err(anyhow::anyhow!("Failed to decode withdraw log"));
+      }
+
+      let decoded = decoded.unwrap();
+
+      let currency = Currency::from(NativeCurrency::from_chain_id(chain).unwrap());
+      let weth_amount = NumericValue::format_wei(value, currency.decimals());
+      let weth_amount_usd = ctx.get_currency_value2(weth_amount.f64(), &currency);
+      let eth_amount = NumericValue::format_wei(decoded.wad, currency.decimals());
+      let eth_amount_usd = ctx.get_currency_value2(eth_amount.f64(), &currency);
+
+      Ok(Self {
+         from,
+         weth_amount,
+         weth_amount_usd: Some(weth_amount_usd),
+         eth_amount,
+         eth_amount_usd: Some(eth_amount_usd),
+      })
    }
 }

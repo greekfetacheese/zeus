@@ -24,6 +24,27 @@ use zeus_eth::{
 /// Time in seconds to wait before updating the pool state again
 const POOL_STATE_EXPIRY: u64 = 90;
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum Action {
+   Swap,
+   WrapETH,
+   UnwrapWETH,
+}
+
+impl Action {
+   pub fn is_wrap(&self) -> bool {
+      matches!(self, Self::WrapETH)
+   }
+
+   pub fn is_unwrap(&self) -> bool {
+      matches!(self, Self::UnwrapWETH)
+   }
+
+   pub fn is_swap(&self) -> bool {
+      matches!(self, Self::Swap)
+   }
+}
+
 /// Currency direction
 #[derive(Copy, Clone, PartialEq)]
 pub enum InOrOut {
@@ -170,15 +191,13 @@ impl SwapUi {
                self.settings(theme, ui);
 
                // --- Sell Section ---
-               let amount_changed = Self::swap_section(
+               let amount_changed = self.swap_section(
                   ui,
                   ctx.clone(),
                   theme,
                   icons.clone(),
                   token_selection,
                   InOrOut::In,
-                  &mut self.amount_in,
-                  &self.currency_in,
                   chain_id,
                   owner,
                );
@@ -198,15 +217,13 @@ impl SwapUi {
                ui.add_space(5.0);
 
                // Buy Section
-               Self::swap_section(
+               self.swap_section(
                   ui,
                   ctx.clone(),
                   theme,
                   icons.clone(),
                   token_selection,
                   InOrOut::Out,
-                  &mut self.amount_out,
-                  &self.currency_out,
                   chain_id,
                   owner,
                );
@@ -237,55 +254,84 @@ impl SwapUi {
                   self.get_quote(ctx.clone());
                }
 
-               if !self.quote_routes.routes.is_empty() {
-                  self.swap_details(ctx.clone(), theme, ui);
-               }
-
-               let valid = self.valid_inputs(ctx.clone());
-
-               let text = if valid {
-                  "Swap"
-               } else if !self.sufficient_balance(ctx.clone()) {
-                  &format!(
-                     "Insufficient {} Balance",
-                     self.currency_in.symbol()
-                  )
-               } else if !self.quote_exists() {
-                  "No Routes Found"
-               } else {
-                  "Swap"
-               };
-
-               let swap_button = Button::new(
-                  RichText::new(text)
-                     .size(theme.text_sizes.large)
-                     .color(theme.colors.text_color),
-               )
-               .min_size(vec2(ui.available_width() * 0.8, 45.0));
-
-               ui.vertical_centered(|ui| {
-                  if ui.add_enabled(valid, swap_button).clicked() {
-                     self.swap(ctx);
-                  }
-               });
+               self.swap_button(ctx.clone(), theme, ui);
+               self.swap_details(ctx, theme, ui);
             });
          });
 
       self.open = open;
    }
 
+   fn action(&self) -> Action {
+      let should_wrap = self.currency_in.is_native() && self.currency_out.is_native_wrapped();
+      let should_unwrap = self.currency_in.is_native_wrapped() && self.currency_out.is_native();
+
+      if should_wrap {
+         return Action::WrapETH;
+      } else if should_unwrap {
+         return Action::UnwrapWETH;
+      } else {
+         return Action::Swap;
+      }
+   }
+
+   fn swap_button(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      let valid = self.valid_inputs(ctx.clone());
+      let has_routes = !self.quote_routes.routes.is_empty();
+      let has_balance = self.sufficient_balance(ctx.clone());
+      let has_entered_amount = !self.amount_in.is_empty();
+      let action = self.action();
+
+      let mut button_text = "Swap".to_string();
+
+      if !has_entered_amount {
+         button_text = "Enter Amount".to_string();
+      }
+
+      if valid && action.is_wrap() {
+         button_text = format!("Wrap {}", self.currency_in.symbol());
+      }
+
+      if valid && action.is_unwrap() {
+         button_text = format!("Unwrap {}", self.currency_in.symbol());
+      }
+
+      if valid && action.is_swap() && !has_routes {
+         button_text = format!("No Routes Found");
+      }
+
+      if !has_balance {
+         button_text = format!(
+            "Insufficient {} Balance",
+            self.currency_in.symbol()
+         );
+      }
+
+      let swap_button = Button::new(
+         RichText::new(button_text)
+            .size(theme.text_sizes.large)
+            .color(theme.colors.text_color),
+      )
+      .min_size(vec2(ui.available_width() * 0.8, 45.0));
+
+      ui.vertical_centered(|ui| {
+         if ui.add_enabled(valid, swap_button).clicked() {
+            self.swap(ctx);
+         }
+      });
+   }
+
    /// Helper function to draw one section (Sell or Buy) of the swap UI
    ///
    /// Returns if the amount field was changed
    fn swap_section(
+      &mut self,
       ui: &mut Ui,
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
       direction: InOrOut,
-      amount_str: &mut String,
-      currency: &Currency,
       chain_id: u64,
       owner: Address,
    ) -> bool {
@@ -305,9 +351,19 @@ impl SwapUi {
                );
             });
 
+            let mut amount = match direction {
+               InOrOut::In => self.amount_in.clone(),
+               InOrOut::Out => self.amount_out.clone(),
+            };
+
+            let currency = match direction {
+               InOrOut::In => &self.currency_in.clone(),
+               InOrOut::Out => &self.currency_out.clone(),
+            };
+
             // Amount input
             ui.horizontal(|ui| {
-               let amount_input = TextEdit::singleline(amount_str)
+               let amount_input = TextEdit::singleline(&mut amount)
                   .font(FontId::proportional(theme.text_sizes.heading))
                   .hint_text(RichText::new("0").color(theme.colors.text_secondary))
                   .background_color(theme.colors.text_edit_bg2)
@@ -335,9 +391,14 @@ impl SwapUi {
                });
             });
 
+            match direction {
+               InOrOut::In => self.amount_in = amount.clone(),
+               InOrOut::Out => self.amount_out = amount.clone(),
+            }
+
             // USD Value
             ui.horizontal(|ui| {
-               let amount = amount_str.parse().unwrap_or(0.0);
+               let amount = amount.parse().unwrap_or(0.0);
                let usd_value = ctx.get_currency_value2(amount, currency);
                ui.label(
                   RichText::new(format!("${}", usd_value.formatted()))
@@ -361,7 +422,8 @@ impl SwapUi {
 
                if direction == InOrOut::In {
                   if ui.add(max_button).clicked() {
-                     *amount_str = balance.formatted().clone();
+                     self.amount_in = balance.formatted().to_string();
+                     self.get_quote(ctx);
                   }
                }
             });
@@ -424,17 +486,13 @@ impl SwapUi {
    }
 
    fn valid_inputs(&self, ctx: ZeusCtx) -> bool {
-      self.valid_amounts() && self.sufficient_balance(ctx) && self.quote_exists()
+      self.valid_amounts() && self.sufficient_balance(ctx)
    }
 
    fn valid_amounts(&self) -> bool {
       let amount_in = self.amount_in.parse().unwrap_or(0.0);
       let amount_out = self.amount_out.parse().unwrap_or(0.0);
       amount_in > 0.0 && amount_out > 0.0
-   }
-
-   fn quote_exists(&self) -> bool {
-      self.quote_routes.routes.len() > 0
    }
 
    fn _valid_slippage(&self) -> bool {
@@ -459,30 +517,39 @@ impl SwapUi {
          return;
       }
 
+      // ETH -> WETH
       if self.currency_in.is_native() && self.currency_out.is_native_wrapped() {
          return;
       }
 
+      let token_in = self.currency_in.to_erc20().into_owned();
+      let token_out = self.currency_out.to_erc20().into_owned();
       tracing::info!(
-         "Syncing pools for currency: {}",
-         self.currency_out.symbol()
+         "Syncing pools for: {} -> {}",
+         token_in.symbol,
+         token_out.symbol
       );
+
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
+      let currency_to_update_pools_from = self.currency_to_update_pools_from().clone();
 
       let client = ctx.get_client_with_id(chain_id).unwrap();
-      let token = self.currency_out.to_erc20().into_owned();
       let dexes = DexKind::main_dexes(chain_id);
       self.syncing_pools = true;
 
       let ctx2 = ctx.clone();
       RT.spawn(async move {
          match manager
-            .sync_pools_for_token(client.clone(), token.clone(), dexes)
+            .sync_pools_for_tokens(
+               client.clone(),
+               vec![token_in.clone(), token_out.clone()],
+               dexes,
+            )
             .await
          {
             Ok(_) => {
-               tracing::info!("Synced pools for token: {}", token.symbol);
+               // tracing::info!("Synced pools for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
                   gui.swap_ui.syncing_pools = false;
                   gui.swap_ui.pool_data_syncing = true;
@@ -497,9 +564,9 @@ impl SwapUi {
             }
          };
 
-         let pools = manager.get_pools_from_currency(&token.into());
+         let pools_to_update = manager.get_pools_from_currency(&currency_to_update_pools_from);
          match manager
-            .update_state_for_pools(client, chain_id, pools)
+            .update_state_for_pools(client, chain_id, pools_to_update)
             .await
          {
             Ok(_) => {
@@ -517,21 +584,29 @@ impl SwapUi {
             }
          }
 
-         RT.spawn_blocking(move || ctx2.save_pool_manager());
+         RT.spawn_blocking(move || match ctx2.save_pool_manager() {
+            Ok(_) => {
+               tracing::info!("Pool Manager saved");
+            }
+            Err(e) => {
+               tracing::error!("Error saving pool manager: {:?}", e);
+            }
+         });
       });
    }
 
    /// Currency to use to pull pools from
-   fn currency_to_pull_from(&self) -> &Currency {
-      // Do not consider WETH or any Base Token as the token to get pools from because overtime we will accumulate a lot of pools
-      // Since they are the most common paired tokens
-      let currency = if self.currency_in.is_base() && !self.currency_out.is_base() {
-         &self.currency_out
-      } else if self.currency_out.is_base() && !self.currency_in.is_base() {
-         &self.currency_in
-      } else {
-         &self.currency_out
-      };
+   fn currency_to_update_pools_from(&self) -> &Currency {
+      // Do not consider WETH or as the token to get pools from because overtime we will accumulate a lot of pools
+      // Since it's the most common paired token
+      let currency =
+         if self.currency_in.is_native_wrapped() && !self.currency_out.is_native_wrapped() {
+            &self.currency_out
+         } else if self.currency_out.is_native_wrapped() && !self.currency_in.is_native_wrapped() {
+            &self.currency_in
+         } else {
+            &self.currency_out
+         };
       currency
    }
 
@@ -579,10 +654,19 @@ impl SwapUi {
    }
 
    fn update_pool_state(&mut self, ctx: ZeusCtx) {
-      let currency = self.currency_to_pull_from();
+      let action = self.action();
+      if action.is_wrap() || action.is_unwrap() {
+         return;
+      }
+
+      let currency = self.currency_to_update_pools_from();
       let pools = self.pools_to_update(ctx.clone(), currency);
 
       if pools.is_empty() {
+         tracing::warn!(
+            "Can't get quote, No pools found for currency: {}",
+            currency.symbol()
+         );
          return;
       }
 
@@ -632,6 +716,12 @@ impl SwapUi {
    }
 
    fn get_quote(&mut self, ctx: ZeusCtx) {
+      let action = self.action();
+      if action == Action::WrapETH || action == Action::UnwrapWETH {
+         self.amount_out = self.amount_in.clone();
+         return;
+      }
+
       let amount_in = NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
 
       if amount_in.is_zero() {
@@ -663,10 +753,10 @@ impl SwapUi {
             priority_fee.wei2(),
          );
 
-         tracing::info!("Swap Route Length: {}", quote.swaps_len());
+         // tracing::info!("Swap Route Length: {}", quote.swaps_len());
          // tracing::info!("Route {}", quote.currency_path_str());
-         tracing::info!("Gas Used: {}", quote.total_gas_used());
-         tracing::info!("Gas Cost USD: {}", quote.total_gas_cost_usd());
+         // tracing::info!("Gas Used: {}", quote.total_gas_used());
+         // tracing::info!("Gas Cost USD: {}", quote.total_gas_cost_usd());
 
          let swap_steps = quote.get_swap_steps();
          tracing::info!("Swap Steps Length: {}", swap_steps.len());
@@ -720,13 +810,13 @@ impl SwapUi {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let mut amount_out = quote.total_amount_out();
             let slippage: f64 = self.slippage.parse().unwrap_or(0.5);
-            amount_out.calc_slippage(slippage, quote.currency_out.decimals());
+            amount_out.calc_slippage(slippage, self.currency_out.decimals());
 
             ui.label(
                RichText::new(format!(
                   "{} {}",
                   amount_out.formatted(),
-                  quote.currency_out.symbol()
+                  self.currency_out.symbol()
                ))
                .size(theme.text_sizes.normal),
             );
@@ -735,30 +825,70 @@ impl SwapUi {
    }
 
    fn swap(&self, ctx: ZeusCtx) {
-      let quote = self.quote_routes.clone();
-
-      let chain = ctx.chain();
-      let mev_protect = self.mev_protect;
+      let action = self.action();
       let from = ctx.current_wallet().address;
+      let chain = ctx.chain();
+
+      if action.is_wrap() || action.is_unwrap() {
+         let amount_in = self.amount_in.clone();
+         let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
+         RT.spawn(async move {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
+               gui.request_repaint();
+            });
+
+            match eth::wrap_or_unwrap_eth(
+               ctx.clone(),
+               from,
+               chain,
+               amount_in.clone(),
+               action.is_wrap(),
+            )
+            .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error wrapping/unwrapping: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.progress_window.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window
+                        .open("Transaction Error", e.to_string());
+                     gui.request_repaint();
+                  });
+               }
+            }
+         });
+
+         return;
+      }
+
+      let quote = self.quote_routes.clone();
+      let amount_in = quote.total_amount_in();
+      let mev_protect = self.mev_protect;
       let currency_in = quote.currency_in.clone();
       let currency_out = quote.currency_out.clone();
-      let amount_in = quote.total_amount_in();
-      let mut amount_out = quote.total_amount_out();
+      let amount_out = quote.total_amount_out();
       let slippage: f64 = self.slippage.parse().unwrap_or(0.5);
-      amount_out.calc_slippage(slippage, currency_out.decimals());
 
-      // calculate the slippage for the steps
+      // set no slippage on intermidiate swaps to make sure they don't fail
       let mut swap_steps = quote.get_swap_steps();
-      for swap in swap_steps.iter_mut() {
-         swap
-            .amount_out
-            .calc_slippage(slippage, swap.currency_out.decimals());
+      let len = swap_steps.len();
+      for (i, swap) in swap_steps.iter_mut().enumerate() {
+         if i < len - 1 {
+            swap.amount_out = NumericValue::default()
+         }
       }
 
       RT.spawn(async move {
+         SHARED_GUI.open_loading("Wait while magic happens");
+         SHARED_GUI.request_repaint();
+
          match eth::swap(
             ctx.clone(),
             chain,
+            slippage,
             mev_protect,
             from,
             SwapType::ExactInput,

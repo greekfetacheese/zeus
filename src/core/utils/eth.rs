@@ -1,6 +1,6 @@
-use super::action::TokenApproveParams;
 use super::{RT, eth, tx::TxParams, update};
 use crate::core::ZeusCtx;
+use crate::core::utils::action::SwapParams;
 use crate::core::utils::parse_typed_data;
 use crate::core::utils::sign::SignMsgType;
 use crate::core::utils::{
@@ -24,10 +24,11 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, Log, TransactionReceipt},
    amm::{DexKind, UniswapPool, uniswap::router::*},
    currency::{Currency, ERC20Token, NativeCurrency},
+   dapps::Dapp,
    dapps::across::spoke_pool_address,
    revm_utils::{
-      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkFactory, Host,
-      new_evm, revert_msg,
+      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkDB, ForkFactory, Host,
+      new_evm, revert_msg, simulate,
    },
    types::ChainId,
    utils::NumericValue,
@@ -37,7 +38,8 @@ use zeus_eth::{
 pub async fn send_transaction(
    ctx: ZeusCtx,
    dapp: String,
-   action: Option<OnChainAction>,
+   fork_db: Option<ForkDB>,
+   tx_summary: Option<TxSummary>,
    chain: ChainId,
    mev_protect: bool,
    from: Address,
@@ -45,107 +47,77 @@ pub async fn send_transaction(
    call_data: Bytes,
    value: U256,
 ) -> Result<(TransactionReceipt, TxSummary), anyhow::Error> {
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.open();
-      gui.tx_confirm_window.simulating();
-   });
-
    let client = ctx.get_client_with_id(chain.id()).unwrap();
    let base_fee_fut = update::get_base_fee(ctx.clone(), chain.id());
    let nonce_fut = client.get_transaction_count(from).into_future();
-   let bytecode_fut = client.get_code_at(interact_to).into_future();
-   let block = client.get_block(BlockId::latest()).await?;
 
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
-   let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain, block.as_ref(), fork_db);
-
-   let sim_res = simulate_transaction(
-      &mut evm,
-      from,
-      interact_to,
-      call_data.clone(),
-      value,
-   )
-   .await?;
-
-   let gas_used = sim_res.gas_used();
-   let logs = sim_res.into_logs();
-   let native_currency = NativeCurrency::from_chain_id(chain.id()).unwrap();
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
-   let state = evm.balance(from);
-
-   let balance_after = if let Some(state) = state {
-      NumericValue::format_wei(state.data, native_currency.decimals).wei2()
+   let tx_summary = if let Some(tx_summary) = tx_summary {
+      tx_summary
    } else {
-      NumericValue::default().wei().unwrap_or_default()
-   };
+      SHARED_GUI.write(|gui| {
+         gui.loading_window.open("Wait while magic happens");
+         gui.request_repaint();
+      });
 
-   let eth_spent_opt = balance_before.wei2().checked_sub(balance_after);
-   let eth_gained_opt = balance_after.checked_sub(balance_before.wei2());
-   let eth_price = ctx.get_currency_price(&Currency::from(native_currency.clone()));
+      let fork_db = if let Some(fork_db) = fork_db {
+         fork_db
+      } else {
+         let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+         factory.new_sandbox_fork()
+      };
 
-   let (eth_spent, eth_spent_usd) = if let Some(eth_spent) = eth_spent_opt {
-      let eth_spent = NumericValue::format_wei(eth_spent, native_currency.decimals);
-      let eth_spent_value = NumericValue::value(eth_spent.f64(), eth_price.f64());
-      (eth_spent, eth_spent_value)
-   } else {
-      (NumericValue::default(), NumericValue::default())
-   };
+      let bytecode_fut = client.get_code_at(interact_to).into_future();
+      let block = client.get_block(BlockId::latest()).await?;
+      let mut evm = new_evm(chain, block.as_ref(), fork_db);
 
-   let (eth_received, eth_received_usd) = if let Some(eth_gained) = eth_gained_opt {
-      let eth_gained = NumericValue::format_wei(eth_gained, native_currency.decimals);
-      let eth_gained_usd = NumericValue::value(eth_gained.f64(), eth_price.f64());
-      (eth_gained, eth_gained_usd)
-   } else {
-      (NumericValue::default(), NumericValue::default())
-   };
-
-   let base_fee = base_fee_fut.await?;
-   let bytecode = bytecode_fut.await?;
-   let contract_interact = bytecode.len() > 0;
-   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
-   let (tx_cost_wei, tx_cost_usd) = estimate_tx_cost(
-      ctx.clone(),
-      chain.id(),
-      gas_used,
-      priority_fee.wei2(),
-   );
-
-   let action = if let Some(action) = action {
-      action
-   } else {
-      OnChainAction::new(
-         ctx.clone(),
-         chain.id(),
+      let time = std::time::Instant::now();
+      let sim_res = simulate_transaction(
+         &mut evm,
          from,
          interact_to,
          call_data.clone(),
          value,
-         logs,
-      )
-      .await
-   };
+      )?;
+      tracing::info!(
+         "Simulate Transaction took {} ms",
+         time.elapsed().as_millis()
+      );
 
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.done_simulating();
-      gui.tx_confirm_window.open_with(
-         dapp,
+      let state = evm.balance(from);
+      let balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      let bytecode = bytecode_fut.await?;
+      let contract_interact = bytecode.len() > 0;
+      let tx_summary = make_tx_summary(
+         ctx.clone(),
          chain,
-         true, // confrim window
-         eth_spent.clone(),
-         eth_spent_usd.clone(),
-         eth_received.clone(),
-         eth_received_usd.clone(),
-         tx_cost_wei.clone(),
-         tx_cost_usd.clone(),
-         gas_used,
          from,
          interact_to,
+         call_data.clone(),
+         value,
          contract_interact,
-         action,
+         balance_after,
+         None,
+         sim_res,
+      )
+      .await?;
+
+      tx_summary
+   };
+
+   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+
+   SHARED_GUI.write(|gui| {
+      gui.tx_confirm_window.open_as_confirmation(
+         dapp,
+         tx_summary.clone(),
          priority_fee.formatted().clone(),
       );
+      gui.loading_window.reset();
       gui.request_repaint();
    });
 
@@ -183,10 +155,12 @@ pub async fn send_transaction(
       fee
    };
 
+   let base_fee = base_fee_fut.await?;
    let nonce = nonce_fut.await?;
    let signer = ctx.get_wallet(from).key;
 
    // give a 10% buffer to the gas limit
+   let gas_used = tx_summary.gas_used;
    let gas_limit = gas_used * 11 / 10;
 
    let tx_params = TxParams::new(
@@ -227,16 +201,20 @@ pub async fn send_transaction(
    )
    .await;
 
-   let timestamp = if let Some(block) = block {
-      block.header.timestamp
-   } else {
-      std::time::SystemTime::now()
-         .duration_since(std::time::UNIX_EPOCH)
-         .unwrap()
-         .as_secs()
-   };
+   let timestamp = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .unwrap()
+      .as_secs();
 
-   let tx_summary = TxSummary {
+   let eth_spent = tx_summary.eth_spent.clone();
+   let eth_spent_usd = tx_summary.eth_spent_usd.clone();
+   let eth_received = tx_summary.eth_received.clone();
+   let eth_received_usd = tx_summary.eth_received_usd.clone();
+   let tx_cost = tx_summary.tx_cost.clone();
+   let tx_cost_usd = tx_summary.tx_cost_usd.clone();
+   let contract_interact = tx_summary.contract_interact;
+
+   let new_tx_summary = TxSummary {
       success: receipt.status(),
       chain: chain.id(),
       block: receipt.block_number.unwrap_or_default(),
@@ -247,7 +225,7 @@ pub async fn send_transaction(
       eth_spent_usd,
       eth_received,
       eth_received_usd,
-      tx_cost: tx_cost_wei,
+      tx_cost,
       tx_cost_usd,
       gas_used,
       hash: receipt.transaction_hash,
@@ -256,7 +234,7 @@ pub async fn send_transaction(
    };
 
    let ctx_clone = ctx.clone();
-   let summary = tx_summary.clone();
+   let summary = new_tx_summary.clone();
    RT.spawn_blocking(move || {
       ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, summary));
       ctx_clone.save_tx_db();
@@ -286,7 +264,88 @@ pub async fn send_transaction(
    Ok((receipt, tx_summary))
 }
 
-pub async fn simulate_transaction<DB>(
+/// Try to understand what happened in a transaction
+async fn make_tx_summary(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+   contract_interact: bool,
+   balance_after: U256,
+   action: Option<OnChainAction>,
+   sim_res: ExecutionResult,
+) -> Result<TxSummary, anyhow::Error> {
+   let gas_used = sim_res.gas_used();
+   let logs = sim_res.into_logs();
+   let native_currency = NativeCurrency::from_chain_id(chain.id()).unwrap();
+   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+
+   let eth_spent_opt = balance_before.wei2().checked_sub(balance_after);
+   let eth_gained_opt = balance_after.checked_sub(balance_before.wei2());
+   let eth_price = ctx.get_currency_price(&Currency::from(native_currency.clone()));
+
+   let (eth_spent, eth_spent_usd) = if let Some(eth_spent) = eth_spent_opt {
+      let eth_spent = NumericValue::format_wei(eth_spent, native_currency.decimals);
+      let eth_spent_value = NumericValue::value(eth_spent.f64(), eth_price.f64());
+      (eth_spent, eth_spent_value)
+   } else {
+      (NumericValue::default(), NumericValue::default())
+   };
+
+   let (eth_received, eth_received_usd) = if let Some(eth_gained) = eth_gained_opt {
+      let eth_gained = NumericValue::format_wei(eth_gained, native_currency.decimals);
+      let eth_gained_usd = NumericValue::value(eth_gained.f64(), eth_price.f64());
+      (eth_gained, eth_gained_usd)
+   } else {
+      (NumericValue::default(), NumericValue::default())
+   };
+
+   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let (tx_cost_wei, tx_cost_usd) = estimate_tx_cost(
+      ctx.clone(),
+      chain.id(),
+      gas_used,
+      priority_fee.wei2(),
+   );
+
+   let action = if let Some(action) = action {
+      action
+   } else {
+      OnChainAction::new(
+         ctx.clone(),
+         chain.id(),
+         from,
+         interact_to,
+         call_data,
+         value,
+         logs,
+      )
+      .await
+   };
+
+   let summary = TxSummary {
+      success: true,
+      chain: chain.id(),
+      from,
+      to: interact_to,
+      eth_spent,
+      eth_spent_usd,
+      eth_received,
+      eth_received_usd,
+      tx_cost: tx_cost_wei,
+      tx_cost_usd,
+      gas_used,
+      action,
+      contract_interact,
+      ..Default::default()
+   };
+
+   Ok(summary)
+}
+
+pub fn simulate_transaction<DB>(
    evm: &mut Evm2<DB>,
    from: Address,
    interact_to: Address,
@@ -370,37 +429,255 @@ pub async fn sign_message(
    Ok(signature)
 }
 
+pub async fn wrap_or_unwrap_eth(
+   ctx: ZeusCtx,
+   from: Address,
+   chain: ChainId,
+   amount: NumericValue,
+   wrap_eth: bool,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client_with_id(chain.id()).unwrap();
+   let block = client.get_block(BlockId::latest()).await?;
+   let wrapped = ERC20Token::wrapped_native_token(chain.id());
+
+   let (call_data, value) = if wrap_eth {
+      let data = wrapped.encode_deposit();
+      (data, amount.wei2())
+   } else {
+      let data = wrapped.encode_withdraw(amount.wei2());
+      (data, U256::ZERO)
+   };
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+   let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+
+   let time = std::time::Instant::now();
+   let sim_res = simulate_transaction(
+      &mut evm,
+      from,
+      wrapped.address,
+      call_data.clone(),
+      value,
+   )?;
+   tracing::info!(
+      "Wrap/Unwrap Transaction Simulation took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let state = evm.balance(from);
+   let balance_after = if let Some(state) = state {
+      state.data
+   } else {
+      U256::ZERO
+   };
+
+   let contract_interact = true;
+   let tx_summary = make_tx_summary(
+      ctx.clone(),
+      chain,
+      from,
+      wrapped.address,
+      call_data.clone(),
+      value,
+      contract_interact,
+      balance_after,
+      None,
+      sim_res,
+   )
+   .await?;
+
+   let (_, _) = send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      None,
+      Some(tx_summary),
+      chain,
+      false,
+      from,
+      wrapped.address,
+      call_data,
+      value
+   ).await?;
+
+   // update balances
+   RT.spawn(async move {
+      let _ = get_eth_balance(ctx.clone(), chain.id(), from).await;
+      let _ = update::update_tokens_balance_for_chain(ctx.clone(), chain.id(), from, vec![wrapped])
+         .await;
+   });
+
+   Ok(())
+}
+
 pub async fn swap(
    ctx: ZeusCtx,
    chain: ChainId,
+   slippage: f64,
    mev_protect: bool,
    from: Address,
    swap_type: SwapType,
    amount_in: NumericValue,
-   amount_out_min: NumericValue,
+   _amount_out: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
    swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client_with_id(chain.id())?;
+   let interact_to = uniswap_v4_universal_router(chain.id())?;
+   let bytecode_fut = client.get_code_at(interact_to).into_future();
+   let block_fut = client.get_block(BlockId::latest());
    let signer = ctx.get_wallet(from).key;
 
-   SHARED_GUI.open_loading("Wait while magic happens");
-   SHARED_GUI.request_repaint();
-
+   // Simulate the swap to find out the real amount of tokens received in case of a tax or any malicious contract
+   let time = std::time::Instant::now();
    let execute_params = build_execute_params(
       client.clone(),
       chain.id(),
-      swap_steps,
+      swap_steps.clone(),
       swap_type,
       amount_in.wei2(),
-      amount_out_min.wei2(),
+      U256::ZERO, // No slippage so the simulation goes through
+      currency_in.clone(),
+      currency_out.clone(),
+      signer.clone(),
+      from,
+   )
+   .await?;
+   tracing::info!(
+      "Build Execute Params took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let block = block_fut.await?;
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+   let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+
+   if execute_params.token_needs_approval {
+      // make sure token in is approved
+      let permit2 = permit2_contract(chain.id())?;
+      let time = std::time::Instant::now();
+      simulate::approve_token(
+         &mut evm,
+         currency_in.address(),
+         from,
+         permit2,
+         U256::MAX,
+      )?;
+      tracing::info!(
+         "Approve Token sim took {} ms",
+         time.elapsed().as_millis()
+      );
+   }
+
+   // currency_out balance before
+   let time = std::time::Instant::now();
+   let balance_before = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
+   tracing::info!(
+      "Balance before sim took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   // simulate the swap
+   let time = std::time::Instant::now();
+   let sim_res = simulate_transaction(
+      &mut evm,
+      from,
+      interact_to,
+      execute_params.call_data.clone(),
+      execute_params.value,
+   )?;
+   tracing::info!(
+      "Swap Simulation took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let state = evm.balance(from);
+   let eth_balance_after = if let Some(state) = state {
+      state.data
+   } else {
+      U256::ZERO
+   };
+
+   // get the balance after
+   let time = std::time::Instant::now();
+   let balance_after = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
+   tracing::info!(
+      "Balance after sim took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   // calculate the real amount out
+   let real_amount_out = if balance_before < balance_after {
+      let amount_out = balance_after - balance_before;
+      NumericValue::format_wei(amount_out, currency_out.decimals())
+   } else {
+      return Err(anyhow::anyhow!(
+         "No tokens received from the swap"
+      ));
+   };
+
+   // apply the slippage
+   let mut amount_out_with_slippage = real_amount_out.clone();
+   amount_out_with_slippage.calc_slippage(slippage, currency_out.decimals());
+
+   // build the call data again with the real_amount_out and slippage applied
+   // TODO: Avoid this step again or at least avoid making calls to the provider
+   let time = std::time::Instant::now();
+   let execute_params = build_execute_params(
+      client.clone(),
+      chain.id(),
+      swap_steps.clone(),
+      swap_type,
+      amount_in.wei2(),
+      amount_out_with_slippage.wei2(),
       currency_in.clone(),
       currency_out.clone(),
       signer,
       from,
    )
    .await?;
+   tracing::info!(
+      "Build Execute Params took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let amount_in_usd = ctx.get_currency_value2(amount_in.f64(), &currency_in);
+   let received_usd = ctx.get_currency_value2(real_amount_out.f64(), &currency_out);
+   let swap_params = SwapParams {
+      dapp: Dapp::Uniswap,
+      input_currency: currency_in.clone(),
+      output_currency: currency_out.clone(),
+      amount_in: amount_in.clone(),
+      amount_in_usd: Some(amount_in_usd),
+      received: real_amount_out,
+      received_usd: Some(received_usd),
+      sender: from,
+      recipient: Some(from),
+   };
+   let action = OnChainAction::SwapToken(swap_params);
+
+   let bytecode = bytecode_fut.await?;
+   let contract_interact = bytecode.len() > 0;
+   let time = std::time::Instant::now();
+   let tx_summary = make_tx_summary(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      execute_params.call_data.clone(),
+      execute_params.value,
+      contract_interact,
+      eth_balance_after,
+      Some(action),
+      sim_res,
+   )
+   .await?;
+   tracing::info!(
+      "Make Tx Summary took {} ms",
+      time.elapsed().as_millis()
+   );
 
    SHARED_GUI.reset_loading();
    SHARED_GUI.request_repaint();
@@ -422,19 +699,13 @@ pub async fn swap(
       let interact_to = token.address;
       let value = U256::ZERO;
 
-      let approve_params = TokenApproveParams {
-         token: currency_in.clone(),
-         amount: NumericValue::format_wei(U256::MAX, token.decimals),
-         amount_usd: None,
-         owner: from,
-         spender: permit2,
-      };
-      let action = OnChainAction::TokenApprove(approve_params);
+      let new_fork_db = factory.new_sandbox_fork();
 
       let (receipt, _) = send_transaction(
          ctx.clone(),
          dapp,
-         Some(action),
+         Some(new_fork_db),
+         None,
          chain,
          mev_protect,
          from,
@@ -454,12 +725,13 @@ pub async fn swap(
    let call_data = execute_params.call_data.clone();
    let value = execute_params.value;
    let dapp = "".to_string();
-   let interact_to = uniswap_v4_universal_router(chain.id())?;
+   let new_fork_db = factory.new_sandbox_fork();
 
-   let (_, tx_summary) = send_transaction(
+   let (_, new_tx_summary) = send_transaction(
       ctx.clone(),
       dapp,
-      None,
+      Some(new_fork_db),
+      Some(tx_summary),
       chain,
       mev_protect,
       from,
@@ -479,7 +751,7 @@ pub async fn swap(
    SHARED_GUI.write(|gui| {
       gui.progress_window
          .open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx_summary(tx_summary);
+      gui.progress_window.set_tx_summary(new_tx_summary);
       gui.request_repaint();
    });
 
@@ -500,27 +772,24 @@ pub async fn across_bridge(
    chain: ChainId,
    dest_chain: ChainId,
    deadline: u32,
-   action: OnChainAction,
+   _action: OnChainAction,
    from: Address,
    recipient: Address,
    interact_to: Address,
    call_data: Bytes,
    value: U256,
 ) -> Result<(), anyhow::Error> {
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.open();
-      gui.tx_confirm_window.simulating();
-   });
 
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let dest_client = ctx.get_client_with_id(dest_chain.id())?;
-   let from_block = dest_client.get_block_number().await?;
+   let from_block_fut = dest_client.get_block_number().into_future();
 
    let (_, tx_summary) = send_transaction(
       ctx,
       "".to_string(),
-      Some(action),
+      None,
+      None,
       chain,
       false,
       from,
@@ -558,6 +827,7 @@ pub async fn across_bridge(
 
    let now = std::time::Instant::now();
    let mut funds_received = false;
+   let from_block = from_block_fut.await?;
 
    let target = spoke_pool_address(dest_chain.id())?;
    let filter = Filter::new()
@@ -613,17 +883,12 @@ pub async fn send_crypto(
    interact_to: Address,
    call_data: Bytes,
    value: U256,
-   action: OnChainAction,
 ) -> Result<(), anyhow::Error> {
-   SHARED_GUI.write(|gui| {
-      gui.tx_confirm_window.open();
-      gui.tx_confirm_window.simulating();
-   });
-
    let (_, summary) = send_transaction(
       ctx,
       "".to_string(),
-      Some(action),
+      None,
+      None,
       chain,
       false,
       from,

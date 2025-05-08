@@ -30,6 +30,7 @@ pub struct UniswapV4Pool {
    pub dex: DexKind,
    pub currency0: Currency,
    pub currency1: Currency,
+   #[serde(skip)]
    pub state: State,
    pub pool_key: PoolKey,
    pub pool_id: B256,
@@ -296,7 +297,7 @@ impl UniswapPool for UniswapV4Pool {
          return self.state.v3_state().unwrap().base_token_liquidity >= threshold;
       }
       */
-      true
+      false
    }
 
    fn base_token_exists(&self) -> bool {

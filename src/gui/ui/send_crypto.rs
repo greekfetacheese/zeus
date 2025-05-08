@@ -10,7 +10,6 @@ use crate::core::{
    ZeusCtx,
    utils::{
       RT,
-      action::OnChainAction,
       estimate_tx_cost,
       eth::{self, get_currency_balance},
    },
@@ -370,7 +369,7 @@ impl SendCryptoUi {
 
             RT.spawn(async move {
                match manager
-                  .sync_pools_for_token(client.clone(), token, dexes)
+                  .sync_pools_for_tokens(client.clone(), vec![token], dexes)
                   .await
                {
                   Ok(_) => {
@@ -449,12 +448,9 @@ impl SendCryptoUi {
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
-      let balance = ctx
-         .get_eth_balance(ctx.chain().id(), sender)
-         .unwrap_or_default();
+      let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency);
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
-      let amount = amount.wei().unwrap();
-      balance.wei().unwrap() >= amount
+      balance.wei2() >= amount.wei2()
    }
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
@@ -464,7 +460,6 @@ impl SendCryptoUi {
       let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
 
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
-      let amount_usd = ctx.get_currency_value2(amount.f64(), &currency);
       let (call_data, interact_to) = if currency.is_native() {
          (Bytes::default(), recipient_address)
       } else {
@@ -480,15 +475,12 @@ impl SendCryptoUi {
          U256::ZERO
       };
 
-      let action = OnChainAction::new_transfer(
-         currency,
-         amount,
-         amount_usd,
-         from,
-         recipient_address,
-      );
-
       RT.spawn(async move {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+         });
+
          match eth::send_crypto(
             ctx.clone(),
             chain,
@@ -496,7 +488,6 @@ impl SendCryptoUi {
             interact_to,
             call_data,
             value,
-            action,
          )
          .await
          {

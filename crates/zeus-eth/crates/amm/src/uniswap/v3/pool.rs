@@ -34,6 +34,7 @@ pub struct UniswapV3Pool {
    pub currency0: Currency,
    pub currency1: Currency,
    pub dex: DexKind,
+   #[serde(skip)]
    pub state: State,
 }
 
@@ -283,7 +284,7 @@ impl UniswapPool for UniswapV3Pool {
    fn enough_liquidity(&self) -> bool {
       let threshold = minimum_liquidity(&self.base_token());
       if !self.state.is_v3() {
-         return true;
+         return false;
       } else {
          return self.state.v3_state().unwrap().base_token_liquidity >= threshold;
       }

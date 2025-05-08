@@ -153,7 +153,7 @@ pub async fn update_portfolio_state(
 
       if pools.is_empty() {
          let _ = pool_manager
-            .sync_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
+            .sync_pools_for_tokens(client.clone(), vec![token.clone()], dex_kinds.clone())
             .await;
       }
    }
@@ -415,7 +415,7 @@ pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
       if time_passed.elapsed().as_secs() > PRIORITY_FEE_INTERVAL {
          for chain in SUPPORTED_CHAINS {
             match update_priority_fee(ctx.clone(), chain).await {
-               Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+               Ok(_) => tracing::debug!("Updated priority fee for chain: {}", chain),
                Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
             }
          }

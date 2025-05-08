@@ -10,10 +10,10 @@ use utils::{
 };
 
 use serde::{Deserialize, Serialize};
-
+use std::hash::{Hash, Hasher};
 
 /// Represents an ERC20 token.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ERC20Token {
    pub chain_id: u64,
    pub address: Address,
@@ -21,6 +21,21 @@ pub struct ERC20Token {
    pub name: String,
    pub decimals: u8,
    pub total_supply: U256,
+}
+
+impl PartialEq for ERC20Token {
+   fn eq(&self, other: &Self) -> bool {
+      self.chain_id == other.chain_id && self.address == other.address
+   }
+}
+
+impl Eq for ERC20Token {}
+
+impl Hash for ERC20Token {
+   fn hash<H: Hasher>(&self, state: &mut H) {
+      self.chain_id.hash(state);
+      self.address.hash(state);
+   }
 }
 
 impl Default for ERC20Token {

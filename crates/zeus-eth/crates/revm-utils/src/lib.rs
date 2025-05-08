@@ -28,7 +28,7 @@ pub mod fork_db;
 pub mod simulate;
 
 pub use dummy_account::{AccountType, DummyAccount};
-pub use fork_db::ForkFactory;
+pub use fork_db::{ForkFactory, ForkDB};
 
 pub fn new_evm<DB>(chain: ChainId, block: Option<&Block>, db: DB) -> Evm2<DB>
 where

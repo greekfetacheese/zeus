@@ -668,6 +668,11 @@ impl AcrossBridge {
       );
 
       RT.spawn(async move {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+         });
+
          match eth::across_bridge(
             ctx.clone(),
             from_chain,

@@ -130,7 +130,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_swap();
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_with_summary(summary);
+                  gui.tx_confirm_window.open_as_summary(summary);
                });
             });
          }
@@ -140,7 +140,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_token_approve();
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_with_summary(summary);
+                  gui.tx_confirm_window.open_as_summary(summary);
                });
             });
          }
@@ -150,7 +150,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_transfer();
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_with_summary(summary);
+                  gui.tx_confirm_window.open_as_summary(summary);
                });
             });
          }
@@ -160,7 +160,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_bridge();
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_with_summary(summary);
+                  gui.tx_confirm_window.open_as_summary(summary);
                });
             });
          }
@@ -170,7 +170,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_other();
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_with_summary(summary);
+                  gui.tx_confirm_window.open_as_summary(summary);
                });
             });
          }

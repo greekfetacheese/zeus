@@ -22,6 +22,12 @@ pub enum State {
    None,
 }
 
+impl Default for State {
+   fn default() -> Self {
+      Self::None
+   }
+}
+
 impl State {
    pub fn none() -> Self {
       Self::None

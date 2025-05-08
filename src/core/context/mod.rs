@@ -8,7 +8,7 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::amm::{pool_manager::PoolManagerHandle, DexKind, uniswap::AnyUniswapPool};
+use zeus_eth::amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, erc20::ERC20Token},
@@ -131,7 +131,13 @@ impl ZeusCtx {
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
-      self.read(|ctx| ctx.contact_db.contacts.iter().find(|c| c.address == address).cloned())
+      self.read(|ctx| {
+         ctx.contact_db
+            .contacts
+            .iter()
+            .find(|c| c.address == address)
+            .cloned()
+      })
    }
 
    pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
@@ -206,11 +212,9 @@ impl ZeusCtx {
    }
 
    pub fn save_pool_manager(&self) -> Result<(), anyhow::Error> {
-      let data = self.read(|ctx| ctx.pool_manager.to_string().ok());
-      if let Some(data) = data {
-         let dir = pool_data_dir()?;
-         std::fs::write(dir, data)?;
-      }
+      let data = self.read(|ctx| ctx.pool_manager.to_string())?;
+      let dir = pool_data_dir()?;
+      std::fs::write(dir, data)?;
       Ok(())
    }
 
@@ -417,7 +421,7 @@ impl ZeusCtx {
       &self,
       chain: u64,
       fee: u32,
-      dex: &DexKind,
+      dex: DexKind,
       currency_a: &Currency,
       currency_b: &Currency,
    ) -> Option<AnyUniswapPool> {

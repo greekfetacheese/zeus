@@ -23,6 +23,8 @@ use alloy_contract::private::{Network, Provider};
 use anyhow::bail;
 use serde::{Deserialize, Serialize};
 
+pub const FEE: u32 = 300;
+
 /// Represents a Uniswap V2 Pool
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UniswapV2Pool {
@@ -32,6 +34,7 @@ pub struct UniswapV2Pool {
    pub currency1: Currency,
    pub fee: FeeAmount,
    pub dex: DexKind,
+   #[serde(skip)]
    pub state: State,
 }
 
@@ -49,7 +52,7 @@ impl UniswapV2Pool {
          address,
          currency0: Currency::from(token0),
          currency1: Currency::from(token1),
-         fee: FeeAmount::CUSTOM(300), // 0.3% fee
+         fee: FeeAmount::CUSTOM(FEE), // 0.3% fee
          dex,
          state: State::none(),
       }
@@ -235,7 +238,7 @@ impl UniswapPool for UniswapV2Pool {
 
    fn enough_liquidity(&self) -> bool {
       if !self.state.is_v2() {
-         return true;
+         return false;
       }
       let state = self.state.v2_reserves().unwrap();
       let base_token = self.base_token();

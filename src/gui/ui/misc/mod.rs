@@ -452,7 +452,7 @@ impl ProgressWindow {
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
                                  gui.tx_confirm_window
-                                    .open_with_summary(summary.unwrap_or_default());
+                                    .open_as_summary(summary.unwrap_or_default());
                               });
                            });
                         }
@@ -1179,7 +1179,7 @@ impl PortfolioUi {
       self.show_spinner = true;
       RT.spawn(async move {
          match manager
-            .sync_pools_for_token(client.clone(), token.clone(), dex_kinds)
+            .sync_pools_for_tokens(client.clone(), vec![token.clone()], dex_kinds)
             .await
          {
             Ok(_) => {

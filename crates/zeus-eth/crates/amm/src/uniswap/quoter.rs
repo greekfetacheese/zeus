@@ -239,12 +239,18 @@ pub fn get_quote(
 
    // 1. Find Potential Paths (Graph Search)
    let relevant_pools = get_relevant_pools(&currency_in, &currency_out, &all_pools);
-   if relevant_pools.is_empty() {
+   let mut valid_pools = Vec::new();
+   for pool in relevant_pools {
+      if pool.enough_liquidity() {
+         valid_pools.push(pool);
+      }
+   }
+   if valid_pools.is_empty() {
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter2", "No relevant pools found for {}/{}", currency_in.symbol(), currency_out.symbol());
       return QuoteRoutes::default();
    }
 
-   let potential_paths = find_potential_paths(&relevant_pools, &currency_in, &currency_out, max_hops);
+   let potential_paths = find_potential_paths(&valid_pools, &currency_in, &currency_out, max_hops);
 
    if potential_paths.is_empty() {
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter2", "No potential paths found for {}/{}", currency_in.symbol(), currency_out.symbol());
