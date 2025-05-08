@@ -83,19 +83,18 @@ impl ZeusCtx {
    /// Get the wallet with the given address
    ///
    /// Should only used if we need the wallet's private key
+   ///
+   /// Panics if the wallet is not found
    pub fn get_wallet(&self, address: Address) -> Wallet {
-      let mut wallet = Wallet::new_rng(String::new());
       self.read(|ctx| {
-         let w = &ctx
-            .account
-            .wallets
+         let wallets = ctx.account.wallets();
+         let wallet = wallets
             .iter()
             .find(|w| w.info.address == address)
             .cloned()
             .unwrap();
-         wallet = w.clone();
-      });
-      wallet
+         wallet
+      })
    }
 
    pub fn current_wallet(&self) -> WalletInfo {
@@ -109,7 +108,7 @@ impl ZeusCtx {
    pub fn get_wallet_info(&self, address: Address) -> Option<WalletInfo> {
       let mut info = None;
       self.read(|ctx| {
-         for wallet in &ctx.account.wallets {
+         for wallet in ctx.account.wallets() {
             if wallet.info.address == address {
                info = Some(wallet.info.clone());
                break;
@@ -122,7 +121,7 @@ impl ZeusCtx {
    pub fn wallets_info(&self) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
-         for wallet in &ctx.account.wallets {
+         for wallet in ctx.account.wallets() {
             info.push(wallet.info.clone());
          }
       });

@@ -12,9 +12,9 @@ pub const ACCOUNT_FILE: &str = "account.data";
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Account {
    #[serde(skip)]
-   pub credentials: Credentials,
+   credentials: Credentials,
 
-   pub wallets: Vec<Wallet>,
+   wallets: Vec<Wallet>,
 
    /// The current selected wallet from the GUI
    pub current_wallet: WalletInfo,
@@ -34,6 +34,22 @@ impl Default for Account {
 
 impl Account {
    const MAX_CHARS: usize = 20;
+
+   pub fn wallets(&self) -> &Vec<Wallet> {
+      &self.wallets
+   }
+
+   pub fn set_credentials(&mut self, credentials: Credentials) {
+      self.credentials = credentials;
+   }
+
+   pub fn set_wallets(&mut self, wallets: Vec<Wallet>) {
+      self.wallets = wallets;
+   }
+
+   pub fn set_current_wallet(&mut self, current_wallet: WalletInfo) {
+      self.current_wallet = current_wallet;
+   }
 
    pub fn new_wallet_from_key_or_phrase(
       &mut self,

@@ -127,7 +127,7 @@ impl LoginUi {
 
                if ui.add(button).clicked() {
                   let mut account = ctx.get_account();
-                  account.credentials = self.credentials_form.credentials.clone();
+                  account.set_credentials(self.credentials_form.credentials.clone());
                   self.login(ctx.clone(), account);
                }
 
@@ -139,7 +139,7 @@ impl LoginUi {
                      SecureString::from("dev"),
                   );
                   let mut account = ctx.get_account();
-                  account.credentials = credentials;
+                  account.set_credentials(credentials);
                   self.login(ctx, account);
                }
             });
@@ -235,7 +235,7 @@ impl RegisterUi {
 
                if ui.add(button).clicked() {
                   let mut account = ctx.get_account();
-                  account.credentials = self.credentials_form.credentials.clone();
+                  account.set_credentials(self.credentials_form.credentials.clone());
 
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {

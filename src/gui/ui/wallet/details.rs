@@ -120,7 +120,7 @@ impl ExportKeyUi {
 
       if clicked {
          let mut account = ctx.get_account();
-         account.credentials = self.credentials_form.credentials.clone();
+         account.set_credentials(self.credentials_form.credentials.clone());
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting account...");
@@ -216,7 +216,7 @@ impl DeleteWalletUi {
 
       if clicked {
          let mut account = ctx.get_account();
-         account.credentials = self.credentials_form.credentials.clone();
+         account.set_credentials(self.credentials_form.credentials.clone());
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting account...");
@@ -315,12 +315,12 @@ impl DeleteWalletUi {
             account.remove_wallet(&wallet);
 
             // update the current wallet to the first available
-            let wallets = &account.wallets;
-            if let Some(wallet) = wallets.first() {
-               account.current_wallet = wallet.info.clone();
+            let wallets = account.wallets();
+            if let Some(wallet_info) = wallets.first().map(|wallet| wallet.info.clone()) {
+               account.set_current_wallet(wallet_info.clone());
 
                SHARED_GUI.write(|gui| {
-                  gui.wallet_selection.wallet_select.wallet = wallet.info.clone();
+                  gui.wallet_selection.wallet_select.wallet = wallet_info;
                });
             }
 

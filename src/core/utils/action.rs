@@ -380,7 +380,7 @@ impl BridgeParams {
             }
          }
       } else {
-         tracing::error!("Call is not a bridge");
+         tracing::debug!("Call is not a bridge");
          return Err(anyhow!("Call is not a bridge"));
       }
    }

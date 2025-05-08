@@ -159,7 +159,7 @@ impl SettingsUi {
                   let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.normal));
                   if ui.add(verify).clicked() {
                      let mut account = ctx.get_account();
-                     account.credentials = self.credentials.credentials.clone();
+                     account.set_credentials(self.credentials.credentials.clone());
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
@@ -201,7 +201,7 @@ impl SettingsUi {
 
                   if ui.add(save).clicked() {
                      let mut account = ctx.get_account();
-                     account.credentials = self.credentials.credentials.clone();
+                     account.set_credentials(self.credentials.credentials.clone());
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
