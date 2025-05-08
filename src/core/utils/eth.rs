@@ -487,7 +487,7 @@ pub async fn wrap_or_unwrap_eth(
    )
    .await?;
 
-   let (_, _) = send_transaction(
+   let (_, new_tx_summary) = send_transaction(
       ctx.clone(),
       "".to_string(),
       None,
@@ -497,12 +497,26 @@ pub async fn wrap_or_unwrap_eth(
       from,
       wrapped.address,
       call_data,
-      value
-   ).await?;
+      value,
+   )
+   .await?;
+
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window
+         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx_summary(new_tx_summary);
+      gui.request_repaint();
+   });
 
    // update balances
    RT.spawn(async move {
-      let _ = get_eth_balance(ctx.clone(), chain.id(), from).await;
       let _ = update::update_tokens_balance_for_chain(ctx.clone(), chain.id(), from, vec![wrapped])
          .await;
    });
@@ -525,7 +539,6 @@ pub async fn swap(
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client_with_id(chain.id())?;
    let interact_to = uniswap_v4_universal_router(chain.id())?;
-   let bytecode_fut = client.get_code_at(interact_to).into_future();
    let block_fut = client.get_block(BlockId::latest());
    let signer = ctx.get_wallet(from).key;
 
@@ -658,8 +671,7 @@ pub async fn swap(
    };
    let action = OnChainAction::SwapToken(swap_params);
 
-   let bytecode = bytecode_fut.await?;
-   let contract_interact = bytecode.len() > 0;
+   let contract_interact = true;
    let time = std::time::Instant::now();
    let tx_summary = make_tx_summary(
       ctx.clone(),
@@ -779,7 +791,6 @@ pub async fn across_bridge(
    call_data: Bytes,
    value: U256,
 ) -> Result<(), anyhow::Error> {
-
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let dest_client = ctx.get_client_with_id(dest_chain.id())?;
