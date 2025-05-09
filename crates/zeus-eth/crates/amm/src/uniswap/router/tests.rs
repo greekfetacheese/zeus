@@ -24,7 +24,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_multiple_pools() {
       let url = "https://eth.merkle.io".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut weth_uni = UniswapV2Pool::weth_uni();
@@ -162,7 +162,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_v3_on_base() {
       let url = "https://base-rpc.publicnode.com".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 8453;
 
       let mut pool = UniswapV3Pool::weth_usdc_base();
@@ -294,7 +294,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_v3_on_base2() {
       let url = "https://base-rpc.publicnode.com".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 8453;
 
       let mut pool = UniswapV3Pool::weth_usdc_base();
@@ -468,7 +468,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_call_permit2() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let weth_balance = NumericValue::parse_to_wei("10", 18);
@@ -574,7 +574,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_from_erc20_to_eth() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut pool = UniswapV3Pool::weth_usdc();
@@ -684,7 +684,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_v2() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut pool = UniswapV2Pool::weth_uni();
@@ -803,7 +803,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_v3() {
       let url = "https://eth.merkle.io".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut pool = UniswapV3Pool::usdt_uni();
@@ -921,7 +921,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_from_eth_on_v2_v3() {
       let url = "https://eth.merkle.io".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut weth_uni = UniswapV2Pool::weth_uni();
@@ -1084,7 +1084,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_v4() {
       let url = "https://eth.merkle.io".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
       let chain_id = 1;
 
       let mut pool = UniswapV4Pool::eth_uni();

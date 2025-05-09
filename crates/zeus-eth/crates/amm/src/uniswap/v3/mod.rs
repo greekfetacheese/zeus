@@ -169,7 +169,7 @@ pub fn calculate_swap(
 pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f64, anyhow::Error> {
    let state = pool
       .state()
-      .v3_state()
+      .v3_or_v4_state()
       .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
    let tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;

@@ -398,7 +398,7 @@ mod tests {
    #[tokio::test]
    async fn can_swap() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let mut pool = UniswapV2Pool::weth_uni();
 
@@ -455,7 +455,7 @@ mod tests {
    #[tokio::test]
    async fn price_calculation() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let mut pool = UniswapV2Pool::weth_uni();
       pool.update_state(client.clone(), None).await.unwrap();

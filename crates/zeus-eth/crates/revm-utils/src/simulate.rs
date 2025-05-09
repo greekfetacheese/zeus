@@ -1,47 +1,12 @@
 use crate::revert_msg;
-use alloy_primitives::{Address, Bytes, TxKind, U256};
+use alloy_primitives::{Address, TxKind, U256};
 
 use super::Evm2;
 use anyhow::anyhow;
-use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, context::result::ExecutionResult, database::Database};
+use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
 
 use abi::uniswap::nft_position::{INonfungiblePositionManager, MintReturn};
 
-/// Simulate the depositV3 of the SpokePool contract
-pub fn across_deposit_v3<DB>(
-   evm: &mut Evm2<DB>,
-   call_data: Bytes,
-   value: U256,
-   caller: Address,
-   contract: Address,
-   commit: bool,
-) -> Result<ExecutionResult, anyhow::Error>
-where
-   DB: Database + DatabaseCommit,
-{
-   evm.tx.caller = caller;
-   evm.tx.data = call_data;
-   evm.tx.value = value;
-   evm.tx.kind = TxKind::Call(contract);
-
-   let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-   } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
-   };
-
-   let output = res.output().ok_or(anyhow!("Output not found"))?;
-
-   if !res.is_success() {
-      let err = revert_msg(&output);
-      return Err(anyhow!("Failed to deposit: {}", err));
-   }
-
-   Ok(res)
-}
 
 /// Simulate a swap using [abi::misc::SwapRouter]
 ///

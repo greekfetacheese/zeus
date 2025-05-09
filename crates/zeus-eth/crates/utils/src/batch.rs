@@ -249,7 +249,7 @@ mod tests {
    #[tokio::test]
    async fn test_erc20_balance() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let weth = address::weth(1).unwrap();
       let usdc = address::usdc(1).unwrap();
@@ -268,7 +268,7 @@ mod tests {
    #[tokio::test]
    async fn test_erc20_info() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let weth = address::weth(1).unwrap();
 
@@ -282,7 +282,7 @@ mod tests {
    #[tokio::test]
    async fn test_v2_pool_reserves() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let pool = address!("0d4a11d5EEaaC28EC3F61d100daF4d40471f1852");
 
@@ -304,7 +304,7 @@ mod tests {
    #[tokio::test]
    async fn test_v3_pools() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let weth = address::weth(1).unwrap();
       let usdc = address::usdc(1).unwrap();
@@ -324,7 +324,7 @@ mod tests {
    #[tokio::test]
    async fn test_v3_state() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let pool = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
       let base_token = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");

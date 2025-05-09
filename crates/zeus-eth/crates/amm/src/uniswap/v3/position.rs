@@ -749,7 +749,7 @@ mod tests {
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {
       let url = "https://eth.merkle.io".parse().unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let weth = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
       let wst_eth = address!("7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0");

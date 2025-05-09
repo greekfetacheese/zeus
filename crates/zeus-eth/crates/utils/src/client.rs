@@ -41,7 +41,7 @@ pub fn get_http_client(
       .layer(retry_layer)
       .layer(throttle)
       .http(url);
-   let client = Arc::new(ProviderBuilder::new().on_client(client));
+   let client = Arc::new(ProviderBuilder::new().connect_client(client));
 
    Ok(client)
 }

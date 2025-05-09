@@ -5,10 +5,7 @@ edition = "2021"
 
 [dependencies]
 abi = { path = "../abi" }
-dapps = { path = "../dapps" }
-types = { path = "../types" }
-currency = { path = "../currency" }
-utils = { path = "../utils" }
+types = { path = "../types"}
 
 revm = { version = "22.0.1", features = [
     "std",
@@ -27,14 +24,14 @@ op-revm = { version = " 3.0.2", features = [
 ] }
 
 alloy-sol-types = {version = "1", features = ["json"]}
-alloy-primitives = "1.0.0"
-alloy-signer = "0.14.0"
-alloy-signer-local = "0.14.0"
+alloy-primitives = "1.1.0"
+alloy-signer = "0.15.10"
+alloy-signer-local = "0.15.10"
 
-alloy-rpc-types = "0.14.0"
-alloy-contract = "0.14.0"
-alloy-provider = "0.14.0"
-alloy-transport = "0.14.0"
+alloy-rpc-types = "0.15.10"
+alloy-contract = "0.15.10"
+alloy-provider = "0.15.10"
+alloy-transport = "0.15.10"
 
 # Async
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}

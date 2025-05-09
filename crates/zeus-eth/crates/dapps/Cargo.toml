@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 types = { path = "../types" }
 
-alloy-primitives = "1"
+alloy-primitives = "1.1.0"
 
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }

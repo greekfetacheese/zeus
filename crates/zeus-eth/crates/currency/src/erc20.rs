@@ -420,7 +420,7 @@ mod tests {
    #[tokio::test]
    async fn can_get_erc20() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().on_http(url);
+      let client = ProviderBuilder::new().connect_http(url);
 
       let weth = ERC20Token::weth();
 
