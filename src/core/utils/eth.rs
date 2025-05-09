@@ -584,13 +584,14 @@ pub async fn swap(
       );
    }
 
-   // currency_out balance before
-   let time = std::time::Instant::now();
-   let balance_before = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
-   tracing::info!(
-      "Balance before sim took {} ms",
-      time.elapsed().as_millis()
-   );
+   let balance_before = if currency_out.is_native() {
+      client.get_balance(from).await?
+   } else {
+      currency_out
+         .to_erc20()
+         .balance_of(client.clone(), from, None)
+         .await?
+   };
 
    // simulate the swap
    let time = std::time::Instant::now();
@@ -605,6 +606,7 @@ pub async fn swap(
       "Swap Simulation took {} ms",
       time.elapsed().as_millis()
    );
+   tracing::info!("Gas Used: {}", sim_res.gas_used());
 
    let state = evm.balance(from);
    let eth_balance_after = if let Some(state) = state {
@@ -615,14 +617,19 @@ pub async fn swap(
 
    // get the balance after
    let time = std::time::Instant::now();
-   let balance_after = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
-   tracing::info!(
-      "Balance after sim took {} ms",
-      time.elapsed().as_millis()
-   );
+   let balance_after = if currency_out.is_native() {
+      eth_balance_after
+   } else {
+      let b = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
+      tracing::info!(
+         "Balance after sim took {} ms",
+         time.elapsed().as_millis()
+      );
+      b
+   };
 
    // calculate the real amount out
-   let real_amount_out = if balance_before < balance_after {
+   let real_amount_out = if balance_after > balance_before {
       let amount_out = balance_after - balance_before;
       NumericValue::format_wei(amount_out, currency_out.decimals())
    } else {
@@ -634,6 +641,11 @@ pub async fn swap(
    // apply the slippage
    let mut amount_out_with_slippage = real_amount_out.clone();
    amount_out_with_slippage.calc_slippage(slippage, currency_out.decimals());
+   tracing::info!(
+      "Amount Out with slippage: {} {}",
+      amount_out_with_slippage.formatted(),
+      currency_out.symbol()
+   );
 
    // build the call data again with the real_amount_out and slippage applied
    // TODO: Avoid this step again or at least avoid making calls to the provider

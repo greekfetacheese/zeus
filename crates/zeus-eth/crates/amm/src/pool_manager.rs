@@ -169,7 +169,7 @@ impl PoolManagerHandle {
             manager.add_pool(pool);
          }
       });
-      // self.cleanup_pools();
+      self.calculate_prices();
       Ok(())
    }
 

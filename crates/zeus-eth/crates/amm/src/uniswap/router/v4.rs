@@ -209,7 +209,6 @@ where
    let need_to_unwrap_weth = currency_out.is_native();
 
    let owner = signer.borrow().address();
-   let mut needs_permit2 = false;
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
    let mut execute_params = ExecuteParams::new();
@@ -222,6 +221,7 @@ where
       execute_params.set_value(amount_in);
    }
 
+   let mut first_step_uses_permit2 = false;
    if currency_in.is_erc20() {
       let token_in = currency_in.to_erc20();
 
@@ -243,9 +243,10 @@ where
          .as_secs();
 
       let expired = u64::try_from(data.expiration)? < current_time;
-      needs_permit2 = U256::from(data.amount) < amount_in || expired;
+      let needs_permit2 = U256::from(data.amount) < amount_in || expired;
 
       if needs_permit2 {
+         first_step_uses_permit2 = true;
          let expiration = U256::from(current_time + 30 * 24 * 60 * 60); // 30 days
          let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
 
@@ -283,17 +284,27 @@ where
    let steps_len = swap_steps.len();
    let multiple_steps = steps_len > 1;
    for (i, swap) in swap_steps.iter().enumerate() {
-      let is_last = i == steps_len - 1;
+      let is_first_step = i == 0;
+      let is_last_step = i == steps_len - 1;
 
       // keep weth in router so we can unwrap it
-      let need_to_keep_weth = need_to_unwrap_weth && is_last;
+      let need_to_keep_weth = need_to_unwrap_weth && is_last_step;
       // Keep tokens in router if we are swapping on multiple pools
-      let need_to_keep_tokens = multiple_steps && !is_last;
+      let need_to_keep_tokens = multiple_steps && !is_last_step;
 
       let recipient = if need_to_keep_weth || need_to_keep_tokens {
          router_addr
       } else {
          recipient
+      };
+
+      let current_step_uses_permit2 = is_first_step && first_step_uses_permit2;
+
+      // For the last step, make sure to use the amount_out_min
+      let step_amount_out_min = if is_last_step {
+         amount_out_min
+      } else {
+         swap.amount_out.wei2()
       };
 
       let (swap_command, input) = if swap.pool.dex_kind().is_uniswap_v2() {
@@ -303,9 +314,9 @@ where
             encode_v2_swap_exact_in(
                recipient,
                swap.amount_in.wei2(),
-               swap.amount_out.wei2(),
+               step_amount_out_min,
                path,
-               needs_permit2,
+               current_step_uses_permit2,
             )?,
          )
       } else if swap.pool.dex_kind().is_uniswap_v3() {
@@ -316,10 +327,10 @@ where
             encode_v3_swap_exact_in(
                recipient,
                swap.amount_in.wei2(),
-               swap.amount_out.wei2(),
+               step_amount_out_min,
                path,
                fees,
-               needs_permit2,
+               current_step_uses_permit2,
             )?,
          )
       } else if swap.pool.dex_kind().is_uniswap_v4() {
@@ -330,7 +341,7 @@ where
                swap_type,
                &swap.currency_in,
                swap.amount_in.wei2(),
-               swap.amount_out.wei2(),
+               step_amount_out_min,
             )?,
          )
       } else {

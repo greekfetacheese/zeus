@@ -44,7 +44,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
       weth_amount_out.calc_slippage(0.5, weth.decimals());
 
       println!(
-         "Swapped {} {} For {} {}",
+         "Sell {} {} For {} {}",
          usdc_amount_in.formatted(),
          usdc.symbol(),
          weth_amount_out.formatted(),
@@ -56,7 +56,7 @@ use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::Uniswa
       uni_amount_out.calc_slippage(0.5, uni.decimals());
 
       println!(
-         "Swapped {} {} For {} {}",
+         "Sell {} {} For {} {}",
          weth_amount_out.formatted(),
          weth.symbol(),
          uni_amount_out.formatted(),

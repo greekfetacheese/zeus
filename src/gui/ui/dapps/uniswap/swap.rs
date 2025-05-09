@@ -422,7 +422,7 @@ impl SwapUi {
 
                if direction == InOrOut::In {
                   if ui.add(max_button).clicked() {
-                     self.amount_in = balance.formatted().to_string();
+                     self.amount_in = balance.flatten();
                      self.get_quote(ctx);
                   }
                }
@@ -599,14 +599,11 @@ impl SwapUi {
    fn currency_to_update_pools_from(&self) -> &Currency {
       // Do not consider WETH or as the token to get pools from because overtime we will accumulate a lot of pools
       // Since it's the most common paired token
-      let currency =
-         if self.currency_in.is_native_wrapped() && !self.currency_out.is_native_wrapped() {
-            &self.currency_out
-         } else if self.currency_out.is_native_wrapped() && !self.currency_in.is_native_wrapped() {
-            &self.currency_in
-         } else {
-            &self.currency_out
-         };
+      let currency = if self.currency_in.is_weth_or_eth() && !self.currency_out.is_weth_or_eth() {
+         &self.currency_out
+      } else {
+         &self.currency_in
+      };
       currency
    }
 

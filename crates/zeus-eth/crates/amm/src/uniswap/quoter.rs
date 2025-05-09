@@ -202,7 +202,7 @@ impl QuoteRoutes {
          path_str.push_str(&pool_addresses.join(", "));
          path_str.push_str("\n");
       }
-      path_str.trim_end().to_string() // Remove trailing newline
+      path_str.trim_end().to_string()
    }
 }
 
@@ -210,7 +210,7 @@ impl QuoteRoutes {
 #[derive(Clone, Debug)]
 struct PotentialPath {
    path: Vec<Currency>,
-   pools: Vec<AnyUniswapPool>, // Full sequence of pools for this path
+   pools: Vec<AnyUniswapPool>
 }
 
 /// Represents a ranked path after initial simulation and gas estimation
@@ -219,9 +219,9 @@ struct RankedPath {
    path: PotentialPath,
    simulated_amount_out: U256,
    gas_cost_usd: NumericValue,
-   total_gas_used: u64,
 }
 
+// TODO: Support V4 Pools
 /// Get a quote with split routes across multiple paths
 pub fn get_quote(
    amount_to_swap: U256,
@@ -233,12 +233,11 @@ pub fn get_quote(
    base_fee: u64,
    priority_fee: U256,
 ) -> QuoteRoutes {
-   // TODO: Single swaps for now until the crate::uniswap::router::v4::build_execute_params is fixed
-   let max_hops = 1; // Max intermediate tokens
-   let max_paths_to_consider = 1; // How many top paths to use for splitting
+   let max_hops = 5; // Max intermediate tokens
+   let max_paths_to_consider = 5; // How many top paths to use for splitting
 
-   // 1. Find Potential Paths (Graph Search)
    let relevant_pools = get_relevant_pools(&currency_in, &currency_out, &all_pools);
+   tracing::info!(target: "zeus_eth::amm::uniswap::quoter2", "Relevant Pools: {:?}", relevant_pools.len());
    let mut valid_pools = Vec::new();
    for pool in relevant_pools {
       if pool.enough_liquidity() {
@@ -250,14 +249,25 @@ pub fn get_quote(
       return QuoteRoutes::default();
    }
 
-   let potential_paths = find_potential_paths(&valid_pools, &currency_in, &currency_out, max_hops);
+   let mut potential_paths = find_potential_paths(&valid_pools, &currency_in, &currency_out, max_hops);
+   
+   if currency_in.is_native() {
+      let wrapped = currency_in.to_weth_currency();
+      let paths = find_potential_paths(&valid_pools, &wrapped, &currency_out, max_hops);
+      potential_paths.extend(paths);
+   }
+   
+   if currency_out.is_native() {
+      let wrapped = currency_out.to_weth_currency();
+      let paths = find_potential_paths(&valid_pools, &currency_in, &wrapped, max_hops);
+      potential_paths.extend(paths);
+   }
 
    if potential_paths.is_empty() {
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter2", "No potential paths found for {}/{}", currency_in.symbol(), currency_out.symbol());
       return QuoteRoutes::default();
    }
 
-   // 2. Rank Paths (Simulate with full amount, estimate gas, calculate net benefit)
    let ranked_paths = rank_paths(
       potential_paths,
       amount_to_swap,
@@ -270,18 +280,12 @@ pub fn get_quote(
    );
 
    if ranked_paths.is_empty() {
-      // tracing::warn!(target: "sor", "No viable paths after simulation and ranking.");
       return QuoteRoutes::default();
    }
 
-   // 3. Select Top N Paths (Unique pool sequences)
    let top_paths = select_unique_top_paths(ranked_paths, max_paths_to_consider);
-   // tracing::info!(target: "sor", "Selected top {} unique paths for allocation.", top_paths.len());
+   let allocations = optimize_allocation_iterative(amount_to_swap, &top_paths);
 
-   // 4. Optimize Allocation across selected paths
-   let allocations = optimize_allocation_iterative(amount_to_swap, &top_paths, &currency_in, &currency_out);
-
-   // 5. Build Final Routes (Simulate with allocated amounts)
    let final_routes = build_final_routes(
       &top_paths,
       &allocations,
@@ -316,6 +320,24 @@ fn get_relevant_pools(
       let involves_in = pool.have(currency_in);
       let involves_out = pool.have(currency_out);
       let involves_common_base = pool.currency0().is_base() && pool.currency1().is_base();
+
+      // if currency in is ETH also treat it as WETH
+      if currency_in.is_native() {
+         let involves_in = pool.have(&currency_in.to_weth_currency());
+         if involves_in && !added_pools.contains(&pool_addr) {
+            relevant_pools.push(pool.clone());
+            added_pools.insert(pool_addr);
+         }
+      }
+
+      // if currency out is ETH also treat it as WETH
+      if currency_out.is_native() {
+         let involves_out = pool.have(&currency_out.to_weth_currency());
+         if involves_out && !added_pools.contains(&pool_addr) {
+            relevant_pools.push(pool.clone());
+            added_pools.insert(pool_addr);
+         }
+      }
 
       // Include pools involving in/out tokens directly
       // Include pools connecting two common base tokens (potential intermediate hops)
@@ -471,7 +493,7 @@ fn rank_paths(
    priority_fee: U256,
 ) -> Vec<RankedPath> {
    let mut ranked: Vec<_> = potential_paths
-      .into_par_iter() // Parallelize ranking
+      .into_par_iter()
       .filter_map(|p| {
          // Simulate with the full amount to get an initial estimate
          simulate_path_with_pools(amount_to_swap, &p.path, &p.pools).and_then(|simulated_output| {
@@ -479,13 +501,12 @@ fn rank_paths(
                //  tracing::debug!(target:"sor", "Path resulted in zero output during ranking, discarding: {:?} -> {:?}", p.path.first().map(|c|c.symbol()), p.path.last().map(|c|c.symbol()));
                None // Discard paths that yield zero output for non-zero input
             } else {
-               let (gas_cost_usd, total_gas_used) =
+               let (gas_cost_usd, _) =
                   estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, &p.pools);
                Some(RankedPath {
                   path: p,
                   simulated_amount_out: simulated_output,
                   gas_cost_usd,
-                  total_gas_used,
                })
             }
          })
@@ -550,8 +571,6 @@ fn select_unique_top_paths(ranked_paths: Vec<RankedPath>, max_paths: usize) -> V
 fn optimize_allocation_iterative(
    total_amount_in: U256,
    top_paths: &[RankedPath],
-   _currency_in: &Currency,
-   _currency_out: &Currency,
 ) -> Vec<U256> {
    let num_paths = top_paths.len();
    if num_paths == 0 {
@@ -559,7 +578,7 @@ fn optimize_allocation_iterative(
    }
 
    if num_paths == 1 {
-      return vec![total_amount_in]; // Allocate all to the single best path
+      return vec![total_amount_in];
    }
 
    let mut allocations = vec![U256::ZERO; num_paths];
@@ -582,7 +601,6 @@ fn optimize_allocation_iterative(
    // Iteratively assign increments to the path yielding the best marginal output
    while remaining_amount >= increment {
       let mut best_path_index = None;
-      let mut best_marginal_gain = U256::ZERO;
       let mut marginal_gains = Vec::with_capacity(num_paths);
 
       // Calculate marginal gain for adding 'increment' to each path
@@ -614,7 +632,6 @@ fn optimize_allocation_iterative(
          if *gain > U256::ZERO {
             // Only allocate if there's a positive gain
             best_path_index = Some(index);
-            best_marginal_gain = *gain;
          } else {
             break;
          }

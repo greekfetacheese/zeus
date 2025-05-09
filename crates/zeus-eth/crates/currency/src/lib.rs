@@ -48,6 +48,16 @@ impl Currency {
       matches!(self, Self::ERC20(erc20) if erc20.is_weth() || erc20.is_wbnb())
    }
 
+   pub fn is_weth_or_eth(&self) -> bool {
+      if self.is_native() {
+         return true;
+      }
+      if self.is_native_wrapped() {
+         return true;
+      }
+      false
+   }
+
    /// Is this Currency a base currency?
    ///
    /// See [is_base_token]
@@ -66,6 +76,10 @@ impl Currency {
    /// Shortcut for [ERC20Token::wrapped_native_token]
    pub fn to_wrapped_native(&self) -> ERC20Token {
       ERC20Token::wrapped_native_token(self.chain_id())
+   }
+
+   pub fn to_weth_currency(&self) -> Currency {
+      Currency::from(self.to_wrapped_native())
    }
 
    /// Convert this currency to an [ERC20Token]
