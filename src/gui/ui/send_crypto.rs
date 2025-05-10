@@ -332,7 +332,7 @@ impl SendCryptoUi {
          });
 
          RT.spawn_blocking(move || {
-            ctx.update_portfolio_value(chain, owner);
+            ctx.calculate_portfolio_value(chain, owner);
             ctx.save_portfolio_db();
          });
       });
@@ -380,7 +380,7 @@ impl SendCryptoUi {
                      let _ = manager.update(client, chain_id).await;
 
                      RT.spawn_blocking(move || {
-                        ctx.update_portfolio_value(chain_id, owner);
+                        ctx.calculate_portfolio_value(chain_id, owner);
                         let _ = ctx.save_pool_manager();
                         ctx.save_portfolio_db();
                      });

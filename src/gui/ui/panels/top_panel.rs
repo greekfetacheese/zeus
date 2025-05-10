@@ -10,16 +10,25 @@ use std::sync::Arc;
 use zeus_eth::currency::{Currency, NativeCurrency};
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data, do not close the app yet!";
+const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state, do not close the app yet!";
 
 pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let ctx = gui.ctx.clone();
-   let syncing = ctx.read(|ctx| ctx.data_syncing);
+   let data_syncing = ctx.read(|ctx| ctx.data_syncing);
+   let on_startup_syncing = ctx.read(|ctx| ctx.on_startup_syncing);
    let icons = gui.icons.clone();
    let theme = &gui.theme;
 
-   if syncing {
+   if data_syncing && !on_startup_syncing {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
+         ui.add(Spinner::new().size(20.0));
+      });
+   }
+
+   if on_startup_syncing && !data_syncing {
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(ON_STARTUP_SYNC_MSG).size(theme.text_sizes.normal));
          ui.add(Spinner::new().size(20.0));
       });
    }

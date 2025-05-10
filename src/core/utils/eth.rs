@@ -960,7 +960,7 @@ pub async fn get_eth_balance(
    });
 
    RT.spawn_blocking(move || {
-      ctx.update_portfolio_value(chain, owner);
+      ctx.calculate_portfolio_value(chain, owner);
       let _ = ctx.save_balance_db();
       let _ = ctx.save_portfolio_db();
    });
@@ -986,7 +986,7 @@ pub async fn get_token_balance(
    });
 
    RT.spawn_blocking(move || {
-      ctx.update_portfolio_value(token.chain_id, owner);
+      ctx.calculate_portfolio_value(token.chain_id, owner);
       let _ = ctx.save_balance_db();
       let _ = ctx.save_portfolio_db();
    });
@@ -1073,7 +1073,7 @@ pub async fn get_erc20_token(
       }
 
       RT.spawn_blocking(move || {
-         ctx_clone.update_portfolio_value(chain, owner);
+         ctx_clone.calculate_portfolio_value(chain, owner);
          ctx_clone.write(|ctx| ctx.data_syncing = false);
          ctx_clone.save_all();
       });

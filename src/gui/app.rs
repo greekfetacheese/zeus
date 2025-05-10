@@ -13,7 +13,7 @@ use egui_theme::{Theme, ThemeKind};
 use std::sync::Arc;
 
 pub struct ZeusApp {
-   pub on_startup: bool,
+   pub set_style_on_startup: bool,
    pub updated_started: bool,
    pub ctx: ZeusCtx,
 }
@@ -43,13 +43,13 @@ impl ZeusApp {
       });
 
       Self {
-         on_startup: true,
+         set_style_on_startup: true,
          updated_started: false,
          ctx: gui.ctx.clone(),
       }
    }
 
-   fn start_up(&mut self, ctx: &egui::Context) {
+   fn set_style(&mut self, ctx: &egui::Context) {
       let ctx = ctx.clone();
       let style = SHARED_GUI.read(|shared_gui| shared_gui.theme.style.clone());
       ctx.set_style(style);
@@ -57,8 +57,7 @@ impl ZeusApp {
 
    fn start_update(&mut self) {
       let ctx = self.ctx.clone();
-      let logged_in = self.ctx.logged_in();
-      if logged_in && !self.updated_started {
+      if !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
              update::on_startup(ctx_clone).await;
@@ -96,9 +95,9 @@ impl eframe::App for ZeusApp {
          self.start_update();
       }
 
-      if self.on_startup {
-         self.start_up(ctx);
-         self.on_startup = false;
+      if self.set_style_on_startup {
+         self.set_style(ctx);
+         self.set_style_on_startup = false;
       }
 
       SHARED_GUI.write(|gui| {

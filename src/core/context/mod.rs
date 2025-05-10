@@ -318,7 +318,7 @@ impl ZeusCtx {
    }
 
    /// Calculate and update the portfolio value
-   pub fn update_portfolio_value(&self, chain: u64, owner: Address) {
+   pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
       let mut portfolio = Portfolio::from(self.get_portfolio(chain, owner));
       let currencies = portfolio.currencies();
       let mut value = 0.0;
@@ -661,20 +661,16 @@ pub struct ZeusContext {
    account: Account,
 
    pub account_exists: bool,
-
    pub logged_in: bool,
-
    pub balance_db: BalanceDB,
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
    pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
-
    pub pool_manager: PoolManagerHandle,
-
    /// True if we are syncing important data and need to show a msg
    pub data_syncing: bool,
-
+   pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
@@ -765,6 +761,7 @@ impl ZeusContext {
          tx_db,
          pool_manager,
          data_syncing: false,
+         on_startup_syncing: false,
          base_fee: HashMap::new(),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),

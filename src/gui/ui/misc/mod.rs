@@ -1223,7 +1223,7 @@ impl PortfolioUi {
                .insert_token_balance(chain_id, owner, balance.wei().unwrap(), &token);
          });
          RT.spawn_blocking(move || {
-            ctx_clone.update_portfolio_value(chain_id, owner);
+            ctx_clone.calculate_portfolio_value(chain_id, owner);
             ctx_clone.save_all();
          });
       });
@@ -1245,7 +1245,7 @@ impl PortfolioUi {
                ctx.portfolio_db.remove_currency(chain, owner, currency);
             });
             RT.spawn_blocking(move || {
-               ctx.update_portfolio_value(chain, owner);
+               ctx.calculate_portfolio_value(chain, owner);
                ctx.save_all();
             });
          }

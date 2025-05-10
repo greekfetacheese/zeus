@@ -25,6 +25,10 @@ const BASE_FEE_INTERVAL: u64 = 180;
 
 /// on startup update the necceary data
 pub async fn on_startup(ctx: ZeusCtx) {
+   ctx.write(|ctx| {
+      ctx.on_startup_syncing = true;
+   });
+
    let time = std::time::Instant::now();
    measure_rpcs(ctx.clone()).await;
    tracing::info!(
@@ -36,7 +40,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          match update_priority_fee(ctx_clone, chain).await {
-            Ok(_) => tracing::info!("Updated priority fee for chain: {}", chain),
+            Ok(_) => {}
             Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
          }
       });
@@ -45,7 +49,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let resynced = resync_pools(ctx.clone()).await;
 
    if !resynced {
-      update_pool_manager(ctx.clone());
+      update_pool_manager(ctx.clone()).await;
    }
 
    let eth_fut = update_eth_balance(ctx.clone());
@@ -63,7 +67,16 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
-      portfolio_update(ctx_clone.clone());
+      let wallets = ctx_clone.wallets_info();
+      for chain in SUPPORTED_CHAINS {
+         for wallet in &wallets {
+            ctx_clone.calculate_portfolio_value(chain, wallet.address);
+         }
+      }
+      ctx_clone.save_portfolio_db();
+      ctx_clone.write(|ctx| {
+         ctx.on_startup_syncing = false;
+      });
       tracing::info!("Updated portfolio value");
    });
 
@@ -84,7 +97,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
-      portfolio_update_interval(ctx_clone);
+      calculate_portfolio_value_interval(ctx_clone);
    });
 
    let ctx_clone = ctx.clone();
@@ -108,28 +121,22 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 }
 
-pub fn portfolio_update_interval(ctx: ZeusCtx) {
+pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > PORTFOLIO_INTERVAL {
-         portfolio_update(ctx.clone());
+         let wallets = ctx.wallets_info();
+         for chain in SUPPORTED_CHAINS {
+            for wallet in &wallets {
+               ctx.calculate_portfolio_value(chain, wallet.address);
+            }
+         }
+         ctx.save_portfolio_db();
          time_passed = Instant::now();
       }
       std::thread::sleep(Duration::from_secs(1));
    }
-}
-
-/// Update the portfolio value for all wallets across all chains
-pub fn portfolio_update(ctx: ZeusCtx) {
-   let wallets = ctx.wallets_info();
-   for chain in SUPPORTED_CHAINS {
-      for wallet in &wallets {
-         ctx.update_portfolio_value(chain, wallet.address);
-      }
-   }
-
-   ctx.save_portfolio_db();
 }
 
 /// Update the portofolio state for the given chain and wallet
@@ -153,14 +160,18 @@ pub async fn update_portfolio_state(
 
       if pools.is_empty() {
          let _ = pool_manager
-            .sync_pools_for_tokens(client.clone(), vec![token.clone()], dex_kinds.clone())
+            .sync_pools_for_tokens(
+               client.clone(),
+               vec![token.clone()],
+               dex_kinds.clone(),
+            )
             .await;
       }
    }
 
    pool_manager.update(client, chain).await?;
    RT.spawn_blocking(move || {
-      ctx.update_portfolio_value(chain, owner);
+      ctx.calculate_portfolio_value(chain, owner);
       ctx.save_all();
    });
 
@@ -172,7 +183,7 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 
    loop {
       if time_passed.elapsed().as_secs() > POOL_MANAGER_INTERVAL {
-         update_pool_manager(ctx.clone());
+         update_pool_manager(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
@@ -180,13 +191,13 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 }
 
 /// Update the pool manager state for all chains
-pub fn update_pool_manager(ctx: ZeusCtx) {
+pub async fn update_pool_manager(ctx: ZeusCtx) {
+   let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let client = ctx.get_client_with_id(chain).unwrap();
       let pool_manager = ctx.pool_manager();
 
-      let ctx_clone = ctx.clone();
-      RT.spawn(async move {
+      let task = RT.spawn(async move {
          match pool_manager.update(client, chain).await {
             Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
             Err(e) => tracing::error!(
@@ -195,17 +206,17 @@ pub fn update_pool_manager(ctx: ZeusCtx) {
                e
             ),
          }
-
-         RT.spawn_blocking(move || match ctx_clone.save_pool_manager() {
-            Ok(_) => tracing::info!("Pool data saved for chain: {}", chain),
-            Err(e) => tracing::error!(
-               "Error saving pool data for chain {}: {:?}",
-               chain,
-               e
-            ),
-         });
       });
+      tasks.push(task);
    }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+
+   RT.spawn_blocking(move || {
+      let _ = ctx.save_pool_manager();
+   });
 }
 
 /// Update the eth balance for all wallets across all chains
@@ -256,7 +267,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    Ok(())
 }
 
-/// Update the token's balance for the given chain and owner
+/// Update the balance of tokens for the given chain and owner
 pub async fn update_tokens_balance_for_chain(
    ctx: ZeusCtx,
    chain: u64,
@@ -497,20 +508,22 @@ pub async fn resync_pools(ctx: ZeusCtx) -> bool {
       for chain in SUPPORTED_CHAINS {
          let tokens = ctx.get_all_erc20_tokens(chain);
          let client = ctx.get_client_with_id(chain).unwrap();
-         for token in tokens {
-            match eth::sync_pools_for_token(ctx.clone(), token.clone(), true, true).await {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!(
-                     "Failed to sync pools for token {}: {}",
-                     token.symbol,
-                     e
-                  );
-               }
-            }
+         let dexes = DexKind::main_dexes(chain);
+
+         match pool_manager
+            .sync_pools_for_tokens(client.clone(), tokens.clone(), dexes)
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => tracing::error!(
+               "Failed to sync pools for chain_id {} {}",
+               chain,
+               e
+            ),
          }
+
          match pool_manager.update(client, chain).await {
-            Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+            Ok(_) => {}
             Err(e) => tracing::error!(
                "Error updating price manager for chain {}: {:?}",
                chain,
@@ -524,7 +537,13 @@ pub async fn resync_pools(ctx: ZeusCtx) -> bool {
       });
 
       RT.spawn_blocking(move || {
-         portfolio_update(ctx.clone());
+         let wallets = ctx.wallets_info();
+         for chain in SUPPORTED_CHAINS {
+            for wallet in &wallets {
+               ctx.calculate_portfolio_value(chain, wallet.address);
+            }
+         }
+         ctx.save_portfolio_db();
 
          match ctx.save_pool_manager() {
             Ok(_) => tracing::info!("Pool data saved for"),
