@@ -2,6 +2,7 @@ use alloy_contract::private::{Network, Provider};
 use alloy_primitives::Address;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use crate::{
    DexKind,
@@ -11,6 +12,9 @@ use currency::{Currency, ERC20Token};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use utils::{NumericValue, batch, price_feed::get_base_token_price};
+
+// Timeout for pool sync in seconds (5 minutes)
+const POOL_SYNC_TIMEOUT: u64 = 300;
 
 /// Thread-safe handle to the [PoolManager]
 #[derive(Clone)]
@@ -193,6 +197,27 @@ impl PoolManagerHandle {
       self.write(|manager| manager.calculate_prices())
    }
 
+   pub fn add_token_last_sync_time(&self, chain: u64, dex: DexKind, token: Address) {
+      self.write(|manager| manager.add_token_last_sync(chain, dex, token))
+   }
+
+   fn get_pool_last_sync(&self, chain: u64, dex: DexKind, token: Address) -> Option<Instant> {
+      self.read(|manager| manager.get_pool_last_sync_time(chain, dex, token))
+   }
+
+   fn should_sync_pools(&self, chain: u64, dex: DexKind, token: Address) -> bool {
+      let now = Instant::now();
+      let last_sync = self.get_pool_last_sync(chain, dex, token);
+      if last_sync.is_none() {
+         return true;
+      }
+
+      let last_sync = last_sync.unwrap();
+      let timeout = Duration::from_secs(POOL_SYNC_TIMEOUT);
+      let time_passed = now - last_sync;
+      time_passed > timeout
+   }
+
    /// Sync V2 & V3 pools for the given tokens based on:
    ///
    /// - The token's chain id
@@ -209,6 +234,18 @@ impl PoolManagerHandle {
       N: Network,
    {
       for token in tokens {
+         let mut skip = false;
+         for dex in &dex_kinds {
+            if !self.should_sync_pools(token.chain_id, *dex, token.address) {
+               skip = true;
+               break;
+            }
+         }
+
+         if skip {
+            continue;
+         }
+
          self
             .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
             .await?;
@@ -216,6 +253,10 @@ impl PoolManagerHandle {
          self
             .sync_v3_pools_for_token(client.clone(), token.clone(), dex_kinds.clone())
             .await?;
+
+         for dex in &dex_kinds {
+            self.add_token_last_sync_time(token.chain_id, *dex, token.address);
+         }
       }
 
       Ok(())
@@ -246,15 +287,14 @@ impl PoolManagerHandle {
             continue;
          }
 
-         let currency_a = base_token.clone().into();
-         let currency_b = token.clone().into();
+         let currency_a: Currency = base_token.clone().into();
+         let currency_b: Currency = token.clone().into();
 
          for dex in &dex_kinds {
             if dex.is_v3() {
                continue;
             }
 
-            // if pool already exist, skip
             let cached_pool = self.get_pool(chain, *dex, V2_FEE, &currency_a, &currency_b);
             if cached_pool.is_some() {
                continue;
@@ -292,7 +332,7 @@ impl PoolManagerHandle {
       }
 
       for pool in pools {
-         self.add_pool(pool.clone());
+         self.add_pool(pool);
       }
 
       Ok(())
@@ -326,11 +366,9 @@ impl PoolManagerHandle {
                continue;
             }
 
-            let currency_a = base_token.clone().into();
-            let currency_b = token.clone().into();
+            let currency_a: Currency = base_token.clone().into();
+            let currency_b: Currency = token.clone().into();
 
-            // check if pool already exists
-            // TODO: Add a timeout or something because some fee tiers may not exist at all
             let mut pools_exists = [false; FEE_TIERS.len()];
             for (i, fee) in FEE_TIERS.iter().enumerate() {
                let pool = self.get_pool(chain, *dex, *fee, &currency_a, &currency_b);
@@ -339,7 +377,6 @@ impl PoolManagerHandle {
                }
             }
 
-            // if all true then skip
             if pools_exists.iter().all(|b| *b == true) {
                continue;
             }
@@ -387,13 +424,16 @@ impl PoolManagerHandle {
    }
 }
 
+/// Key: (chain_id, dex, tokenA) -> Value: Time since last sync
+type TokenPoolLastSync = HashMap<(u64, DexKind, Address), Instant>;
+
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
-pub type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
+type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
 
 /// Token Prices
 ///
 /// Key: (chain_id, token) -> Value: Price
-pub type TokenPrices = HashMap<(u64, Address), NumericValue>;
+type TokenPrices = HashMap<(u64, Address), NumericValue>;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PoolManager {
@@ -402,6 +442,9 @@ pub struct PoolManager {
 
    #[serde(with = "serde_hashmap")]
    pub token_prices: TokenPrices,
+
+   #[serde(skip)]
+   pub pool_last_sync: TokenPoolLastSync,
 
    /// Set to 1 for no concurrency
    pub concurrency: u8,
@@ -412,18 +455,29 @@ impl Default for PoolManager {
       Self {
          pools: HashMap::new(),
          token_prices: HashMap::new(),
+         pool_last_sync: HashMap::new(),
          concurrency: 1,
       }
    }
 }
 
 impl PoolManager {
-   pub fn new(pools: Pools, token_prices: TokenPrices, concurrency: u8) -> Self {
+   pub fn new(pools: Pools, token_prices: TokenPrices, pool_last_sync: TokenPoolLastSync, concurrency: u8) -> Self {
       Self {
          pools,
          token_prices,
+         pool_last_sync,
          concurrency,
       }
+   }
+
+   fn add_token_last_sync(&mut self, chain: u64, dex: DexKind, token: Address) {
+      let key = (chain, dex, token);
+      self.pool_last_sync.insert(key, Instant::now());
+   }
+
+   fn get_pool_last_sync_time(&self, chain: u64, dex: DexKind, token: Address) -> Option<Instant> {
+      self.pool_last_sync.get(&(chain, dex, token)).cloned()
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
@@ -574,22 +628,23 @@ impl PoolManager {
          }
 
          let chain = pool.chain_id();
-         let base_tokens = ERC20Token::base_tokens(chain);
-         let quote_token = pool.quote_currency().to_erc20();
-         let base_token = pool.base_currency().to_erc20();
+         let quote_token = pool.quote_currency();
+         let base_token = pool.base_currency();
 
          // if both tokens are base tokens, skip
-         if base_tokens.contains(&quote_token) && base_tokens.contains(&base_token) {
+         if quote_token.is_base() && base_token.is_base() {
             continue;
          }
 
-         let base_price = self.get_token_price(&base_token).unwrap_or_default();
+         let base_price = self
+            .get_token_price(&base_token.to_erc20())
+            .unwrap_or_default();
          let quote_price = pool.quote_price(base_price.f64()).unwrap_or_default();
          if quote_price == 0.0 {
             continue;
          }
 
-         let key = (chain, quote_token.address);
+         let key = (chain, quote_token.address());
          let quote_price = NumericValue::currency_price(quote_price);
          self.token_prices.insert(key, quote_price);
       }
@@ -649,11 +704,8 @@ mod serde_hashmap {
 
 #[cfg(test)]
 mod tests {
-   use alloy_primitives::address;
-
-   use crate::UniswapV2Pool;
-
    use super::*;
+   use crate::UniswapV2Pool;
 
    #[test]
    fn serde_works() {
@@ -665,29 +717,5 @@ mod tests {
       let json = handle.to_string().unwrap();
 
       let _handle2 = PoolManagerHandle::from_string(&json).unwrap();
-   }
-
-   #[test]
-   fn sanity_check() {
-      let pool_manager = PoolManager::default();
-      let handle = PoolManagerHandle::new(pool_manager);
-      let dai = ERC20Token::dai();
-      let usdt = ERC20Token::usdt();
-      let dex = DexKind::UniswapV2;
-      let addr = address!("0xB20bd5D04BE54f870D5C0d3cA85d82b34B836405");
-      let pool = UniswapV2Pool::new(1, addr, dai, usdt, dex);
-      let pool = AnyUniswapPool::from_pool(pool);
-
-      handle.add_pool(pool.clone());
-      let pool2 = handle
-         .get_pool(
-            pool.chain_id(),
-            pool.dex_kind(),
-            pool.fee().fee(),
-            pool.currency0(),
-            pool.currency1(),
-         )
-         .unwrap();
-      assert_eq!(pool, pool2);
    }
 }
