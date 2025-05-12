@@ -34,8 +34,9 @@
 ### Zeus is still in heavy development, so as for now the features are limited to:
 - **Wallet Management:** Import and manage your wallets.
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
-- **Cross-Chain Bridging:** Bridge ETH between the supported chains.(**BNB is not supported**)
+- **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
 - **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
+- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments)). Still experimental, only works on Ethereum mainnet.
 
 
  Currently Zeus does not use an indexer, it does not rely on any **Third-Party API** to index your wallet balances etc...
