@@ -92,6 +92,8 @@ pub struct MiscIcons {
    pub edit: TextureHandle,
    pub down: TextureHandle,
    pub right: TextureHandle,
+   pub red_circle: TextureHandle,
+   pub green_circle: TextureHandle,
 }
 
 impl Icons {
@@ -132,6 +134,8 @@ impl Icons {
       let edit = load_image(include_bytes!("misc/resized/edit.png"))?;
       let down = load_image(include_bytes!("misc/down.png"))?;
       let right = load_image(include_bytes!("misc/right.png"))?;
+      let red_circle = load_and_resize_image(include_bytes!("misc/red-circle.png"), 16, 16)?;
+      let green_circle = load_and_resize_image(include_bytes!("misc/green-circle.png"), 16, 16)?;
 
       let texture_options = TextureOptions::default();
 
@@ -172,6 +176,8 @@ impl Icons {
          edit: ctx.load_texture("edit", edit, texture_options),
          down: ctx.load_texture("down", down, texture_options),
          right: ctx.load_texture("right", right, texture_options),
+         red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
+         green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
       };
 
       Ok(Self {
@@ -330,6 +336,14 @@ impl Icons {
 
    pub fn edit(&self) -> Image<'static> {
       Image::new(&self.misc.edit).sense(Sense::click())
+   }
+
+   pub fn red_circle(&self) -> Image<'static> {
+      Image::new(&self.misc.red_circle)
+   }
+
+   pub fn green_circle(&self) -> Image<'static> {
+      Image::new(&self.misc.green_circle)
    }
 }
 

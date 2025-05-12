@@ -300,14 +300,6 @@ impl PoolManagerHandle {
                continue;
             }
 
-            info!(
-               target: "zeus_eth::amm::pool_manager", "Pool Not in cache: {} {}-{} for Chain Id: {}",
-               dex.to_str(),
-               token.symbol,
-               base_token.symbol,
-               token.chain_id
-            );
-
             let pool_res = UniswapV2Pool::from(
                client.clone(),
                token.chain_id,
@@ -382,15 +374,6 @@ impl PoolManagerHandle {
             }
 
             let factory = dex.factory(token.chain_id)?;
-
-            info!(
-               target: "zeus_eth::amm::pool_manager", "Getting {} pools for: {}-{} Chain Id: {}",
-               dex.to_str(),
-               token.symbol,
-               base_token.symbol,
-               token.chain_id
-            );
-
             let pools = batch::get_v3_pools(client.clone(), token.address, base_token.address, factory).await?;
 
             for pool in &pools {

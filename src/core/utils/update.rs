@@ -1,4 +1,4 @@
-use crate::core::{BaseFee, ZeusCtx, utils::*};
+use crate::core::{BaseFee, ZeusCtx, context::providers::client_test, utils::*};
 use anyhow::{anyhow, bail};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -16,11 +16,11 @@ use zeus_eth::{
    utils::client,
 };
 
-const MEASURE_RPCS_INTERVAL: u64 = 100;
+const MEASURE_RPCS_INTERVAL: u64 = 60;
 const POOL_MANAGER_INTERVAL: u64 = 600;
 const PORTFOLIO_INTERVAL: u64 = 60;
 const BALANCE_INTERVAL: u64 = 120;
-const PRIORITY_FEE_INTERVAL: u64 = 60;
+const PRIORITY_FEE_INTERVAL: u64 = 90;
 const BASE_FEE_INTERVAL: u64 = 180;
 
 /// on startup update the necceary data
@@ -28,6 +28,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.on_startup_syncing = true;
    });
+
+   let time = std::time::Instant::now();
+   test_rpcs(ctx.clone()).await;
+   tracing::info!(
+      "Testing RPCs took {} ms",
+      time.elapsed().as_millis()
+   );
 
    let time = std::time::Instant::now();
    measure_rpcs(ctx.clone()).await;
@@ -146,7 +153,7 @@ pub async fn update_portfolio_state(
    owner: Address,
 ) -> Result<(), anyhow::Error> {
    let pool_manager = ctx.pool_manager();
-   let client = ctx.get_client_with_id(chain).unwrap();
+   let client = ctx.get_client_with_id(chain).await?;
    let tokens = ctx.get_portfolio(chain, owner).erc20_tokens();
    let dex_kinds = DexKind::main_dexes(chain);
 
@@ -194,7 +201,18 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 pub async fn update_pool_manager(ctx: ZeusCtx) {
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
-      let client = ctx.get_client_with_id(chain).unwrap();
+      let client = match ctx.get_client_with_id(chain).await {
+         Ok(client) => client,
+         Err(e) => {
+            tracing::error!(
+               "Error getting client for chain {}: {:?}",
+               chain,
+               e
+            );
+            continue;
+         }
+      };
+
       let pool_manager = ctx.pool_manager();
 
       let task = RT.spawn(async move {
@@ -229,7 +247,7 @@ pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       let ctx = ctx.clone();
 
       let task = RT.spawn(async move {
-         let client = ctx.get_client_with_id(chain).unwrap();
+         let client = ctx.get_client_with_id(chain).await.unwrap();
 
          for wallet in &wallets {
             let balance = match client.get_balance(wallet.address).await {
@@ -277,7 +295,7 @@ pub async fn update_tokens_balance_for_chain(
    let token_map: HashMap<Address, &ERC20Token> =
       tokens.iter().map(|token| (token.address, token)).collect();
    let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
-   let client = ctx.get_client_with_id(chain).unwrap();
+   let client = ctx.get_client_with_id(chain).await?;
 
    let mut token_with_balance = Vec::new();
    for token_addr in tokens_addr.chunks(100) {
@@ -363,7 +381,7 @@ async fn balance_update_interval(ctx: ZeusCtx) {
 }
 
 pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::Error> {
-   let client = ctx.get_client_with_id(chain)?;
+   let client = ctx.get_client_with_id(chain).await?;
    let chain = ChainId::new(chain)?;
 
    if chain.is_ethereum() {
@@ -401,7 +419,7 @@ pub async fn update_base_fee_interval(ctx: ZeusCtx) {
 }
 
 pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client_with_id(chain)?;
+   let client = ctx.get_client_with_id(chain).await?;
    let chain = ChainId::new(chain)?;
    if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
       let fee = client.get_max_priority_fee_per_gas().await?;
@@ -436,6 +454,44 @@ pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
    }
 }
 
+pub async fn test_rpcs(ctx: ZeusCtx) {
+   let providers = ctx.rpc_providers();
+
+   let mut tasks = Vec::new();
+   for chain in SUPPORTED_CHAINS {
+      let rpcs = providers.get_all(chain);
+
+      for rpc in &rpcs {
+         let rpc = rpc.clone();
+         let ctx = ctx.clone();
+         let task = RT.spawn(async move {
+            match client_test(rpc.clone()).await {
+               Ok(_) => {
+                  ctx.write(|ctx| {
+                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
+                        rpc.working = true;
+                     }
+                  });
+               }
+               Err(e) => {
+                  tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
+                  ctx.write(|ctx| {
+                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
+                        rpc.working = false;
+                     }
+                  });
+               }
+            }
+         });
+         tasks.push(task);
+      }
+   }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+}
+
 pub async fn measure_rpcs(ctx: ZeusCtx) {
    let providers = ctx.rpc_providers();
 
@@ -449,7 +505,14 @@ pub async fn measure_rpcs(ctx: ZeusCtx) {
          let task = RT.spawn(async move {
             let retry = client::retry_layer(2, 400, 600);
             let throttle = client::throttle_layer(5);
-            let client = client::get_http_client(&rpc.url, retry, throttle).unwrap();
+            let client = match client::get_client(&rpc.url, retry, throttle).await {
+               Ok(client) => client,
+               Err(e) => {
+                  tracing::error!("Error getting client using {} {}", rpc.url, e);
+                  return;
+               }
+            };
+
             let time = Instant::now();
             match client.get_block_number().await {
                Ok(_) => {
@@ -507,7 +570,17 @@ pub async fn resync_pools(ctx: ZeusCtx) -> bool {
 
       for chain in SUPPORTED_CHAINS {
          let tokens = ctx.get_all_erc20_tokens(chain);
-         let client = ctx.get_client_with_id(chain).unwrap();
+         let client = match ctx.get_client_with_id(chain).await {
+            Ok(client) => client,
+            Err(e) => {
+               tracing::error!(
+                  "Error getting client for chain {}: {:?}",
+                  chain,
+                  e
+               );
+               continue;
+            }
+         };
          let dexes = DexKind::main_dexes(chain);
 
          match pool_manager

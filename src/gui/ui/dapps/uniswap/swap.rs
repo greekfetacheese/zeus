@@ -534,12 +534,12 @@ impl SwapUi {
       let manager = ctx.pool_manager();
       let currency_to_update_pools_from = self.currency_to_update_pools_from().clone();
 
-      let client = ctx.get_client_with_id(chain_id).unwrap();
       let dexes = DexKind::main_dexes(chain_id);
       self.syncing_pools = true;
 
       let ctx2 = ctx.clone();
       RT.spawn(async move {
+         let client = ctx2.get_client_with_id(chain_id).await.unwrap();
          match manager
             .sync_pools_for_tokens(
                client.clone(),
@@ -673,12 +673,12 @@ impl SwapUi {
       );
 
       let chain_id = ctx.chain().id();
-      let client = ctx.get_client_with_id(chain_id).unwrap();
       let manager = ctx.pool_manager();
 
       self.pool_data_syncing = true;
       let ctx2 = ctx.clone();
       RT.spawn(async move {
+         let client = ctx2.get_client_with_id(chain_id).await.unwrap();
          match manager
             .update_state_for_pools(client, chain_id, pools)
             .await
@@ -850,8 +850,7 @@ impl SwapUi {
                   SHARED_GUI.write(|gui| {
                      gui.progress_window.reset();
                      gui.loading_window.reset();
-                     gui.msg_window
-                        .open("Transaction Error", e.to_string());
+                     gui.msg_window.open("Transaction Error", e.to_string());
                      gui.request_repaint();
                   });
                }

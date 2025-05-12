@@ -215,6 +215,39 @@ impl ERC20Token {
       ERC20Token::default()
    }
 
+   pub fn usdc_from_chain(chain: u64) -> ERC20Token {
+      let chain = ChainId::new(chain).unwrap();
+      match chain {
+         ChainId::Ethereum(_) => ERC20Token::usdc(),
+         ChainId::Optimism(_) => ERC20Token::usdc_optimism(),
+         ChainId::Base(_) => ERC20Token::usdc_base(),
+         ChainId::Arbitrum(_) => ERC20Token::usdc_arbitrum(),
+         ChainId::BinanceSmartChain(_) => ERC20Token::usdc_bsc(),
+      }
+   }
+
+   pub fn usdt_from_chain(chain: u64) -> ERC20Token {
+      let chain = ChainId::new(chain).unwrap();
+      match chain {
+         ChainId::Ethereum(_) => ERC20Token::usdt(),
+         ChainId::Optimism(_) => ERC20Token::usdt_optimism(),
+         ChainId::Base(_) => panic!("USDT is not available on Base"),
+         ChainId::Arbitrum(_) => ERC20Token::usdt_arbitrum(),
+         ChainId::BinanceSmartChain(_) => ERC20Token::usdt_bsc(),
+      }
+   }
+
+   pub fn dai_from_chain(chain: u64) -> ERC20Token {
+      let chain = ChainId::new(chain).unwrap();
+      match chain {
+         ChainId::Ethereum(_) => ERC20Token::dai(),
+         ChainId::Optimism(_) => ERC20Token::dai_optimism(),
+         ChainId::Base(_) => ERC20Token::dai_base(),
+         ChainId::Arbitrum(_) => ERC20Token::dai_arbitrum(),
+         ChainId::BinanceSmartChain(_) => ERC20Token::dai_bsc(),
+      }
+   }
+
    /// WETH (BSC)
    pub fn weth_bsc() -> ERC20Token {
       let mut weth_token = ERC20Token::default();

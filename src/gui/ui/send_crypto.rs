@@ -365,9 +365,9 @@ impl SendCryptoUi {
             self.pool_data_syncing = true;
             let manager = ctx.pool_manager();
             let dexes = DexKind::main_dexes(chain_id);
-            let client = ctx.get_client_with_id(chain_id).unwrap();
 
             RT.spawn(async move {
+            let client = ctx.get_client_with_id(chain_id).await.unwrap();
                match manager
                   .sync_pools_for_tokens(client.clone(), vec![token], dexes)
                   .await

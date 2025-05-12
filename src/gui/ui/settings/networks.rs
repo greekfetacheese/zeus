@@ -11,7 +11,6 @@ use eframe::egui::{
 use egui::Frame;
 use egui_theme::{Theme, utils::widget_visuals};
 use std::sync::Arc;
-use std::time::Duration;
 
 pub struct NetworkSettings {
    pub open: bool,
@@ -37,7 +36,10 @@ impl NetworkSettings {
    }
 
    fn valid_url(&self) -> bool {
-      self.url_to_add.starts_with("http://") || self.url_to_add.starts_with("https://")
+      self.url_to_add.starts_with("http://")
+         || self.url_to_add.starts_with("https://")
+         || self.url_to_add.starts_with("ws://")
+         || self.url_to_add.starts_with("wss://")
    }
 
    pub fn show(
@@ -65,7 +67,8 @@ impl NetworkSettings {
 
             ui.add_space(25.0);
             let chain = self.chain_select.chain.id();
-            let mut rpcs = ctx.rpc_providers().get_all(chain);
+            let providers = ctx.rpc_providers();
+            let mut rpcs = providers.get_all_fastest(chain);
 
             let visuals = theme.get_widget_visuals(theme.colors.window_fill);
             widget_visuals(ui, visuals);
@@ -106,8 +109,9 @@ impl NetworkSettings {
             ScrollArea::vertical().show(ui, |ui| {
                let column_widths = [
                   ui_width * 0.5, // Url
-                  ui_width * 0.2, // Enabled (checkbox)
-                  ui_width * 0.2, // Latency
+                  ui_width * 0.1, // Enabled (checkbox)
+                  ui_width * 0.1, // Status
+                  ui_width * 0.1, // Latency
                   ui_width * 0.1, // Remove button
                ];
 
@@ -120,20 +124,11 @@ impl NetworkSettings {
 
                      // Header
                      ui.label(RichText::new("Url").size(theme.text_sizes.large));
-
                      ui.label(RichText::new("Enabled").size(theme.text_sizes.large));
-
+                     ui.label(RichText::new("Status").size(theme.text_sizes.large));
                      ui.label(RichText::new("Latency").size(theme.text_sizes.large));
 
                      ui.end_row();
-
-                     // sort rpcs by the fastests to the slowest
-                     rpcs.sort_by(|a, b| {
-                        a.latency
-                           .unwrap_or(Duration::default())
-                           .partial_cmp(&b.latency.unwrap_or(Duration::default()))
-                           .unwrap_or(std::cmp::Ordering::Equal)
-                     });
 
                      for rpc in rpcs.iter_mut() {
                         // Url column
@@ -166,9 +161,20 @@ impl NetworkSettings {
                            });
                         }
 
-                        // Latency column
+                        // Status column
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[2]);
+                           let icon = if rpc.working {
+                              icons.green_circle()
+                           } else {
+                              icons.red_circle()
+                           };
+                           ui.add(icon);
+                        });
+
+                        // Latency column
+                        ui.horizontal(|ui| {
+                           ui.set_width(column_widths[3]);
                            ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
                         });
 
@@ -176,7 +182,7 @@ impl NetworkSettings {
                         let button =
                            Button::new(RichText::new("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
-                           ui.set_width(column_widths[3]);
+                           ui.set_width(column_widths[4]);
                            // only allow rpcs added by the user to be removed
                            if !rpc.default {
                               if ui.add(button).clicked() {
@@ -221,7 +227,7 @@ impl NetworkSettings {
 
                ui.add(
                   TextEdit::singleline(&mut self.url_to_add)
-                     .hint_text("Enter a url starting with http:// or https://")
+                     .hint_text("Enter a url")
                      .font(FontId::proportional(theme.text_sizes.small))
                      .min_size(vec2(ui_width * 0.5, 20.0))
                      .margin(Margin::same(10)),
@@ -231,7 +237,7 @@ impl NetworkSettings {
                if !self.valid_url() && !self.url_to_add.is_empty() {
                   ui.label(
                      RichText::new("Invalid URL")
-                        .size(theme.text_sizes.very_small)
+                        .size(theme.text_sizes.small)
                         .color(Color32::RED),
                   );
                }

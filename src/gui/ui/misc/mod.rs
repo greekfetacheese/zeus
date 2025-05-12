@@ -1173,11 +1173,11 @@ impl PortfolioUi {
       }
 
       let manager = ctx.pool_manager();
-      let client = ctx.get_client_with_id(chain_id).unwrap();
       let ctx_clone = ctx.clone();
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
+      let client = ctx_clone.get_client_with_id(chain_id).await.unwrap();
          match manager
             .sync_pools_for_tokens(client.clone(), vec![token.clone()], dex_kinds)
             .await

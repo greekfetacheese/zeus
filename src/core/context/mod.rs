@@ -1,5 +1,6 @@
 use super::{
    Wallet,
+   providers::{CLIENT_RPS, COMPUTE_UNITS_PER_SECOND, INITIAL_BACKOFF, MAX_RETRIES},
    utils::{data_dir, pool_data_dir},
 };
 use crate::core::{Account, WalletInfo};
@@ -8,13 +9,16 @@ use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
 };
-use zeus_eth::amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
-   utils::client::{HttpClient, get_http_client, retry_layer, throttle_layer},
+   utils::client::{RpcClient, get_http_client, retry_layer, throttle_layer},
+};
+use zeus_eth::{
+   amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool},
+   utils::client::get_client,
 };
 
 const CONTACTS_FILE: &str = "contacts.json";
@@ -139,15 +143,54 @@ impl ZeusCtx {
       })
    }
 
-   pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
-      self.read(|ctx| ctx.get_client_with_id(id))
+   pub async fn get_client_with_id(&self, id: u64) -> Result<RpcClient, anyhow::Error> {
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(id));
+      let mut client = None;
+      for rpc in &rpcs {
+         if !rpc.working || !rpc.enabled {
+            continue;
+         }
+
+         let (retry, throttle) = if rpc.default {
+            (
+               retry_layer(
+                  MAX_RETRIES,
+                  INITIAL_BACKOFF,
+                  COMPUTE_UNITS_PER_SECOND,
+               ),
+               throttle_layer(CLIENT_RPS),
+            )
+         } else {
+            (retry_layer(100, 10, 1000), throttle_layer(1000))
+         };
+
+         let c = match get_client(&rpc.url, retry, throttle).await {
+            Ok(client) => client,
+            Err(e) => {
+               tracing::error!(
+                  "Error connecting to client using {} for chain {}: {:?}",
+                  rpc.url,
+                  id,
+                  e
+               );
+               continue;
+            }
+         };
+         client = Some(c);
+         break;
+      }
+      if client.is_none() {
+         return Err(anyhow!("No clients found for chain {}", id));
+      } else {
+         Ok(client.unwrap())
+      }
    }
 
-   pub fn get_flashbots_client(&self) -> Result<HttpClient, anyhow::Error> {
+   pub fn get_flashbots_client(&self) -> Result<RpcClient, anyhow::Error> {
       self.read(|ctx| ctx.get_flashbots_client())
    }
 
-   pub fn get_flashbots_fast_client(&self) -> Result<HttpClient, anyhow::Error> {
+   pub fn get_flashbots_fast_client(&self) -> Result<RpcClient, anyhow::Error> {
       self.read(|ctx| ctx.get_flashbots_fast_client())
    }
 
@@ -681,6 +724,8 @@ impl ZeusContext {
       let mut providers = RpcProviders::default();
       if let Ok(loaded_providers) = RpcProviders::load_from_file() {
          providers.rpcs = loaded_providers.rpcs;
+         providers.reset_latency();
+         providers.reset_working();
       }
 
       let contact_db = match ContactDB::load_from_file() {
@@ -769,7 +814,7 @@ impl ZeusContext {
    }
 
    /// This only for ETH mainnet
-   pub fn get_flashbots_client(&self) -> Result<HttpClient, anyhow::Error> {
+   pub fn get_flashbots_client(&self) -> Result<RpcClient, anyhow::Error> {
       let url = "https://rpc.flashbots.net";
       get_http_client(
          &url,
@@ -779,7 +824,7 @@ impl ZeusContext {
    }
 
    /// This only for ETH mainnet
-   pub fn get_flashbots_fast_client(&self) -> Result<HttpClient, anyhow::Error> {
+   pub fn get_flashbots_fast_client(&self) -> Result<RpcClient, anyhow::Error> {
       let url = "https://rpc.flashbots.net/fast";
       get_http_client(
          &url,
@@ -788,7 +833,7 @@ impl ZeusContext {
       )
    }
 
-   pub fn get_client_with_id(&self, id: u64) -> Result<HttpClient, anyhow::Error> {
+   pub async fn get_client_with_id(&self, id: u64) -> Result<RpcClient, anyhow::Error> {
       let rpc = self.providers.get_rpc(id)?;
       // for default rpcs we use a throttled client
       let (retry, throttle) = if rpc.default {
@@ -796,7 +841,7 @@ impl ZeusContext {
       } else {
          (retry_layer(100, 10, 1000), throttle_layer(1000))
       };
-      get_http_client(&rpc.url, retry, throttle)
+      get_client(&rpc.url, retry, throttle).await
    }
 }
 
@@ -814,23 +859,23 @@ mod tests {
    async fn test_base_fee() {
       let ctx = ZeusContext::new();
 
-      let client = ctx.get_client_with_id(1).unwrap();
+      let client = ctx.get_client_with_id(1).await.unwrap();
       let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
       let base_fee = block.header.base_fee_per_gas.unwrap();
       let fee = format_units(base_fee, "gwei").unwrap();
       println!("Ethereum base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(10).unwrap();
+      let client = ctx.get_client_with_id(10).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Optimism base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(56).unwrap();
+      let client = ctx.get_client_with_id(56).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("BSC base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(42161).unwrap();
+      let client = ctx.get_client_with_id(42161).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Arbitrum base fee: {}", fee);
@@ -841,7 +886,7 @@ mod tests {
       let ctx = ZeusContext::new();
 
       for chain in SUPPORTED_CHAINS {
-         let client = ctx.get_client_with_id(chain).unwrap();
+         let client = ctx.get_client_with_id(chain).await.unwrap();
          let fee = client.get_max_priority_fee_per_gas().await.unwrap();
          let fee = format_units(U256::from(fee), "gwei").unwrap();
          println!("Suggested Fee on {}: {}", chain, fee)
