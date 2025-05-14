@@ -409,7 +409,7 @@ impl SwapUi {
             // Balance and Max Button
             ui.horizontal(|ui| {
                let balance = ctx.get_currency_balance(chain_id, owner, currency);
-               let balance_text = format!("Balance: {}", balance.formatted());
+               let balance_text = format!("Balance: {}", balance.format_abbreviated());
                ui.label(
                   RichText::new(balance_text)
                      .size(theme.text_sizes.normal)
@@ -897,10 +897,10 @@ impl SwapUi {
          .await
          {
             Ok(_) => {
-               tracing::info!("Swap Transaction Sent");
+               tracing::info!("Transaction Sent");
             }
             Err(e) => {
-               tracing::error!("Swap Transaction Error: {:?}", e);
+               tracing::error!("Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
                   gui.progress_window.reset();
                   gui.loading_window.reset();

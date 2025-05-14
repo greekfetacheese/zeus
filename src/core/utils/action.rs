@@ -38,7 +38,7 @@ pub enum OnChainAction {
 impl OnChainAction {
    pub fn dummy_token_approve() -> Self {
       let token = Currency::from(ERC20Token::weth());
-      let amount = NumericValue::parse_to_wei("1", 18);
+      let amount = NumericValue::parse_to_wei("1000000000", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
       let owner = Address::ZERO;
       let spender = Address::ZERO;
@@ -68,6 +68,8 @@ impl OnChainAction {
          amount_in_usd: Some(amount_usd.clone()),
          received: amount_usd.clone(),
          received_usd: Some(amount_usd),
+         min_received: None,
+         min_received_usd: None,
          sender: Address::ZERO,
          recipient: Some(Address::ZERO),
       };
@@ -200,12 +202,25 @@ impl OnChainAction {
          return Self::Transfer(params);
       }
 
-      if let Ok(params) = TokenApproveParams::new(ctx.clone(), chain, call_data.clone(), logs.clone()).await
+      if let Ok(params) = TokenApproveParams::new(
+         ctx.clone(),
+         chain,
+         call_data.clone(),
+         logs.clone(),
+      )
+      .await
       {
          return Self::TokenApprove(params);
       }
 
-      if let Ok(params) = WrapETHParams::new(ctx.clone(), chain, from, call_data.clone(), value, logs.clone()) {
+      if let Ok(params) = WrapETHParams::new(
+         ctx.clone(),
+         chain,
+         from,
+         call_data.clone(),
+         value,
+         logs.clone(),
+      ) {
          return Self::WrapETH(params);
       }
 
@@ -396,10 +411,14 @@ impl BridgeParams {
    ) -> Result<Self, anyhow::Error> {
       let decoded = across::decode_deposit_v3_call(&call_data)?;
       let dest_chain = decoded.destinationChainId.try_into()?;
-      let input_cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(origin_chain, decoded.inputToken));
-      let output_cached =
-         ctx.read(|ctx| ctx.currency_db.get_erc20_token(dest_chain, decoded.outputToken));
-
+      let input_cached = ctx.read(|ctx| {
+         ctx.currency_db
+            .get_erc20_token(origin_chain, decoded.inputToken)
+      });
+      let output_cached = ctx.read(|ctx| {
+         ctx.currency_db
+            .get_erc20_token(dest_chain, decoded.outputToken)
+      });
 
       let input_token = if let Some(token) = input_cached {
          token
@@ -478,6 +497,8 @@ pub struct SwapParams {
    pub amount_in_usd: Option<NumericValue>,
    pub received: NumericValue,
    pub received_usd: Option<NumericValue>,
+   pub min_received: Option<NumericValue>,
+   pub min_received_usd: Option<NumericValue>,
    pub sender: Address,
    pub recipient: Option<Address>,
 }
@@ -492,6 +513,8 @@ impl Default for SwapParams {
          amount_in_usd: None,
          received: NumericValue::default(),
          received_usd: None,
+         min_received: None,
+         min_received_usd: None,
          sender: Address::default(),
          recipient: None,
       }
@@ -505,7 +528,7 @@ impl SwapParams {
       from: Address,
       logs: Vec<Log>,
    ) -> Result<Self, anyhow::Error> {
-      // if there is multiple swaps make sure to identiafy the start currenct and the end currency
+      // if there is multiple swaps make sure to identify the start currency and the end currency
       let mut swaps = Vec::new();
       for log in logs {
          if let Ok(params) = Self::from_uniswap_v2(ctx.clone(), chain, from, log.clone()).await {
@@ -559,6 +582,8 @@ impl SwapParams {
          amount_in_usd,
          received: amount_out,
          received_usd: amount_out_usd,
+         min_received: None,
+         min_received_usd: None,
          sender,
          recipient,
       };
@@ -644,6 +669,8 @@ impl SwapParams {
          amount_in_usd: Some(amount_in_usd),
          received: amount_out,
          received_usd: Some(amount_out_usd),
+         min_received: None,
+         min_received_usd: None,
          sender: from,
          recipient: None,
       };
@@ -736,6 +763,8 @@ impl SwapParams {
          amount_in_usd: Some(amount_in_usd),
          received: amount_out,
          received_usd: Some(amount_out_usd),
+         min_received: None,
+         min_received_usd: None,
          sender: from,
          recipient: None,
       };
@@ -824,6 +853,15 @@ pub struct TokenApproveParams {
 }
 
 impl TokenApproveParams {
+
+   pub fn amount(&self) -> String {
+      if self.amount.wei2() == U256::MAX {
+         return "Unlimited".to_string();
+      } else {
+         return self.amount.format_abbreviated();
+      }
+   }
+
    pub async fn new(
       ctx: ZeusCtx,
       chain: u64,

@@ -141,11 +141,11 @@ impl Permit2Details {
       })
    }
 
-   pub fn amount_str(&self) -> &str {
+   pub fn amount(&self) -> String {
       if self.amount.wei2() == U256::MAX {
-         return "Unlimited";
+         return "Unlimited".to_string();
       } else {
-         return self.amount.formatted().as_str();
+         return self.amount.format_abbreviated();
       }
    }
 }

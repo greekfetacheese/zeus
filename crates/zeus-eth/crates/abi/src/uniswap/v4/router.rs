@@ -1,5 +1,5 @@
 use super::{PathKey, PoolKey};
-use alloy_primitives::{Address, Bytes, U256, hex};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{SolCall, SolValue, sol};
 
 pub use IV4Router::{ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams};
@@ -58,21 +58,6 @@ sol! {
         }
 }
 
-pub fn encode_execute_manually(commands: Bytes, inputs: Vec<Bytes>) -> Bytes {
-   // Function selector for execute(bytes,bytes[])
-   // You can calculate it once or hardcode it if stable
-   let selector = hex::decode("24856bc3").expect("Invalid selector hex"); // Or calculate dynamically
-
-   // Encode the arguments tuple (bytes, bytes[])
-   // This should use the correct ABI encoding logic for the tuple
-   let encoded_args = (commands, inputs).abi_encode();
-
-   // Combine selector and encoded arguments
-   let mut calldata = selector;
-   calldata.extend(encoded_args);
-
-   Bytes::from(calldata)
-}
 
 pub fn encode_execute_with_deadline(commands: Bytes, inputs: Vec<Bytes>, deadline: U256) -> Bytes {
    let data = UniversalRouter::execute_1Call {

@@ -475,12 +475,61 @@ impl NumericValue {
    pub fn flatten(&self) -> String {
       self.formatted.replace(",", "")
    }
+
+   /// Formats the `f64` value into a compact string with abbreviations.
+   /// Examples:
+   /// - 1,234.56 → "1234.56"
+   /// - 725,000,000.34 → "725M"
+   /// - 725,230,000.00 → "725.23M"
+   /// - 12,345,678,900,000 → "12.35T"
+   pub fn format_abbreviated(&self) -> String {
+      let n = self.f64;
+      // less than a million just return it as it is
+      if n < 1_000_000.0 {
+         return self.formatted().clone();
+      }
+      
+
+      let suffixes = ["", "K", "M", "B", "T"];
+      let magnitude = (n.log10() / 3.0).floor() as usize;
+      let magnitude = magnitude.min(suffixes.len() - 1);
+      let divisor = 1000.0f64.powi(magnitude as i32);
+      let scaled = n / divisor;
+      let formatted = format!("{:.2}", scaled)
+         .trim_end_matches('0')
+         .trim_end_matches('.')
+         .to_string();
+      format!("{}{}", formatted, suffixes[magnitude])
+   }
 }
 
 #[cfg(test)]
 mod tests {
    use super::*;
    use alloy_primitives::utils::parse_ether;
+
+   #[test]
+   fn format_abbreviated() {
+      // 725,000,000.34 → "725M"
+      let amount = parse_ether("725000000.34").unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.format_abbreviated(), "725M");
+
+      // 725,230,000.00 → "725.23M"
+      let amount = parse_ether("725230000.00").unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.format_abbreviated(), "725.23M");
+
+      // 1,234.56 → "1,234.56"
+      let amount = parse_ether("1234.56").unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.format_abbreviated(), "1,234.56");
+
+      // 12,345,678,900,000 → "12.35T"
+      let amount = parse_ether("12345678900000").unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.format_abbreviated(), "12.35T");
+   }
 
    #[test]
    fn test_low_amount_value() {

@@ -670,6 +670,7 @@ pub async fn swap(
 
    let amount_in_usd = ctx.get_currency_value2(amount_in.f64(), &currency_in);
    let received_usd = ctx.get_currency_value2(real_amount_out.f64(), &currency_out);
+   let min_received_usd = ctx.get_currency_value2(amount_out_with_slippage.f64(), &currency_out);
    let swap_params = SwapParams {
       dapp: Dapp::Uniswap,
       input_currency: currency_in.clone(),
@@ -678,6 +679,8 @@ pub async fn swap(
       amount_in_usd: Some(amount_in_usd),
       received: real_amount_out,
       received_usd: Some(received_usd),
+      min_received: Some(amount_out_with_slippage),
+      min_received_usd: Some(min_received_usd),
       sender: from,
       recipient: Some(from),
    };

@@ -184,7 +184,7 @@ impl SendCryptoUi {
 
                      let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
                      ui.label(
-                        RichText::new(format!("Balance: {}", balance.formatted()))
+                        RichText::new(format!("Balance: {}", balance.format_abbreviated()))
                            .color(theme.colors.text_secondary)
                            .size(theme.text_sizes.normal),
                      );

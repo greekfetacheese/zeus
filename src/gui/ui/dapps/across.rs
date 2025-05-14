@@ -156,7 +156,7 @@ impl AcrossBridge {
                         let text =
                            RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
                         ui.add(Label::new(text, Some(icon)));
-                        let text = format!("Balance: {}", balance.formatted());
+                        let text = format!("Balance: {}", balance.format_abbreviated());
                         ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                         // Max amount button

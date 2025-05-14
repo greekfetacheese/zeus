@@ -538,7 +538,7 @@ impl SignMsgWindow {
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = details.amount_str();
+            let amount = details.amount();
             let text = format!("{} {}", amount, details.token.symbol);
             let icon = icons.token_icon_x24(details.token.address, details.token.chain_id);
             let label = Label::new(
@@ -1107,7 +1107,7 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(RichText::new(balance.formatted()).size(theme.text_sizes.normal));
+         ui.label(RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal));
       });
 
       let value = ctx.get_currency_value(chain, owner, currency);

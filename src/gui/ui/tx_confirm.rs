@@ -222,7 +222,7 @@ impl TxConfirmWindow {
          let text = RichText::new(&format!(
             "{} {} {}",
             sign,
-            eth_amount.formatted(),
+            eth_amount.format_abbreviated(),
             self.native_currency.symbol
          ))
          .size(theme.text_sizes.normal)
@@ -235,7 +235,7 @@ impl TxConfirmWindow {
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(
-               RichText::new(&format!("~ ${}", eth_value.formatted())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", eth_value.format_abbreviated())).size(theme.text_sizes.small),
             );
          });
       });
@@ -243,7 +243,7 @@ impl TxConfirmWindow {
 
    fn action_is_token_approval(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.action.token_approval_params();
-      let amount = params.amount.formatted();
+      let amount = params.amount();
       let currency = &params.token;
       let spender_addr = params.spender.to_string();
       let spender_short = truncate_address(spender_addr.clone());
@@ -294,7 +294,7 @@ impl TxConfirmWindow {
             let icon = icons.currency_icon_x24(&currency);
             let text = RichText::new(&format!(
                "{} {} ",
-               amount.formatted(),
+               amount.format_abbreviated(),
                currency.symbol()
             ))
             .size(theme.text_sizes.normal);
@@ -306,7 +306,7 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = params.amount_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", amount.formatted())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", amount.format_abbreviated())).size(theme.text_sizes.small),
             );
          });
       });
@@ -369,7 +369,7 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.amount_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", value.formatted())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small),
             );
          });
       });
@@ -394,7 +394,7 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.received_usd.unwrap_or_default();
             let text =
-               RichText::new(format!("~ ${}", value.formatted())).size(theme.text_sizes.small);
+               RichText::new(format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small);
             ui.label(text);
          });
       });
@@ -438,6 +438,7 @@ impl TxConfirmWindow {
 
    fn action_is_swap(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.action.swap_params();
+      let currency = params.output_currency;
 
       // Input currency column
       ui.horizontal(|ui| {
@@ -446,7 +447,7 @@ impl TxConfirmWindow {
          let icon = icons.currency_icon_x24(&currency);
          let text = RichText::new(&format!(
             "- {} {} ",
-            amount.formatted(),
+            amount.format_abbreviated(),
             currency.symbol()
          ))
          .size(theme.text_sizes.normal)
@@ -460,7 +461,7 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.amount_in_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", value.formatted())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small),
             );
          });
       });
@@ -468,12 +469,11 @@ impl TxConfirmWindow {
       // Received Currency
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let currency = params.output_currency;
             let amount = params.received;
             let icon = icons.currency_icon_x24(&currency);
             let text = RichText::new(format!(
                "+ {} {}",
-               amount.formatted(),
+               amount.format_abbreviated(),
                currency.symbol()
             ))
             .size(theme.text_sizes.normal)
@@ -485,10 +485,29 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.received_usd.unwrap_or_default();
             let text =
-               RichText::new(format!("~ ${}", value.formatted())).size(theme.text_sizes.small);
+               RichText::new(format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small);
             ui.label(text);
          });
       });
+
+      // Minimum Received
+      let amount = params.min_received;
+      let amount_usd = params.min_received_usd;
+      if amount.is_some() && amount_usd.is_some() {
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Minimum Received").size(theme.text_sizes.normal));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let amount = amount.unwrap();
+               let amount_usd = amount_usd.unwrap();
+               let amount_symbol = format!("{} {}", amount.format_abbreviated(), currency.symbol());
+               let amount_usd = format!("~ ${}", amount_usd.format_abbreviated());
+               ui.label(RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.text_sizes.normal));
+            });
+         });
+      }
    }
 
    fn action_is_wrap_or_unwrap_eth(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -541,8 +560,9 @@ impl TxConfirmWindow {
             weth_icon.clone()
          };
 
-         let text = RichText::new(&format!("- {} {}", amount.formatted(), symbol))
-            .size(theme.text_sizes.normal).color(Color32::RED);
+         let text = RichText::new(&format!("- {} {}", amount.format_abbreviated(), symbol))
+            .size(theme.text_sizes.normal)
+            .color(Color32::RED);
          let label = Label::new(text, Some(icon)).text_first(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -550,7 +570,7 @@ impl TxConfirmWindow {
 
          // USD Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let text = RichText::new(&format!("~ ${}", amount_usd.formatted()))
+            let text = RichText::new(&format!("~ ${}", amount_usd.format_abbreviated()))
                .size(theme.text_sizes.normal);
             ui.label(text);
          });
@@ -569,8 +589,9 @@ impl TxConfirmWindow {
             eth_icon
          };
 
-         let text = RichText::new(&format!("+ {} {}", amount.formatted(), symbol))
-            .size(theme.text_sizes.normal).color(Color32::GREEN);
+         let text = RichText::new(&format!("+ {} {}", amount.format_abbreviated(), symbol))
+            .size(theme.text_sizes.normal)
+            .color(Color32::GREEN);
          let label = Label::new(text, Some(icon)).text_first(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -578,7 +599,7 @@ impl TxConfirmWindow {
 
          // USD Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let text = RichText::new(&format!("~ ${}", amount_usd.formatted()))
+            let text = RichText::new(&format!("~ ${}", amount_usd.format_abbreviated()))
                .size(theme.text_sizes.normal);
             ui.label(text);
          });
