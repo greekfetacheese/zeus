@@ -3,6 +3,7 @@ use alloy_primitives::{
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::BlockId;
+use core::panic;
 use std::borrow::Cow;
 
 use crate::uniswap::PoolKey;
@@ -16,11 +17,11 @@ use crate::{
 };
 use abi::uniswap::v2;
 use currency::{Currency, ERC20Token};
-use utils::{is_base_token, price_feed::get_base_token_price};
+use utils::{NumericValue, price_feed::get_base_token_price};
 
 use alloy_contract::private::{Network, Provider};
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 pub const FEE: u32 = 300;
@@ -191,14 +192,6 @@ impl UniswapPool for UniswapV2Pool {
       self.is_currency0(currency) || self.is_currency1(currency)
    }
 
-   fn min_word(&self) -> i32 {
-      0
-   }
-
-   fn max_word(&self) -> i32 {
-      0
-   }
-
    fn currency0(&self) -> &Currency {
       &self.currency0
    }
@@ -252,20 +245,12 @@ impl UniswapPool for UniswapV2Pool {
       reserve >= threshold
    }
 
-   fn base_token_exists(&self) -> bool {
-      if is_base_token(self.chain_id, self.token0().address) {
-         true
-      } else if is_base_token(self.chain_id, self.token1().address) {
-         true
-      } else {
-         false
-      }
+   fn base_currency_exists(&self) -> bool {
+      self.currency0().is_base() || self.currency1().is_base()
    }
 
    fn base_currency(&self) -> &Currency {
-      // If currency0 is native (e.g., ETH) or a base token, use it as the base.
-      // Otherwise, use currency1.
-      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+      if self.currency0.is_base() {
          &self.currency0
       } else {
          &self.currency1
@@ -273,8 +258,7 @@ impl UniswapPool for UniswapV2Pool {
    }
 
    fn quote_currency(&self) -> &Currency {
-      // Return the opposite currency of base_currency.
-      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+      if self.currency0.is_base() {
          &self.currency1
       } else {
          &self.currency0
@@ -283,6 +267,64 @@ impl UniswapPool for UniswapV2Pool {
 
    fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
       bail!("Pool Key method only applies to V4");
+   }
+
+   fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
+      let price = super::calculate_price_64_x_64(self, currency_in)?;
+      let price = super::q64_to_float(price);
+      Ok(price)
+   }
+
+   fn pool_balances(&self) -> (NumericValue, NumericValue) {
+      let state = self.state().v2_reserves();
+      if state.is_none() {
+         return (NumericValue::default(), NumericValue::default());
+      }
+
+      let state = state.unwrap();
+      let amount0 = NumericValue::format_wei(state.reserve0, self.currency0().decimals());
+      let amount1 = NumericValue::format_wei(state.reserve1, self.currency1().decimals());
+      (amount0, amount1)
+   }
+
+   fn base_balance(&self) -> NumericValue {
+      let state = self.state().v2_reserves();
+      if state.is_none() {
+         return NumericValue::default();
+      }
+
+      let state = state.unwrap();
+      let amount0 = NumericValue::format_wei(state.reserve0, self.currency0().decimals());
+      let amount1 = NumericValue::format_wei(state.reserve1, self.currency1().decimals());
+      if self.currency0().is_base() {
+         amount0
+      } else {
+         amount1
+      }
+   }
+
+   fn quote_balance(&self) -> NumericValue {
+      let state = self.state().v2_reserves();
+      if state.is_none() {
+         return NumericValue::default();
+      }
+
+      let state = state.unwrap();
+      let amount0 = NumericValue::format_wei(state.reserve1, self.currency1().decimals());
+      let amount1 = NumericValue::format_wei(state.reserve0, self.currency0().decimals());
+      if self.currency0().is_base() {
+         amount1
+      } else {
+         amount0
+      }
+   }
+
+   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
+      return Err(anyhow!("This method only applies to V4"));
+   }
+
+   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
+      return Err(anyhow!("This method only applies to V4"));
    }
 
    async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
@@ -353,7 +395,7 @@ impl UniswapPool for UniswapV2Pool {
          return Ok(0.0);
       }
 
-      if !self.base_token_exists() {
+      if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
@@ -377,7 +419,7 @@ impl UniswapPool for UniswapV2Pool {
    {
       let chain_id = self.chain_id;
 
-      if !self.base_token_exists() {
+      if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
@@ -448,7 +490,7 @@ mod tests {
       assert_eq!(token0, true);
       assert_eq!(token1, true);
 
-      let base_exists = pool.base_token_exists();
+      let base_exists = pool.base_currency_exists();
       assert_eq!(base_exists, true);
    }
 
@@ -464,7 +506,12 @@ mod tests {
       let base_token = pool.base_token();
       let quote_token = pool.quote_token();
 
+      let uni_in_eth = pool.calculate_price(pool.quote_currency()).unwrap();
+      let eth_in_uni = pool.calculate_price(pool.base_currency()).unwrap();
+
       println!("{} Price: ${}", base_token.symbol, base_price);
       println!("{} Price: ${}", quote_token.symbol, quote_price);
+      println!("UNI in terms of ETH: {}", uni_in_eth);
+      println!("ETH in terms of UNI: {}", eth_in_uni);
    }
 }

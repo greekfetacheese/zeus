@@ -8,10 +8,7 @@ use egui::{
 use egui_theme::Theme;
 use std::sync::Arc;
 use std::time::Instant;
-use zeus_eth::amm::{
-   DexKind,
-   uniswap::{quoter::*, router::SwapType},
-};
+use zeus_eth::amm::uniswap::{quoter::*, router::SwapType};
 use zeus_eth::utils::NumericValue;
 
 use crate::core::utils::{RT, eth};
@@ -255,7 +252,12 @@ impl SwapUi {
                }
 
                self.swap_button(ctx.clone(), theme, ui);
-               self.swap_details(ctx, theme, ui);
+               let action = self.action();
+               let amount_in = self.amount_in.parse().unwrap_or(0.0);
+
+               if amount_in != 0.0 && action.is_swap() {
+                  self.swap_details(ctx, theme, ui);
+               }
             });
          });
 
@@ -533,36 +535,20 @@ impl SwapUi {
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
       let currency_to_update_pools_from = self.currency_to_update_pools_from().clone();
+      tracing::info!("Currency to update pools from: {}", currency_to_update_pools_from.symbol());
+      tracing::info!("Token to sync pools for: {}", token_in.symbol);
 
-      let dexes = DexKind::main_dexes(chain_id);
       self.syncing_pools = true;
 
       let ctx2 = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client_with_id(chain_id).await.unwrap();
-         match manager
-            .sync_pools_for_tokens(
-               client.clone(),
-               vec![token_in.clone(), token_out.clone()],
-               dexes,
-            )
-            .await
-         {
-            Ok(_) => {
-               // tracing::info!("Synced pools for token: {}", token.symbol);
-               SHARED_GUI.write(|gui| {
-                  gui.swap_ui.syncing_pools = false;
-                  gui.swap_ui.pool_data_syncing = true;
-               });
-            }
-            Err(e) => {
-               tracing::error!("Error syncing pools: {:?}", e);
-               SHARED_GUI.write(|gui| {
-                  gui.swap_ui.syncing_pools = false;
-               });
-               return;
-            }
-         };
+         let client = ctx2.get_client(chain_id).await.unwrap();
+         let _ = eth::sync_pools_for_tokens(ctx2.clone(), chain_id, vec![token_in.clone()], false).await;
+
+         SHARED_GUI.write(|gui| {
+            gui.swap_ui.syncing_pools = false;
+            gui.swap_ui.pool_data_syncing = true;
+         });
 
          let pools_to_update = manager.get_pools_from_currency(&currency_to_update_pools_from);
          match manager
@@ -678,7 +664,7 @@ impl SwapUi {
       self.pool_data_syncing = true;
       let ctx2 = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client_with_id(chain_id).await.unwrap();
+         let client = ctx2.get_client(chain_id).await.unwrap();
          match manager
             .update_state_for_pools(client, chain_id, pools)
             .await

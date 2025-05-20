@@ -15,9 +15,11 @@ wallet = { path = "crates/wallet", optional = true}
 revm-utils = { path = "crates/revm-utils", optional = true}
 
 
-
-
 [features]
 utils = ["dep:utils"]
 wallet = ["dep:wallet"]
 revm-utils = ["dep:revm-utils"]
+
+[dev-dependencies]
+tokio = "1"
+url = "2"

@@ -49,20 +49,35 @@ impl FeeAmount {
          Self::LOW => I24::from_limbs([10]),
          Self::MEDIUM => I24::from_limbs([60]),
          Self::HIGH => I24::from_limbs([200]),
-         Self::CUSTOM(fee) => I24::from_limbs([(fee / 50) as u64]),
+         Self::CUSTOM(fee) => {
+            // Ensure tick_spacing is at least 1
+            let calculated_spacing = *fee as i32 / 50;
+            if calculated_spacing < 1 {
+               I24::ONE
+            } else {
+               I24::from_limbs([calculated_spacing as u64])
+            }
+         }
       }
    }
 
    pub fn tick_spacing_i32(&self) -> i32 {
       match self {
          Self::LOWEST => 1,
-         Self::LOW_200 => 10,
-         Self::LOW_300 => 60,
-         Self::LOW_400 => 200,
-         Self::LOW => 400,
-         Self::MEDIUM => 1000,
-         Self::HIGH => 2000,
-         Self::CUSTOM(fee) => *fee as i32 / 50,
+         Self::LOW_200 => 4,
+         Self::LOW_300 => 6,
+         Self::LOW_400 => 8,
+         Self::LOW => 10,
+         Self::MEDIUM => 60,
+         Self::HIGH => 200,
+         Self::CUSTOM(fee) => {
+            let calculated_spacing = *fee as i32 / 50;
+            if calculated_spacing < 1 {
+               1
+            } else {
+               calculated_spacing
+            }
+         }
       }
    }
 }

@@ -307,15 +307,13 @@ impl SendCryptoUi {
 
    fn sync_balance(&mut self, owner: Address, ctx: ZeusCtx) {
       self.syncing_balance = true;
-      let chain = ctx.chain().id();
       let currency = self.currency.clone();
       RT.spawn(async move {
-         let balance = match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
-            Ok(b) => {
+         match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
+            Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.send_crypto.syncing_balance = false;
                });
-               b
             }
             Err(e) => {
                tracing::error!("Error getting balance: {:?}", e);
@@ -325,16 +323,6 @@ impl SendCryptoUi {
                return;
             }
          };
-
-         ctx.write(|ctx| {
-            ctx.balance_db
-               .insert_currency_balance(owner, balance, &currency);
-         });
-
-         RT.spawn_blocking(move || {
-            ctx.calculate_portfolio_value(chain, owner);
-            ctx.save_portfolio_db();
-         });
       });
    }
 
@@ -349,7 +337,7 @@ impl SendCryptoUi {
       if !price.is_none() {
          return NumericValue::value(amount, price.unwrap().f64());
       } else {
-         // probably no pool data available to calculate the price
+         // no pool data available to calculate the price
 
          // don't spam the rpc in the next frames
          if self.pool_data_syncing {
@@ -367,9 +355,9 @@ impl SendCryptoUi {
             let dexes = DexKind::main_dexes(chain_id);
 
             RT.spawn(async move {
-            let client = ctx.get_client_with_id(chain_id).await.unwrap();
+            let client = ctx.get_client(chain_id).await.unwrap();
                match manager
-                  .sync_pools_for_tokens(client.clone(), vec![token], dexes)
+                  .sync_pools_for_tokens(client.clone(), chain_id, vec![token], dexes, false)
                   .await
                {
                   Ok(_) => {

@@ -70,6 +70,31 @@ impl ERC20Token {
       })
    }
 
+   pub async fn from_batch<P, N>(client: P, chain: u64, tokens_addr: Vec<Address>) -> Result<Vec<Self>, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let tokens_info = batch::get_erc20_tokens(client, tokens_addr.clone()).await?;
+
+      let mut tokens_erc20 = Vec::new();
+      for token_addr in tokens_addr {
+         for token_info in &tokens_info {
+            if token_info.addr == token_addr {
+               tokens_erc20.push(Self {
+                  chain_id: chain,
+                  address: token_addr,
+                  symbol: token_info.symbol.clone(),
+                  name: token_info.name.clone(),
+                  decimals: token_info.decimals,
+                  total_supply: token_info.totalSupply,
+               });
+            }
+         }
+      }
+      Ok(tokens_erc20)
+   }
+
    pub fn from(
       chain_id: u64,
       address: Address,
@@ -215,36 +240,15 @@ impl ERC20Token {
       ERC20Token::default()
    }
 
-   pub fn usdc_from_chain(chain: u64) -> ERC20Token {
-      let chain = ChainId::new(chain).unwrap();
-      match chain {
-         ChainId::Ethereum(_) => ERC20Token::usdc(),
-         ChainId::Optimism(_) => ERC20Token::usdc_optimism(),
-         ChainId::Base(_) => ERC20Token::usdc_base(),
-         ChainId::Arbitrum(_) => ERC20Token::usdc_arbitrum(),
-         ChainId::BinanceSmartChain(_) => ERC20Token::usdc_bsc(),
-      }
-   }
-
-   pub fn usdt_from_chain(chain: u64) -> ERC20Token {
-      let chain = ChainId::new(chain).unwrap();
-      match chain {
-         ChainId::Ethereum(_) => ERC20Token::usdt(),
-         ChainId::Optimism(_) => ERC20Token::usdt_optimism(),
-         ChainId::Base(_) => panic!("USDT is not available on Base"),
-         ChainId::Arbitrum(_) => ERC20Token::usdt_arbitrum(),
-         ChainId::BinanceSmartChain(_) => ERC20Token::usdt_bsc(),
-      }
-   }
-
-   pub fn dai_from_chain(chain: u64) -> ERC20Token {
-      let chain = ChainId::new(chain).unwrap();
-      match chain {
-         ChainId::Ethereum(_) => ERC20Token::dai(),
-         ChainId::Optimism(_) => ERC20Token::dai_optimism(),
-         ChainId::Base(_) => ERC20Token::dai_base(),
-         ChainId::Arbitrum(_) => ERC20Token::dai_arbitrum(),
-         ChainId::BinanceSmartChain(_) => ERC20Token::dai_bsc(),
+   /// Default WBNB instance (BSC)
+   pub fn wbnb() -> ERC20Token {
+      ERC20Token {
+         chain_id: BSC,
+         name: "Wrapped BNB".to_string(),
+         address: wbnb(BSC).unwrap(),
+         decimals: 18,
+         symbol: "WBNB".to_string(),
+         total_supply: U256::ZERO,
       }
    }
 
@@ -403,18 +407,6 @@ impl ERC20Token {
       token.address = dai(ARBITRUM).unwrap();
       token
    }
-
-   /// Default WBNB instance (BSC)
-   pub fn wbnb() -> ERC20Token {
-      ERC20Token {
-         chain_id: BSC,
-         name: "Wrapped BNB".to_string(),
-         address: wbnb(BSC).unwrap(),
-         decimals: 18,
-         symbol: "WBNB".to_string(),
-         total_supply: U256::ZERO,
-      }
-   }
 }
 
 // ** Helpers
@@ -464,5 +456,27 @@ mod tests {
       assert_eq!(weth.symbol, fetched_weth.symbol);
       assert_eq!(weth.name, fetched_weth.name);
       assert_eq!(weth.decimals, fetched_weth.decimals);
+   }
+
+   #[tokio::test]
+   async fn can_get_erc20_batch() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let weth = ERC20Token::weth();
+      let usdc = ERC20Token::usdc();
+      let usdt = ERC20Token::usdt();
+      let dai = ERC20Token::dai();
+      let addr = vec![weth.address, usdc.address, usdt.address, dai.address];
+
+      let tokens_erc20 = ERC20Token::from_batch(client.clone(), 1, addr.clone())
+         .await
+         .unwrap();
+
+      assert_eq!(tokens_erc20.len(), addr.len());
+      assert_eq!(tokens_erc20[0], weth);
+      assert_eq!(tokens_erc20[1], usdc);
+      assert_eq!(tokens_erc20[2], usdt);
+      assert_eq!(tokens_erc20[3], dai);
    }
 }

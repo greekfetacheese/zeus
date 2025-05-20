@@ -423,7 +423,7 @@ impl BridgeParams {
       let input_token = if let Some(token) = input_cached {
          token
       } else {
-         let client = ctx.get_client_with_id(dest_chain).await?;
+         let client = ctx.get_client(dest_chain).await?;
          let token = ERC20Token::new(client.clone(), decoded.inputToken, dest_chain).await?;
          ctx.write(|ctx| {
             ctx.currency_db
@@ -436,7 +436,7 @@ impl BridgeParams {
       let output_token = if let Some(token) = output_cached {
          token
       } else {
-         let client = ctx.get_client_with_id(dest_chain).await?;
+         let client = ctx.get_client(dest_chain).await?;
          let token = ERC20Token::new(client.clone(), decoded.outputToken, dest_chain).await?;
          ctx.write(|ctx| {
             ctx.currency_db
@@ -603,7 +603,7 @@ impl SwapParams {
          return Err(anyhow::anyhow!("Log is not a UniswapV2 swap log"));
       };
 
-      let client = ctx.get_client_with_id(chain).await?;
+      let client = ctx.get_client(chain).await?;
       let cached = ctx.read(|ctx| {
          ctx.pool_manager
             .get_v2_pool_from_address(chain, pool_address)
@@ -690,7 +690,7 @@ impl SwapParams {
          return Err(anyhow::anyhow!("Log is not a UniswapV3 swap log"));
       };
 
-      let client = ctx.get_client_with_id(chain).await?;
+      let client = ctx.get_client(chain).await?;
       let cached = ctx.read(|ctx| {
          ctx.pool_manager
             .get_v3_pool_from_address(chain, pool_address)
@@ -792,7 +792,7 @@ impl TransferParams {
       call_data: Bytes,
       value: U256,
    ) -> Result<Self, anyhow::Error> {
-      let client = ctx.get_client_with_id(chain).await?;
+      let client = ctx.get_client(chain).await?;
       // TODO: Cache the bytecode
       let code = client.get_code_at(interact_to).await?;
       let selector = call_data.get(0..4).unwrap_or_default();
@@ -889,7 +889,7 @@ impl TokenApproveParams {
 
       let decoded = decoded.unwrap();
       let token_addr = token_addr.unwrap();
-      let client = ctx.get_client_with_id(chain).await?;
+      let client = ctx.get_client(chain).await?;
       let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
 
       let token = if let Some(token) = cached {

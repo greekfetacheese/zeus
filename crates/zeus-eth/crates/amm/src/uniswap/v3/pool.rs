@@ -17,8 +17,7 @@ use crate::{
 };
 use abi::uniswap::v3;
 use currency::{Currency, ERC20Token};
-use utils::{is_base_token, price_feed::get_base_token_price};
-use uniswap_v3_math::tick_math::{MIN_TICK, MAX_TICK};
+use utils::{NumericValue, price_feed::get_base_token_price};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -36,6 +35,8 @@ pub struct UniswapV3Pool {
    pub dex: DexKind,
    #[serde(skip)]
    pub state: State,
+   pub liquidity_amount0: U256,
+   pub liquidity_amount1: U256,
 }
 
 impl UniswapV3Pool {
@@ -60,6 +61,8 @@ impl UniswapV3Pool {
          currency1,
          dex,
          state: State::none(),
+         liquidity_amount0: U256::ZERO,
+         liquidity_amount1: U256::ZERO,
       }
    }
 
@@ -136,12 +139,6 @@ impl UniswapV3Pool {
 
    pub fn quote_token(&self) -> Cow<ERC20Token> {
       self.quote_currency().to_erc20()
-   }
-
-   pub fn calculate_price(&self, token_in: Address) -> Result<f64, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v3(token_in);
-      let price = super::calculate_price(self, zero_for_one)?;
-      Ok(price)
    }
 
    pub fn tick_to_word(&self, tick: i32, tick_spacing: i32) -> i32 {
@@ -240,14 +237,6 @@ impl UniswapPool for UniswapV3Pool {
       self.is_currency0(currency) || self.is_currency1(currency)
    }
 
-   fn min_word(&self) -> i32 {
-      self.tick_to_word(MIN_TICK, self.fee.tick_spacing_i32())
-   }
-
-   fn max_word(&self) -> i32 {
-      self.tick_to_word(MAX_TICK, self.fee.tick_spacing_i32())
-   }
-
    fn currency0(&self) -> &Currency {
       &self.currency0
    }
@@ -283,27 +272,16 @@ impl UniswapPool for UniswapV3Pool {
 
    fn enough_liquidity(&self) -> bool {
       let threshold = minimum_liquidity(&self.base_token());
-      if !self.state.is_v3() {
-         return false;
-      } else {
-         return self.state.v3_state().unwrap().base_token_liquidity >= threshold;
-      }
+      let balance = self.base_balance();
+      balance.wei2() >= threshold
    }
 
-   fn base_token_exists(&self) -> bool {
-      if is_base_token(self.chain_id, self.token0().address) {
-         true
-      } else if is_base_token(self.chain_id, self.token1().address) {
-         true
-      } else {
-         false
-      }
+   fn base_currency_exists(&self) -> bool {
+      self.currency0().is_base() || self.currency1().is_base()
    }
 
    fn base_currency(&self) -> &Currency {
-      // If currency0 is native (e.g., ETH) or a base token, use it as the base.
-      // Otherwise, use currency1.
-      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+      if self.currency0.is_base() {
          &self.currency0
       } else {
          &self.currency1
@@ -311,11 +289,36 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn quote_currency(&self) -> &Currency {
-      // Return the opposite currency of base_currency.
-      if self.currency0.is_native() || is_base_token(self.chain_id, self.currency0.to_erc20().address) {
+      if self.currency0.is_base() {
          &self.currency1
       } else {
          &self.currency0
+      }
+   }
+
+   fn pool_balances(&self) -> (NumericValue, NumericValue) {
+      let amount0 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
+      let amount1 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
+      (amount0, amount1)
+   }
+
+   fn base_balance(&self) -> NumericValue {
+      let amount0 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
+      let amount1 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
+      if self.currency0().is_base() {
+         amount0
+      } else {
+         amount1
+      }
+   }
+
+   fn quote_balance(&self) -> NumericValue {
+      let amount0 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
+      let amount1 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
+      if self.currency0().is_base() {
+         amount1
+      } else {
+         amount0
       }
    }
 
@@ -323,12 +326,28 @@ impl UniswapPool for UniswapV3Pool {
       bail!("Pool Key method only applies to V4");
    }
 
+   fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
+      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let price = super::calculate_price(self, zero_for_one)?;
+      Ok(price)
+   }
+
+   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
+      return Err(anyhow!("Not implemented"));
+   }
+
+   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
+      return Err(anyhow!("Not implemented"));
+   }
+
    async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let state = get_v3_pool_state(client, self, block).await?;
+      let (state, data) = get_v3_pool_state(client, self, block).await?;
+      self.liquidity_amount0 = data.token0Balance;
+      self.liquidity_amount1 = data.token1Balance;
       self.set_state(state);
       Ok(())
    }
@@ -363,7 +382,7 @@ impl UniswapPool for UniswapV3Pool {
          return Ok(0.0);
       }
 
-      if !self.base_token_exists() {
+      if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
@@ -393,7 +412,7 @@ impl UniswapPool for UniswapV3Pool {
    {
       let chain_id = self.chain_id;
 
-      if !self.base_token_exists() {
+      if !self.base_currency_exists() {
          bail!("Base token not found in the pool");
       }
 
@@ -407,7 +426,6 @@ impl UniswapPool for UniswapV3Pool {
 mod tests {
    use super::*;
    use alloy_primitives::utils::{format_units, parse_units};
-   use utils::batch;
 
    use alloy_provider::ProviderBuilder;
    use url::Url;
@@ -440,6 +458,9 @@ mod tests {
          amount_out,
          quote.symbol()
       );
+
+      let base_liq = pool.base_balance();
+      println!("{} Liquidity: {}", base.symbol(), base_liq.formatted());
    }
 
    #[test]
@@ -466,7 +487,7 @@ mod tests {
       assert_eq!(token0, true);
       assert_eq!(token1, true);
 
-      let base_exists = pool.base_token_exists();
+      let base_exists = pool.base_currency_exists();
       assert_eq!(base_exists, true);
    }
 
@@ -490,26 +511,5 @@ mod tests {
       println!("{} Price: ${}", quote_token.symbol, quote_price);
       // println!("UNI in terms of USDT: {}", uni_in_usdt);
       // println!("USDT in terms of UNI: {}", usdt_in_uni);
-   }
-
-   #[tokio::test]
-   async fn test_pool_fetch_tickbitmaps() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-
-      let pool = UniswapV3Pool::usdt_uni();
-
-      let info = batch::GetV3PoolTickBitmaps::PoolInfo {
-         pool: pool.address(),
-         tickSpacing: pool.fee().tick_spacing(),
-         minWord: pool.min_word().try_into().unwrap(),
-         maxWord: pool.max_word().try_into().unwrap(),
-      };
-
-      let tick_bitmaps = batch::get_v3_pool_tick_bitmaps(client, None, vec![info]).await.unwrap();
-      for tick_bitmap in tick_bitmaps {
-         println!("Tick Bitmap: {:?}", tick_bitmap);
-      }
-
    }
 }

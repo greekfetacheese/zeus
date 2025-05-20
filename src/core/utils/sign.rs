@@ -95,7 +95,7 @@ impl Permit2Details {
          .ok_or(anyhow!("Missing token address"))?;
       let token_addr = Address::from_str(token_address)?;
 
-      let client = ctx.get_client_with_id(chain).await?;
+      let client = ctx.get_client(chain).await?;
       let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
 
       let token = if let Some(token) = cached {

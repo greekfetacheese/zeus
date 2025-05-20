@@ -105,6 +105,8 @@ pub struct GUI {
    pub tx_confirm_window: ui::TxConfirmWindow,
 
    pub sign_msg_window: ui::misc::SignMsgWindow,
+
+   pub sync_pools_ui: ui::misc::sync::SyncPoolsUi,
 }
 
 impl GUI {
@@ -126,6 +128,7 @@ impl GUI {
       let ui_testing = ui::panels::central_panel::UiTesting::new();
       let progress_window = ui::misc::ProgressWindow::new();
       let sign_msg_window = ui::misc::SignMsgWindow::new();
+      let sync_pools_ui = ui::misc::sync::SyncPoolsUi::new();
 
       Self {
          egui_ctx,
@@ -156,6 +159,7 @@ impl GUI {
          tx_confirm_window,
          progress_window,
          sign_msg_window,
+         sync_pools_ui,
       }
    }
 

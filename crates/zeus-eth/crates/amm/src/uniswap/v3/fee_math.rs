@@ -154,7 +154,7 @@ pub fn get_liquidity_delta(p: f64, pl: f64, pu: f64, amount0: U256, amount1: U25
 }
 
 /// Function to calculate liquidity for a given amount of token0
-fn get_liquidity_for_amount0(sqrt_ratio_lower_x96: U256, sqrt_ratio_upper_x96: U256, amount0: U256) -> U256 {
+pub fn get_liquidity_for_amount0(sqrt_ratio_lower_x96: U256, sqrt_ratio_upper_x96: U256, amount0: U256) -> U256 {
    let intermediate = sqrt_ratio_upper_x96
       .checked_mul(sqrt_ratio_lower_x96)
       .unwrap()
@@ -170,7 +170,7 @@ fn get_liquidity_for_amount0(sqrt_ratio_lower_x96: U256, sqrt_ratio_upper_x96: U
    numerator.checked_div(denominator).unwrap()
 }
 
-fn get_liquidity_for_amount1(sqrt_ratio_ax96: U256, sqrt_ratio_bx96: U256, amount1: U256) -> U256 {
+pub fn get_liquidity_for_amount1(sqrt_ratio_ax96: U256, sqrt_ratio_bx96: U256, amount1: U256) -> U256 {
    let numerator = amount1.checked_mul(Q96).unwrap();
    let denominator = sqrt_ratio_bx96.checked_sub(sqrt_ratio_ax96).unwrap();
 

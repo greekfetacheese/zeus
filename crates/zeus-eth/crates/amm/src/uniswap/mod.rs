@@ -1,6 +1,6 @@
+pub mod quoter;
 pub mod router;
 pub mod state;
-pub mod quoter;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -12,6 +12,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_rpc_types::BlockId;
 use currency::Currency;
 use state::State;
+use utils::NumericValue;
 use v4::FeeAmount;
 
 pub use v2::pool::UniswapV2Pool;
@@ -37,12 +38,6 @@ pub trait UniswapPool {
 
    fn currency1(&self) -> &Currency;
 
-   /// V3/V4 specific
-   fn min_word(&self) -> i32;
-
-   /// V3/V4 specific
-   fn max_word(&self) -> i32;
-
    /// Zero for one is true if the token_in address equals the token0 address of the pool
    ///
    /// This is V3 specific
@@ -63,13 +58,38 @@ pub trait UniswapPool {
 
    fn is_token1(&self, token: Address) -> bool;
 
-   fn base_token_exists(&self) -> bool;
+   fn base_currency_exists(&self) -> bool;
 
    fn state(&self) -> &State;
 
    fn set_state(&mut self, state: State);
 
    fn set_state_res(&mut self, state: State) -> Result<(), anyhow::Error>;
+
+   /// Pool Balances (Currency0, Currency1)
+   fn pool_balances(&self) -> (NumericValue, NumericValue);
+
+   /// Base Currency Pool Balance
+   fn base_balance(&self) -> NumericValue;
+
+   /// Quote Currency Pool Balance
+   fn quote_balance(&self) -> NumericValue;
+
+   /// Caluclate the liquidity amounts of this pool across all tick ranges
+   ///
+   /// Requires to populate all tick data of the pool
+   ///
+   /// V4 specific
+   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error>;
+
+   /// Caluclate the liquidity of this pool for a very small range
+   ///
+   /// Does not require to populate all tick data of the pool
+   ///
+   /// This is just to give us an idea if there is liquidity in the pool even if we don't have all the tick data
+   ///
+   /// V4 specific
+   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error>;
 
    /// Does this pool have enough liquidity
    fn enough_liquidity(&self) -> bool;
@@ -84,6 +104,9 @@ pub trait UniswapPool {
    ///
    /// This is V4 specific
    fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error>;
+
+   /// Calculate the price of currency_in in terms of the other currency in the pool
+   fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error>;
 
    /// This is V4 specific
    fn hooks(&self) -> Address;
@@ -145,6 +168,7 @@ impl AnyUniswapPool {
          };
          AnyUniswapPool::V2(p)
       } else if pool.dex_kind().is_v3() {
+         let (amount0 , amount1) = pool.pool_balances();
          let p = UniswapV3Pool {
             chain_id: pool.chain_id(),
             address: pool.address(),
@@ -153,9 +177,12 @@ impl AnyUniswapPool {
             currency1: pool.currency1().clone(),
             dex: pool.dex_kind(),
             state: pool.state().clone(),
+            liquidity_amount0: amount0.wei2(),
+            liquidity_amount1: amount1.wei2(),
          };
          AnyUniswapPool::V3(p)
       } else if pool.dex_kind().is_v4() {
+         let (amount0 , amount1) = pool.pool_balances();
          let p = UniswapV4Pool {
             chain_id: pool.chain_id(),
             fee: pool.fee(),
@@ -166,10 +193,39 @@ impl AnyUniswapPool {
             pool_key: pool.get_pool_key().unwrap(),
             pool_id: pool.pool_id(),
             hooks: Address::ZERO,
+            liquidity_amount0: amount0.wei2(),
+            liquidity_amount1: amount1.wei2(),
          };
          AnyUniswapPool::V4(p)
       } else {
          panic!("Unknown dex kind");
+      }
+   }
+
+   pub fn v2_mut<F>(&mut self, f: F)
+   where
+      F: FnOnce(&mut UniswapV2Pool),
+   {
+      if let AnyUniswapPool::V2(pool) = self {
+         f(pool);
+      }
+   }
+
+   pub fn v3_mut<F>(&mut self, f: F)
+   where
+      F: FnOnce(&mut UniswapV3Pool),
+   {
+      if let AnyUniswapPool::V3(pool) = self {
+         f(pool);
+      }
+   }
+
+   pub fn v4_mut<F>(&mut self, f: F)
+   where
+      F: FnOnce(&mut UniswapV4Pool),
+   {
+      if let AnyUniswapPool::V4(pool) = self {
+         f(pool);
       }
    }
 }
@@ -220,22 +276,6 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.dex_kind(),
          AnyUniswapPool::V3(pool) => pool.dex_kind(),
          AnyUniswapPool::V4(pool) => pool.dex_kind(),
-      }
-   }
-
-   fn min_word(&self) -> i32 {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.min_word(),
-         AnyUniswapPool::V3(pool) => pool.min_word(),
-         AnyUniswapPool::V4(pool) => pool.min_word(),
-      }
-   }
-
-   fn max_word(&self) -> i32 {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.max_word(),
-         AnyUniswapPool::V3(pool) => pool.max_word(),
-         AnyUniswapPool::V4(pool) => pool.max_word(),
       }
    }
 
@@ -311,11 +351,11 @@ impl UniswapPool for AnyUniswapPool {
       }
    }
 
-   fn base_token_exists(&self) -> bool {
+   fn base_currency_exists(&self) -> bool {
       match self {
-         AnyUniswapPool::V2(pool) => pool.base_token_exists(),
-         AnyUniswapPool::V3(pool) => pool.base_token_exists(),
-         AnyUniswapPool::V4(pool) => pool.base_token_exists(),
+         AnyUniswapPool::V2(pool) => pool.base_currency_exists(),
+         AnyUniswapPool::V3(pool) => pool.base_currency_exists(),
+         AnyUniswapPool::V4(pool) => pool.base_currency_exists(),
       }
    }
 
@@ -372,6 +412,54 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.get_pool_key(),
          AnyUniswapPool::V3(pool) => pool.get_pool_key(),
          AnyUniswapPool::V4(pool) => pool.get_pool_key(),
+      }
+   }
+
+   fn pool_balances(&self) -> (NumericValue, NumericValue) {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.pool_balances(),
+         AnyUniswapPool::V3(pool) => pool.pool_balances(),
+         AnyUniswapPool::V4(pool) => pool.pool_balances(),
+      }
+   }
+
+   fn base_balance(&self) -> NumericValue {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.base_balance(),
+         AnyUniswapPool::V3(pool) => pool.base_balance(),
+         AnyUniswapPool::V4(pool) => pool.base_balance(),
+      }
+   }
+
+   fn quote_balance(&self) -> NumericValue {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.quote_balance(),
+         AnyUniswapPool::V3(pool) => pool.quote_balance(),
+         AnyUniswapPool::V4(pool) => pool.quote_balance(),
+      }
+   }
+
+   fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.calculate_price(currency_in),
+         AnyUniswapPool::V3(pool) => pool.calculate_price(currency_in),
+         AnyUniswapPool::V4(pool) => pool.calculate_price(currency_in),
+      }
+   }
+
+   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.calculate_liquidity(),
+         AnyUniswapPool::V3(pool) => pool.calculate_liquidity(),
+         AnyUniswapPool::V4(pool) => pool.calculate_liquidity(),
+      }
+   }
+
+   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.calculate_liquidity2(),
+         AnyUniswapPool::V3(pool) => pool.calculate_liquidity2(),
+         AnyUniswapPool::V4(pool) => pool.calculate_liquidity2(),
       }
    }
 

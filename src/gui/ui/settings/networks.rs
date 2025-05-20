@@ -108,9 +108,10 @@ impl NetworkSettings {
 
             ScrollArea::vertical().show(ui, |ui| {
                let column_widths = [
-                  ui_width * 0.5, // Url
+                  ui_width * 0.4, // Url
                   ui_width * 0.1, // Enabled (checkbox)
                   ui_width * 0.1, // Status
+                  ui_width * 0.1, // Archive Node
                   ui_width * 0.1, // Latency
                   ui_width * 0.1, // Remove button
                ];
@@ -126,6 +127,7 @@ impl NetworkSettings {
                      ui.label(RichText::new("Url").size(theme.text_sizes.large));
                      ui.label(RichText::new("Enabled").size(theme.text_sizes.large));
                      ui.label(RichText::new("Status").size(theme.text_sizes.large));
+                     ui.label(RichText::new("Archive").size(theme.text_sizes.large));
                      ui.label(RichText::new("Latency").size(theme.text_sizes.large));
 
                      ui.end_row();
@@ -172,9 +174,20 @@ impl NetworkSettings {
                            ui.add(icon);
                         });
 
-                        // Latency column
+                        // Archive Node column
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[3]);
+                           let icon = if rpc.archive_node {
+                              icons.green_circle()
+                           } else {
+                              icons.red_circle()
+                           };
+                           ui.add(icon);
+                        });
+
+                        // Latency column
+                        ui.horizontal(|ui| {
+                           ui.set_width(column_widths[4]);
                            ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
                         });
 
@@ -182,7 +195,7 @@ impl NetworkSettings {
                         let button =
                            Button::new(RichText::new("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
-                           ui.set_width(column_widths[4]);
+                           ui.set_width(column_widths[5]);
                            // only allow rpcs added by the user to be removed
                            if !rpc.default {
                               if ui.add(button).clicked() {

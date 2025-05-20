@@ -79,6 +79,9 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.tx_history.show(ctx.clone(), theme, ui);
 
    #[cfg(feature = "dev")]
+   gui.sync_pools_ui.show(ctx.clone(), theme, ui);
+
+   #[cfg(feature = "dev")]
    {
       let theme = gui.editor.show(&mut gui.theme, ui);
       if let Some(theme) = theme {

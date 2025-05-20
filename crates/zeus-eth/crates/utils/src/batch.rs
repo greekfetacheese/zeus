@@ -1,4 +1,4 @@
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256, aliases::I24};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::{SolValue, sol};
 
@@ -6,6 +6,7 @@ use alloy_contract::private::{Network, Provider};
 use anyhow::anyhow;
 
 pub use Get_V3PoolState::V3Pool;
+pub use Get_V4PoolState::V4Pool;
 
 sol! {
     #[sol(rpc)]
@@ -17,6 +18,12 @@ sol! {
     #[sol(rpc)]
     GetERC20,
     "src/abi/GetERC20.json",
+}
+
+sol! {
+    #[sol(rpc)]
+    GetERC20Batch,
+    "src/abi/GetERC20Batch.json",
 }
 
 sol! {
@@ -38,9 +45,15 @@ sol! {
 }
 
 sol! {
+    #[sol(rpc)]
+    GetV4PoolState,
+    "src/abi/Get_V4PoolState.json",
+}
+
+sol! {
    #[sol(rpc)]
-   GetV3PoolTickBitmaps,
-   "src/abi/GetV3PoolTickBitmaps.json",
+   TickDataAggregatorV4,
+   "src/abi/TickDataAggregatorV4.json",
 }
 
 sol! {
@@ -53,6 +66,7 @@ sol! {
 
     #[derive(Debug)]
     struct ERC20Info {
+        address addr;
         string symbol;
         string name;
         uint256 totalSupply;
@@ -78,7 +92,8 @@ sol! {
     #[derive(Debug)]
     struct V3PoolData {
         address pool;
-        uint256 base_token_liquidity;
+        uint256 token0Balance;
+        uint256 token1Balance;
         uint128 liquidity;
         uint160 sqrtPriceX96;
         int24 tick;
@@ -90,6 +105,18 @@ sol! {
     }
 
     #[derive(Debug)]
+        struct V4PoolData {
+        bytes32 pool;
+        uint128 liquidity;
+        uint160 sqrtPriceX96;
+        int24 tick;
+        uint256 tickBitmap;
+        int16 wordPos;
+        int128 liquidityNet;
+        uint128 liquidityGross;
+    }
+
+    #[derive(Debug)]
     struct TickInfo {
       uint128 liquidityGross;
       int128 liquidityNet;
@@ -97,19 +124,25 @@ sol! {
   }
 
     #[derive(Debug)]
-    struct PoolData {
-      address pool;
-      uint256[] tickBitmap;
-      int24[] tickIndices;
-      TickInfo[] ticks;
-    }
-
-    #[derive(Debug)]
     struct PoolInfo {
       address pool;
       int24 tickSpacing;
       int16 minWord;
       int16 maxWord;
+  }
+
+    #[derive(Debug)]
+      struct TickData {
+        int24 actualTick;
+        uint128 liquidityGross;
+        int128 liquidityNet;
+    }
+
+  #[derive(Debug)]
+      struct AggregatedTicks {
+      TickData[] allTicksInfo;
+      uint256[] populatedBitmapWords;
+      int16[] correspondingWordPositions;
   }
 
 }
@@ -146,6 +179,23 @@ where
    let res = deployer.call_raw().await?;
 
    let data = <ERC20Info as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+
+   Ok(data)
+}
+
+/// Query the ERC20 token info for the given tokens
+pub async fn get_erc20_tokens<P, N>(
+   client: P,
+   tokens: Vec<Address>,
+) -> Result<Vec<ERC20Info>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let deployer = GetERC20Batch::deploy_builder(client, tokens);
+   let res = deployer.call_raw().await?;
+
+   let data = <Vec<ERC20Info> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
    Ok(data)
 }
@@ -216,25 +266,59 @@ where
    Ok(data)
 }
 
-/// Get the all the tickBitmaps for the given pools
-/// 
-/// If `block` is None, the latest block is used
-pub async fn get_v3_pool_tick_bitmaps<P, N>(
+/// Query the state of multiple V4 pools
+///
+/// If `block` is `None`, the latest block is used.
+pub async fn get_v4_pool_state<P, N>(
    client: P,
+   pools: Vec<V4Pool>,
+   state_view: Address,
    block: Option<BlockId>,
-   pools: Vec<GetV3PoolTickBitmaps::PoolInfo>,
-) -> Result<Vec<PoolData>, anyhow::Error>
+) -> Result<Vec<V4PoolData>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
    let block = block.unwrap_or(BlockId::latest());
-   let deployer = GetV3PoolTickBitmaps::deploy_builder(client, pools).block(block);
+   let deployer = GetV4PoolState::deploy_builder(client, pools, state_view).block(block);
    let res = deployer.call_raw().await?;
 
    let data =
-      <Vec<PoolData> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
+      <Vec<V4PoolData> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V4 pool data: {:?}", e))?;
 
+   Ok(data)
+}
+
+/// Query the tick data for the given minWord and maxWord
+///
+/// If `block` is None, the latest block is used
+pub async fn get_v4_pool_tick_data<P, N>(
+   client: P,
+   pool_id: B256,
+   state_view: Address,
+   min_word: i16,
+   max_word: i16,
+   tick_spacing: I24,
+   block: Option<BlockId>,
+) -> Result<AggregatedTicks, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = block.unwrap_or(BlockId::latest());
+   let deployer = TickDataAggregatorV4::deploy_builder(
+      client,
+      pool_id,
+      state_view,
+      min_word,
+      max_word,
+      tick_spacing,
+   )
+   .block(block);
+   let res = deployer.call_raw().await?;
+
+   let data =
+      <AggregatedTicks as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V4 pool data: {:?}", e))?;
    Ok(data)
 }
 
@@ -242,7 +326,7 @@ where
 mod tests {
    use super::*;
    use crate::address;
-   use alloy_primitives::{address, aliases::I24};
+   use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use url::Url;
 
@@ -321,30 +405,5 @@ mod tests {
       }
    }
 
-   #[tokio::test]
-   async fn test_v3_state() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-
-      let pool = address!("88e6A0c2dDD26FEEb64F039a2c41296FcB3f5640");
-      let base_token = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
-      let tick_spacing = I24::from_limbs([10]);
-      let pool2 = V3Pool {
-         pool,
-         base_token,
-         tickSpacing: tick_spacing,
-      };
-
-      let data = get_v3_state(client.clone(), None, vec![pool2])
-         .await
-         .unwrap();
-
-      assert_eq!(data.len(), 1);
-
-      println!("=== V3 Pool Data Test ===");
-      for pool in data {
-         println!("Pool Data: {:?}", pool);
-      }
-   }
-
+   
 }

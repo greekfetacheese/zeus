@@ -1,7 +1,9 @@
 pub mod pool;
 
 use crate::consts::*;
+use crate::uniswap::UniswapPool;
 use alloy_primitives::U256;
+use currency::Currency;
 
 pub fn div_uu(x: U256, y: U256) -> Result<u128, anyhow::Error> {
    if !y.is_zero() {
@@ -95,4 +97,50 @@ pub fn get_amount_out(amount_in: U256, fee: u32, reserve_in: U256, reserve_out: 
    let denominator = reserve_in * U256::from(1000) + amount_in_with_fee;
 
    numerator / denominator
+}
+
+/// Calculates the price of the currency_in in terms of the other currency in the pool
+///
+/// Returned as a Q64 fixed point number.
+pub fn calculate_price_64_x_64(pool: &impl UniswapPool, currency_in: &Currency) -> Result<u128, anyhow::Error> {
+   let state = pool
+      .state()
+      .v2_reserves()
+      .ok_or(anyhow::anyhow!("State not initialized"))?;
+   let decimal_shift = pool.currency0().decimals() as i8 - pool.currency1().decimals() as i8;
+
+   let (r_0, r_1) = if decimal_shift < 0 {
+      (
+         U256::from(state.reserve0) * U256::from(10u128.pow(decimal_shift.unsigned_abs() as u32)),
+         U256::from(state.reserve1),
+      )
+   } else {
+      (
+         U256::from(state.reserve0),
+         U256::from(state.reserve1) * U256::from(10u128.pow(decimal_shift as u32)),
+      )
+   };
+
+   if currency_in.address() == pool.currency0().address() {
+      if r_0.is_zero() {
+         Ok(U128_0X10000000000000000)
+      } else {
+         div_uu(r_1, r_0)
+      }
+   } else if r_1.is_zero() {
+      Ok(U128_0X10000000000000000)
+   } else {
+      div_uu(r_0, r_1)
+   }
+}
+
+pub fn q64_to_float(num: u128) -> f64 {
+   const Q64: u128 = 1 << 64; // 2^64
+   let integer_part = (num >> 64) as u64; // High 64 bits
+   let fractional_part = (num & (Q64 - 1)) as u64; // Low 64 bits
+
+   let integer_f64 = integer_part as f64;
+   let fractional_f64 = (fractional_part as f64) / (Q64 as f64);
+
+   integer_f64 + fractional_f64
 }

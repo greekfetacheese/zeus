@@ -1,11 +1,39 @@
 pub mod router;
 pub mod state_view;
 
-use alloy_sol_types::sol;
+use alloy_sol_types::{sol, SolEvent};
+use alloy_primitives::LogData;
+
+pub use IPoolManager::Initialize;
 
 sol! {
 
+    type PoolId is bytes32;
+    type Currency is address;
+
     interface IHooks {}
+
+    interface IPoolManager {
+    /// @notice Emitted when a new pool is initialized
+    /// @param id The abi encoded hash of the pool key struct for the new pool
+    /// @param currency0 The first currency of the pool by address sort order
+    /// @param currency1 The second currency of the pool by address sort order
+    /// @param fee The fee collected upon every swap in the pool, denominated in hundredths of a bip
+    /// @param tickSpacing The minimum number of ticks between initialized ticks
+    /// @param hooks The hooks contract address for the pool, or address(0) if none
+    /// @param sqrtPriceX96 The price of the pool on initialization
+    /// @param tick The initial tick of the pool corresponding to the initialized price
+    event Initialize(
+        PoolId indexed id,
+        Currency indexed currency0,
+        Currency indexed currency1,
+        uint24 fee,
+        int24 tickSpacing,
+        IHooks hooks,
+        uint160 sqrtPriceX96,
+        int24 tick
+    );
+}
 
     #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct PoolKey {
@@ -168,4 +196,13 @@ sol! {
     }
 
 
+}
+
+pub fn initialize_signature() -> &'static str {
+   IPoolManager::Initialize::SIGNATURE
+}
+
+pub fn decode_initialize(log: &LogData) -> Result<Initialize, anyhow::Error> {
+   let abi = IPoolManager::Initialize::decode_raw_log(log.topics(), &log.data)?;
+   Ok(abi)
 }

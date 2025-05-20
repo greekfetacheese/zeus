@@ -4,11 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 use zeus_eth::{
    alloy_provider::Provider,
-   alloy_rpc_types::{BlockNumberOrTag, Filter},
-   amm::{DexKind, UniswapV3Pool},
+   alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
    currency::ERC20Token,
    utils::{
-      batch::{self, V3Pool},
       client,
    },
 };
@@ -31,10 +29,8 @@ pub struct Rpc {
    /// False if the rpc is added by the user
    pub default: bool,
    pub enabled: bool,
-   /// Be default this is true so we can measure and test the RPCs
-   ///
-   /// Later on we can set this to false if the RPC is not working
    pub working: bool,
+   pub archive_node: bool,
    pub latency: Option<Duration>,
 }
 
@@ -45,13 +41,18 @@ impl Rpc {
          chain_id,
          default,
          enabled,
-         working: true,
+         working: false,
+         archive_node: false,
          latency: None,
       }
    }
 
    pub fn is_ws(&self) -> bool {
       self.url.starts_with("ws")
+   }
+
+   pub fn is_archive_node(&self) -> bool {
+      self.archive_node
    }
 
    pub fn latency_ms(&self) -> u128 {
@@ -221,6 +222,8 @@ impl RpcProviders {
    }
 
    /// Get all RPCs for a chain from fastest to slowest
+   /// 
+   /// Prioritizes the user's entered RPCs over the default ones even if they are slower
    pub fn get_all_fastest(&self, chain_id: u64) -> Vec<Rpc> {
       let mut rpcs = self.get_all(chain_id);
       rpcs.sort_by(|a, b| {
@@ -446,7 +449,14 @@ impl Default for RpcProviders {
    }
 }
 
-pub async fn client_test(rpc: Rpc) -> Result<(), anyhow::Error> {
+
+
+/// Try to determine if the given RPC is working
+/// 
+/// Eg. Some free endpoints don't support `eth_getLogs` in the free tier
+/// 
+/// Returns `true` if the RPC is archive node
+pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
    let retry = client::retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -455,53 +465,15 @@ pub async fn client_test(rpc: Rpc) -> Result<(), anyhow::Error> {
    let throttle = client::throttle_layer(CLIENT_RPS);
    let client = client::get_client(&rpc.url, retry, throttle).await?;
 
-   let block = client.get_block_number().await?;
+   let latest_block = client.get_block_number().await?;
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
+
    // Some providers do require an address to set for the filter
    let filter = Filter::new()
       .address(weth.address)
-      .from_block(BlockNumberOrTag::Number(block));
+      .from_block(BlockNumberOrTag::Number(latest_block));
    let _ = client.get_logs(&filter).await?;
 
-   let usdc = ERC20Token::usdc_from_chain(rpc.chain_id);
-   let dex = DexKind::UniswapV3;
-   let factory = dex.factory(rpc.chain_id)?;
-
-   let mut v3_pools = Vec::new();
-   let pools = batch::get_v3_pools(
-      client.clone(),
-      weth.address,
-      usdc.address,
-      factory,
-   )
-   .await?;
-
-   for pool in &pools {
-      if !pool.addr.is_zero() {
-         let fee: u32 = pool.fee.to_string().parse()?;
-         v3_pools.push(UniswapV3Pool::new(
-            rpc.chain_id,
-            pool.addr,
-            fee,
-            weth.clone(),
-            usdc.clone(),
-            dex,
-         ))
-      }
-   }
-
-   let mut pools_info = Vec::new();
-   for pool in &v3_pools {
-      pools_info.push(V3Pool {
-         pool: pool.address,
-         base_token: weth.address,
-         tickSpacing: pool.fee.tick_spacing(),
-      });
-   }
-
-   for pools in pools_info.chunks(3) {
-      let _ = batch::get_v3_state(client.clone(), None, pools.to_vec()).await?;
-   }
 
    // request the latest block number 25 times concurrently
    // if the throttle and retry layers are working correctly
@@ -520,7 +492,24 @@ pub async fn client_test(rpc: Rpc) -> Result<(), anyhow::Error> {
       task.await??;
    }
 
-   Ok(())
+   let block_to_query = latest_block - 100_000;
+   let old_block = client.get_block(BlockId::Number(BlockNumberOrTag::Number(block_to_query))).await;
+
+   match old_block {
+      Ok(old_block) => {
+         if old_block.is_some() {
+            tracing::debug!("{} is Archive Node", rpc.url);
+            Ok(true)
+         } else {
+            tracing::debug!("{} is NOT Archive Node", rpc.url);
+            Ok(false)
+         }
+      }
+      Err(e) => {
+         tracing::debug!("Error getting historical block: {:?}", e);
+         Ok(false)
+      }
+   }
 }
 
 #[cfg(test)]

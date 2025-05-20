@@ -26,10 +26,10 @@ egui-theme = { path = "crates/egui-theme" }
 
 
 # Alloy
-alloy-consensus = "0.15.10"
-alloy-signer = {version = "0.15.10", features = ["eip712"]}
-alloy-signer-local = {version = "0.15.10", features = ["mnemonic"]}
-alloy-network = "0.15.10"
+alloy-consensus = "1.0.3"
+alloy-signer = {version = "1.0.3", features = ["eip712"]}
+alloy-signer-local = {version = "1.0.3", features = ["mnemonic"]}
+alloy-network = "1.0.3"
 alloy-dyn-abi = {version = "1.1.0", features = ["eip712"]}
 
 # Encryption

@@ -100,6 +100,13 @@ pub fn wbtc(chain_id: u64) -> Result<Address, anyhow::Error> {
    }
 }
 
+/// Returns the address of the stETH token
+///
+/// Ethereum Mainnet Only
+pub fn steth() -> Address {
+   address!("0xae7ab96520DE3A18E5e111B5EaAb095312D7fE84")
+}
+
 /// Return the address of the UniswapV4 Stateview contract on the given chain id.
 pub fn uniswap_v4_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;

@@ -26,6 +26,7 @@ use zeus_eth::{alloy_primitives::Address, currency::Currency, types::ChainId};
 use super::GREEN_CHECK;
 
 pub mod tx_history;
+pub mod sync;
 
 pub struct PriorityFeeTextBox {
    chain: ChainId,
@@ -1172,14 +1173,15 @@ impl PortfolioUi {
          return;
       }
 
+      let chain = ctx.chain().id();
       let manager = ctx.pool_manager();
       let ctx_clone = ctx.clone();
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-      let client = ctx_clone.get_client_with_id(chain_id).await.unwrap();
+      let client = ctx_clone.get_client(chain_id).await.unwrap();
          match manager
-            .sync_pools_for_tokens(client.clone(), vec![token.clone()], dex_kinds)
+            .sync_pools_for_tokens(client.clone(), chain, vec![token.clone()], dex_kinds, false)
             .await
          {
             Ok(_) => {

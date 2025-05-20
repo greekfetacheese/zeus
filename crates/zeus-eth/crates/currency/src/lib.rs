@@ -70,6 +70,14 @@ impl Currency {
       is_base_token(erc20.chain_id, erc20.address)
    }
 
+   pub fn is_stablecoin(&self) -> bool {
+      if self.is_native() {
+         return false;
+      }
+
+      self.to_erc20().is_stablecoin()
+   }
+
    /// Convert this currency to a wrapped native currency
    /// eg. WETH
    ///

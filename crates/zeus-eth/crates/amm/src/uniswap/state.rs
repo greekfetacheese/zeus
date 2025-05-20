@@ -1,5 +1,4 @@
 use super::{AnyUniswapPool, UniswapPool};
-use abi::uniswap::v4::state_view;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, aliases::I24};
 use alloy_rpc_types::BlockId;
@@ -114,10 +113,9 @@ impl PoolReserves {
    }
 }
 
-/// The state of a Uniswap V3 Pool
+/// The state of a Uniswap V3/V4 Pool
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct V3PoolState {
-   pub base_token_liquidity: U256,
    pub liquidity: u128,
    pub sqrt_price: U256,
    pub tick: i32,
@@ -171,7 +169,6 @@ impl V3PoolState {
       let tick_spacing: i32 = tick_spacing.to_string().parse()?;
 
       Ok(Self {
-         base_token_liquidity: pool_data.base_token_liquidity,
          liquidity: pool_data.liquidity,
          sqrt_price: U256::from(pool_data.sqrtPriceX96),
          tick,
@@ -181,27 +178,48 @@ impl V3PoolState {
          pool_tick,
       })
    }
-}
 
-pub async fn get_pool_state<P, N>(
-   client: P,
-   pool: &impl UniswapPool,
-   block: Option<BlockId>,
-) -> Result<State, anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   if pool.dex_kind().is_v2() {
-      return get_v2_pool_state(client, pool, block).await;
-   } else if pool.dex_kind().is_v3() {
-      return get_v3_pool_state(client, pool, block).await;
-   } else if pool.dex_kind().is_v4() {
-      return get_v4_pool_state(client, pool, block).await;
-   } else {
-      return Err(anyhow::anyhow!("Unknown dex kind"));
+   pub fn v4(pool: &impl UniswapPool, data: batch::V4PoolData, block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+      let mut tick_bitmap_map = HashMap::new();
+      tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
+
+      let ticks_info = TickInfo {
+         liquidity_gross: data.liquidityGross,
+         liquidity_net: data.liquidityNet,
+         initialized: true,
+      };
+
+      let block = if let Some(b) = block {
+         b.as_u64().unwrap_or(0)
+      } else {
+         0
+      };
+      let tick: i32 = data.tick.to_string().parse()?;
+
+      let pool_tick = PoolTick {
+         tick,
+         liquidity_net: data.liquidityNet,
+         block,
+      };
+
+      let mut ticks_map = HashMap::new();
+      ticks_map.insert(tick, ticks_info);
+
+      let tick_spacing = pool.fee().tick_spacing_i32();
+
+      Ok(Self {
+         liquidity: data.liquidity,
+         sqrt_price: U256::from(data.sqrtPriceX96),
+         tick,
+         tick_spacing,
+         tick_bitmap: tick_bitmap_map,
+         ticks: ticks_map,
+         pool_tick,
+      })
    }
 }
+
+
 
 pub async fn get_v2_pool_state<P, N>(
    client: P,
@@ -227,7 +245,7 @@ pub async fn get_v3_pool_state<P, N>(
    client: P,
    pool: &impl UniswapPool,
    block: Option<BlockId>,
-) -> Result<State, anyhow::Error>
+) -> Result<(State, V3PoolData), anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -238,10 +256,12 @@ where
 
    let address = pool.address();
    let tick_spacing = pool.fee().tick_spacing();
-   let base_token = pool.base_currency().to_erc20().address;
+   let token0 = pool.currency0().to_erc20().address;
+   let token1 = pool.currency1().to_erc20().address;
    let pool2 = utils::batch::V3Pool {
       pool: address,
-      base_token,
+      token0,
+      token1,
       tickSpacing: tick_spacing,
    };
 
@@ -251,13 +271,13 @@ where
       .cloned()
       .ok_or_else(|| anyhow!("Pool data not found"))?;
 
-   let v3_pool_state = V3PoolState::new(data, tick_spacing, block)?;
-   Ok(State::v3(v3_pool_state))
+   let v3_pool_state = V3PoolState::new(data.clone(), tick_spacing, block)?;
+   Ok((State::v3(v3_pool_state), data))
 }
 
 pub async fn get_v4_pool_state<P, N>(
    client: P,
-   pool: &impl UniswapPool,
+   pool: &mut impl UniswapPool,
    block: Option<BlockId>,
 ) -> Result<State, anyhow::Error>
 where
@@ -269,65 +289,25 @@ where
    }
 
    let state_view = utils::address::uniswap_v4_stateview(pool.chain_id())?;
-   let slot0 = state_view::get_slot0(client.clone(), state_view, pool.pool_id(), block).await?;
-   let tick_spacing = pool.fee().tick_spacing_i32();
-   let tick: i32 = slot0.tick.to_string().parse()?;
-   let (word_pos, _) = uniswap_v3_math::tick_bitmap::position(tick / tick_spacing);
-
-   let tick_bitmap = state_view::get_tick_bitmap(client.clone(), state_view, pool.pool_id(), word_pos, block).await?;
-   let tick_liquidity = state_view::get_tick_liquidity(
-      client.clone(),
-      state_view,
-      pool.pool_id(),
-      slot0.tick,
-      block,
-   )
-   .await?;
-
-   let liquidity = state_view::get_liquidity(client.clone(), state_view, pool.pool_id(), block).await?;
-
-   let mut tick_bitmap_map = HashMap::new();
-   tick_bitmap_map.insert(word_pos, tick_bitmap);
-
-   let tick_info = TickInfo {
-      liquidity_gross: tick_liquidity.liquidityGross,
-      liquidity_net: tick_liquidity.liquidityNet,
-      initialized: true,
+   let pool_data = batch::V4Pool {
+      pool: pool.pool_id(),
+      tickSpacing: pool.fee().tick_spacing(),
    };
 
-   let block = if let Some(b) = block {
-      b.as_u64().unwrap_or(0)
-   } else {
-      0
-   };
+   let state = batch::get_v4_pool_state(client.clone(), vec![pool_data], state_view, block).await?;
+   let state = state
+      .get(0)
+      .cloned()
+      .ok_or_else(|| anyhow!("Pool data not found"))?;
 
-   let mut ticks_map = HashMap::new();
-   ticks_map.insert(tick, tick_info);
+   let pool_state = V3PoolState::v4(pool, state, block)?;
 
-   let pool_tick = PoolTick {
-      tick,
-      liquidity_net: tick_liquidity.liquidityNet,
-      block,
-   };
-
-   let state = State::V4(V3PoolState {
-      base_token_liquidity: U256::ZERO, //TODO: get base token liquidity
-      liquidity,
-      sqrt_price: U256::from(slot0.sqrtPriceX96),
-      tick,
-      tick_spacing: pool.fee().tick_spacing_i32(),
-      tick_bitmap: tick_bitmap_map,
-      ticks: ticks_map,
-      pool_tick,
-   });
-
-   Ok(state)
+   Ok(State::v4(pool_state))
 }
 
-// TODO: Add V4 support
 /// Update the state of all the pools for the given chain
-/// 
-/// Supports V2 & V3 pools
+///
+/// Supports V2, V3 & V4 pools
 ///
 /// Returns the pools with updated state
 pub async fn batch_update_state<P, N>(
@@ -341,7 +321,7 @@ where
    N: Network,
 {
    const BATCH_SIZE: usize = 20;
-   const BATCH_SIZE_2: usize = 3;
+   const BATCH_SIZE_2: usize = 10;
 
    let v2_addresses: Vec<Address> = pools
       .iter()
@@ -349,7 +329,7 @@ where
       .map(|p| p.address())
       .collect();
 
-   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V2 pools", v2_addresses.len());
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V2 pools ChainId {}", v2_addresses.len(), chain_id);
    let v2_reserves = Arc::new(Mutex::new(Vec::new()));
    let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let semaphore = Arc::new(Semaphore::new(concurrency as usize));
@@ -383,13 +363,14 @@ where
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
          v3_pool_info.push(V3Pool {
             pool: pool.address(),
-            base_token: pool.base_currency().address(),
+            token0: pool.currency0().address(),
+            token1: pool.currency1().address(),
             tickSpacing: pool.fee().tick_spacing(),
          });
       }
-   };
+   }
 
-   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V3 pools", v3_pool_info.len());
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V3 pools ChainId {}", v3_pool_info.len(), chain_id);
    for pool in v3_pool_info.chunks(BATCH_SIZE_2) {
       let client = client.clone();
       let semaphore = semaphore.clone();
@@ -414,6 +395,42 @@ where
       v3_tasks.push(task);
    }
 
+   let v4_data = Arc::new(Mutex::new(Vec::new()));
+   let mut v4_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+   let mut v4_pool_info = Vec::new();
+
+   for pool in &pools {
+      if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
+         v4_pool_info.push(batch::V4Pool {
+            pool: pool.pool_id(),
+            tickSpacing: pool.fee().tick_spacing(),
+         });
+      }
+   }
+
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V4 pools ChainId {}", v4_pool_info.len(), chain_id);
+   let state_view = utils::address::uniswap_v4_stateview(chain_id)?;
+   for pool in v4_pool_info.chunks(BATCH_SIZE_2) {
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      let v4_data = v4_data.clone();
+      let pool_chunk = pool.to_vec();
+
+      let task = tokio::spawn(async move {
+         let _permit = semaphore.acquire_owned().await.unwrap();
+         match batch::get_v4_pool_state(client.clone(), pool_chunk, state_view, None).await {
+            Ok(data) => {
+               v4_data.lock().await.extend(data);
+            }
+            Err(e) => {
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data: {:?}", e);
+            }
+         }
+         Ok(())
+      });
+      v4_tasks.push(task);
+   }
+
    for task in v2_tasks {
       if let Err(e) = task.await? {
          tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v2 pool reserves: {:?}", e);
@@ -426,8 +443,15 @@ where
       }
    }
 
+   for task in v4_tasks {
+      if let Err(e) = task.await? {
+         tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data: {:?}", e);
+      }
+   }
+
    let v2_reserves = Arc::try_unwrap(v2_reserves).unwrap().into_inner();
    let v3_reserves = Arc::try_unwrap(v3_data).unwrap().into_inner();
+   let v4_reserves = Arc::try_unwrap(v4_data).unwrap().into_inner();
 
    // update the state of the pools
    for pool in pools.iter_mut() {
@@ -444,6 +468,25 @@ where
             if data.pool == pool.address() {
                let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
                pool.set_state(State::v3(state));
+               pool.v3_mut(|pool| { 
+                   pool.liquidity_amount0 = data.token0Balance;
+                   pool.liquidity_amount1 = data.token1Balance;
+               });
+            }
+         }
+      }
+
+      if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
+         for data in &v4_reserves {
+            if data.pool == pool.pool_id() {
+               let state = V3PoolState::v4(pool, data.clone(), None)?;
+               pool.set_state(State::v4(state));
+               match pool.calculate_liquidity2() {
+                  Ok(_) => {},
+                  Err(e) => {
+                     tracing::error!(target: "zeus_eth::amm::uniswap::state","Error calculating liquidity for pool: {:?}", e);
+                  }
+               }
             }
          }
       }

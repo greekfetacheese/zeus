@@ -198,8 +198,8 @@ where
    let chain_id = client.get_chain_id().await?;
 
    let latest_block = full_block.clone().header.number.clone();
-   let fork_block = block_time.go_back(chain_id, latest_block)?;
-   let fork_block = BlockId::number(fork_block);
+   let fork_block_num = block_time.go_back(chain_id, latest_block)?;
+   let fork_block = BlockId::number(fork_block_num);
 
    let mut pool = args.pool.clone();
 
@@ -211,7 +211,7 @@ where
       chain_id,
       vec![args.pool.address],
       events,
-      block_time.clone(),
+      fork_block_num,
       1,
    )
    .await?;
@@ -569,7 +569,7 @@ where
 
          let mut pool = shared_pool.lock().await;
          pool.update_state(client, Some(block_id)).await?;
-         let price = pool.calculate_price(pool.token0().address)?;
+         let price = pool.calculate_price(pool.currency0())?;
          prices.lock().await.push(price);
          Ok(())
       });

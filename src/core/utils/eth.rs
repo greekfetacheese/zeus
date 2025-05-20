@@ -1,4 +1,4 @@
-use super::{RT, eth, tx::TxParams, update};
+use super::{RT, tx::TxParams, update};
 use crate::core::ZeusCtx;
 use crate::core::utils::action::SwapParams;
 use crate::core::utils::parse_typed_data;
@@ -47,7 +47,7 @@ pub async fn send_transaction(
    call_data: Bytes,
    value: U256,
 ) -> Result<(TransactionReceipt, TxSummary), anyhow::Error> {
-   let client = ctx.get_client_with_id(chain.id()).await?;
+   let client = ctx.get_client(chain.id()).await?;
    let base_fee_fut = update::get_base_fee(ctx.clone(), chain.id());
    let nonce_fut = client.get_transaction_count(from).into_future();
 
@@ -179,7 +179,7 @@ pub async fn send_transaction(
    let client = if chain.is_ethereum() && mev_protect {
       ctx.get_flashbots_fast_client().unwrap()
    } else {
-      ctx.get_client_with_id(chain.id()).await.unwrap()
+      ctx.get_client(chain.id()).await.unwrap()
    };
 
    let receipt = tx::send_tx(client, tx_params).await?;
@@ -436,7 +436,7 @@ pub async fn wrap_or_unwrap_eth(
    amount: NumericValue,
    wrap_eth: bool,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client_with_id(chain.id()).await?;
+   let client = ctx.get_client(chain.id()).await?;
    let block = client.get_block(BlockId::latest()).await?;
    let wrapped = ERC20Token::wrapped_native_token(chain.id());
 
@@ -537,7 +537,7 @@ pub async fn swap(
    currency_out: Currency,
    swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client_with_id(chain.id()).await?;
+   let client = ctx.get_client(chain.id()).await?;
    let interact_to = uniswap_v4_universal_router(chain.id())?;
    let block_fut = client.get_block(BlockId::latest());
    let signer = ctx.get_wallet(from).key;
@@ -808,7 +808,7 @@ pub async fn across_bridge(
 ) -> Result<(), anyhow::Error> {
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
-   let dest_client = ctx.get_client_with_id(dest_chain.id()).await?;
+   let dest_client = ctx.get_client(dest_chain.id()).await?;
    let from_block_fut = dest_client.get_block_number().into_future();
 
    let (_, tx_summary) = send_transaction(
@@ -949,7 +949,7 @@ pub async fn get_eth_balance(
    chain: u64,
    owner: Address,
 ) -> Result<NumericValue, anyhow::Error> {
-   let client = ctx.get_client_with_id(chain).await?;
+   let client = ctx.get_client(chain).await?;
    let balance = client.get_balance(owner).await?;
    let value = NumericValue::currency_balance(balance, 18);
 
@@ -979,7 +979,7 @@ pub async fn get_token_balance(
    owner: Address,
    token: ERC20Token,
 ) -> Result<NumericValue, anyhow::Error> {
-   let client = ctx.get_client_with_id(token.chain_id).await?;
+   let client = ctx.get_client(token.chain_id).await?;
    let balance = token.balance_of(client, owner, None).await?;
    let value = NumericValue::currency_balance(balance, token.decimals);
 
@@ -1016,7 +1016,7 @@ pub async fn get_erc20_token(
    owner: Address,
    token_address: Address,
 ) -> Result<ERC20Token, anyhow::Error> {
-   let client = ctx.get_client_with_id(chain).await?;
+   let client = ctx.get_client(chain).await?;
    let token = ERC20Token::new(client.clone(), token_address, chain).await?;
 
    let balance = if owner != Address::ZERO {
@@ -1050,7 +1050,14 @@ pub async fn get_erc20_token(
          ctx.data_syncing = true;
       });
 
-      match eth::sync_pools_for_token(ctx_clone.clone(), token_clone.clone(), true, true).await {
+      match sync_pools_for_tokens(
+         ctx_clone.clone(),
+         chain,
+         vec![token_clone.clone()],
+         false,
+      )
+      .await
+      {
          Ok(_) => {
             tracing::info!("Synced Pools for {}", token_clone.symbol);
          }
@@ -1062,7 +1069,10 @@ pub async fn get_erc20_token(
       }
 
       let pool_manager = ctx_clone.pool_manager();
-      match pool_manager.update(client, chain).await {
+      match pool_manager
+         .update_for_currencies(client, chain, vec![currency])
+         .await
+      {
          Ok(_) => {
             tracing::info!("Updated pool state for {}", token_clone.symbol);
          }
@@ -1085,64 +1095,24 @@ pub async fn get_erc20_token(
    Ok(token)
 }
 
-/// Sync all the possible v2 pools for the given token based on:
-///
-/// - The token's chain id
-/// - All the possible [DexKind] for the chain
-/// - Base Tokens [base_tokens]
-pub async fn sync_v2_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<(), anyhow::Error> {
-   let chain = token.chain_id;
-   let client = ctx.get_client_with_id(chain).await?;
-   let pool_manager = ctx.pool_manager();
-   let dex_kind = DexKind::main_dexes(chain);
-
-   pool_manager
-      .sync_v2_pools_for_token(client, token.clone(), dex_kind)
-      .await?;
-
-   Ok(())
-}
-
-/// Sync all the possible v3 pools for the given token based on:
-///
-/// - The token's chain id
-/// - All the possible [DexKind] for the chain
-/// - Base Tokens [base_tokens]
-pub async fn sync_v3_pools_for_token(ctx: ZeusCtx, token: ERC20Token) -> Result<(), anyhow::Error> {
-   let chain = token.chain_id;
-   let client = ctx.get_client_with_id(chain).await?;
-   let pool_manager = ctx.pool_manager();
-   let dex_kind = DexKind::main_dexes(chain);
-
-   pool_manager
-      .sync_v3_pools_for_token(client, token.clone(), dex_kind)
-      .await?;
-
-   Ok(())
-}
-
-pub async fn sync_pools_for_token(
+pub async fn sync_pools_for_tokens(
    ctx: ZeusCtx,
-   token: ERC20Token,
-   v2: bool,
-   v3: bool,
+   chain: u64,
+   tokens: Vec<ERC20Token>,
+   sync_v4: bool,
 ) -> Result<(), anyhow::Error> {
-   let chain = token.chain_id;
-   let client = ctx.get_client_with_id(chain).await?;
    let pool_manager = ctx.pool_manager();
    let dex_kind = DexKind::main_dexes(chain);
 
-   if v2 {
-      pool_manager
-         .sync_v2_pools_for_token(client.clone(), token.clone(), dex_kind.clone())
-         .await?;
-   }
+   let client = if let Ok(client) = ctx.get_archive_client(chain).await {
+      client
+   } else {
+      ctx.get_client(chain).await?
+   };
 
-   if v3 {
-      pool_manager
-         .sync_v3_pools_for_token(client, token.clone(), dex_kind)
-         .await?;
-   }
+   pool_manager
+      .sync_pools_for_tokens(client, chain, tokens, dex_kind, sync_v4)
+      .await?;
 
    Ok(())
 }

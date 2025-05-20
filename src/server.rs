@@ -338,7 +338,7 @@ async fn block_number(
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let chain = ctx.chain().id();
-   let client = ctx.get_client_with_id(chain).await.unwrap();
+   let client = ctx.get_client(chain).await.unwrap();
    let block_number = client.get_block_number().await.unwrap_or(0);
 
    let response = JsonRpcResponse {
@@ -471,7 +471,7 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
    };
 
    let chain = ctx.chain().id();
-   let client = ctx.get_client_with_id(chain).await.unwrap();
+   let client = ctx.get_client(chain).await.unwrap();
    let from = ctx.current_wallet().address;
 
    let tx = TransactionRequest::default()
@@ -619,7 +619,7 @@ async fn estimate_gas(
    };
 
    let chain = ctx.chain().id();
-   let client = ctx.get_client_with_id(chain).await.unwrap();
+   let client = ctx.get_client(chain).await.unwrap();
    let tx = TransactionRequest::default()
       .with_from(from)
       .with_to(to)

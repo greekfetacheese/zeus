@@ -22,6 +22,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
          gui.portofolio.open = true;
       }
 
@@ -33,6 +34,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
          gui.send_crypto.open = true;
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
@@ -48,6 +50,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = false;
          // This is shared, so reset it to avoid any issues
          gui.recipient_selection.reset();
+         gui.sync_pools_ui.open = false;
          gui.across_bridge.open = true;
       }
 
@@ -59,6 +62,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
          gui.wallet_ui.open = true;
       }
 
@@ -70,10 +74,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
          gui.tx_history.open = true;
       }
 
-     // #[cfg(feature = "dev")]
+      // #[cfg(feature = "dev")]
       {
          let swap = Button::new(RichText::new("Swap").size(21.0));
          if ui.add(swap).clicked() {
@@ -83,6 +88,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.open = false;
             gui.tx_history.open = false;
             gui.across_bridge.open = false;
+            gui.sync_pools_ui.open = false;
             gui.swap_ui.open = true;
          }
       }
@@ -95,6 +101,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
          gui.settings.open = true;
       }
 
@@ -115,6 +122,23 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          ));
          if test_window.clicked() {
             gui.testing_window.open = true;
+         }
+      }
+
+       #[cfg(feature = "dev")]
+      {
+         let sync_pools = ui.add(Button::new(
+            RichText::new("Sync Pools").size(20.0),
+         ));
+         if sync_pools.clicked() {
+            gui.portofolio.open = false;
+            gui.swap_ui.open = false;
+            gui.send_crypto.open = false;
+            gui.wallet_ui.open = false;
+            gui.tx_history.open = false;
+            gui.across_bridge.open = false;
+            gui.settings.open = false;
+            gui.sync_pools_ui.open = true;
          }
       }
 

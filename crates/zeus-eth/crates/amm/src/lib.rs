@@ -33,11 +33,11 @@ pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
 // TODO: This should be based on a USD value
 pub fn minimum_liquidity(token: &ERC20Token) -> U256 {
    if token.is_weth() {
-      parse_units("40", token.decimals).unwrap().get_absolute()
+      parse_units("20", token.decimals).unwrap().get_absolute()
    } else if token.is_wbnb() {
       parse_units("200", token.decimals).unwrap().get_absolute()
    } else {
-      parse_units("100_000", token.decimals)
+      parse_units("40_000", token.decimals)
          .unwrap()
          .get_absolute()
    }
@@ -114,11 +114,11 @@ impl DexKind {
    pub fn main_dexes(chain: u64) -> Vec<DexKind> {
       let chain = ChainId::new(chain).unwrap();
       match chain {
-         ChainId::Ethereum(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3],
+         ChainId::Ethereum(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
          ChainId::BinanceSmartChain(_) => vec![DexKind::PancakeSwapV2, DexKind::PancakeSwapV3],
-         ChainId::Base(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3],
-         ChainId::Optimism(_) => vec![DexKind::UniswapV3],
-         ChainId::Arbitrum(_) => vec![DexKind::UniswapV3],
+         ChainId::Base(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::Optimism(_) => vec![DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::Arbitrum(_) => vec![DexKind::UniswapV3, DexKind::UniswapV4],
       }
    }
 
@@ -186,12 +186,16 @@ impl DexKind {
       Ok(addr)
    }
 
-   /// Return the factory creation block
-   pub fn factory_creation_block(&self, chain: u64) -> Result<u64, anyhow::Error> {
+   /// Return the creation block of this Dex
+   /// 
+   /// For V2 & V3 this is the block in which the factory was deployed
+   /// 
+   /// For V4 is the block which the PoolManager contract was deployed
+   pub fn creation_block(&self, chain: u64) -> Result<u64, anyhow::Error> {
       match self {
          DexKind::UniswapV2 => uniswap_v2_factory_creation_block(chain),
          DexKind::UniswapV3 => uniswap_v3_factory_creation_block(chain),
-         DexKind::UniswapV4 => panic!("Uniswap V4 does not have a factory"),
+         DexKind::UniswapV4 => uniswap_v4_pool_manager_creation_block(chain),
          DexKind::PancakeSwapV2 => pancakeswap_v2_factory_creation_block(chain),
          DexKind::PancakeSwapV3 => pancakeswap_v3_factory_creation_block(chain),
       }
@@ -270,6 +274,17 @@ fn uniswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
       ChainId::BinanceSmartChain(_) => Ok(26324014),
       ChainId::Base(_) => Ok(1371680),
       ChainId::Arbitrum(_) => Ok(165),
+   }
+}
+
+fn uniswap_v4_pool_manager_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
+   let chain = ChainId::new(chain)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(21688329),
+      ChainId::Optimism(_) => Ok(130947675),
+      ChainId::BinanceSmartChain(_) => Ok(45970610),
+      ChainId::Base(_) => Ok(25350988),
+      ChainId::Arbitrum(_) => Ok(297842872),
    }
 }
 

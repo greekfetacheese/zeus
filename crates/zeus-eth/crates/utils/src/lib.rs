@@ -21,8 +21,6 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::trace;
-use types::BlockTime;
 
 pub use alloy_network;
 pub use alloy_rpc_client;
@@ -69,10 +67,10 @@ pub fn is_base_token(chain: u64, token: Address) -> bool {
 /// - `concurrency` The number of concurrent requests to make to the RPC, set 1 for no concurrency
 pub async fn get_logs_for<P, N>(
    client: P,
-   chain_id: u64,
+   _chain_id: u64,
    target_address: Vec<Address>,
    events: impl IntoIterator<Item = impl AsRef<[u8]>>,
-   block_time: BlockTime,
+   from_block: u64,
    concurrency: usize,
 ) -> Result<Vec<Log>, anyhow::Error>
 where
@@ -80,9 +78,8 @@ where
    N: Network,
 {
    let latest_block = client.get_block_number().await?;
-   let from_block = block_time.go_back(chain_id, latest_block)?;
 
-   trace!(target: "zeus_eth::utils::lib",
+   tracing::debug!(target: "zeus_eth::utils::lib",
       "Fetching logs from block {} to {}",
       from_block, latest_block
    );
@@ -106,14 +103,15 @@ where
          let client = client.clone();
          let logs_clone = Arc::clone(&logs);
          let filter_clone = filter.clone();
-         let permit = Arc::clone(&semaphore).acquire_owned().await?;
-
-         trace!(target: "zeus_eth::utils::lib",
-            "Quering Logs for block range: {} - {}",
-            start_block, end_block
-         );
+         let semaphore = semaphore.clone();
 
          let task = tokio::spawn(async move {
+            let _permit = semaphore.acquire_owned().await?;
+            tracing::debug!(target: "zeus_eth::utils::lib",
+               "Quering Logs for block range: {} - {}",
+               start_block, end_block
+            );
+
             let local_filter = filter_clone
                .from_block(BlockNumberOrTag::Number(start_block))
                .to_block(BlockNumberOrTag::Number(end_block));
@@ -121,7 +119,6 @@ where
             let log_chunk = client.get_logs(&local_filter).await?;
             let mut logs_lock = logs_clone.lock().await;
             logs_lock.extend(log_chunk);
-            drop(permit);
             Ok(())
          });
 
@@ -133,7 +130,7 @@ where
          match task.await {
             Ok(_) => {}
             Err(e) => {
-               trace!(target: "zeus_eth::utils::lib", "Error fetching logs: {:?}", e);
+               tracing::error!(target: "zeus_eth::utils::lib", "Error fetching logs: {:?}", e);
             }
          }
       }
@@ -141,8 +138,8 @@ where
       return Ok(Arc::try_unwrap(logs).unwrap().into_inner());
    }
 
-   let log_chunk = client.get_logs(&filter).await?;
-   Ok(log_chunk)
+   let logs = client.get_logs(&filter).await?;
+   Ok(logs)
 }
 
 pub fn truncate_address(s: &str, max_len: usize) -> String {
@@ -488,7 +485,6 @@ impl NumericValue {
       if n < 1_000_000.0 {
          return self.formatted().clone();
       }
-      
 
       let suffixes = ["", "K", "M", "B", "T"];
       let magnitude = (n.log10() / 3.0).floor() as usize;

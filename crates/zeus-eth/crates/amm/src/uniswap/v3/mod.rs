@@ -7,7 +7,7 @@ use alloy_primitives::{I256, U256};
 use super::UniswapPool;
 use crate::consts::U256_1;
 use std::cmp::Ordering;
-use uniswap_v3_math::tick_math::*;
+use uniswap_v3_math::{sqrt_price_math, tick_math::*};
 
 use anyhow::anyhow;
 
@@ -186,4 +186,46 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
    } else {
       Ok(1.0 / price)
    }
+}
+
+
+pub fn calculate_liquidity_amounts(
+   sqrt_price_lower: U256,
+   sqrt_price_upper: U256,
+   liquidity: u128,
+   current_pool_sqrt_price: U256,
+) -> Result<(U256, U256), anyhow::Error> {
+   let mut amount0 = U256::ZERO;
+   let mut amount1 = U256::ZERO;
+
+   let (sp_lower, sp_upper) = if sqrt_price_lower > sqrt_price_upper {
+      (sqrt_price_upper, sqrt_price_lower)
+   } else {
+      (sqrt_price_lower, sqrt_price_upper)
+   };
+
+   if current_pool_sqrt_price <= sp_lower {
+      amount0 = sqrt_price_math::_get_amount_0_delta(sp_lower, sp_upper, liquidity, false)?;
+   } else if current_pool_sqrt_price < sp_upper {
+      amount0 = sqrt_price_math::_get_amount_0_delta(
+         current_pool_sqrt_price,
+         sp_upper,
+         liquidity,
+         false,
+      )?;
+      amount1 = sqrt_price_math::_get_amount_1_delta(
+         sp_lower,
+         current_pool_sqrt_price,
+         liquidity,
+         false,
+      )?;
+   } else {
+      amount1 = sqrt_price_math::_get_amount_1_delta(
+         sp_lower,
+         sp_upper,
+         liquidity,
+         false,
+      )?;
+   }
+   Ok((amount0, amount1))
 }

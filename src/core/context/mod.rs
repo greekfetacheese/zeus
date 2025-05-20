@@ -8,20 +8,20 @@ use anyhow::anyhow;
 use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
+   time::{Duration, Instant},
 };
+use tokio::time::sleep;
 use zeus_eth::{
    alloy_primitives::Address,
+   amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
-   utils::client::{RpcClient, get_http_client, retry_layer, throttle_layer},
-};
-use zeus_eth::{
-   amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool},
-   utils::client::get_client,
+   utils::client::{RpcClient, get_client, get_http_client, retry_layer, throttle_layer},
 };
 
 const CONTACTS_FILE: &str = "contacts.json";
+const CLIENT_TIMEOUT: u64 = 10;
 
 pub mod db;
 pub mod providers;
@@ -143,9 +143,32 @@ impl ZeusCtx {
       })
    }
 
-   pub async fn get_client_with_id(&self, id: u64) -> Result<RpcClient, anyhow::Error> {
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(id));
+   pub fn client_available(&self, chain: u64) -> bool {
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+      rpcs.iter().any(|rpc| rpc.working && rpc.enabled)
+   }
+
+   pub fn client_archive_available(&self, chain: u64) -> bool {
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+      rpcs
+         .iter()
+         .any(|rpc| rpc.working && rpc.archive_node && rpc.enabled)
+   }
+
+   pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
+      let time_passed = Instant::now();
+      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
       let mut client = None;
+
+      while !self.client_available(chain) {
+         if time_passed.elapsed() > timeout {
+            return Err(anyhow!("Failed to get client for chain {} Timeout exceeded", chain));
+         }
+         sleep(Duration::from_millis(100)).await;
+      }
+
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+
       for rpc in &rpcs {
          if !rpc.working || !rpc.enabled {
             continue;
@@ -161,7 +184,7 @@ impl ZeusCtx {
                throttle_layer(CLIENT_RPS),
             )
          } else {
-            (retry_layer(100, 10, 1000), throttle_layer(1000))
+            (retry_layer(10, 300, 1000), throttle_layer(1000))
          };
 
          let c = match get_client(&rpc.url, retry, throttle).await {
@@ -170,7 +193,7 @@ impl ZeusCtx {
                tracing::error!(
                   "Error connecting to client using {} for chain {}: {:?}",
                   rpc.url,
-                  id,
+                  chain,
                   e
                );
                continue;
@@ -180,7 +203,64 @@ impl ZeusCtx {
          break;
       }
       if client.is_none() {
-         return Err(anyhow!("No clients found for chain {}", id));
+         return Err(anyhow!("No clients found for chain {}", chain));
+      } else {
+         Ok(client.unwrap())
+      }
+   }
+
+   pub async fn get_archive_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
+      let time_passed = Instant::now();
+      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
+      let mut client = None;
+
+      while !self.client_archive_available(chain) {
+         if time_passed.elapsed() > timeout {
+            return Err(anyhow!("Failed to get archive client for chain {} Timeout exceeded", chain));
+         }
+         sleep(Duration::from_millis(100)).await;
+      }
+      
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+
+      for rpc in &rpcs {
+         if !rpc.working || !rpc.enabled || !rpc.archive_node {
+            continue;
+         }
+
+         let (retry, throttle) = if rpc.default {
+            (
+               retry_layer(
+                  MAX_RETRIES,
+                  INITIAL_BACKOFF,
+                  COMPUTE_UNITS_PER_SECOND,
+               ),
+               throttle_layer(CLIENT_RPS),
+            )
+         } else {
+            (retry_layer(10, 300, 1000), throttle_layer(1000))
+         };
+
+         let c = match get_client(&rpc.url, retry, throttle).await {
+            Ok(client) => client,
+            Err(e) => {
+               tracing::error!(
+                  "Error connecting to client using {} for chain {}: {:?}",
+                  rpc.url,
+                  chain,
+                  e
+               );
+               continue;
+            }
+         };
+         client = Some(c);
+         break;
+      }
+      if client.is_none() {
+         return Err(anyhow!(
+            "No archive clients found for chain {}",
+            chain
+         ));
       } else {
          Ok(client.unwrap())
       }
@@ -711,7 +791,6 @@ pub struct ZeusContext {
    pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
    pub pool_manager: PoolManagerHandle,
-   /// True if we are syncing important data and need to show a msg
    pub data_syncing: bool,
    pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,

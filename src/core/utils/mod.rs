@@ -23,6 +23,7 @@ lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
 }
 
+const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
 
 /// Zeus data directory
@@ -39,6 +40,11 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
 /// Pool data directory
 pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(POOL_DATA_FILE);
+   Ok(dir)
+}
+
+pub fn pool_data_full_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(POOL_DATA_FULL);
    Ok(dir)
 }
 

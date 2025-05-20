@@ -34,11 +34,20 @@ pub async fn get_client(
    throttle: ThrottleLayer,
 ) -> Result<RpcClient, anyhow::Error> {
    let is_ws = url.starts_with("ws");
+   let url = Url::parse(url)?;
    let client = if is_ws {
-      get_ws_client(url, retry_layer, throttle).await?
+      ClientBuilder::default()
+         .layer(retry_layer)
+         .layer(throttle)
+         .ws(WsConnect::new(url))
+         .await?
    } else {
-      get_http_client(url, retry_layer, throttle)?
+      ClientBuilder::default()
+         .layer(retry_layer)
+         .layer(throttle)
+         .http(url)
    };
+   let client = ProviderBuilder::new().connect_client(client);
    Ok(client)
 }
 
@@ -52,21 +61,7 @@ pub fn get_http_client(
       .layer(retry_layer)
       .layer(throttle)
       .http(url);
-   let client = ProviderBuilder::new().connect_client(client);
-   Ok(client)
-}
 
-pub async fn get_ws_client(
-   url: &str,
-   retry_layer: RetryBackoffLayer,
-   throttle: ThrottleLayer,
-) -> Result<RpcClient, anyhow::Error> {
-   let url = Url::parse(url)?;
-   let client = ClientBuilder::default()
-      .layer(retry_layer)
-      .layer(throttle)
-      .ws(WsConnect::new(url))
-      .await?;
    let client = ProviderBuilder::new().connect_client(client);
    Ok(client)
 }
@@ -110,7 +105,7 @@ mod tests {
       let retry = RetryBackoffLayer::new(10, 300, 330);
       let throttle = ThrottleLayer::new(2);
       let url = "https://eth.merkle.io";
-      let client = get_http_client(url, retry, throttle).unwrap();
+      let client = get_client(url, retry, throttle).await.unwrap();
 
       let mut handles = Vec::new();
       for _ in 0..20 {
