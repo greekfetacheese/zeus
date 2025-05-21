@@ -216,6 +216,29 @@ impl UniswapV4Pool {
       )
    }
 
+      pub fn wbtc_usdt() -> Self {
+      let currency_a = Currency::from(ERC20Token::usdt());
+      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+      let currency_b = Currency::from(ERC20Token {
+         chain_id: 1,
+         address: wbtc,
+         decimals: 8,
+         symbol: "WBTC".to_string(),
+         name: "Wrapped BTC".to_string(),
+         total_supply: U256::ZERO,
+      });
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
    pub fn set_tick_data(&mut self, ticks: HashMap<i32, TickInfo>, tick_bitmap: HashMap<i16, U256>) {
       let mut state = self.state.v3_or_v4_state().cloned().unwrap();
       state.ticks = ticks;

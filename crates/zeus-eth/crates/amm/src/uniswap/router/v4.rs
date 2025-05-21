@@ -12,7 +12,10 @@ use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
 use serde_json::Value;
-use utils::{address::permit2_contract, parse_typed_data};
+use utils::{
+   address::permit2_contract,
+   parse_typed_data,
+};
 use wallet::{SecureSigner, alloy_signer::Signer};
 
 #[allow(non_camel_case_types)]
@@ -61,23 +64,23 @@ impl Actions {
    #[inline]
    pub fn abi_encode(&self) -> Bytes {
       match self {
-         Self::INCREASE_LIQUIDITY(params) => params.abi_encode(),
-         Self::DECREASE_LIQUIDITY(params) => params.abi_encode(),
-         Self::MINT_POSITION(params) => params.abi_encode(),
-         Self::BURN_POSITION(params) => params.abi_encode(),
-         Self::SWAP_EXACT_IN_SINGLE(params) => params.abi_encode(),
-         Self::SWAP_EXACT_IN(params) => params.abi_encode(),
-         Self::SWAP_EXACT_OUT_SINGLE(params) => params.abi_encode(),
-         Self::SWAP_EXACT_OUT(params) => params.abi_encode(),
-         Self::SETTLE(params) => params.abi_encode(),
-         Self::SETTLE_ALL(params) => params.abi_encode(),
-         Self::SETTLE_PAIR(params) => params.abi_encode(),
-         Self::TAKE(params) => params.abi_encode(),
-         Self::TAKE_ALL(params) => params.abi_encode(),
-         Self::TAKE_PORTION(params) => params.abi_encode(),
-         Self::TAKE_PAIR(params) => params.abi_encode(),
-         Self::CLOSE_CURRENCY(params) => params.abi_encode(),
-         Self::SWEEP(params) => params.abi_encode(),
+         Self::INCREASE_LIQUIDITY(params) => params.abi_encode_params(),
+         Self::DECREASE_LIQUIDITY(params) => params.abi_encode_params(),
+         Self::MINT_POSITION(params) => params.abi_encode_params(),
+         Self::BURN_POSITION(params) => params.abi_encode_params(),
+         Self::SWAP_EXACT_IN_SINGLE(params) => params.abi_encode_params(),
+         Self::SWAP_EXACT_IN(params) => params.abi_encode_params(),
+         Self::SWAP_EXACT_OUT_SINGLE(params) => params.abi_encode_params(),
+         Self::SWAP_EXACT_OUT(params) => params.abi_encode_params(),
+         Self::SETTLE(params) => params.abi_encode_params(),
+         Self::SETTLE_ALL(params) => params.abi_encode_params(),
+         Self::SETTLE_PAIR(params) => params.abi_encode_params(),
+         Self::TAKE(params) => params.abi_encode_params(),
+         Self::TAKE_ALL(params) => params.abi_encode_params(),
+         Self::TAKE_PORTION(params) => params.abi_encode_params(),
+         Self::TAKE_PAIR(params) => params.abi_encode_params(),
+         Self::CLOSE_CURRENCY(params) => params.abi_encode_params(),
+         Self::SWEEP(params) => params.abi_encode_params(),
       }
       .into()
    }
@@ -135,38 +138,9 @@ pub enum Commands {
    EXECUTE_SUB_PLAN = 0x21,
 }
 
-fn encode_v4_swap_single(
-   pool: &impl UniswapPool,
-   swap_type: SwapType,
-   currency_in: &Currency2,
-   amount_in: U256,
-   amount_out_min: U256,
-) -> Result<Bytes, anyhow::Error> {
-   if !pool.dex_kind().is_uniswap_v4() {
-      return Err(anyhow!("Pool is not v4"));
-   }
 
-   let bytes = if swap_type.is_exact_input() {
-      encode_exact_input_single(
-         pool.get_pool_key()?,
-         pool.zero_for_one_v4(currency_in),
-         amount_in,
-         amount_out_min,
-         Bytes::default(),
-      )?
-   } else {
-      encode_exact_output_single(
-         pool.get_pool_key()?,
-         pool.zero_for_one_v4(currency_in),
-         amount_out_min,
-         amount_in,
-         Bytes::default(),
-      )?
-   };
-
-   Ok(bytes)
-}
-
+// ! V4 swaps from ETH to ERC and vice versa are working fine
+// ! But from ERC to ERC they dont work
 /// Build the params for the execute function
 ///
 /// Currently does not support V4 swaps
@@ -200,13 +174,13 @@ where
       }
 
       if swap.pool.dex_kind().is_uniswap_v4() {
-         return Err(anyhow!("Only support Uniswap V2 and V3"));
+         return Err(anyhow!("V4 swaps are not supported"));
       }
    }
 
    let router_addr = utils::address::uniswap_v4_universal_router(chain_id)?;
    let need_to_wrap_eth = currency_in.is_native() && !swap_steps[0].pool.dex_kind().is_uniswap_v4();
-   let need_to_unwrap_weth = currency_out.is_native();
+   let mut need_to_unwrap_weth = currency_out.is_native();
 
    let owner = signer.borrow().address();
    let mut commands = Vec::new();
@@ -218,6 +192,11 @@ where
       commands.push(Commands::WRAP_ETH as u8);
       inputs.push(data);
 
+      execute_params.set_value(amount_in);
+   }
+
+   // Set the Tx Value to amount_in if the currency_in is native and the first step is v4 swap
+   if currency_in.is_native() && swap_steps[0].pool.dex_kind().is_uniswap_v4() {
       execute_params.set_value(amount_in);
    }
 
@@ -287,12 +266,17 @@ where
       let is_first_step = i == 0;
       let is_last_step = i == steps_len - 1;
 
+      // last step is v4 with native as output we don't need to unwrap weth
+      if is_last_step && swap.pool.dex_kind().is_uniswap_v4() && swap.currency_out.is_native() {
+         need_to_unwrap_weth = false;
+      }
+
       // keep weth in router so we can unwrap it
       let need_to_keep_weth = need_to_unwrap_weth && is_last_step;
       // Keep tokens in router if we are swapping on multiple pools
       let need_to_keep_tokens = multiple_steps && !is_last_step;
 
-      let recipient = if need_to_keep_weth || need_to_keep_tokens {
+      let recipient_addr = if need_to_keep_weth || need_to_keep_tokens {
          router_addr
       } else {
          recipient
@@ -307,49 +291,54 @@ where
          swap.amount_out.wei2()
       };
 
-      let (swap_command, input) = if swap.pool.dex_kind().is_uniswap_v2() {
+      if swap.pool.dex_kind().is_uniswap_v2() {
          let path = vec![swap.currency_in.address(), swap.currency_out.address()];
-         (
-            Commands::V2_SWAP_EXACT_IN as u8,
-            encode_v2_swap_exact_in(
-               recipient,
-               swap.amount_in.wei2(),
-               step_amount_out_min,
-               path,
-               current_step_uses_permit2,
-            )?,
-         )
-      } else if swap.pool.dex_kind().is_uniswap_v3() {
+
+         let input = encode_v2_swap_exact_in(
+            recipient_addr,
+            swap.amount_in.wei2(),
+            step_amount_out_min,
+            path,
+            current_step_uses_permit2,
+         )?;
+
+         commands.push(Commands::V2_SWAP_EXACT_IN as u8);
+         inputs.push(input);
+      }
+
+      if swap.pool.dex_kind().is_uniswap_v3() {
          let path = vec![swap.currency_in.address(), swap.currency_out.address()];
          let fees = vec![swap.pool.fee().fee_u24()];
-         (
-            Commands::V3_SWAP_EXACT_IN as u8,
-            encode_v3_swap_exact_in(
-               recipient,
-               swap.amount_in.wei2(),
-               step_amount_out_min,
-               path,
-               fees,
-               current_step_uses_permit2,
-            )?,
-         )
-      } else if swap.pool.dex_kind().is_uniswap_v4() {
-         (
-            Commands::V4_SWAP as u8,
-            encode_v4_swap_single(
-               &swap.pool,
-               swap_type,
-               &swap.currency_in,
-               swap.amount_in.wei2(),
-               step_amount_out_min,
-            )?,
-         )
-      } else {
-         return Err(anyhow::anyhow!("Unsupported DexKind"));
-      };
 
-      commands.push(swap_command);
-      inputs.push(input);
+         let input = encode_v3_swap_exact_in(
+            recipient_addr,
+            swap.amount_in.wei2(),
+            step_amount_out_min,
+            path,
+            fees,
+            current_step_uses_permit2,
+         )?;
+
+         commands.push(Commands::V3_SWAP_EXACT_IN as u8);
+         inputs.push(input);
+      }
+
+      if swap.pool.dex_kind().is_uniswap_v4() {
+         let input = encode_v4_commands(
+            &swap.pool,
+            swap_type,
+            &swap.currency_in,
+            &swap.currency_out,
+            swap.amount_in.wei2(),
+            step_amount_out_min,
+            is_first_step,
+            is_last_step,
+            recipient_addr
+         )?;
+
+         commands.push(Commands::V4_SWAP as u8);
+         inputs.push(input);
+      }
    }
 
    if need_to_unwrap_weth {
@@ -359,11 +348,130 @@ where
    }
 
    let command_bytes = Bytes::from(commands);
+   println!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
    let calldata = encode_execute(command_bytes, inputs);
    execute_params.set_call_data(calldata);
 
    Ok(execute_params)
+}
+
+fn encode_v4_commands(
+   pool: &impl UniswapPool,
+   swap_type: SwapType,
+   currency_in: &Currency2,
+   currency_out: &Currency2,
+   amount_in: U256,
+   amount_out: U256,
+   is_first_step: bool,
+   is_last_step: bool,
+   _recipient: Address
+) -> Result<Bytes, anyhow::Error> {
+   let mut actions = Vec::new();
+   let mut inputs = Vec::new();
+
+   let address_in = if currency_in.is_native() {
+      Address::ZERO
+   } else {
+      currency_in.address()
+   };
+
+   let (swap_action, swap_input) =
+      encode_v4_swap_single_command_input(pool, swap_type, currency_in, amount_in, amount_out)?;
+
+   actions.push(swap_action);
+   inputs.push(swap_input);
+
+   let mut payer = false;
+   if is_first_step {
+      payer = true;
+   } // In any other case the token/funds should already be in UR
+
+   let settle = SettleParams {
+      currency: address_in,
+      amount: amount_in,
+      payerIsUser: payer,
+   };
+
+   let settle_action = Actions::SETTLE(settle);
+   let settle_input = settle_action.abi_encode();
+   actions.push(settle_action);
+   inputs.push(settle_input);
+
+   let address_out = if currency_out.is_native() {
+      Address::ZERO
+   } else {
+      currency_out.address()
+   };
+
+   if is_last_step {
+      let take_all = TakeAllParams {
+         currency: address_out,
+         minAmount: amount_out,
+      };
+
+      let take_all_action = Actions::TAKE_ALL(take_all);
+      let take_all_input = take_all_action.abi_encode();
+      actions.push(take_all_action);
+      inputs.push(take_all_input);
+   }
+
+   encode_v4_router_command_input(actions, inputs)
+}
+
+fn encode_v4_swap_single_command_input(
+   pool: &impl UniswapPool,
+   swap_type: SwapType,
+   currency_in: &Currency2,
+   amount_in: U256,
+   amount_out: U256,
+) -> Result<(Actions, Bytes), anyhow::Error> {
+   let (action, action_params_bytes) = if swap_type.is_exact_input() {
+      let params = ExactInputSingleParams {
+         poolKey: pool.get_pool_key()?,
+         zeroForOne: pool.zero_for_one_v4(currency_in),
+         amountIn: amount_in.try_into()?,
+         amountOutMinimum: amount_out.try_into()?,
+         hookData: Bytes::default(),
+      };
+      let action = Actions::SWAP_EXACT_IN_SINGLE(params);
+      let params_bytes = action.abi_encode();
+      (action, params_bytes)
+   } else {
+      let params = ExactOutputSingleParams {
+         poolKey: pool.get_pool_key()?,
+         zeroForOne: pool.zero_for_one_v4(currency_in),
+         amountOut: amount_out.try_into()?,
+         amountInMaximum: amount_in.try_into()?,
+         hookData: Bytes::default(),
+      };
+      let action = Actions::SWAP_EXACT_OUT_SINGLE(params);
+      let params_bytes = action.abi_encode();
+      (action, params_bytes)
+   };
+
+   Ok((action, action_params_bytes))
+}
+
+/// Encodes the input for the Universal Router's V4_SWAP command (0x10).
+/// This input is itself an ABI-encoded tuple: (bytes actions, bytes[] params)
+fn encode_v4_router_command_input(
+   v4_actions: Vec<Actions>,
+   v4_action_params: Vec<Bytes>,
+) -> Result<Bytes, anyhow::Error> {
+   if v4_actions.len() != v4_action_params.len() {
+      return Err(anyhow::anyhow!(
+         "V4 actions and params length mismatch: {} != {}",
+         v4_actions.len(),
+         v4_action_params.len()
+      ));
+   }
+
+   let actions_bytes_vec: Vec<u8> = v4_actions.iter().map(|a| a.command()).collect();
+   let actions_bytes = Bytes::from(actions_bytes_vec);
+
+   let encoded_data = (actions_bytes, v4_action_params).abi_encode_params();
+   Ok(encoded_data.into())
 }
 
 pub fn generate_permit2_typed_data(

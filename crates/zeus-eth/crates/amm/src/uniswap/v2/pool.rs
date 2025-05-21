@@ -149,6 +149,22 @@ impl UniswapV2Pool {
       let pool_address = address!("d3d2E2692501A5c9Ca623199D38826e513033a17");
       UniswapV2Pool::new(1, pool_address, weth, uni, DexKind::UniswapV2)
    }
+
+   pub fn weth_wbtc() -> Self {
+      let weth = ERC20Token::weth();
+      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+      let wbtc = ERC20Token {
+         chain_id: 1,
+         address: wbtc,
+         decimals: 8,
+         symbol: "WBTC".to_string(),
+         name: "Wrapped BTC".to_string(),
+         total_supply: U256::ZERO,
+      };
+
+      let pool_address = address!("0xBb2b8038a1640196FbE3e38816F3e67Cba72D940");
+      UniswapV2Pool::new(1, pool_address, weth, wbtc, DexKind::UniswapV2)
+   }
 }
 
 impl UniswapPool for UniswapV2Pool {

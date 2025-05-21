@@ -74,7 +74,7 @@ pub fn encode_execute(commands: Bytes, inputs: Vec<Bytes>) -> Bytes {
    data.into()
 }
 
-pub fn encode_exact_input_single(
+pub fn encode_exact_input_single_params(
    pool_key: PoolKey,
    zero_for_one: bool,
    amount_in: U256,
@@ -110,7 +110,7 @@ pub fn encode_exact_input(
    Ok(data)
 }
 
-pub fn encode_exact_output_single(
+pub fn encode_exact_output_single_params(
    pool_key: PoolKey,
    zero_for_one: bool,
    amount_out: U256,

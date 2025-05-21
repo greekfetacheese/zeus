@@ -315,6 +315,11 @@ fn get_relevant_pools(
    let mut added_pools = HashSet::new();
 
    for pool in all_pools {
+      // ! Skip V4 pools for now
+      if pool.dex_kind().is_uniswap_v4() {
+         continue;
+      }
+      
       let pool_addr = pool.address();
 
       let involves_in = pool.have(currency_in);

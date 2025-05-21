@@ -750,7 +750,7 @@ impl SwapUi {
                swap.currency_in.symbol(),
                swap.amount_out.f64(),
                swap.currency_out.symbol(),
-               swap.pool.address(),
+               swap.pool.dex_kind().to_str(),
                swap.pool.fee().fee()
             );
          }
