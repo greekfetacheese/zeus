@@ -295,6 +295,7 @@ impl Default for RpcProviders {
             Rpc::new("wss://ethereum-rpc.publicnode.com", 1, true, true),
             Rpc::new("wss://mainnet.gateway.tenderly.co", 1, true, true),
             Rpc::new("wss://0xrpc.io/eth", 1, true, true),
+            Rpc::new("https://reth-ethereum.ithaca.xyz/rpc", 1, true, true),
             Rpc::new("https://rpc.payload.de", 1, true, true),
             Rpc::new("https://eth.merkle.io", 1, true, true),
             Rpc::new(

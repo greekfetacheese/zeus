@@ -12,10 +12,7 @@ use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
 use serde_json::Value;
-use utils::{
-   address::permit2_contract,
-   parse_typed_data,
-};
+use utils::{address::permit2_contract, parse_typed_data};
 use wallet::{SecureSigner, alloy_signer::Signer};
 
 #[allow(non_camel_case_types)]
@@ -138,7 +135,6 @@ pub enum Commands {
    EXECUTE_SUB_PLAN = 0x21,
 }
 
-
 // ! V4 swaps from ETH to ERC and vice versa are working fine
 // ! But from ERC to ERC they dont work
 /// Build the params for the execute function
@@ -174,7 +170,9 @@ where
       }
 
       if swap.pool.dex_kind().is_uniswap_v4() {
-         return Err(anyhow!("V4 swaps are not supported"));
+         if swap.pool.currency0().is_erc20() && swap.pool.currency1().is_erc20() {
+            return Err(anyhow!("ERC20 to ERC20 swaps are not supported yet on V4"));
+         }
       }
    }
 
@@ -333,7 +331,7 @@ where
             step_amount_out_min,
             is_first_step,
             is_last_step,
-            recipient_addr
+            recipient_addr,
          )?;
 
          commands.push(Commands::V4_SWAP as u8);
@@ -364,8 +362,8 @@ fn encode_v4_commands(
    amount_in: U256,
    amount_out: U256,
    is_first_step: bool,
-   is_last_step: bool,
-   _recipient: Address
+   _is_last_step: bool,
+   _recipient: Address,
 ) -> Result<Bytes, anyhow::Error> {
    let mut actions = Vec::new();
    let mut inputs = Vec::new();
@@ -404,17 +402,15 @@ fn encode_v4_commands(
       currency_out.address()
    };
 
-   if is_last_step {
-      let take_all = TakeAllParams {
-         currency: address_out,
-         minAmount: amount_out,
-      };
+   let take_all = TakeAllParams {
+      currency: address_out,
+      minAmount: amount_out,
+   };
 
-      let take_all_action = Actions::TAKE_ALL(take_all);
-      let take_all_input = take_all_action.abi_encode();
-      actions.push(take_all_action);
-      inputs.push(take_all_input);
-   }
+   let take_all_action = Actions::TAKE_ALL(take_all);
+   let take_all_input = take_all_action.abi_encode();
+   actions.push(take_all_action);
+   inputs.push(take_all_input);
 
    encode_v4_router_command_input(actions, inputs)
 }

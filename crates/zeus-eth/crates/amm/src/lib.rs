@@ -26,7 +26,7 @@ pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
    }
 
    // Both are ERC20 tokens
-   currency_a.to_erc20().address < currency_b.to_erc20().address
+   currency_a.address() < currency_b.address()
 }
 
 /// Minimum liquidity we consider to be required for a pool to able to swap

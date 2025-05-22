@@ -345,7 +345,7 @@ impl SendCryptoUi {
          }
 
          let currency = self.currency.clone();
-         let pools = ctx.write(|ctx| ctx.pool_manager.get_pools_from_currency(&currency));
+         let pools = ctx.write(|ctx| ctx.pool_manager.get_pools_that_have_currency(&currency));
          let chain_id = ctx.chain().id();
 
          if pools.is_empty() {

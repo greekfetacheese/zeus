@@ -240,6 +240,30 @@ impl ERC20Token {
       ERC20Token::default()
    }
 
+   /// Default WBTC instance (ETH)
+   pub fn wbtc() -> ERC20Token {
+      ERC20Token {
+         chain_id: ETH,
+         name: "Wrapped BTC".to_string(),
+         address: address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"),
+         decimals: 8,
+         symbol: "WBTC".to_string(),
+         total_supply: U256::ZERO,
+      }
+   }
+
+   /// Default LINK instance (ETH)
+   pub fn link() -> ERC20Token {
+      ERC20Token {
+         chain_id: ETH,
+         name: "ChainLink Token".to_string(),
+         address: address!("0x514910771AF9Ca656af840dff83E8264EcF986CA"),
+         decimals: 18,
+         symbol: "LINK".to_string(),
+         total_supply: U256::ZERO,
+      }
+   }
+
    /// Default WBNB instance (BSC)
    pub fn wbnb() -> ERC20Token {
       ERC20Token {

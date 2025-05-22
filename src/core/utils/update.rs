@@ -1,8 +1,4 @@
-use crate::core::{
-   BaseFee, ZeusCtx,
-   context::providers::client_test,
-   utils::*,
-};
+use crate::core::{BaseFee, ZeusCtx, context::providers::client_test, utils::*};
 use anyhow::{anyhow, bail};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -19,7 +15,6 @@ use zeus_eth::{
    utils::block::calculate_next_block_base_fee,
    utils::client,
 };
-
 
 const MEASURE_RPCS_INTERVAL: u64 = 60;
 const POOL_MANAGER_INTERVAL: u64 = 600;
@@ -62,8 +57,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
       });
    }
-
-
 
    let eth_fut = update_eth_balance(ctx.clone());
    let token_fut = update_token_balance(ctx.clone());
@@ -146,7 +139,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let tokens = ERC20Token::base_tokens(chain);
       let task = RT.spawn(async move {
          match eth::sync_pools_for_tokens(ctx_clone, chain, tokens, true).await {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
          }
       });
@@ -197,7 +190,7 @@ pub async fn update_portfolio_state(
    // check if any pool data is missing
    for token in &tokens {
       let currency = token.clone().into();
-      let pools = pool_manager.get_pools_from_currency(&currency);
+      let pools = pool_manager.get_pools_that_have_currency(&currency);
 
       if pools.is_empty() {
          let _ = pool_manager
@@ -704,7 +697,6 @@ pub async fn resync_pools(ctx: ZeusCtx) {
    });
 }
 
-
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -715,5 +707,4 @@ mod tests {
       let chain = ChainId::new(1).unwrap();
       sync_basic_pools(ctx.clone(), chain.id()).await.unwrap();
    }
-
 }

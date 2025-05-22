@@ -7,7 +7,7 @@ use egui::{
 };
 use egui_theme::Theme;
 use std::sync::Arc;
-use std::time::Instant;
+use std::{collections::HashSet, time::Instant};
 use zeus_eth::amm::uniswap::{quoter::*, router::SwapType};
 use zeus_eth::utils::NumericValue;
 
@@ -534,23 +534,27 @@ impl SwapUi {
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
-      let currency_to_update_pools_from = self.currency_to_update_pools_from().clone();
-      tracing::info!("Currency to update pools from: {}", currency_to_update_pools_from.symbol());
-      tracing::info!("Token to sync pools for: {}", token_in.symbol);
+      let pools_to_update = self.pools_to_update(ctx.clone());
+      tracing::info!("Token to sync pools for: {}", token_out.symbol);
 
       self.syncing_pools = true;
 
       let ctx2 = ctx.clone();
       RT.spawn(async move {
          let client = ctx2.get_client(chain_id).await.unwrap();
-         let _ = eth::sync_pools_for_tokens(ctx2.clone(), chain_id, vec![token_in.clone()], false).await;
+         let _ = eth::sync_pools_for_tokens(
+            ctx2.clone(),
+            chain_id,
+            vec![token_out.clone()],
+            false,
+         )
+         .await;
 
          SHARED_GUI.write(|gui| {
             gui.swap_ui.syncing_pools = false;
             gui.swap_ui.pool_data_syncing = true;
          });
 
-         let pools_to_update = manager.get_pools_from_currency(&currency_to_update_pools_from);
          match manager
             .update_state_for_pools(client, chain_id, pools_to_update)
             .await
@@ -581,29 +585,54 @@ impl SwapUi {
       });
    }
 
-   /// Currency to use to pull pools from
-   fn currency_to_update_pools_from(&self) -> &Currency {
-      // Do not consider WETH or as the token to get pools from because overtime we will accumulate a lot of pools
-      // Since it's the most common paired token
-      let currency = if self.currency_in.is_weth_or_eth() && !self.currency_out.is_weth_or_eth() {
-         &self.currency_out
-      } else {
-         &self.currency_in
-      };
-      currency
-   }
 
    /// Which pools to update the state for
-   fn pools_to_update(&self, ctx: ZeusCtx, currency: &Currency) -> Vec<AnyUniswapPool> {
+   // ! Depending on how much currencies and thus pools we hold this may need an adjustement to reduce the number of pools to update
+   fn pools_to_update(&self, ctx: ZeusCtx) -> Vec<AnyUniswapPool> {
+      let currency_in = if self.currency_in.is_native() {
+         self.currency_in.to_weth_currency()
+      } else {
+         self.currency_in.clone()
+      };
+
+      let currency_out = if self.currency_out.is_native() {
+         self.currency_out.to_weth_currency()
+      } else {
+         self.currency_out.clone()
+      };
+
       let manager = ctx.pool_manager();
-      let pools = manager.get_pools_from_currency(currency);
-      if pools.is_empty() {
+      let all_pools = manager.get_pools_for_chain(currency_in.chain_id());
+      let mut added_pools = HashSet::new();
+
+      let mut good_pools = Vec::new();
+      for pool in all_pools {
+         // ! Skip V4 pools
+         if pool.dex_kind().is_uniswap_v4() {
+            continue;
+         }
+
+         let involves_in = pool.have(&currency_in);
+         let involves_out = pool.have(&currency_out);
+         let is_base_to_base_connector = pool.currency0().is_base() && pool.currency1().is_base();
+
+         if involves_in || involves_out || is_base_to_base_connector {
+            if !added_pools.contains(&pool.address()) {
+               good_pools.push(pool.clone());
+               added_pools.insert(pool.address());
+            }
+         }
+      }
+
+      if good_pools.is_empty() {
          tracing::warn!(
-            "No pools found for currency: {}",
-            currency.symbol()
+            "No pools found for{}-{}",
+            currency_in.symbol(),
+            currency_out.symbol()
          );
       }
-      pools
+
+      good_pools
    }
 
    fn should_update_pool_state(&self) -> bool {
@@ -642,20 +671,21 @@ impl SwapUi {
          return;
       }
 
-      let currency = self.currency_to_update_pools_from();
-      let pools = self.pools_to_update(ctx.clone(), currency);
+      let pools = self.pools_to_update(ctx.clone());
 
       if pools.is_empty() {
          tracing::warn!(
-            "Can't get quote, No pools found for currency: {}",
-            currency.symbol()
+            "Can't get quote, No pools found for{}-{}",
+            self.currency_in.symbol(),
+            self.currency_out.symbol()
          );
          return;
       }
 
       tracing::info!(
-         "Updating pool state for currency: {}",
-         currency.symbol()
+         "Updating pool state for{}-{}",
+         self.currency_in.symbol(),
+         self.currency_out.symbol()
       );
 
       let chain_id = ctx.chain().id();

@@ -76,8 +76,8 @@ impl PoolManagerHandle {
    }
 
    /// Get all pools that include the given currency
-   pub fn get_pools_from_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
-      self.read(|manager| manager.get_pools_from_currency(currency))
+   pub fn get_pools_that_have_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
+      self.read(|manager| manager.get_pools_that_have_currency(currency))
    }
 
    pub fn get_pools_from_pair(&self, currency_a: &Currency, currency_b: &Currency) -> Vec<AnyUniswapPool> {
@@ -189,7 +189,7 @@ impl PoolManagerHandle {
    {
       let mut pools_to_update = Vec::new();
       for currency in currencies {
-         let pools = self.get_pools_from_currency(&currency);
+         let pools = self.get_pools_that_have_currency(&currency);
          pools_to_update.extend(pools);
       }
 
@@ -733,13 +733,13 @@ impl PoolManager {
    }
 
    /// Get any pools that includes the given currency
-   pub fn get_pools_from_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
+   pub fn get_pools_that_have_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
       let mut pools = Vec::new();
       for (_, pool) in &self.pools {
          if pool.chain_id() != currency.chain_id() {
             continue;
          }
-         if pool.is_currency0(currency) || pool.is_currency1(currency) {
+         if pool.have(currency) {
             pools.push(pool.clone());
          }
       }

@@ -118,14 +118,22 @@ impl UniswapV4Pool {
    }
 
    pub fn sort_currency_address(currency_a: &Currency, currency_b: &Currency) -> (Address, Address) {
-      if currency_a.is_native() {
-         (Address::ZERO, currency_b.to_erc20().address)
-      } else if currency_b.is_native() {
-         (Address::ZERO, currency_a.to_erc20().address)
-      } else if sorts_before(currency_a, currency_b) {
-         (currency_a.to_erc20().address, currency_b.to_erc20().address)
+      let address_a = if currency_a.is_native() {
+         Address::ZERO
       } else {
-         (currency_b.to_erc20().address, currency_a.to_erc20().address)
+         currency_a.address()
+      };
+
+      let address_b = if currency_b.is_native() {
+         Address::ZERO
+      } else {
+         currency_b.address()
+      };
+
+      if address_a < address_b {
+         (address_a, address_b)
+      } else {
+         (address_b, address_a)
       }
    }
 
@@ -153,7 +161,7 @@ impl UniswapV4Pool {
       super::has_swap_permissions(self.hooks)
    }
 
-   /// Test pool
+   // * Test pools
    pub fn eth_uni() -> Self {
       let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
       let uni = ERC20Token {
@@ -193,17 +201,9 @@ impl UniswapV4Pool {
       )
    }
 
-   pub fn usdc_wbtc() -> Self {
-      let currency_a = Currency::from(ERC20Token::usdc());
-      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
-      let currency_b = Currency::from(ERC20Token {
-         chain_id: 1,
-         address: wbtc,
-         decimals: 8,
-         symbol: "WBTC".to_string(),
-         name: "Wrapped BTC".to_string(),
-         total_supply: U256::ZERO,
-      });
+   pub fn eth_usdt() -> Self {
+      let currency_a = Currency::from(NativeCurrency::from(1));
+      let currency_b = Currency::from(ERC20Token::usdt());
       let fee = FeeAmount::MEDIUM;
 
       Self::from(
@@ -216,17 +216,39 @@ impl UniswapV4Pool {
       )
    }
 
-      pub fn wbtc_usdt() -> Self {
+   pub fn link_usdc() -> Self {
+      let currency_a = Currency::from(ERC20Token::link());
+      let currency_b = Currency::from(ERC20Token::usdc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn usdc_wbtc() -> Self {
+      let currency_a = Currency::from(ERC20Token::usdc());
+      let currency_b = Currency::from(ERC20Token::wbtc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn wbtc_usdt() -> Self {
       let currency_a = Currency::from(ERC20Token::usdt());
-      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
-      let currency_b = Currency::from(ERC20Token {
-         chain_id: 1,
-         address: wbtc,
-         decimals: 8,
-         symbol: "WBTC".to_string(),
-         name: "Wrapped BTC".to_string(),
-         total_supply: U256::ZERO,
-      });
+      let currency_b = Currency::from(ERC20Token::wbtc());
       let fee = FeeAmount::MEDIUM;
 
       Self::from(
@@ -668,23 +690,16 @@ impl UniswapPool for UniswapV4Pool {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use alloy_primitives::utils::{format_units, parse_units};
-
+   use alloy_primitives::{B256, utils::{format_units, parse_units}};
+   use std::str::FromStr;
    use alloy_provider::ProviderBuilder;
    use url::Url;
 
    #[test]
-   fn test_123() {
-      let pool = UniswapV4Pool::eth_uni();
-
-      let min_compressed_tick = MIN_TICK / pool.fee().tick_spacing_i32();
-      let max_compressed_tick = MAX_TICK / pool.fee().tick_spacing_i32();
-
-      let (min_word_pos, _) = uniswap_v3_math::tick_bitmap::position(min_compressed_tick);
-      let (max_word_pos, _) = uniswap_v3_math::tick_bitmap::position(max_compressed_tick);
-
-      println!("min_word_pos: {}", min_word_pos);
-      println!("max_word_pos: {}", max_word_pos);
+   fn correct_pool_creation() {
+      let pool1 = UniswapV4Pool::link_usdc();
+      let id1 = B256::from_str("0x50ae33c238824aa1937d5d9f1766c487bca39b548f8d957994e8357eeeca3280").unwrap();
+      assert_eq!(pool1.pool_id(), id1);
    }
 
    #[tokio::test]

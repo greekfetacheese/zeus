@@ -210,7 +210,7 @@ impl QuoteRoutes {
 #[derive(Clone, Debug)]
 struct PotentialPath {
    path: Vec<Currency>,
-   pools: Vec<AnyUniswapPool>
+   pools: Vec<AnyUniswapPool>,
 }
 
 /// Represents a ranked path after initial simulation and gas estimation
@@ -244,19 +244,20 @@ pub fn get_quote(
          valid_pools.push(pool);
       }
    }
+   tracing::info!(target: "zeus_eth::amm::uniswap::quoter2", "Valid Pools: {:?}", valid_pools.len());
    if valid_pools.is_empty() {
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter2", "No relevant pools found for {}/{}", currency_in.symbol(), currency_out.symbol());
       return QuoteRoutes::default();
    }
 
    let mut potential_paths = find_potential_paths(&valid_pools, &currency_in, &currency_out, max_hops);
-   
+
    if currency_in.is_native() {
       let wrapped = currency_in.to_weth_currency();
       let paths = find_potential_paths(&valid_pools, &wrapped, &currency_out, max_hops);
       potential_paths.extend(paths);
    }
-   
+
    if currency_out.is_native() {
       let wrapped = currency_out.to_weth_currency();
       let paths = find_potential_paths(&valid_pools, &currency_in, &wrapped, max_hops);
@@ -315,11 +316,11 @@ fn get_relevant_pools(
    let mut added_pools = HashSet::new();
 
    for pool in all_pools {
-      // ! Skip V4 pools for now
+      // ! Skip V4 pools
       if pool.dex_kind().is_uniswap_v4() {
          continue;
       }
-      
+
       let pool_addr = pool.address();
 
       let involves_in = pool.have(currency_in);
@@ -506,8 +507,7 @@ fn rank_paths(
                //  tracing::debug!(target:"sor", "Path resulted in zero output during ranking, discarding: {:?} -> {:?}", p.path.first().map(|c|c.symbol()), p.path.last().map(|c|c.symbol()));
                None // Discard paths that yield zero output for non-zero input
             } else {
-               let (gas_cost_usd, _) =
-                  estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, &p.pools);
+               let (gas_cost_usd, _) = estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, &p.pools);
                Some(RankedPath {
                   path: p,
                   simulated_amount_out: simulated_output,
@@ -573,10 +573,7 @@ fn select_unique_top_paths(ranked_paths: Vec<RankedPath>, max_paths: usize) -> V
 }
 
 /// Optimize allocation iteratively across the selected top paths.
-fn optimize_allocation_iterative(
-   total_amount_in: U256,
-   top_paths: &[RankedPath],
-) -> Vec<U256> {
+fn optimize_allocation_iterative(total_amount_in: U256, top_paths: &[RankedPath]) -> Vec<U256> {
    let num_paths = top_paths.len();
    if num_paths == 0 {
       return Vec::new();

@@ -86,6 +86,9 @@ impl Currency {
       ERC20Token::wrapped_native_token(self.chain_id())
    }
 
+   /// Convert this currency to its wrapped native currency
+   /// 
+   /// Shortcut for [Self::to_wrapped_native]
    pub fn to_weth_currency(&self) -> Currency {
       Currency::from(self.to_wrapped_native())
    }
