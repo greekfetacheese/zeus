@@ -133,6 +133,9 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    // Sync v4 pools and base pools
+   ctx.write(|ctx| {
+      ctx.data_syncing = true;
+   });
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let ctx_clone = ctx.clone();
@@ -149,6 +152,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
    for task in tasks {
       task.await.unwrap();
    }
+   
+   ctx.write(|ctx| {
+      ctx.data_syncing = false;
+   });
 
    RT.spawn_blocking(move || {
       ctx.save_pool_manager().unwrap();

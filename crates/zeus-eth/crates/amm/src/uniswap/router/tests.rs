@@ -108,6 +108,7 @@ mod tests {
          uni.clone(),
          signer,
          alice.address,
+         None,
       )
       .await
       .unwrap();
@@ -226,6 +227,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -358,6 +360,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -634,6 +637,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -749,6 +753,7 @@ mod tests {
          uni.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -858,6 +863,7 @@ mod tests {
          usdc.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -972,6 +978,7 @@ mod tests {
          uni.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1044,6 +1051,7 @@ mod tests {
          usdc.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1131,6 +1139,7 @@ mod tests {
          uni.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1228,6 +1237,7 @@ mod tests {
          eth.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1339,6 +1349,7 @@ mod tests {
          wbtc.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1444,6 +1455,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1550,6 +1562,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          signer.borrow().address(),
+         None,
       )
       .await
       .unwrap();
@@ -1705,6 +1718,7 @@ mod tests {
          eth.clone(),
          signer,
          alice.address,
+         None,
       )
       .await
       .unwrap();
@@ -1872,6 +1886,7 @@ mod tests {
          weth.clone(),
          signer,
          alice.address,
+         None,
       )
       .await
       .unwrap();

@@ -151,6 +151,7 @@ pub async fn build_execute_params<P, N>(
    currency_out: Currency2,
    signer: SecureSigner,
    recipient: Address,
+   deadline: Option<U256>,
 ) -> Result<ExecuteParams, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
@@ -170,7 +171,7 @@ where
       }
 
       if swap.pool.dex_kind().is_uniswap_v4() {
-         /* 
+         /*
          if swap.pool.currency0().is_erc20() && swap.pool.currency1().is_erc20() {
             return Err(anyhow!("ERC20 to ERC20 swaps are not supported yet on V4"));
          }
@@ -350,7 +351,12 @@ where
    let command_bytes = Bytes::from(commands);
    println!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
-   let calldata = encode_execute(command_bytes, inputs);
+   let calldata = if deadline.is_some() {
+      let deadline = deadline.unwrap();
+      encode_execute_with_deadline(command_bytes, inputs, deadline)
+   } else {
+      encode_execute(command_bytes, inputs)
+   };
    execute_params.set_call_data(calldata);
 
    Ok(execute_params)
@@ -471,7 +477,8 @@ fn encode_v4_router_command_input(
    let params = ActionsParams {
       actions: actions_bytes,
       params: v4_action_params,
-   }.abi_encode_params();
+   }
+   .abi_encode_params();
 
    Ok(params.into())
 }
