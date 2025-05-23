@@ -19,15 +19,4 @@ pub use token_selection::TokenSelectionWindow;
 pub use tx_confirm::TxConfirmWindow;
 pub use wallet::WalletUi;
 
-pub const GREEN_CIRCLE: &str = "🟢";
-pub const RED_CIRCLE: &str = "🔴";
-pub const LIGHTING_BOLT: &str = "⚡";
-pub const BOOK: &str = "📖";
-pub const GAS: &str = "⛽";
 pub const GREEN_CHECK: &str = "✅";
-pub const KEY: &str = "🔑";
-pub const LOCK: &str = "🔒";
-pub const UNLOCK: &str = "🔓";
-pub const PENDING: &str = "⏳";
-pub const REFRESH: &str = "⟲";
-pub const DOWN_ARROW: &str = "⬇️";

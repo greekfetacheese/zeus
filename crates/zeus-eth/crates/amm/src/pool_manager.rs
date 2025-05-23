@@ -359,11 +359,7 @@ impl PoolManagerHandle {
    }
 
    // TODO: Do batch requests
-   /// Sync all the possible v2 pools for the given token based on:
-   ///
-   /// - The token's chain id
-   /// - The [DexKind] for the chain
-   /// - Base Tokens [ERC20Token::base_tokens()]
+   /// Sync all V2 pools for the given token that are paired with [ERC20Token::base_tokens()]
    pub async fn sync_v2_pools_for_token<P, N>(
       &self,
       client: P,
@@ -432,11 +428,7 @@ impl PoolManagerHandle {
       Ok(())
    }
 
-   /// Sync all the possible v3 pools for the given token based on:
-   ///
-   /// - The token's chain id
-   /// - The [DexKind] for the chain
-   /// - Base Tokens [ERC20Token::base_tokens()]
+   /// Sync all the V3 pools for the given token that are paired with [ERC20Token::base_tokens()]
    pub async fn sync_v3_pools_for_token<P, N>(
       &self,
       client: P,

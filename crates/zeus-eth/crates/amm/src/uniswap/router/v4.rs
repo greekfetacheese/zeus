@@ -170,9 +170,11 @@ where
       }
 
       if swap.pool.dex_kind().is_uniswap_v4() {
+         /* 
          if swap.pool.currency0().is_erc20() && swap.pool.currency1().is_erc20() {
             return Err(anyhow!("ERC20 to ERC20 swaps are not supported yet on V4"));
          }
+         */
       }
    }
 
@@ -466,8 +468,12 @@ fn encode_v4_router_command_input(
    let actions_bytes_vec: Vec<u8> = v4_actions.iter().map(|a| a.command()).collect();
    let actions_bytes = Bytes::from(actions_bytes_vec);
 
-   let encoded_data = (actions_bytes, v4_action_params).abi_encode_params();
-   Ok(encoded_data.into())
+   let params = ActionsParams {
+      actions: actions_bytes,
+      params: v4_action_params,
+   }.abi_encode_params();
+
+   Ok(params.into())
 }
 
 pub fn generate_permit2_typed_data(

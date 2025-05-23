@@ -113,18 +113,6 @@ impl UniswapV3Pool {
       Ok(Self::new(chain_id, address, fee, token0, token1, dex))
    }
 
-   /// Switch the tokens in the pool
-   pub fn toggle(&mut self) {
-      std::mem::swap(&mut self.currency0, &mut self.currency1);
-   }
-
-   /// Restore the original order of the tokens
-   pub fn reorder(&mut self) {
-      if self.token0().address > self.token1().address {
-         std::mem::swap(&mut self.currency0, &mut self.currency1);
-      }
-   }
-
    pub fn token0(&self) -> Cow<ERC20Token> {
       self.currency0.to_erc20()
    }
@@ -461,34 +449,6 @@ mod tests {
 
       let base_liq = pool.base_balance();
       println!("{} Liquidity: {}", base.symbol(), base_liq.formatted());
-   }
-
-   #[test]
-   fn pool_order() {
-      let mut pool = UniswapV3Pool::usdt_uni();
-
-      // UNI is token0 and USDT is token1
-      let token0 = pool.is_token0(pool.quote_token().address);
-      let token1 = pool.is_token1(pool.base_token().address);
-      assert_eq!(token0, true);
-      assert_eq!(token1, true);
-
-      pool.toggle();
-      // Now USDT is token0 and UNI is token1
-      let token0 = pool.is_token0(pool.base_token().address);
-      let token1 = pool.is_token1(pool.quote_token().address);
-      assert_eq!(token0, true);
-      assert_eq!(token1, true);
-
-      pool.reorder();
-      // Back to the original order
-      let token0 = pool.is_token0(pool.quote_token().address);
-      let token1 = pool.is_token1(pool.base_token().address);
-      assert_eq!(token0, true);
-      assert_eq!(token1, true);
-
-      let base_exists = pool.base_currency_exists();
-      assert_eq!(base_exists, true);
    }
 
    #[tokio::test]

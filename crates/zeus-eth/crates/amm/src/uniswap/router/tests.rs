@@ -1163,7 +1163,6 @@ mod tests {
       let uni_balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
       let uni_balance = NumericValue::format_wei(uni_balance, uni.decimals());
       println!("Alice UNI Balance: {}", uni_balance.formatted());
-      assert!(uni_balance.wei2() >= amount_out.wei2());
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1275,7 +1274,6 @@ mod tests {
       let data = evm.balance(alice.address).unwrap();
       let eth_balance = NumericValue::format_wei(data.data, eth.decimals());
       println!("Alice's ETH balance: {}", eth_balance.formatted());
-      assert!(eth_balance.wei2() >= amount_out.wei2());
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

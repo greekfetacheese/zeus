@@ -137,18 +137,6 @@ impl UniswapV4Pool {
       }
    }
 
-   /// Switch the tokens in the pool
-   pub fn toggle(&mut self) {
-      std::mem::swap(&mut self.currency0, &mut self.currency1);
-   }
-
-   /// Restore the original order of the tokens
-   pub fn reorder(&mut self) {
-      if !sorts_before(&self.currency0, &self.currency1) {
-         self.toggle();
-      }
-   }
-
    pub fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
       let zero_for_one = self.zero_for_one_v4(currency_in);
       let price = calculate_price(self, zero_for_one)?;
@@ -156,8 +144,6 @@ impl UniswapV4Pool {
    }
 
    fn hook_impacts_swap(&self) -> bool {
-      // could use this function to clear certain hooks that may have swap Permissions, but we
-      // know they don't interfere in the swap outcome
       super::has_swap_permissions(self.hooks)
    }
 
@@ -690,9 +676,12 @@ impl UniswapPool for UniswapV4Pool {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use alloy_primitives::{B256, utils::{format_units, parse_units}};
-   use std::str::FromStr;
+   use alloy_primitives::{
+      B256,
+      utils::{format_units, parse_units},
+   };
    use alloy_provider::ProviderBuilder;
+   use std::str::FromStr;
    use url::Url;
 
    #[test]
@@ -808,35 +797,11 @@ mod tests {
 
    #[test]
    fn pool_order() {
-      let mut pool = UniswapV4Pool::eth_uni();
+      let pool = UniswapV4Pool::eth_uni();
 
-      let eth = Currency::from(NativeCurrency::from(1));
+      let eth = pool.base_currency().clone();
+      let uni = pool.quote_currency().clone();
 
-      let address = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = Currency::from(ERC20Token {
-         chain_id: 1,
-         address,
-         decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
-         total_supply: U256::ZERO,
-      });
-
-      // ETH is currency0 and UNI is currency1
-      let currency0 = pool.is_currency0(&eth);
-      let currency1 = pool.is_currency1(&uni);
-      assert_eq!(currency0, true);
-      assert_eq!(currency1, true);
-
-      pool.toggle();
-      // Now UNI is currency0 and ETH is currency1
-      let currency0 = pool.is_currency0(&uni);
-      let currency1 = pool.is_currency1(&eth);
-      assert_eq!(currency0, true);
-      assert_eq!(currency1, true);
-
-      pool.reorder();
-      // Back to the original order
       let currency0 = pool.is_currency0(&eth);
       let currency1 = pool.is_currency1(&uni);
       assert_eq!(currency0, true);

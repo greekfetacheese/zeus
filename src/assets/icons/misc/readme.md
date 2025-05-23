@@ -4,3 +4,4 @@ edit https://www.svgrepo.com/svg/522527/edit-3
 down https://www.flaticon.com/free-icon-font/down_10483521
 red-circle.png https://icons8.com/icon/60362/filled-circle
 green-circle.png https://icons8.com/icon/60362/filled-circle
+swap.png https://icons8.com/icon/24864/swap

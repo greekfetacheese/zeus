@@ -94,6 +94,7 @@ pub struct MiscIcons {
    pub right: TextureHandle,
    pub red_circle: TextureHandle,
    pub green_circle: TextureHandle,
+   pub swap: TextureHandle,
 }
 
 impl Icons {
@@ -136,7 +137,7 @@ impl Icons {
       let right = load_image(include_bytes!("misc/right.png"))?;
       let red_circle = load_and_resize_image(include_bytes!("misc/red-circle.png"), 16, 16)?;
       let green_circle = load_and_resize_image(include_bytes!("misc/green-circle.png"), 16, 16)?;
-
+      let swap = load_and_resize_image(include_bytes!("misc/swap.png"), 24, 24)?;
       let texture_options = TextureOptions::default();
 
       let chain_icons = ChainIcons {
@@ -178,6 +179,7 @@ impl Icons {
          right: ctx.load_texture("right", right, texture_options),
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
          green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
+         swap: ctx.load_texture("swap", swap, texture_options),
       };
 
       Ok(Self {
@@ -344,6 +346,10 @@ impl Icons {
 
    pub fn green_circle(&self) -> Image<'static> {
       Image::new(&self.misc.green_circle)
+   }
+
+   pub fn swap(&self) -> Image<'static> {
+      Image::new(&self.misc.swap).sense(Sense::click())
    }
 }
 

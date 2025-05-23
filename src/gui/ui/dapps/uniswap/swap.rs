@@ -202,9 +202,7 @@ impl SwapUi {
                // Swap Currencies
                ui.add_space(5.0);
                ui.vertical_centered(|ui| {
-                  let swap_button =
-                     Button::new(RichText::new("🡫").size(theme.text_sizes.large).strong())
-                        .min_size(vec2(40.0, 40.0));
+                  let swap_button = Button::image(icons.swap()).min_size(vec2(40.0, 40.0));
 
                   if ui.add(swap_button).clicked() {
                      self.swap_currencies();
@@ -584,7 +582,6 @@ impl SwapUi {
          });
       });
    }
-
 
    /// Which pools to update the state for
    // ! Depending on how much currencies and thus pools we hold this may need an adjustement to reduce the number of pools to update
