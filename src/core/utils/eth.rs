@@ -176,13 +176,50 @@ pub async fn send_transaction(
       gas_limit,
    );
 
-   let client = if chain.is_ethereum() && mev_protect {
-      ctx.get_flashbots_fast_client().unwrap()
+   let new_client = if chain.is_ethereum() && mev_protect {
+      let mev_client_res = ctx.get_mev_protect_client(chain.id()).await;
+
+      if mev_client_res.is_err() {
+         SHARED_GUI.write(|gui| {
+            let msg2 = "Continue without MEV protection?";
+            gui.confirm_window
+               .open("Error while connecting to MEV protect RPC");
+            gui.confirm_window.set_msg2(msg2);
+            gui.request_repaint();
+         });
+
+         // wait for the user to confirm or reject the transaction
+         let mut confirmed = None;
+         loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+            SHARED_GUI.read(|gui| {
+               confirmed = gui.confirm_window.get_confirm();
+            });
+
+            if confirmed.is_some() {
+               SHARED_GUI.write(|gui| {
+                  gui.confirm_window.reset();
+               });
+               break;
+            }
+         }
+
+         let confirmed = confirmed.unwrap();
+         if !confirmed {
+            return Err(anyhow!("Transaction Rejected"));
+         }
+
+         // keep the old client
+         client
+      } else {
+         mev_client_res.unwrap()
+      }
    } else {
-      ctx.get_client(chain.id()).await.unwrap()
+      client
    };
 
-   let receipt = tx::send_tx(client, tx_params).await?;
+   let receipt = tx::send_tx(new_client, tx_params).await?;
 
    let logs: Vec<Log> = receipt.logs().to_vec();
    let log_data = logs
@@ -555,7 +592,7 @@ pub async fn swap(
       currency_out.clone(),
       signer.clone(),
       from,
-      None
+      None,
    )
    .await?;
    tracing::info!(
@@ -662,7 +699,7 @@ pub async fn swap(
       currency_out.clone(),
       signer,
       from,
-      None
+      None,
    )
    .await?;
    tracing::info!(

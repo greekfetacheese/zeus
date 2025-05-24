@@ -712,6 +712,10 @@ impl ConfirmWindow {
       self.msg2 = Some(msg.into());
    }
 
+   pub fn get_confirm(&self) -> Option<bool> {
+      self.confirm
+   }
+
    pub fn reset(&mut self) {
       self.open = false;
       self.msg.clear();

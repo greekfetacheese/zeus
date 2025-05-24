@@ -17,7 +17,7 @@ use zeus_eth::{
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
-   utils::client::{RpcClient, get_client, get_http_client, retry_layer, throttle_layer},
+   utils::client::{RpcClient, get_client, retry_layer, throttle_layer},
 };
 
 const CONTACTS_FILE: &str = "contacts.json";
@@ -148,6 +148,12 @@ impl ZeusCtx {
       rpcs.iter().any(|rpc| rpc.working && rpc.enabled)
    }
 
+   // * Ignore the enabled flag to avoid mistakes
+   pub fn client_mev_protect_available(&self, chain: u64) -> bool {
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+      rpcs.iter().any(|rpc| rpc.working && rpc.mev_protect)
+   }
+
    pub fn client_archive_available(&self, chain: u64) -> bool {
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
       rpcs
@@ -162,7 +168,10 @@ impl ZeusCtx {
 
       while !self.client_available(chain) {
          if time_passed.elapsed() > timeout {
-            return Err(anyhow!("Failed to get client for chain {} Timeout exceeded", chain));
+            return Err(anyhow!(
+               "Failed to get client for chain {} Timeout exceeded",
+               chain
+            ));
          }
          sleep(Duration::from_millis(100)).await;
       }
@@ -216,11 +225,14 @@ impl ZeusCtx {
 
       while !self.client_archive_available(chain) {
          if time_passed.elapsed() > timeout {
-            return Err(anyhow!("Failed to get archive client for chain {} Timeout exceeded", chain));
+            return Err(anyhow!(
+               "Failed to get archive client for chain {} Timeout exceeded",
+               chain
+            ));
          }
          sleep(Duration::from_millis(100)).await;
       }
-      
+
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
 
       for rpc in &rpcs {
@@ -266,12 +278,61 @@ impl ZeusCtx {
       }
    }
 
-   pub fn get_flashbots_client(&self) -> Result<RpcClient, anyhow::Error> {
-      self.read(|ctx| ctx.get_flashbots_client())
-   }
+   pub async fn get_mev_protect_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
+      let mut client = None;
 
-   pub fn get_flashbots_fast_client(&self) -> Result<RpcClient, anyhow::Error> {
-      self.read(|ctx| ctx.get_flashbots_fast_client())
+      if !self.client_mev_protect_available(chain) {
+         return Err(anyhow!(
+            "Failed to get MEV protect client for chain {}",
+            chain
+         ));
+      }
+
+      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+
+      for rpc in &rpcs {
+         if !rpc.mev_protect || !rpc.working {
+            continue;
+         }
+
+         tracing::info!("Using MEV protect RPC: {}", rpc.url);
+
+         let (retry, throttle) = if rpc.default {
+            (
+               retry_layer(
+                  MAX_RETRIES,
+                  INITIAL_BACKOFF,
+                  COMPUTE_UNITS_PER_SECOND,
+               ),
+               throttle_layer(CLIENT_RPS),
+            )
+         } else {
+            (retry_layer(10, 300, 1000), throttle_layer(1000))
+         };
+
+         let c = match get_client(&rpc.url, retry, throttle).await {
+            Ok(client) => client,
+            Err(e) => {
+               tracing::error!(
+                  "Error connecting to client using {} for chain {}: {:?}",
+                  rpc.url,
+                  chain,
+                  e
+               );
+               continue;
+            }
+         };
+         client = Some(c);
+         break;
+      }
+      if client.is_none() {
+         return Err(anyhow!(
+            "No MEV protect clients found for chain {}",
+            chain
+         ));
+      } else {
+         Ok(client.unwrap())
+      }
    }
 
    pub fn chain(&self) -> ChainId {
@@ -891,37 +952,6 @@ impl ZeusContext {
          connected_dapps: ConnectedDapps::default(),
       }
    }
-
-   /// This only for ETH mainnet
-   pub fn get_flashbots_client(&self) -> Result<RpcClient, anyhow::Error> {
-      let url = "https://rpc.flashbots.net";
-      get_http_client(
-         &url,
-         retry_layer(100, 10, 1000),
-         throttle_layer(5),
-      )
-   }
-
-   /// This only for ETH mainnet
-   pub fn get_flashbots_fast_client(&self) -> Result<RpcClient, anyhow::Error> {
-      let url = "https://rpc.flashbots.net/fast";
-      get_http_client(
-         &url,
-         retry_layer(100, 10, 1000),
-         throttle_layer(5),
-      )
-   }
-
-   pub async fn get_client_with_id(&self, id: u64) -> Result<RpcClient, anyhow::Error> {
-      let rpc = self.providers.get_rpc(id)?;
-      // for default rpcs we use a throttled client
-      let (retry, throttle) = if rpc.default {
-         (retry_layer(10, 1000, 100), throttle_layer(5))
-      } else {
-         (retry_layer(100, 10, 1000), throttle_layer(1000))
-      };
-      get_client(&rpc.url, retry, throttle).await
-   }
 }
 
 #[cfg(test)]
@@ -935,26 +965,37 @@ mod tests {
    };
 
    #[tokio::test]
-   async fn test_base_fee() {
-      let ctx = ZeusContext::new();
+   #[should_panic]
+   async fn test_must_panic_if_no_mev_protect_client() {
+      let ctx = ZeusCtx::new();
+      let _ = ctx.get_mev_protect_client(1).await.unwrap();
+   }
 
-      let client = ctx.get_client_with_id(1).await.unwrap();
+   #[tokio::test]
+   async fn test_base_fee() {
+      let ctx = ZeusCtx::new();
+
+      ctx.write(|ctx| {
+         ctx.providers.all_working();
+      });
+
+      let client = ctx.get_client(1).await.unwrap();
       let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
       let base_fee = block.header.base_fee_per_gas.unwrap();
       let fee = format_units(base_fee, "gwei").unwrap();
       println!("Ethereum base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(10).await.unwrap();
+      let client = ctx.get_client(10).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Optimism base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(56).await.unwrap();
+      let client = ctx.get_client(56).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("BSC base fee: {}", fee);
 
-      let client = ctx.get_client_with_id(42161).await.unwrap();
+      let client = ctx.get_client(42161).await.unwrap();
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Arbitrum base fee: {}", fee);
@@ -962,10 +1003,10 @@ mod tests {
 
    #[tokio::test]
    async fn test_priority_fee_suggestion() {
-      let ctx = ZeusContext::new();
+      let ctx = ZeusCtx::new();
 
       for chain in SUPPORTED_CHAINS {
-         let client = ctx.get_client_with_id(chain).await.unwrap();
+         let client = ctx.get_client(chain).await.unwrap();
          let fee = client.get_max_priority_fee_per_gas().await.unwrap();
          let fee = format_units(U256::from(fee), "gwei").unwrap();
          println!("Suggested Fee on {}: {}", chain, fee)

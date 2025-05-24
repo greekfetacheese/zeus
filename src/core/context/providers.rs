@@ -6,9 +6,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
    currency::ERC20Token,
-   utils::{
-      client,
-   },
+   utils::client,
 };
 
 const PROVIDERS_FILE: &str = "providers.json";
@@ -31,11 +29,18 @@ pub struct Rpc {
    pub enabled: bool,
    pub working: bool,
    pub archive_node: bool,
+   pub mev_protect: bool,
    pub latency: Option<Duration>,
 }
 
 impl Rpc {
-   pub fn new(url: impl Into<String>, chain_id: u64, default: bool, enabled: bool) -> Self {
+   pub fn new(
+      url: impl Into<String>,
+      chain_id: u64,
+      default: bool,
+      enabled: bool,
+      mev_protect: bool,
+   ) -> Self {
       Self {
          url: url.into(),
          chain_id,
@@ -43,6 +48,7 @@ impl Rpc {
          enabled,
          working: false,
          archive_node: false,
+         mev_protect,
          latency: None,
       }
    }
@@ -97,25 +103,13 @@ impl RpcProviders {
       Ok(())
    }
 
-   pub fn is_defaults_disabled(&self, chain: u64) -> bool {
-      self.defaults_disabled.get(&chain).cloned().unwrap_or(false)
-   }
-
-   pub fn disable_defaults(&mut self, chain: u64) {
-      // only disable the defaults if there is an rpc added by the user
-      if let Ok(_) = self.get_fastest_user(chain) {
-         for rpc in self.rpcs.get_mut(&chain).unwrap() {
-            rpc.enabled = false;
-         }
-         self.defaults_disabled.insert(chain, true);
-      }
-   }
-
-   pub fn enable_defaults(&mut self, chain: u64) {
-      for rpc in self.rpcs.get_mut(&chain).unwrap() {
-         rpc.enabled = true;
-      }
-      self.defaults_disabled.remove(&chain);
+   #[cfg(test)]
+   pub fn all_working(&mut self) {
+      self.rpcs.iter_mut().for_each(|(_, rpcs)| {
+         rpcs.iter_mut().for_each(|rpc| {
+            rpc.working = true;
+         })
+      });
    }
 
    pub fn reset_latency(&mut self) {
@@ -135,8 +129,10 @@ impl RpcProviders {
    }
 
    /// Add a user-provided RPC for a chain
+   ///
+   /// By default we assume is not mev protect
    pub fn add_user_rpc(&mut self, chain_id: u64, url: String) {
-      let new_rpc = Rpc::new(url.clone(), chain_id, false, true);
+      let new_rpc = Rpc::new(url.clone(), chain_id, false, true, false);
       let rpcs = self.get_all(chain_id);
       if rpcs.iter().any(|rpc| rpc.url == url) {
          return;
@@ -165,102 +161,16 @@ impl RpcProviders {
          .find(|rpc| rpc.url == url)
    }
 
-   /// Get the fastest RPC for a chain from the default list
-   pub fn get_fastest(&self, chain_id: u64) -> Result<Rpc, anyhow::Error> {
-      let rpcs = self
-         .rpcs
-         .get(&chain_id)
-         .ok_or_else(|| anyhow!("No RPCs found for chain id {}", chain_id))?;
-      let mut sorted_rpcs = rpcs
-         .iter()
-         .filter(|rpc| rpc.default && rpc.enabled && rpc.working)
-         .collect::<Vec<_>>();
-      sorted_rpcs.sort_by(|a, b| {
-         // Sort by latency, treating unmeasured (None) as slower than measured
-         a.latency
-            .unwrap_or(Duration::MAX)
-            .cmp(&b.latency.unwrap_or(Duration::MAX))
-      });
-      sorted_rpcs
-         .first()
-         .cloned()
-         .ok_or_else(|| anyhow!("No RPCs available for chain id {}", chain_id))
-         .cloned()
-   }
-
-   /// Get the fastest RPC added by the user for a chain
-   pub fn get_fastest_user(&self, chain_id: u64) -> Result<Rpc, anyhow::Error> {
-      let rpcs = self
-         .rpcs
-         .get(&chain_id)
-         .ok_or_else(|| anyhow!("No RPCs available for chain id {}", chain_id))?;
-      let mut sorted_rpcs = rpcs
-         .iter()
-         .filter(|rpc| !rpc.default && rpc.enabled && rpc.working)
-         .collect::<Vec<_>>();
-      sorted_rpcs.sort_by(|a, b| {
-         a.latency
-            .unwrap_or(Duration::MAX)
-            .cmp(&b.latency.unwrap_or(Duration::MAX))
-      });
-      sorted_rpcs
-         .first()
-         .cloned()
-         .ok_or_else(|| anyhow!("No RPCs available for chain id {}", chain_id))
-         .cloned()
-   }
-
-   /// Get an RPC by its chain id
-   ///
-   /// If the user has added a custom RPC for the chain, it will be returned first else the fastest default RPC will be returned
-   pub fn get_rpc(&self, chain_id: u64) -> Result<Rpc, anyhow::Error> {
-      if let Ok(rpc) = self.get_fastest_user(chain_id) {
-         Ok(rpc)
-      } else {
-         self.get_fastest(chain_id)
-      }
-   }
-
    /// Get all RPCs for a chain from fastest to slowest
-   /// 
-   /// Prioritizes the user's entered RPCs over the default ones even if they are slower
    pub fn get_all_fastest(&self, chain_id: u64) -> Vec<Rpc> {
       let mut rpcs = self.get_all(chain_id);
       rpcs.sort_by(|a, b| {
-         let a_is_default = a.default;
-         let b_is_default = b.default;
-
-         if a_is_default != b_is_default {
-            return if a_is_default {
-               std::cmp::Ordering::Greater
-            } else {
-               std::cmp::Ordering::Less
-            };
-         }
-
          a.latency
             .unwrap_or(Duration::default())
             .partial_cmp(&b.latency.unwrap_or(Duration::default()))
             .unwrap_or(std::cmp::Ordering::Equal)
       });
       rpcs
-   }
-
-   pub fn get_all_fastest_user(&self, chain_id: u64) -> Vec<Rpc> {
-      let rpcs = self.get_all_fastest(chain_id);
-      let mut user_rpcs = Vec::new();
-      for rpc in &rpcs {
-         if !rpc.default {
-            user_rpcs.push(rpc.clone());
-         }
-      }
-      user_rpcs.sort_by(|a, b| {
-         a.latency
-            .unwrap_or(Duration::default())
-            .partial_cmp(&b.latency.unwrap_or(Duration::default()))
-            .unwrap_or(std::cmp::Ordering::Equal)
-      });
-      user_rpcs
    }
 
    /// Get all RPCs for a chain
@@ -288,25 +198,82 @@ impl Default for RpcProviders {
 
        */
 
+      let not_mev_protect = false;
+      let mev_protect = true;
+
       rpcs.insert(
          1,
          vec![
-            Rpc::new("wss://eth.merkle.io", 1, true, true),
-            Rpc::new("wss://ethereum-rpc.publicnode.com", 1, true, true),
-            Rpc::new("wss://mainnet.gateway.tenderly.co", 1, true, true),
-            Rpc::new("wss://0xrpc.io/eth", 1, true, true),
-            Rpc::new("https://reth-ethereum.ithaca.xyz/rpc", 1, true, true),
-            Rpc::new("https://rpc.payload.de", 1, true, true),
-            Rpc::new("https://eth.merkle.io", 1, true, true),
+            Rpc::new(
+               "wss://eth.merkle.io",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "wss://ethereum-rpc.publicnode.com",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "wss://mainnet.gateway.tenderly.co",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "wss://0xrpc.io/eth",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://reth-ethereum.ithaca.xyz/rpc",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://rpc.payload.de",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://eth.merkle.io",
+               1,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "https://ethereum-rpc.publicnode.com",
                1,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("https://rpc.mevblocker.io", 1, true, true),
-            Rpc::new("https://rpc.flashbots.net", 1, true, true),
-            Rpc::new("https://rpc.flashbots.net/fast", 1, true, true),
+            Rpc::new(
+               "https://rpc.mevblocker.io",
+               1,
+               true,
+               true,
+               mev_protect,
+            ),
+            Rpc::new(
+               "https://rpc.flashbots.net/fast",
+               1,
+               true,
+               true,
+               mev_protect,
+            ),
          ],
       );
 
@@ -326,29 +293,57 @@ impl Default for RpcProviders {
                10,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("wss://optimism.drpc.org", 10, true, true),
+            Rpc::new(
+               "wss://optimism.drpc.org",
+               10,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "wss://optimism-rpc.publicnode.com",
                10,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("wss://0xrpc.io/op", 10, true, true),
+            Rpc::new(
+               "wss://0xrpc.io/op",
+               10,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "https://optimism.blockpi.network/v1/rpc/public",
                10,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("https://mainnet.optimism.io", 10, true, true),
+            Rpc::new(
+               "https://mainnet.optimism.io",
+               10,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "https://optimism-rpc.publicnode.com",
                10,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("https://optimism.drpc.org", 10, true, true),
+            Rpc::new(
+               "https://optimism.drpc.org",
+               10,
+               true,
+               true,
+               not_mev_protect,
+            ),
          ],
       );
 
@@ -365,10 +360,34 @@ impl Default for RpcProviders {
       rpcs.insert(
          56,
          vec![
-            Rpc::new("wss://bsc-rpc.publicnode.com", 56, true, true),
-            Rpc::new("wss://0xrpc.io/bnb", 56, true, true),
-            Rpc::new("https://bsc.blockrazor.xyz", 56, true, true),
-            Rpc::new("https://rpc-bsc.48.club", 56, true, true),
+            Rpc::new(
+               "wss://bsc-rpc.publicnode.com",
+               56,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "wss://0xrpc.io/bnb",
+               56,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://bsc.blockrazor.xyz",
+               56,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://rpc-bsc.48.club",
+               56,
+               true,
+               true,
+               not_mev_protect,
+            ),
          ],
       );
 
@@ -395,21 +414,47 @@ impl Default for RpcProviders {
       rpcs.insert(
          8453,
          vec![
-            Rpc::new("wss://base-rpc.publicnode.com", 8453, true, true),
-            Rpc::new("wss://0xrpc.io/base", 8453, true, true),
+            Rpc::new(
+               "wss://base-rpc.publicnode.com",
+               8453,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "wss://0xrpc.io/base",
+               8453,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "wss://base.gateway.tenderly.co",
                8453,
                true,
                false,
+               not_mev_protect,
             ),
-            Rpc::new("https://mainnet.base.org", 8453, true, true),
-            Rpc::new("https://1rpc.io/base", 8453, true, true),
+            Rpc::new(
+               "https://mainnet.base.org",
+               8453,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://1rpc.io/base",
+               8453,
+               true,
+               true,
+               not_mev_protect,
+            ),
             Rpc::new(
                "https://base-rpc.publicnode.com",
                8453,
                true,
                true,
+               not_mev_protect,
             ),
          ],
       );
@@ -436,10 +481,29 @@ impl Default for RpcProviders {
                42161,
                true,
                true,
+               not_mev_protect,
             ),
-            Rpc::new("https://arbitrum.meowrpc.com", 42161, true, true),
-            Rpc::new("https://arb1.arbitrum.io/rpc", 42161, true, true),
-            Rpc::new("https://1rpc.io/arb", 42161, true, true),
+            Rpc::new(
+               "https://arbitrum.meowrpc.com",
+               42161,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://arb1.arbitrum.io/rpc",
+               42161,
+               true,
+               true,
+               not_mev_protect,
+            ),
+            Rpc::new(
+               "https://1rpc.io/arb",
+               42161,
+               true,
+               true,
+               not_mev_protect,
+            ),
          ],
       );
 
@@ -450,12 +514,10 @@ impl Default for RpcProviders {
    }
 }
 
-
-
 /// Try to determine if the given RPC is working
-/// 
+///
 /// Eg. Some free endpoints don't support `eth_getLogs` in the free tier
-/// 
+///
 /// Returns `true` if the RPC is archive node
 pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
    let retry = client::retry_layer(
@@ -467,14 +529,39 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
    let client = client::get_client(&rpc.url, retry, throttle).await?;
 
    let latest_block = client.get_block_number().await?;
+   let block_to_query = latest_block - 100_000;
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
+
+   // For MEV protect RPCs just check if its archive or not
+   if rpc.mev_protect {
+      let old_block = client
+         .get_block(BlockId::Number(BlockNumberOrTag::Number(
+            block_to_query,
+         )))
+         .await;
+
+      match old_block {
+         Ok(old_block) => {
+            if old_block.is_some() {
+               tracing::debug!("{} is Archive Node", rpc.url);
+              return Ok(true)
+            } else {
+               tracing::debug!("{} is NOT Archive Node", rpc.url);
+               return Ok(false)
+            }
+         }
+         Err(e) => {
+            tracing::debug!("Error getting historical block: {:?}", e);
+           return Ok(false)
+         }
+      }
+   }
 
    // Some providers do require an address to set for the filter
    let filter = Filter::new()
       .address(weth.address)
       .from_block(BlockNumberOrTag::Number(latest_block));
    let _ = client.get_logs(&filter).await?;
-
 
    // request the latest block number 25 times concurrently
    // if the throttle and retry layers are working correctly
@@ -493,8 +580,13 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
       task.await??;
    }
 
-   let block_to_query = latest_block - 100_000;
-   let old_block = client.get_block(BlockId::Number(BlockNumberOrTag::Number(block_to_query))).await;
+   // Query an old block to determine if the RPC is archive or not
+   // Since there is no official api for that this is an educated guess
+   let old_block = client
+      .get_block(BlockId::Number(BlockNumberOrTag::Number(
+         block_to_query,
+      )))
+      .await;
 
    match old_block {
       Ok(old_block) => {
