@@ -9,7 +9,7 @@ use utils::NumericValue;
 /// An estimate of the gas cost for a swap
 const BASE_GAS: u64 = 120_000;
 /// An estimate of the gas cost for a hop (intermidiate swaps always cost lower gas)
-const HOP_GAS: u64 = 60_000;
+const HOP_GAS: u64 = 80_000;
 
 #[derive(Clone)]
 pub struct Route {
@@ -232,10 +232,9 @@ pub fn get_quote(
    currency_out_price: NumericValue,
    base_fee: u64,
    priority_fee: U256,
+   max_hops: usize,
+   max_paths: usize,
 ) -> QuoteRoutes {
-   let max_hops = 5; // Max intermediate tokens
-   let max_paths_to_consider = 5; // How many top paths to use for splitting
-
    let relevant_pools = get_relevant_pools(&currency_in, &currency_out, &all_pools);
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter2", "Relevant Pools: {:?}", relevant_pools.len());
    let mut valid_pools = Vec::new();
@@ -284,7 +283,7 @@ pub fn get_quote(
       return QuoteRoutes::default();
    }
 
-   let top_paths = select_unique_top_paths(ranked_paths, max_paths_to_consider);
+   let top_paths = select_unique_top_paths(ranked_paths, max_paths);
    let allocations = optimize_allocation_iterative(amount_to_swap, &top_paths);
 
    let final_routes = build_final_routes(
@@ -467,8 +466,8 @@ fn simulate_path_with_pools(
 /// Estimate gas cost for a route based on its pools.
 fn estimate_gas_cost_for_route(
    eth_price: &NumericValue,
-   base_fee: u64,      // Includes base + priority now conceptually
-   priority_fee: U256, // Maybe rename base_fee -> gas_price
+   base_fee: u64,
+   priority_fee: U256,
    pools: &[AnyUniswapPool],
 ) -> (NumericValue, u64) {
    if pools.is_empty() {
@@ -478,11 +477,11 @@ fn estimate_gas_cost_for_route(
    let total_gas = BASE_GAS + HOP_GAS * (num_hops as u64 - 1); // Base for first, hop for subsequent
 
    let total_gas_used_u256 = U256::from(total_gas);
-   let gas_price_wei = U256::from(base_fee) + priority_fee; // Total price per gas unit
+   let gas_price_wei = U256::from(base_fee) + priority_fee;
 
    let cost_in_wei = gas_price_wei * total_gas_used_u256;
 
-   let cost_eth = NumericValue::format_wei(cost_in_wei, 18); // ETH has 18 decimals
+   let cost_eth = NumericValue::format_wei(cost_in_wei, 18);
    let cost_in_usd = NumericValue::value(cost_eth.f64(), eth_price.f64());
    (cost_in_usd, total_gas)
 }
@@ -508,6 +507,7 @@ fn rank_paths(
                None // Discard paths that yield zero output for non-zero input
             } else {
                let (gas_cost_usd, _) = estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, &p.pools);
+               // tracing::info!(target: "zeus_eth::amm::uniswap::quoter2", "Estimated gas cost for path: {:?} -> {:?}: ${}", p.path.first().map(|c|c.symbol()), p.path.last().map(|c|c.symbol()), gas_cost_usd.formatted());
                Some(RankedPath {
                   path: p,
                   simulated_amount_out: simulated_output,

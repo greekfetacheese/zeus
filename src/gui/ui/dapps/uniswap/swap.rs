@@ -2,7 +2,7 @@ use crate::core::ZeusCtx;
 use crate::gui::ui::*;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, Order, RichText, Spinner,
+   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, Order, RichText, Slider, Spinner,
    TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
@@ -62,6 +62,8 @@ impl InOrOut {
 pub struct SwapUi {
    pub open: bool,
    pub settings_open: bool,
+   pub max_hops: usize,
+   pub max_paths: usize,
    pub currency_in: Currency,
    pub currency_out: Currency,
    pub amount_in: String,
@@ -87,6 +89,8 @@ impl SwapUi {
       Self {
          open: false,
          settings_open: false,
+         max_hops: 5,
+         max_paths: 5,
          currency_in,
          currency_out,
          amount_in: "".to_string(),
@@ -472,6 +476,19 @@ impl SwapUi {
                   .show(ui);
             });
 
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
+               ui.add_space(10.0);
+               ui.add(Slider::new(&mut self.max_hops, 1..=10));
+            });
+
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Max Paths").size(theme.text_sizes.normal));
+               ui.add_space(10.0);
+               ui.add(Slider::new(&mut self.max_paths, 1..=10));
+            });
+
+
             ui.vertical_centered(|ui| {
             let btn = Button::new(RichText::new("Close").size(theme.text_sizes.normal));
             if ui.add(btn).clicked() {
@@ -532,7 +549,8 @@ impl SwapUi {
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
-      let pools_to_update = self.pools_to_update(ctx.clone());
+      let currency_in = self.currency_in.clone();
+      let currency_out = self.currency_out.clone();
       tracing::info!("Token to sync pools for: {}", token_out.symbol);
 
       self.syncing_pools = true;
@@ -553,8 +571,9 @@ impl SwapUi {
             gui.swap_ui.pool_data_syncing = true;
          });
 
+         let pools = pools_to_update(ctx2.clone(), currency_in, currency_out);
          match manager
-            .update_state_for_pools(client, chain_id, pools_to_update)
+            .update_state_for_pools(client, chain_id, pools)
             .await
          {
             Ok(_) => {
@@ -572,64 +591,21 @@ impl SwapUi {
             }
          }
 
-         RT.spawn_blocking(move || match ctx2.save_pool_manager() {
-            Ok(_) => {
-               tracing::info!("Pool Manager saved");
-            }
-            Err(e) => {
-               tracing::error!("Error saving pool manager: {:?}", e);
+         RT.spawn_blocking(move || {
+            SHARED_GUI.write(|gui| {
+               gui.swap_ui.get_quote(ctx2.clone());
+            });
+
+            match ctx2.save_pool_manager() {
+               Ok(_) => {
+                  tracing::info!("Pool Manager saved");
+               }
+               Err(e) => {
+                  tracing::error!("Error saving pool manager: {:?}", e);
+               }
             }
          });
       });
-   }
-
-   /// Which pools to update the state for
-   // ! Depending on how much currencies and thus pools we hold this may need an adjustement to reduce the number of pools to update
-   fn pools_to_update(&self, ctx: ZeusCtx) -> Vec<AnyUniswapPool> {
-      let currency_in = if self.currency_in.is_native() {
-         self.currency_in.to_weth_currency()
-      } else {
-         self.currency_in.clone()
-      };
-
-      let currency_out = if self.currency_out.is_native() {
-         self.currency_out.to_weth_currency()
-      } else {
-         self.currency_out.clone()
-      };
-
-      let manager = ctx.pool_manager();
-      let all_pools = manager.get_pools_for_chain(currency_in.chain_id());
-      let mut added_pools = HashSet::new();
-
-      let mut good_pools = Vec::new();
-      for pool in all_pools {
-         // ! Skip V4 pools
-         if pool.dex_kind().is_uniswap_v4() {
-            continue;
-         }
-
-         let involves_in = pool.have(&currency_in);
-         let involves_out = pool.have(&currency_out);
-         let is_base_to_base_connector = pool.currency0().is_base() && pool.currency1().is_base();
-
-         if involves_in || involves_out || is_base_to_base_connector {
-            if !added_pools.contains(&pool.address()) {
-               good_pools.push(pool.clone());
-               added_pools.insert(pool.address());
-            }
-         }
-      }
-
-      if good_pools.is_empty() {
-         tracing::warn!(
-            "No pools found for{}-{}",
-            currency_in.symbol(),
-            currency_out.symbol()
-         );
-      }
-
-      good_pools
    }
 
    fn should_update_pool_state(&self) -> bool {
@@ -668,7 +644,11 @@ impl SwapUi {
          return;
       }
 
-      let pools = self.pools_to_update(ctx.clone());
+      let pools = pools_to_update(
+         ctx.clone(),
+         self.currency_in.clone(),
+         self.currency_out.clone(),
+      );
 
       if pools.is_empty() {
          tracing::warn!(
@@ -725,7 +705,7 @@ impl SwapUi {
       }
    }
 
-   fn get_quote(&mut self, ctx: ZeusCtx) {
+   pub fn get_quote(&mut self, ctx: ZeusCtx) {
       let action = self.action();
       if action == Action::WrapETH || action == Action::UnwrapWETH {
          self.amount_out = self.amount_in.clone();
@@ -751,6 +731,9 @@ impl SwapUi {
       let eth_price = ctx.get_eth_price();
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
+      let max_hops = self.max_hops;
+      let max_paths = self.max_paths;
+
       RT.spawn_blocking(move || {
          let quote = get_quote(
             amount_in.wei2(),
@@ -761,6 +744,8 @@ impl SwapUi {
             currency_out_price,
             base_fee,
             priority_fee.wei2(),
+            max_hops,
+            max_paths,
          );
 
          // tracing::info!("Swap Route Length: {}", quote.swaps_len());
@@ -925,4 +910,57 @@ impl SwapUi {
          }
       });
    }
+}
+
+/// Which pools to update the state for
+// ! Depending on how much currencies and thus pools we hold this may need an adjustement to reduce the number of pools to update
+fn pools_to_update(
+   ctx: ZeusCtx,
+   currency_in: Currency,
+   currency_out: Currency,
+) -> Vec<AnyUniswapPool> {
+   let currency_in = if currency_in.is_native() {
+      currency_in.to_weth_currency()
+   } else {
+      currency_in.clone()
+   };
+
+   let currency_out = if currency_out.is_native() {
+      currency_out.to_weth_currency()
+   } else {
+      currency_out.clone()
+   };
+
+   let manager = ctx.pool_manager();
+   let all_pools = manager.get_pools_for_chain(currency_in.chain_id());
+   let mut added_pools = HashSet::new();
+
+   let mut good_pools = Vec::new();
+   for pool in all_pools {
+      // ! Skip V4 pools
+      if pool.dex_kind().is_uniswap_v4() {
+         continue;
+      }
+
+      let involves_in = pool.have(&currency_in);
+      let involves_out = pool.have(&currency_out);
+      let is_base_to_base_connector = pool.currency0().is_base() && pool.currency1().is_base();
+
+      if involves_in || involves_out || is_base_to_base_connector {
+         if !added_pools.contains(&pool.address()) {
+            good_pools.push(pool.clone());
+            added_pools.insert(pool.address());
+         }
+      }
+   }
+
+   if good_pools.is_empty() {
+      tracing::warn!(
+         "No pools found for{}-{}",
+         currency_in.symbol(),
+         currency_out.symbol()
+      );
+   }
+
+   good_pools
 }
