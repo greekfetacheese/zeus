@@ -3,5 +3,14 @@ name = "egui-widgets"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-egui = "0.31.0"
+
+[dependencies.zeroize]
+version = "1.8.1"
+
+[dependencies.egui]
+version = "0.31.1"
+
+[dependencies.secure-types]
+#path = "../secure-types"
+git = "https://github.com/greekfetacheese/secure-types.git"
+branch = "master"

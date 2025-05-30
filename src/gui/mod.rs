@@ -53,6 +53,9 @@ pub struct GUI {
 
    pub ctx: ZeusCtx,
 
+   pub logged_in_state_was_set: bool,
+   pub registered_state_was_set: bool,
+
    pub theme: Theme,
 
    pub chain_selection: ui::panels::top_panel::ChainSelection,
@@ -133,6 +136,8 @@ impl GUI {
       Self {
          egui_ctx,
          ctx: ZeusCtx::new(),
+         logged_in_state_was_set: false,
+         registered_state_was_set: false,
          theme,
          chain_selection,
          wallet_selection,

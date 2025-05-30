@@ -183,7 +183,7 @@ where
    let need_to_wrap_eth = currency_in.is_native() && !swap_steps[0].pool.dex_kind().is_uniswap_v4();
    let mut need_to_unwrap_weth = currency_out.is_native();
 
-   let owner = signer.borrow().address();
+   let owner = signer.address();
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
    let mut execute_params = ExecuteParams::new();
@@ -242,7 +242,7 @@ where
          );
          let typed_data = parse_typed_data(value.clone())?;
 
-         let signature = signer.borrow().sign_dynamic_typed_data(&typed_data).await?;
+         let signature = signer.to_signer().sign_dynamic_typed_data(&typed_data).await?;
 
          let permit_input = encode_permit2_permit_ur_input(
             token_in.address,

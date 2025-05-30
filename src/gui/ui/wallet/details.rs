@@ -1,7 +1,9 @@
 use crate::core::{WalletInfo, ZeusCtx, utils::RT};
+use crate::assets::icons::Icons;
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
+use std::sync::Arc;
 
 const VIEW_KEY_MSG: &str =
    "The key has been copied! In 60 seconds it will be cleared from the clipboard.";
@@ -28,7 +30,8 @@ impl KeyExporter {
    pub fn export_key(&mut self, zeus_ctx: ZeusCtx, ctx: egui::Context) {
       let info = self.wallet.take().unwrap();
       let wallet = zeus_ctx.get_wallet(info.address);
-      ctx.copy_text(wallet.key_string().to_string());
+      let key_string = wallet.key_string().str_scope(|key| key.to_string());
+      ctx.copy_text(key_string);
       self.key_copied_time = Some(std::time::Instant::now());
       tracing::info!("Key copied to clipboard");
    }
@@ -67,10 +70,10 @@ impl ExportKeyUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new(),
+         credentials_form: CredentialsForm::new().with_text_edit_h_space(0.1),
          verified_credentials: false,
          exporter: KeyExporter::new(),
-         size: (400.0, 300.0),
+         size: (400.0, 250.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -83,11 +86,11 @@ impl ExportKeyUi {
       tracing::info!("ViewKeyUi reset");
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx, theme, ui);
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx, theme, icons, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -101,15 +104,15 @@ impl ExportKeyUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               self.credentials_form.show(theme, ui);
+               self.credentials_form.show(theme, icons, ui);
 
                let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {
@@ -170,20 +173,20 @@ impl DeleteWalletUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new(),
+         credentials_form: CredentialsForm::new().with_text_edit_h_space(0.1),
          verified_credentials: false,
          wallet_to_delete: None,
-         size: (400.0, 300.0),
+         size: (400.0, 250.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, ui);
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
       self.delete_wallet_ui(ctx, theme, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -205,7 +208,7 @@ impl DeleteWalletUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               self.credentials_form.show(theme, ui);
+               self.credentials_form.show(theme, icons, ui);
 
                let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
                if ui.add(button).clicked() {

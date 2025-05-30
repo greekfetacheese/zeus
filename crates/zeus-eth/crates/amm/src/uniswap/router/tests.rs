@@ -69,7 +69,7 @@ mod tests {
 
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
       println!("Alice address: {:?}", alice.address);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
       let usdc_balance = NumericValue::parse_to_wei("10000", usdc.decimals());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -196,7 +196,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
       let weth_balance = NumericValue::parse_to_wei("10", currency_in.decimals());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -226,7 +226,7 @@ mod tests {
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -329,7 +329,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
       let weth_balance = NumericValue::parse_to_wei("10", currency_in.decimals());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -359,7 +359,7 @@ mod tests {
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -482,7 +482,7 @@ mod tests {
       let weth = ERC20Token::weth();
 
       let alice = DummyAccount::new(AccountType::EOA, weth_balance.wei2());
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       // insert Alice into the fork factory
@@ -524,11 +524,8 @@ mod tests {
       );
       let typed_data = parse_typed_data(value).unwrap();
 
-      let signature = signer
-         .borrow()
-         .sign_dynamic_typed_data(&typed_data)
-         .await
-         .unwrap();
+      let signer2 = signer.to_signer();
+      let signature = signer2.sign_dynamic_typed_data(&typed_data).await.unwrap();
 
       let permit_input = abi::permit::encode_permit2_permit_ur_input(
          weth.address,
@@ -597,7 +594,7 @@ mod tests {
 
       // Create Alice with 1 ETH balance
       let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -636,7 +633,7 @@ mod tests {
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -704,7 +701,7 @@ mod tests {
       let weth_balance = NumericValue::parse_to_wei("10", 18);
       // Create Alice with 1 ETH balance
       let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -752,7 +749,7 @@ mod tests {
          weth.clone(),
          uni.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -834,7 +831,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -862,7 +859,7 @@ mod tests {
          weth.clone(),
          usdc.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -952,7 +949,7 @@ mod tests {
       let eth_balance = NumericValue::parse_to_wei("10", eth.decimals());
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -977,7 +974,7 @@ mod tests {
          eth.clone(),
          uni.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1050,7 +1047,7 @@ mod tests {
          eth.clone(),
          usdc.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1114,7 +1111,7 @@ mod tests {
       let eth_balance = NumericValue::parse_to_wei("10", eth.decimals());
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -1138,7 +1135,7 @@ mod tests {
          eth.clone(),
          uni.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1209,7 +1206,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -1236,7 +1233,7 @@ mod tests {
          uni.clone(),
          eth.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1321,7 +1318,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -1348,7 +1345,7 @@ mod tests {
          usdc.clone(),
          wbtc.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1427,7 +1424,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -1454,7 +1451,7 @@ mod tests {
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1501,7 +1498,11 @@ mod tests {
 
       let state = evm.balance(alice.address).unwrap();
       let balance = NumericValue::format_wei(state.data, currency_out.decimals());
-      println!("Alice {} Balance: {}", currency_out.symbol(), balance.formatted());
+      println!(
+         "Alice {} Balance: {}",
+         currency_out.symbol(),
+         balance.formatted()
+      );
       assert!(balance.wei2() >= amount_out.wei2());
    }
 
@@ -1534,7 +1535,7 @@ mod tests {
 
       // Create Alice
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
@@ -1561,7 +1562,7 @@ mod tests {
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
-         signer.borrow().address(),
+         signer.address(),
          None,
       )
       .await
@@ -1608,7 +1609,11 @@ mod tests {
 
       let balance = simulate::erc20_balance(&mut evm, currency_out.address(), alice.address).unwrap();
       let balance = NumericValue::format_wei(balance, currency_out.decimals());
-      println!("Alice {} Balance: {}", currency_out.symbol(), balance.formatted());
+      println!(
+         "Alice {} Balance: {}",
+         currency_out.symbol(),
+         balance.formatted()
+      );
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1672,7 +1677,7 @@ mod tests {
       );
 
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
       let usdc_balance = NumericValue::parse_to_wei("10000", usdc.decimals());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -1840,7 +1845,7 @@ mod tests {
       );
 
       let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::new(alice.key.clone());
+      let signer = SecureSigner::from(alice.key.clone());
       let weth_balance = NumericValue::parse_to_wei("1", weth.decimals());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);

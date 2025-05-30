@@ -5,3 +5,5 @@ down https://www.flaticon.com/free-icon-font/down_10483521
 red-circle.png https://icons8.com/icon/60362/filled-circle
 green-circle.png https://icons8.com/icon/60362/filled-circle
 swap.png https://icons8.com/icon/24864/swap
+view.png https://icons8.com/icon/7877/eye
+hide.png https://icons8.com/icon/34226/hide

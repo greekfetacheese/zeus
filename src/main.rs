@@ -11,6 +11,11 @@ pub mod server;
 use core::utils::trace::*;
 use std::panic;
 
+// use mimalloc::MiMalloc;
+
+// #[global_allocator]
+// static GLOBAL: MiMalloc = MiMalloc;
+
 fn main() -> eframe::Result {
    panic::set_hook(Box::new(|panic_info| {
       let message = panic_info

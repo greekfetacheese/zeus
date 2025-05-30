@@ -1,0 +1,23 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies.egui-widgets]
+path = "../egui-widgets"
+
+[dependencies.secure-types]
+#path = "../secure-types"
+git = "https://github.com/greekfetacheese/secure-types.git"
+branch = "master"
+
+[dependencies.egui]
+version = "0.31.1"
+
+[dependencies.eframe]
+version = "0.31.0"
+
+
+[[bin]]
+name = "secure_string"
+path = "src/secure_string.rs"

@@ -461,7 +461,7 @@ pub async fn sign_message(
 
    let wallet = ctx.current_wallet();
    let signer = ctx.get_wallet(wallet.address).key;
-   let signature = signer.borrow().sign_dynamic_typed_data(&typed_data).await?;
+   let signature = signer.to_signer().sign_dynamic_typed_data(&typed_data).await?;
 
    Ok(signature)
 }

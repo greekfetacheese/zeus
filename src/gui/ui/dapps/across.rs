@@ -619,7 +619,7 @@ impl AcrossBridge {
 
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).key;
-      let depositor = signer.borrow().address();
+      let depositor = signer.address();
       let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
 
       let cache = cache.unwrap();

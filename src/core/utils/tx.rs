@@ -8,7 +8,7 @@ use zeus_eth::{
    alloy_rpc_types::{TransactionReceipt, TransactionRequest},
    types::ChainId,
    utils::NumericValue,
-   wallet::{SecureSigner, SecureWallet},
+   wallet::SecureSigner,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -299,8 +299,9 @@ where
    P: Provider<Ethereum> + Clone + 'static,
 {
    let tx = legacy_or_eip1559(params.clone());
-   let wallet = SecureWallet::from(params.signer.clone());
-   let tx_envelope = tx.clone().build(wallet.borrow()).await?;
+   let wallet = params.signer.to_wallet();
+   let tx_envelope = tx.clone().build(&wallet).await?;
+   drop(wallet);
 
    let time = std::time::Instant::now();
    let receipt = client
@@ -321,7 +322,7 @@ pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    // Eip1559
    if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
       return TransactionRequest::default()
-         .with_from(params.signer.borrow().address())
+         .with_from(params.signer.address())
          .with_to(params.transcact_to)
          .with_chain_id(params.chain.id())
          .with_value(params.value)
@@ -333,7 +334,7 @@ pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
    } else {
       // Legacy
       return TransactionRequest::default()
-         .with_from(params.signer.borrow().address())
+         .with_from(params.signer.address())
          .with_to(params.transcact_to)
          .with_value(params.value)
          .with_nonce(params.nonce)

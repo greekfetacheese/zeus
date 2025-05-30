@@ -305,9 +305,8 @@ where
       let task = tokio::spawn(async move {
          let _permit = semaphore.acquire().await?;
          let fetched_pools = sync_pools_from_log_batch(client, chain_id, dex, logs).await?;
-         tracing::info!(target: "zeus_eth::amm::sync", "Synced {} pools", fetched_pools.len());
          for pool in &fetched_pools {
-         tracing::info!(target: "zeus_eth::amm::sync", "Synced pool for {}-{}", pool.currency0().symbol(), pool.currency1().symbol());
+         tracing::debug!(target: "zeus_eth::amm::sync", "Synced pool for {}-{} ChainId: {}", pool.currency0().symbol(), pool.currency1().symbol(), chain_id);
          }
          pools.lock().await.extend(fetched_pools);
          Ok(())
@@ -324,7 +323,7 @@ where
 
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
    let checkpoint = Checkpoint::new(chain_id, synced_block, dex, pools.len());
-   tracing::info!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on chain id {}", pools.len(), dex.to_str(), chain_id);
+   tracing::info!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.to_str(), chain_id);
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)
 }

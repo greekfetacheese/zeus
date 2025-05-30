@@ -39,6 +39,14 @@ impl Account {
       &self.wallets
    }
 
+   pub fn credentials_mut(&mut self) -> &mut Credentials {
+      &mut self.credentials
+   }
+
+   pub fn wallets_mut(&mut self) -> &mut Vec<Wallet> {
+      &mut self.wallets
+   }
+
    pub fn set_credentials(&mut self, credentials: Credentials) {
       self.credentials = credentials;
    }
@@ -136,7 +144,7 @@ impl Account {
       self
          .wallets
          .iter()
-         .any(|w| &w.key.borrow().address() == &address)
+         .any(|w| &w.key.address() == &address)
    }
 
    /// Encrypt this account and return the encrypted data
@@ -184,7 +192,9 @@ impl Account {
 
    /// Load the account from the decrypted data
    pub fn load(&mut self, decrypted_data: SecureBytes) -> Result<(), anyhow::Error> {
-      let account: Account = serde_json::from_slice(decrypted_data.borrow())?;
+      let account: Account = decrypted_data.slice_scope(|slice| {
+         serde_json::from_slice(slice)
+      })?;
       self.wallets = account.wallets;
       self.current_wallet = account.current_wallet;
       Ok(())
@@ -268,8 +278,13 @@ mod tests {
       let key_1 = recovered_wallet_1.key_string();
       let key_2 = recovered_wallet_2.key_string();
 
-      assert_eq!(key_1, original_key1);
-      assert_eq!(key_2, original_key2);
+      let key_1_string = key_1.str_scope(|key| key.to_string());
+      let key_2_string = key_2.str_scope(|key| key.to_string());
+      let original_key1_string = original_key1.str_scope(|key| key.to_string());
+      let original_key2_string = original_key2.str_scope(|key| key.to_string());
+
+      assert_eq!(key_1_string, original_key1_string);
+      assert_eq!(key_2_string, original_key2_string);
 
       fs::remove_file("account_test.data").unwrap();
    }

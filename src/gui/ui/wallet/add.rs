@@ -6,6 +6,7 @@ use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2,
 };
+use egui_widgets::SecureTextEdit;
 use egui_theme::{Theme, utils::*};
 use secure_types::SecureString;
 
@@ -73,15 +74,13 @@ impl ImportWallet {
                };
 
                ui.label(RichText::new(text).size(theme.text_sizes.normal));
-               // ! Key still remains in the buffer
-               self.key_or_phrase.secure_mut(|imported_key| {
-                  let text_edit = TextEdit::singleline(imported_key)
+               self.key_or_phrase.mut_scope(|imported_key| {
+                  let text_edit = SecureTextEdit::singleline(imported_key)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .margin(Margin::same(10))
                      .min_size(size)
                      .password(true);
-                  let mut output = text_edit.show(ui);
-                  output.state.clear_undoer();
+                  text_edit.show(ui);
                });
 
                // Import Button

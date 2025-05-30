@@ -51,8 +51,8 @@ impl WalletUi {
 
       self.main_ui(ctx.clone(), theme, icons.clone(), ui);
       self.add_wallet_ui.show(ctx.clone(), theme, ui);
-      self.export_key_ui.show(ctx.clone(), theme, ui);
-      self.delete_wallet_ui.show(ctx.clone(), theme, ui);
+      self.export_key_ui.show(ctx.clone(), theme, icons.clone(), ui);
+      self.delete_wallet_ui.show(ctx.clone(), theme, icons, ui);
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.

@@ -95,6 +95,10 @@ pub struct MiscIcons {
    pub red_circle: TextureHandle,
    pub green_circle: TextureHandle,
    pub swap: TextureHandle,
+   pub view: TextureHandle,
+   pub view_light: TextureHandle,
+   pub hide: TextureHandle,
+   pub hide_light: TextureHandle,
 }
 
 impl Icons {
@@ -138,6 +142,10 @@ impl Icons {
       let red_circle = load_and_resize_image(include_bytes!("misc/red-circle.png"), 16, 16)?;
       let green_circle = load_and_resize_image(include_bytes!("misc/green-circle.png"), 16, 16)?;
       let swap = load_and_resize_image(include_bytes!("misc/swap.png"), 24, 24)?;
+      let view = load_and_resize_image(include_bytes!("misc/view.png"), 24, 24)?;
+      let view_light = load_and_resize_image(include_bytes!("misc/view-light.png"), 24, 24)?;
+      let hide = load_and_resize_image(include_bytes!("misc/hide.png"), 24, 24)?;
+      let hide_light = load_and_resize_image(include_bytes!("misc/hide-light.png"), 24, 24)?;
       let texture_options = TextureOptions::default();
 
       let chain_icons = ChainIcons {
@@ -180,6 +188,10 @@ impl Icons {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
          green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
          swap: ctx.load_texture("swap", swap, texture_options),
+         view: ctx.load_texture("view", view, texture_options),
+         hide: ctx.load_texture("hide", hide, texture_options),
+         view_light: ctx.load_texture("view_light", view_light, texture_options),
+         hide_light: ctx.load_texture("hide_light", hide_light, texture_options),
       };
 
       Ok(Self {
@@ -350,6 +362,22 @@ impl Icons {
 
    pub fn swap(&self) -> Image<'static> {
       Image::new(&self.misc.swap).sense(Sense::click())
+   }
+
+   pub fn view(&self) -> Image<'static> {
+      Image::new(&self.misc.view).sense(Sense::click())
+   }
+
+   pub fn hide(&self) -> Image<'static> {
+      Image::new(&self.misc.hide).sense(Sense::click())
+   }
+
+   pub fn view_light(&self) -> Image<'static> {
+      Image::new(&self.misc.view_light).sense(Sense::click())
+   }
+
+   pub fn hide_light(&self) -> Image<'static> {
+      Image::new(&self.misc.hide_light).sense(Sense::click())
    }
 }
 

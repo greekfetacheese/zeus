@@ -60,7 +60,7 @@ impl ZeusApp {
       if !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-             update::on_startup(ctx_clone).await;
+            update::on_startup(ctx_clone).await;
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
@@ -81,6 +81,13 @@ impl ZeusApp {
          if clear_clipboard {
             ctx.copy_text("".to_string());
          }
+         let zeus_ctx = gui.ctx.clone();
+         zeus_ctx.write_account(|account| {
+            account.credentials_mut().erase();
+            for wallet in account.wallets_mut() {
+               wallet.key.erase();
+            }
+         });
       }
    }
 }

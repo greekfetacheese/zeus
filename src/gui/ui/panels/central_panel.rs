@@ -13,7 +13,7 @@ use std::sync::Arc;
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
    let logged_in = ctx.logged_in();
-   let account = ctx.account_exists();
+   let account_exists = ctx.account_exists();
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
@@ -31,14 +31,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.sign_msg_window.show(theme, icons.clone(), ui);
    gui.ui_testing.show(ctx.clone(), theme, icons.clone(), ui);
 
-   if !account {
-      gui.register.show(ctx.clone(), theme, ui);
+   if !account_exists {
       gui.portofolio.open = false;
-      // ! We could early return but for some reason the whole window becomes transparent
    }
 
-   if account && !logged_in {
-      gui.login.show(ctx.clone(), theme, ui);
+   gui.register.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.login.show(ctx.clone(), theme, icons.clone(), ui);
+
+   if account_exists && !logged_in {
       gui.portofolio.open = false;
    }
 
@@ -88,7 +88,9 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.theme = theme;
       }
    }
+
 }
+
 
 #[allow(dead_code)]
 fn should_show_overlay(gui: &mut GUI) {

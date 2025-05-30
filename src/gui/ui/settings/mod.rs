@@ -39,9 +39,9 @@ impl SettingsUi {
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
          contacts_ui: ContactsUi::new(),
-         credentials: CredentialsForm::new(),
+         credentials: CredentialsForm::new().with_text_edit_h_space(0.1),
          verified_credentials: false,
-         size: (500.0, 400.0),
+         size: (400.0, 250.0),
       }
    }
 
@@ -51,9 +51,10 @@ impl SettingsUi {
       }
 
       let mut main_ui = self.main_ui;
+
       self.main_ui(theme, &mut main_ui, ui);
       self.encryption.show(ctx.clone(), theme, ui);
-      self.change_credentials_ui(ctx.clone(), theme, ui);
+      self.change_credentials_ui(ctx.clone(), theme, icons.clone(), ui);
       self.network.show(
          ctx.clone(),
          theme,
@@ -128,14 +129,19 @@ impl SettingsUi {
          });
    }
 
-   fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let title = if self.verified_credentials {
          "New Credentials"
       } else {
          "Verify Your Credentials"
       };
 
-      let mut open = self.credentials.open;
+      let mut open = if self.credentials.additional_frame {
+         true
+      } else {
+         self.credentials.open
+      };
+
       Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
@@ -146,13 +152,18 @@ impl SettingsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            if self.credentials.additional_frame {
+               tracing::info!("Running additional frame");
+               self.credentials.additional_frame = false;
+            }
+
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
 
                // Credentials Not Verified
                if !self.verified_credentials {
                   self.credentials.confrim_password = false;
-                  self.credentials.show(theme, ui);
+                  self.credentials.show(theme, icons.clone(), ui);
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -163,15 +174,17 @@ impl SettingsUi {
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.loading_window.open("Decrypting profile...");
+                           gui.loading_window.open("Decrypting account...");
                         });
 
                         // Verify the credentials by just decrypting the account
                         match account.decrypt(None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
+                                 tracing::info!("Set verified credentials state");
                                  gui.settings.verified_credentials = true;
                                  gui.settings.credentials.erase();
+                                 gui.settings.credentials.additional_frame = true;
                                  gui.loading_window.open = false;
                               });
                            }
@@ -179,7 +192,7 @@ impl SettingsUi {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.open = false;
                                  gui.open_msg_window(
-                                    "Failed to decrypt profile",
+                                    "Failed to decrypt account",
                                     &format!("{}", e),
                                  );
                               });
@@ -191,9 +204,10 @@ impl SettingsUi {
                }
 
                // Credentials Verified
+               // Allow the user to change the credentials
                if self.verified_credentials {
                   self.credentials.confrim_password = true;
-                  self.credentials.show(theme, ui);
+                  self.credentials.show(theme, icons, ui);
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -205,15 +219,17 @@ impl SettingsUi {
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.loading_window.open("Encrypting profile...");
+                           gui.loading_window.open("Encrypting account...");
                         });
 
                         let data = match account.encrypt(None) {
                            Ok(data) => {
                               SHARED_GUI.write(|gui| {
+                                 tracing::info!("Set changed credentials state");
                                  gui.settings.credentials.erase();
                                  gui.settings.verified_credentials = false;
                                  gui.settings.credentials.open = false;
+                                 gui.settings.credentials.additional_frame = true;
                                  gui.settings.main_ui = true;
                                  gui.loading_window.open = false;
                                  gui.open_msg_window("Credentials have been updated", "");
@@ -253,13 +269,18 @@ impl SettingsUi {
                }
             });
          });
-      self.credentials.open = open;
 
-      // reset credentials
-      if !self.credentials.open {
-         self.credentials.erase();
-         self.verified_credentials = false;
-         self.main_ui = true;
+      // If the window was open in the first place
+      if self.credentials.open {
+         if !open {
+            // window closed
+            tracing::info!("Close Settings credentials");
+            self.credentials.erase();
+            self.credentials.open = false;
+            self.credentials.additional_frame = true;
+            self.verified_credentials = false;
+            self.main_ui = true;
+         }
       }
    }
 }
@@ -341,7 +362,7 @@ impl EncryptionSettings {
 
                         RT.spawn_blocking(move || {
                            SHARED_GUI.write(|gui| {
-                              gui.loading_window.open("Encrypting profile...");
+                              gui.loading_window.open("Encrypting account...");
                            });
 
                            // Encrypt the account with the new params

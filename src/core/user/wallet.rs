@@ -25,7 +25,7 @@ impl WalletInfo {
 }
 
 /// User Wallet
-#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Wallet {
    pub info: WalletInfo,
    pub key: SecureSigner,
@@ -46,7 +46,7 @@ impl Wallet {
       let key = SecureSigner::random();
       let info = WalletInfo {
          name,
-         address: key.borrow().address(),
+         address: key.address(),
       };
 
       Self { info, key }
@@ -54,11 +54,11 @@ impl Wallet {
 
    /// Create a new wallet from a given private key
    pub fn new_from_key(name: String, key_str: SecureString) -> Result<Self, anyhow::Error> {
-      let key = PrivateKeySigner::from_str(key_str.borrow())?;
-      let key = SecureSigner::new(key);
+      let key = key_str.str_scope(|key_str| PrivateKeySigner::from_str(key_str))?;
+      let key = SecureSigner::from(key);
       let info = WalletInfo {
          name,
-         address: key.borrow().address(),
+         address: key.address(),
       };
 
       Ok(Self { info, key })
@@ -67,16 +67,17 @@ impl Wallet {
    /// Create a new wallet from a mnemonic phrase
    pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, anyhow::Error> {
       // return a custom error to not expose the phrase in case it just has a typo
+      let phrase_string = phrase.str_scope(|phrase| phrase.to_string());
       let wallet = MnemonicBuilder::<English>::default()
-         .phrase(phrase.to_string())
+         .phrase(phrase_string)
          .index(0)?
          .build()
          .map_err(|_| anyhow!("It seems that the given phrase is invalid"))?;
-      let key = SecureSigner::new(wallet);
+      let key = SecureSigner::from(wallet);
 
       let info = WalletInfo {
          name,
-         address: key.borrow().address(),
+         address: key.address(),
       };
 
       Ok(Self { info, key })
