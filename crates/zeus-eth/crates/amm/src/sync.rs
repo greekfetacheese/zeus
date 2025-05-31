@@ -272,7 +272,7 @@ where
       from_block.unwrap()
    };
 
-   tracing::info!(
+   tracing::trace!(
       target: "zeus_eth::amm::sync",
       "Syncing pools for chain {} DEX: {} from block {}",
       chain_id,
@@ -290,7 +290,7 @@ where
    )
    .await?;
 
-   tracing::info!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.to_str());
+   tracing::trace!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.to_str());
    let semaphore = Arc::new(Semaphore::new(concurrency));
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let pools = Arc::new(Mutex::new(Vec::new()));
@@ -306,7 +306,7 @@ where
          let _permit = semaphore.acquire().await?;
          let fetched_pools = sync_pools_from_log_batch(client, chain_id, dex, logs).await?;
          for pool in &fetched_pools {
-         tracing::debug!(target: "zeus_eth::amm::sync", "Synced pool for {}-{} ChainId: {}", pool.currency0().symbol(), pool.currency1().symbol(), chain_id);
+         tracing::trace!(target: "zeus_eth::amm::sync", "Synced pool for {}-{} ChainId: {}", pool.currency0().symbol(), pool.currency1().symbol(), chain_id);
          }
          pools.lock().await.extend(fetched_pools);
          Ok(())
@@ -323,7 +323,7 @@ where
 
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
    let checkpoint = Checkpoint::new(chain_id, synced_block, dex, pools.len());
-   tracing::info!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.to_str(), chain_id);
+   tracing::trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.to_str(), chain_id);
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)
 }

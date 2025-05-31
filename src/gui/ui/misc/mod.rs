@@ -127,10 +127,9 @@ impl ChainSelect {
          RichText::new(selected_chain.name()).size(theme.text_sizes.normal),
          Some(icon),
       )
-      .text_first(false)
+      .image_on_left()
       .sense(Sense::click());
 
-      // Add the ComboBox with the specified size
       ComboBox::new(self.id, selected_chain)
          .width(self.size.x)
          .show_ui(ui, |ui| {
@@ -142,7 +141,7 @@ impl ChainSelect {
                let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
                let icon = icons.chain_icon(&chain.id());
                let chain_label = Label::new(text.clone(), Some(icon))
-                  .text_first(false)
+                  .image_on_left()
                   .sense(Sense::click());
 
                if ui.add(chain_label).clicked() {
@@ -527,7 +526,7 @@ impl SignMsgWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let text = RichText::new(self.chain.name()).size(theme.text_sizes.normal);
             let icon = icons.chain_icon(&self.chain.id());
-            let label = Label::new(text, Some(icon)).text_first(false);
+            let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
       });

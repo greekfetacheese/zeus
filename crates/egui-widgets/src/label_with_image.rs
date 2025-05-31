@@ -21,7 +21,7 @@ pub struct LabelWithImage {
 
 impl LabelWithImage {
    /// Create a new `LabelWithImage` with text and an optional image.
-   /// Non-interactive by default. Use `.sense()` to make it interactive.
+   /// By default the image is shown after the text
    pub fn new(text: impl Into<WidgetText>, image: Option<Image<'static>>) -> Self {
       Self {
          text: text.into(),
@@ -64,8 +64,9 @@ impl LabelWithImage {
       self
    }
 
-   pub fn text_first(mut self, text_first: bool) -> Self {
-      self.text_first = text_first;
+   /// Show the image first and then the text
+   pub fn image_on_left(mut self) -> Self {
+      self.text_first = false;
       self
    }
 
@@ -171,10 +172,9 @@ impl LabelWithImage {
    }
 }
 
-// Implement Widget for LabelWithImage - This is used when you do `ui.add(label_with_image)`
 impl Widget for LabelWithImage {
    fn ui(self, ui: &mut Ui) -> Response {
-      // --- 1. Calculate Size (Content Only) ---
+      // --- Calculate Size (Content Only) ---
       let available_width = ui.available_width();
       let available_width_for_text = if self.image.is_some() {
          (available_width
@@ -189,11 +189,11 @@ impl Widget for LabelWithImage {
       };
       let (galley, desired_size) = self.galley_and_size(ui, available_width_for_text);
 
-      // --- 2. Allocate Space (Content Size Only) ---
+      // --- Allocate Space (Content Size Only) ---
       let sense = self.sense.unwrap_or(Sense::hover());
       let (rect, response) = ui.allocate_exact_size(desired_size, sense);
 
-      // --- 3. Paint ---
+      // --- Paint ---
       if ui.is_rect_visible(rect) {
          let visuals = if self.sense.is_some() {
             ui.style().interact(&response)
@@ -201,7 +201,7 @@ impl Widget for LabelWithImage {
             ui.style().noninteractive()
          };
 
-         // --- 3a. Paint Background (Only if Interactive) ---
+         // --- Paint Background (Only if Interactive) ---
          let is_interactive = self.sense.is_some();
          if is_interactive
             && (response.hovered() || response.is_pointer_button_down_on() || response.has_focus())
@@ -216,7 +216,7 @@ impl Widget for LabelWithImage {
             ));
          }
 
-         // --- 3b. Layout and Paint Content ---
+         // --- Layout and Paint Content ---
          let (text_pos, image_rect_opt) = layout_content_within_rect(
             ui,
             rect,
@@ -274,7 +274,7 @@ fn layout_content_within_rect(
       let image_final_rect = image.as_ref().map(|_| {
          let image_pos = Pos2::new(
             image_start_x,
-            top_y + (total_content_height - image_size.y) * 0.5, // Center image vertically within its part
+            top_y + (total_content_height - image_size.y) * 0.5,
          );
          Rect::from_min_size(image_pos, image_size)
       });
@@ -286,17 +286,16 @@ fn layout_content_within_rect(
       let image_final_rect = image.as_ref().map(|_| {
          let image_pos = Pos2::new(
             image_start_x,
-            top_y + (total_content_height - image_size.y) * 0.5, // Center image vertically within its part
+            top_y + (total_content_height - image_size.y) * 0.5,
          );
          Rect::from_min_size(image_pos, image_size)
       });
       (text_start_x, image_final_rect)
    };
 
-   // Calculate final text baseline position (align text vertically too)
    let text_pos = Pos2::new(
       text_start_x,
-      top_y + (total_content_height - text_size.y) * 0.5, // Center text vertically within its part
+      top_y + (total_content_height - text_size.y) * 0.5,
    );
 
    (text_pos, image_final_rect)

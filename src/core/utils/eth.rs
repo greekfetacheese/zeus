@@ -157,7 +157,7 @@ pub async fn send_transaction(
 
    let base_fee = base_fee_fut.await?;
    let nonce = nonce_fut.await?;
-   let signer = ctx.get_wallet(from).key;
+   let signer = ctx.get_wallet(from)?.key;
 
    // give a 10% buffer to the gas limit
    let gas_used = tx_summary.gas_used;
@@ -460,7 +460,7 @@ pub async fn sign_message(
    }
 
    let wallet = ctx.current_wallet();
-   let signer = ctx.get_wallet(wallet.address).key;
+   let signer = ctx.get_wallet(wallet.address)?.key;
    let signature = signer.to_signer().sign_dynamic_typed_data(&typed_data).await?;
 
    Ok(signature)
@@ -577,7 +577,7 @@ pub async fn swap(
    let client = ctx.get_client(chain.id()).await?;
    let interact_to = uniswap_v4_universal_router(chain.id())?;
    let block_fut = client.get_block(BlockId::latest());
-   let signer = ctx.get_wallet(from).key;
+   let signer = ctx.get_wallet(from)?.key;
 
    // Simulate the swap to find out the real amount of tokens received in case of a tax or any malicious contract
    let time = std::time::Instant::now();

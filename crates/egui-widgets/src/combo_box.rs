@@ -133,20 +133,17 @@ impl ComboBoxWithImage {
             ScrollArea::vertical()
                .max_height(popup_max_h)
                .show(ui, |ui| {
-                  // Prevent child UIs from shrinking further by default.
-                  // Users can override this within the menu_contents closure if needed.
                   ui.set_width(
                      ui.available_width()
                         .max(button_response.rect.width() - ui.spacing().button_padding.x * 2.0),
-                  ); // Ensure popup is at least as wide as button content area
-                  ui.style_mut().wrap_mode = Some(TextWrapMode::Extend); // Default to extend in popup list items
+                  );
+                  ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
                   menu_contents(ui)
                })
                .inner
          },
       );
 
-      // Wrap button response and popup inner value
       InnerResponse {
          inner,
          response: button_response,
@@ -168,20 +165,16 @@ fn combo_box_with_image_button(
    let icon_spacing = ui.spacing().icon_spacing;
    let minimum_height = ui.spacing().interact_size.y;
 
-   // Determine wrap mode for measurement
    let wrap_mode = wrap_mode_override.unwrap_or_else(|| ui.wrap_mode());
 
    // --- Size Calculation ---
-   // Estimate available width for the label text. If an explicit width is given, use that.
-   // Otherwise, use available width as a starting point for wrapping calculations.
    let available_width = ui.available_width();
    let width_for_layout = if let Some(w) = width_override {
       (w - button_padding.x * 2.0 - icon_width - icon_spacing).max(0.0)
    } else {
-      (available_width - button_padding.x * 2.0 - icon_width - icon_spacing).max(10.0) // Ensure some space
+      (available_width - button_padding.x * 2.0 - icon_width - icon_spacing).max(10.0)
    };
 
-   // Create a temporary copy of the selected item to potentially modify its wrap mode for measurement
    let mut item_for_measurement = selected_item.clone();
    if wrap_mode_override.is_some() {
       item_for_measurement = item_for_measurement.wrap_mode(wrap_mode);
@@ -191,15 +184,13 @@ fn combo_box_with_image_button(
 
    // Calculate the total inner size needed (content + icon)
    let inner_width = content_size.x + icon_spacing + icon_width;
-   let inner_height = content_size.y.max(icon_width); // Icon is typically square
+   let inner_height = content_size.y.max(icon_width);
 
-   // Calculate the final button size
    let mut button_size = Vec2::new(
       inner_width + button_padding.x * 2.0,
       inner_height + button_padding.y * 2.0,
    );
 
-   // Apply minimum height and override width
    button_size.y = button_size.y.at_least(minimum_height);
    if let Some(w) = width_override {
       button_size.x = w;
@@ -243,13 +234,8 @@ fn combo_box_with_image_button(
          Vec2::new(label_rect_width, content_total_rect.height()),
       );
 
-      // Paint the selected LabelWithImage within its designated rect
-      // Use the *original* selected_item here for painting, not the temporary measurement one
       selected_item.paint_content_within_rect(ui, label_rect, &visuals);
 
-      // Determine above/below for icon painting (can simplify if not needed by custom icon)
-      // This check might be slightly inaccurate if the popup size changes drastically,
-      // but it's often good enough for the icon direction.
       let popup_peek_height = 50.0;
       let above_or_below =
          if response.rect.bottom() + popup_peek_height < ui.ctx().screen_rect().bottom() {

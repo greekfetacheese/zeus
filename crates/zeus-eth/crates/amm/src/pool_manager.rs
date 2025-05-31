@@ -15,7 +15,7 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::info;
+use tracing::trace;
 use utils::{NumericValue, batch, price_feed::get_base_token_price};
 
 // Timeout for pool sync in seconds (10 minutes)
@@ -349,7 +349,7 @@ impl PoolManagerHandle {
 
       if sync_v4 {
          let dexes = vec![DexKind::UniswapV4];
-         tracing::info!(target: "zeus_eth::amm::pool_manager", "Syncing V4 pools for chain {}", chain);
+         trace!(target: "zeus_eth::amm::pool_manager", "Syncing V4 pools for chain {}", chain);
          self
             .sync_pools(client.clone(), chain, dexes.clone())
             .await?;
@@ -406,7 +406,7 @@ impl PoolManagerHandle {
             .await;
 
             if let Ok(pool) = pool_res {
-               info!(
+               trace!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}-{} for Chain Id: {}",
                   dex.to_str(),
                   pool.address(),
@@ -486,7 +486,7 @@ impl PoolManagerHandle {
                      *dex,
                   );
 
-                  info!(
+                  trace!(
                      target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
                      dex.to_str(),
                      v3_pool.address,
@@ -521,7 +521,7 @@ impl PoolManagerHandle {
 
       for dex in &dexes {
          if !self.should_sync_v4_pools(chain, *dex) {
-            tracing::info!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain);
+            trace!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain);
             continue;
          }
 

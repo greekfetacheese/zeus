@@ -3,11 +3,11 @@ resolver = "2"
 members = ["crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth", "crates/egui-widgets", "crates/tests"]
 
 [package]
-name = "zeus-desktop"
+name = "zeus"
 authors = ["Michalis Molfetas"]
 version = "0.1.0"
 edition = "2021"
-default-run = "zeus-desktop"
+default-run = "zeus"
 
 [dependencies]
 

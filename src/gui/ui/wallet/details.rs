@@ -29,7 +29,7 @@ impl KeyExporter {
 
    pub fn export_key(&mut self, zeus_ctx: ZeusCtx, ctx: egui::Context) {
       let info = self.wallet.take().unwrap();
-      let wallet = zeus_ctx.get_wallet(info.address);
+      let wallet = zeus_ctx.get_wallet(info.address).unwrap();
       let key_string = wallet.key_string().str_scope(|key| key.to_string());
       ctx.copy_text(key_string);
       self.key_copied_time = Some(std::time::Instant::now());

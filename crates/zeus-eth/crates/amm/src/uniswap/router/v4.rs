@@ -349,7 +349,7 @@ where
    }
 
    let command_bytes = Bytes::from(commands);
-   println!("Command Bytes: {:?}", command_bytes);
+  // println!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
    let calldata = if deadline.is_some() {
       let deadline = deadline.unwrap();

@@ -87,17 +87,15 @@ impl ZeusCtx {
    /// Get the wallet with the given address
    ///
    /// Should only used if we need the wallet's private key
-   ///
-   /// Panics if the wallet is not found
-   pub fn get_wallet(&self, address: Address) -> Wallet {
+   pub fn get_wallet(&self, address: Address) -> Result<Wallet, anyhow::Error> {
       self.read(|ctx| {
          let wallets = ctx.account.wallets();
          let wallet = wallets
             .iter()
             .find(|w| w.info.address == address)
             .cloned()
-            .unwrap();
-         wallet
+            .ok_or(anyhow!("Wallet with address {} not found", address))?;
+         Ok(wallet)
       })
    }
 

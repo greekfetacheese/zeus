@@ -227,7 +227,7 @@ impl TxConfirmWindow {
          ))
          .size(theme.text_sizes.normal)
          .color(color);
-         let label = Label::new(text, Some(icon)).text_first(false);
+         let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -261,7 +261,7 @@ impl TxConfirmWindow {
             let icon = icons.currency_icon_x24(currency);
             let text = RichText::new(format!("{} {}", amount, currency.symbol()))
                .size(theme.text_sizes.normal);
-            let label = Label::new(text, Some(icon)).text_first(false);
+            let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
       });
@@ -298,7 +298,7 @@ impl TxConfirmWindow {
                currency.symbol()
             ))
             .size(theme.text_sizes.normal);
-            let label = Label::new(text, Some(icon)).text_first(false);
+            let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
 
@@ -360,7 +360,7 @@ impl TxConfirmWindow {
          ))
          .size(theme.text_sizes.normal)
          .color(Color32::RED);
-         let label = Label::new(text, Some(icon)).text_first(false);
+         let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -387,7 +387,7 @@ impl TxConfirmWindow {
             ))
             .size(theme.text_sizes.normal)
             .color(Color32::GREEN);
-            let label = Label::new(text, Some(icon)).text_first(false);
+            let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
 
@@ -412,7 +412,7 @@ impl TxConfirmWindow {
                RichText::new(chain.name()).size(theme.text_sizes.normal),
                Some(icon),
             )
-            .text_first(false);
+            .image_on_left();
             ui.add(label);
          });
       });
@@ -430,7 +430,7 @@ impl TxConfirmWindow {
                RichText::new(chain.name()).size(theme.text_sizes.normal),
                Some(icon),
             )
-            .text_first(false);
+            .image_on_left();
             ui.add(label);
          });
       });
@@ -452,7 +452,7 @@ impl TxConfirmWindow {
          ))
          .size(theme.text_sizes.normal)
          .color(Color32::RED);
-         let label = Label::new(text, Some(icon)).text_first(false);
+         let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -478,7 +478,7 @@ impl TxConfirmWindow {
             ))
             .size(theme.text_sizes.normal)
             .color(Color32::GREEN);
-            let label = Label::new(text, Some(icon)).text_first(false);
+            let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
 
@@ -563,7 +563,7 @@ impl TxConfirmWindow {
          let text = RichText::new(&format!("- {} {}", amount.format_abbreviated(), symbol))
             .size(theme.text_sizes.normal)
             .color(Color32::RED);
-         let label = Label::new(text, Some(icon)).text_first(false);
+         let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -592,7 +592,7 @@ impl TxConfirmWindow {
          let text = RichText::new(&format!("+ {} {}", amount.format_abbreviated(), symbol))
             .size(theme.text_sizes.normal)
             .color(Color32::GREEN);
-         let label = Label::new(text, Some(icon)).text_first(false);
+         let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });
@@ -702,7 +702,7 @@ impl TxConfirmWindow {
                                  RichText::new(chain).size(theme.text_sizes.normal),
                                  Some(icon),
                               )
-                              .text_first(false);
+                              .image_on_left();
                               ui.add(label);
                            });
                         });
