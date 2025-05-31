@@ -26,6 +26,18 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.portofolio.open = true;
       }
 
+      let swap = Button::new(RichText::new("Swap").size(21.0));
+      if ui.add(swap).clicked() {
+         gui.portofolio.open = false;
+         gui.send_crypto.open = false;
+         gui.settings.open = false;
+         gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
+         gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
+         gui.swap_ui.open = true;
+      }
+
       let send = Button::new(RichText::new("Send").size(21.0));
       if ui.add(send).clicked() {
          gui.swap_ui.open = false;
@@ -78,21 +90,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = true;
       }
 
-      // #[cfg(feature = "dev")]
-      {
-         let swap = Button::new(RichText::new("Swap").size(21.0));
-         if ui.add(swap).clicked() {
-            gui.portofolio.open = false;
-            gui.send_crypto.open = false;
-            gui.settings.open = false;
-            gui.wallet_ui.open = false;
-            gui.tx_history.open = false;
-            gui.across_bridge.open = false;
-            gui.sync_pools_ui.open = false;
-            gui.swap_ui.open = true;
-         }
-      }
-
       let settings = Button::new(RichText::new("Settings").size(21.0));
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
@@ -125,7 +122,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
 
-       #[cfg(feature = "dev")]
+      #[cfg(feature = "dev")]
       {
          let sync_pools = ui.add(Button::new(
             RichText::new("Sync Pools").size(20.0),
