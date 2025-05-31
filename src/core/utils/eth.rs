@@ -68,27 +68,33 @@ pub async fn send_transaction(
 
       let bytecode_fut = client.get_code_at(interact_to).into_future();
       let block = client.get_block(BlockId::latest()).await?;
-      let mut evm = new_evm(chain, block.as_ref(), fork_db);
 
-      let time = std::time::Instant::now();
-      let sim_res = simulate_transaction(
-         &mut evm,
-         from,
-         interact_to,
-         call_data.clone(),
-         value,
-      )?;
-      tracing::info!(
-         "Simulate Transaction took {} ms",
-         time.elapsed().as_millis()
-      );
+      let balance_after;
+      let sim_res;
 
-      let state = evm.balance(from);
-      let balance_after = if let Some(state) = state {
-         state.data
-      } else {
-         U256::ZERO
-      };
+      {
+         let mut evm = new_evm(chain, block.as_ref(), fork_db);
+
+         let time = std::time::Instant::now();
+         sim_res = simulate_transaction(
+            &mut evm,
+            from,
+            interact_to,
+            call_data.clone(),
+            value,
+         )?;
+         tracing::info!(
+            "Simulate Transaction took {} ms",
+            time.elapsed().as_millis()
+         );
+
+         let state = evm.balance(from);
+         balance_after = if let Some(state) = state {
+            state.data
+         } else {
+            U256::ZERO
+         };
+      }
 
       let bytecode = bytecode_fut.await?;
       let contract_interact = bytecode.len() > 0;
@@ -461,7 +467,10 @@ pub async fn sign_message(
 
    let wallet = ctx.current_wallet();
    let signer = ctx.get_wallet(wallet.address)?.key;
-   let signature = signer.to_signer().sign_dynamic_typed_data(&typed_data).await?;
+   let signature = signer
+      .to_signer()
+      .sign_dynamic_typed_data(&typed_data)
+      .await?;
 
    Ok(signature)
 }
@@ -487,27 +496,32 @@ pub async fn wrap_or_unwrap_eth(
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
 
-   let time = std::time::Instant::now();
-   let sim_res = simulate_transaction(
-      &mut evm,
-      from,
-      wrapped.address,
-      call_data.clone(),
-      value,
-   )?;
-   tracing::info!(
-      "Wrap/Unwrap Transaction Simulation took {} ms",
-      time.elapsed().as_millis()
-   );
+   let balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
 
-   let state = evm.balance(from);
-   let balance_after = if let Some(state) = state {
-      state.data
-   } else {
-      U256::ZERO
-   };
+      let time = std::time::Instant::now();
+      sim_res = simulate_transaction(
+         &mut evm,
+         from,
+         wrapped.address,
+         call_data.clone(),
+         value,
+      )?;
+      tracing::info!(
+         "Wrap/Unwrap Transaction Simulation took {} ms",
+         time.elapsed().as_millis()
+      );
+
+      let state = evm.balance(from);
+      balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
 
    let contract_interact = true;
    let tx_summary = make_tx_summary(
@@ -603,23 +617,63 @@ pub async fn swap(
    let block = block_fut.await?;
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
-   let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
 
-   if execute_params.token_needs_approval {
-      // make sure token in is approved
-      let permit2 = permit2_contract(chain.id())?;
+   let balance_after;
+   let eth_balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+      if execute_params.token_needs_approval {
+         // make sure token in is approved
+         let permit2 = permit2_contract(chain.id())?;
+         let time = std::time::Instant::now();
+         simulate::approve_token(
+            &mut evm,
+            currency_in.address(),
+            from,
+            permit2,
+            U256::MAX,
+         )?;
+         tracing::info!(
+            "Approve Token sim took {} ms",
+            time.elapsed().as_millis()
+         );
+      }
+
+      // simulate the swap
       let time = std::time::Instant::now();
-      simulate::approve_token(
+      sim_res = simulate_transaction(
          &mut evm,
-         currency_in.address(),
          from,
-         permit2,
-         U256::MAX,
+         interact_to,
+         execute_params.call_data.clone(),
+         execute_params.value,
       )?;
       tracing::info!(
-         "Approve Token sim took {} ms",
+         "Swap Simulation took {} ms",
          time.elapsed().as_millis()
       );
+      tracing::info!("Gas Used: {}", sim_res.gas_used());
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      // get the balance after
+      let time = std::time::Instant::now();
+      balance_after = if currency_out.is_native() {
+         eth_balance_after
+      } else {
+         let b = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
+         tracing::info!(
+            "Balance after sim took {} ms",
+            time.elapsed().as_millis()
+         );
+         b
+      };
    }
 
    let balance_before = if currency_out.is_native() {
@@ -629,41 +683,6 @@ pub async fn swap(
          .to_erc20()
          .balance_of(client.clone(), from, None)
          .await?
-   };
-
-   // simulate the swap
-   let time = std::time::Instant::now();
-   let sim_res = simulate_transaction(
-      &mut evm,
-      from,
-      interact_to,
-      execute_params.call_data.clone(),
-      execute_params.value,
-   )?;
-   tracing::info!(
-      "Swap Simulation took {} ms",
-      time.elapsed().as_millis()
-   );
-   tracing::info!("Gas Used: {}", sim_res.gas_used());
-
-   let state = evm.balance(from);
-   let eth_balance_after = if let Some(state) = state {
-      state.data
-   } else {
-      U256::ZERO
-   };
-
-   // get the balance after
-   let time = std::time::Instant::now();
-   let balance_after = if currency_out.is_native() {
-      eth_balance_after
-   } else {
-      let b = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
-      tracing::info!(
-         "Balance after sim took {} ms",
-         time.elapsed().as_millis()
-      );
-      b
    };
 
    // calculate the real amount out

@@ -132,6 +132,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
+   /* 
    // Sync v4 pools and base pools
    ctx.write(|ctx| {
       ctx.data_syncing = true;
@@ -160,6 +161,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn_blocking(move || {
       ctx.save_pool_manager().unwrap();
    });
+   */
 }
 
 pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
