@@ -139,8 +139,10 @@ impl ChainSelection {
                   let currency =
                      Currency::from(NativeCurrency::from_chain_id(new_chain.id()).unwrap());
                   gui.send_crypto.set_currency(currency.clone());
-                  gui.swap_ui.default_currency_in(new_chain.id());
-                  gui.swap_ui.default_currency_out(new_chain.id());
+                  gui.uniswap.swap_ui.default_currency_in(new_chain.id());
+                  gui.uniswap.swap_ui.default_currency_out(new_chain.id());
+                  gui.uniswap.position_ui.default_currency_a(new_chain.id());
+                  gui.uniswap.position_ui.default_currency_b(new_chain.id());
                });
             });
          }

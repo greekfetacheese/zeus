@@ -14,7 +14,8 @@ pub mod uniswap;
 pub use uniswap::v2::pool::UniswapV2Pool;
 pub use uniswap::v3::pool::{FEE_TIERS, UniswapV3Pool};
 pub use uniswap::v4::pool::UniswapV4Pool;
-pub use uniswap::{AnyUniswapPool, UniswapPool};
+pub use uniswap::{AnyUniswapPool, FeeAmount, UniswapPool};
+pub use uniswap_v3_math;
 
 pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
    if currency_a.is_native() {

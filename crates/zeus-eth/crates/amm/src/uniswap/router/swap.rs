@@ -1,146 +1,29 @@
-use super::{ExecuteParams, SwapStep, SwapType, UniswapPool};
+use super::{SwapExecuteParams, Commands, SwapStep, SwapType, UniswapPool};
+use crate::uniswap::v4::Actions;
 use abi::{
    permit::*,
    uniswap::{
       encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      v4::{router::*, *},
+      universal_router_v2::*, v4::{ActionsParams, TakeAllParams, SettleParams},
    },
 };
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::{Address, Bytes, U256, aliases::U48};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
-use serde_json::Value;
-use utils::{address::permit2_contract, parse_typed_data};
+use utils::{address::permit2_contract,generate_permit2_single_value, parse_typed_data};
 use wallet::{SecureSigner, alloy_signer::Signer};
 
-#[allow(non_camel_case_types)]
-#[derive(Clone, Debug, PartialEq)]
-#[repr(u8)]
-pub enum Actions {
-   // Pool actions
-   // Liquidity actions
-   INCREASE_LIQUIDITY(IncreaseLiquidityParams) = 0x00,
-   DECREASE_LIQUIDITY(DecreaseLiquidityParams) = 0x01,
-   MINT_POSITION(MintPositionParams) = 0x02,
-   BURN_POSITION(BurnPositionParams) = 0x03,
-   // Swapping
-   SWAP_EXACT_IN_SINGLE(ExactInputSingleParams) = 0x06,
-   SWAP_EXACT_IN(ExactInputParams) = 0x07,
-   SWAP_EXACT_OUT_SINGLE(ExactOutputSingleParams) = 0x08,
-   SWAP_EXACT_OUT(ExactOutputParams) = 0x09,
 
-   // Closing deltas on the pool manager
-   // Settling
-   SETTLE(SettleParams) = 0x0b,
-   SETTLE_ALL(SettleAllParams) = 0x0c,
-   SETTLE_PAIR(SettlePairParams) = 0x0d,
-   // Taking
-   TAKE(TakeParams) = 0x0e,
-   TAKE_ALL(TakeAllParams) = 0x0f,
-   TAKE_PORTION(TakePortionParams) = 0x10,
-   TAKE_PAIR(TakePairParams) = 0x11,
 
-   CLOSE_CURRENCY(CloseCurrencyParams) = 0x12,
-   SWEEP(SweepParams) = 0x14,
-}
-
-/// https://doc.rust-lang.org/error_codes/E0732.html
-#[inline]
-const fn discriminant(v: &Actions) -> u8 {
-   unsafe { *(v as *const Actions as *const u8) }
-}
-
-impl Actions {
-   #[inline]
-   pub const fn command(&self) -> u8 {
-      discriminant(self)
-   }
-
-   #[inline]
-   pub fn abi_encode(&self) -> Bytes {
-      match self {
-         Self::INCREASE_LIQUIDITY(params) => params.abi_encode_params(),
-         Self::DECREASE_LIQUIDITY(params) => params.abi_encode_params(),
-         Self::MINT_POSITION(params) => params.abi_encode_params(),
-         Self::BURN_POSITION(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_IN_SINGLE(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_IN(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_OUT_SINGLE(params) => params.abi_encode_params(),
-         Self::SWAP_EXACT_OUT(params) => params.abi_encode_params(),
-         Self::SETTLE(params) => params.abi_encode_params(),
-         Self::SETTLE_ALL(params) => params.abi_encode_params(),
-         Self::SETTLE_PAIR(params) => params.abi_encode_params(),
-         Self::TAKE(params) => params.abi_encode_params(),
-         Self::TAKE_ALL(params) => params.abi_encode_params(),
-         Self::TAKE_PORTION(params) => params.abi_encode_params(),
-         Self::TAKE_PAIR(params) => params.abi_encode_params(),
-         Self::CLOSE_CURRENCY(params) => params.abi_encode_params(),
-         Self::SWEEP(params) => params.abi_encode_params(),
-      }
-      .into()
-   }
-
-   #[inline]
-   pub fn abi_decode(command: u8, data: &Bytes) -> Result<Self, anyhow::Error> {
-      let data = data.iter().as_slice();
-      Ok(match command {
-         0x00 => Self::INCREASE_LIQUIDITY(IncreaseLiquidityParams::abi_decode(data)?),
-         0x01 => Self::DECREASE_LIQUIDITY(DecreaseLiquidityParams::abi_decode(data)?),
-         0x02 => Self::MINT_POSITION(MintPositionParams::abi_decode(data)?),
-         0x03 => Self::BURN_POSITION(BurnPositionParams::abi_decode(data)?),
-         0x06 => Self::SWAP_EXACT_IN_SINGLE(ExactInputSingleParams::abi_decode(data)?),
-         0x07 => Self::SWAP_EXACT_IN(ExactInputParams::abi_decode(data)?),
-         0x08 => Self::SWAP_EXACT_OUT_SINGLE(ExactOutputSingleParams::abi_decode(data)?),
-         0x09 => Self::SWAP_EXACT_OUT(ExactOutputParams::abi_decode(data)?),
-         0x0b => Self::SETTLE(SettleParams::abi_decode(data)?),
-         0x0c => Self::SETTLE_ALL(SettleAllParams::abi_decode(data)?),
-         0x0d => Self::SETTLE_PAIR(SettlePairParams::abi_decode(data)?),
-         0x0e => Self::TAKE(TakeParams::abi_decode(data)?),
-         0x0f => Self::TAKE_ALL(TakeAllParams::abi_decode(data)?),
-         0x10 => Self::TAKE_PORTION(TakePortionParams::abi_decode(data)?),
-         0x11 => Self::TAKE_PAIR(TakePairParams::abi_decode(data)?),
-         0x12 => Self::CLOSE_CURRENCY(CloseCurrencyParams::abi_decode(data)?),
-         0x14 => Self::SWEEP(SweepParams::abi_decode(data)?),
-         _ => return Err(anyhow::anyhow!("Invalid action")),
-      })
-   }
-}
-
-// https://docs.uniswap.org/contracts/universal-router/technical-reference
-#[allow(non_camel_case_types)]
-#[derive(Clone, Debug, PartialEq)]
-#[repr(u8)]
-pub enum Commands {
-   V3_SWAP_EXACT_IN = 0x00,
-   V3_SWAP_EXACT_OUT = 0x01,
-   PERMIT2_TRANSFER_FROM = 0x02,
-   PERMIT2_PERMIT_BATCH = 0x03,
-   SWEEP = 0x04,
-   TRANSFER = 0x05,
-   PAY_PORTION = 0x06,
-   V2_SWAP_EXACT_IN = 0x08,
-   V2_SWAP_EXACT_OUT = 0x09,
-   PERMIT2_PERMIT = 0x0a,
-   WRAP_ETH = 0x0b,
-   UNWRAP_WETH = 0x0c,
-   PERMIT2_TRANSFER_FROM_BATCH = 0x0d,
-   BALANCE_CHECK_ERC20 = 0x0e,
-   V4_SWAP = 0x10,
-   V3_POSITION_MANAGER_PERMIT = 0x11,
-   V3_POSITION_MANAGER_CALL = 0x12,
-   V4_INITIALIZE_POOL = 0x13,
-   V4_POSITION_MANAGER_CALL = 0x14,
-   EXECUTE_SUB_PLAN = 0x21,
-}
 
 // ! V4 swaps from ETH to ERC and vice versa are working fine
 // ! But from ERC to ERC they dont work
-/// Build the params for the execute function
+/// Encode the calldata for a swap using the universal router
 ///
 /// Currently does not support V4 swaps
-pub async fn build_execute_params<P, N>(
+pub async fn encode_swap<P, N>(
    client: P,
    chain_id: u64,
    swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
@@ -152,7 +35,7 @@ pub async fn build_execute_params<P, N>(
    signer: SecureSigner,
    recipient: Address,
    deadline: Option<U256>,
-) -> Result<ExecuteParams, anyhow::Error>
+) -> Result<SwapExecuteParams, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -179,14 +62,14 @@ where
       }
    }
 
-   let router_addr = utils::address::uniswap_v4_universal_router(chain_id)?;
+   let router_addr = utils::address::universal_router_v2(chain_id)?;
    let need_to_wrap_eth = currency_in.is_native() && !swap_steps[0].pool.dex_kind().is_uniswap_v4();
    let mut need_to_unwrap_weth = currency_out.is_native();
 
    let owner = signer.address();
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
-   let mut execute_params = ExecuteParams::new();
+   let mut execute_params = SwapExecuteParams::new();
 
    if need_to_wrap_eth {
       let data = abi::uniswap::encode_wrap_eth(router_addr, amount_in);
@@ -230,7 +113,7 @@ where
          let expiration = U256::from(current_time + 30 * 24 * 60 * 60); // 30 days
          let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
 
-         let value = generate_permit2_typed_data(
+         let value = generate_permit2_single_value(
             chain_id,
             token_in.address,
             router_addr,
@@ -362,6 +245,9 @@ where
    Ok(execute_params)
 }
 
+
+
+
 fn encode_v4_commands(
    pool: &impl UniswapPool,
    swap_type: SwapType,
@@ -483,55 +369,11 @@ fn encode_v4_router_command_input(
    Ok(params.into())
 }
 
-pub fn generate_permit2_typed_data(
-   chain_id: u64,
-   token: Address,
-   spender: Address,
-   amount: U256,
-   permit2: Address,
-   expiration: U256,
-   sig_deadline: U256,
-   nonce: U48,
-) -> Value {
-   let value = serde_json::json!({
-       "types": {
-           "PermitSingle": [
-               {"name": "details", "type": "PermitDetails"},
-               {"name": "spender", "type": "address"},
-               {"name": "sigDeadline", "type": "uint256"}
-           ],
-           "PermitDetails": [
-               {"name": "token", "type": "address"},
-               {"name": "amount", "type": "uint160"},
-               {"name": "expiration", "type": "uint48"},
-               {"name": "nonce", "type": "uint48"}
-           ],
-           "EIP712Domain": [
-               {"name": "name", "type": "string"},
-               {"name": "chainId", "type": "uint256"},
-               {"name": "verifyingContract", "type": "address"}
-           ]
-       },
-       "domain": {
-           "name": "Permit2",
-           "chainId": chain_id.to_string(),
-           "verifyingContract": permit2.to_string()
-       },
-       "primaryType": "PermitSingle",
-       "message": {
-           "details": {
-               "token": token.to_string(),
-               "amount": amount.to_string(),
-               "expiration": expiration.to_string(),
-               "nonce": nonce.to_string()
-           },
-           "spender": spender.to_string(),
-           "sigDeadline": sig_deadline.to_string()
-       }
-   });
 
-   value
-}
+
+
+
+
 
 /*
 /// V4 specific
@@ -563,6 +405,7 @@ pub fn encode_route_to_path(
 
    */
 
+   /* 
 /// V4 specific
 pub fn get_next_path_key(pool: &impl UniswapPool, currecy_in: &Currency2) -> (Currency2, PathKey) {
    let next_currency = if currecy_in == pool.currency0() {
@@ -587,3 +430,5 @@ pub fn get_next_path_key(pool: &impl UniswapPool, currecy_in: &Currency2) -> (Cu
 
    (next_currency, path_key)
 }
+
+*/

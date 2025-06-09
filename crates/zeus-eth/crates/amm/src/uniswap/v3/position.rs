@@ -28,7 +28,7 @@ use revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::B
 use anyhow::{Context, anyhow};
 use tracing::trace;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PositionArgs {
    /// Lower price range (token0 in terms of token1)
    pub lower_range: f64,
@@ -41,25 +41,15 @@ pub struct PositionArgs {
 
    /// The total deposit amount in USD value
    pub deposit_amount: f64,
-
-   /// The Uniswap V3 pool
-   pub pool: UniswapV3Pool,
 }
 
 impl PositionArgs {
-   pub fn new(
-      lower_range: f64,
-      upper_range: f64,
-      price_assumption: f64,
-      deposit_amount: f64,
-      pool: UniswapV3Pool,
-   ) -> Self {
+   pub fn new(lower_range: f64, upper_range: f64, price_assumption: f64, deposit_amount: f64) -> Self {
       Self {
          lower_range,
          upper_range,
          price_assumption,
          deposit_amount,
-         pool,
       }
    }
 }
@@ -190,6 +180,7 @@ pub async fn simulate_position<P>(
    client: P,
    block_time: BlockTime,
    args: PositionArgs,
+   pool: UniswapV3Pool,
 ) -> Result<PositionResult, anyhow::Error>
 where
    P: Provider<Ethereum> + Clone + 'static + Unpin,
@@ -201,7 +192,7 @@ where
    let fork_block_num = block_time.go_back(chain_id, latest_block)?;
    let fork_block = BlockId::number(fork_block_num);
 
-   let mut pool = args.pool.clone();
+   let mut pool = pool.clone();
 
    let price_assumption = args.price_assumption;
 
@@ -209,14 +200,14 @@ where
    let logs = get_logs_for(
       client.clone(),
       chain_id,
-      vec![args.pool.address],
+      vec![pool.address],
       events,
       fork_block_num,
       1,
    )
    .await?;
 
-   let volume = get_volume_from_logs(&args.pool, logs)?;
+   let volume = get_volume_from_logs(&pool, logs)?;
 
    pool
       .update_state(client.clone(), Some(fork_block.clone()))
@@ -241,10 +232,11 @@ where
       past_token0_usd,
       past_token1_usd,
       args.deposit_amount,
+      true,
    );
 
-   let amount0 = parse_units(&deposit.amount0.to_string(), args.pool.token0().decimals)?.get_absolute();
-   let amount1 = parse_units(&deposit.amount1.to_string(), args.pool.token1().decimals)?.get_absolute();
+   let amount0 = parse_units(&deposit.amount0.to_string(), pool.token0().decimals)?.get_absolute();
+   let amount1 = parse_units(&deposit.amount1.to_string(), pool.token1().decimals)?.get_absolute();
 
    let lower_tick = get_tick_from_price(args.lower_range);
    let upper_tick = get_tick_from_price(args.upper_range);
@@ -267,29 +259,20 @@ where
    fork_factory.insert_dummy_account(swapper.clone());
    fork_factory.insert_dummy_account(lp_provider.clone());
 
-   let amount_to_fund_0 = args.pool.token0().total_supply;
-   let amount_to_fund_1 = args.pool.token1().total_supply;
+   let amount_to_fund_0 = pool.token0().total_supply;
+   let amount_to_fund_1 = pool.token1().total_supply;
 
    // Fund the accounts
-   fork_factory.give_token(
-      swapper.address,
-      args.pool.token0().address,
-      amount_to_fund_0,
-   )?;
-   fork_factory.give_token(
-      swapper.address,
-      args.pool.token1().address,
-      amount_to_fund_1,
-   )?;
+   fork_factory.give_token(swapper.address, pool.token0().address, amount_to_fund_0)?;
+   fork_factory.give_token(swapper.address, pool.token1().address, amount_to_fund_1)?;
 
    // we give the lp provider just as much to create the position
-   fork_factory.give_token(lp_provider.address, args.pool.token0().address, amount0)?;
-   fork_factory.give_token(lp_provider.address, args.pool.token1().address, amount1)?;
+   fork_factory.give_token(lp_provider.address, pool.token0().address, amount0)?;
+   fork_factory.give_token(lp_provider.address, pool.token1().address, amount1)?;
 
    let fork_db = fork_factory.new_sandbox_fork();
-   let mut evm = new_evm(chain_id.into(), Some(&full_block), fork_db);
 
-   let fee = args.pool.fee.fee_u24();
+   let fee = pool.fee.fee_u24();
    let lower_tick: Signed<24, 1> = lower_tick
       .to_string()
       .parse()
@@ -300,8 +283,8 @@ where
       .context("Failed to parse tick")?;
 
    let mint_params = INonfungiblePositionManager::MintParams {
-      token0: args.pool.token0().address,
-      token1: args.pool.token1().address,
+      token0: pool.token0().address,
+      token1: pool.token1().address,
       fee,
       tickLower: lower_tick,
       tickUpper: upper_tick,
@@ -315,120 +298,132 @@ where
 
    let nft_contract = uniswap_nft_position_manager(chain_id)?;
 
-   // aprove the nft and swapper contract to spent the tokens
-   let tokens = vec![args.pool.token0().clone(), args.pool.token1().clone()];
-   for token in tokens {
-      // approve the nft and swapper contract to spent the tokens
-      simulate::approve_token(
-         &mut evm,
-         token.address,
-         lp_provider.address,
-         nft_contract,
-         U256::MAX,
-      )?;
-
-      // approve the swapper contract to spent the tokens
-      simulate::approve_token(
-         &mut evm,
-         token.address,
-         swapper.address,
-         swap_router.address,
-         U256::MAX,
-      )?;
-   }
-
-   // create the position
-   let mint_res = simulate::mint_position(
-      &mut evm,
-      mint_params,
-      lp_provider.address,
-      nft_contract,
-      true,
-   )?;
-   let token_id = mint_res.token_id;
-
+   // keep track of the times we were in the range
    let mut price_ranges = Vec::new();
 
    // keep track of the amounts we have collected
    let mut collected0 = U256::ZERO;
    let mut collected1 = U256::ZERO;
 
+   // Final amounts collected
+   let mut total_earned0 = U256::ZERO;
+   let mut total_earned1 = U256::ZERO;
+
    // keep track how many times we failed to swap
    let mut failed_swaps = 0;
 
-   // simulate all the swaps that occured
-   trace!(target: "zeus_eth::amm::uniswap::v3::position", "Simulating {} swaps", volume.swaps.len());
-   for pool_swap in &volume.swaps {
-      let swap_params = abi::misc::SwapRouter::Params {
-         input_token: pool_swap.token_in.address,
-         output_token: pool_swap.token_out.address,
-         amount_in: pool_swap.amount_in,
-         pool: args.pool.address,
-         pool_variant: U256::from(1),
-         fee,
-         minimum_received: U256::ZERO,
-      };
+   {
+      let mut evm = new_evm(chain_id.into(), Some(&full_block), fork_db);
 
-      if let Err(e) = simulate::swap(
-         &mut evm,
-         swap_params,
-         swapper.address,
-         swap_router.address,
-         true,
-      ) {
-         failed_swaps += 1;
-         trace!(target: "zeus_eth::amm::uniswap::v3::position", "Failed to swap: {:?}", e);
-         continue;
+      // aprove the nft and swapper contract to spent the tokens
+      let tokens = vec![pool.token0().clone(), pool.token1().clone()];
+      for token in tokens {
+         // approve the nft and swapper contract to spent the tokens
+         simulate::approve_token(
+            &mut evm,
+            token.address,
+            lp_provider.address,
+            nft_contract,
+            U256::MAX,
+         )?;
+
+         // approve the swapper contract to spent the tokens
+         simulate::approve_token(
+            &mut evm,
+            token.address,
+            swapper.address,
+            swap_router.address,
+            U256::MAX,
+         )?;
       }
 
-      // collect the fees
+      // create the position
+      let (_, mint_res) = simulate::mint_position(
+         &mut evm,
+         mint_params,
+         lp_provider.address,
+         nft_contract,
+         true,
+      )?;
+      let token_id = mint_res.token_id;
+
+      // simulate all the swaps that occured
+      trace!(target: "zeus_eth::amm::uniswap::v3::position", "Simulating {} swaps", volume.swaps.len());
+      for pool_swap in &volume.swaps {
+         let swap_params = abi::misc::SwapRouter::Params {
+            input_token: pool_swap.token_in.address,
+            output_token: pool_swap.token_out.address,
+            amount_in: pool_swap.amount_in,
+            pool: pool.address,
+            pool_variant: U256::from(1),
+            fee,
+            minimum_received: U256::ZERO,
+         };
+
+         if let Err(e) = simulate::swap(
+            &mut evm,
+            swap_params,
+            swapper.address,
+            swap_router.address,
+            true,
+         ) {
+            failed_swaps += 1;
+            trace!(target: "zeus_eth::amm::uniswap::v3::position", "Failed to swap: {:?}", e);
+            continue;
+         }
+
+         // collect the fees
+         let collect_params = INonfungiblePositionManager::CollectParams {
+            tokenId: token_id,
+            recipient: lp_provider.address,
+            amount0Max: u128::MAX,
+            amount1Max: u128::MAX,
+         };
+
+         let (_, amount0, amount1) = simulate::collect_fees(
+            &mut evm,
+            collect_params,
+            lp_provider.address,
+            nft_contract,
+            false,
+         )?;
+
+         // compare the amount0 and amount1 with the collected amounts
+         let is_in_range = if amount0 > collected0 || amount1 > collected1 {
+            collected0 = amount0;
+            collected1 = amount1;
+            true
+         } else {
+            false
+         };
+
+         // TODO: store big swaps in a separate struct
+
+         price_ranges.push(PriceRange::new(is_in_range, pool_swap.block));
+      }
+
+      // Collect all the fees earned
       let collect_params = INonfungiblePositionManager::CollectParams {
          tokenId: token_id,
-         recipient: lp_provider.address,
+         recipient: swapper.address,
          amount0Max: u128::MAX,
          amount1Max: u128::MAX,
       };
 
-      let (amount0, amount1) = simulate::collect_fees(
+      let (_, amount0, amount1) = simulate::collect_fees(
          &mut evm,
          collect_params,
          lp_provider.address,
          nft_contract,
-         false,
+         true,
       )?;
 
-      // compare the amount0 and amount1 with the collected amounts
-      let is_in_range = if amount0 > collected0 || amount1 > collected1 {
-         collected0 = amount0;
-         collected1 = amount1;
-         true
-      } else {
-         false
-      };
-
-      // TODO: store big swaps in a separate struct
-
-      price_ranges.push(PriceRange::new(is_in_range, pool_swap.block));
+      total_earned0 += amount0;
+      total_earned1 += amount1;
    }
 
-   // Collect all the fees earned
-   let collect_params = INonfungiblePositionManager::CollectParams {
-      tokenId: token_id,
-      recipient: swapper.address,
-      amount0Max: u128::MAX,
-      amount1Max: u128::MAX,
-   };
-
-   let (amount0, amount1) = simulate::collect_fees(
-      &mut evm,
-      collect_params,
-      lp_provider.address,
-      nft_contract,
-      true,
-   )?;
-
-   let earned0 = format_units(amount0, args.pool.token0().decimals)?.parse::<f64>()?;
-   let earned1 = format_units(amount1, args.pool.token1().decimals)?.parse::<f64>()?;
+   let earned0 = format_units(total_earned0, pool.token0().decimals)?.parse::<f64>()?;
+   let earned1 = format_units(total_earned1, pool.token1().decimals)?.parse::<f64>()?;
 
    // get the current usd price of token0 and token1
    pool.update_state(client.clone(), None).await?;
@@ -449,8 +444,8 @@ where
    let buy_volume_usd = volume.buy_volume_usd(latest_token0_usd, pool.token0().decimals)?;
    let sell_volume_usd = volume.sell_volume_usd(latest_token1_usd, pool.token1().decimals)?;
 
-   let total_fee0 = divide_by_fee(args.pool.fee.fee(), buy_volume_usd);
-   let total_fee1 = divide_by_fee(args.pool.fee.fee(), sell_volume_usd);
+   let total_fee0 = divide_by_fee(pool.fee.fee(), buy_volume_usd);
+   let total_fee1 = divide_by_fee(pool.fee.fee(), sell_volume_usd);
 
    // calculate how many times we were out of the range
    let out_of_range = price_ranges.iter().filter(|r| !r.is_in_range).count();
@@ -476,8 +471,8 @@ where
    }
 
    let result = PositionResult {
-      token0: args.pool.token0().into_owned(),
-      token1: args.pool.token1().into_owned(),
+      token0: pool.token0().into_owned(),
+      token1: pool.token1().into_owned(),
       deposit: deposit.clone(),
       past_token0_usd,
       past_token1_usd,
@@ -748,7 +743,7 @@ mod tests {
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {
-      let url = "https://eth.merkle.io".parse().unwrap();
+      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
       let weth = address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
@@ -764,11 +759,34 @@ mod tests {
          lower_range: 1.1062672693587939,
          upper_range: 1.1969094065772878,
          price_assumption: 1.167293589301331,
-         deposit_amount: 500_000.0,
-         pool,
+         deposit_amount: 1.0,
       };
 
-      let result = simulate_position(client, BlockTime::Days(1), position)
+      let result = simulate_position(client, BlockTime::Hours(10), position, pool)
+         .await
+         .unwrap();
+      println!("{}", result.result_str());
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn test_simulate_position_2() {
+      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let weth = ERC20Token::weth();
+      let dai = ERC20Token::dai();
+      let pool_address = address!("0xC2e9F25Be6257c210d7Adf0D4Cd6E3E881ba25f8");
+
+      let pool = UniswapV3Pool::new(1, pool_address, 3000, weth, dai, DexKind::UniswapV3);
+
+      let position = PositionArgs {
+         lower_range: 0.0000040118,
+         upper_range: 0.0008023531,
+         price_assumption: 0.0004011766,
+         deposit_amount: 100_000.0,
+      };
+
+      let result = simulate_position(client, BlockTime::Hours(10), position, pool)
          .await
          .unwrap();
       println!("{}", result.result_str());

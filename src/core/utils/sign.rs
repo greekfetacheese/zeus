@@ -7,12 +7,14 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    utils::NumericValue,
+   abi::permit::Permit2,
 };
 
 const PERMIT_SINGLE: &str = "PermitSingle";
 
 pub enum SignMsgType {
    Permit2(Permit2Details),
+   Permit2Batch(Permit2BatchDetails),
    Other(TypedData),
 }
 
@@ -31,8 +33,12 @@ impl SignMsgType {
       msg_type
    }
 
-   pub fn is_permit2(&self) -> bool {
+   pub fn is_permit2_single(&self) -> bool {
       matches!(self, Self::Permit2(_))
+   }
+
+   pub fn is_permit2_batch(&self) -> bool {
+      matches!(self, Self::Permit2Batch(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -42,6 +48,7 @@ impl SignMsgType {
    pub fn msg_value(&self) -> &Value {
       match self {
          Self::Permit2(details) => &details.msg_value,
+         Self::Permit2Batch(details) => &details.msg_value,
          Self::Other(details) => &details.message,
       }
    }
@@ -55,8 +62,28 @@ impl SignMsgType {
          _ => panic!("Not a permit2 message"),
       }
    }
+
+   pub fn permit2_batch_details(&self) -> &Permit2BatchDetails {
+      match self {
+         Self::Permit2Batch(details) => details,
+         _ => panic!("Not a permit2 message"),
+      }
+   }
 }
 
+#[derive(Debug, Clone)]
+pub struct Permit2BatchDetails {
+   pub permit_batch: Permit2::PermitBatch,
+   pub tokens: Vec<ERC20Token>,  
+   pub amounts: Vec<NumericValue>,
+   pub amounts_usd: Vec<Option<NumericValue>>,
+   pub expiration: u64,
+   pub permit2_contract: Address,
+   pub spender: Address,
+   pub msg_value: Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct Permit2Details {
    pub token: ERC20Token,
    pub amount: NumericValue,

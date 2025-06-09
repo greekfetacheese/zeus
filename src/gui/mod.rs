@@ -11,6 +11,16 @@ use crate::core::context::ZeusCtx;
 use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
+use crate::gui::ui::{
+   RecipientSelectionWindow, TokenSelectionWindow,
+   panels::{top_panel::ChainSelection, top_panel::WalletSelection, central_panel::UiTesting},
+   dapps::{across::AcrossBridge, uniswap::UniswapUi},
+   tx_history::TxHistory,
+   sync::SyncPoolsUi,
+   WalletUi, RegisterUi, LoadingWindow, LoginUi, PortfolioUi, ProgressWindow, SendCryptoUi, SettingsUi,
+   MsgWindow, ConfirmWindow, TxConfirmWindow, SignMsgWindow, TestingWindow,
+};
+
 lazy_static! {
    pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
 }
@@ -50,66 +60,33 @@ impl Default for SharedGUI {
 
 pub struct GUI {
    pub egui_ctx: Context,
-
    pub ctx: ZeusCtx,
-
-   pub logged_in_state_was_set: bool,
-   pub registered_state_was_set: bool,
-
    pub theme: Theme,
-
-   pub chain_selection: ui::panels::top_panel::ChainSelection,
-
-   pub wallet_selection: ui::panels::top_panel::WalletSelection,
-
-   /// True if there is any [egui::Window] open
-   pub show_overlay: bool,
-
+   pub chain_selection: ChainSelection,
+   pub wallet_selection: WalletSelection,
    pub editor: ThemeEditor,
-
    pub icons: Arc<Icons>,
-
-   pub swap_ui: ui::SwapUi,
-
-   pub across_bridge: ui::dapps::across::AcrossBridge,
-
-   pub token_selection: ui::TokenSelectionWindow,
-
-   pub recipient_selection: ui::RecipientSelectionWindow,
-
-   pub wallet_ui: ui::WalletUi,
-
-   pub login: ui::LoginUi,
-
-   pub register: ui::RegisterUi,
-
-   pub portofolio: ui::PortfolioUi,
-
-   pub send_crypto: ui::SendCryptoUi,
-
-   pub msg_window: ui::MsgWindow,
-
-   pub loading_window: ui::LoadingWindow,
-
-   pub settings: ui::settings::SettingsUi,
-
-   pub tx_history: ui::tx_history::TxHistory,
-
+   pub uniswap: UniswapUi,
+   pub across_bridge: AcrossBridge,
+   pub token_selection: TokenSelectionWindow,
+   pub recipient_selection: RecipientSelectionWindow,
+   pub wallet_ui: WalletUi,
+   pub login: LoginUi,
+   pub register: RegisterUi,
+   pub portofolio: PortfolioUi,
+   pub send_crypto: SendCryptoUi,
+   pub msg_window: MsgWindow,
+   pub loading_window: LoadingWindow,
+   pub settings: SettingsUi,
+   pub tx_history: TxHistory,
    pub data_inspection: bool,
-
-   pub testing_window: ui::misc::TestingWindow,
-
-   pub ui_testing: ui::panels::central_panel::UiTesting,
-
-   pub progress_window: ui::misc::ProgressWindow,
-
-   pub confirm_window: ui::misc::ConfirmWindow,
-
-   pub tx_confirm_window: ui::TxConfirmWindow,
-
-   pub sign_msg_window: ui::misc::SignMsgWindow,
-
-   pub sync_pools_ui: ui::misc::sync::SyncPoolsUi,
+   pub testing_window: TestingWindow,
+   pub ui_testing: UiTesting,
+   pub progress_window: ProgressWindow,
+   pub confirm_window: ConfirmWindow,
+   pub tx_confirm_window: TxConfirmWindow,
+   pub sign_msg_window: SignMsgWindow,
+   pub sync_pools_ui: SyncPoolsUi,
 }
 
 impl GUI {
@@ -136,29 +113,26 @@ impl GUI {
       Self {
          egui_ctx,
          ctx: ZeusCtx::new(),
-         logged_in_state_was_set: false,
-         registered_state_was_set: false,
          theme,
          chain_selection,
          wallet_selection,
-         show_overlay: false,
          editor: ThemeEditor::new(),
          icons,
          token_selection,
          recipient_selection,
          wallet_ui,
-         swap_ui: ui::SwapUi::new(),
+         uniswap: UniswapUi::new(),
          across_bridge,
-         login: ui::LoginUi::new(),
-         register: ui::RegisterUi::new(),
-         portofolio: ui::PortfolioUi::new(),
+         login: LoginUi::new(),
+         register: RegisterUi::new(),
+         portofolio: PortfolioUi::new(),
          send_crypto,
          msg_window,
          loading_window,
          settings,
          tx_history,
          data_inspection: false,
-         testing_window: ui::misc::TestingWindow::new(),
+         testing_window: TestingWindow::new(),
          ui_testing,
          confirm_window,
          tx_confirm_window,

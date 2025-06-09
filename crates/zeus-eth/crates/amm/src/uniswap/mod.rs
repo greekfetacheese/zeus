@@ -13,11 +13,10 @@ use alloy_rpc_types::BlockId;
 use currency::Currency;
 use state::State;
 use utils::NumericValue;
-use v4::FeeAmount;
 
 pub use v2::pool::UniswapV2Pool;
 pub use v3::pool::{FEE_TIERS, UniswapV3Pool};
-pub use v4::pool::UniswapV4Pool;
+pub use v4::{FeeAmount, pool::UniswapV4Pool};
 
 pub trait UniswapPool {
    fn chain_id(&self) -> u64;

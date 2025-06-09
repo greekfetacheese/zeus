@@ -21,12 +21,16 @@ use crate::gui::ui::TokenSelectionWindow;
 
 use egui_theme::{Theme, utils::*};
 use egui_widgets::{ComboBox, Label};
-use zeus_eth::{alloy_primitives::Address, currency::Currency, types::ChainId};
+use zeus_eth::{
+   alloy_primitives::{Address, U256},
+   currency::Currency,
+   types::ChainId,
+};
 
 use super::GREEN_CHECK;
 
-pub mod tx_history;
 pub mod sync;
+pub mod tx_history;
 
 pub struct PriorityFeeTextBox {
    chain: ChainId,
@@ -507,9 +511,9 @@ impl SignMsgWindow {
       self.signed
    }
 
-   fn permit2_approval(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn permit2_single_approval(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let msg = self.msg.as_ref().unwrap();
-      if !msg.is_permit2() {
+      if !msg.is_permit2_single() {
          return;
       }
 
@@ -605,6 +609,115 @@ impl SignMsgWindow {
       // TODO:
    }
 
+   fn permit2_batch_approval(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let msg = self.msg.as_ref().unwrap();
+      if !msg.is_permit2_batch() {
+         return;
+      }
+
+      let details = msg.permit2_batch_details();
+
+      ui.label(RichText::new("Permit2 Batch Token Approval").size(theme.text_sizes.normal));
+
+      // Chain
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Chain").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let text = RichText::new(self.chain.name()).size(theme.text_sizes.normal);
+            let icon = icons.chain_icon(&self.chain.id());
+            let label = Label::new(text, Some(icon)).image_on_left();
+            ui.add(label);
+         });
+      });
+
+      ui.horizontal(|ui| {
+         ui.label(RichText::new("Approve Tokens").size(theme.text_sizes.normal));
+      });
+
+      let token_details = details
+         .tokens
+         .iter()
+         .zip(details.amounts.iter())
+         .zip(details.amounts_usd.iter());
+
+      // Tokens
+      for ((token, amount), _amount_usd) in token_details {
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = if amount.wei2() == U256::MAX {
+               "Unlimited".to_string()
+            } else {
+               amount.format_abbreviated()
+            };
+
+            let text = format!("{} {}", amount, token.symbol);
+            let icon = icons.token_icon_x24(token.address, token.chain_id);
+            let label = Label::new(
+               RichText::new(text).size(theme.text_sizes.normal),
+               Some(icon),
+            )
+            .wrap();
+            ui.add(label);
+         });
+      }
+
+      // Approval expire
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Approval expire").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let expire = format_expiry(details.expiration);
+            let text = RichText::new(expire).size(theme.text_sizes.normal);
+            ui.label(text);
+         });
+      });
+
+      // Permit2 Contract
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Permit2 Contract").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let contract = details.permit2_contract;
+            let explorer = self.chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, contract);
+            ui.hyperlink_to(
+               RichText::new(truncate_address(contract.to_string()))
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
+            );
+         });
+      });
+
+      // Spender
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Spender").size(theme.text_sizes.normal));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let spender = details.spender;
+            let explorer = self.chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, spender);
+            ui.hyperlink_to(
+               RichText::new(truncate_address(spender.to_string()))
+                  .size(theme.text_sizes.normal)
+                  .strong(),
+               link,
+            );
+         });
+      });
+
+      // Protocol/Dapp
+      // TODO:
+   }
+
    fn unknown_msg(&mut self, theme: &Theme, ui: &mut Ui) {
       let msg = self.msg.as_ref().unwrap();
       if msg.is_other() {
@@ -639,7 +752,8 @@ impl SignMsgWindow {
 
                ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
 
-               self.permit2_approval(theme, icons, ui);
+               self.permit2_single_approval(theme, icons.clone(), ui);
+               self.permit2_batch_approval(theme, icons, ui);
                self.unknown_msg(theme, ui);
 
                ui.add_space(20.0);
@@ -1182,9 +1296,15 @@ impl PortfolioUi {
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-      let client = ctx_clone.get_client(chain_id).await.unwrap();
+         let client = ctx_clone.get_client(chain_id).await.unwrap();
          match manager
-            .sync_pools_for_tokens(client.clone(), chain, vec![token.clone()], dex_kinds, false)
+            .sync_pools_for_tokens(
+               client.clone(),
+               chain,
+               vec![token.clone()],
+               dex_kinds,
+               false,
+            )
             .await
          {
             Ok(_) => {

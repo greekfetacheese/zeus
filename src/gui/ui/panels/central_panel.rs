@@ -66,10 +66,10 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       token_selection,
       ui,
    );
-   gui.swap_ui.show(
+   gui.uniswap.show(
       ctx.clone(),
-      icons.clone(),
       theme,
+      icons.clone(),
       token_selection,
       ui,
    );
@@ -91,25 +91,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
 }
 
-
-#[allow(dead_code)]
-fn should_show_overlay(gui: &mut GUI) {
-   if gui.settings.credentials.open {
-      gui.show_overlay = true;
-   } else if gui.msg_window.open {
-      gui.show_overlay = true;
-   } else if gui.loading_window.open {
-      gui.show_overlay = true;
-   } else if gui.settings.contacts_ui.open {
-      gui.show_overlay = true;
-   } else if gui.settings.encryption.open {
-      gui.show_overlay = true;
-   } else if gui.token_selection.open {
-      gui.show_overlay = true;
-   } else {
-      gui.show_overlay = false;
-   }
-}
 
 pub struct UiTesting {
    pub show: bool,
@@ -134,6 +115,16 @@ impl UiTesting {
          if ui.add(button).clicked() {
             RT.spawn_blocking(move || {
                let summary = TxSummary::dummy_swap();
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirm_window.open_as_summary(summary);
+               });
+            });
+         }
+
+         let button = Button::new("Liquidity Transaction Summary").min_size(btn_size);
+         if ui.add(button).clicked() {
+            RT.spawn_blocking(move || {
+               let summary = TxSummary::dummy_liquidity();
                SHARED_GUI.write(|gui| {
                   gui.tx_confirm_window.open_as_summary(summary);
                });

@@ -3,12 +3,23 @@ use alloy_primitives::{
    Address, Bytes, Signature, U256,
    aliases::{U48, U160},
 };
-use alloy_sol_types::{SolValue, sol};
+use alloy_sol_types::{SolCall, SolValue, sol};
 
 sol! {
 
     #[sol(rpc)]
     contract Permit2 {
+
+      struct AllowanceTransferDetails {
+        // the owner of the token
+        address from;
+        // the recipient of the token
+        address to;
+        // the amount of the token
+        uint160 amount;
+        // the token to be transferred
+        address token;
+    }
 
        /// @notice The permit data for a token
       #[derive(Debug, Default, PartialEq, Eq)]
@@ -49,9 +60,12 @@ sol! {
         external
         view
         returns (uint160 amount, uint48 expiration, uint48 nonce);
+
+        function permit(address owner, PermitBatch memory permitBatch, bytes calldata signature) external;
     }
 
 }
+
 
 pub async fn allowance<P, N>(
    client: P,
@@ -67,6 +81,12 @@ where
    let permit2 = Permit2::new(permit2, client);
    let allowance = permit2.allowance(owner, token, spender).call().await?;
    Ok(allowance)
+}
+
+pub fn encode_permit_batch_ur_input(permit_batch: Permit2::PermitBatch, signature: Signature) -> Bytes {
+   (permit_batch, Bytes::from(signature.as_bytes()))
+      .abi_encode_params()
+      .into()
 }
 
 pub fn encode_permit2_permit_ur_input(
@@ -96,6 +116,47 @@ pub fn encode_permit2_permit_ur_input(
 
    let sig_bytes = Bytes::from(signature.as_bytes());
    let encoded_args = (permit_single, sig_bytes).abi_encode_params();
+
+   encoded_args.into()
+}
+
+pub fn encode_permit_batch_call(owner: Address, permit_batch: Permit2::PermitBatch, signature: Signature) -> Bytes {
+   let sig_bytes = Bytes::from(signature.as_bytes());
+   let encoded = Permit2::permitCall {
+      owner,
+      permitBatch: permit_batch,
+      signature: sig_bytes,
+   };
+   encoded.abi_encode().into()
+}
+
+pub fn encode_permit2_permit_single(
+   token: Address,
+   amount: U256,
+   expiration: U256,
+   nonce: U48,
+   spender: Address,
+   sig_deadline: U256,
+   signature: Signature,
+) -> Bytes {
+   let amount = U160::from(amount);
+   let expiration = U48::from(expiration);
+
+   let permit_details = Permit2::PermitDetails {
+      token,
+      amount,
+      expiration,
+      nonce,
+   };
+
+   let permit_single = Permit2::PermitSingle {
+      details: permit_details,
+      spender,
+      sigDeadline: sig_deadline,
+   };
+
+   let sig_bytes = Bytes::from(signature.as_bytes());
+   let encoded_args = (permit_single, sig_bytes).abi_encode();
 
    encoded_args.into()
 }

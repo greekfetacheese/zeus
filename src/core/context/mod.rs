@@ -5,6 +5,7 @@ use super::{
 };
 use crate::core::{Account, WalletInfo};
 use anyhow::anyhow;
+use db::V3Position;
 use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
@@ -26,7 +27,7 @@ const CLIENT_TIMEOUT: u64 = 10;
 pub mod db;
 pub mod providers;
 
-pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB};
+pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, V3PositionsDB, TransactionsDB};
 pub use providers::{Rpc, RpcProviders};
 
 #[derive(Clone)]
@@ -348,6 +349,17 @@ impl ZeusCtx {
       })
    }
 
+   pub fn save_v3_positions_db(&self) {
+      self.read(|ctx| match ctx.v3_positions_db.save() {
+         Ok(_) => {
+            tracing::info!("V3PositionsDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving DB: {:?}", e);
+         }
+      })
+   }
+
    pub fn save_currency_db(&self) {
       self.read(|ctx| match ctx.currency_db.save() {
          Ok(_) => {
@@ -406,6 +418,7 @@ impl ZeusCtx {
       self.save_contact_db();
       self.save_providers();
       self.save_tx_db();
+      self.save_v3_positions_db();
       match self.save_pool_manager() {
          Ok(_) => {
             tracing::info!("Pool Manager saved");
@@ -520,6 +533,13 @@ impl ZeusCtx {
 
    pub fn contacts(&self) -> Vec<Contact> {
       self.read(|ctx| ctx.contact_db.contacts.clone())
+   }
+
+   pub fn get_v3_positions(&self, chain: u64, owner: Address) -> Vec<V3Position> {
+      self.read(|ctx| {
+         ctx.v3_positions_db
+            .get(chain, owner)
+      })
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
@@ -849,6 +869,7 @@ pub struct ZeusContext {
    pub portfolio_db: PortfolioDB,
    pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
+   pub v3_positions_db: V3PositionsDB,
    pub pool_manager: PoolManagerHandle,
    pub data_syncing: bool,
    pub on_startup_syncing: bool,
@@ -906,6 +927,14 @@ impl ZeusContext {
          }
       };
 
+      let v3_positions_db = match V3PositionsDB::load_from_file() {
+         Ok(db) => db,
+         Err(e) => {
+            tracing::error!("Failed to load v3 positions, {:?}", e);
+            V3PositionsDB::default()
+         }
+      };
+
       let account_exists = Account::exists().is_ok_and(|p| p);
 
       let mut pool_manager = PoolManagerHandle::default();
@@ -942,6 +971,7 @@ impl ZeusContext {
          portfolio_db,
          contact_db,
          tx_db,
+         v3_positions_db,
          pool_manager,
          data_syncing: false,
          on_startup_syncing: false,

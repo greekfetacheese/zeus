@@ -10,7 +10,7 @@ use crate::uniswap::PoolKey;
 use crate::{
    DexKind, minimum_liquidity,
    uniswap::{
-      UniswapPool,
+      AnyUniswapPool, UniswapPool,
       state::{State, get_v3_pool_state},
       v4::FeeAmount,
    },
@@ -37,6 +37,17 @@ pub struct UniswapV3Pool {
    pub state: State,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
+}
+
+impl TryFrom<AnyUniswapPool> for UniswapV3Pool {
+   type Error = anyhow::Error;
+
+   fn try_from(pool: AnyUniswapPool) -> Result<Self, Self::Error> {
+      match pool {
+         AnyUniswapPool::V3(pool) => Ok(pool),
+         _ => Err(anyhow::anyhow!("Not a V3 Pool")),
+      }
+   }
 }
 
 impl UniswapV3Pool {

@@ -118,6 +118,7 @@ impl PoolReserves {
 pub struct V3PoolState {
    pub liquidity: u128,
    pub sqrt_price: U256,
+   /// Current Tick
    pub tick: i32,
    pub tick_spacing: i32,
    pub tick_bitmap: HashMap<i16, U256>,
@@ -387,7 +388,7 @@ where
                v3_data.lock().await.extend(data);
             }
             Err(e) => {
-               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v3 pool data: {:?}", e);
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v3 pool data (ChainId {}): {:?}", chain_id, e);
             }
          }
          Ok(())

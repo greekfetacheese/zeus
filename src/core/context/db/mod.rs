@@ -10,15 +10,19 @@ use crate::core::{
    serde_hashmap,
    utils::{data_dir, tx::TxSummary},
 };
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zeus_eth::alloy_primitives::Address;
+use zeus_eth::alloy_primitives::{Address, U256};
 
-pub const TX_SUMMARY_FILE: &str = "tx_summary.json";
+pub const TRANSACTIONS_FILE: &str = "transactions.json";
+
+pub const V3_POSITIONS_FILE: &str = "v3_positions.json";
 
 /// Transactions by chain and wallet address
 pub type Transactions = HashMap<(u64, Address), Vec<TxSummary>>;
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionsDB {
    #[serde(with = "serde_hashmap")]
    pub txs: Transactions,
@@ -33,7 +37,7 @@ impl TransactionsDB {
 
    /// Load from file
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(TX_SUMMARY_FILE);
+      let dir = data_dir()?.join(TRANSACTIONS_FILE);
       let data = std::fs::read(dir)?;
       let db = serde_json::from_slice(&data)?;
       Ok(db)
@@ -42,7 +46,7 @@ impl TransactionsDB {
    /// Save to file
    pub fn save(&self) -> Result<(), anyhow::Error> {
       let db = serde_json::to_string(&self)?;
-      let dir = data_dir()?.join(TX_SUMMARY_FILE);
+      let dir = data_dir()?.join(TRANSACTIONS_FILE);
       std::fs::write(dir, db)?;
       Ok(())
    }
@@ -79,5 +83,76 @@ impl TransactionsDB {
          let end = (start + per_page).min(sorted_txs.len());
          sorted_txs[start..end].to_vec()
       })
+   }
+}
+
+/// Uniswap V3 Positions by chain and wallet address
+pub type V3Positions = HashMap<(u64, Address), Vec<V3Position>>;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct V3Position {
+   /// Id of the position
+   pub id: U256,
+   /// Nonce for permits
+   pub nonce: U256,
+   /// Address that is approved for spending
+   pub operator: Address,
+   pub token0: Address,
+   pub token1: Address,
+   /// Fee tier of the pool
+   pub fee: u32,
+   pub tick_lower: i32,
+   pub tick_upper: i32,
+   pub liquidity: U256,
+   pub fee_growth_inside0_last_x128: U256,
+   pub fee_growth_inside1_last_x128: U256,
+   /// Unclaimed fees
+   pub tokens_owed0: U256,
+   /// Unclaimed fees
+   pub tokens_owed1: U256, 
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct V3PositionsDB {
+   #[serde(with = "serde_hashmap")]
+   pub positions: V3Positions,
+}
+
+impl V3PositionsDB {
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = data_dir()?.join(V3_POSITIONS_FILE);
+      let data = std::fs::read(dir)?;
+      let db = serde_json::from_slice(&data)?;
+      Ok(db)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let db = serde_json::to_string(&self)?;
+      let dir = data_dir()?.join(V3_POSITIONS_FILE);
+      std::fs::write(dir, db)?;
+      Ok(())
+   }
+
+   pub fn get(&self, chain: u64, owner: Address) -> Vec<V3Position> {
+      self
+         .positions
+         .get(&(chain, owner))
+         .cloned()
+         .unwrap_or_default()
+   }
+
+   pub fn insert(&mut self, chain: u64, owner: Address, position: V3Position) {
+      self
+         .positions
+         .entry((chain, owner))
+         .or_default()
+         .push(position);
+   }
+
+   pub fn remove(&mut self, chain: u64, owner: Address, position: V3Position) {
+      self
+         .positions
+         .get_mut(&(chain, owner))
+         .map(|p| p.retain(|p| p != &position));
    }
 }

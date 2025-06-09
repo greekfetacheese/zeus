@@ -1,13 +1,16 @@
 #[cfg(test)]
 mod tests {
    use crate::AnyUniswapPool;
-   use crate::uniswap::router::{SwapStep, SwapType, v4::*};
+   use crate::uniswap::router::{Commands, SwapStep, SwapType, encode_swap};
    use crate::{UniswapPool, UniswapV2Pool, UniswapV3Pool, uniswap::v4::pool::UniswapV4Pool};
-   use abi::uniswap::v4::router::*;
-   use alloy_primitives::Bytes;
-   use alloy_primitives::{TxKind, U256, address};
+   use abi::uniswap::universal_router_v2::*;
+   use alloy_primitives::{
+      Bytes, TxKind, U256, address,
+      aliases::{U48, U160},
+   };
    use alloy_provider::{Provider, ProviderBuilder};
    use alloy_rpc_types::BlockId;
+   use alloy_sol_types::SolValue;
    use currency::{Currency, ERC20Token, NativeCurrency};
    use revm_utils::{
       AccountType, DummyAccount, ExecuteCommitEvm, ExecuteEvm, ForkFactory, Host, new_evm, op_revm::OpSpecId,
@@ -18,8 +21,166 @@ mod tests {
       revm::handler::EvmTr,
    };
    use url::Url;
-   use utils::{NumericValue, address::permit2_contract, parse_typed_data};
+   use utils::generate_permit2_batch_value;
+   use utils::{NumericValue, address::permit2_contract, generate_permit2_single_value, parse_typed_data};
    use wallet::{SecureSigner, alloy_signer::Signer};
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn can_call_permit2_batch() {
+      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+      let chain_id = 1;
+
+      let block = client.get_block(BlockId::latest()).full().await.unwrap();
+
+      let weth = ERC20Token::weth();
+      let usdc = ERC20Token::usdc();
+
+      let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
+      let signer = SecureSigner::from(alice.key.clone());
+
+      let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
+      factory.insert_dummy_account(alice.clone());
+
+      let weth_amount = NumericValue::parse_to_wei("1", weth.decimals);
+      let usdc_amount = NumericValue::parse_to_wei("10000", usdc.decimals);
+
+      factory
+         .give_token(alice.address, weth.address, weth_amount.wei2())
+         .unwrap();
+      factory
+         .give_token(alice.address, usdc.address, usdc_amount.wei2())
+         .unwrap();
+
+      let permit2_address = utils::address::permit2_contract(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+
+      let weth_nonce_fut = abi::permit::allowance(
+         client.clone(),
+         permit2_address,
+         alice.address,
+         weth.address,
+         router_addr,
+      );
+      let usdc_nonce_fut = abi::permit::allowance(
+         client.clone(),
+         permit2_address,
+         alice.address,
+         usdc.address,
+         router_addr,
+      );
+      let (weth_allowance, usdc_allowance) = tokio::try_join!(weth_nonce_fut, usdc_nonce_fut).unwrap();
+
+      let now = std::time::SystemTime::now()
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap()
+         .as_secs();
+
+      let expiration = now + 86400; // 1 day
+      let expiration = U48::from(expiration);
+      let sig_deadline = now + 60;
+      let sig_deadline = U256::from(sig_deadline);
+
+      let permit_detail_a = abi::permit::Permit2::PermitDetails {
+         token: weth.address,
+         amount: U160::from(weth_amount.wei2()),
+         expiration,
+         nonce: weth_allowance.nonce,
+      };
+
+      let permit_detail_b = abi::permit::Permit2::PermitDetails {
+         token: usdc.address,
+         amount: U160::from(usdc_amount.wei2()),
+         expiration,
+         nonce: usdc_allowance.nonce,
+      };
+
+      let details = vec![permit_detail_a, permit_detail_b];
+
+      let permit_batch = abi::permit::Permit2::PermitBatch {
+         details: details.clone(),
+         spender: router_addr,
+         sigDeadline: sig_deadline,
+      };
+
+      let msg_value = generate_permit2_batch_value(
+         chain_id,
+         details,
+         router_addr,
+         permit2_address,
+         sig_deadline,
+      );
+
+      let typed_data = utils::parse_typed_data(msg_value).unwrap();
+      let sig = signer
+         .to_signer()
+         .sign_dynamic_typed_data(&typed_data)
+         .await
+         .unwrap();
+
+      let mut commands = Vec::new();
+      let mut inputs = Vec::new();
+
+      commands.push(Commands::PERMIT2_PERMIT_BATCH as u8);
+      let input = abi::permit::encode_permit_batch_ur_input(permit_batch.clone(), sig);
+      inputs.push(input);
+
+      commands.push(Commands::PERMIT2_TRANSFER_FROM as u8);
+      let input = abi::uniswap::Permit2TransferFrom {
+         token: weth.address,
+         recipient: router_addr,
+         amount: U160::from(weth_amount.wei2()),
+      };
+      inputs.push(input.abi_encode_params().into());
+
+      commands.push(Commands::PERMIT2_TRANSFER_FROM as u8);
+      let input = abi::uniswap::Permit2TransferFrom {
+         token: usdc.address,
+         recipient: router_addr,
+         amount: U160::from(usdc_amount.wei2()),
+      };
+      inputs.push(input.abi_encode_params().into());
+
+      let fork_db = factory.new_sandbox_fork();
+      let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
+
+      simulate::approve_token(
+         &mut evm,
+         weth.address,
+         alice.address,
+         permit2_address,
+         weth_amount.wei2(),
+      ).unwrap();
+
+      simulate::approve_token(
+         &mut evm,
+         usdc.address,
+         alice.address,
+         permit2_address,
+         usdc_amount.wei2(),
+      ).unwrap();
+
+      let execute_call_data = abi::uniswap::universal_router_v2::encode_execute(commands.into(), inputs);
+
+      evm.tx.caller = alice.address;
+      evm.tx.data = execute_call_data;
+      evm.tx.kind = TxKind::Call(router_addr);
+      evm.tx.value = U256::ZERO;
+
+      let res = evm.transact_commit(evm.tx.clone()).unwrap();
+      let output = res.output().unwrap();
+
+      if !res.is_success() {
+         let err = revert_msg(&output);
+         eprintln!("Call Reverted: {}", err);
+         eprintln!("Output: {:?}", output);
+         eprintln!("Gas Used: {}", res.gas_used());
+         panic!("Call Failed");
+      }
+
+      eprintln!("Router Call Successful");
+      eprintln!("Gas Used: {}", res.gas_used());
+   }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_swap_on_multiple_pools() {
@@ -78,7 +239,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), usdc_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       println!("Router address: {:?}", router_addr);
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
@@ -97,7 +258,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step, swap_step2],
@@ -206,7 +367,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -216,7 +377,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -339,7 +500,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -349,7 +510,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -500,7 +661,7 @@ mod tests {
       let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
 
       let permit2_address = permit2_contract(chain_id).unwrap();
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
 
       let data = abi::permit::allowance(
          client.clone(),
@@ -512,7 +673,7 @@ mod tests {
       .await
       .unwrap();
 
-      let value = generate_permit2_typed_data(
+      let value = generate_permit2_single_value(
          chain_id,
          weth.address,
          router_addr,
@@ -613,7 +774,7 @@ mod tests {
       let amount_out_min = NumericValue::parse_to_wei(&amount_with_slip.to_string(), currency_out.decimals());
       println!("Amount out with slippage: {}", amount_out_min.formatted());
 
-      let router_addr = utils::address::uniswap_v4_universal_router(1).unwrap();
+      let router_addr = utils::address::universal_router_v2(1).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -623,7 +784,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -729,7 +890,7 @@ mod tests {
          uni.symbol()
       );
 
-      let router_addr = utils::address::uniswap_v4_universal_router(1).unwrap();
+      let router_addr = utils::address::universal_router_v2(1).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -739,7 +900,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -839,7 +1000,7 @@ mod tests {
          .give_token(alice.address, weth.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -849,7 +1010,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -954,7 +1115,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          weth_uni.clone(),
          amount_in.clone(),
@@ -964,7 +1125,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1037,7 +1198,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1116,7 +1277,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1125,7 +1286,7 @@ mod tests {
          uni.clone(),
       );
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1214,7 +1375,7 @@ mod tests {
          .give_token(alice.address, uni.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1223,7 +1384,7 @@ mod tests {
          eth.clone(),
       );
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1326,7 +1487,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1335,7 +1496,7 @@ mod tests {
          wbtc.clone(),
       );
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1432,7 +1593,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1441,7 +1602,7 @@ mod tests {
          currency_out.clone(),
       );
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1543,7 +1704,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1552,7 +1713,7 @@ mod tests {
          currency_out.clone(),
       );
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step],
@@ -1686,7 +1847,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), usdc_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
          usdc_amount_in.clone(),
@@ -1712,7 +1873,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step, swap_step2, swap_step3],
@@ -1854,7 +2015,7 @@ mod tests {
          .give_token(alice.address, weth.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::uniswap_v4_universal_router(chain_id).unwrap();
+      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
          weth_amount_in.clone(),
@@ -1880,7 +2041,7 @@ mod tests {
       );
 
       // Build the calldata
-      let exec_params = build_execute_params(
+      let exec_params = encode_swap(
          client.clone(),
          chain_id,
          vec![swap_step, swap_step2, swap_step3],

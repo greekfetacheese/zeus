@@ -23,6 +23,9 @@ pub enum OnChainAction {
    /// Token Swap
    SwapToken(SwapParams),
 
+   /// Add/Remove Liqudity
+   Liquidity(LiquidityParams),
+
    /// ERC20 Token Approval
    TokenApprove(TokenApproveParams),
 
@@ -36,22 +39,54 @@ pub enum OnChainAction {
 }
 
 impl OnChainAction {
-   pub fn dummy_token_approve() -> Self {
-      let token = Currency::from(ERC20Token::weth());
-      let amount = NumericValue::parse_to_wei("1000000000", 18);
-      let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+
+   pub fn dummy_token_approve_batch() -> Self {
+      let token = vec![ERC20Token::weth(), ERC20Token::dai()];
+      let amount = vec![NumericValue::parse_to_wei("1000000000", 18), NumericValue::parse_to_wei("1000000000", 18)];
+      let amount_usd = vec![Some(NumericValue::value(amount[0].f64(), 1600.0)), Some(NumericValue::value(amount[1].f64(), 1600.0))];
       let owner = Address::ZERO;
       let spender = Address::ZERO;
 
       let params = TokenApproveParams {
          token,
          amount,
-         amount_usd: Some(amount_usd),
+         amount_usd,
          owner,
          spender,
       };
 
       Self::TokenApprove(params)
+   }
+
+   pub fn dummy_liquidity() -> Self {
+      let currency0 = Currency::from(ERC20Token::weth());
+      let currency1 = Currency::from(ERC20Token::dai());
+      let amount0 = NumericValue::parse_to_wei("100", 18);
+      let amount1 = NumericValue::parse_to_wei("100", 18);
+      let amount0_usd = NumericValue::value(amount0.f64(), 1600.0);
+      let amount1_usd = NumericValue::value(amount1.f64(), 1600.0);
+      let min_amount0 = NumericValue::parse_to_wei("99", 18);
+      let min_amount1 = NumericValue::parse_to_wei("99", 18);
+      let min_amount0_usd = NumericValue::value(min_amount0.f64(), 1600.0);
+      let min_amount1_usd = NumericValue::value(min_amount1.f64(), 1600.0);
+
+      let params = LiquidityParams {
+         add_liquidity: true,
+         currency0,
+         currency1,
+         amount0,
+         amount1,
+         amount0_usd:Some(amount0_usd),
+         amount1_usd: Some(amount1_usd),
+         min_amount0,
+         min_amount1,
+         min_amount0_usd: Some(min_amount0_usd),
+         min_amount1_usd: Some(min_amount1_usd),
+         sender: Address::ZERO,
+         recipient: Some(Address::ZERO),
+      };
+
+      Self::Liquidity(params)
    }
 
    pub fn dummy_swap() -> Self {
@@ -231,25 +266,16 @@ impl OnChainAction {
       Self::Other
    }
 
-   pub fn name(&self) -> &'static str {
+   pub fn name(&self) -> String {
       match self {
-         Self::Bridge(_) => "Bridge",
-         Self::SwapToken(_) => "Swap Token",
-         Self::Transfer(_) => "Transfer",
-         Self::TokenApprove(_) => "Token Approval",
-         Self::WrapETH(_) => "Wrap ETH",
-         Self::UnwrapWETH(_) => "Unwrap WETH",
-         Self::Other => "Unknown interaction",
-      }
-   }
-
-   pub fn token_approval_amount_str(&self) -> String {
-      let amount = self.token_approval_params().amount;
-      let unlimited = amount.wei2() == U256::MAX;
-      if unlimited {
-         return "Unlimited".to_string();
-      } else {
-         return amount.formatted().clone();
+         Self::Bridge(_) => "Bridge".to_string(),
+         Self::SwapToken(_) => "Swap Token".to_string(),
+         Self::Liquidity(p) => p.name(),
+         Self::Transfer(_) => "Transfer".to_string(),
+         Self::TokenApprove(_) => "Token Approval".to_string(),
+         Self::WrapETH(_) => "Wrap ETH".to_string(),
+         Self::UnwrapWETH(_) => "Unwrap WETH".to_string(),
+         Self::Other => "Unknown interaction".to_string(),
       }
    }
 
@@ -313,12 +339,23 @@ impl OnChainAction {
       }
    }
 
+   pub fn liquidity_params(&self) -> LiquidityParams {
+      match self {
+         Self::Liquidity(params) => params.clone(),
+         _ => panic!("Action is not a liquidity"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
 
    pub fn is_swap(&self) -> bool {
       matches!(self, Self::SwapToken(_))
+   }
+
+   pub fn is_liquidity(&self) -> bool {
+      matches!(self, Self::Liquidity(_))
    }
 
    pub fn is_transfer(&self) -> bool {
@@ -845,22 +882,14 @@ impl TransferParams {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TokenApproveParams {
-   pub token: Currency,
-   pub amount: NumericValue,
-   pub amount_usd: Option<NumericValue>,
+   pub token: Vec<ERC20Token>,
+   pub amount: Vec<NumericValue>,
+   pub amount_usd: Vec<Option<NumericValue>>,
    pub owner: Address,
    pub spender: Address,
 }
 
 impl TokenApproveParams {
-
-   pub fn amount(&self) -> String {
-      if self.amount.wei2() == U256::MAX {
-         return "Unlimited".to_string();
-      } else {
-         return self.amount.format_abbreviated();
-      }
-   }
 
    pub async fn new(
       ctx: ZeusCtx,
@@ -909,9 +938,9 @@ impl TokenApproveParams {
       let spender = decoded.spender;
 
       let params = TokenApproveParams {
-         token: Currency::from(token),
-         amount,
-         amount_usd: Some(amount_usd),
+         token: vec![token],
+         amount: vec![amount],
+         amount_usd: vec![Some(amount_usd)],
          owner,
          spender,
       };
@@ -1019,5 +1048,33 @@ impl UnwrapWETHParams {
          eth_amount,
          eth_amount_usd: Some(eth_amount_usd),
       })
+   }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiquidityParams {
+   /// True if the liquidity is being added
+   pub add_liquidity: bool,
+   pub currency0: Currency,
+   pub currency1: Currency,
+   pub amount0: NumericValue,
+   pub amount0_usd: Option<NumericValue>,
+   pub amount1: NumericValue,
+   pub amount1_usd: Option<NumericValue>,
+   pub min_amount0: NumericValue,
+   pub min_amount0_usd: Option<NumericValue>,
+   pub min_amount1: NumericValue,
+   pub min_amount1_usd: Option<NumericValue>,
+   pub sender: Address,
+   pub recipient: Option<Address>,
+}
+
+impl LiquidityParams {
+   pub fn name(&self) -> String {
+      if self.add_liquidity {
+         "Add Liquidity".to_string()
+      } else {
+         "Remove Liquidity".to_string()
+      }
    }
 }

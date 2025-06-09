@@ -8,14 +8,20 @@ pub mod price_feed;
 use alloy_contract::private::{Network, Provider};
 use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use alloy_primitives::{
-   Address, U256,
+   Address, U160, U256,
+   aliases::U48,
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use abi::permit::{
+   self,
+   Permit2::{PermitBatch, PermitDetails},
+};
 
 use anyhow::anyhow;
-use serde_json::Value;
 use std::sync::Arc;
 use tokio::{
    sync::{Mutex, Semaphore},
@@ -25,6 +31,256 @@ use tokio::{
 pub use alloy_network;
 pub use alloy_rpc_client;
 pub use alloy_transport;
+
+/// In X days from now in UNIX time
+pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {
+   let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   Ok(now + 86400 * days)
+}
+
+/// In X minutes from now in UNIX time
+pub fn get_unix_time_in_minutes(minutes: u64) -> Result<u64, anyhow::Error> {
+   let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   Ok(now + 60 * minutes)
+}
+
+#[derive(Debug, Clone)]
+pub struct Permit2ApprovalDetails {
+   pub permit_batch: PermitBatch,
+   pub msg_value: Value,
+}
+
+impl Permit2ApprovalDetails {
+   pub fn tokens(&self) -> Vec<Address> {
+      self.permit_batch.details.iter().map(|d| d.token).collect()
+   }
+
+   pub fn amounts(&self) -> Vec<U160> {
+      self.permit_batch.details.iter().map(|d| d.amount).collect()
+   }
+}
+
+#[derive(Debug, Clone)]
+pub struct TokenAmounts {
+   pub address: Address,
+   pub amount: U256,
+}
+
+/// See if the given tokens need Permit2 approval and return the details
+///
+/// ## Arguments
+///
+/// * `tokens` - The tokens to check
+/// * `owner` - The owner address
+/// * `spender` - The spender address
+/// * `amount` - The amount to approve
+/// * `expiration` - The expiration time
+/// * `sig_deadline` - The signature deadline
+///
+/// ## Returns
+///
+/// Returns `None` if no approval is needed
+///
+/// Returns `Some(Permit2ApprovalDetails)` if approval is needed
+pub async fn get_permit2_approval_details<P, N>(
+   client: P,
+   chain_id: u64,
+   tokens: Vec<TokenAmounts>,
+   owner: Address,
+   spender: Address,
+   expiration: U256,
+   sig_deadline: U256,
+) -> Result<Option<Permit2ApprovalDetails>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let mut futures = Vec::new();
+   let permit2_address = address::permit2_contract(chain_id)?;
+
+   for token in &tokens {
+      let allowance = permit::allowance(
+         client.clone(),
+         permit2_address,
+         owner,
+         token.address,
+         spender,
+      );
+      futures.push(allowance);
+   }
+
+   let allowances = futures::future::join_all(futures).await;
+
+   let allowances = allowances
+      .into_iter()
+      .zip(tokens.into_iter())
+      .collect::<Vec<_>>();
+
+   let current_time = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   let mut permit_details = Vec::new();
+
+   for (allowance, token) in allowances {
+      let allowance = allowance?;
+
+      let expired = u64::try_from(allowance.expiration)? < current_time;
+      let needs_permit2 = U256::from(allowance.amount) < token.amount || expired;
+
+      if needs_permit2 {
+         permit_details.push(PermitDetails {
+            token: token.address,
+            amount: U160::from(token.amount),
+            expiration: U48::from(expiration),
+            nonce: allowance.nonce,
+         });
+      }
+   }
+
+   if !permit_details.is_empty() {
+      let permit_batch = PermitBatch {
+         details: permit_details.clone(),
+         spender,
+         sigDeadline: sig_deadline,
+      };
+
+      let msg_value = generate_permit2_batch_value(
+         chain_id,
+         permit_details,
+         spender,
+         permit2_address,
+         sig_deadline,
+      );
+
+      return Ok(Some(Permit2ApprovalDetails {
+         permit_batch,
+         msg_value,
+      }));
+   } else {
+      return Ok(None);
+   }
+}
+
+
+
+
+pub fn generate_permit2_single_value(
+   chain_id: u64,
+   token: Address,
+   spender: Address,
+   amount: U256,
+   permit2: Address,
+   expiration: U256,
+   sig_deadline: U256,
+   nonce: U48,
+) -> Value {
+   let value = serde_json::json!({
+       "types": {
+           "PermitSingle": [
+               {"name": "details", "type": "PermitDetails"},
+               {"name": "spender", "type": "address"},
+               {"name": "sigDeadline", "type": "uint256"}
+           ],
+           "PermitDetails": [
+               {"name": "token", "type": "address"},
+               {"name": "amount", "type": "uint160"},
+               {"name": "expiration", "type": "uint48"},
+               {"name": "nonce", "type": "uint48"}
+           ],
+           "EIP712Domain": [
+               {"name": "name", "type": "string"},
+               {"name": "chainId", "type": "uint256"},
+               {"name": "verifyingContract", "type": "address"}
+           ]
+       },
+       "domain": {
+           "name": "Permit2",
+           "chainId": chain_id.to_string(),
+           "verifyingContract": permit2.to_string()
+       },
+       "primaryType": "PermitSingle",
+       "message": {
+           "details": {
+               "token": token.to_string(),
+               "amount": amount.to_string(),
+               "expiration": expiration.to_string(),
+               "nonce": nonce.to_string()
+           },
+           "spender": spender.to_string(),
+           "sigDeadline": sig_deadline.to_string()
+       }
+   });
+
+   value
+}
+
+pub fn generate_permit2_batch_value(
+   chain_id: u64,
+   details: Vec<PermitDetails>,
+   spender: Address,
+   permit2: Address,
+   sig_deadline: U256,
+) -> Value {
+   let details_json: Vec<Value> = details
+      .iter()
+      .map(
+         |PermitDetails {
+             token,
+             amount,
+             expiration,
+             nonce,
+          }| {
+            serde_json::json!({
+                "token": token.to_string(),
+                "amount": amount.to_string(),
+                "expiration": expiration.to_string(),
+                "nonce": nonce.to_string()
+            })
+         },
+      )
+      .collect();
+
+   let value = serde_json::json!({
+       "types": {
+           "PermitBatch": [
+               {"name": "details", "type": "PermitDetails[]"},
+               {"name": "spender", "type": "address"},
+               {"name": "sigDeadline", "type": "uint256"}
+           ],
+           "PermitDetails": [
+               {"name": "token", "type": "address"},
+               {"name": "amount", "type": "uint160"},
+               {"name": "expiration", "type": "uint48"},
+               {"name": "nonce", "type": "uint48"}
+           ],
+           "EIP712Domain": [
+               {"name": "name", "type": "string"},
+               {"name": "chainId", "type": "uint256"},
+               {"name": "verifyingContract", "type": "address"}
+           ]
+       },
+       "domain": {
+           "name": "Permit2",
+           "chainId": chain_id.to_string(),
+           "verifyingContract": permit2.to_string()
+       },
+       "primaryType": "PermitBatch",
+       "message": {
+           "details": details_json,
+           "spender": spender.to_string(),
+           "sigDeadline": sig_deadline.to_string()
+       }
+   });
+
+   value
+}
 
 pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
    let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;
@@ -503,6 +759,14 @@ impl NumericValue {
 mod tests {
    use super::*;
    use alloy_primitives::utils::parse_ether;
+
+   #[test]
+   fn format_zero() {
+      let value = NumericValue::format_wei(U256::ZERO, 18);
+      assert_eq!(value.wei2(), U256::ZERO);
+      assert_eq!(value.formatted(), "0");
+      assert_eq!(value.f64(), 0.0);
+   }
 
    #[test]
    fn format_abbreviated() {

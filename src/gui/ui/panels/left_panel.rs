@@ -16,7 +16,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let home = Button::new(RichText::new("Home").size(21.0));
       if ui.add(home).clicked() {
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
@@ -35,12 +35,12 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
          gui.sync_pools_ui.open = false;
-         gui.swap_ui.open = true;
+         gui.uniswap.open = true;
       }
 
       let send = Button::new(RichText::new("Send").size(21.0));
       if ui.add(send).clicked() {
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.portofolio.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
@@ -55,7 +55,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       let bridge = Button::new(RichText::new("Bridge").size(21.0));
       if ui.add(bridge).clicked() {
          gui.portofolio.open = false;
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
@@ -69,7 +69,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       let wallets = Button::new(RichText::new("Wallets").size(21.0));
       if ui.add(wallets).clicked() {
          gui.portofolio.open = false;
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.tx_history.open = false;
@@ -81,7 +81,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       let tx_history = Button::new(RichText::new("Transactions").size(21.0));
       if ui.add(tx_history).clicked() {
          gui.portofolio.open = false;
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.send_crypto.open = false;
          gui.settings.open = false;
          gui.wallet_ui.open = false;
@@ -93,7 +93,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       let settings = Button::new(RichText::new("Settings").size(21.0));
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
-         gui.swap_ui.open = false;
+         gui.uniswap.open = false;
          gui.send_crypto.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
@@ -122,6 +122,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
 
+      /* 
       #[cfg(feature = "dev")]
       {
          let sync_pools = ui.add(Button::new(
@@ -138,6 +139,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.sync_pools_ui.open = true;
          }
       }
+      */
 
       #[cfg(feature = "dev")]
       {

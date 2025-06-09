@@ -4,7 +4,7 @@ use crate::uniswap::state::PoolTick;
 use alloy_primitives::U256;
 use uniswap_v3_math::sqrt_price_math::Q96;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DepositAmounts {
    /// Amount of token0 to deposit
    pub amount0: f64,
@@ -90,6 +90,7 @@ pub fn estimate_fees_in_tokens(
 /// * `token_a_price` - Token A price in usd
 /// * `token_b_price` - Token B price in usd
 /// * `deposit_amount` - Amount of deposit in usd
+/// * `currency_a_is_token0` - True if the UI's Currency A is the pool's actual token0
 pub fn get_tokens_deposit_amount(
    p: f64,
    pl: f64,
@@ -97,6 +98,7 @@ pub fn get_tokens_deposit_amount(
    token_a_price: f64,
    token_b_price: f64,
    deposit_amount: f64,
+   token_a_is_token0: bool,
 ) -> DepositAmounts {
    let delta_l =
       deposit_amount / ((p.sqrt() - pl.sqrt()) * token_b_price + (1.0 / p.sqrt() - 1.0 / pu.sqrt()) * token_a_price);
@@ -121,9 +123,15 @@ pub fn get_tokens_deposit_amount(
       delta_x = deposit_amount / token_a_price;
    }
 
+   let (amount0, amount1) = if token_a_is_token0 {
+      (delta_x, delta_y)
+   } else {
+      (delta_y, delta_x)
+   };
+
    DepositAmounts {
-      amount0: delta_x,
-      amount1: delta_y,
+      amount0,
+      amount1,
       liquidity_delta: delta_l,
    }
 }

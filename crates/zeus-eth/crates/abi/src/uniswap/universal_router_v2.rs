@@ -1,4 +1,4 @@
-use super::{PathKey, PoolKey};
+use super::v4::{PathKey, PoolKey};
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{SolCall, SolValue, sol};
 

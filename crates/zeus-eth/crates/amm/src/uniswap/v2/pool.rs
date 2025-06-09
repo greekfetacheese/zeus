@@ -24,7 +24,6 @@ use alloy_contract::private::{Network, Provider};
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-pub const FEE: u32 = 300;
 
 /// Represents a Uniswap V2 Pool
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -53,7 +52,7 @@ impl UniswapV2Pool {
          address,
          currency0: Currency::from(token0),
          currency1: Currency::from(token1),
-         fee: FeeAmount::CUSTOM(FEE), // 0.3% fee
+         fee: FeeAmount::MEDIUM, // 0.3% fee
          dex,
          state: State::none(),
       }
@@ -352,14 +351,12 @@ impl UniswapPool for UniswapV2Pool {
       if self.currency0.to_erc20().address == token_in {
          Ok(super::get_amount_out(
             amount_in,
-            self.fee.fee(),
             state.reserve0,
             state.reserve1,
          ))
       } else {
          Ok(super::get_amount_out(
             amount_in,
-            self.fee.fee(),
             state.reserve1,
             state.reserve0,
          ))
@@ -376,7 +373,7 @@ impl UniswapPool for UniswapV2Pool {
       let token_in = currency_in.to_erc20().address;
 
       if self.currency0.to_erc20().address == token_in {
-         let amount_out = super::get_amount_out(amount_in, self.fee.fee(), state.reserve0, state.reserve1);
+         let amount_out = super::get_amount_out(amount_in, state.reserve0, state.reserve1);
 
          state.reserve0 += amount_in;
          state.reserve1 -= amount_out;
@@ -384,7 +381,7 @@ impl UniswapPool for UniswapV2Pool {
 
          Ok(amount_out)
       } else {
-         let amount_out = super::get_amount_out(amount_in, self.fee.fee(), state.reserve1, state.reserve0);
+         let amount_out = super::get_amount_out(amount_in, state.reserve1, state.reserve0);
 
          state.reserve0 -= amount_out;
          state.reserve1 += amount_in;

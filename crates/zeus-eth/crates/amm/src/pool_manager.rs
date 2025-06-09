@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use super::sync::*;
 use crate::{
    DexKind,
-   uniswap::{AnyUniswapPool, FEE_TIERS, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*, v2::pool::FEE as V2_FEE},
+   uniswap::{AnyUniswapPool, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*},
 };
 use currency::{Currency, ERC20Token};
 use serde::{Deserialize, Serialize};
@@ -391,7 +391,7 @@ impl PoolManagerHandle {
                continue;
             }
 
-            let cached_pool = self.get_pool(chain, *dex, V2_FEE, &currency_a, &currency_b);
+            let cached_pool = self.get_pool(chain, *dex, FeeAmount::MEDIUM.fee(), &currency_a, &currency_b);
             if cached_pool.is_some() {
                continue;
             }

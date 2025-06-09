@@ -1,4 +1,5 @@
 pub mod nft_position;
+pub mod universal_router_v2;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -37,6 +38,21 @@ sol! {
         // Whether the funds should come from msg.sender or are already in the router
         bool permit2;
     }
+
+    /// Grants router permission to operate on a user’s v3 NFT
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct V3PositionManagerPermit {
+      address spender;
+      uint256 tokenId;
+      uint256 deadline;
+      uint8 v;
+      bytes32 r;
+      bytes32 s;
+    }
+
+    // V3_POSITION_MANAGER_CALL
+    // bytes callData
+    //  Executes v3 NFT ops like burn, collect, decreaseLiquidity
 
     #[derive(Debug, Default, PartialEq, Eq)]
     struct Permit2TransferFrom {

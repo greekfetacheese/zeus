@@ -13,7 +13,7 @@ use crate::core::{
    },
 };
 use zeus_eth::{
-   alloy_primitives::{Address, TxHash},
+   alloy_primitives::{Address, TxHash, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
@@ -44,8 +44,9 @@ pub struct TxConfirmWindow {
    tx_cost: NumericValue,
    tx_cost_usd: NumericValue,
    gas_used: u64,
-   sender: Address,
+   from: Address,
    interact_to: Address,
+   value: NumericValue,
    tx_hash: TxHash,
    /// Is this a contract interaction?
    ///
@@ -74,8 +75,9 @@ impl TxConfirmWindow {
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
          gas_used: 60_000,
-         sender: Address::ZERO,
+         from: Address::ZERO,
          interact_to: Address::ZERO,
+         value: NumericValue::default(),
          tx_hash: TxHash::ZERO,
          contract_interact: false,
          action: OnChainAction::dummy_swap(),
@@ -106,8 +108,9 @@ impl TxConfirmWindow {
       self.tx_cost = summary.tx_cost.clone();
       self.tx_cost_usd = summary.tx_cost_usd.clone();
       self.gas_used = summary.gas_used;
-      self.sender = summary.from;
+      self.from = summary.from;
       self.interact_to = summary.to;
+      self.value = summary.value.clone();
       self.tx_hash = summary.hash;
       self.contract_interact = summary.contract_interact;
       self.action = summary.action;
@@ -138,8 +141,9 @@ impl TxConfirmWindow {
       self.tx_cost = tx_summary.tx_cost;
       self.tx_cost_usd = tx_summary.tx_cost_usd;
       self.gas_used = tx_summary.gas_used;
-      self.sender = tx_summary.from;
+      self.from = tx_summary.from;
       self.interact_to = tx_summary.to;
+      self.value = tx_summary.value.clone();
       self.contract_interact = tx_summary.contract_interact;
       self.action = tx_summary.action;
    }
@@ -235,7 +239,8 @@ impl TxConfirmWindow {
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(
-               RichText::new(&format!("~ ${}", eth_value.format_abbreviated())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", eth_value.format_abbreviated()))
+                  .size(theme.text_sizes.small),
             );
          });
       });
@@ -243,8 +248,6 @@ impl TxConfirmWindow {
 
    fn action_is_token_approval(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.action.token_approval_params();
-      let amount = params.amount();
-      let currency = &params.token;
       let spender_addr = params.spender.to_string();
       let spender_short = truncate_address(spender_addr.clone());
       let explorer = self.chain.block_explorer();
@@ -252,19 +255,30 @@ impl TxConfirmWindow {
 
       ui.horizontal(|ui| {
          let approve_text = RichText::new("Approve").size(theme.text_sizes.normal);
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(approve_text);
-         });
+         ui.label(approve_text);
+      });
 
+      let token_details = params
+         .token
+         .iter()
+         .zip(params.amount.iter())
+         .zip(params.amount_usd.iter());
+
+      for ((token, amount), _amount_usd) in token_details {
          // Currency to Approve
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let icon = icons.currency_icon_x24(currency);
-            let text = RichText::new(format!("{} {}", amount, currency.symbol()))
-               .size(theme.text_sizes.normal);
+            let amount = if amount.wei2() == U256::MAX {
+               "Unlimited".to_string()
+            } else {
+               amount.format_abbreviated()
+            };
+            let icon = icons.currency_icon_x24(&Currency::from(token.clone()));
+            let text =
+               RichText::new(format!("{} {}", amount, token.symbol)).size(theme.text_sizes.normal);
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
-      });
+      }
 
       // Spender
       ui.horizontal(|ui| {
@@ -306,7 +320,8 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = params.amount_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", amount.format_abbreviated())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", amount.format_abbreviated()))
+                  .size(theme.text_sizes.small),
             );
          });
       });
@@ -369,7 +384,8 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.amount_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", value.format_abbreviated()))
+                  .size(theme.text_sizes.small),
             );
          });
       });
@@ -393,8 +409,8 @@ impl TxConfirmWindow {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.received_usd.unwrap_or_default();
-            let text =
-               RichText::new(format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small);
+            let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
+               .size(theme.text_sizes.small);
             ui.label(text);
          });
       });
@@ -461,7 +477,8 @@ impl TxConfirmWindow {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.amount_in_usd.unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small),
+               RichText::new(&format!("~ ${}", value.format_abbreviated()))
+                  .size(theme.text_sizes.small),
             );
          });
       });
@@ -484,8 +501,8 @@ impl TxConfirmWindow {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let value = params.received_usd.unwrap_or_default();
-            let text =
-               RichText::new(format!("~ ${}", value.format_abbreviated())).size(theme.text_sizes.small);
+            let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
+               .size(theme.text_sizes.small);
             ui.label(text);
          });
       });
@@ -502,9 +519,16 @@ impl TxConfirmWindow {
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let amount = amount.unwrap();
                let amount_usd = amount_usd.unwrap();
-               let amount_symbol = format!("{} {}", amount.format_abbreviated(), currency.symbol());
+               let amount_symbol = format!(
+                  "{} {}",
+                  amount.format_abbreviated(),
+                  currency.symbol()
+               );
                let amount_usd = format!("~ ${}", amount_usd.format_abbreviated());
-               ui.label(RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.text_sizes.normal));
+               ui.label(
+                  RichText::new(format!("{} {}", amount_symbol, amount_usd))
+                     .size(theme.text_sizes.normal),
+               );
             });
          });
       }
@@ -560,9 +584,13 @@ impl TxConfirmWindow {
             weth_icon.clone()
          };
 
-         let text = RichText::new(&format!("- {} {}", amount.format_abbreviated(), symbol))
-            .size(theme.text_sizes.normal)
-            .color(Color32::RED);
+         let text = RichText::new(&format!(
+            "- {} {}",
+            amount.format_abbreviated(),
+            symbol
+         ))
+         .size(theme.text_sizes.normal)
+         .color(Color32::RED);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -589,9 +617,13 @@ impl TxConfirmWindow {
             eth_icon
          };
 
-         let text = RichText::new(&format!("+ {} {}", amount.format_abbreviated(), symbol))
-            .size(theme.text_sizes.normal)
-            .color(Color32::GREEN);
+         let text = RichText::new(&format!(
+            "+ {} {}",
+            amount.format_abbreviated(),
+            symbol
+         ))
+         .size(theme.text_sizes.normal)
+         .color(Color32::GREEN);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -602,6 +634,117 @@ impl TxConfirmWindow {
             let text = RichText::new(&format!("~ ${}", amount_usd.format_abbreviated()))
                .size(theme.text_sizes.normal);
             ui.label(text);
+         });
+      });
+   }
+
+   fn action_is_liquidity(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let params = self.action.liquidity_params();
+      let currency0 = &params.currency0;
+      let currency1 = &params.currency1;
+      let amount0 = &params.amount0;
+      let amount1 = &params.amount1;
+      let amount0_usd = &params.amount0_usd.unwrap_or_default();
+      let amount1_usd = &params.amount1_usd.unwrap_or_default();
+      let min_amount0 = &params.min_amount0;
+      let min_amount1 = &params.min_amount1;
+      let min_amount0_usd = &params.min_amount0_usd.unwrap_or_default();
+      let min_amount1_usd = &params.min_amount1_usd.unwrap_or_default();
+
+      // Currency A and Amount & value
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency0);
+
+         let text = format!(
+            "{} {}",
+            amount0.format_abbreviated(),
+            currency0.symbol()
+         );
+         let text = RichText::new(text).size(theme.text_sizes.normal);
+
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
+
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = amount0_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+         });
+      });
+
+      // Currency B and Amount & value
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency1);
+         let text = format!(
+            "{} {}",
+            amount1.format_abbreviated(),
+            currency1.symbol()
+         );
+
+         let text = RichText::new(text).size(theme.text_sizes.normal);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
+
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = amount1_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+         });
+      });
+
+      let text = if params.add_liquidity {
+         "Minimum Liquidity to be added"
+      } else {
+         "Minimum Liquidity to be removed"
+      };
+
+      ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+      // Minimum Amount A and Amount & value
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency0);
+         let text = format!(
+            "{} {}",
+            min_amount0.format_abbreviated(),
+            currency0.symbol()
+         );
+         let text = RichText::new(text).size(theme.text_sizes.normal);
+
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
+
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = min_amount0_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+         });
+      });
+
+      // Minimum Amount B and Amount & value
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency1);
+         let text = format!(
+            "{} {}",
+            min_amount1.format_abbreviated(),
+            currency1.symbol()
+         );
+
+         let text = RichText::new(text).size(theme.text_sizes.normal);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
+
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = min_amount1_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
          });
       });
    }
@@ -665,6 +808,11 @@ impl TxConfirmWindow {
 
                      if self.action.is_swap() {
                         self.action_is_swap(theme, icons.clone(), ui);
+                        ui.add_space(10.0);
+                     }
+
+                     if self.action.is_liquidity() {
+                        self.action_is_liquidity(theme, icons.clone(), ui);
                         ui.add_space(10.0);
                      }
 
@@ -733,6 +881,24 @@ impl TxConfirmWindow {
                         });
                      }
 
+                     // Value
+                     let eth = Currency::from(NativeCurrency::from(self.chain.id()));
+                     ui.horizontal(|ui| {
+                        ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                           let value = self.value.formatted();
+                           let text = format!("Value {} {}", value, eth.symbol());
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                        });
+
+                        ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                           let value_usd = ctx.get_currency_value2(self.value.f64(), &eth);
+                           ui.label(
+                              RichText::new(format!("${}", value_usd.formatted()))
+                                 .size(theme.text_sizes.small),
+                           );
+                        });
+                     });
+
                      // Show Tx Hash if needed
                      if !self.confrim_window {
                         ui.horizontal(|ui| {
@@ -777,7 +943,7 @@ impl TxConfirmWindow {
                      });
 
                      // Priority Fee
-                     let sufficient_balance = self.sufficient_balance(ctx.clone(), self.sender);
+                     let sufficient_balance = self.sufficient_balance(ctx.clone(), self.from);
                      if self.confrim_window {
                         ui.spacing_mut().item_spacing.y = 2.0;
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

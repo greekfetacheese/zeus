@@ -7,9 +7,12 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use zeus_eth::{
-   alloy_primitives::U256,
-   currency::{Currency, NativeCurrency},
-   utils::NumericValue,
+   alloy_primitives::{Address, U160, U256, aliases::U48},
+   alloy_provider::Provider,
+   alloy_network::Network,
+   currency::{Currency, ERC20Token, NativeCurrency},
+   utils::{address, NumericValue, generate_permit2_batch_value},
+   abi::permit::{self, Permit2::{PermitBatch, PermitDetails}},
 };
 
 pub mod action;
@@ -126,4 +129,191 @@ pub fn truncate_hash(hash: String) -> String {
    } else {
       hash
    }
+}
+
+
+/// In X days from now in UNIX time
+pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {
+   let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   Ok(now + 86400 * days)
+}
+
+/// In X minutes from now in UNIX time
+pub fn get_unix_time_in_minutes(minutes: u64) -> Result<u64, anyhow::Error> {
+   let now = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   Ok(now + 60 * minutes)
+}
+
+
+
+#[derive(Debug, Clone)]
+pub struct Permit2BatchApproval {
+   /// The permit batch struct to be abi encoded
+   pub permit_batch: PermitBatch,
+   /// The message value to be signed
+   pub msg_value: Value,
+   /// Tokens to approve
+   pub tokens: Vec<ERC20Token>,
+   /// Amounts to approve
+   pub amounts: Vec<NumericValue>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TokenAmounts {
+   pub token: ERC20Token,
+   pub amount: NumericValue,
+}
+
+/// See if the given tokens need Permit2 approval and return the details
+///
+/// ## Arguments
+///
+/// * `tokens` - The tokens to check
+/// * `owner` - The owner address
+/// * `spender` - The spender address
+/// * `amount` - The amount to approve
+/// * `expiration` - The expiration time
+/// * `sig_deadline` - The signature deadline
+///
+/// ## Returns
+///
+/// Returns `None` if no approval is needed
+///
+/// Returns `Some(Permit2BatchApproval)` if approval is needed
+pub async fn get_permit2_batch_approval<P, N>(
+   client: P,
+   chain_id: u64,
+   tokens: Vec<TokenAmounts>,
+   owner: Address,
+   spender: Address,
+   expiration: U256,
+   sig_deadline: U256,
+) -> Result<Option<Permit2BatchApproval>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let mut futures = Vec::new();
+   let permit2_address = address::permit2_contract(chain_id)?;
+
+   for token in &tokens {
+      let allowance = permit::allowance(
+         client.clone(),
+         permit2_address,
+         owner,
+         token.token.address,
+         spender,
+      );
+      futures.push(allowance);
+   }
+
+   let allowances = futures::future::join_all(futures).await;
+
+   let allowances = allowances
+      .into_iter()
+      .zip(tokens.into_iter())
+      .collect::<Vec<_>>();
+
+   let current_time = std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)?
+      .as_secs();
+
+   let mut permit_details = Vec::new();
+
+   let mut tokens_to_approve = Vec::new();
+   let mut amounts_to_approve = Vec::new();
+   for (allowance, token) in allowances {
+      let allowance = allowance?;
+
+      let expired = u64::try_from(allowance.expiration)? < current_time;
+      let needs_permit2 = U256::from(allowance.amount) < token.amount.wei2() || expired;
+
+      if needs_permit2 {
+         tokens_to_approve.push(token.token.clone());
+         amounts_to_approve.push(token.amount.clone());
+
+         permit_details.push(PermitDetails {
+            token: token.token.address,
+            amount: U160::from(token.amount.wei2()),
+            expiration: U48::from(expiration),
+            nonce: allowance.nonce,
+         });
+      }
+   }
+
+   if !permit_details.is_empty() {
+      let permit_batch = PermitBatch {
+         details: permit_details.clone(),
+         spender,
+         sigDeadline: sig_deadline,
+      };
+
+      let msg_value = generate_permit2_batch_value(
+         chain_id,
+         permit_details,
+         spender,
+         permit2_address,
+         sig_deadline,
+      );
+
+      return Ok(Some(Permit2BatchApproval {
+         permit_batch,
+         msg_value,
+         tokens: tokens_to_approve,
+         amounts: amounts_to_approve,
+      }));
+   } else {
+      return Ok(None);
+   }
+}
+
+
+
+pub fn generate_eip2612_permit_msg(
+    token_name: String,
+    token_address: Address,
+    chain_id: u64,
+    owner: Address,
+    spender: Address,
+    value: U256,
+    nonce: U256,
+    deadline: U256,
+) -> Value {
+    serde_json::json!({
+      "types": {
+        "EIP712Domain": [
+          {"name": "name", "type": "string"},
+          {"name": "version", "type": "string"},
+          {"name": "chainId", "type": "uint256"},
+          {"name": "verifyingContract", "type": "address"}
+        ],
+        "Permit": [
+          {"name": "owner", "type": "address"},
+          {"name": "spender", "type": "address"},
+          {"name": "value", "type": "uint256"},
+          {"name": "nonce", "type": "uint256"},
+          {"name": "deadline", "type": "uint256"}
+        ]
+      },
+      "primaryType": "Permit",
+      "domain": {
+        "name": token_name,
+        "version": "1",
+        "chainId": chain_id.to_string(),
+        "verifyingContract": token_address.to_string()
+      },
+      "message": {
+        "owner": owner.to_string(),
+        "spender": spender.to_string(),
+        "value": value.to_string(),
+        "nonce": nonce.to_string(),
+        "deadline": deadline.to_string()
+      }
+    })
 }

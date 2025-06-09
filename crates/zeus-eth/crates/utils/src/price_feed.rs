@@ -78,13 +78,95 @@ where
       if token == wbnb(chain_id)? {
          return get_bnb_price(client, block).await;
       } else {
-         return Ok(1.0); // Assuming Stablecoins are stable
+         return get_stablecoin_price(client, chain_id, token, block).await;
       }
    } else {
       if token == weth(chain_id)? {
          return get_eth_price(client, chain_id, block).await;
       } else {
-         return Ok(1.0);
+         return get_stablecoin_price(client, chain_id, token, block).await;
       }
+   }
+}
+
+pub async fn get_stablecoin_price<P, N>(
+   client: P,
+   chain_id: u64,
+   token: Address,
+   block: Option<BlockId>,
+) -> Result<f64, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let is_usdc = usdc(chain_id).is_ok_and(|usdc| usdc == token);
+   let is_usdt = usdt(chain_id).is_ok_and(|usdt| usdt == token);
+   let is_dai = dai(chain_id).is_ok_and(|dai| dai == token);
+   let is_stable = is_usdc || is_usdt || is_dai;
+
+   if !is_stable {
+      return Err(anyhow::anyhow!("Token is not a stablecoin"));
+   }
+
+   let price_feed = if is_usdc {
+      usdc_usd_price_feed(chain_id)?
+   } else if is_usdt {
+      usdt_usd_price_feed(chain_id)?
+   } else if is_dai {
+      dai_usd_price_feed(chain_id)?
+   } else {
+      bail!("Token is not a stablecoin");
+   };
+
+   let block_id = block.unwrap_or(BlockId::latest());
+   let oracle = ChainLinkOracle::new(price_feed, client);
+   let price = oracle.latestAnswer().block(block_id).call().await?;
+   let price = price.to_string().parse::<U256>()?;
+   let formatted = format_units(price, 8)?.parse::<f64>()?;
+   Ok(formatted)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use alloy_provider::ProviderBuilder;
+   use url::Url;
+
+   #[tokio::test]
+   async fn test_get_eth_price() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+      let price = get_eth_price(client, 1, None).await.unwrap();
+      eprintln!("ETH Price: {}", price);
+   }
+
+   #[tokio::test]
+   async fn test_get_usdc_price() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+      let price = get_stablecoin_price(client, 1, usdc(1).unwrap(), None)
+         .await
+         .unwrap();
+      eprintln!("USDC Price: {}", price);
+   }
+
+   #[tokio::test]
+   async fn test_get_usdt_price() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+      let price = get_stablecoin_price(client, 1, usdt(1).unwrap(), None)
+         .await
+         .unwrap();
+      eprintln!("USDT Price: {}", price);
+   }
+
+   #[tokio::test]
+   async fn test_get_dai_price() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+      let price = get_stablecoin_price(client, 1, dai(1).unwrap(), None)
+         .await
+         .unwrap();
+      eprintln!("DAI Price: {}", price);
    }
 }

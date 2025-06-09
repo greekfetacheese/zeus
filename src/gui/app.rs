@@ -110,12 +110,7 @@ impl eframe::App for ZeusApp {
       SHARED_GUI.write(|gui| {
          self.on_shutdown(ctx, gui);
 
-         let bg_color = if gui.show_overlay {
-            gui.theme.colors.overlay_color
-         } else {
-            gui.theme.colors.bg_color
-         };
-
+         let bg_color = gui.theme.colors.bg_color;
          let bg_frame = Frame::new().fill(bg_color);
 
          window_frame(ctx, "Zeus", bg_frame.clone(), |ui| {

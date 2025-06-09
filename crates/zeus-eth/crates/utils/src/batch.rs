@@ -74,6 +74,14 @@ sol! {
     }
 
     #[derive(Debug)]
+        struct ERC20 {
+        string symbol;
+        string name;
+        uint256 totalSupply;
+        uint8 decimals;
+    }
+
+    #[derive(Debug)]
     struct V2PoolReserves {
         address pool;
         uint112 reserve0;
@@ -170,7 +178,7 @@ where
 }
 
 /// Query the ERC20 token info for the given token
-pub async fn get_erc20_info<P, N>(client: P, token: Address) -> Result<ERC20Info, anyhow::Error>
+pub async fn get_erc20_info<P, N>(client: P, token: Address) -> Result<ERC20, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -178,16 +186,13 @@ where
    let deployer = GetERC20::deploy_builder(client, token);
    let res = deployer.call_raw().await?;
 
-   let data = <ERC20Info as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+   let data = <ERC20 as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
    Ok(data)
 }
 
 /// Query the ERC20 token info for the given tokens
-pub async fn get_erc20_tokens<P, N>(
-   client: P,
-   tokens: Vec<Address>,
-) -> Result<Vec<ERC20Info>, anyhow::Error>
+pub async fn get_erc20_tokens<P, N>(client: P, tokens: Vec<Address>) -> Result<Vec<ERC20Info>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -195,7 +200,8 @@ where
    let deployer = GetERC20Batch::deploy_builder(client, tokens);
    let res = deployer.call_raw().await?;
 
-   let data = <Vec<ERC20Info> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
+   let data =
+      <Vec<ERC20Info> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode token info: {:?}", e))?;
 
    Ok(data)
 }
@@ -404,6 +410,4 @@ mod tests {
          println!("Pair: {:?}, Fee: {}", pool.addr, pool.fee);
       }
    }
-
-   
 }

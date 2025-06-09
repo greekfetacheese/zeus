@@ -2,7 +2,8 @@ use alloy_primitives::{Address, address};
 use anyhow::bail;
 use types::ChainId;
 
-// https://docs.uniswap.org/contracts/v3/reference/deployments/
+/// https://docs.uniswap.org/contracts/v3/reference/deployments/
+/// 
 /// Returns the Permit2 contract address for the given chain id.
 pub fn permit2_contract(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
@@ -24,6 +25,42 @@ pub fn eth_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::BinanceSmartChain(_) => Ok(address!("9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e")),
       ChainId::Base(_) => Ok(address!("71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70")),
       ChainId::Arbitrum(_) => Ok(address!("639Fe6ab55C921f74e7fac1ee960C0B6293ba612")),
+   }
+}
+
+/// USDC-USD Price Feed Chainlink
+pub fn usdc_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6")),
+      ChainId::Optimism(_) => Ok(address!("0x16a9FA2FDa030272Ce99B29CF780dFA30361E0f3")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x51597f405303C4377E36123cBc172b13269EA163")),
+      ChainId::Base(_) => Ok(address!("0x7e860098F58bBFC8648a4311b374B1D669a2bc6B")),
+      ChainId::Arbitrum(_) => Ok(address!("0x50834F3163758fcC1Df9973b6e91f0F0F0434aD3")),
+   }
+}
+
+/// USDT-USD Price Feed Chainlink
+pub fn usdt_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0x3E7d1eAB13ad0104d2750B8863b489D65364e32D")),
+      ChainId::Optimism(_) => Ok(address!("0xECef79E109e997bCA29c1c0897ec9d7b03647F5E")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0xB97Ad0E74fa7d920791E90258A6E2085088b4320")),
+      ChainId::Base(_) => Ok(address!("0xf19d560eB8d2ADf07BD6D13ed03e1D11215721F9")),
+      ChainId::Arbitrum(_) => Ok(address!("0x3f3f5dF88dC9F13eac63DF89EC16ef6e7E25DdE7")),
+   }
+}
+
+/// DAI-USD Price Feed Chainlink
+pub fn dai_usd_price_feed(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(address!("0xAed0c38402a5d19df6E4c03F4E2DceD6e29c1ee9")),
+      ChainId::Optimism(_) => Ok(address!("0x8dBa75e83DA73cc766A7e5a0ee71F656BAb470d6")),
+      ChainId::BinanceSmartChain(_) => Ok(address!("0x132d3C0B1D2cEa0BC552588063bdBb210FDeecfA")),
+      ChainId::Base(_) => Ok(address!("0x591e79239a7d679378eC8c847e5038150364C78F")),
+      ChainId::Arbitrum(_) => Ok(address!("0xc5C8E77B397E531B8EC06BFb0048328B30E9eCfB")),
    }
 }
 
@@ -131,8 +168,8 @@ pub fn uniswap_v4_pool_manager(chain_id: u64) -> Result<Address, anyhow::Error> 
    }
 }
 
-/// Return the address of the UniswapV4 UniversalRouter contract on the given chain id.
-pub fn uniswap_v4_universal_router(chain_id: u64) -> Result<Address, anyhow::Error> {
+/// Return the address of the Uniswap UniversalRouter V2 contract on the given chain id.
+pub fn universal_router_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
    match chain {
       ChainId::Ethereum(_) => Ok(address!("0x66a9893cc07d91d95644aedd05d03f95e1dba8af")),

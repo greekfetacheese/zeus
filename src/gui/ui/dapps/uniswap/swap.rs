@@ -1,10 +1,8 @@
+use super::Settings;
 use crate::core::ZeusCtx;
 use crate::gui::ui::*;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, Order, RichText, Slider, Spinner,
-   TextEdit, Ui, Window, vec2,
-};
+use egui::{Align, Button, Color32, FontId, Layout, Margin, RichText, Spinner, TextEdit, Ui, vec2};
 use egui_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
@@ -59,18 +57,14 @@ impl InOrOut {
    }
 }
 
+/// A Swap UI for a DEX like Uniswap
 pub struct SwapUi {
    pub open: bool,
-   pub settings_open: bool,
-   pub max_hops: usize,
-   pub max_paths: usize,
+   pub size: (f32, f32),
    pub currency_in: Currency,
    pub currency_out: Currency,
    pub amount_in: String,
    pub amount_out: String,
-   pub mev_protect: bool,
-   /// Percent
-   pub slippage: String,
    /// Last time pool state was updated
    pub last_pool_state_updated: Option<Instant>,
    /// Last time quote was updated
@@ -87,16 +81,12 @@ impl SwapUi {
       let currency_in = Currency::from(currency);
       let currency_out = Currency::from(ERC20Token::wrapped_native_token(1));
       Self {
-         open: false,
-         settings_open: false,
-         max_hops: 5,
-         max_paths: 5,
+         open: true,
+         size: (450.0, 700.0),
          currency_in,
          currency_out,
          amount_in: "".to_string(),
          amount_out: "".to_string(),
-         mev_protect: true,
-         slippage: "0.5".to_string(),
          last_pool_state_updated: None,
          last_quote_updated: None,
          pool_data_syncing: false,
@@ -137,9 +127,10 @@ impl SwapUi {
    pub fn show(
       &mut self,
       ctx: ZeusCtx,
-      icons: Arc<Icons>,
       theme: &Theme,
+      icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
+      settings: &Settings,
       ui: &mut Ui,
    ) {
       if !self.open {
@@ -154,116 +145,93 @@ impl SwapUi {
       let owner = ctx.current_wallet().address;
       let currencies = ctx.get_currencies(chain_id);
 
-      let mut open = self.open;
-      let window_frame = Frame::new().inner_margin(Margin::symmetric(15, 20));
+      ui.vertical_centered(|ui| {
+         ui.set_width(self.size.0);
+         ui.set_height(self.size.1);
+         ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
 
-      Window::new("Swap")
-         .open(&mut open)
-         .title_bar(false)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(window_frame)
-         .show(ui.ctx(), |ui| {
-            ui.vertical(|ui| {
-               ui.set_width(450.0);
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  ui.spacing_mut().item_spacing.x = 10.0;
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            // Force update pool state
+            let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
+            if ui.add(refresh).clicked() {
+               self.update_pool_state(ctx.clone());
+            }
 
-                  // Force update pool state
-                  let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
-                  if ui.add(refresh).clicked() {
-                     self.update_pool_state(ctx.clone());
-                  }
-
-                  let button = Button::new(RichText::new("Settings").size(theme.text_sizes.normal));
-                  if ui.add(button).clicked() {
-                     self.settings_open = true;
-                  }
-
-                  if self.pool_data_syncing || self.syncing_pools {
-                     ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                  }
-               });
-
-               self.settings(theme, ui);
-
-               // --- Sell Section ---
-               let amount_changed = self.swap_section(
-                  ui,
-                  ctx.clone(),
-                  theme,
-                  icons.clone(),
-                  token_selection,
-                  InOrOut::In,
-                  chain_id,
-                  owner,
-               );
-
-               // Swap Currencies
-               ui.add_space(5.0);
-               ui.vertical_centered(|ui| {
-                  let swap_button = Button::image(icons.swap()).min_size(vec2(40.0, 40.0));
-
-                  if ui.add(swap_button).clicked() {
-                     self.swap_currencies();
-                     self.get_quote(ctx.clone());
-                  }
-               });
-               ui.add_space(5.0);
-
-               // Buy Section
-               self.swap_section(
-                  ui,
-                  ctx.clone(),
-                  theme,
-                  icons.clone(),
-                  token_selection,
-                  InOrOut::Out,
-                  chain_id,
-                  owner,
-               );
-
-               token_selection.show(
-                  ctx.clone(),
-                  theme,
-                  icons,
-                  chain_id,
-                  owner,
-                  &currencies,
-                  ui,
-               );
-
-               let selected_currency = token_selection.get_currency().cloned();
-               let direction = token_selection.get_currency_direction();
-               let changed_currency = selected_currency.is_some();
-               let should_get_quote = self.should_get_quote(changed_currency, amount_changed);
-
-               if let Some(currency) = selected_currency {
-                  self.replace_currency(&direction, currency.clone());
-                  token_selection.reset();
-               }
-
-               self.sync_pools(ctx.clone(), changed_currency);
-
-               if should_get_quote {
-                  self.get_quote(ctx.clone());
-               }
-
-               self.swap_button(ctx.clone(), theme, ui);
-               let action = self.action();
-               let amount_in = self.amount_in.parse().unwrap_or(0.0);
-
-               if amount_in != 0.0 && action.is_swap() {
-                  self.swap_details(ctx, theme, ui);
-               }
-            });
+            if self.pool_data_syncing || self.syncing_pools {
+               ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+            }
          });
 
-      self.open = open;
+         // Sell
+         let amount_changed = self.swap_section(
+            ui,
+            ctx.clone(),
+            theme,
+            icons.clone(),
+            token_selection,
+            InOrOut::In,
+            chain_id,
+            owner,
+            settings,
+         );
+
+         // Swap Currencies
+         ui.add_space(5.0);
+         ui.vertical_centered(|ui| {
+            let swap_button = Button::image(icons.swap()).min_size(vec2(40.0, 40.0));
+
+            if ui.add(swap_button).clicked() {
+               self.swap_currencies();
+               self.get_quote(ctx.clone(), settings);
+            }
+         });
+         ui.add_space(5.0);
+
+         // Buy
+         self.swap_section(
+            ui,
+            ctx.clone(),
+            theme,
+            icons.clone(),
+            token_selection,
+            InOrOut::Out,
+            chain_id,
+            owner,
+            settings,
+         );
+
+         token_selection.show(
+            ctx.clone(),
+            theme,
+            icons,
+            chain_id,
+            owner,
+            &currencies,
+            ui,
+         );
+
+         let selected_currency = token_selection.get_currency().cloned();
+         let direction = token_selection.get_currency_direction();
+         let changed_currency = selected_currency.is_some();
+         let should_get_quote = self.should_get_quote(changed_currency, amount_changed);
+
+         if let Some(currency) = selected_currency {
+            self.replace_currency(&direction, currency.clone());
+            token_selection.reset();
+         }
+
+         self.sync_pools(ctx.clone(), changed_currency);
+
+         if should_get_quote {
+            self.get_quote(ctx.clone(), settings);
+         }
+
+         self.swap_button(ctx.clone(), theme, settings, ui);
+         self.swap_details(ctx, theme, settings, ui);
+      });
    }
 
    fn action(&self) -> Action {
@@ -279,7 +247,7 @@ impl SwapUi {
       }
    }
 
-   fn swap_button(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn swap_button(&mut self, ctx: ZeusCtx, theme: &Theme, settings: &Settings, ui: &mut Ui) {
       let valid = self.valid_inputs(ctx.clone());
       let has_routes = !self.quote_routes.routes.is_empty();
       let has_balance = self.sufficient_balance(ctx.clone());
@@ -320,7 +288,7 @@ impl SwapUi {
 
       ui.vertical_centered(|ui| {
          if ui.add_enabled(valid, swap_button).clicked() {
-            self.swap(ctx);
+            self.swap(ctx, settings);
          }
       });
    }
@@ -338,6 +306,7 @@ impl SwapUi {
       direction: InOrOut,
       chain_id: u64,
       owner: Address,
+      settings: &Settings,
    ) -> bool {
       let frame = theme.frame1;
       let _frame_bg_color = frame.fill;
@@ -427,79 +396,13 @@ impl SwapUi {
                if direction == InOrOut::In {
                   if ui.add(max_button).clicked() {
                      self.amount_in = balance.flatten();
-                     self.get_quote(ctx);
+                     self.get_quote(ctx, settings);
                   }
                }
             });
          });
       });
       amount_changed
-   }
-
-   fn settings(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.settings_open {
-         return;
-      }
-
-      let frame = Frame::window(ui.style()).inner_margin(Margin::same(10));
-      Window::new("swap_settings")
-         .title_bar(false)
-         .resizable(false)
-         .order(Order::Foreground)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(150.0);
-            ui.set_height(100.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            ui.vertical(|ui| {
-
-               let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.label(text).on_hover_text("Protect against front-running");
-                  ui.add_space(10.0);
-                  ui.checkbox(&mut self.mev_protect, "");
-               });
-
-               ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                  let text = RichText::new("Slippage").size(theme.text_sizes.normal);
-                  ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
-                  ui.add_space(10.0);
-               TextEdit::singleline(&mut self.slippage)
-                  .hint_text("0.5")
-                  .font(FontId::proportional(theme.text_sizes.small))
-                  .desired_width(25.0)
-                  .background_color(theme.colors.text_edit_bg)
-                  .margin(Margin::same(10))
-                  .show(ui);
-            });
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
-               ui.add_space(10.0);
-               ui.add(Slider::new(&mut self.max_hops, 1..=10));
-            });
-
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.label(RichText::new("Max Paths").size(theme.text_sizes.normal));
-               ui.add_space(10.0);
-               ui.add(Slider::new(&mut self.max_paths, 1..=10));
-            });
-
-
-            ui.vertical_centered(|ui| {
-            let btn = Button::new(RichText::new("Close").size(theme.text_sizes.normal));
-            if ui.add(btn).clicked() {
-               self.settings_open = false;
-            }
-            });
-
-         });
-
-
-         });
    }
 
    fn valid_inputs(&self, ctx: ZeusCtx) -> bool {
@@ -510,11 +413,6 @@ impl SwapUi {
       let amount_in = self.amount_in.parse().unwrap_or(0.0);
       let amount_out = self.amount_out.parse().unwrap_or(0.0);
       amount_in > 0.0 && amount_out > 0.0
-   }
-
-   fn _valid_slippage(&self) -> bool {
-      let slippage = self.slippage.parse().unwrap_or(0.0);
-      slippage > 0.0 && slippage < 100.0
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
@@ -567,8 +465,8 @@ impl SwapUi {
          .await;
 
          SHARED_GUI.write(|gui| {
-            gui.swap_ui.syncing_pools = false;
-            gui.swap_ui.pool_data_syncing = true;
+            gui.uniswap.swap_ui.syncing_pools = false;
+            gui.uniswap.swap_ui.pool_data_syncing = true;
          });
 
          let pools = pools_to_update(ctx2.clone(), currency_in, currency_out);
@@ -579,21 +477,22 @@ impl SwapUi {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
-                  gui.swap_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.swap_ui.pool_data_syncing = false;
+                  gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.swap_ui.pool_data_syncing = false;
                });
             }
             Err(_e) => {
                // tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.swap_ui.pool_data_syncing = false;
+                  gui.uniswap.swap_ui.pool_data_syncing = false;
                });
             }
          }
 
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-               gui.swap_ui.get_quote(ctx2.clone());
+               let settings = gui.uniswap.settings.clone();
+               gui.uniswap.swap_ui.get_quote(ctx2.clone(), &settings);
             });
 
             match ctx2.save_pool_manager() {
@@ -678,21 +577,22 @@ impl SwapUi {
          {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.swap_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.swap_ui.pool_data_syncing = false;
+                  gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.swap_ui.pool_data_syncing = false;
                });
             }
             Err(e) => {
                tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.swap_ui.pool_data_syncing = false;
+                  gui.uniswap.swap_ui.pool_data_syncing = false;
                });
             }
          }
 
          // get a new quote
          SHARED_GUI.write(|gui| {
-            gui.swap_ui.get_quote(ctx2);
+            let settings = gui.uniswap.settings.clone();
+            gui.uniswap.swap_ui.get_quote(ctx2, &settings);
          });
       });
    }
@@ -705,7 +605,7 @@ impl SwapUi {
       }
    }
 
-   pub fn get_quote(&mut self, ctx: ZeusCtx) {
+   pub fn get_quote(&mut self, ctx: ZeusCtx, settings: &Settings) {
       let action = self.action();
       if action == Action::WrapETH || action == Action::UnwrapWETH {
          self.amount_out = self.amount_in.clone();
@@ -731,8 +631,8 @@ impl SwapUi {
       let eth_price = ctx.get_eth_price();
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
-      let max_hops = self.max_hops;
-      let max_paths = self.max_paths;
+      let max_hops = settings.max_hops;
+      let max_paths = settings.max_paths;
 
       RT.spawn_blocking(move || {
          let quote = get_quote(
@@ -769,20 +669,20 @@ impl SwapUi {
 
          SHARED_GUI.write(|gui| {
             if !quote.routes.is_empty() {
-               gui.swap_ui.amount_out = quote.total_amount_out().flatten();
+               gui.uniswap.swap_ui.amount_out = quote.total_amount_out().flatten();
 
-               gui.swap_ui.getting_quote = false;
-               gui.swap_ui.quote_routes = quote;
+               gui.uniswap.swap_ui.getting_quote = false;
+               gui.uniswap.swap_ui.quote_routes = quote;
             } else {
-               gui.swap_ui.quote_routes = QuoteRoutes::default();
-               gui.swap_ui.amount_out = String::new();
-               gui.swap_ui.getting_quote = false;
+               gui.uniswap.swap_ui.quote_routes = QuoteRoutes::default();
+               gui.uniswap.swap_ui.amount_out = String::new();
+               gui.uniswap.swap_ui.getting_quote = false;
             }
          });
       });
    }
 
-   fn swap_details(&self, _ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn swap_details(&self, _ctx: ZeusCtx, theme: &Theme, settings: &Settings, ui: &mut Ui) {
       let quote = &self.quote_routes;
 
       // Slippage
@@ -792,7 +692,9 @@ impl SwapUi {
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(RichText::new(format!("{}%", self.slippage)).size(theme.text_sizes.normal));
+            ui.label(
+               RichText::new(format!("{}%", settings.slippage)).size(theme.text_sizes.normal),
+            );
          });
       });
 
@@ -804,22 +706,24 @@ impl SwapUi {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let mut amount_out = quote.total_amount_out();
-            let slippage: f64 = self.slippage.parse().unwrap_or(0.5);
+            let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
             amount_out.calc_slippage(slippage, self.currency_out.decimals());
 
-            ui.label(
-               RichText::new(format!(
-                  "{} {}",
-                  amount_out.formatted(),
-                  self.currency_out.symbol()
-               ))
-               .size(theme.text_sizes.normal),
-            );
+            if self.valid_amounts() && self.action().is_swap() {
+               ui.label(
+                  RichText::new(format!(
+                     "{} {}",
+                     amount_out.formatted(),
+                     self.currency_out.symbol()
+                  ))
+                  .size(theme.text_sizes.normal),
+               );
+            }
          });
       });
    }
 
-   fn swap(&self, ctx: ZeusCtx) {
+   fn swap(&self, ctx: ZeusCtx, settings: &Settings) {
       let action = self.action();
       let from = ctx.current_wallet().address;
       let chain = ctx.chain();
@@ -860,11 +764,11 @@ impl SwapUi {
 
       let quote = self.quote_routes.clone();
       let amount_in = quote.total_amount_in();
-      let mev_protect = self.mev_protect;
+      let mev_protect = settings.mev_protect;
       let currency_in = quote.currency_in.clone();
       let currency_out = quote.currency_out.clone();
       let amount_out = quote.total_amount_out();
-      let slippage: f64 = self.slippage.parse().unwrap_or(0.5);
+      let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
 
       // set no slippage on intermidiate swaps to make sure they don't fail
       let mut swap_steps = quote.get_swap_steps();

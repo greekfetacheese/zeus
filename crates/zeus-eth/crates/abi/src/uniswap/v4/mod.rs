@@ -1,4 +1,3 @@
-pub mod router;
 pub mod state_view;
 
 use alloy_sol_types::{sol, SolEvent};
