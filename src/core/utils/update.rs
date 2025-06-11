@@ -77,8 +77,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
       Err(e) => tracing::error!("Error updating token balance: {:?}", e),
    }
 
+
    let ctx_clone = ctx.clone();
-   RT.spawn_blocking(move || {
+   RT.spawn(async move {
+      while !ctx_clone.logged_in() {
+         tokio::time::sleep(Duration::from_millis(100)).await;
+      }
+
       let wallets = ctx_clone.wallets_info();
       for chain in SUPPORTED_CHAINS {
          for wallet in &wallets {
@@ -182,7 +187,7 @@ pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    }
 }
 
-/// Update the portofolio state for the given chain and wallet
+/// Update the portfolio state for the given chain and wallet
 pub async fn update_portfolio_state(
    ctx: ZeusCtx,
    chain: u64,

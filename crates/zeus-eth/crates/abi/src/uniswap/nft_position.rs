@@ -1,6 +1,6 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, LogData, U256, Uint};
-use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
+use alloy_sol_types::{SolCall, SolEvent, sol};
 
 use INonfungiblePositionManager::MintParams;
 use anyhow::Context;
@@ -289,7 +289,13 @@ pub fn encode_increase_liquidity(params: INonfungiblePositionManager::IncreaseLi
    Bytes::from(abi.abi_encode())
 }
 
-pub fn encode_decrease_liquidity(token_id: U256, liquidity: u128, amount0: U256, amount1: U256, deadline: U256) -> Bytes {
+pub fn encode_decrease_liquidity(
+   token_id: U256,
+   liquidity: u128,
+   amount0: U256,
+   amount1: U256,
+   deadline: U256,
+) -> Bytes {
    let params = INonfungiblePositionManager::DecreaseLiquidityParams {
       tokenId: token_id,
       liquidity: liquidity,

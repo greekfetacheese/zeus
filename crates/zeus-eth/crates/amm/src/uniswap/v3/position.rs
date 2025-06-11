@@ -7,13 +7,14 @@ use alloy_contract::private::{Ethereum, Provider};
 use alloy_rpc_types::{BlockId, Log};
 use alloy_sol_types::SolEvent;
 
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
 use super::fee_math::*;
-use super::{UniswapPool, pool::UniswapV3Pool};
+use super::{Position, UniswapPool, V3PoolState, get_liquidity_for_lower_upper_tick, pool::UniswapV3Pool};
 use abi::uniswap::{
    nft_position::INonfungiblePositionManager,
    v3::{self, pool::IUniswapV3Pool},
@@ -21,7 +22,7 @@ use abi::uniswap::{
 use currency::ERC20Token;
 use serde::{Deserialize, Serialize};
 use types::BlockTime;
-use utils::{address::uniswap_nft_position_manager, get_logs_for};
+use utils::{NumericValue, address::uniswap_nft_position_manager, get_logs_for};
 
 use revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::Bytecode, simulate};
 
@@ -52,6 +53,65 @@ impl PositionArgs {
          deposit_amount,
       }
    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SwapDebug {
+   pub swap_data: SwapData,
+   /// Was the position active during this swap
+   pub in_range: bool,
+   /// Total fees earned in token0
+   pub total_fees_earned0: NumericValue,
+   /// Total fees earned in token1
+   pub total_fees_earned1: NumericValue,
+}
+
+#[derive(Debug, Clone)]
+pub struct PositionResult2 {
+   pub swap_debugs: Vec<SwapDebug>,
+   pub token0: ERC20Token,
+   pub token1: ERC20Token,
+   pub deposit: DepositAmounts,
+   pub position: Position,
+
+   /// Token0 USD Price at fork block
+   pub past_token0_usd: f64,
+
+   /// Token1 USD Price at fork block
+   pub past_token1_usd: f64,
+
+   /// Latest Token0 USD Price
+   pub token0_usd: f64,
+
+   /// Latest Token1 USD Price
+   pub token1_usd: f64,
+
+   /// Amount of Token0 earned
+   pub earned0: f64,
+
+   /// Amount of Token1 earned
+   pub earned1: f64,
+
+   /// Amount of Token0 earned in USD
+   pub earned0_usd: f64,
+
+   /// Amount of Token1 earned in USD
+   pub earned1_usd: f64,
+
+   /// The total buy volume in USD that occured in the pool
+   pub buy_volume_usd: f64,
+
+   /// The total sell volume in USD that occured in the pool
+   pub sell_volume_usd: f64,
+
+   /// Total Swaps that have occured
+   pub total_swaps: usize,
+
+   /// The times the position was active
+   pub active_swaps: usize,
+
+   /// APR of the position
+   pub apr: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -232,7 +292,6 @@ where
       past_token0_usd,
       past_token1_usd,
       args.deposit_amount,
-      true,
    );
 
    let amount0 = parse_units(&deposit.amount0.to_string(), pool.token0().decimals)?.get_absolute();
@@ -533,6 +592,204 @@ impl AvgPrice {
    }
 }
 
+pub async fn simulate_position2<P>(
+   client: P,
+   block_time: BlockTime,
+   position_args: PositionArgs,
+   mut pool: UniswapV3Pool,
+   concurrency: usize,
+) -> Result<PositionResult2, anyhow::Error>
+where
+   P: Provider<Ethereum> + Clone + 'static,
+{
+   let chain_id = pool.chain_id();
+   let latest_block = client.get_block_number().await?;
+   let from_block = block_time.go_back(chain_id, latest_block)?;
+   let from_block_id = BlockId::number(from_block);
+
+   let events = vec![IUniswapV3Pool::Swap::SIGNATURE];
+   let logs = get_logs_for(
+      client.clone(),
+      chain_id,
+      vec![pool.address],
+      events,
+      from_block,
+      concurrency,
+   )
+   .await?;
+
+   let volume = get_volume_from_logs(&pool, logs)?;
+
+   pool
+      .update_state(client.clone(), Some(from_block_id))
+      .await?;
+   pool
+      .populate_tick_bitmaps(client.clone(), Some(from_block_id), concurrency)
+      .await?;
+   pool
+      .populate_ticks(client.clone(), Some(from_block_id), concurrency)
+      .await?;
+
+   let (base_usd, quote_usd) = pool
+      .tokens_price(client.clone(), Some(from_block_id))
+      .await?;
+
+   // make sure we set the prices in the correct order
+   let (past_token0_usd, past_token1_usd) = if pool.is_token0(pool.base_token().address) {
+      (base_usd, quote_usd)
+   } else {
+      (quote_usd, base_usd)
+   };
+
+   let deposit = get_tokens_deposit_amount(
+      position_args.price_assumption,
+      position_args.lower_range,
+      position_args.upper_range,
+      past_token0_usd,
+      past_token1_usd,
+      position_args.deposit_amount,
+   );
+
+   let amount0 = parse_units(&deposit.amount0.to_string(), pool.token0().decimals)?.get_absolute();
+   let amount1 = parse_units(&deposit.amount1.to_string(), pool.token1().decimals)?.get_absolute();
+
+   let lower_tick = get_tick_from_price(position_args.lower_range);
+   let upper_tick = get_tick_from_price(position_args.upper_range);
+
+   let state = pool.state().v3_or_v4_state().unwrap();
+   let liquidity = get_liquidity_for_lower_upper_tick(state.sqrt_price, lower_tick, upper_tick, amount0, amount1)?;
+
+   let position = Position::new(&state, lower_tick, upper_tick, liquidity)?;
+
+   let swaps = &volume.swaps;
+
+   let mut total_fees_earned_0 = U256::ZERO;
+   let mut total_fees_earned_1 = U256::ZERO;
+
+  // let mut state_cache: HashMap<u64, V3PoolState> = HashMap::new();
+
+   // Price in range
+   let mut active_swaps = 0;
+   let mut swap_debugs = Vec::new();
+   let total_swaps = swaps.len();
+   for (_i, swap) in swaps.iter().enumerate() {
+     // let block_before_swap = swap.block - 1;
+      let mut in_range = false;
+
+      /*
+      let state_before_swap: V3PoolState;
+      if let Some(cached_state) = state_cache.get(&block_before_swap) {
+         state_before_swap = cached_state.clone();
+      } else {
+         pool
+            .update_state(client.clone(), Some(BlockId::from(block_before_swap)))
+            .await?;
+         pool
+            .populate_ticks(
+               client.clone(),
+               Some(BlockId::from(block_before_swap)),
+               concurrency,
+            )
+            .await?;
+
+         state_before_swap = pool.state().v3_or_v4_state().unwrap().clone();
+         state_cache.insert(block_before_swap, state_before_swap.clone());
+      }
+       */
+
+       let state_before_swap = pool.state().v3_or_v4_state().unwrap();
+      let mut temp_position = Position::new(
+         &state_before_swap,
+         position.tick_lower,
+         position.tick_upper,
+         position.liquidity,
+      )?;
+
+      // Check if the position is active
+      if state_before_swap.tick >= position.tick_lower && state_before_swap.tick < position.tick_upper {
+         active_swaps += 1;
+         in_range = true;
+      }
+
+      // Simulate the swap
+      let token_in = swap.token_in.clone();
+      pool.simulate_swap_mut(&token_in.into(), swap.amount_in)?;
+      let state_after_swap = pool.state().v3_or_v4_state().unwrap();
+
+      if in_range {
+         // Update the temp position to see the fees from this ONE swap.
+         let (fees_from_this_swap_0, fees_from_this_swap_1) = temp_position.update(&state_after_swap)?;
+
+         total_fees_earned_0 += fees_from_this_swap_0;
+         total_fees_earned_1 += fees_from_this_swap_1;
+      }
+
+      let fee0_earned = NumericValue::format_wei(total_fees_earned_0, pool.token0().decimals);
+      let fee1_earned = NumericValue::format_wei(total_fees_earned_1, pool.token1().decimals);
+
+      swap_debugs.push(SwapDebug {
+         swap_data: swap.clone(),
+         in_range,
+         total_fees_earned0: fee0_earned,
+         total_fees_earned1: fee1_earned,
+      });
+   }
+
+   let fee0_earned = NumericValue::format_wei(total_fees_earned_0, pool.token0().decimals);
+   let fee1_earned = NumericValue::format_wei(total_fees_earned_1, pool.token1().decimals);
+
+   // Get the latest usd price of token0 and token1
+   let (token0_usd, token1_usd) = pool.tokens_price(client.clone(), None).await?;
+
+   let earned0_usd = token0_usd * fee0_earned.f64();
+   let earned1_usd = token1_usd * fee1_earned.f64();
+
+   let buy_volume_usd = volume.buy_volume_usd(token0_usd, pool.token0().decimals)?;
+   let sell_volume_usd = volume.sell_volume_usd(token1_usd, pool.token1().decimals)?;
+
+   // calculate the APR of the position
+   let total_earned = earned0_usd + earned1_usd;
+   let mut apr = 0.0;
+
+   match block_time {
+      BlockTime::Days(days) => {
+         apr = (total_earned / position_args.deposit_amount) * (365.0 / days as f64) * 100.0;
+      }
+      BlockTime::Hours(hours) => {
+         apr = (total_earned / position_args.deposit_amount) * (8760.0 / hours as f64) * 100.0;
+      }
+      BlockTime::Block(_) => {
+         // TODO
+      }
+      BlockTime::Minutes(_) => {
+         // TODO
+      }
+   }
+
+   let result = PositionResult2 {
+      swap_debugs,
+      token0: pool.token0().into_owned(),
+      token1: pool.token1().into_owned(),
+      deposit: deposit.clone(),
+      position: position.clone(),
+      past_token0_usd,
+      past_token1_usd,
+      token0_usd,
+      token1_usd,
+      earned0: fee0_earned.f64(),
+      earned1: fee1_earned.f64(),
+      earned0_usd,
+      earned1_usd,
+      buy_volume_usd,
+      sell_volume_usd,
+      total_swaps,
+      active_swaps,
+      apr,
+   };
+
+   Ok(result)
+}
+
 /// Get the average price of a Uniswap V3 pool (token0 in terms of token1)
 pub async fn get_average_price<P>(
    client: P,
@@ -659,6 +916,7 @@ fn get_volume_from_logs(pool: &UniswapV3Pool, logs: Vec<Log>) -> Result<PoolVolu
    let mut buy_volume = U256::ZERO;
    let mut sell_volume = U256::ZERO;
    let mut swaps = Vec::new();
+   
 
    for log in &logs {
       let swap_data = decode_swap(pool, log)?;
@@ -672,7 +930,7 @@ fn get_volume_from_logs(pool: &UniswapV3Pool, logs: Vec<Log>) -> Result<PoolVolu
       swaps.push(swap_data);
    }
 
-   // sort swaps by the newest block to oldest
+   // sort swaps by the oldest block to newest
    swaps.sort_by(|a, b| a.block.cmp(&b.block));
 
    Ok(PoolVolume {
@@ -740,6 +998,7 @@ mod tests {
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use currency::ERC20Token;
+
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {

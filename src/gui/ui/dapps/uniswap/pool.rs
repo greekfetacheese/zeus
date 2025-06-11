@@ -1,12 +1,10 @@
 use egui::{
-   Align, Align2, Button, Color32, CornerRadius, FontId, Frame, Grid, Layout, Margin, Order,
-   RichText, ScrollArea, Sense, Slider, TextEdit, Ui, vec2,
+   CornerRadius, FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2,
 };
 use egui_widgets::Label;
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::RT};
-use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
+use crate::core::ZeusCtx;
 use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
 use zeus_eth::amm::{AnyUniswapPool, UniswapPool};
@@ -74,9 +72,6 @@ impl PoolsUi {
 
                   // TVL
                   ui.label(RichText::new("TVL").size(theme.text_sizes.large));
-
-                  // APR (based on the last 24 hours of fees)
-                  ui.label(RichText::new("APR").size(theme.text_sizes.large));
 
                   ui.end_row();
 
@@ -149,12 +144,6 @@ impl PoolsUi {
                      });
 
                      // TVL
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new("TODO").size(theme.text_sizes.normal));
-                     });
-
-                     // APR (based on the last 24 hours of fees)
                      ui.scope(|ui| {
                         ui.set_width(column_width);
                         ui.label(RichText::new("TODO").size(theme.text_sizes.normal));

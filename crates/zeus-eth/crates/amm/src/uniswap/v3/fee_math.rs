@@ -87,51 +87,43 @@ pub fn estimate_fees_in_tokens(
 /// * `p` - Most active price assumption
 /// * `pl` - Lower price range
 /// * `pu` - Upper price range
-/// * `token_a_price` - Token A price in usd
-/// * `token_b_price` - Token B price in usd
+/// * `token_a_price` - Token0 price in usd
+/// * `token_b_price` - Token1 price in usd
 /// * `deposit_amount` - Amount of deposit in usd
-/// * `currency_a_is_token0` - True if the UI's Currency A is the pool's actual token0
 pub fn get_tokens_deposit_amount(
    p: f64,
    pl: f64,
    pu: f64,
-   token_a_price: f64,
-   token_b_price: f64,
+   token0_price: f64,
+   token1_price: f64,
    deposit_amount: f64,
-   token_a_is_token0: bool,
 ) -> DepositAmounts {
    let delta_l =
-      deposit_amount / ((p.sqrt() - pl.sqrt()) * token_b_price + (1.0 / p.sqrt() - 1.0 / pu.sqrt()) * token_a_price);
+      deposit_amount / ((p.sqrt() - pl.sqrt()) * token1_price + (1.0 / p.sqrt() - 1.0 / pu.sqrt()) * token0_price);
 
    let mut delta_y = delta_l * (p.sqrt() - pl.sqrt());
 
-   if delta_y * token_b_price < 0.0 {
+   if delta_y * token1_price < 0.0 {
       delta_y = 0.0;
    }
 
-   if delta_y * token_b_price > deposit_amount {
-      delta_y = deposit_amount / token_b_price;
+   if delta_y * token1_price > deposit_amount {
+      delta_y = deposit_amount / token1_price;
    }
 
    let mut delta_x = delta_l * (1.0 / p.sqrt() - 1.0 / pu.sqrt());
 
-   if delta_x * token_a_price < 0.0 {
+   if delta_x * token0_price < 0.0 {
       delta_x = 0.0;
    }
 
-   if delta_x * token_a_price > deposit_amount {
-      delta_x = deposit_amount / token_a_price;
+   if delta_x * token0_price > deposit_amount {
+      delta_x = deposit_amount / token0_price;
    }
 
-   let (amount0, amount1) = if token_a_is_token0 {
-      (delta_x, delta_y)
-   } else {
-      (delta_y, delta_x)
-   };
-
    DepositAmounts {
-      amount0,
-      amount1,
+      amount0: delta_x,
+      amount1: delta_y,
       liquidity_delta: delta_l,
    }
 }

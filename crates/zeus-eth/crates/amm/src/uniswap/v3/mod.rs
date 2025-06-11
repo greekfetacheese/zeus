@@ -2,14 +2,86 @@ pub mod fee_math;
 pub mod pool;
 pub mod position;
 
-use alloy_primitives::{I256, U256};
+use alloy_primitives::{Address, I256, U256};
 
 use super::UniswapPool;
-use crate::consts::U256_1;
+use crate::consts::{Q96, Q128, U256_1};
+use crate::uniswap::state::{TickInfo, V3PoolState};
 use std::cmp::Ordering;
-use uniswap_v3_math::{sqrt_price_math, tick_math::*};
+use uniswap_v3_math::{full_math::mul_div, sqrt_price_math, tick_math::*};
 
 use anyhow::anyhow;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Position {
+   pub owner: Address,
+   pub tick_lower: i32,
+   pub tick_upper: i32,
+   pub liquidity: u128,
+   pub fee_growth_inside_0_last_x128: U256,
+   pub fee_growth_inside_1_last_x128: U256,
+   pub tokens_owed_0: U256,
+   pub tokens_owed_1: U256,
+}
+
+impl Position {
+   /// Create a new Position with the given state of a pool
+   ///
+   /// # Arguments
+   ///
+   /// * `pool_state` - The state of the pool
+   /// * `lower_tick` - The lower tick of the position
+   /// * `upper_tick` - The upper tick of the position
+   /// * `liquidity` - The liquidity of the position
+   pub fn new(
+      pool_state: &V3PoolState,
+      lower_tick: i32,
+      upper_tick: i32,
+      liquidity: u128,
+   ) -> Result<Self, anyhow::Error> {
+      let (fee_growth_inside_0, fee_growth_inside_1) = get_fee_growth_inside(pool_state, lower_tick, upper_tick);
+
+      Ok(Self {
+         owner: Address::ZERO,
+         tick_lower: lower_tick,
+         tick_upper: upper_tick,
+         liquidity,
+         fee_growth_inside_0_last_x128: fee_growth_inside_0,
+         fee_growth_inside_1_last_x128: fee_growth_inside_1,
+         tokens_owed_0: U256::ZERO,
+         tokens_owed_1: U256::ZERO,
+      })
+   }
+
+   /// Calculates the fees earned since the last update and updates the position state.
+   pub fn update(&mut self, pool_state: &V3PoolState) -> Result<(U256, U256), anyhow::Error> {
+      let (fee_growth_inside_0, fee_growth_inside_1) =
+         get_fee_growth_inside(pool_state, self.tick_lower, self.tick_upper);
+
+      // Calculate the difference in fee growth since the last update
+      let fees_owed_0 = mul_div(
+         fee_growth_inside_0 - self.fee_growth_inside_0_last_x128,
+         U256::from(self.liquidity),
+         Q128,
+      )?;
+
+      let fees_owed_1 = mul_div(
+         fee_growth_inside_1 - self.fee_growth_inside_1_last_x128,
+         U256::from(self.liquidity),
+         Q128,
+      )?;
+
+      // Update the position's state
+      self.tokens_owed_0 += fees_owed_0;
+      self.tokens_owed_1 += fees_owed_1;
+
+      self.fee_growth_inside_0_last_x128 = fee_growth_inside_0;
+      self.fee_growth_inside_1_last_x128 = fee_growth_inside_1;
+
+      Ok((fees_owed_0, fees_owed_1))
+   }
+}
+
 
 #[derive(Default)]
 pub struct CurrentState {
@@ -32,19 +104,14 @@ struct StepComputations {
 }
 
 pub fn calculate_swap(
-   pool: &impl UniswapPool,
+   state: &V3PoolState,
+   fee: u32,
    zero_for_one: bool,
    amount_in: U256,
-) -> Result<(U256, CurrentState), anyhow::Error> {
+) -> Result<U256, anyhow::Error> {
    if amount_in.is_zero() {
-      return Ok((U256::ZERO, CurrentState::default()));
+      return Ok(U256::ZERO);
    }
-
-   let state = pool
-      .state()
-      .v3_or_v4_state()
-      .ok_or_else(|| anyhow!("State not initialized"))?;
-   let fee = pool.fee();
 
    // Set sqrt_price_limit_x_96 to the max or min sqrt price in the pool depending on zero_for_one
    let sqrt_price_limit_x_96 = if zero_for_one {
@@ -60,6 +127,13 @@ pub fn calculate_swap(
       amount_specified_remaining: I256::from_raw(amount_in), //Amount of token_in that has not been swapped
       tick: state.tick.clone(),                  //Current i24 tick of the pool
       liquidity: state.liquidity.clone(),        //Current available liquidity in the tick range
+   };
+
+   // Keep track of the fee growth for the token being swapped in
+   let mut fee_growth_global = if zero_for_one {
+      state.fee_growth_global_0_x128
+   } else {
+      state.fee_growth_global_1_x128
    };
 
    while current_state.amount_specified_remaining != I256::ZERO
@@ -81,7 +155,6 @@ pub fn calculate_swap(
       )?;
 
       // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
-      // Note: this could be removed as we are clamping in the batch contract
       step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
 
       // Get the next sqrt price from the input amount
@@ -111,7 +184,7 @@ pub fn calculate_swap(
          swap_target_sqrt_ratio,
          current_state.liquidity,
          current_state.amount_specified_remaining,
-         fee.fee(),
+         fee,
       )?;
 
       // Decrement the amount remaining to be swapped and amount received from the step
@@ -123,6 +196,11 @@ pub fn calculate_swap(
          .0;
 
       current_state.amount_calculated -= I256::from_raw(step.amount_out);
+
+      // Update the global fee growth
+      if current_state.liquidity > 0 {
+         fee_growth_global += mul_div(step.fee_amount, Q128, U256::from(current_state.liquidity))?;
+      }
 
       // If the price moved all the way to the next price, recompute the liquidity change for the next iteration
       if current_state.sqrt_price_x_96 == step.sqrt_price_next_x96 {
@@ -163,7 +241,144 @@ pub fn calculate_swap(
 
    let amount_out = (-current_state.amount_calculated).into_raw();
 
-   Ok((amount_out, current_state))
+   Ok(amount_out)
+}
+
+pub fn calculate_swap_mut(
+   state: &mut V3PoolState,
+   fee: u32,
+   zero_for_one: bool,
+   amount_in: U256,
+) -> Result<U256, anyhow::Error> {
+   if amount_in.is_zero() {
+      return Ok(U256::ZERO);
+   }
+
+   let mut fee_growth_global_during_swap = if zero_for_one {
+      state.fee_growth_global_0_x128
+   } else {
+      state.fee_growth_global_1_x128
+   };
+
+   let sqrt_price_limit_x_96 = if zero_for_one {
+      MIN_SQRT_RATIO + U256_1
+   } else {
+      MAX_SQRT_RATIO - U256_1
+   };
+
+   let mut amount_specified_remaining = I256::from_raw(amount_in);
+   let mut amount_calculated = I256::ZERO;
+
+   while amount_specified_remaining != I256::ZERO && state.sqrt_price != sqrt_price_limit_x_96 {
+      let mut step = StepComputations::default();
+      step.sqrt_price_start_x_96 = state.sqrt_price;
+
+      (step.tick_next, step.initialized) = uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
+         &state.tick_bitmap,
+         state.tick,
+         state.tick_spacing,
+         zero_for_one,
+      )?;
+
+      step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
+      step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(step.tick_next)?;
+
+      // Target spot price
+      let swap_target_sqrt_ratio = if zero_for_one {
+         if step.sqrt_price_next_x96 < sqrt_price_limit_x_96 {
+            sqrt_price_limit_x_96
+         } else {
+            step.sqrt_price_next_x96
+         }
+      } else if step.sqrt_price_next_x96 > sqrt_price_limit_x_96 {
+         sqrt_price_limit_x_96
+      } else {
+         step.sqrt_price_next_x96
+      };
+
+      (
+         state.sqrt_price,
+         step.amount_in,
+         step.amount_out,
+         step.fee_amount,
+      ) = uniswap_v3_math::swap_math::compute_swap_step(
+         step.sqrt_price_start_x_96,
+         swap_target_sqrt_ratio,
+         state.liquidity,
+         amount_specified_remaining,
+         fee,
+      )?;
+
+      amount_specified_remaining = amount_specified_remaining
+         .overflowing_sub(I256::from_raw(
+            step.amount_in.overflowing_add(step.fee_amount).0,
+         ))
+         .0;
+      amount_calculated -= I256::from_raw(step.amount_out);
+
+      // Update the LOCAL fee growth variable.
+      if state.liquidity > 0 {
+         fee_growth_global_during_swap += mul_div(step.fee_amount, Q128, U256::from(state.liquidity))?;
+      }
+
+      if state.sqrt_price == step.sqrt_price_next_x96 {
+         if step.initialized {
+            if let Some(crossed_tick_info) = state.ticks.get_mut(&step.tick_next) {
+               let (fee_growth_global_0_for_cross, fee_growth_global_1_for_cross) = if zero_for_one {
+                  (
+                     fee_growth_global_during_swap,
+                     state.fee_growth_global_1_x128,
+                  )
+               } else {
+                  (
+                     state.fee_growth_global_0_x128,
+                     fee_growth_global_during_swap,
+                  )
+               };
+
+               crossed_tick_info.fee_growth_outside_0_x128 =
+                  fee_growth_global_0_for_cross - crossed_tick_info.fee_growth_outside_0_x128;
+               crossed_tick_info.fee_growth_outside_1_x128 =
+                  fee_growth_global_1_for_cross - crossed_tick_info.fee_growth_outside_1_x128;
+            }
+
+            let liquidity_net = if let Some(info) = state.ticks.get(&step.tick_next) {
+               if zero_for_one {
+                  -info.liquidity_net
+               } else {
+                  info.liquidity_net
+               }
+            } else {
+               0
+            };
+
+            state.liquidity = if liquidity_net < 0 {
+               state
+                  .liquidity
+                  .checked_sub((-liquidity_net) as u128)
+                  .ok_or(anyhow!("Liquidity underflow"))?
+            } else {
+               state.liquidity + (liquidity_net as u128)
+            };
+         }
+         state.tick = if zero_for_one {
+            step.tick_next - 1
+         } else {
+            step.tick_next
+         };
+      } else if state.sqrt_price != step.sqrt_price_start_x_96 {
+         state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;
+      }
+   }
+
+   if zero_for_one {
+      state.fee_growth_global_0_x128 = fee_growth_global_during_swap;
+   } else {
+      state.fee_growth_global_1_x128 = fee_growth_global_during_swap;
+   }
+
+   let amount_out = (-amount_calculated).into_raw();
+   Ok(amount_out)
 }
 
 pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f64, anyhow::Error> {
@@ -188,6 +403,125 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
    }
 }
 
+pub fn get_liquidity_for_lower_upper_tick(
+   sqrt_price_a_x96: U256,
+   lower_tick: i32,
+   upper_tick: i32,
+   amount0_desired: U256,
+   amount1_desired: U256,
+) -> Result<u128, anyhow::Error> {
+   let sqrt_ratio_ax96 = get_sqrt_ratio_at_tick(lower_tick)?;
+   let sqrt_ratio_bx96 = get_sqrt_ratio_at_tick(upper_tick)?;
+
+   let liquidity = get_liquidity_for_amounts(
+      sqrt_price_a_x96,
+      sqrt_ratio_ax96,
+      sqrt_ratio_bx96,
+      amount0_desired,
+      amount1_desired,
+   )?;
+
+   Ok(liquidity)
+}
+
+/// Computes the maximum amount of liquidity received for a given amount of token0, token1, the current
+/// pool prices and the prices at the tick boundaries
+///
+/// # Arguments
+///
+/// * `sqrt_price_x96` - The current pool price
+/// * `sqrt_ratio_ax96` - The price at the lower tick boundary
+/// * `sqrt_ratio_bx96` - The price at the upper tick boundary
+/// * `amount0_desired` - The amount of token0 desired by the user
+/// * `amount1_desired` - The amount of token1 desired by the user
+///
+/// # Returns
+///
+/// * `liquidity` - The maximum amount of liquidity received
+///
+/// https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/LiquidityAmounts.sol
+pub fn get_liquidity_for_amounts(
+   sqrt_price_x96: U256,
+   mut sqrt_ratio_ax96: U256,
+   mut sqrt_ratio_bx96: U256,
+   amount0_desired: U256,
+   amount1_desired: U256,
+) -> Result<u128, anyhow::Error> {
+   let liquidity: u128;
+
+   if sqrt_ratio_ax96 > sqrt_ratio_bx96 {
+      (sqrt_ratio_ax96, sqrt_ratio_bx96) = (sqrt_ratio_bx96, sqrt_ratio_ax96)
+   }
+
+   if sqrt_price_x96 <= sqrt_ratio_ax96 {
+      liquidity = get_liquidity_for_amount0(sqrt_ratio_ax96, sqrt_ratio_bx96, amount0_desired)?;
+   } else if sqrt_price_x96 < sqrt_ratio_bx96 {
+      let liquidity0 = get_liquidity_for_amount0(sqrt_ratio_ax96, sqrt_ratio_bx96, amount0_desired)?;
+      let liquidity1 = get_liquidity_for_amount1(sqrt_ratio_ax96, sqrt_ratio_bx96, amount1_desired)?;
+      liquidity = liquidity0.min(liquidity1);
+   } else {
+      liquidity = get_liquidity_for_amount1(sqrt_ratio_ax96, sqrt_ratio_bx96, amount1_desired)?;
+   }
+
+   Ok(liquidity)
+}
+
+/// Computes the amount of liquidity received for a given amount of token0 and price range
+///
+/// # Arguments
+///
+/// * `sqrt_ratio_ax96` - A sqrt price representing the first tick boundary
+/// * `sqrt_ratio_bx96` - A sqrt price representing the second tick boundary
+/// * `amount0` - The amount0 being sent in
+///
+/// # Returns
+///
+/// * `liquidity` - The amount of liquidity received
+///
+/// https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/LiquidityAmounts.sol
+fn get_liquidity_for_amount0(
+   mut sqrt_ratio_ax96: U256,
+   mut sqrt_ratio_bx96: U256,
+   amount0: U256,
+) -> Result<u128, anyhow::Error> {
+   if sqrt_ratio_ax96 > sqrt_ratio_bx96 {
+      (sqrt_ratio_ax96, sqrt_ratio_bx96) = (sqrt_ratio_bx96, sqrt_ratio_ax96)
+   }
+
+   let intermidiate = mul_div(sqrt_ratio_ax96, sqrt_ratio_bx96, Q96)?;
+   let liquidity = mul_div(amount0, intermidiate, sqrt_ratio_bx96 - sqrt_ratio_ax96)?;
+   let liquidity: u128 = liquidity.to_string().parse()?;
+
+   Ok(liquidity)
+}
+
+/// Computes the amount of liquidity received for a given amount of token1 and price range
+///
+/// # Arguments
+///
+/// * `sqrt_ratio_ax96` - A sqrt price representing the first tick boundary
+/// * `sqrt_ratio_bx96` - A sqrt price representing the second tick boundary
+/// * `amount1` - The amount1 being sent in
+///
+/// # Returns
+///
+/// * `liquidity` - The amount of liquidity received
+///
+/// https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/LiquidityAmounts.sol
+fn get_liquidity_for_amount1(
+   mut sqrt_ratio_ax96: U256,
+   mut sqrt_ratio_bx96: U256,
+   amount1: U256,
+) -> Result<u128, anyhow::Error> {
+   if sqrt_ratio_ax96 > sqrt_ratio_bx96 {
+      (sqrt_ratio_ax96, sqrt_ratio_bx96) = (sqrt_ratio_bx96, sqrt_ratio_ax96)
+   }
+
+   let liquidity = mul_div(amount1, Q96, sqrt_ratio_bx96 - sqrt_ratio_ax96)?;
+   let liquidity: u128 = liquidity.to_string().parse()?;
+
+   Ok(liquidity)
+}
 
 pub fn calculate_liquidity_amounts(
    sqrt_price_lower: U256,
@@ -207,25 +541,52 @@ pub fn calculate_liquidity_amounts(
    if current_pool_sqrt_price <= sp_lower {
       amount0 = sqrt_price_math::_get_amount_0_delta(sp_lower, sp_upper, liquidity, false)?;
    } else if current_pool_sqrt_price < sp_upper {
-      amount0 = sqrt_price_math::_get_amount_0_delta(
-         current_pool_sqrt_price,
-         sp_upper,
-         liquidity,
-         false,
-      )?;
-      amount1 = sqrt_price_math::_get_amount_1_delta(
-         sp_lower,
-         current_pool_sqrt_price,
-         liquidity,
-         false,
-      )?;
+      amount0 = sqrt_price_math::_get_amount_0_delta(current_pool_sqrt_price, sp_upper, liquidity, false)?;
+      amount1 = sqrt_price_math::_get_amount_1_delta(sp_lower, current_pool_sqrt_price, liquidity, false)?;
    } else {
-      amount1 = sqrt_price_math::_get_amount_1_delta(
-         sp_lower,
-         sp_upper,
-         liquidity,
-         false,
-      )?;
+      amount1 = sqrt_price_math::_get_amount_1_delta(sp_lower, sp_upper, liquidity, false)?;
    }
    Ok((amount0, amount1))
+}
+
+pub fn get_fee_growth_inside(state: &V3PoolState, tick_lower: i32, tick_upper: i32) -> (U256, U256) {
+   let default_tick_info = TickInfo::default();
+   let lower_tick_info = state.ticks.get(&tick_lower).unwrap_or(&default_tick_info);
+   let upper_tick_info = state.ticks.get(&tick_upper).unwrap_or(&default_tick_info);
+
+   let fee_growth_global_0 = state.fee_growth_global_0_x128;
+   let fee_growth_global_1 = state.fee_growth_global_1_x128;
+   let current_tick = state.tick;
+
+   // Calculate fee growth below the lower tick
+   let (fee_growth_below_0, fee_growth_below_1) = if current_tick >= tick_lower {
+      (
+         lower_tick_info.fee_growth_outside_0_x128,
+         lower_tick_info.fee_growth_outside_1_x128,
+      )
+   } else {
+      (
+         fee_growth_global_0 - lower_tick_info.fee_growth_outside_0_x128,
+         fee_growth_global_1 - lower_tick_info.fee_growth_outside_1_x128,
+      )
+   };
+
+   // Calculate fee growth above the upper tick
+   let (fee_growth_above_0, fee_growth_above_1) = if current_tick < tick_upper {
+      (
+         upper_tick_info.fee_growth_outside_0_x128,
+         upper_tick_info.fee_growth_outside_1_x128,
+      )
+   } else {
+      (
+         fee_growth_global_0 - upper_tick_info.fee_growth_outside_0_x128,
+         fee_growth_global_1 - upper_tick_info.fee_growth_outside_1_x128,
+      )
+   };
+
+   // feeGrowthInside = feeGrowthGlobal - feeGrowthBelow - feeGrowthAbove
+   let fee_growth_inside_0 = fee_growth_global_0 - fee_growth_below_0 - fee_growth_above_0;
+   let fee_growth_inside_1 = fee_growth_global_1 - fee_growth_below_1 - fee_growth_above_1;
+
+   (fee_growth_inside_0, fee_growth_inside_1)
 }

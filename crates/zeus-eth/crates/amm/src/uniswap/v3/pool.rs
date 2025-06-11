@@ -1,6 +1,6 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
-   Address, B256, U256, address,
+   Address, B256, Signed, U256, address,
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::BlockId;
@@ -11,16 +11,19 @@ use crate::{
    DexKind, minimum_liquidity,
    uniswap::{
       AnyUniswapPool, UniswapPool,
-      state::{State, get_v3_pool_state},
+      state::{State, TickInfo, get_v3_pool_state},
       v4::FeeAmount,
    },
 };
 use abi::uniswap::v3;
 use currency::{Currency, ERC20Token};
-use utils::{NumericValue, price_feed::get_base_token_price};
+use uniswap_v3_math::tick_math::{MAX_TICK, MIN_TICK};
+use utils::{NumericValue, batch, price_feed::get_base_token_price};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::{Mutex, Semaphore};
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
@@ -140,6 +143,10 @@ impl UniswapV3Pool {
       self.quote_currency().to_erc20()
    }
 
+   pub fn state_mut(&mut self) -> &mut State {
+      &mut self.state
+   }
+
    pub fn tick_to_word(&self, tick: i32, tick_spacing: i32) -> i32 {
       let mut compressed = tick / tick_spacing;
       if tick < 0 && tick % tick_spacing != 0 {
@@ -147,6 +154,170 @@ impl UniswapV3Pool {
       }
 
       compressed >> 8
+   }
+
+   /// Make sure you have first called [UniswapV3Pool::update_state]
+   pub async fn populate_tick_bitmaps<P, N>(
+      &mut self,
+      client: P,
+      block: Option<BlockId>,
+      concurrency: usize,
+   ) -> Result<(), anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let mut state = self
+         .state()
+         .v3_or_v4_state()
+         .ok_or_else(|| anyhow!("State not initialized"))?
+         .clone();
+
+      let current_word_pos = state.word_pos;
+      let tick_spacing = self.fee().tick_spacing_i32();
+
+      let min_compressed_tick = MIN_TICK / tick_spacing;
+      let max_compressed_tick = MAX_TICK / tick_spacing;
+
+      let min_word_pos = (min_compressed_tick >> 8) as i16;
+      let max_word_pos = (max_compressed_tick >> 8) as i16;
+      eprintln!("Current Word Pos: {}", current_word_pos);
+      eprintln!("Min Word Pos: {}", min_word_pos);
+      eprintln!("Max Word Pos: {}", max_word_pos);
+
+      let mut all_words_pos = Vec::new();
+      for word_pos in min_word_pos..=max_word_pos {
+         if word_pos == current_word_pos {
+            continue;
+         }
+
+         all_words_pos.push(word_pos);
+      }
+
+      const BATCH_SIZE: usize = 200;
+
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let collected_bitmaps = Arc::new(Mutex::new(Vec::new()));
+
+      let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
+      for word_pos in all_words_pos.chunks(BATCH_SIZE) {
+         let client = client.clone();
+         let semaphore = semaphore.clone();
+         let collected_bitmaps = collected_bitmaps.clone();
+
+         let pool_info = batch::TickBitmapFetchV3::PoolInfo {
+            pool: self.address,
+            WordPositions: word_pos.to_vec(),
+         };
+
+         let task = tokio::spawn(async move {
+            let _permit = semaphore.acquire_owned().await.unwrap();
+            let tick_bitmaps = batch::get_v3_pool_tick_bitmaps(client.clone(), pool_info, block).await?;
+            collected_bitmaps.lock().await.extend(tick_bitmaps);
+            Ok(())
+         });
+         tasks.push(task);
+      }
+
+      for task in tasks {
+         if let Err(e) = task.await? {
+            tracing::error!(target: "zeus_eth::amm::uniswap::v3::pool", "Error fetching V3 pool tick bitmaps: {:?}", e);
+            eprintln!("Error fetching V3 pool tick bitmaps: {:?}", e);
+         }
+      }
+
+      let tick_bitmaps = collected_bitmaps.lock().await;
+      for tick_bitmap in tick_bitmaps.iter() {
+         if tick_bitmap.bitmap != U256::ZERO {
+            state
+               .tick_bitmap
+               .insert(tick_bitmap.wordPos, tick_bitmap.bitmap);
+         }
+      }
+
+      self.set_state(State::V3(state));
+      Ok(())
+   }
+
+   /// Make sure you have first called [UniswapV3Pool::update_state] and [UniswapV3Pool::populate_tick_bitmaps]
+   pub async fn populate_ticks<P, N>(
+      &mut self,
+      client: P,
+      block: Option<BlockId>,
+      concurrency: usize,
+   ) -> Result<(), anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let mut state = self
+         .state()
+         .v3_or_v4_state()
+         .ok_or_else(|| anyhow!("State not initialized"))?
+         .clone();
+
+      let all_bitmaps = state.tick_bitmap.clone().into_iter().collect::<Vec<_>>();
+      let tick_spacing = self.fee().tick_spacing_i32();
+
+      let mut ticks_to_populate = Vec::new();
+      for (word_pos, bitmap) in all_bitmaps {
+         let ticks_in_word = crate::uniswap::state::decode_bitmap(word_pos, bitmap, tick_spacing);
+         let ticks: Vec<Signed<24, 1>> = ticks_in_word
+            .iter()
+            .map(|t| t.to_string().parse())
+            .collect::<Result<Vec<_>, _>>()?;
+         ticks_to_populate.extend(ticks);
+      }
+
+      const BATCH_SIZE: usize = 50;
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let collected_ticks = Arc::new(Mutex::new(Vec::new()));
+
+      let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
+      for tick_batch in ticks_to_populate.chunks(BATCH_SIZE) {
+         let client = client.clone();
+         let semaphore = semaphore.clone();
+         let collected_ticks = collected_ticks.clone();
+
+         let pool_info = batch::TickDataFetchV3::PoolInfo {
+            pool: self.address,
+            ticks: tick_batch.to_vec(),
+         };
+
+         let task = tokio::spawn(async move {
+            let _permit = semaphore.acquire_owned().await.unwrap();
+            let tick_info = batch::get_v3_pool_ticks(client.clone(), pool_info, block).await?;
+            collected_ticks.lock().await.extend(tick_info);
+            Ok(())
+         });
+         tasks.push(task);
+      }
+
+      for task in tasks {
+         if let Err(e) = task.await? {
+            tracing::error!(target: "zeus_eth::amm::uniswap::v3::pool", "Error fetching V3 pool ticks: {:?}", e);
+            eprintln!("Error fetching V3 pool ticks: {:?}", e);
+         }
+      }
+
+      let ticks = collected_ticks.lock().await;
+      for tick_info in ticks.iter() {
+         let tick: i32 = tick_info.tick.to_string().parse()?;
+         let info = TickInfo {
+            fee_growth_outside_0_x128: tick_info.feeGrowthOutside0X128,
+            fee_growth_outside_1_x128: tick_info.feeGrowthOutside1X128,
+            liquidity_gross: tick_info.liquidityGross,
+            liquidity_net: tick_info.liquidityNet,
+            initialized: tick_info.initialized,
+         };
+         state.ticks.insert(tick, info);
+      }
+
+      self.set_state(State::v3(state));
+
+      Ok(())
    }
 
    /// Test pool
@@ -353,25 +524,23 @@ impl UniswapPool for UniswapV3Pool {
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
       let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
-      let (amount_out, _) = super::calculate_swap(self, zero_for_one, amount_in)?;
+      let fee = self.fee.fee();
+      let state = self
+         .state()
+         .v3_or_v4_state()
+         .ok_or(anyhow::anyhow!("State not initialized"))?;
+      let amount_out = super::calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
    }
 
    fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
       let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
-      let (amount_out, current_state) = super::calculate_swap(self, zero_for_one, amount_in)?;
-
-      // update the state of the pool
+      let fee = self.fee.fee();
       let mut state = self
-         .state()
-         .v3_state()
-         .ok_or(anyhow!("State not initialized"))?
-         .clone();
-      state.liquidity = current_state.liquidity;
-      state.sqrt_price = current_state.sqrt_price_x_96;
-      state.tick = current_state.tick;
-
-      self.set_state(State::v3(state));
+         .state_mut()
+         .v3_or_v4_state_mut()
+         .ok_or(anyhow::anyhow!("State not initialized"))?;
+      let amount_out = super::calculate_swap_mut(&mut state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
    }

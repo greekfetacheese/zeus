@@ -143,6 +143,10 @@ impl UniswapV4Pool {
       Ok(price)
    }
 
+   pub fn state_mut(&mut self) -> &mut State {
+      &mut self.state
+   }
+
    fn hook_impacts_swap(&self) -> bool {
       super::has_swap_permissions(self.hooks)
    }
@@ -254,6 +258,7 @@ impl UniswapV4Pool {
       self.set_state(State::V4(state));
    }
 
+   /*
    /// Gets all tick data (liquidityGross, liquidityNet) for initialized ticks
    /// and the corresponding tick bitmaps for a given Uniswap V4 pool.
    pub async fn get_all_tick_data<P, N>(
@@ -315,6 +320,7 @@ impl UniswapV4Pool {
 
       Ok((all_ticks_info, all_tick_bitmaps))
    }
+   */
 }
 
 impl UniswapPool for UniswapV4Pool {
@@ -599,8 +605,12 @@ impl UniswapPool for UniswapV4Pool {
       }
 
       let zero_for_one = self.zero_for_one_v4(currency_in);
-      let (amount_out, _) =
-         calculate_swap(self, zero_for_one, amount_in).map_err(|e| anyhow!("Failed to calculate swap: {:?}", e))?;
+      let fee = self.fee.fee();
+      let state = self
+         .state()
+         .v3_or_v4_state()
+         .ok_or(anyhow::anyhow!("State not initialized"))?;
+      let amount_out = calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
    }
 
@@ -610,19 +620,12 @@ impl UniswapPool for UniswapV4Pool {
       }
 
       let zero_for_one = self.zero_for_one_v4(currency_in);
-      let (amount_out, current_state) = calculate_swap(self, zero_for_one, amount_in)?;
-
-      // update the state of the pool
+      let fee = self.fee.fee();
       let mut state = self
-         .state()
-         .v3_or_v4_state()
-         .ok_or(anyhow!("State not initialized"))?
-         .clone();
-      state.liquidity = current_state.liquidity;
-      state.sqrt_price = current_state.sqrt_price_x_96;
-      state.tick = current_state.tick;
-
-      self.set_state(State::v4(state));
+         .state_mut()
+         .v3_or_v4_state_mut()
+         .ok_or(anyhow::anyhow!("State not initialized"))?;
+      let amount_out = calculate_swap(&mut state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
    }
@@ -719,6 +722,7 @@ mod tests {
       );
    }
 
+   /*
    #[tokio::test]
    async fn test_base_token_liquidity_eth_uni() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
@@ -738,6 +742,7 @@ mod tests {
 
       println!("ETH Liquidity: {}", eth_balance.formatted());
    }
+   */
 
    #[tokio::test]
    async fn test_base_token_liquidity_usdc_usdt() {

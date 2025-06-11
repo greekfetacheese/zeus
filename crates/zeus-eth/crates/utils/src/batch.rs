@@ -57,6 +57,18 @@ sol! {
 }
 
 sol! {
+   #[sol(rpc)]
+   TickBitmapFetchV3,
+   "src/abi/TickBitmapFetchV3.json",
+}
+
+sol! {
+   #[sol(rpc)]
+   TickDataFetchV3,
+   "src/abi/TickDataFetchV3.json",
+}
+
+sol! {
 
     #[derive(Debug)]
     struct TokenBalance {
@@ -102,6 +114,10 @@ sol! {
         address pool;
         uint256 token0Balance;
         uint256 token1Balance;
+        uint256 feeGrowthGlobal0X128;
+        uint256 feeGrowthGlobal1X128;
+        uint256 feeGrowthOutside0X128;
+        uint256 feeGrowthOutside1X128;
         uint128 liquidity;
         uint160 sqrtPriceX96;
         int24 tick;
@@ -115,6 +131,10 @@ sol! {
     #[derive(Debug)]
         struct V4PoolData {
         bytes32 pool;
+        uint256 feeGrowthGlobal0;
+        uint256 feeGrowthGlobal1;
+        uint256 feeGrowthOutside0X128;
+        uint256 feeGrowthOutside1X128;
         uint128 liquidity;
         uint160 sqrtPriceX96;
         int24 tick;
@@ -123,13 +143,6 @@ sol! {
         int128 liquidityNet;
         uint128 liquidityGross;
     }
-
-    #[derive(Debug)]
-    struct TickInfo {
-      uint128 liquidityGross;
-      int128 liquidityNet;
-      bool initialized;
-  }
 
     #[derive(Debug)]
     struct PoolInfo {
@@ -144,6 +157,22 @@ sol! {
         int24 actualTick;
         uint128 liquidityGross;
         int128 liquidityNet;
+    }
+
+    #[derive(Debug)]
+      struct TickInfo {
+        int24 tick;
+        uint128 liquidityGross;
+        int128 liquidityNet;
+        uint256 feeGrowthOutside0X128;
+        uint256 feeGrowthOutside1X128;
+        bool initialized;
+  }
+
+  #[derive(Debug)]
+   struct TickBitMap {
+      int16 wordPos;
+      uint256 bitmap;
     }
 
   #[derive(Debug)]
@@ -268,6 +297,50 @@ where
 
    let data =
       <Vec<V3PoolData> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool data: {:?}", e))?;
+
+   Ok(data)
+}
+
+/// Get the given ticks for a V3 pool
+/// 
+/// If `block` is `None`, the latest block is used.
+pub async fn get_v3_pool_ticks<P, N>(
+   client: P,
+   pool: TickDataFetchV3::PoolInfo,
+   block: Option<BlockId>,
+) -> Result<Vec<TickInfo>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = block.unwrap_or(BlockId::latest());
+   let deployer = TickDataFetchV3::deploy_builder(client, pool).block(block);
+   let res = deployer.call_raw().await?;
+
+   let data =
+      <Vec<TickInfo> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
+
+   Ok(data)
+}
+
+/// Get the tickBitmaps of a v3 pool for the given word positions
+/// 
+/// If `block` is `None`, the latest block is used.
+pub async fn get_v3_pool_tick_bitmaps<P, N>(
+   client: P,
+   pool: TickBitmapFetchV3::PoolInfo,
+   block: Option<BlockId>,
+) -> Result<Vec<TickBitMap>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let block = block.unwrap_or(BlockId::latest());
+   let deployer = TickBitmapFetchV3::deploy_builder(client, pool).block(block);
+   let res = deployer.call_raw().await?;
+
+   let data =
+      <Vec<TickBitMap> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
 
    Ok(data)
 }

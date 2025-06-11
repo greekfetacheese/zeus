@@ -12,11 +12,41 @@ use tokio::{
 };
 use utils::batch::{self, V2PoolReserves, V3Pool, V3PoolData};
 
+
+/// Decodes a Uniswap V3 tick bitmap into a list of tick indexes.
+///
+/// # Arguments
+/// * `word_pos` - The int16 position of the word in the tickBitmap mapping.
+/// * `bitmap` - The U256 bitmap value for that word.
+/// * `tick_spacing` - The tick spacing of the pool.
+///
+/// # Returns
+/// A vector of i32 tick indexes.
+pub fn decode_bitmap(word_pos: i16, bitmap: U256, tick_spacing: i32) -> Vec<i32> {
+    let mut ticks = Vec::new();
+    if bitmap == U256::ZERO {
+        return ticks;
+    }
+
+    // The start of the tick range for this word
+    let tick_start = (word_pos as i32) * 256 * tick_spacing;
+
+    for i in 0..256 {
+        // Check if the i-th bit is set
+        if (bitmap >> i) & U256::from(1) != U256::ZERO {
+            let tick_offset = i as i32 * tick_spacing;
+            ticks.push(tick_start + tick_offset);
+        }
+    }
+    ticks
+}
+
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum State {
    V2(PoolReserves),
    V3(V3PoolState),
-   // Same as V3, just add it here to avoid any confusions
+   // Same as V3
    V4(V3PoolState),
    None,
 }
@@ -81,6 +111,14 @@ impl State {
          _ => None,
       }
    }
+
+   pub fn v3_or_v4_state_mut(&mut self) -> Option<&mut V3PoolState> {
+      match self {
+         Self::V3(state) => Some(state),
+         Self::V4(state) => Some(state),
+         _ => None,
+      }
+   }
 }
 
 /// Represents the state of a Uniswap V2 Pool
@@ -116,18 +154,24 @@ impl PoolReserves {
 /// The state of a Uniswap V3/V4 Pool
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct V3PoolState {
+   pub fee_growth_global_0_x128: U256,
+   pub fee_growth_global_1_x128: U256,
    pub liquidity: u128,
    pub sqrt_price: U256,
    /// Current Tick
    pub tick: i32,
+   /// Current wordPos
+   pub word_pos: i16,
    pub tick_spacing: i32,
    pub tick_bitmap: HashMap<i16, U256>,
    pub ticks: HashMap<i32, TickInfo>,
    pub pool_tick: PoolTick,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TickInfo {
+   pub fee_growth_outside_0_x128: U256,
+   pub fee_growth_outside_1_x128: U256,
    pub liquidity_gross: u128,
    pub liquidity_net: i128,
    pub initialized: bool,
@@ -146,6 +190,8 @@ impl V3PoolState {
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
       let ticks_info = TickInfo {
+         fee_growth_outside_0_x128: pool_data.feeGrowthOutside0X128,
+         fee_growth_outside_1_x128: pool_data.feeGrowthOutside1X128,
          liquidity_gross: pool_data.liquidityGross,
          liquidity_net: pool_data.liquidityNet,
          initialized: pool_data.initialized,
@@ -170,9 +216,12 @@ impl V3PoolState {
       let tick_spacing: i32 = tick_spacing.to_string().parse()?;
 
       Ok(Self {
+         fee_growth_global_0_x128: pool_data.feeGrowthGlobal0X128,
+         fee_growth_global_1_x128: pool_data.feeGrowthGlobal1X128,
          liquidity: pool_data.liquidity,
          sqrt_price: U256::from(pool_data.sqrtPriceX96),
          tick,
+         word_pos: pool_data.wordPos,
          tick_spacing,
          tick_bitmap: tick_bitmap_map,
          ticks: ticks_map,
@@ -185,6 +234,8 @@ impl V3PoolState {
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
 
       let ticks_info = TickInfo {
+         fee_growth_outside_0_x128: data.feeGrowthOutside0X128,
+         fee_growth_outside_1_x128: data.feeGrowthOutside1X128,
          liquidity_gross: data.liquidityGross,
          liquidity_net: data.liquidityNet,
          initialized: true,
@@ -195,6 +246,7 @@ impl V3PoolState {
       } else {
          0
       };
+      
       let tick: i32 = data.tick.to_string().parse()?;
 
       let pool_tick = PoolTick {
@@ -209,9 +261,12 @@ impl V3PoolState {
       let tick_spacing = pool.fee().tick_spacing_i32();
 
       Ok(Self {
+         fee_growth_global_0_x128: data.feeGrowthGlobal0,
+         fee_growth_global_1_x128: data.feeGrowthGlobal1,
          liquidity: data.liquidity,
          sqrt_price: U256::from(data.sqrtPriceX96),
          tick,
+         word_pos: data.wordPos,
          tick_spacing,
          tick_bitmap: tick_bitmap_map,
          ticks: ticks_map,

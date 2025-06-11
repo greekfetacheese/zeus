@@ -22,7 +22,7 @@ use zeus_eth::{
       AnyUniswapPool, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
          fee_math::*,
-         position::{PositionArgs, PositionResult, simulate_position},
+         position::{PositionArgs, PositionResult2, simulate_position2},
       },
    },
    types::BlockTime,
@@ -33,10 +33,9 @@ use std::time::Instant;
 /// Time in seconds to wait before updating the pool state again
 const POOL_STATE_EXPIRY: u64 = 180;
 
-const TIP: &str = "If simulations are failing try switching the order of the tokens.";
-
 const SIM_TIP: &str =
    "Simulate this position as if you were holding it for the specified number of days";
+
 const SIM_TIP2: &str = "This does not guarantee that the earnings will be the same at the future but you can get a good idea of the potential earnings";
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,12 +56,12 @@ impl ProtocolVersion {
 }
 
 /// Ui to open a position for a specific pool
-pub struct PositionUi {
+pub struct OpenPositionUi {
    pub open: bool,
    pub pair_selection_open: bool,
    pub size: (f32, f32),
-   pub currency_a: Currency,
-   pub currency_b: Currency,
+   pub currency0: Currency,
+   pub currency1: Currency,
    pub protocol_version: ProtocolVersion,
    pub selected_pool: Option<AnyUniswapPool>,
    pub set_price_range_ui: SetPriceRangeUi,
@@ -75,10 +74,10 @@ pub struct PositionUi {
    pub sim_window_size: (f32, f32),
    /// Days to go back for the [BlockTime]
    pub days_back: String,
-   pub sim_result: Option<PositionResult>,
+   pub sim_result: Option<PositionResult2>,
 }
 
-impl PositionUi {
+impl OpenPositionUi {
    pub fn new() -> Self {
       let native = Currency::from(NativeCurrency::from_chain_id(1).unwrap());
       let usdc = Currency::from(ERC20Token::usdc());
@@ -86,8 +85,8 @@ impl PositionUi {
          open: false,
          pair_selection_open: true,
          size: (600.0, 700.0),
-         currency_a: native,
-         currency_b: usdc,
+         currency0: native,
+         currency1: usdc,
          protocol_version: ProtocolVersion::V3,
          selected_pool: None,
          set_price_range_ui: SetPriceRangeUi::new(),
@@ -104,29 +103,29 @@ impl PositionUi {
    pub fn replace_currency(&mut self, in_or_out: &InOrOut, currency: Currency) {
       match in_or_out {
          InOrOut::In => {
-            self.currency_a = currency;
+            self.currency0 = currency;
          }
          InOrOut::Out => {
-            self.currency_b = currency;
+            self.currency1 = currency;
          }
       }
    }
 
-   pub fn default_currency_a(&mut self, id: u64) {
+   pub fn default_currency0(&mut self, id: u64) {
       let native = NativeCurrency::from(id);
-      self.currency_a = Currency::from(native);
+      self.currency0 = Currency::from(native);
    }
 
-   pub fn default_currency_b(&mut self, id: u64) {
+   pub fn default_currency1(&mut self, id: u64) {
       let chain: ChainId = id.into();
-      let currency_b = match chain {
+      let currency1 = match chain {
          ChainId::Ethereum(_) => Currency::from(ERC20Token::usdc()),
          ChainId::Optimism(_) => Currency::from(ERC20Token::usdc_optimism()),
          ChainId::Arbitrum(_) => Currency::from(ERC20Token::usdc_arbitrum()),
          ChainId::Base(_) => Currency::from(ERC20Token::usdc_base()),
          ChainId::BinanceSmartChain(_) => Currency::from(ERC20Token::usdc_bsc()),
       };
-      self.currency_b = currency_b;
+      self.currency1 = currency1;
    }
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -235,6 +234,7 @@ impl PositionUi {
 
                let text = RichText::new("Simulate").size(theme.text_sizes.large);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.5, 45.0));
+               
 
                if ui.add(button).clicked() {
                   let days = self.days_back.parse::<u64>().unwrap_or(0);
@@ -255,11 +255,6 @@ impl PositionUi {
                   let block_time = BlockTime::Days(days);
                   let pool = self.selected_pool.clone().unwrap();
                   let position_args = self.set_price_range_ui.position_args.clone();
-                  let token_a_from_ui = self.currency_a.clone();
-
-                  let actual_position_args =
-                     invert_position_args(&token_a_from_ui, &pool, &position_args);
-
                   let pool: UniswapV3Pool = pool.try_into().unwrap();
 
                   RT.spawn(async move {
@@ -270,10 +265,11 @@ impl PositionUi {
 
                      let client = ctx.get_client(ctx.chain().id()).await.unwrap();
 
-                     match simulate_position(client, block_time, actual_position_args, pool).await {
-                        Ok(result) => {
+                     match simulate_position2(client, block_time, position_args, pool, 2).await {
+                        Ok(mut result) => {
+                           result.swap_debugs.clear();
                            SHARED_GUI.write(|gui| {
-                              gui.uniswap.position_ui.sim_result = Some(result);
+                              gui.uniswap.open_position_ui.sim_result = Some(result);
                               gui.loading_window.reset();
                               gui.request_repaint();
                            });
@@ -290,50 +286,135 @@ impl PositionUi {
                }
 
                if self.sim_result.is_some() {
-                  let result = self.sim_result.clone().unwrap();
+                  ScrollArea::vertical().show(ui, |ui| {
+                     ui.vertical_centered(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
 
-                  let earned0 = result.earned0;
-                  let earned1 = result.earned1;
-                  let earned0_usd = result.earned0_usd;
-                  let earned1_usd = result.earned1_usd;
-                  let token0 = result.token0.symbol;
-                  let token1 = result.token1.symbol;
-                  let in_range = result.in_range;
-                  let out_of_range = result.out_of_range;
-                  let failed_swaps = result.failed_swaps;
-                  let apr = result.apr;
+                        let result = self.sim_result.clone().unwrap();
 
-                  let text = RichText::new("Total Earned").size(theme.text_sizes.normal);
-                  ui.label(text);
+                        let earned0 = result.earned0;
+                        let earned1 = result.earned1;
+                        let earned0_usd = result.earned0_usd;
+                        let earned1_usd = result.earned1_usd;
+                        let token0 = result.token0.symbol;
+                        let token1 = result.token1.symbol;
+                        let active_swaps = result.active_swaps;
+                        let total_swaps = result.total_swaps;
+                        let apr = result.apr;
 
-                  let token0_earned = format!("{:.4} (${:.4}) {}", earned0, earned0_usd, token0);
-                  let token1_earned = format!("{:.4} (${:.4}) {}", earned1, earned1_usd, token1);
-                  let text = RichText::new(token0_earned).size(theme.text_sizes.normal);
-                  ui.label(text);
+                        let pool = self.selected_pool.clone().unwrap();
+                        let pool: UniswapV3Pool = pool.try_into().unwrap();
 
-                  let text = RichText::new(token1_earned).size(theme.text_sizes.normal);
-                  ui.label(text);
+                        let lower_tick_text = format!("Lower Tick {}", result.position.tick_lower);
+                        let text = RichText::new(lower_tick_text).size(theme.text_sizes.normal);
+                        ui.label(text);
 
-                  let text = format!(
-                     "{} times your position was in the range",
-                     in_range
-                  );
-                  let text = RichText::new(text).size(theme.text_sizes.normal);
-                  ui.label(text);
+                        let upper_tick_text = format!("Upper Tick {}", result.position.tick_upper);
+                        let text = RichText::new(upper_tick_text).size(theme.text_sizes.normal);
+                        ui.label(text);
 
-                  let text = format!(
-                     "{} times your position was out of the range",
-                     out_of_range
-                  );
-                  let text = RichText::new(text).size(theme.text_sizes.normal);
-                  ui.label(text);
 
-                  let text = format!("{} failed swaps (Simulations)", failed_swaps);
-                  let text = RichText::new(text).size(theme.text_sizes.normal);
-                  ui.label(text);
+                        let text = RichText::new("Total Volume").size(theme.text_sizes.normal);
+                        ui.label(text);
 
-                  let text = format!("APR: {:.2}%", apr);
-                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                        let volume = result.buy_volume_usd + result.sell_volume_usd;
+                        let text =
+                           RichText::new(format!("${:.4}", volume)).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let text = RichText::new("Total Earned").size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let token0_earned =
+                           format!("{:.4} (${:.4}) {}", earned0, earned0_usd, token0);
+                        let token1_earned =
+                           format!("{:.4} (${:.4}) {}", earned1, earned1_usd, token1);
+                        let text = RichText::new(token0_earned).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let text = RichText::new(token1_earned).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let text = format!(
+                           "Your position was active {} times out of {} total swaps",
+                           active_swaps, total_swaps
+                        );
+                        let text = RichText::new(text).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let text = format!("APR: {:.2}%", apr);
+                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                        let token0 = pool.token0();
+                        let token1 = pool.token1();
+
+                        let debugs = result.swap_debugs;
+                        for (i, swap) in debugs.iter().enumerate() {
+                           ui.label(
+                              RichText::new("=============================")
+                                 .size(theme.text_sizes.normal),
+                           );
+
+                           let text =
+                              RichText::new(format!("Swap {}", i)).size(theme.text_sizes.normal);
+                           ui.label(text);
+
+                           let token_in = swap.swap_data.token_in.clone();
+                           let amount_in = swap.swap_data.amount_in;
+                           let token_out = swap.swap_data.token_out.clone();
+                           let amount_out = swap.swap_data.amount_out;
+
+                           let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
+                           let amount_out =
+                              NumericValue::format_wei(amount_out, token_out.decimals);
+
+                           let block = RichText::new(format!("Block: {}", swap.swap_data.block)).size(theme.text_sizes.normal);
+                           ui.label(block);
+
+                           let token_in_text =
+                              format!("{} {}", token_in.symbol, amount_in.formatted());
+                           let text = RichText::new(format!("Amount In: {}", token_in_text))
+                              .size(theme.text_sizes.normal);
+                           ui.label(text);
+
+                           let token_out_text =
+                              format!("{} {}", token_out.symbol, amount_out.formatted());
+                           let text = RichText::new(format!("Amount Out: {}", token_out_text))
+                              .size(theme.text_sizes.normal);
+                           ui.label(text);
+
+                           let total_earned0 = format!(
+                              "{} {}",
+                              token0.symbol,
+                              swap.total_fees_earned0.format_abbreviated()
+                           );
+                           let text = RichText::new(format!(
+                              "Token0 Owned After {}",
+                              total_earned0
+                           ))
+                           .size(theme.text_sizes.normal);
+                           ui.label(text);
+
+                           let total_earned1 = format!(
+                              "{} {}",
+                              token1.symbol,
+                              swap.total_fees_earned1.format_abbreviated()
+                           );
+                           let text = RichText::new(format!(
+                              "Token1 Owned After {}",
+                              total_earned1
+                           ))
+                           .size(theme.text_sizes.normal);
+                           ui.label(text);
+
+                           let text = RichText::new(format!(
+                              "In Range: {}",
+                              if swap.in_range { "Yes" } else { "No" }
+                           ));
+                           ui.label(text);
+                        }
+                     });
+                  });
                }
             });
          });
@@ -378,17 +459,11 @@ impl PositionUi {
       let mut button_text = "Add Liquidity".to_string();
 
       if !has_balance_a {
-         button_text = format!(
-            "Insufficient {} Balance",
-            self.currency_a.symbol()
-         );
+         button_text = format!("Insufficient {} Balance", self.currency0.symbol());
       }
 
       if !has_balance_b {
-         button_text = format!(
-            "Insufficient {} Balance",
-            self.currency_b.symbol()
-         );
+         button_text = format!("Insufficient {} Balance", self.currency1.symbol());
       }
 
       if !valid_amounts {
@@ -407,12 +482,8 @@ impl PositionUi {
          let slippage = settings.slippage.clone();
          let mev_protect = settings.mev_protect;
 
-         let token_a_from_ui = self.currency_a.clone();
-
          let deposit_amounts = self.set_price_range_ui.deposit_amounts.clone();
          let position_args = self.set_price_range_ui.position_args.clone();
-
-         let actual_position_args = invert_position_args(&token_a_from_ui, &pool, &position_args);
 
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
@@ -428,7 +499,7 @@ impl PositionUi {
                token_a,
                token_b,
                deposit_amounts,
-               actual_position_args,
+               position_args,
                slippage,
                mev_protect,
             )
@@ -452,16 +523,16 @@ impl PositionUi {
    }
 
    fn sufficient_balance_a(&self, ctx: ZeusCtx, owner: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency_a);
+      let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency0);
       let amount_in = &self.set_price_range_ui.deposit_amounts.amount0.to_string();
-      let amount = NumericValue::parse_to_wei(amount_in, self.currency_a.decimals());
+      let amount = NumericValue::parse_to_wei(amount_in, self.currency0.decimals());
       balance.wei2() >= amount.wei2()
    }
 
    fn sufficient_balance_b(&self, ctx: ZeusCtx, owner: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency_b);
+      let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency1);
       let amount_in = &self.set_price_range_ui.deposit_amounts.amount1.to_string();
-      let amount = NumericValue::parse_to_wei(amount_in, self.currency_b.decimals());
+      let amount = NumericValue::parse_to_wei(amount_in, self.currency1.decimals());
       balance.wei2() >= amount.wei2()
    }
 
@@ -494,19 +565,18 @@ impl PositionUi {
       // Pair Selection
       let text = RichText::new("Select Pair").size(theme.text_sizes.very_large);
       ui.label(text);
-      let text = RichText::new(TIP).size(theme.text_sizes.small);
-      ui.label(text);
+
       ui.add_space(10.0);
 
       ui.horizontal(|ui| {
-         ui.add_space(ui_width * 0.25);
+         ui.add_space(ui_width * 0.35);
          ui.spacing_mut().item_spacing.x = 20.0;
 
-         let icon0 = icons.currency_icon_x24(&self.currency_a);
-         let icon1 = icons.currency_icon_x24(&self.currency_b);
+         let icon0 = icons.currency_icon_x24(&self.currency0);
+         let icon1 = icons.currency_icon_x24(&self.currency1);
 
-         let text0 = RichText::new(self.currency_a.symbol()).size(theme.text_sizes.normal);
-         let text1 = RichText::new(self.currency_b.symbol()).size(theme.text_sizes.normal);
+         let text0 = RichText::new(self.currency0.symbol()).size(theme.text_sizes.normal);
+         let text1 = RichText::new(self.currency1.symbol()).size(theme.text_sizes.normal);
 
          let button0 = Button::image_and_text(icon0, text0).min_size(vec2(100.0, 40.0));
          let button1 = Button::image_and_text(icon1, text1).min_size(vec2(100.0, 40.0));
@@ -514,27 +584,6 @@ impl PositionUi {
          if ui.add(button0).clicked() {
             token_selection.currency_direction = InOrOut::In;
             token_selection.open = true;
-         }
-
-         // Switch currencies
-         let icon = icons.swap();
-         let swap_button = Button::image(icon);
-         if ui.add(swap_button).clicked() {
-            let old_min_price = self.set_price_range_ui.min_price;
-            let old_max_price = self.set_price_range_ui.max_price;
-            let old_price_assumption = self.set_price_range_ui.price_assumption;
-
-            std::mem::swap(&mut self.currency_a, &mut self.currency_b);
-            self.set_price_range_ui.set_slider_values();
-
-            // invert the values
-            if old_min_price > 0.0 && old_max_price > 0.0 {
-               // The new min is the inverse of the old max.
-               self.set_price_range_ui.min_price = 1.0 / old_max_price;
-               // The new max is the inverse of the old min.
-               self.set_price_range_ui.max_price = 1.0 / old_min_price;
-               self.set_price_range_ui.price_assumption = 1.0 / old_price_assumption;
-            }
          }
 
          if ui.add(button1).clicked() {
@@ -546,7 +595,7 @@ impl PositionUi {
       ui.add_space(10.0);
 
       let manager = ctx.pool_manager();
-      let mut pools = manager.get_pools_from_pair(&self.currency_a, &self.currency_b);
+      let mut pools = manager.get_pools_from_pair(&self.currency0, &self.currency1);
 
       if self.protocol_version == ProtocolVersion::V3 {
          pools.retain(|p| p.dex_kind().is_v3());
@@ -582,12 +631,12 @@ impl PositionUi {
 
                   if ui.add(button).clicked() {
                      self.selected_pool = Some(pool.clone());
-                     self.set_price_range_ui.set_values(
-                        Some(pool.clone()),
-                        self.currency_a.clone(),
-                        self.currency_b.clone(),
-                        self.protocol_version.clone(),
-                     );
+                     self.currency0 = pool.currency0().clone();
+                     self.currency1 = pool.currency1().clone();
+
+                     self
+                        .set_price_range_ui
+                        .set_values(Some(pool.clone()), self.protocol_version.clone());
                   }
                }
 
@@ -617,8 +666,8 @@ impl PositionUi {
 
          // update token balances
          let ctx_clone = ctx.clone();
-         let token_a = self.currency_a.to_erc20().into_owned();
-         let token_b = self.currency_b.to_erc20().into_owned();
+         let token_a = self.currency0.to_erc20().into_owned();
+         let token_b = self.currency1.to_erc20().into_owned();
          RT.spawn(async move {
             let _ = update::update_tokens_balance_for_chain(
                ctx_clone.clone(),
@@ -640,8 +689,6 @@ impl PositionUi {
 
 pub struct SetPriceRangeUi {
    pub size: (f32, f32),
-   pub currency_a: Currency,
-   pub currency_b: Currency,
    pub protocol_version: ProtocolVersion,
    pub selected_pool: Option<AnyUniswapPool>,
    pub deposit_amount: String,
@@ -662,12 +709,8 @@ pub struct SetPriceRangeUi {
 
 impl SetPriceRangeUi {
    pub fn new() -> Self {
-      let native = Currency::from(NativeCurrency::from_chain_id(1).unwrap());
-      let usdc = Currency::from(ERC20Token::usdc());
       Self {
          size: (500.0, 500.0),
-         currency_a: native,
-         currency_b: usdc,
          protocol_version: ProtocolVersion::V3,
          selected_pool: None,
          deposit_amount: String::new(),
@@ -685,16 +728,8 @@ impl SetPriceRangeUi {
       }
    }
 
-   pub fn set_values(
-      &mut self,
-      pool: Option<AnyUniswapPool>,
-      currency_a: Currency,
-      currency_b: Currency,
-      version: ProtocolVersion,
-   ) {
+   pub fn set_values(&mut self, pool: Option<AnyUniswapPool>, version: ProtocolVersion) {
       self.selected_pool = pool;
-      self.currency_a = currency_a;
-      self.currency_b = currency_b;
       self.protocol_version = version;
       self.set_slider_values();
    }
@@ -703,22 +738,14 @@ impl SetPriceRangeUi {
       self.selected_pool = pool;
    }
 
-   pub fn set_currency_a(&mut self, currency: Currency) {
-      self.currency_a = currency;
-   }
-
-   pub fn set_currency_b(&mut self, currency: Currency) {
-      self.currency_b = currency;
-   }
-
    pub fn set_slider_values(&mut self) {
       if self.selected_pool.is_none() {
          return;
       }
 
       let pool = self.selected_pool.clone().unwrap();
-      let price = pool.calculate_price(&self.currency_a).unwrap_or(0.0);
-      let stable_pair = self.currency_a.is_stablecoin() && self.currency_b.is_stablecoin();
+      let price = pool.calculate_price(pool.currency0()).unwrap_or(0.0);
+      let stable_pair = pool.currency0().is_stablecoin() && pool.currency1().is_stablecoin();
 
       // Calculate the min and max possible values for the sliders
       let (min_price, max_price) = if stable_pair {
@@ -734,7 +761,7 @@ impl SetPriceRangeUi {
       self.min_price = min_price;
       self.max_price = max_price;
       self.min_price_slider_min_value = min_price;
-      self.min_price_slider_max_value = price;
+      self.min_price_slider_max_value = max_price;
       self.max_price_slider_min_value = price;
       self.max_price_slider_max_value = max_price;
       self.price_assumption = price;
@@ -755,8 +782,8 @@ impl SetPriceRangeUi {
       let chain = ctx.chain();
       let owner = ctx.current_wallet().address;
       let pool = self.selected_pool.clone().unwrap();
-      let currency_a = self.currency_a.clone();
-      let currency_b = self.currency_b.clone();
+      let currency0 = pool.currency0();
+      let currency1 = pool.currency1();
 
       // Deposit Amount
       let text = RichText::new("$ Deposit Amount").size(theme.text_sizes.very_large);
@@ -777,17 +804,17 @@ impl SetPriceRangeUi {
       let text = RichText::new("Current Price").size(theme.text_sizes.very_large);
       ui.label(text);
 
-      // 1 Currency A = ?? Currency B
-      // Aka how much Currency B per Currency A
-      let price = pool.calculate_price(&currency_a).unwrap_or(0.0);
-      let price_a_usd = ctx.get_currency_price(&currency_a);
-      let price_b_usd = ctx.get_currency_price(&currency_b);
+      // Price is expressed Token0 in terms of Token1
+      // Aka how much Token1 per Token0
+      let price = pool.calculate_price(&currency0).unwrap_or(0.0);
+      let price_a_usd = ctx.get_currency_price(&currency0);
+      let price_b_usd = ctx.get_currency_price(&currency1);
 
       let text = format!(
          "1 {} = {:.4} {}",
-         currency_a.symbol(),
+         currency0.symbol(),
          price,
-         currency_b.symbol(),
+         currency1.symbol(),
       );
 
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
@@ -804,14 +831,14 @@ impl SetPriceRangeUi {
             ui.horizontal(|ui| {
                ui.vertical(|ui| {
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = RichText::new(currency_a.symbol()).size(theme.text_sizes.normal);
-                     let icon = icons.currency_icon_x24(&currency_a);
+                     let text = RichText::new(currency0.symbol()).size(theme.text_sizes.normal);
+                     let icon = icons.currency_icon_x24(&currency0);
                      let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                      ui.add(label);
                   });
 
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency_a);
+                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency0);
                      let b_text = format!("(Balance: {})", balance.format_abbreviated());
                      let text = RichText::new(b_text).size(theme.text_sizes.small);
                      let label = LabelWithImage::new(text, None);
@@ -840,14 +867,14 @@ impl SetPriceRangeUi {
             ui.horizontal(|ui| {
                ui.vertical(|ui| {
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = RichText::new(currency_b.symbol()).size(theme.text_sizes.normal);
-                     let icon = icons.currency_icon_x24(&currency_b);
+                     let text = RichText::new(currency1.symbol()).size(theme.text_sizes.normal);
+                     let icon = icons.currency_icon_x24(&currency1);
                      let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                      ui.add(label);
                   });
 
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency_b);
+                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency1);
                      let b_text = format!("(Balance: {})", balance.format_abbreviated());
                      let text = RichText::new(b_text).size(theme.text_sizes.small);
                      let label = LabelWithImage::new(text, None);
@@ -877,27 +904,24 @@ impl SetPriceRangeUi {
       // Price Range
 
       frame.show(ui, |ui| {
-         self.min_price(theme, ui);
+         self.min_price(theme, currency0, currency1, ui);
       });
 
       ui.add_space(20.0);
 
       frame.show(ui, |ui| {
-         self.max_price(theme, ui);
+         self.max_price(theme, currency0, currency1, ui);
       });
 
       ui.add_space(20.0);
 
       // Most active price assumption
       frame.show(ui, |ui| {
-         self.price_assumption(theme, ui);
+         self.price_assumption(theme, currency0, currency1, ui);
       });
 
-      let pool_token0 = pool.currency0();
-      let pool_token1 = pool.currency1();
-      let token_a_is_token0 = pool.is_currency0(&self.currency_a);
-      let price0_usd = ctx.get_currency_price(&pool_token0);
-      let price1_usd = ctx.get_currency_price(&pool_token1);
+      let price0_usd = ctx.get_currency_price(&currency0);
+      let price1_usd = ctx.get_currency_price(&currency1);
 
       let deposit_amount = self.deposit_amount.parse::<f64>().unwrap_or(0.0);
       let deposit_amounts = get_tokens_deposit_amount(
@@ -907,7 +931,6 @@ impl SetPriceRangeUi {
          price0_usd.f64(),
          price1_usd.f64(),
          deposit_amount,
-         token_a_is_token0,
       );
 
       let position_args = PositionArgs::new(
@@ -921,7 +944,7 @@ impl SetPriceRangeUi {
       self.deposit_amounts = deposit_amounts;
    }
 
-   fn min_price(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn min_price(&mut self, theme: &Theme, currency0: &Currency, currency1: &Currency, ui: &mut Ui) {
       ui.set_max_width(ui.available_width() * 0.8);
       let text = RichText::new("Min Price").size(theme.text_sizes.normal);
       ui.label(text);
@@ -933,16 +956,16 @@ impl SetPriceRangeUi {
          ui.add(slider);
       });
 
-      // Currency B per Currency A
+      // Currency 0 per Currency 1
       let text = format!(
          "{} per {}",
-         self.currency_b.symbol(),
-         self.currency_a.symbol()
+         currency0.symbol(),
+         currency1.symbol()
       );
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
    }
 
-   fn max_price(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn max_price(&mut self, theme: &Theme, currency0: &Currency, currency1: &Currency, ui: &mut Ui) {
       ui.set_max_width(ui.available_width() * 0.8);
       let text = RichText::new("Max Price").size(theme.text_sizes.normal);
       ui.label(text);
@@ -954,17 +977,23 @@ impl SetPriceRangeUi {
          ui.add(slider);
       });
 
-      // Currency B per Currency A
+      // Currency 0 per Currency 1
       let text = format!(
          "{} per {}",
-         self.currency_b.symbol(),
-         self.currency_a.symbol()
+         currency0.symbol(),
+         currency1.symbol()
       );
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
    }
 
    /// Most active price assumption
-   fn price_assumption(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn price_assumption(
+      &mut self,
+      theme: &Theme,
+      currency0: &Currency,
+      currency1: &Currency,
+      ui: &mut Ui,
+   ) {
       ui.set_max_width(ui.available_width() * 0.8);
       let text = RichText::new("Price Assumption").size(theme.text_sizes.normal);
       ui.label(text);
@@ -976,17 +1005,17 @@ impl SetPriceRangeUi {
          ui.add(slider);
       });
 
-      // Currency B per Currency A
+      // Currency 0 per Currency 1
       let text = format!(
          "{} per {}",
-         self.currency_b.symbol(),
-         self.currency_a.symbol()
+         currency0.symbol(),
+         currency1.symbol()
       );
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
    }
 }
 
-impl PositionUi {
+impl OpenPositionUi {
    fn sync_pools(&mut self, ctx: ZeusCtx, changed_currency: bool) {
       if self.syncing_pools {
          return;
@@ -997,12 +1026,12 @@ impl PositionUi {
       }
 
       // ETH -> WETH
-      if self.currency_a.is_native() && self.currency_b.is_native_wrapped() {
+      if self.currency0.is_native() && self.currency1.is_native_wrapped() {
          return;
       }
 
-      let token_in = self.currency_a.to_erc20().into_owned();
-      let token_out = self.currency_b.to_erc20().into_owned();
+      let token_in = self.currency0.to_erc20().into_owned();
+      let token_out = self.currency1.to_erc20().into_owned();
       tracing::info!(
          "Syncing pools for: {}-{}",
          token_in.symbol,
@@ -1011,8 +1040,8 @@ impl PositionUi {
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
-      let currency_in = self.currency_a.clone();
-      let currency_out = self.currency_b.clone();
+      let currency_in = self.currency0.clone();
+      let currency_out = self.currency1.clone();
 
       self.syncing_pools = true;
 
@@ -1028,8 +1057,8 @@ impl PositionUi {
          .await;
 
          SHARED_GUI.write(|gui| {
-            gui.uniswap.position_ui.syncing_pools = false;
-            gui.uniswap.position_ui.pool_data_syncing = true;
+            gui.uniswap.open_position_ui.syncing_pools = false;
+            gui.uniswap.open_position_ui.pool_data_syncing = true;
          });
 
          let pools = manager.get_pools_from_pair(&currency_in, &currency_out);
@@ -1040,14 +1069,14 @@ impl PositionUi {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.position_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.uniswap.position_ui.pool_data_syncing = false;
+                  gui.uniswap.open_position_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.open_position_ui.pool_data_syncing = false;
                });
             }
             Err(_e) => {
                // tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.position_ui.pool_data_syncing = false;
+                  gui.uniswap.open_position_ui.pool_data_syncing = false;
                });
             }
          }
@@ -1060,16 +1089,16 @@ impl PositionUi {
       }
 
       // ETH -> WETH
-      if self.currency_a.is_native() && self.currency_b.is_native_wrapped() {
+      if self.currency0.is_native() && self.currency1.is_native_wrapped() {
          return false;
       }
 
       // WETH -> WETH
-      if self.currency_a.is_native_wrapped() && self.currency_b.is_native_wrapped() {
+      if self.currency0.is_native_wrapped() && self.currency1.is_native_wrapped() {
          return false;
       }
 
-      if self.currency_a == self.currency_b {
+      if self.currency0 == self.currency1 {
          return false;
       }
 
@@ -1088,12 +1117,12 @@ impl PositionUi {
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
 
-      let pools = manager.get_pools_from_pair(&self.currency_a, &self.currency_b);
+      let pools = manager.get_pools_from_pair(&self.currency0, &self.currency1);
 
       tracing::info!(
          "Updating pool state for{}-{}",
-         self.currency_a.symbol(),
-         self.currency_b.symbol()
+         self.currency0.symbol(),
+         self.currency1.symbol()
       );
 
       self.pool_data_syncing = true;
@@ -1106,50 +1135,17 @@ impl PositionUi {
          {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.position_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.uniswap.position_ui.pool_data_syncing = false;
+                  gui.uniswap.open_position_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.open_position_ui.pool_data_syncing = false;
                });
             }
             Err(e) => {
                tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.position_ui.pool_data_syncing = false;
+                  gui.uniswap.open_position_ui.pool_data_syncing = false;
                });
             }
          }
       });
-   }
-}
-
-fn invert_position_args(
-   token_a_from_ui: &Currency,
-   pool: &AnyUniswapPool,
-   position_args: &PositionArgs,
-) -> PositionArgs {
-   let token_order_inverted = !pool.is_currency0(&token_a_from_ui);
-
-   let (actual_lower_range, actual_upper_range) = if token_order_inverted {
-      (
-         1.0 / position_args.upper_range,
-         1.0 / position_args.lower_range,
-      )
-   } else {
-      (
-         position_args.lower_range,
-         position_args.upper_range,
-      )
-   };
-
-   let actual_price_assumption = if token_order_inverted {
-      1.0 / position_args.price_assumption
-   } else {
-      position_args.price_assumption
-   };
-
-   PositionArgs {
-      lower_range: actual_lower_range,
-      upper_range: actual_upper_range,
-      deposit_amount: position_args.deposit_amount,
-      price_assumption: actual_price_assumption,
    }
 }

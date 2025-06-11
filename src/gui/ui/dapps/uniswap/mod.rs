@@ -3,18 +3,18 @@ pub mod position;
 pub mod swap;
 
 use pool::PoolsUi;
-use position::PositionUi;
+use position::OpenPositionUi;
 use swap::SwapUi;
 
 use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Id, Layout, Margin, Order, RichText,
-   Slider, TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, Slider, TextEdit, Ui,
+   Window, vec2,
 };
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::RT};
-use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
-use egui_theme::{Theme, utils::*};
+use crate::core::ZeusCtx;
+use crate::gui::ui::TokenSelectionWindow;
+use egui_theme::Theme;
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -103,7 +103,7 @@ pub struct UniswapUi {
    pub settings: Settings,
    pub swap_ui: SwapUi,
    pub pools_ui: PoolsUi,
-   pub position_ui: PositionUi,
+   pub open_position_ui: OpenPositionUi,
 }
 
 impl UniswapUi {
@@ -114,7 +114,7 @@ impl UniswapUi {
          settings: Settings::new(),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
-         position_ui: PositionUi::new(),
+         open_position_ui: OpenPositionUi::new(),
       }
    }
 
@@ -148,7 +148,7 @@ impl UniswapUi {
                if ui.add(swap_button).clicked() {
                   self.swap_ui.open = true;
                   self.pools_ui.open = false;
-                  self.position_ui.open = false;
+                  self.open_position_ui.open = false;
                }
 
                let text = RichText::new("Pools").size(theme.text_sizes.large);
@@ -156,13 +156,13 @@ impl UniswapUi {
                if ui.add(pools_button).clicked() {
                   self.pools_ui.open = true;
                   self.swap_ui.open = false;
-                  self.position_ui.open = false;
+                  self.open_position_ui.open = false;
                }
 
                let text = RichText::new("Positions").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
                if ui.add(positions_button).clicked() {
-                  self.position_ui.open = true;
+                  self.open_position_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
                }
@@ -192,7 +192,7 @@ impl UniswapUi {
 
          self.pools_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
-         self.position_ui.show(
+         self.open_position_ui.show(
             ctx.clone(),
             theme,
             icons.clone(),

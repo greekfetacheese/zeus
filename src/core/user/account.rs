@@ -39,6 +39,10 @@ impl Account {
       &self.wallets
    }
 
+   pub fn is_default(&self) -> bool {
+      self.credentials.is_valid().is_err()
+   }
+
    pub fn credentials_mut(&mut self) -> &mut Credentials {
       &mut self.credentials
    }
