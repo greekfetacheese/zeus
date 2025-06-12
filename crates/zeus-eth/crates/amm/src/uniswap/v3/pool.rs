@@ -28,7 +28,7 @@ use tokio::sync::{Mutex, Semaphore};
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
 /// Represents a Uniswap V3 Pool
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV3Pool {
    pub chain_id: u64,
    pub address: Address,
@@ -40,6 +40,12 @@ pub struct UniswapV3Pool {
    pub state: State,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
+}
+
+impl PartialEq for UniswapV3Pool {
+   fn eq(&self, other: &Self) -> bool {
+      self.address == other.address && self.chain_id == other.chain_id
+   }
 }
 
 impl TryFrom<AnyUniswapPool> for UniswapV3Pool {

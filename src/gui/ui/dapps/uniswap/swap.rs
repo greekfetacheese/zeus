@@ -343,26 +343,6 @@ impl SwapUi {
          return false;
       }
 
-      if self.protocol_version.is_v2() {
-         let new_pool = pools[0].clone();
-
-         if self.pool.is_some() {
-            if self.pool.as_ref().unwrap().address() != new_pool.address() {
-               self.pool = Some(new_pool.clone());
-               self
-                  .simulate_window
-                  .set_initial_pool(Some(new_pool.clone()));
-            }
-         } else {
-            self.pool = Some(new_pool.clone());
-            self
-               .simulate_window
-               .set_initial_pool(Some(new_pool.clone()));
-         }
-
-         return false;
-      }
-
       let mut changed = false;
       ui.horizontal(|ui| {
          ui.label(RichText::new("Fee Tier").size(theme.text_sizes.normal));
@@ -371,7 +351,7 @@ impl SwapUi {
             .spacing(vec2(15.0, 0.0))
             .show(ui, |ui| {
                for pool in pools {
-                  let selected = self.pool.as_ref() == Some(&pool);
+                  let selected = self.pool.as_ref() == Some(pool);
 
                   let fee = pool.fee().fee_percent();
                   let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);

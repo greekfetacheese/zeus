@@ -23,7 +23,7 @@ use utils::{NumericValue, batch, price_feed::get_base_token_price};
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV4Pool {
    pub chain_id: u64,
    pub fee: FeeAmount,
@@ -37,6 +37,12 @@ pub struct UniswapV4Pool {
    pub hooks: Address,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
+}
+
+impl PartialEq for UniswapV4Pool {
+   fn eq(&self, other: &Self) -> bool {
+      self.pool_id == other.pool_id && self.chain_id == other.chain_id
+   }
 }
 
 impl UniswapV4Pool {

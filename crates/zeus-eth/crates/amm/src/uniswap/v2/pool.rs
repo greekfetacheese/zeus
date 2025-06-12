@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 
 
 /// Represents a Uniswap V2 Pool
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV2Pool {
    pub chain_id: u64,
    pub address: Address,
@@ -36,6 +36,12 @@ pub struct UniswapV2Pool {
    pub dex: DexKind,
    #[serde(skip)]
    pub state: State,
+}
+
+impl PartialEq for UniswapV2Pool {
+   fn eq(&self, other: &Self) -> bool {
+      self.address == other.address && self.chain_id == other.chain_id
+   }
 }
 
 impl UniswapV2Pool {
