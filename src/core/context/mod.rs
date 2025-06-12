@@ -30,6 +30,7 @@ pub mod providers;
 pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, V3PositionsDB, TransactionsDB};
 pub use providers::{Rpc, RpcProviders};
 
+/// Thread-safe handle to the [ZeusContext]
 #[derive(Clone)]
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
 

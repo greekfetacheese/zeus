@@ -6,10 +6,7 @@ use pool::PoolsUi;
 use position::OpenPositionUi;
 use swap::SwapUi;
 
-use egui::{
-   Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, Slider, TextEdit, Ui,
-   Window, vec2,
-};
+use egui::{Align, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
@@ -17,59 +14,86 @@ use crate::gui::ui::TokenSelectionWindow;
 use egui_theme::Theme;
 use std::sync::Arc;
 
+#[derive(Clone, Default, Copy, Debug, PartialEq)]
+pub enum ProtocolVersion {
+   V2,
+   #[default]
+   V3,
+}
+
+impl ProtocolVersion {
+   pub fn is_v2(&self) -> bool {
+      matches!(self, Self::V2)
+   }
+
+   pub fn is_v3(&self) -> bool {
+      matches!(self, Self::V3)
+   }
+
+   pub fn to_str(&self) -> &'static str {
+      match self {
+         ProtocolVersion::V2 => "V2",
+         ProtocolVersion::V3 => "V3",
+      }
+   }
+
+   pub fn all() -> Vec<Self> {
+      vec![ProtocolVersion::V2, ProtocolVersion::V3]
+   }
+}
+
 #[derive(Clone)]
-pub struct Settings {
-   pub open: bool,
-   pub size: (f32, f32),
+pub struct UniswapSettingsUi {
+   open: bool,
    pub max_hops: usize,
    pub max_paths: usize,
    pub mev_protect: bool,
    pub slippage: String,
+   /// Applies only to [SwapUi]
+   pub simulate_mode: bool,
 }
 
-impl Settings {
+impl UniswapSettingsUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (400.0, 250.0),
          max_hops: 2,
          max_paths: 2,
          mev_protect: true,
          slippage: "0.5".to_string(),
+         simulate_mode: false,
       }
    }
 
-   fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.open;
-      let frame = Frame::window(ui.style()).inner_margin(Margin::same(10));
+   pub fn open(&mut self) {
+      self.open = true;
+   }
 
-      Window::new("")
-      .id(Id::new("uniswap_settings"))
-         .open(&mut open)
-         .resizable(false)
-         .order(Order::Foreground)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let ui_width = ui.available_width();
-            ui.vertical_centered(|ui| {
+   pub fn close(&mut self) {
+      self.open = false;
+   }
 
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                ui.add_space(ui_width * 0.3);
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn show(&mut self, swap_ui_open: bool, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
+
+      // For some fucking reason cargo fmt doesnt work here
+      ui.vertical_centered(|ui| {
+
                   let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
                   ui.label(text).on_hover_text("Protect against front-running attacks");
                   ui.checkbox(&mut self.mev_protect, "");
-               });
 
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                    ui.add_space(ui_width * 0.3);
                   let text = RichText::new("Slippage").size(theme.text_sizes.normal);
                   ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
+
                TextEdit::singleline(&mut self.slippage)
                   .hint_text("0.5")
                   .font(FontId::proportional(theme.text_sizes.small))
@@ -77,30 +101,26 @@ impl Settings {
                   .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .show(ui);
-            });
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add_space(ui_width * 0.3);
                ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
                ui.add(Slider::new(&mut self.max_hops, 1..=10));
-            });
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add_space(ui_width * 0.3);
                ui.label(RichText::new("Max Paths").size(theme.text_sizes.normal));
                ui.add(Slider::new(&mut self.max_paths, 1..=10));
-            });
-         });
-         });
 
-      self.open = open;
+               if swap_ui_open {
+                  let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
+                  ui.label(text);
+                  ui.checkbox(&mut self.simulate_mode, "");
+               }
+         });
    }
 }
 
 pub struct UniswapUi {
-   pub open: bool,
+   open: bool,
    pub size: (f32, f32),
-   pub settings: Settings,
+   pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
    pub pools_ui: PoolsUi,
    pub open_position_ui: OpenPositionUi,
@@ -111,11 +131,25 @@ impl UniswapUi {
       Self {
          open: false,
          size: (500.0, 900.0),
-         settings: Settings::new(),
+         settings: UniswapSettingsUi::new(),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
          open_position_ui: OpenPositionUi::new(),
       }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+      self.settings.open();
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+      self.settings.close();
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
    }
 
    pub fn show(
@@ -167,19 +201,9 @@ impl UniswapUi {
                   self.pools_ui.open = false;
                }
             });
-
-            // Settings Button
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let button = Button::new(RichText::new("Settings").size(theme.text_sizes.normal));
-               if ui.add(button).clicked() {
-                  self.settings.open = true;
-               }
-            });
          });
 
          ui.add_space(40.0);
-
-         self.settings.show(theme, ui);
 
          self.swap_ui.show(
             ctx.clone(),

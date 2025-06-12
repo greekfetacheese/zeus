@@ -6,12 +6,13 @@ use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
 use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
 
-use super::{Settings, swap::InOrOut};
+use super::{UniswapSettingsUi, swap::InOrOut};
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
    utils::{RT, eth, update},
 };
+use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use egui_theme::{Theme, utils::*};
 use egui_widgets::LabelWithImage;
@@ -38,22 +39,7 @@ const SIM_TIP: &str =
 
 const SIM_TIP2: &str = "This does not guarantee that the earnings will be the same at the future but you can get a good idea of the potential earnings";
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ProtocolVersion {
-   V3,
-}
 
-impl ProtocolVersion {
-   pub fn to_str(&self) -> &'static str {
-      match self {
-         ProtocolVersion::V3 => "V3",
-      }
-   }
-
-   pub fn all() -> Vec<Self> {
-      vec![ProtocolVersion::V3]
-   }
-}
 
 /// Ui to open a position for a specific pool
 pub struct OpenPositionUi {
@@ -155,7 +141,7 @@ impl OpenPositionUi {
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
-      settings: &Settings,
+      settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
       if !self.open {
@@ -441,7 +427,7 @@ impl OpenPositionUi {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
-      settings: &Settings,
+      settings: &UniswapSettingsUi,
       size: Vec2,
       ui: &mut Ui,
    ) {

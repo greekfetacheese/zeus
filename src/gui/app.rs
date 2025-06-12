@@ -118,7 +118,7 @@ impl eframe::App for ZeusApp {
 
             // Paint the Ui that belongs to the top panel
             egui::TopBottomPanel::top("top_panel")
-               .exact_height(180.0)
+               .exact_height(150.0)
                .resizable(false)
                .show_separator_line(true)
                .frame(bg_frame.clone())
@@ -140,13 +140,31 @@ impl eframe::App for ZeusApp {
                   }
                });
 
+            if gui.should_show_right_panel() {
+               // Paint the Ui that belongs to the left panel
+               egui::SidePanel::right("right_panel")
+                  .exact_width(250.0)
+                  .resizable(false)
+                  .show_separator_line(true)
+                  .frame(bg_frame.clone())
+                  .show_inside(ui, |ui| {
+                     if gui.ctx.logged_in() {
+                        gui.show_right_panel(ui);
+                     }
+                  });
+            }
+
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default()
                .frame(bg_frame.clone())
                .show_inside(ui, |ui| {
-                  ui.vertical_centered(|ui| {
-                     gui.show_central_panel(ui);
-                  });
+                  ui.with_layout(
+                     egui::Layout::top_down(egui::Align::Center),
+                     |ui| {
+                        ui.set_max_width(900.0);
+                        gui.show_central_panel(ui);
+                     },
+                  );
                });
          });
       });

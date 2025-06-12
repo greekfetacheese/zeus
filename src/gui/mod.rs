@@ -150,6 +150,10 @@ impl GUI {
       ui::panels::left_panel::show(ui, self);
    }
 
+   pub fn show_right_panel(&mut self, ui: &mut Ui) {
+      ui::panels::right_panel::show(ui, self);
+   }
+
    pub fn show_central_panel(&mut self, ui: &mut Ui) {
       ui::panels::central_panel::show(ui, self);
    }
@@ -160,6 +164,10 @@ impl GUI {
 
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
+   }
+
+   pub fn should_show_right_panel(&self) -> bool {
+      self.uniswap.is_open()
    }
 }
 
