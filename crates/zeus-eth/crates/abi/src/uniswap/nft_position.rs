@@ -289,23 +289,6 @@ pub fn encode_increase_liquidity(params: INonfungiblePositionManager::IncreaseLi
    Bytes::from(abi.abi_encode())
 }
 
-pub fn encode_decrease_liquidity(
-   token_id: U256,
-   liquidity: u128,
-   amount0: U256,
-   amount1: U256,
-   deadline: U256,
-) -> Bytes {
-   let params = INonfungiblePositionManager::DecreaseLiquidityParams {
-      tokenId: token_id,
-      liquidity: liquidity,
-      amount0Min: amount0,
-      amount1Min: amount1,
-      deadline,
-   };
-   let abi = INonfungiblePositionManager::decreaseLiquidityCall { params };
-   Bytes::from(abi.abi_encode())
-}
 
 pub fn encode_positions(token_id: U256) -> Bytes {
    let abi = INonfungiblePositionManager::positionsCall { tokenId: token_id };
@@ -314,6 +297,11 @@ pub fn encode_positions(token_id: U256) -> Bytes {
 
 pub fn encode_collect(params: INonfungiblePositionManager::CollectParams) -> Bytes {
    let abi = INonfungiblePositionManager::collectCall { params };
+   Bytes::from(abi.abi_encode())
+}
+
+pub fn encode_decrease_liquidity(params: INonfungiblePositionManager::DecreaseLiquidityParams) -> Bytes {
+   let abi = INonfungiblePositionManager::decreaseLiquidityCall { params };
    Bytes::from(abi.abi_encode())
 }
 

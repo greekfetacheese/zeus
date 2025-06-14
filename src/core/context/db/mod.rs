@@ -12,7 +12,7 @@ use crate::core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zeus_eth::alloy_primitives::{Address, U256};
+use zeus_eth::{alloy_primitives::{Address, U256}, amm::FeeAmount, currency::Currency, utils::NumericValue};
 
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
 
@@ -89,27 +89,39 @@ impl TransactionsDB {
 /// Uniswap V3 Positions by chain and wallet address
 pub type V3Positions = HashMap<(u64, Address), Vec<V3Position>>;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V3Position {
+   /// The block which this position was created
+   pub block: u64,
    /// Id of the position
    pub id: U256,
    /// Nonce for permits
    pub nonce: U256,
    /// Address that is approved for spending
    pub operator: Address,
-   pub token0: Address,
-   pub token1: Address,
+   pub token0: Currency,
+   pub token1: Currency,
    /// Fee tier of the pool
-   pub fee: u32,
+   pub fee: FeeAmount,
    pub tick_lower: i32,
    pub tick_upper: i32,
    pub liquidity: U256,
    pub fee_growth_inside0_last_x128: U256,
    pub fee_growth_inside1_last_x128: U256,
+   /// Amount0 of token0
+   pub amount0: NumericValue,
+   /// Amount1 of token1
+   pub amount1: NumericValue,
    /// Unclaimed fees
-   pub tokens_owed0: U256,
+   pub tokens_owed0: NumericValue,
    /// Unclaimed fees
-   pub tokens_owed1: U256, 
+   pub tokens_owed1: NumericValue, 
+}
+
+impl PartialEq for V3Position {
+   fn eq(&self, other: &Self) -> bool {
+      self.id == other.id
+   }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

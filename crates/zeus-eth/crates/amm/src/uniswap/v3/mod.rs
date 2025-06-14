@@ -82,7 +82,6 @@ impl Position {
    }
 }
 
-
 #[derive(Default)]
 pub struct CurrentState {
    pub amount_specified_remaining: I256,
@@ -403,6 +402,10 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
    }
 }
 
+
+
+
+
 pub fn get_liquidity_for_lower_upper_tick(
    sqrt_price_a_x96: U256,
    lower_tick: i32,
@@ -523,14 +526,82 @@ fn get_liquidity_for_amount1(
    Ok(liquidity)
 }
 
+
+
+/// Calculates the liquidity for a position, based on the current price and a desired token amount.
+/// 
+/// # Arguments
+/// 
+/// * `sqrt_ratio_current_x96` - The current price of the pool
+/// * `sqrt_ratio_a_x96` - The sqrt price at the lower tick boundary
+/// * `sqrt_ratio_b_x96` - The sqrt price at the upper tick boundary
+/// * `amount_desired` - The amount of one of the tokens to deposit
+/// * `is_token0` - Is amount_desired for token0?
+/// 
+/// # Returns
+/// 
+/// * `u128` - The liquidity amount
+pub fn calculate_liquidity_from_amount(
+    sqrt_ratio_current_x96: U256,
+    sqrt_ratio_a_x96: U256,
+    sqrt_ratio_b_x96: U256,
+    amount_desired: U256,
+    is_token0: bool,     
+) -> Result<u128, anyhow::Error> {
+   if amount_desired == U256::ZERO {
+      return Ok(0);
+   }
+
+    if is_token0 {
+        if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
+            // Price is below the range, position is fully in token0
+            get_liquidity_for_amount0(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
+        } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
+            // Price is in the range
+            get_liquidity_for_amount0(sqrt_ratio_current_x96, sqrt_ratio_b_x96, amount_desired)
+        } else {
+            // Price is above the range, position is fully in token1, so no token0 is needed.
+            Ok(0)
+        }
+    } else {
+        if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
+            // Price is below the range, position is fully in token0, so no token1 is needed.
+            Ok(0)
+        } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
+            // Price is in the range
+            get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_current_x96, amount_desired)
+        } else {
+            // Price is above the range, position is fully in token1
+            get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
+        }
+    }
+}
+
+
+/// Calculate the required amount0 and amount1 for a liquidity amount
+/// 
+/// # Arguments
+/// 
+/// * `sqrt_price_lower` - The lower tick's sqrt ratio
+/// * `sqrt_price_upper` - The upper tick's sqrt ratio
+/// * `liquidity` - The liquidity amount
+/// * `current_pool_sqrt_price` - The current pool's sqrt price
+/// 
+/// # Returns
+/// 
+/// * `(U256, U256)` - The required amount0 and amount1
 pub fn calculate_liquidity_amounts(
+   current_pool_sqrt_price: U256,
    sqrt_price_lower: U256,
    sqrt_price_upper: U256,
    liquidity: u128,
-   current_pool_sqrt_price: U256,
 ) -> Result<(U256, U256), anyhow::Error> {
    let mut amount0 = U256::ZERO;
    let mut amount1 = U256::ZERO;
+
+   if liquidity == 0 {
+      return Ok((amount0, amount1));
+   }
 
    let (sp_lower, sp_upper) = if sqrt_price_lower > sqrt_price_upper {
       (sqrt_price_upper, sqrt_price_lower)

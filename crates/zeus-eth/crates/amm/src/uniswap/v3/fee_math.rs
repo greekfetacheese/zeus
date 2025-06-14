@@ -205,6 +205,10 @@ pub fn get_sqrt_price_x96(price: f64) -> U256 {
 
 /// Calculate the tick from a given price
 pub fn get_tick_from_price(price: f64) -> i32 {
+   if price == 0.0 {
+      return 0;
+   }
+   
    let sqrt_price = price.sqrt();
 
    let tick = (sqrt_price.ln() / (1.0001_f64).sqrt().ln()).round() as i32;

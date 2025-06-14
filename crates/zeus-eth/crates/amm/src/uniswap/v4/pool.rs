@@ -530,10 +530,10 @@ impl UniswapPool for UniswapV4Pool {
       if sorted_tick_indices.is_empty() {
          if v3_state.liquidity > 0 {
             let (amount0, amount1) = calculate_liquidity_amounts(
+               current_pool_sqrt_price_x96,
                tick_math::MIN_SQRT_RATIO,
                tick_math::MAX_SQRT_RATIO,
                v3_state.liquidity,
-               current_pool_sqrt_price_x96,
             )?;
             total_calculated_amount0 = amount0;
             total_calculated_amount1 = amount1;
@@ -557,10 +557,10 @@ impl UniswapPool for UniswapV4Pool {
 
                if sqrt_price_segment_lower != sqrt_price_segment_upper {
                   let (segment_amount0, segment_amount1) = calculate_liquidity_amounts(
+                     current_pool_sqrt_price_x96,
                      sqrt_price_segment_lower,
                      sqrt_price_segment_upper,
                      liquidity_for_this_segment,
-                     current_pool_sqrt_price_x96,
                   )?;
 
                   total_calculated_amount0 = total_calculated_amount0.saturating_add(segment_amount0);

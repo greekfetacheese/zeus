@@ -1,4 +1,4 @@
-use IUniswapV3Pool::Swap;
+use IUniswapV3Pool::{Mint, Collect, Burn, Swap};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, Signed, U256, Uint};
 use alloy_rpc_types::BlockId;
@@ -450,6 +450,21 @@ where
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let b = IUniswapV3Pool::Swap::decode_raw_log(log.topics(), &log.data)?;
+   Ok(b)
+}
+
+pub fn decode_mint_log(log: &LogData) -> Result<Mint, anyhow::Error> {
+   let b = IUniswapV3Pool::Mint::decode_raw_log(log.topics(), &log.data)?;
+   Ok(b)
+}
+
+pub fn decode_burn_log(log: &LogData) -> Result<Burn, anyhow::Error> {
+   let b = IUniswapV3Pool::Burn::decode_raw_log(log.topics(), &log.data)?;
+   Ok(b)
+}
+
+pub fn decode_collect_log(log: &LogData) -> Result<Collect, anyhow::Error> {
+   let b = IUniswapV3Pool::Collect::decode_raw_log(log.topics(), &log.data)?;
    Ok(b)
 }
 

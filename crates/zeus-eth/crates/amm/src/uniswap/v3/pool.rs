@@ -153,6 +153,10 @@ impl UniswapV3Pool {
       &mut self.state
    }
 
+   pub fn clear_state(&mut self) {
+      self.state = State::None;
+   }
+
    pub fn tick_to_word(&self, tick: i32, tick_spacing: i32) -> i32 {
       let mut compressed = tick / tick_spacing;
       if tick < 0 && tick % tick_spacing != 0 {
@@ -187,9 +191,6 @@ impl UniswapV3Pool {
 
       let min_word_pos = (min_compressed_tick >> 8) as i16;
       let max_word_pos = (max_compressed_tick >> 8) as i16;
-      eprintln!("Current Word Pos: {}", current_word_pos);
-      eprintln!("Min Word Pos: {}", min_word_pos);
-      eprintln!("Max Word Pos: {}", max_word_pos);
 
       let mut all_words_pos = Vec::new();
       for word_pos in min_word_pos..=max_word_pos {
@@ -200,7 +201,7 @@ impl UniswapV3Pool {
          all_words_pos.push(word_pos);
       }
 
-      const BATCH_SIZE: usize = 200;
+      const BATCH_SIZE: usize = 100;
 
       let semaphore = Arc::new(Semaphore::new(concurrency));
       let collected_bitmaps = Arc::new(Mutex::new(Vec::new()));

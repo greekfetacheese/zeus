@@ -333,6 +333,9 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
+   // Could do more but every provider has its own limits
+   const BLOCK_RANGE: u64 = 50_000;
+
    let latest_block = client.get_block_number().await?;
 
    tracing::debug!(target: "zeus_eth::utils::lib",
@@ -351,11 +354,11 @@ where
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
-   if latest_block - from_block > 100_000 {
+   if latest_block - from_block > BLOCK_RANGE {
       let mut start_block = from_block;
 
       while start_block <= latest_block {
-         let end_block = std::cmp::min(start_block + 100_000, latest_block);
+         let end_block = std::cmp::min(start_block + BLOCK_RANGE, latest_block);
          let client = client.clone();
          let logs_clone = Arc::clone(&logs);
          let filter_clone = filter.clone();

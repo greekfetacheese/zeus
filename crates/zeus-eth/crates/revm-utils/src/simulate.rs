@@ -5,7 +5,7 @@ use super::Evm2;
 use anyhow::anyhow;
 use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
 
-use abi::uniswap::nft_position::{encode_decrease_liquidity, INonfungiblePositionManager, MintReturn};
+use abi::uniswap::nft_position::{ encode_decrease_liquidity, INonfungiblePositionManager, MintReturn};
 
 /// Simulate a swap using [abi::misc::SwapRouter]
 ///
@@ -39,7 +39,7 @@ where
 
    if !res.is_success() {
       let err = revert_msg(&output);
-      return Err(anyhow!("Failed to swap: {}", err));
+      return Err(anyhow!("Call Reverted: {}", err));
    }
 
    let amount = abi::misc::decode_swap(&output)?;
@@ -173,6 +173,45 @@ where
    Ok((res, mint))
 }
 
+
+/// Simulate the decrease liquidity function in the [INonfungiblePositionManager] contract
+pub fn decrease_liquidity<DB>(
+   evm: &mut Evm2<DB>,
+   params: INonfungiblePositionManager::DecreaseLiquidityParams,
+   caller: Address,
+   contract: Address,
+   commit: bool,
+) -> Result<(ExecutionResult, U256, U256), anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   let data = encode_decrease_liquidity(params);
+   evm.tx.caller = caller;
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(contract);
+
+   let res = if commit {
+      evm.transact_commit(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+   } else {
+      evm.transact(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+         .result
+   };
+
+   let output = res.output().ok_or(anyhow!("Output not found"))?;
+
+   if !res.is_success() {
+      let err = revert_msg(&output);
+      return Err(anyhow!("Call Reverted: {}", err));
+   }
+
+   let (amount0, amount1) = abi::uniswap::nft_position::decode_decrease_liquidity_call(&output)?;
+   Ok((res, amount0, amount1))
+}
+
+
 /// Simulate the collect function in the [INonfungiblePositionManager] contract
 ///
 /// Returns the amount0 and amount1 that were collected
@@ -209,48 +248,5 @@ where
    }
 
    let (amount0, amount1) = abi::uniswap::nft_position::decode_collect(&output)?;
-   Ok((res, amount0, amount1))
-}
-
-
-/// Simulate the decrease liquidity function in the [INonfungiblePositionManager] contract
-/// Returns the amount0 and amount1 that were collected
-pub fn decrease_liquidity<DB>(
-   evm: &mut Evm2<DB>,
-   token_id: U256,
-   liquidity: u128,
-   amount0: U256,
-   amount1: U256,
-   deadline: U256,
-   caller: Address,
-   contract: Address,
-   commit: bool,
-) -> Result<(ExecutionResult, U256, U256), anyhow::Error>
-where
-   DB: Database + DatabaseCommit,
-{
-   let data = encode_decrease_liquidity(token_id, liquidity, amount0, amount1, deadline);
-   evm.tx.caller = caller;
-   evm.tx.data = data;
-   evm.tx.value = U256::ZERO;
-   evm.tx.kind = TxKind::Call(contract);
-
-   let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-   } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
-   };
-
-   let output = res.output().ok_or(anyhow!("Output not found"))?;
-
-   if !res.is_success() {
-      let err = revert_msg(&output);
-      return Err(anyhow!("Failed to decrease liquidity: {}", err));
-   }
-
-   let (amount0, amount1) = abi::uniswap::nft_position::decode_decrease_liquidity_call(&output)?;
    Ok((res, amount0, amount1))
 }

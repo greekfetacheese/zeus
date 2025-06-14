@@ -458,6 +458,10 @@ impl ERC20Token {
    pub fn is_stablecoin(&self) -> bool {
       self.is_usdc() || self.is_usdt() || self.is_dai()
    }
+
+   pub fn is_base(&self) -> bool {
+      self.is_weth() || self.is_wbnb() || self.is_stablecoin()
+   }
 }
 
 #[cfg(test)]

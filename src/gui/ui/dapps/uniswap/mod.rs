@@ -1,9 +1,11 @@
 pub mod pool;
-pub mod position;
+pub mod create_position;
+pub mod view_positions;
 pub mod swap;
 
 use pool::PoolsUi;
-use position::OpenPositionUi;
+use create_position::CreatePositionUi;
+use view_positions::ViewPositionsUi;
 use swap::SwapUi;
 
 use egui::{Align, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
@@ -123,7 +125,8 @@ pub struct UniswapUi {
    pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
    pub pools_ui: PoolsUi,
-   pub open_position_ui: OpenPositionUi,
+   pub create_position_ui: CreatePositionUi,
+   pub view_positions_ui: ViewPositionsUi,
 }
 
 impl UniswapUi {
@@ -134,7 +137,8 @@ impl UniswapUi {
          settings: UniswapSettingsUi::new(),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
-         open_position_ui: OpenPositionUi::new(),
+         create_position_ui: CreatePositionUi::new(),
+         view_positions_ui: ViewPositionsUi::new(),
       }
    }
 
@@ -182,7 +186,7 @@ impl UniswapUi {
                if ui.add(swap_button).clicked() {
                   self.swap_ui.open = true;
                   self.pools_ui.open = false;
-                  self.open_position_ui.open = false;
+                  self.create_position_ui.open = false;
                }
 
                let text = RichText::new("Pools").size(theme.text_sizes.large);
@@ -190,15 +194,24 @@ impl UniswapUi {
                if ui.add(pools_button).clicked() {
                   self.pools_ui.open = true;
                   self.swap_ui.open = false;
-                  self.open_position_ui.open = false;
+                  self.create_position_ui.open = false;
                }
 
-               let text = RichText::new("Positions").size(theme.text_sizes.large);
+               let text = RichText::new("Create Position").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
                if ui.add(positions_button).clicked() {
-                  self.open_position_ui.open = true;
+                  self.create_position_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
+               }
+
+               let text = RichText::new("View Positions").size(theme.text_sizes.large);
+               let positions_button = Button::new(text);
+               if ui.add(positions_button).clicked() {
+                  self.view_positions_ui.open = true;
+                  self.swap_ui.open = false;
+                  self.pools_ui.open = false;
+                  self.create_position_ui.open = false;
                }
             });
          });
@@ -216,12 +229,19 @@ impl UniswapUi {
 
          self.pools_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
-         self.open_position_ui.show(
+         self.create_position_ui.show(
             ctx.clone(),
             theme,
             icons.clone(),
             token_selection,
             &self.settings,
+            ui,
+         );
+
+         self.view_positions_ui.show(
+            ctx.clone(),
+            theme,
+            icons.clone(),
             ui,
          );
       });

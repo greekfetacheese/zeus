@@ -141,8 +141,8 @@ impl ChainSelection {
                   gui.send_crypto.set_currency(currency.clone());
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
-                  gui.uniswap.open_position_ui.default_currency0(new_chain.id());
-                  gui.uniswap.open_position_ui.default_currency1(new_chain.id());
+                  gui.uniswap.create_position_ui.default_currency0(new_chain.id());
+                  gui.uniswap.create_position_ui.default_currency1(new_chain.id());
                });
             });
          }

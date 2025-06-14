@@ -22,9 +22,11 @@ use zeus_eth::{
    amm::{
       AnyUniswapPool, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
+         calculate_liquidity_amounts, calculate_liquidity_from_amount,
          fee_math::*,
-         position::{PositionArgs, PositionResult2, simulate_position2},
+         position::{PositionResult, SimPositionConfig, simulate_position},
       },
+      uniswap_v3_math,
    },
    types::BlockTime,
 };
@@ -39,10 +41,8 @@ const SIM_TIP: &str =
 
 const SIM_TIP2: &str = "This does not guarantee that the earnings will be the same at the future but you can get a good idea of the potential earnings";
 
-
-
-/// Ui to open a position for a specific pool
-pub struct OpenPositionUi {
+/// Ui to create a position
+pub struct CreatePositionUi {
    pub open: bool,
    pub pair_selection_open: bool,
    pub size: (f32, f32),
@@ -60,10 +60,12 @@ pub struct OpenPositionUi {
    pub sim_window_size: (f32, f32),
    /// Days to go back for the [BlockTime]
    pub days_back: String,
-   pub sim_result: Option<PositionResult2>,
+   pub skip_simulating_mints: bool,
+   pub skip_simulating_burns: bool,
+   pub sim_result: Option<PositionResult>,
 }
 
-impl OpenPositionUi {
+impl CreatePositionUi {
    pub fn new() -> Self {
       let native = Currency::from(NativeCurrency::from_chain_id(1).unwrap());
       let usdc = Currency::from(ERC20Token::usdc());
@@ -82,6 +84,8 @@ impl OpenPositionUi {
          sim_window_open: false,
          sim_window_size: (400.0, 550.0),
          days_back: String::new(),
+         skip_simulating_mints: false,
+         skip_simulating_burns: false,
          sim_result: None,
       }
    }
@@ -116,7 +120,7 @@ impl OpenPositionUi {
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut current_version = self.protocol_version;
-      let versions = ProtocolVersion::all();
+      let versions = vec![ProtocolVersion::V3];
       widget_visuals(
          ui,
          theme.get_widget_visuals(theme.colors.bg_color),
@@ -181,6 +185,8 @@ impl OpenPositionUi {
       self.sim_window(ctx.clone(), theme, ui);
    }
 
+   // TODO: For some reason the results are not correct
+   // TODO: The amounts earned are way too low, but when run alone in a test the results makes more sense
    fn sim_window(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.sim_window_open;
 
@@ -218,12 +224,23 @@ impl OpenPositionUi {
 
                ui.add_space(20.0);
 
+               ui.checkbox(
+                  &mut self.skip_simulating_mints,
+                  "Skip simulating Mint Events",
+               );
+               ui.checkbox(
+                  &mut self.skip_simulating_burns,
+                  "Skip simulating Burn Events",
+               );
+
                let text = RichText::new("Simulate").size(theme.text_sizes.large);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.5, 45.0));
-               
 
                if ui.add(button).clicked() {
                   let days = self.days_back.parse::<u64>().unwrap_or(0);
+                  let mut position_config = self.set_price_range_ui.sim_position_config.clone();
+                  position_config.skip_simulating_mints = self.skip_simulating_mints;
+                  position_config.skip_simulating_burns = self.skip_simulating_burns;
 
                   if days == 0 {
                      RT.spawn_blocking(move || {
@@ -240,7 +257,6 @@ impl OpenPositionUi {
 
                   let block_time = BlockTime::Days(days);
                   let pool = self.selected_pool.clone().unwrap();
-                  let position_args = self.set_price_range_ui.position_args.clone();
                   let pool: UniswapV3Pool = pool.try_into().unwrap();
 
                   RT.spawn(async move {
@@ -251,11 +267,10 @@ impl OpenPositionUi {
 
                      let client = ctx.get_client(ctx.chain().id()).await.unwrap();
 
-                     match simulate_position2(client, block_time, position_args, pool, 2).await {
-                        Ok(mut result) => {
-                           result.swap_debugs.clear();
+                     match simulate_position(client, block_time, position_config, pool).await {
+                        Ok(result) => {
                            SHARED_GUI.write(|gui| {
-                              gui.uniswap.open_position_ui.sim_result = Some(result);
+                              gui.uniswap.create_position_ui.sim_result = Some(result);
                               gui.loading_window.reset();
                               gui.request_repaint();
                            });
@@ -278,8 +293,8 @@ impl OpenPositionUi {
 
                         let result = self.sim_result.clone().unwrap();
 
-                        let earned0 = result.earned0;
-                        let earned1 = result.earned1;
+                        let earned0 = result.token0_earned;
+                        let earned1 = result.token1_earned;
                         let earned0_usd = result.earned0_usd;
                         let earned1_usd = result.earned1_usd;
                         let token0 = result.token0.symbol;
@@ -288,33 +303,59 @@ impl OpenPositionUi {
                         let total_swaps = result.total_swaps;
                         let apr = result.apr;
 
-                        let pool = self.selected_pool.clone().unwrap();
-                        let pool: UniswapV3Pool = pool.try_into().unwrap();
+                        let text = RichText::new(format!("Forked Block: {}", result.forked_block))
+                           .size(theme.text_sizes.normal);
+                        ui.label(text);
 
-                        let lower_tick_text = format!("Lower Tick {}", result.position.tick_lower);
+                        let lower_tick_text = format!("Lower Tick {}", result.lower_tick);
                         let text = RichText::new(lower_tick_text).size(theme.text_sizes.normal);
                         ui.label(text);
 
-                        let upper_tick_text = format!("Upper Tick {}", result.position.tick_upper);
+                        let upper_tick_text = format!("Upper Tick {}", result.upper_tick);
                         let text = RichText::new(upper_tick_text).size(theme.text_sizes.normal);
                         ui.label(text);
 
+                        let amount0_text = format!(
+                           "Amount0 in position: {} {}",
+                           result.amount0.format_abbreviated(),
+                           token0
+                        );
+                        let text = RichText::new(amount0_text).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let amount1_text = format!(
+                           "Amount1 in position: {} {}",
+                           result.amount1.format_abbreviated(),
+                           token1
+                        );
+                        let text = RichText::new(amount1_text).size(theme.text_sizes.normal);
+                        ui.label(text);
 
                         let text = RichText::new("Total Volume").size(theme.text_sizes.normal);
                         ui.label(text);
 
-                        let volume = result.buy_volume_usd + result.sell_volume_usd;
-                        let text =
-                           RichText::new(format!("${:.4}", volume)).size(theme.text_sizes.normal);
+                        let text = RichText::new(format!(
+                           "${}",
+                           result.total_volume_usd.format_abbreviated()
+                        ))
+                        .size(theme.text_sizes.normal);
                         ui.label(text);
 
                         let text = RichText::new("Total Earned").size(theme.text_sizes.normal);
                         ui.label(text);
 
-                        let token0_earned =
-                           format!("{:.4} (${:.4}) {}", earned0, earned0_usd, token0);
-                        let token1_earned =
-                           format!("{:.4} (${:.4}) {}", earned1, earned1_usd, token1);
+                        let token0_earned = format!(
+                           "{} (${}) {}",
+                           earned0.format_abbreviated(),
+                           earned0_usd.format_abbreviated(),
+                           token0
+                        );
+                        let token1_earned = format!(
+                           "{} (${}) {}",
+                           earned1.format_abbreviated(),
+                           earned1_usd.format_abbreviated(),
+                           token1
+                        );
                         let text = RichText::new(token0_earned).size(theme.text_sizes.normal);
                         ui.label(text);
 
@@ -328,77 +369,11 @@ impl OpenPositionUi {
                         let text = RichText::new(text).size(theme.text_sizes.normal);
                         ui.label(text);
 
-                        let text = format!("APR: {:.2}%", apr);
+                        let text = format!("Failed Swaps: {}", result.failed_swaps);
                         ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
-                        let token0 = pool.token0();
-                        let token1 = pool.token1();
-
-                        let debugs = result.swap_debugs;
-                        for (i, swap) in debugs.iter().enumerate() {
-                           ui.label(
-                              RichText::new("=============================")
-                                 .size(theme.text_sizes.normal),
-                           );
-
-                           let text =
-                              RichText::new(format!("Swap {}", i)).size(theme.text_sizes.normal);
-                           ui.label(text);
-
-                           let token_in = swap.swap_data.token_in.clone();
-                           let amount_in = swap.swap_data.amount_in;
-                           let token_out = swap.swap_data.token_out.clone();
-                           let amount_out = swap.swap_data.amount_out;
-
-                           let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
-                           let amount_out =
-                              NumericValue::format_wei(amount_out, token_out.decimals);
-
-                           let block = RichText::new(format!("Block: {}", swap.swap_data.block)).size(theme.text_sizes.normal);
-                           ui.label(block);
-
-                           let token_in_text =
-                              format!("{} {}", token_in.symbol, amount_in.formatted());
-                           let text = RichText::new(format!("Amount In: {}", token_in_text))
-                              .size(theme.text_sizes.normal);
-                           ui.label(text);
-
-                           let token_out_text =
-                              format!("{} {}", token_out.symbol, amount_out.formatted());
-                           let text = RichText::new(format!("Amount Out: {}", token_out_text))
-                              .size(theme.text_sizes.normal);
-                           ui.label(text);
-
-                           let total_earned0 = format!(
-                              "{} {}",
-                              token0.symbol,
-                              swap.total_fees_earned0.format_abbreviated()
-                           );
-                           let text = RichText::new(format!(
-                              "Token0 Owned After {}",
-                              total_earned0
-                           ))
-                           .size(theme.text_sizes.normal);
-                           ui.label(text);
-
-                           let total_earned1 = format!(
-                              "{} {}",
-                              token1.symbol,
-                              swap.total_fees_earned1.format_abbreviated()
-                           );
-                           let text = RichText::new(format!(
-                              "Token1 Owned After {}",
-                              total_earned1
-                           ))
-                           .size(theme.text_sizes.normal);
-                           ui.label(text);
-
-                           let text = RichText::new(format!(
-                              "In Range: {}",
-                              if swap.in_range { "Yes" } else { "No" }
-                           ));
-                           ui.label(text);
-                        }
+                        let text = format!("APR: {:.2}%", apr);
+                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
                      });
                   });
                }
@@ -409,10 +384,11 @@ impl OpenPositionUi {
    }
 
    fn simulate_button(&mut self, theme: &Theme, size: Vec2, ui: &mut Ui) {
-      let deposit_amounts = self.set_price_range_ui.deposit_amounts.clone();
+      let amount0_needed = &self.set_price_range_ui.amount0_needed;
+      let amount1_needed = &self.set_price_range_ui.amount1_needed;
 
       let selected_pool = self.set_price_range_ui.selected_pool.is_some();
-      let valid_amounts = deposit_amounts.amount0 > 0.0 && deposit_amounts.amount1 > 0.0;
+      let valid_amounts = amount0_needed.f64() > 0.0 && amount1_needed.f64() > 0.0;
       let enabled = selected_pool && valid_amounts;
 
       let button =
@@ -431,11 +407,12 @@ impl OpenPositionUi {
       size: Vec2,
       ui: &mut Ui,
    ) {
-      let deposit_amounts = self.set_price_range_ui.deposit_amounts.clone();
+      let amount0_needed = &self.set_price_range_ui.amount0_needed;
+      let amount1_needed = &self.set_price_range_ui.amount1_needed;
       let owner = ctx.current_wallet().address;
 
       let selected_pool = self.set_price_range_ui.selected_pool.is_some();
-      let valid_amounts = deposit_amounts.amount0 > 0.0 && deposit_amounts.amount1 > 0.0;
+      let valid_amounts = amount0_needed.f64() > 0.0 && amount1_needed.f64() > 0.0;
 
       let has_balance_a = self.sufficient_balance_a(ctx.clone(), owner);
       let has_balance_b = self.sufficient_balance_b(ctx.clone(), owner);
@@ -463,13 +440,11 @@ impl OpenPositionUi {
          let chain = ctx.chain();
          let from = owner;
          let pool = self.selected_pool.clone().unwrap();
-         let token_a = pool.currency0().to_erc20().into_owned();
-         let token_b = pool.currency1().to_erc20().into_owned();
          let slippage = settings.slippage.clone();
          let mev_protect = settings.mev_protect;
 
-         let deposit_amounts = self.set_price_range_ui.deposit_amounts.clone();
-         let position_args = self.set_price_range_ui.position_args.clone();
+         let position_args = self.set_price_range_ui.sim_position_config.clone();
+         let pool: UniswapV3Pool = pool.try_into().unwrap();
 
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
@@ -482,10 +457,9 @@ impl OpenPositionUi {
                chain,
                from,
                pool,
-               token_a,
-               token_b,
-               deposit_amounts,
-               position_args,
+               position_args.lower_range,
+               position_args.upper_range,
+               position_args.deposit_amount,
                slippage,
                mev_protect,
             )
@@ -510,16 +484,12 @@ impl OpenPositionUi {
 
    fn sufficient_balance_a(&self, ctx: ZeusCtx, owner: Address) -> bool {
       let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency0);
-      let amount_in = &self.set_price_range_ui.deposit_amounts.amount0.to_string();
-      let amount = NumericValue::parse_to_wei(amount_in, self.currency0.decimals());
-      balance.wei2() >= amount.wei2()
+      balance.wei2() >= self.set_price_range_ui.amount0_needed.wei2()
    }
 
    fn sufficient_balance_b(&self, ctx: ZeusCtx, owner: Address) -> bool {
       let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency1);
-      let amount_in = &self.set_price_range_ui.deposit_amounts.amount1.to_string();
-      let amount = NumericValue::parse_to_wei(amount_in, self.currency1.decimals());
-      balance.wei2() >= amount.wei2()
+      balance.wei2() >= self.set_price_range_ui.amount1_needed.wei2()
    }
 
    pub fn pair_selection(
@@ -677,9 +647,14 @@ pub struct SetPriceRangeUi {
    pub size: (f32, f32),
    pub protocol_version: ProtocolVersion,
    pub selected_pool: Option<AnyUniswapPool>,
+   /// Deposit amount in Token0
    pub deposit_amount: String,
-   pub deposit_amounts: DepositAmounts,
-   pub position_args: PositionArgs,
+   pub sim_position_config: SimPositionConfig,
+
+   /// Amount0 needed to mint the position
+   pub amount0_needed: NumericValue,
+   /// Amount1 needed to mint the position
+   pub amount1_needed: NumericValue,
 
    // Slider values
    pub min_price: f64,
@@ -688,9 +663,6 @@ pub struct SetPriceRangeUi {
    pub min_price_slider_max_value: f64,
    pub max_price_slider_min_value: f64,
    pub max_price_slider_max_value: f64,
-   pub price_assumption: f64,
-   pub price_assumption_slider_min_value: f64,
-   pub price_assumption_slider_max_value: f64,
 }
 
 impl SetPriceRangeUi {
@@ -700,17 +672,15 @@ impl SetPriceRangeUi {
          protocol_version: ProtocolVersion::V3,
          selected_pool: None,
          deposit_amount: String::new(),
-         deposit_amounts: DepositAmounts::default(),
-         position_args: PositionArgs::default(),
+         sim_position_config: SimPositionConfig::default(),
+         amount0_needed: NumericValue::default(),
+         amount1_needed: NumericValue::default(),
          min_price: 0.0,
          max_price: 0.0,
          min_price_slider_min_value: 0.0,
          min_price_slider_max_value: 0.0,
          max_price_slider_min_value: 0.0,
          max_price_slider_max_value: 0.0,
-         price_assumption: 0.0,
-         price_assumption_slider_min_value: 0.0,
-         price_assumption_slider_max_value: 0.0,
       }
    }
 
@@ -750,9 +720,6 @@ impl SetPriceRangeUi {
       self.min_price_slider_max_value = max_price;
       self.max_price_slider_min_value = price;
       self.max_price_slider_max_value = max_price;
-      self.price_assumption = price;
-      self.price_assumption_slider_min_value = min_price;
-      self.price_assumption_slider_max_value = max_price;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -772,18 +739,20 @@ impl SetPriceRangeUi {
       let currency1 = pool.currency1();
 
       // Deposit Amount
-      let text = RichText::new("$ Deposit Amount").size(theme.text_sizes.very_large);
+      let text = format!("Deposit Amount in {}", currency0.symbol());
+      let text = RichText::new(text).size(theme.text_sizes.very_large);
       ui.label(text);
 
       TextEdit::singleline(&mut self.deposit_amount)
-         .hint_text("$0")
+         .hint_text("0")
          .font(FontId::proportional(theme.text_sizes.normal))
          .background_color(theme.colors.text_edit_bg)
          .margin(Margin::same(10))
          .show(ui);
 
-      let deposit_amount = self.deposit_amount.parse::<f64>().unwrap_or(0.0);
-      self.position_args.deposit_amount = deposit_amount;
+      let deposit_amount =
+         NumericValue::parse_to_wei(&self.deposit_amount, pool.currency0().decimals());
+      self.sim_position_config.deposit_amount = deposit_amount.clone();
 
       ui.add_space(20.0);
 
@@ -795,6 +764,44 @@ impl SetPriceRangeUi {
       let price = pool.calculate_price(&currency0).unwrap_or(0.0);
       let price_a_usd = ctx.get_currency_price(&currency0);
       let price_b_usd = ctx.get_currency_price(&currency1);
+
+      let state = pool.state().v3_state();
+      if state.is_none() {
+         let text = RichText::new("Pool State Not Initialized").size(theme.text_sizes.very_large);
+         ui.label(text);
+         return;
+      }
+
+      let state = state.unwrap();
+
+      let lower_tick = get_tick_from_price(self.sim_position_config.lower_range);
+      let upper_tick = get_tick_from_price(self.sim_position_config.upper_range);
+
+      let sqrt_price_lower =
+         uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(lower_tick).unwrap_or_default();
+      let sqrt_price_upper =
+         uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(upper_tick).unwrap_or_default();
+
+      // Calculate the liquidity based on your desired amount of token0
+      let liquidity = calculate_liquidity_from_amount(
+         state.sqrt_price,
+         sqrt_price_lower,
+         sqrt_price_upper,
+         deposit_amount.wei2(),
+         true,
+      )
+      .unwrap_or_default();
+
+      let (amount0, amount1) = calculate_liquidity_amounts(
+         state.sqrt_price,
+         sqrt_price_lower,
+         sqrt_price_upper,
+         liquidity,
+      )
+      .unwrap_or_default();
+
+      let amount0_needed = NumericValue::format_wei(amount0, pool.currency0().decimals());
+      let amount1_needed = NumericValue::format_wei(amount1, pool.currency1().decimals());
 
       let text = format!(
          "1 {} = {:.4} {}",
@@ -812,7 +819,7 @@ impl SetPriceRangeUi {
       ui.vertical(|ui| {
          ui.set_max_width(ui.available_width() * 0.8);
 
-         // Currency A
+         // Currency 0
          frame.show(ui, |ui| {
             ui.horizontal(|ui| {
                ui.vertical(|ui| {
@@ -832,23 +839,23 @@ impl SetPriceRangeUi {
                   });
                });
 
-               // Currency A Amount & Value
+               // Currency 0 Amount & Value
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let value = NumericValue::value(self.deposit_amounts.amount0, price_a_usd.f64());
-                  let text =
-                     RichText::new(format!("(${:.2})", value.f64())).size(theme.text_sizes.normal);
+                  let value = NumericValue::value(amount0_needed.f64(), price_a_usd.f64());
+                  let text = RichText::new(format!("(${})", value.format_abbreviated()))
+                     .size(theme.text_sizes.normal);
                   ui.label(text);
 
                   ui.add_space(10.0);
 
-                  let text = RichText::new(format!("{:.2}", self.deposit_amounts.amount0))
+                  let text = RichText::new(format!("{}", amount0_needed.format_abbreviated()))
                      .size(theme.text_sizes.normal);
                   ui.label(text);
                });
             });
          });
 
-         // Currency B
+         // Currency 1
          frame.show(ui, |ui| {
             ui.horizontal(|ui| {
                ui.vertical(|ui| {
@@ -870,20 +877,23 @@ impl SetPriceRangeUi {
 
                // Currency B Amount & Value
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let value = NumericValue::value(self.deposit_amounts.amount1, price_b_usd.f64());
-                  let text =
-                     RichText::new(format!("(${:.2})", value.f64())).size(theme.text_sizes.normal);
+                  let value = NumericValue::value(amount1_needed.f64(), price_b_usd.f64());
+                  let text = RichText::new(format!("(${})", value.format_abbreviated()))
+                     .size(theme.text_sizes.normal);
                   ui.label(text);
 
                   ui.add_space(10.0);
 
-                  let text = RichText::new(format!("{:.2}", self.deposit_amounts.amount1))
+                  let text = RichText::new(format!("{}", amount1_needed.format_abbreviated()))
                      .size(theme.text_sizes.normal);
                   ui.label(text);
                });
             });
          });
       });
+
+      self.amount0_needed = amount0_needed;
+      self.amount1_needed = amount1_needed;
 
       ui.add_space(20.0);
 
@@ -901,33 +911,8 @@ impl SetPriceRangeUi {
 
       ui.add_space(20.0);
 
-      // Most active price assumption
-      frame.show(ui, |ui| {
-         self.price_assumption(theme, currency0, currency1, ui);
-      });
-
-      let price0_usd = ctx.get_currency_price(&currency0);
-      let price1_usd = ctx.get_currency_price(&currency1);
-
-      let deposit_amount = self.deposit_amount.parse::<f64>().unwrap_or(0.0);
-      let deposit_amounts = get_tokens_deposit_amount(
-         self.price_assumption,
-         self.min_price,
-         self.max_price,
-         price0_usd.f64(),
-         price1_usd.f64(),
-         deposit_amount,
-      );
-
-      let position_args = PositionArgs::new(
-         self.min_price,
-         self.max_price,
-         self.price_assumption,
-         deposit_amount,
-      );
-
-      self.position_args = position_args;
-      self.deposit_amounts = deposit_amounts;
+      self.sim_position_config.lower_range = self.min_price;
+      self.sim_position_config.upper_range = self.max_price;
    }
 
    fn min_price(&mut self, theme: &Theme, currency0: &Currency, currency1: &Currency, ui: &mut Ui) {
@@ -942,11 +927,11 @@ impl SetPriceRangeUi {
          ui.add(slider);
       });
 
-      // Currency 0 per Currency 1
+      // Currency 1 per Currency 0
       let text = format!(
          "{} per {}",
-         currency0.symbol(),
-         currency1.symbol()
+         currency1.symbol(),
+         currency0.symbol()
       );
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
    }
@@ -963,45 +948,17 @@ impl SetPriceRangeUi {
          ui.add(slider);
       });
 
-      // Currency 0 per Currency 1
+      // Currency 1 per Currency 0
       let text = format!(
          "{} per {}",
-         currency0.symbol(),
-         currency1.symbol()
-      );
-      ui.label(RichText::new(text).size(theme.text_sizes.normal));
-   }
-
-   /// Most active price assumption
-   fn price_assumption(
-      &mut self,
-      theme: &Theme,
-      currency0: &Currency,
-      currency1: &Currency,
-      ui: &mut Ui,
-   ) {
-      ui.set_max_width(ui.available_width() * 0.8);
-      let text = RichText::new("Price Assumption").size(theme.text_sizes.normal);
-      ui.label(text);
-
-      let range = self.price_assumption_slider_min_value..=self.price_assumption_slider_max_value;
-      let slider = Slider::new(&mut self.price_assumption, range).min_decimals(10);
-      ui.horizontal(|ui| {
-         ui.add_space(ui.available_width() * 0.2);
-         ui.add(slider);
-      });
-
-      // Currency 0 per Currency 1
-      let text = format!(
-         "{} per {}",
-         currency0.symbol(),
-         currency1.symbol()
+         currency1.symbol(),
+         currency0.symbol()
       );
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
    }
 }
 
-impl OpenPositionUi {
+impl CreatePositionUi {
    fn sync_pools(&mut self, ctx: ZeusCtx, changed_currency: bool) {
       if self.syncing_pools {
          return;
@@ -1043,8 +1000,8 @@ impl OpenPositionUi {
          .await;
 
          SHARED_GUI.write(|gui| {
-            gui.uniswap.open_position_ui.syncing_pools = false;
-            gui.uniswap.open_position_ui.pool_data_syncing = true;
+            gui.uniswap.create_position_ui.syncing_pools = false;
+            gui.uniswap.create_position_ui.pool_data_syncing = true;
          });
 
          let pools = manager.get_pools_from_pair(&currency_in, &currency_out);
@@ -1055,14 +1012,14 @@ impl OpenPositionUi {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.open_position_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.uniswap.open_position_ui.pool_data_syncing = false;
+                  gui.uniswap.create_position_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.create_position_ui.pool_data_syncing = false;
                });
             }
             Err(_e) => {
                // tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.open_position_ui.pool_data_syncing = false;
+                  gui.uniswap.create_position_ui.pool_data_syncing = false;
                });
             }
          }
@@ -1121,14 +1078,14 @@ impl OpenPositionUi {
          {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.open_position_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.uniswap.open_position_ui.pool_data_syncing = false;
+                  gui.uniswap.create_position_ui.last_pool_state_updated = Some(Instant::now());
+                  gui.uniswap.create_position_ui.pool_data_syncing = false;
                });
             }
             Err(e) => {
                tracing::error!("Error updating pool state: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.uniswap.open_position_ui.pool_data_syncing = false;
+                  gui.uniswap.create_position_ui.pool_data_syncing = false;
                });
             }
          }
