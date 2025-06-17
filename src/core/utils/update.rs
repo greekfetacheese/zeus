@@ -77,7 +77,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
       Err(e) => tracing::error!("Error updating token balance: {:?}", e),
    }
 
-
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       while !ctx_clone.logged_in() {
@@ -137,7 +136,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
-   /* 
+   /*
    // Sync v4 pools and base pools
    ctx.write(|ctx| {
       ctx.data_syncing = true;
@@ -158,7 +157,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    for task in tasks {
       task.await.unwrap();
    }
-   
+
    ctx.write(|ctx| {
       ctx.data_syncing = false;
    });
@@ -259,22 +258,25 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
          };
 
          let pool_manager = ctx.pool_manager();
+
+         /* 
          let tokens = ctx.get_all_erc20_tokens(chain);
          let mut currencies = Vec::new();
          for token in tokens {
+            // skip this step for now and just update all pools
+
             if token.is_weth() || token.is_wbnb() {
                continue;
             }
+
             currencies.push(Currency::from(token));
          }
+         */
 
-         match pool_manager
-            .update_for_currencies(client, chain, currencies)
-            .await
-         {
-            Ok(_) => tracing::info!("Updated price manager for chain: {}", chain),
+         match pool_manager.update(client, chain).await {
+            Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
             Err(e) => tracing::error!(
-               "Error updating price manager for chain {}: {:?}",
+               "Error updating pool manager for chain {}: {:?}",
                chain,
                e
             ),
@@ -294,6 +296,10 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
 
 /// Update the eth balance for all wallets across all chains
 pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+   while !ctx.logged_in() {
+      tokio::time::sleep(Duration::from_millis(100)).await;
+   }
+
    let wallets = ctx.wallets_info();
 
    let mut tasks = Vec::new();
@@ -379,6 +385,10 @@ pub async fn update_tokens_balance_for_chain(
 
 /// Update the token balance for all wallets across all chains
 pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+      while !ctx.logged_in() {
+      tokio::time::sleep(Duration::from_millis(100)).await;
+   }
+
    let wallets = ctx.wallets_info();
 
    let mut tasks = Vec::new();

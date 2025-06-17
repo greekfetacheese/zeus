@@ -153,6 +153,24 @@ impl Default for AnyUniswapPool {
    }
 }
 
+impl From<UniswapV2Pool> for AnyUniswapPool {
+   fn from(pool: UniswapV2Pool) -> Self {
+      Self::V2(pool)
+   }
+}
+
+impl From<UniswapV3Pool> for AnyUniswapPool {
+   fn from(pool: UniswapV3Pool) -> Self {
+      Self::V3(pool)
+   }
+}
+
+impl From<UniswapV4Pool> for AnyUniswapPool {
+   fn from(pool: UniswapV4Pool) -> Self {
+      Self::V4(pool)
+   }
+}
+
 impl AnyUniswapPool {
    pub fn from_pool(pool: impl UniswapPool) -> Self {
       if pool.dex_kind().is_v2() {

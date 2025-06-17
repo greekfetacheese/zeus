@@ -12,7 +12,7 @@ use crate::core::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zeus_eth::{alloy_primitives::{Address, U256}, amm::FeeAmount, currency::Currency, utils::NumericValue};
+use zeus_eth::{alloy_primitives::{Address, U256}, amm::{DexKind, FeeAmount}, currency::Currency, utils::NumericValue};
 
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
 
@@ -91,8 +91,12 @@ pub type V3Positions = HashMap<(u64, Address), Vec<V3Position>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct V3Position {
+   pub chain_id: u64,
+   pub owner: Address,
+   pub dex: DexKind,
    /// The block which this position was created
    pub block: u64,
+   pub timestamp: u64,
    /// Id of the position
    pub id: U256,
    /// Nonce for permits
@@ -103,9 +107,10 @@ pub struct V3Position {
    pub token1: Currency,
    /// Fee tier of the pool
    pub fee: FeeAmount,
+   pub pool_address: Address,
    pub tick_lower: i32,
    pub tick_upper: i32,
-   pub liquidity: U256,
+   pub liquidity: u128,
    pub fee_growth_inside0_last_x128: U256,
    pub fee_growth_inside1_last_x128: U256,
    /// Amount0 of token0
@@ -115,7 +120,9 @@ pub struct V3Position {
    /// Unclaimed fees
    pub tokens_owed0: NumericValue,
    /// Unclaimed fees
-   pub tokens_owed1: NumericValue, 
+   pub tokens_owed1: NumericValue,
+
+   pub apr: f64, 
 }
 
 impl PartialEq for V3Position {
@@ -154,17 +161,14 @@ impl V3PositionsDB {
    }
 
    pub fn insert(&mut self, chain: u64, owner: Address, position: V3Position) {
-      self
-         .positions
-         .entry((chain, owner))
-         .or_default()
-         .push(position);
+      self.remove(chain, owner, &position);
+      self.positions.entry((chain, owner)).or_default().push(position);
    }
 
-   pub fn remove(&mut self, chain: u64, owner: Address, position: V3Position) {
+   pub fn remove(&mut self, chain: u64, owner: Address, position: &V3Position) {
       self
          .positions
          .get_mut(&(chain, owner))
-         .map(|p| p.retain(|p| p != &position));
+         .map(|p| p.retain(|p| p != position));
    }
 }

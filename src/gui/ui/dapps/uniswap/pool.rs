@@ -70,6 +70,8 @@ impl PoolsUi {
                   // Fee
                   ui.label(RichText::new("Fee").size(theme.text_sizes.large));
 
+                  ui.label(RichText::new("Has State").size(theme.text_sizes.large));
+
                   // TVL
                   ui.label(RichText::new("TVL").size(theme.text_sizes.large));
 
@@ -140,6 +142,14 @@ impl PoolsUi {
 
                         let fee = pool.fee().fee_percent();
                         let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+                        ui.label(text);
+                     });
+
+                        ui.scope(|ui| {
+                        ui.set_width(column_width);
+
+                        let has_state = pool.state().is_some();
+                        let text = RichText::new(if has_state { "Yes" } else { "No" }).size(theme.text_sizes.normal);
                         ui.label(text);
                      });
 

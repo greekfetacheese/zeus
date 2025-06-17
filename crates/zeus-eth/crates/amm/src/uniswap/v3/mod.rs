@@ -1,4 +1,3 @@
-pub mod fee_math;
 pub mod pool;
 pub mod position;
 
@@ -11,6 +10,43 @@ use std::cmp::Ordering;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math, tick_math::*};
 
 use anyhow::anyhow;
+
+
+/// Calculate the tick from a given price
+pub fn get_tick_from_price(price: f64) -> i32 {
+   if price == 0.0 {
+      return 0;
+   }
+   
+   let sqrt_price = price.sqrt();
+
+   let tick = (sqrt_price.ln() / (1.0001_f64).sqrt().ln()).round() as i32;
+
+   tick
+}
+
+
+/// Calculates the price from a given tick, adjusting for token decimals.
+///
+/// The price returned is the price of token0 in terms of token1 (i.e., how much token1 you get for 1 token0).
+///
+/// # Arguments
+///
+/// * `tick` - The tick to convert to a price.
+/// * `token0_decimals` - The number of decimals for the pool's token0.
+/// * `token1_decimals` - The number of decimals for the pool's token1.
+///
+/// # Returns
+///
+/// * `f64` - The calculated price.
+pub fn get_price_from_tick(tick: i32, token0_decimals: u8, token1_decimals: u8) -> f64 {
+    let base_price = 1.0001_f64.powi(tick);
+    let decimal_factor = 10_f64.powi(token0_decimals as i32 - token1_decimals as i32);
+    
+    base_price * decimal_factor
+}
+
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Position {

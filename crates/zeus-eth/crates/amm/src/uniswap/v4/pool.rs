@@ -497,8 +497,8 @@ impl UniswapPool for UniswapV4Pool {
          (lower_price, upper_price)
       };
 
-      let lower_tick = fee_math::get_tick_from_price(lower_price);
-      let upper_tick = fee_math::get_tick_from_price(upper_price);
+      let lower_tick = get_tick_from_price(lower_price);
+      let upper_tick = get_tick_from_price(upper_price);
 
       let sqrt_price_ax96 = tick_math::get_sqrt_ratio_at_tick(lower_tick)?;
       let sqrt_price_bx96 = tick_math::get_sqrt_ratio_at_tick(upper_tick)?;

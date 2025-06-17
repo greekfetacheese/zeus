@@ -12,18 +12,16 @@ use crate::core::{
    ZeusCtx,
    utils::{RT, eth, update},
 };
-use crate::gui::ui::dapps::uniswap::ProtocolVersion;
+use crate::gui::ui::dapps::uniswap::{currencies_amount_and_value, ProtocolVersion};
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use egui_theme::{Theme, utils::*};
-use egui_widgets::LabelWithImage;
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::Address,
    amm::{
       AnyUniswapPool, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
-         calculate_liquidity_amounts, calculate_liquidity_from_amount,
-         fee_math::*,
+         calculate_liquidity_amounts, calculate_liquidity_from_amount, get_tick_from_price,
          position::{PositionResult, SimPositionConfig, simulate_position},
       },
       uniswap_v3_math,
@@ -152,10 +150,9 @@ impl CreatePositionUi {
          return;
       }
 
-      ScrollArea::vertical().show(ui, |ui| {
-         ui.vertical_centered(|ui| {
-            ui.set_width(self.size.0);
-
+      ui.vertical_centered(|ui| {
+         ui.set_width(self.size.0);
+         ScrollArea::vertical().show(ui, |ui| {
             self.pair_selection(
                ctx.clone(),
                theme,
@@ -576,6 +573,7 @@ impl CreatePositionUi {
             .show(ui, |ui| {
                for pool in pools {
                   let selected = self.selected_pool.as_ref() == Some(&pool);
+                  let current_pool = self.selected_pool.as_ref();
 
                   let fee = pool.fee().fee_percent();
                   let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
@@ -585,14 +583,24 @@ impl CreatePositionUi {
                      button = button.fill(Color32::TRANSPARENT);
                   }
 
+                  let same_pair = if current_pool.is_some() {
+                     let current_pool = current_pool.unwrap();
+                     pool.have(current_pool.currency0()) && pool.have(current_pool.currency1())
+                  } else {
+                     false
+                  };
+
                   if ui.add(button).clicked() {
                      self.selected_pool = Some(pool.clone());
                      self.currency0 = pool.currency0().clone();
                      self.currency1 = pool.currency1().clone();
 
-                     self
-                        .set_price_range_ui
-                        .set_values(Some(pool.clone()), self.protocol_version.clone());
+                     // Only reset the price range if we select a different pair
+                     if !same_pair {
+                        self
+                           .set_price_range_ui
+                           .set_values(Some(pool.clone()), self.protocol_version.clone());
+                     }
                   }
                }
 
@@ -762,13 +770,17 @@ impl SetPriceRangeUi {
       // Price is expressed Token0 in terms of Token1
       // Aka how much Token1 per Token0
       let price = pool.calculate_price(&currency0).unwrap_or(0.0);
-      let price_a_usd = ctx.get_currency_price(&currency0);
-      let price_b_usd = ctx.get_currency_price(&currency1);
+      let price0_usd = ctx.get_currency_price(&currency0);
+      let price1_usd = ctx.get_currency_price(&currency1);
 
       let state = pool.state().v3_state();
       if state.is_none() {
          let text = RichText::new("Pool State Not Initialized").size(theme.text_sizes.very_large);
          ui.label(text);
+
+         let manager = ctx.pool_manager();
+         let pool = manager.get_v3_pool_from_address(chain.id(), pool.address());
+         self.selected_pool = pool;
          return;
       }
 
@@ -782,7 +794,7 @@ impl SetPriceRangeUi {
       let sqrt_price_upper =
          uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(upper_tick).unwrap_or_default();
 
-      // Calculate the liquidity based on your desired amount of token0
+      // Calculate the liquidity based on the desired amount of token0
       let liquidity = calculate_liquidity_from_amount(
          state.sqrt_price,
          sqrt_price_lower,
@@ -813,89 +825,30 @@ impl SetPriceRangeUi {
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
       ui.add_space(20.0);
 
-      let frame = theme.frame1;
-
-      // Currencies Amount and value
-      ui.vertical(|ui| {
-         ui.set_max_width(ui.available_width() * 0.8);
-
-         // Currency 0
-         frame.show(ui, |ui| {
-            ui.horizontal(|ui| {
-               ui.vertical(|ui| {
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = RichText::new(currency0.symbol()).size(theme.text_sizes.normal);
-                     let icon = icons.currency_icon_x24(&currency0);
-                     let label = LabelWithImage::new(text, Some(icon)).image_on_left();
-                     ui.add(label);
-                  });
-
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency0);
-                     let b_text = format!("(Balance: {})", balance.format_abbreviated());
-                     let text = RichText::new(b_text).size(theme.text_sizes.small);
-                     let label = LabelWithImage::new(text, None);
-                     ui.add(label);
-                  });
-               });
-
-               // Currency 0 Amount & Value
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let value = NumericValue::value(amount0_needed.f64(), price_a_usd.f64());
-                  let text = RichText::new(format!("(${})", value.format_abbreviated()))
-                     .size(theme.text_sizes.normal);
-                  ui.label(text);
-
-                  ui.add_space(10.0);
-
-                  let text = RichText::new(format!("{}", amount0_needed.format_abbreviated()))
-                     .size(theme.text_sizes.normal);
-                  ui.label(text);
-               });
-            });
-         });
-
-         // Currency 1
-         frame.show(ui, |ui| {
-            ui.horizontal(|ui| {
-               ui.vertical(|ui| {
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = RichText::new(currency1.symbol()).size(theme.text_sizes.normal);
-                     let icon = icons.currency_icon_x24(&currency1);
-                     let label = LabelWithImage::new(text, Some(icon)).image_on_left();
-                     ui.add(label);
-                  });
-
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let balance = ctx.get_currency_balance(chain.id(), owner, &currency1);
-                     let b_text = format!("(Balance: {})", balance.format_abbreviated());
-                     let text = RichText::new(b_text).size(theme.text_sizes.small);
-                     let label = LabelWithImage::new(text, None);
-                     ui.add(label);
-                  });
-               });
-
-               // Currency B Amount & Value
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let value = NumericValue::value(amount1_needed.f64(), price_b_usd.f64());
-                  let text = RichText::new(format!("(${})", value.format_abbreviated()))
-                     .size(theme.text_sizes.normal);
-                  ui.label(text);
-
-                  ui.add_space(10.0);
-
-                  let text = RichText::new(format!("{}", amount1_needed.format_abbreviated()))
-                     .size(theme.text_sizes.normal);
-                  ui.label(text);
-               });
-            });
-         });
+      ui.scope(|ui| {
+         ui.set_width(ui.available_width() * 0.8);
+         currencies_amount_and_value(
+            ctx.clone(),
+            chain.id(),
+            owner,
+            currency0,
+            currency1,
+            &amount0_needed,
+            &amount1_needed,
+            &price0_usd,
+            &price1_usd,
+            theme,
+            icons.clone(),
+            ui,
+         );
       });
 
       self.amount0_needed = amount0_needed;
       self.amount1_needed = amount1_needed;
 
       ui.add_space(20.0);
+
+      let frame = theme.frame1;
 
       // Price Range
 

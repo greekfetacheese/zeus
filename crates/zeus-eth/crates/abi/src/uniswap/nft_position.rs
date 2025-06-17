@@ -123,6 +123,9 @@ sol! {
 
         function ownerOf(uint256 tokenId) external view returns (address);
 
+   // Transfer Event from the ERC721
+   event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+
     event IncreaseLiquidity(
     uint256 tokenId,
     uint128 liquidity,
@@ -184,15 +187,7 @@ pub struct PositionsReturn {
    pub tokens_owed1: u128,
 }
 
-pub type MintReturn = IncreaseLiquidityReturn;
-pub type DecreaseLiquidityReturn = IncreaseLiquidityReturn;
-#[derive(Debug, Clone)]
-pub struct IncreaseLiquidityReturn {
-   pub token_id: U256,
-   pub liquidity: u128,
-   pub amount0: U256,
-   pub amount1: U256,
-}
+
 
 #[derive(Debug, Clone)]
 pub struct PositionParams {
@@ -205,7 +200,7 @@ pub struct PositionParams {
    pub fee: u32,
    pub tick_lower: i32,
    pub tick_upper: i32,
-   pub liquidity: U256,
+   pub liquidity: u128,
    pub fee_growth_inside0_last_x128: U256,
    pub fee_growth_inside1_last_x128: U256,
    /// Unclaimed fees
@@ -239,7 +234,6 @@ where
    let fee: u32 = positions.fee.to_string().parse()?;
    let tick_lower: i32 = positions.tickLower.to_string().parse()?;
    let tick_upper: i32 = positions.tickUpper.to_string().parse()?;
-   let liquidity = U256::from(positions.liquidity);
    let tokens_owed0 = U256::from(positions.tokensOwed0);
    let tokens_owed1 = U256::from(positions.tokensOwed1);
 
@@ -251,7 +245,7 @@ where
       operator: positions.operator,
       token0: positions.token0,
       token1: positions.token1,
-      liquidity,
+      liquidity: positions.liquidity,
       fee_growth_inside0_last_x128: positions.feeGrowthInside0LastX128,
       fee_growth_inside1_last_x128: positions.feeGrowthInside1LastX128,
       tokens_owed0,
@@ -392,15 +386,10 @@ pub fn decode_collect(data: &Bytes) -> Result<(U256, U256), anyhow::Error> {
    Ok((abi.amount0, abi.amount1))
 }
 
-/// Decode the output of the Mint function of the NFT Position Manager
-pub fn decode_mint(bytes: &Bytes) -> Result<MintReturn, anyhow::Error> {
+
+pub fn decode_mint_call(bytes: &Bytes) -> Result<INonfungiblePositionManager::mintReturn, anyhow::Error> {
    let res = INonfungiblePositionManager::mintCall::abi_decode_returns(&bytes)?;
-   Ok(MintReturn {
-      token_id: res.tokenId,
-      liquidity: res.liquidity,
-      amount0: res.amount0,
-      amount1: res.amount1,
-   })
+   Ok(res)
 }
 
 pub fn decode_collect_log(log: &LogData) -> Result<CollectLog, anyhow::Error> {
@@ -415,22 +404,23 @@ pub fn decode_collect_log(log: &LogData) -> Result<CollectLog, anyhow::Error> {
    })
 }
 
-pub fn decode_increase_liquidity_log(log: &LogData) -> Result<IncreaseLiquidityReturn, anyhow::Error> {
-   let res = INonfungiblePositionManager::IncreaseLiquidity::decode_raw_log(log.topics(), &log.data)?;
-   Ok(IncreaseLiquidityReturn {
-      token_id: res.tokenId,
-      liquidity: res.liquidity,
-      amount0: res.amount0,
-      amount1: res.amount1,
-   })
+/// ERC721 Transfer event
+pub fn decode_transfer_log(log: &LogData) -> Result<INonfungiblePositionManager::Transfer, anyhow::Error> {
+   let res = INonfungiblePositionManager::Transfer::decode_raw_log(log.topics(), &log.data)?;
+   Ok(res)
 }
 
-pub fn decode_decrease_liquidity_log(log: &LogData) -> Result<DecreaseLiquidityReturn, anyhow::Error> {
+pub fn decode_increase_liquidity_call(data: &Bytes) -> Result<(u128, U256, U256), anyhow::Error> {
+   let abi = INonfungiblePositionManager::increaseLiquidityCall::abi_decode_returns(data)?;
+   Ok((abi.liquidity, abi.amount0, abi.amount1))
+}
+
+pub fn decode_increase_liquidity_log(log: &LogData) -> Result<INonfungiblePositionManager::IncreaseLiquidity, anyhow::Error> {
+   let res = INonfungiblePositionManager::IncreaseLiquidity::decode_raw_log(log.topics(), &log.data)?;
+   Ok(res)
+}
+
+pub fn decode_decrease_liquidity_log(log: &LogData) -> Result<INonfungiblePositionManager::DecreaseLiquidity, anyhow::Error> {
    let res = INonfungiblePositionManager::DecreaseLiquidity::decode_raw_log(log.topics(), &log.data)?;
-   Ok(DecreaseLiquidityReturn {
-      token_id: res.tokenId,
-      liquidity: res.liquidity,
-      amount0: res.amount0,
-      amount1: res.amount1,
-   })
+   Ok(res)
 }

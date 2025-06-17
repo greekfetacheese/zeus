@@ -5,7 +5,7 @@ use super::Evm2;
 use anyhow::anyhow;
 use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
 
-use abi::uniswap::nft_position::{ encode_decrease_liquidity, INonfungiblePositionManager, MintReturn};
+use abi::uniswap::nft_position::{ encode_decrease_liquidity, INonfungiblePositionManager};
 
 /// Simulate a swap using [abi::misc::SwapRouter]
 ///
@@ -142,7 +142,7 @@ pub fn mint_position<DB>(
    caller: Address,
    contract: Address,
    commit: bool,
-) -> Result<(ExecutionResult, MintReturn), anyhow::Error>
+) -> Result<(ExecutionResult, INonfungiblePositionManager::mintReturn), anyhow::Error>
 where
    DB: Database + DatabaseCommit,
 {
@@ -169,8 +169,53 @@ where
       return Err(anyhow!("Failed to mint position: {}", err));
    }
 
-   let mint = abi::uniswap::nft_position::decode_mint(&output)?;
+   let mint = abi::uniswap::nft_position::decode_mint_call(&output)?;
    Ok((res, mint))
+}
+
+
+/// Simulate the increase liquidity function in the [INonfungiblePositionManager] contract
+/// 
+/// ## Returns
+/// 
+/// - The execution result
+/// - The liquidity that was minted
+/// - The amount0 that was minted
+/// - The amount1 that was minted
+pub fn increase_liquidity<DB>(
+   evm: &mut Evm2<DB>,
+   params: INonfungiblePositionManager::IncreaseLiquidityParams,
+   caller: Address,
+   contract: Address,
+   commit: bool,
+) -> Result<(ExecutionResult, u128, U256, U256), anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   let data = abi::uniswap::nft_position::encode_increase_liquidity(params);
+   evm.tx.caller = caller;
+   evm.tx.data = data;
+   evm.tx.value = U256::ZERO;
+   evm.tx.kind = TxKind::Call(contract);
+
+   let res = if commit {
+      evm.transact_commit(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+   } else {
+      evm.transact(evm.tx.clone())
+         .map_err(|e| anyhow!("{:?}", e))?
+         .result
+   };
+
+   let output = res.output().ok_or(anyhow!("Output not found"))?;
+
+   if !res.is_success() {
+      let err = revert_msg(&output);
+      return Err(anyhow!("Call Reverted: {}", err));
+   }
+
+   let (liquidity, amount0, amount1) = abi::uniswap::nft_position::decode_increase_liquidity_call(&output)?;
+   Ok((res, liquidity, amount0, amount1))
 }
 
 

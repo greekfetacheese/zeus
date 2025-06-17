@@ -14,8 +14,10 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+use serde::{Deserialize, Serialize};
+
 /// Enum to describe an action that happened or is about to happen on-chain
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OnChainAction {
    /// Cross Swap / Bridge
    Bridge(BridgeParams),
@@ -39,11 +41,16 @@ pub enum OnChainAction {
 }
 
 impl OnChainAction {
-
    pub fn dummy_token_approve_batch() -> Self {
       let token = vec![ERC20Token::weth(), ERC20Token::dai()];
-      let amount = vec![NumericValue::parse_to_wei("1000000000", 18), NumericValue::parse_to_wei("1000000000", 18)];
-      let amount_usd = vec![Some(NumericValue::value(amount[0].f64(), 1600.0)), Some(NumericValue::value(amount[1].f64(), 1600.0))];
+      let amount = vec![
+         NumericValue::parse_to_wei("1000000000", 18),
+         NumericValue::parse_to_wei("1000000000", 18),
+      ];
+      let amount_usd = vec![
+         Some(NumericValue::value(amount[0].f64(), 1600.0)),
+         Some(NumericValue::value(amount[1].f64(), 1600.0)),
+      ];
       let owner = Address::ZERO;
       let spender = Address::ZERO;
 
@@ -72,14 +79,15 @@ impl OnChainAction {
 
       let params = LiquidityParams {
          add_liquidity: true,
+         collect_fees: false,
          currency0,
          currency1,
          amount0,
          amount1,
-         amount0_usd:Some(amount0_usd),
+         amount0_usd: Some(amount0_usd),
          amount1_usd: Some(amount1_usd),
-         min_amount0,
-         min_amount1,
+         min_amount0: Some(min_amount0),
+         min_amount1: Some(min_amount1),
          min_amount0_usd: Some(min_amount0_usd),
          min_amount1_usd: Some(min_amount1_usd),
          sender: Address::ZERO,
@@ -259,8 +267,19 @@ impl OnChainAction {
          return Self::WrapETH(params);
       }
 
-      if let Ok(params) = UnwrapWETHParams::new(ctx, chain, from, call_data, value, logs) {
+      if let Ok(params) = UnwrapWETHParams::new(
+         ctx.clone(),
+         chain,
+         from,
+         call_data,
+         value,
+         logs.clone(),
+      ) {
          return Self::UnwrapWETH(params);
+      }
+
+      if let Ok(params) = LiquidityParams::new_from_v3(ctx, chain, from, logs).await {
+         return Self::Liquidity(params);
       }
 
       Self::Other
@@ -379,7 +398,7 @@ impl OnChainAction {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeParams {
    pub dapp: Dapp,
    pub origin_chain: u64,
@@ -524,7 +543,7 @@ impl BridgeParams {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 /// USD values are the time of the tx
 pub struct SwapParams {
    pub dapp: Dapp,
@@ -810,7 +829,7 @@ impl SwapParams {
    }
 }
 
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransferParams {
    pub currency: Currency,
    pub amount: NumericValue,
@@ -880,7 +899,7 @@ impl TransferParams {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenApproveParams {
    pub token: Vec<ERC20Token>,
    pub amount: Vec<NumericValue>,
@@ -890,7 +909,6 @@ pub struct TokenApproveParams {
 }
 
 impl TokenApproveParams {
-
    pub async fn new(
       ctx: ZeusCtx,
       chain: u64,
@@ -949,7 +967,7 @@ impl TokenApproveParams {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrapETHParams {
    pub from: Address,
    pub eth_amount: NumericValue,
@@ -1051,30 +1069,113 @@ impl UnwrapWETHParams {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Struct to represent a liquidity operation
+///
+/// Used for Mint, Increase, Decrease and Collect Fees ops
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquidityParams {
    /// True if the liquidity is being added
    pub add_liquidity: bool,
+   /// True if we are collecting fees
+   #[serde(default)]
+   pub collect_fees: bool,
    pub currency0: Currency,
    pub currency1: Currency,
    pub amount0: NumericValue,
    pub amount0_usd: Option<NumericValue>,
    pub amount1: NumericValue,
    pub amount1_usd: Option<NumericValue>,
-   pub min_amount0: NumericValue,
+   pub min_amount0: Option<NumericValue>,
    pub min_amount0_usd: Option<NumericValue>,
-   pub min_amount1: NumericValue,
+   pub min_amount1: Option<NumericValue>,
    pub min_amount1_usd: Option<NumericValue>,
    pub sender: Address,
    pub recipient: Option<Address>,
 }
 
+// ! WIP
 impl LiquidityParams {
-   pub fn name(&self) -> String {
-      if self.add_liquidity {
-         "Add Liquidity".to_string()
-      } else {
-         "Remove Liquidity".to_string()
+   pub async fn new_from_v3(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      logs: Vec<Log>,
+   ) -> Result<Self, anyhow::Error> {
+      let client = ctx.get_client(chain).await?;
+      let mut mint = None;
+      let mut pool_address = None;
+
+      for log in &logs {
+         if let Ok(decoded_log) = uniswap::v3::pool::decode_mint_log(log) {
+            mint = Some(decoded_log);
+            pool_address = Some(log.address);
+            break;
+         }
       }
+
+      if mint.is_none() {
+         return Err(anyhow::anyhow!("Mint log not found"));
+      }
+
+      let mint = mint.unwrap();
+      let pool_address = pool_address.unwrap();
+      let cached_pool = ctx.read(|ctx| {
+         ctx.pool_manager
+            .get_v3_pool_from_address(chain, pool_address)
+      });
+
+      let pool = if let Some(pool) = cached_pool {
+         pool
+      } else {
+         let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
+         let pool = AnyUniswapPool::from_pool(pool);
+         ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
+         ctx.write(|ctx| {
+            ctx.currency_db
+               .insert_currency(chain, pool.currency0().clone())
+         });
+         ctx.write(|ctx| {
+            ctx.currency_db
+               .insert_currency(chain, pool.currency1().clone())
+         });
+         pool
+      };
+
+      let amount0_minted = NumericValue::format_wei(mint.amount0, pool.currency0().decimals());
+      let amount1_minted = NumericValue::format_wei(mint.amount1, pool.currency1().decimals());
+
+      let amount0_usd = ctx.get_currency_value2(amount0_minted.f64(), &pool.currency0());
+      let amount1_usd = ctx.get_currency_value2(amount1_minted.f64(), &pool.currency1());
+
+      Ok(Self {
+         add_liquidity: true,
+         collect_fees: false,
+         currency0: pool.currency0().clone(),
+         currency1: pool.currency1().clone(),
+         amount0: amount0_minted,
+         amount1: amount1_minted,
+         amount0_usd: Some(amount0_usd),
+         amount1_usd: Some(amount1_usd),
+         min_amount0: None,
+         min_amount1: None,
+         min_amount0_usd: None,
+         min_amount1_usd: None,
+         sender: from,
+         recipient: None,
+      })
+   }
+
+   pub fn name(&self) -> String {
+      let mut name = "Add Liquidity".to_string();
+
+      if !self.add_liquidity {
+         name = "Remove Liquidity".to_string();
+      }
+
+      if self.collect_fees {
+         name = "Collect Fees".to_string();
+      }
+
+      name
    }
 }

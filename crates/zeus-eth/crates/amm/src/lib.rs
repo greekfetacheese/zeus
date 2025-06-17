@@ -256,6 +256,18 @@ impl DexKind {
    }
 }
 
+/// V3 NFT Position Manager contract creation block
+pub fn nft_position_manager_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
+   let chain = ChainId::new(chain)?;
+   match chain {
+      ChainId::Ethereum(_) => Ok(12369651),
+      ChainId::Optimism(_) => Ok(0), // Genesis
+      ChainId::BinanceSmartChain(_) => Ok(26324045),
+      ChainId::Base(_) => Ok(1371714),
+      ChainId::Arbitrum(_) => Ok(173),
+   }
+}
+
 fn uniswap_v2_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {

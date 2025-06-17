@@ -646,8 +646,8 @@ impl TxConfirmWindow {
       let amount1 = &params.amount1;
       let amount0_usd = &params.amount0_usd.unwrap_or_default();
       let amount1_usd = &params.amount1_usd.unwrap_or_default();
-      let min_amount0 = &params.min_amount0;
-      let min_amount1 = &params.min_amount1;
+      let min_amount0 = params.min_amount0.clone();
+      let min_amount1 = params.min_amount1.clone();
       let min_amount0_usd = &params.min_amount0_usd.unwrap_or_default();
       let min_amount1_usd = &params.min_amount1_usd.unwrap_or_default();
 
@@ -702,51 +702,59 @@ impl TxConfirmWindow {
          "Minimum Liquidity to be removed"
       };
 
-      ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      if min_amount0.is_some() && min_amount1.is_some() {
+         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      }
 
       // Minimum Amount A and Amount & value
-      ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency0);
-         let text = format!(
-            "{} {}",
-            min_amount0.format_abbreviated(),
-            currency0.symbol()
-         );
-         let text = RichText::new(text).size(theme.text_sizes.normal);
+      if min_amount0.is_some() {
+         let min_amount0 = min_amount0.unwrap();
+         ui.horizontal(|ui| {
+            let icon = icons.currency_icon(&currency0);
+            let text = format!(
+               "{} {}",
+               min_amount0.format_abbreviated(),
+               currency0.symbol()
+            );
+            let text = RichText::new(text).size(theme.text_sizes.normal);
 
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+            let label = Label::new(text, Some(icon)).image_on_left();
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.add(label);
+            });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = min_amount0_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+            // Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let amount = min_amount0_usd.format_abbreviated();
+               ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+            });
          });
-      });
+      }
 
       // Minimum Amount B and Amount & value
-      ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency1);
-         let text = format!(
-            "{} {}",
-            min_amount1.format_abbreviated(),
-            currency1.symbol()
-         );
+      if min_amount1.is_some() {
+         let min_amount1 = min_amount1.unwrap();
+         ui.horizontal(|ui| {
+            let icon = icons.currency_icon(&currency1);
+            let text = format!(
+               "{} {}",
+               min_amount1.format_abbreviated(),
+               currency1.symbol()
+            );
 
-         let text = RichText::new(text).size(theme.text_sizes.normal);
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+            let text = RichText::new(text).size(theme.text_sizes.normal);
+            let label = Label::new(text, Some(icon)).image_on_left();
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.add(label);
+            });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = min_amount1_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+            // Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let amount = min_amount1_usd.format_abbreviated();
+               ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.small));
+            });
          });
-      });
+      }
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {

@@ -20,18 +20,17 @@ pub struct ZeusApp {
 
 impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
-      let ctx = cc.egui_ctx.clone();
-      let ctx_clone = ctx.clone();
+      let egui_ctx = cc.egui_ctx.clone();
 
       let mut theme = Theme::new(ThemeKind::Mocha);
       theme.style.animation_time = 0.3;
-      ctx.set_style(theme.style.clone());
+      egui_ctx.set_style(theme.style.clone());
 
       // Load the icons
       let icons = Icons::new(&cc.egui_ctx).unwrap();
       let icons = Arc::new(icons);
 
-      let gui = GUI::new(icons.clone(), theme.clone(), ctx_clone);
+      let gui = GUI::new(icons.clone(), theme.clone(), egui_ctx);
 
       // Update the shared GUI with the current GUI state
 
@@ -64,7 +63,7 @@ impl ZeusApp {
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            let _ = run_server(ctx_clone).await;
+           // let _ = run_server(ctx_clone).await;
          });
          self.updated_started = true;
       }

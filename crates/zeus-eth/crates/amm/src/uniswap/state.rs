@@ -62,6 +62,14 @@ impl State {
       Self::None
    }
 
+   pub fn is_none(&self) -> bool {
+      matches!(self, Self::None)
+   }
+
+   pub fn is_some(&self) -> bool {
+      !self.is_none()
+   }
+
    pub fn v2(reserves: PoolReserves) -> Self {
       Self::V2(reserves)
    }
@@ -72,10 +80,6 @@ impl State {
 
    pub fn v4(state: V3PoolState) -> Self {
       Self::V4(state)
-   }
-
-   pub fn is_none(&self) -> bool {
-      matches!(self, Self::None)
    }
 
    pub fn is_v2(&self) -> bool {
@@ -522,6 +526,7 @@ where
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
          for data in &v3_reserves {
             if data.pool == pool.address() {
+               tracing::debug!(target: "zeus_eth::amm::uniswap::state", "Updating State for pool: {}", data.pool);
                let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
                pool.set_state(State::v3(state));
                pool.v3_mut(|pool| { 

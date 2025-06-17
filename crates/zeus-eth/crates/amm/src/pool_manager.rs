@@ -139,6 +139,20 @@ impl PoolManagerHandle {
       self.read(|manager| manager.get_v3_pool_from_address(chain_id, address).cloned())
    }
 
+   pub fn get_v3_pool_from_token_addresses_and_fee(
+      &self,
+      chain_id: u64,
+      fee: u32,
+      token_a: Address,
+      token_b: Address,
+   ) -> Option<AnyUniswapPool> {
+      self.read(|manager| {
+         manager
+            .get_v3_pool_from_token_addresses_and_fee(chain_id, fee, token_a, token_b)
+            .cloned()
+      })
+   }
+
    pub fn add_checkpoint(&self, chain: u64, dex: DexKind, checkpoint: Checkpoint) {
       self.write(|manager| manager.add_checkpoint(chain, dex, checkpoint));
    }
@@ -187,6 +201,7 @@ impl PoolManagerHandle {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
+      tracing::info!(target: "zeus_eth::amm::pool_manager", "Updating pools for {} currencies", currencies.len());
       let mut pools_to_update = Vec::new();
       for currency in currencies {
          let pools = self.get_pools_that_have_currency(&currency);
@@ -210,7 +225,7 @@ impl PoolManagerHandle {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let pools = self.read(|manager| manager.pools.clone().into_values().collect::<Vec<_>>());
+      let pools = self.get_pools_for_chain(chain_id);
       let concurrency = self.read(|manager| manager.concurrency);
       let pools = batch_update_state(client, chain_id, concurrency, pools).await?;
       self.write(|manager| {
@@ -391,7 +406,13 @@ impl PoolManagerHandle {
                continue;
             }
 
-            let cached_pool = self.get_pool(chain, *dex, FeeAmount::MEDIUM.fee(), &currency_a, &currency_b);
+            let cached_pool = self.get_pool(
+               chain,
+               *dex,
+               FeeAmount::MEDIUM.fee(),
+               &currency_a,
+               &currency_b,
+            );
             if cached_pool.is_some() {
                continue;
             }
@@ -861,6 +882,34 @@ impl PoolManager {
          .iter()
          .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v3())
       {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_v3_pool_from_token_addresses_and_fee(
+      &self,
+      chain_id: u64,
+      fee: u32,
+      token_a: Address,
+      token_b: Address,
+   ) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self.pools.iter().find(|(_, p)| {
+         p.currency0().address() == token_a
+            && p.currency1().address() == token_b
+            && p.fee().fee() == fee
+            && p.chain_id() == chain_id
+            && p.dex_kind().is_v3()
+      }) {
+         Some(pool.1)
+      } else if let Some(pool) = self.pools.iter().find(|(_, p)| {
+         p.currency1().address() == token_b
+            && p.currency0().address() == token_a
+            && p.fee().fee() == fee
+            && p.chain_id() == chain_id
+            && p.dex_kind().is_v3()
+      }) {
          Some(pool.1)
       } else {
          None

@@ -1,14 +1,18 @@
-pub mod pool;
 pub mod create_position;
-pub mod view_positions;
+pub mod pool;
 pub mod swap;
+pub mod view_positions;
 
-use pool::PoolsUi;
 use create_position::CreatePositionUi;
-use view_positions::ViewPositionsUi;
+use egui_widgets::LabelWithImage;
+use pool::PoolsUi;
 use swap::SwapUi;
+use view_positions::ViewPositionsUi;
 
 use egui::{Align, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
+use zeus_eth::alloy_primitives::Address;
+use zeus_eth::currency::Currency;
+use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
@@ -53,6 +57,9 @@ pub struct UniswapSettingsUi {
    pub slippage: String,
    /// Applies only to [SwapUi]
    pub simulate_mode: bool,
+   /// Days to go back to sync positions
+   /// Applies only to [ViewPositionsUi]
+   pub days: String,
 }
 
 impl UniswapSettingsUi {
@@ -64,6 +71,7 @@ impl UniswapSettingsUi {
          mev_protect: true,
          slippage: "0.5".to_string(),
          simulate_mode: false,
+         days: String::new(),
       }
    }
 
@@ -79,7 +87,13 @@ impl UniswapSettingsUi {
       self.open
    }
 
-   pub fn show(&mut self, swap_ui_open: bool, theme: &Theme, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      swap_ui_open: bool,
+      view_position_open: bool,
+      theme: &Theme,
+      ui: &mut Ui,
+   ) {
       if !self.open {
          return;
       }
@@ -114,6 +128,12 @@ impl UniswapSettingsUi {
                   let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
                   ui.label(text);
                   ui.checkbox(&mut self.simulate_mode, "");
+               }
+
+               if view_position_open {
+                  let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
+                  ui.label(text);
+                  ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
                }
          });
    }
@@ -171,48 +191,54 @@ impl UniswapUi {
       // ui.add_space(50.0);
 
       ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         // Header
-         ui.horizontal(|ui| {
-            // Swap - Pool - Position Buttons
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.spacing_mut().item_spacing.x = 10.0;
+         ui.scope(|ui| {
+            ui.set_width(self.size.0);
 
-               let text = RichText::new("Swap").size(theme.text_sizes.large);
-               let swap_button = Button::new(text);
-               if ui.add(swap_button).clicked() {
-                  self.swap_ui.open = true;
-                  self.pools_ui.open = false;
-                  self.create_position_ui.open = false;
-               }
+            // Header
+            ui.horizontal(|ui| {
+               // Swap - Pool - Position Buttons
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.spacing_mut().item_spacing.x = 10.0;
 
-               let text = RichText::new("Pools").size(theme.text_sizes.large);
-               let pools_button = Button::new(text);
-               if ui.add(pools_button).clicked() {
-                  self.pools_ui.open = true;
-                  self.swap_ui.open = false;
-                  self.create_position_ui.open = false;
-               }
+                  let text = RichText::new("Swap").size(theme.text_sizes.large);
+                  let swap_button = Button::new(text);
+                  if ui.add(swap_button).clicked() {
+                     self.swap_ui.open = true;
+                     self.pools_ui.open = false;
+                     self.create_position_ui.open = false;
+                     self.view_positions_ui.open = false;
+                  }
 
-               let text = RichText::new("Create Position").size(theme.text_sizes.large);
-               let positions_button = Button::new(text);
-               if ui.add(positions_button).clicked() {
-                  self.create_position_ui.open = true;
-                  self.swap_ui.open = false;
-                  self.pools_ui.open = false;
-               }
+                  let text = RichText::new("Pools").size(theme.text_sizes.large);
+                  let pools_button = Button::new(text);
+                  if ui.add(pools_button).clicked() {
+                     self.pools_ui.open = true;
+                     self.swap_ui.open = false;
+                     self.create_position_ui.open = false;
+                     self.view_positions_ui.open = false;
+                  }
 
-               let text = RichText::new("View Positions").size(theme.text_sizes.large);
-               let positions_button = Button::new(text);
-               if ui.add(positions_button).clicked() {
-                  self.view_positions_ui.open = true;
-                  self.swap_ui.open = false;
-                  self.pools_ui.open = false;
-                  self.create_position_ui.open = false;
-               }
+                  let text = RichText::new("Create Position").size(theme.text_sizes.large);
+                  let positions_button = Button::new(text);
+                  if ui.add(positions_button).clicked() {
+                     self.create_position_ui.open = true;
+                     self.swap_ui.open = false;
+                     self.pools_ui.open = false;
+                     self.view_positions_ui.open = false;
+                  }
+
+                  let text = RichText::new("View Positions").size(theme.text_sizes.large);
+                  let positions_button = Button::new(text);
+                  if ui.add(positions_button).clicked() {
+                     self.view_positions_ui.open = true;
+                     self.swap_ui.open = false;
+                     self.pools_ui.open = false;
+                     self.create_position_ui.open = false;
+                  }
+               });
             });
          });
 
@@ -242,8 +268,104 @@ impl UniswapUi {
             ctx.clone(),
             theme,
             icons.clone(),
+            &self.settings,
             ui,
          );
       });
    }
+}
+
+
+
+
+pub fn currencies_amount_and_value(
+   ctx: ZeusCtx,
+   chain: u64,
+   owner: Address,
+   token0: &Currency,
+   token1: &Currency,
+   amount0: &NumericValue,
+   amount1: &NumericValue,
+   price0_usd: &NumericValue,
+   price1_usd: &NumericValue,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   ui: &mut Ui,
+) {
+   let frame = theme.frame1;
+
+   ui.vertical(|ui| {
+
+      // Currency 0
+      frame.show(ui, |ui| {
+         ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let text = RichText::new(token0.symbol()).size(theme.text_sizes.normal);
+                  let icon = icons.currency_icon_x24(&token0);
+                  let label = LabelWithImage::new(text, Some(icon)).image_on_left();
+                  ui.add(label);
+               });
+
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let balance = ctx.get_currency_balance(chain, owner, &token0);
+                  let b_text = format!("(Balance: {})", balance.format_abbreviated());
+                  let text = RichText::new(b_text).size(theme.text_sizes.small);
+                  let label = LabelWithImage::new(text, None);
+                  ui.add(label);
+               });
+            });
+
+            // Currency 0 Amount & Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let value = NumericValue::value(amount0.f64(), price0_usd.f64());
+               let text = RichText::new(format!("(${})", value.format_abbreviated()))
+                  .size(theme.text_sizes.normal);
+               ui.label(text);
+
+               ui.add_space(10.0);
+
+               let text = RichText::new(format!("{}", amount0.format_abbreviated()))
+                  .size(theme.text_sizes.normal);
+               ui.label(text);
+            });
+         });
+      });
+
+      // Currency 1
+      frame.show(ui, |ui| {
+         ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let text = RichText::new(token1.symbol()).size(theme.text_sizes.normal);
+                  let icon = icons.currency_icon_x24(&token1);
+                  let label = LabelWithImage::new(text, Some(icon)).image_on_left();
+                  ui.add(label);
+               });
+
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let balance = ctx.get_currency_balance(chain, owner, &token1);
+                  let b_text = format!("(Balance: {})", balance.format_abbreviated());
+                  let text = RichText::new(b_text).size(theme.text_sizes.small);
+                  let label = LabelWithImage::new(text, None);
+                  ui.add(label);
+               });
+            });
+
+            // Currency B Amount & Value
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let value = NumericValue::value(amount1.f64(), price1_usd.f64());
+               let text = RichText::new(format!("(${})", value.format_abbreviated()))
+                  .size(theme.text_sizes.normal);
+               ui.label(text);
+
+               ui.add_space(10.0);
+
+               let text = RichText::new(format!("{}", amount1.format_abbreviated()))
+                  .size(theme.text_sizes.normal);
+               ui.label(text);
+            });
+         });
+      });
+   });
 }

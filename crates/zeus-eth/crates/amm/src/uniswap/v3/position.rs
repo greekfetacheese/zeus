@@ -7,9 +7,9 @@ use alloy_sol_types::SolEvent;
 
 use std::collections::HashMap;
 
-use crate::uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_from_amount};
+use crate::uniswap::v3::{get_tick_from_price, calculate_liquidity_amounts, calculate_liquidity_from_amount};
 
-use super::fee_math::*;
+
 use super::{UniswapPool, pool::UniswapV3Pool};
 use abi::uniswap::{
    nft_position::INonfungiblePositionManager,
@@ -331,7 +331,7 @@ where
          true,
       )?;
 
-      let token_id = mint_res.token_id;
+      let token_id = mint_res.tokenId;
 
       amount0 = NumericValue::format_wei(mint_res.amount0, pool.token0().decimals);
       amount1 = NumericValue::format_wei(mint_res.amount1, pool.token1().decimals);
@@ -408,7 +408,7 @@ where
                   true,
                ) {
                   Ok((_res, mint_res)) => {
-                     let token_id = mint_res.token_id;
+                     let token_id = mint_res.tokenId;
                      positions.insert((mint.owner, mint.tickLower, mint.tickUpper), token_id);
                   }
                   Err(e) => {
@@ -656,3 +656,47 @@ mod tests {
       eprintln!("Result: {:#?}", result);
    }
 }
+
+
+
+/*
+
+
+for (_i, swap) in swaps.iter().enumerate() {
+
+      let mut in_range = false;
+
+      let state_before_swap = pool.state().v3_or_v4_state().unwrap();
+
+      let mut temp_position = Position::new(
+         &state_before_swap,
+         position.tick_lower,
+         position.tick_upper,
+         position.liquidity,
+      )?;
+
+      // Check if the position is active
+      if state_before_swap.tick >= position.tick_lower && state_before_swap.tick < position.tick_upper {
+         active_swaps += 1;
+         in_range = true;
+      }
+
+      let token_in = swap.token_in.clone();
+      pool.simulate_swap_mut(&token_in.into(), swap.amount_in)?;
+
+      let state_after_swap = pool.state().v3_or_v4_state().unwrap();
+
+      if in_range {
+         // Update the temp position to see the fees from this ONE swap.
+         let (fees_from_this_swap_0, fees_from_this_swap_1) = temp_position.update(&state_after_swap)?;
+
+         total_fees_earned_0 += fees_from_this_swap_0;
+         total_fees_earned_1 += fees_from_this_swap_1;
+      }
+
+      let fee0_earned = NumericValue::format_wei(total_fees_earned_0, pool.token0().decimals);
+      let fee1_earned = NumericValue::format_wei(total_fees_earned_1, pool.token1().decimals);
+   }
+
+
+*/
