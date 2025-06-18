@@ -253,7 +253,7 @@ impl WalletUi {
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                   ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
                   ui.vertical(|ui| {
-                     let chains = ctx.get_owner_chains(wallet.address);
+                     let chains = ctx.get_chains_that_have_balance(wallet.address);
                      let value = ctx.get_portfolio_value_all_chains(wallet.address);
                      ui.horizontal(|ui| {
                         for chain in chains {

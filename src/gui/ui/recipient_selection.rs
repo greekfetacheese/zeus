@@ -223,7 +223,7 @@ impl RecipientSelectionWindow {
       for wallet in &wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
          let value = ctx.get_portfolio_value_all_chains(wallet.address);
-         let chains = ctx.get_owner_chains(wallet.address);
+         let chains = ctx.get_chains_that_have_balance(wallet.address);
 
          if valid_search {
             // Main Row

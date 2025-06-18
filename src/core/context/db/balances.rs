@@ -44,17 +44,20 @@ impl BalanceDB {
       Ok(())
    }
 
-   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> Option<&NumericValue> {
-      self.eth_balances.get(&(chain, owner))
+   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
+      self
+         .eth_balances
+         .get(&(chain, owner))
+         .cloned()
+         .unwrap_or_default()
    }
 
-   pub fn get_token_balance(
-      &self,
-      chain: u64,
-      owner: Address,
-      token: Address,
-   ) -> Option<&NumericValue> {
-      self.token_balances.get(&(chain, owner, token))
+   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
+      self
+         .token_balances
+         .get(&(chain, owner, token))
+         .cloned()
+         .unwrap_or_default()
    }
 
    pub fn insert_currency_balance(

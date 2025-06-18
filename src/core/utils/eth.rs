@@ -82,7 +82,7 @@ pub async fn send_transaction(
       let bytecode_fut = client.get_code_at(interact_to).into_future();
       let block = client.get_block(BlockId::latest()).await?;
 
-      let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+      let balance_before = ctx.get_eth_balance(chain.id(), from);
 
       let balance_after;
       let sim_res;
@@ -545,7 +545,7 @@ pub async fn wrap_or_unwrap_eth(
       };
    }
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    let contract_interact = true;
    let tx_summary = make_tx_summary(
@@ -771,7 +771,7 @@ pub async fn swap(
    let action = OnChainAction::SwapToken(swap_params);
    let contract_interact = true;
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    let time = std::time::Instant::now();
    let tx_summary = make_tx_summary(
@@ -965,7 +965,7 @@ pub async fn collect_fees_position_v3(
       recipient: Some(from),
    };
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    let contract_interact = true;
    let mev_protect = false;
@@ -1186,7 +1186,7 @@ pub async fn decrease_liquidity_position_v3(
       recipient: Some(from),
    };
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    let contract_interact = true;
    let interact_to = nft_contract;
@@ -1479,7 +1479,7 @@ pub async fn increase_liquidity_position_v3(
       recipient: Some(from),
    };
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    // Handle one-time token approvals for the nft contract if needed
    if token0_allowance < amount0.wei2() {
@@ -1893,7 +1893,7 @@ pub async fn mint_new_liquidity_position_v3(
       recipient: Some(from),
    };
 
-   let balance_before = ctx.get_eth_balance(chain.id(), from).unwrap_or_default();
+   let balance_before = ctx.get_eth_balance(chain.id(), from);
 
    // Handle one-time token approvals for the nft contract if needed
    if token0_allowance < amount0.wei2() {
@@ -2392,10 +2392,9 @@ pub async fn get_erc20_token(
 
    // If there is a balance add the token to the portfolio
    if !balance.is_zero() {
-      ctx.write(|ctx| {
-         ctx.portfolio_db
-            .add_currency(chain, owner, currency.clone());
-      });
+      let mut portfolio = ctx.get_portfolio(chain, owner);
+      portfolio.add_token(currency.clone());
+      ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
    }
 
    // Sync the pools for the token

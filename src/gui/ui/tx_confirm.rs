@@ -758,9 +758,7 @@ impl TxConfirmWindow {
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
-      let balance = ctx
-         .get_eth_balance(self.chain.id(), sender)
-         .unwrap_or_default();
+      let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = self.eth_spent.wei2() + self.tx_cost.wei2();
       balance.wei2() >= total_cost
    }

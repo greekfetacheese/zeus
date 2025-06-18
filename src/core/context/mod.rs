@@ -27,7 +27,7 @@ const CLIENT_TIMEOUT: u64 = 10;
 pub mod db;
 pub mod providers;
 
-pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, V3PositionsDB, TransactionsDB};
+pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use providers::{Rpc, RpcProviders};
 
 /// Thread-safe handle to the [ZeusContext]
@@ -96,7 +96,10 @@ impl ZeusCtx {
             .iter()
             .find(|w| w.info.address == address)
             .cloned()
-            .ok_or(anyhow!("Wallet with address {} not found", address))?;
+            .ok_or(anyhow!(
+               "Wallet with address {} not found",
+               address
+            ))?;
          Ok(wallet)
       })
    }
@@ -441,24 +444,11 @@ impl ZeusCtx {
       })
    }
 
-   pub fn get_token_balance(
-      &self,
-      chain: u64,
-      owner: Address,
-      token: Address,
-   ) -> Option<NumericValue> {
-      self.read(|ctx| {
-         ctx.balance_db
-            .get_token_balance(chain, owner, token)
-            .cloned()
-      })
-   }
-
    /// Return the chains which the owner has balance in
-   pub fn get_owner_chains(&self, owner: Address) -> Vec<u64> {
+   pub fn get_chains_that_have_balance(&self, owner: Address) -> Vec<u64> {
       let mut chains = Vec::new();
       for chain in SUPPORTED_CHAINS {
-         let balance = self.get_eth_balance(chain, owner).unwrap_or_default();
+         let balance = self.get_eth_balance(chain, owner);
          if !balance.is_zero() {
             chains.push(chain);
          }
@@ -466,26 +456,20 @@ impl ZeusCtx {
       chains
    }
 
-   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> Option<NumericValue> {
-      self.read(|ctx| ctx.balance_db.get_eth_balance(chain, owner).cloned())
+   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
+      self.read(|ctx| ctx.balance_db.get_eth_balance(chain, owner))
+   }
+
+   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
+      self.read(|ctx| ctx.balance_db.get_token_balance(chain, owner, token))
    }
 
    pub fn get_currencies(&self, chain: u64) -> Arc<Vec<Currency>> {
       self.read(|ctx| ctx.currency_db.get_currencies(chain))
    }
 
-   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Arc<Portfolio> {
-      let portfolio = self.read(|ctx| ctx.portfolio_db.get_portfolio(chain, owner));
-      if let Some(portfolio) = portfolio {
-         portfolio
-      } else {
-         let portfolio = Portfolio::empty(chain, owner);
-         self.write(|ctx| {
-            ctx.portfolio_db
-               .insert_portfolio(chain, owner, portfolio.clone())
-         });
-         Arc::new(portfolio)
-      }
+   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Portfolio {
+      self.read(|ctx| ctx.portfolio_db.get(chain, owner))
    }
 
    /// Get the portfolio value across all chains
@@ -501,33 +485,38 @@ impl ZeusCtx {
       NumericValue::from_f64(value)
    }
 
-   /// Get all the erc20 tokens in all portfolios
-   pub fn get_all_erc20_tokens(&self, chain: u64) -> Vec<ERC20Token> {
+   /// Get all tokens in all portfolios
+   pub fn get_all_tokens_from_portfolios(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let wallets_info = self.wallets_info();
+      let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
 
-      for wallet in &wallets_info {
-         let portfolio = self.get_portfolio(chain, wallet.address);
-         tokens.extend(portfolio.erc20_tokens());
+      for portfolio in portfolios {
+         let erc_tokens = portfolio
+            .tokens
+            .iter()
+            .map(|c| c.to_erc20().into_owned())
+            .collect::<Vec<_>>();
+         tokens.extend(erc_tokens);
       }
       tokens
    }
 
    /// Calculate and update the portfolio value
    pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
-      let mut portfolio = Portfolio::from(self.get_portfolio(chain, owner));
-      let currencies = portfolio.currencies();
+      let mut portfolio = self.get_portfolio(chain, owner);
       let mut value = 0.0;
 
-      for currency in currencies {
-         let price = self.get_currency_price(currency).f64();
-         let balance = self.get_currency_balance(chain, owner, currency).f64();
+      for token in &portfolio.tokens {
+         let currency = token.clone().into();
+         let price = self.get_currency_price(&currency).f64();
+         let balance = self.get_currency_balance(chain, owner, &currency).f64();
          value += NumericValue::value(balance, price).f64()
       }
 
-      portfolio.update_value(value);
+      let new_value = NumericValue::from_f64(value);
+      portfolio.value = new_value;
+
       self.write(|ctx| {
-         // override the existing portfolio
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
@@ -537,10 +526,7 @@ impl ZeusCtx {
    }
 
    pub fn get_v3_positions(&self, chain: u64, owner: Address) -> Vec<V3Position> {
-      self.read(|ctx| {
-         ctx.v3_positions_db
-            .get(chain, owner)
-      })
+      self.read(|ctx| ctx.v3_positions_db.get(chain, owner))
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
@@ -559,16 +545,6 @@ impl ZeusCtx {
       } else {
          let token = currency.erc20().unwrap();
          self.get_token_price(&token).unwrap_or_default()
-      }
-   }
-
-   pub fn get_currency_price_opt(&self, currency: &Currency) -> Option<NumericValue> {
-      if currency.is_native() {
-         let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
-         self.get_token_price(&wrapped_token)
-      } else {
-         let token = currency.erc20().unwrap();
-         self.get_token_price(&token)
       }
    }
 
@@ -595,22 +571,6 @@ impl ZeusCtx {
       owner: Address,
       currency: &Currency,
    ) -> NumericValue {
-      if currency.is_native() {
-         self.get_eth_balance(chain, owner).unwrap_or_default()
-      } else {
-         let token = currency.erc20().unwrap();
-         self
-            .get_token_balance(chain, owner, token.address)
-            .unwrap_or_default()
-      }
-   }
-
-   pub fn get_currency_balance_opt(
-      &self,
-      chain: u64,
-      owner: Address,
-      currency: &Currency,
-   ) -> Option<NumericValue> {
       if currency.is_native() {
          self.get_eth_balance(chain, owner)
       } else {

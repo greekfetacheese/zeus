@@ -392,7 +392,7 @@ fn get_balance(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse,
    };
 
    let chain = ctx.chain().id();
-   let balance = ctx.get_eth_balance(chain, address).unwrap_or_default();
+   let balance = ctx.get_eth_balance(chain, address);
 
    let response = JsonRpcResponse {
       jsonrpc: "2.0".to_string(),

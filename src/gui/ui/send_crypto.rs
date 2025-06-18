@@ -327,15 +327,15 @@ impl SendCryptoUi {
    }
 
    fn value(&mut self, owner: Address, ctx: ZeusCtx) -> NumericValue {
-      let price = ctx.get_currency_price_opt(&self.currency);
+      let price = ctx.get_currency_price(&self.currency);
       let amount = self.amount.parse().unwrap_or(0.0);
 
       if amount == 0.0 {
          return NumericValue::default();
       }
 
-      if !price.is_none() {
-         return NumericValue::value(amount, price.unwrap().f64());
+      if price.f64() != 0.0 {
+         return NumericValue::value(amount, price.f64());
       } else {
          // no pool data available to calculate the price
 

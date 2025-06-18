@@ -135,9 +135,7 @@ impl AcrossBridge {
                   ui.label(RichText::new("Amount").size(theme.text_sizes.large));
                });
 
-               let balance = ctx
-                  .get_eth_balance(from_chain, depositor)
-                  .unwrap_or_default();
+               let balance = ctx.get_eth_balance(from_chain, depositor);
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   ui.set_max_width(ui_width * 0.25);
@@ -348,19 +346,16 @@ impl AcrossBridge {
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
-      let balance = ctx
-         .get_eth_balance(self.from_chain.chain.id(), depositor)
-         .unwrap_or_default();
+      let balance = ctx.get_eth_balance(self.from_chain.chain.id(), depositor);
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let amount = amount.wei2();
-      balance.wei2() >= amount
+      balance.wei2() >= amount.wei2()
    }
 
    /// Max amount = Balance - cost
    fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
       let chain = self.from_chain.chain;
       let owner = ctx.current_wallet().address;
-      let balance = ctx.get_eth_balance(chain.id(), owner).unwrap_or_default();
+      let balance = ctx.get_eth_balance(chain.id(), owner);
       let (cost_wei, _) = self.cost(ctx.clone());
 
       if balance.wei2() < cost_wei.wei2() {
