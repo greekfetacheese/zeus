@@ -121,10 +121,10 @@ impl UiTesting {
             });
          }
 
-         let button = Button::new("Liquidity Transaction Summary").min_size(btn_size);
+         let button = Button::new("Uniswap Position Op Summary").min_size(btn_size);
          if ui.add(button).clicked() {
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_liquidity();
+               let summary = TxSummary::dummy_uniswap_position();
                SHARED_GUI.write(|gui| {
                   gui.tx_confirm_window.open_as_summary(summary);
                });

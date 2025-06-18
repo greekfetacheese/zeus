@@ -20,6 +20,7 @@ pub struct TxSummary {
    pub from: Address,
    pub to: Address,
    pub value: NumericValue,
+   pub call_data: Bytes,
    pub eth_spent: NumericValue,
    pub eth_spent_usd: NumericValue,
    pub eth_received: NumericValue,
@@ -42,6 +43,7 @@ impl Default for TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -72,6 +74,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -100,6 +103,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -128,6 +132,7 @@ impl TxSummary {
          from,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -151,6 +156,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -164,7 +170,7 @@ impl TxSummary {
       }
    }
 
-   pub fn dummy_liquidity() -> Self {
+   pub fn dummy_uniswap_position() -> Self {
       let tx_cost = NumericValue::parse_to_wei("0.0001", 18);
       let tx_cost_usd = NumericValue::value(tx_cost.f64(), 1600.0);
       let timestamp = std::time::SystemTime::now()
@@ -179,6 +185,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -187,7 +194,7 @@ impl TxSummary {
          tx_cost_usd,
          gas_used: 120_000,
          hash: TxHash::ZERO,
-         action: OnChainAction::dummy_liquidity(),
+         action: OnChainAction::dummy_uniswap_position_operation(),
          contract_interact: true,
       }
    }
@@ -207,6 +214,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),
@@ -235,6 +243,7 @@ impl TxSummary {
          from: Address::ZERO,
          to: Address::ZERO,
          value: NumericValue::default(),
+         call_data: Bytes::default(),
          eth_spent: NumericValue::default(),
          eth_spent_usd: NumericValue::default(),
          eth_received: NumericValue::default(),

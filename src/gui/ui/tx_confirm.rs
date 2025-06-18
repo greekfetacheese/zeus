@@ -80,7 +80,7 @@ impl TxConfirmWindow {
          value: NumericValue::default(),
          tx_hash: TxHash::ZERO,
          contract_interact: false,
-         action: OnChainAction::dummy_swap(),
+         action: OnChainAction::Other,
          priority_fee: "1".to_string(),
          size: (400.0, 550.0),
       }
@@ -90,8 +90,8 @@ impl TxConfirmWindow {
       self.open
    }
 
-   pub fn open(&mut self) {
-      self.open = true;
+   pub fn reset(&mut self) {
+      *self = Self::new();
    }
 
    /// Open the window as a summary of a transaction
@@ -172,12 +172,6 @@ impl TxConfirmWindow {
 
    pub fn done_simulating(&mut self) {
       self.simulating = false;
-   }
-
-   pub fn reset(&mut self) {
-      self.open = false;
-      self.simulating = false;
-      self.confirm = None;
    }
 
    /// (Cost in ETH, Cost in USD)
@@ -638,18 +632,18 @@ impl TxConfirmWindow {
       });
    }
 
-   fn action_is_liquidity(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      let params = self.action.liquidity_params();
+   fn action_is_uniswap_position_op(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let params = self.action.uniswap_position_params();
       let currency0 = &params.currency0;
       let currency1 = &params.currency1;
       let amount0 = &params.amount0;
       let amount1 = &params.amount1;
-      let amount0_usd = &params.amount0_usd.unwrap_or_default();
-      let amount1_usd = &params.amount1_usd.unwrap_or_default();
+      let amount0_usd = params.amount0_usd.clone().unwrap_or_default();
+      let amount1_usd = params.amount1_usd.clone().unwrap_or_default();
       let min_amount0 = params.min_amount0.clone();
       let min_amount1 = params.min_amount1.clone();
-      let min_amount0_usd = &params.min_amount0_usd.unwrap_or_default();
-      let min_amount1_usd = &params.min_amount1_usd.unwrap_or_default();
+      let min_amount0_usd = params.min_amount0_usd.clone().unwrap_or_default();
+      let min_amount1_usd = params.min_amount1_usd.clone().unwrap_or_default();
 
       // Currency A and Amount & value
       ui.horizontal(|ui| {
@@ -696,7 +690,7 @@ impl TxConfirmWindow {
          });
       });
 
-      let text = if params.add_liquidity {
+      let text = if params.op_is_add_liquidity() {
          "Minimum Liquidity to be added"
       } else {
          "Minimum Liquidity to be removed"
@@ -817,8 +811,8 @@ impl TxConfirmWindow {
                         ui.add_space(10.0);
                      }
 
-                     if self.action.is_liquidity() {
-                        self.action_is_liquidity(theme, icons.clone(), ui);
+                     if self.action.is_uniswap_position_operation() {
+                        self.action_is_uniswap_position_op(theme, icons.clone(), ui);
                         ui.add_space(10.0);
                      }
 
@@ -1016,15 +1010,14 @@ impl TxConfirmWindow {
                               )
                               .clicked()
                            {
-                              self.open = false;
-                              self.confirm = Some(false);
+                              self.reset();
                            }
                         } else {
                            if ui
                               .add(Button::new("Close").min_size(vec2(width * 0.75, 50.0)))
                               .clicked()
                            {
-                              self.open = false;
+                              self.reset();
                            }
                         }
                      });
