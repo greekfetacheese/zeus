@@ -110,6 +110,12 @@ pub async fn simulate_position<P>(
 where
    P: Provider<Ethereum> + Clone + 'static + Unpin,
 {
+   let token0 = pool.token0().into_owned();
+   let token1 = pool.token1().into_owned();
+
+   let total_supply_0_fut = token0.get_total_supply(client.clone());
+   let total_supply_1_fut = token1.get_total_supply(client.clone());
+
    let full_block = client.get_block(BlockId::latest()).await?.unwrap();
    let chain_id = client.get_chain_id().await?;
 
@@ -200,8 +206,11 @@ where
    fork_factory.insert_dummy_account(lp_provider.clone());
    fork_factory.insert_dummy_account(minter_and_burner.clone());
 
-   let amount_to_fund_0 = pool.token0().total_supply;
-   let amount_to_fund_1 = pool.token1().total_supply;
+   let total_supply_0 = total_supply_0_fut.await?;
+   let total_supply_1 = total_supply_1_fut.await?;
+
+   let amount_to_fund_0 = total_supply_0;
+   let amount_to_fund_1 = total_supply_1;
 
    // Fund the accounts
    fork_factory.give_token(swapper.address, pool.token0().address, amount_to_fund_0)?;

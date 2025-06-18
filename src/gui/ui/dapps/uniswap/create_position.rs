@@ -12,7 +12,7 @@ use crate::core::{
    ZeusCtx,
    utils::{RT, eth, update},
 };
-use crate::gui::ui::dapps::uniswap::{currencies_amount_and_value, ProtocolVersion};
+use crate::gui::ui::dapps::uniswap::{ProtocolVersion, currencies_amount_and_value};
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use egui_theme::{Theme, utils::*};
 use std::sync::Arc;
@@ -359,6 +359,9 @@ impl CreatePositionUi {
                         let text = RichText::new(token1_earned).size(theme.text_sizes.normal);
                         ui.label(text);
 
+                        let text = format!("APR: {:.2}%", apr);
+                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
                         let text = format!(
                            "Your position was active {} times out of {} total swaps",
                            active_swaps, total_swaps
@@ -369,8 +372,23 @@ impl CreatePositionUi {
                         let text = format!("Failed Swaps: {}", result.failed_swaps);
                         ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
-                        let text = format!("APR: {:.2}%", apr);
-                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                        let config = &self.set_price_range_ui.sim_position_config;
+
+                        if !config.skip_simulating_mints {
+                           let text = format!("Total Mint Events: {}", result.total_mints);
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                           let text = format!("Failed Mint Simulations: {}", result.failed_mints);
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                        }
+
+                        if !config.skip_simulating_burns {
+                           let text = format!("Total Burn Events: {}", result.total_burns);
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                           let text = format!("Failed Burn Simulations: {}", result.failed_burns);
+                           ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                        }
                      });
                   });
                }

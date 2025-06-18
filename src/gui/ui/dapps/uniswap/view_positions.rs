@@ -620,7 +620,7 @@ impl PositionDetails {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (400.0, 500.0),
+         size: (400.0, 200.0),
          position: None,
          pool: None,
       }
@@ -698,24 +698,34 @@ impl PositionDetails {
 
                let current_price = pool.calculate_price(token0).unwrap_or_default();
 
+               let id = format!("TokenID {}", position.id);
+               let lower_tick = format!("Lower Tick {}", position.tick_lower);
+               let upper_tick = format!("Upper Tick {}", position.tick_upper);
+
                let min_price_text = format!(
                   "Min Price {:.6} {} / {}",
                   min_price,
                   token1.symbol(),
                   token0.symbol()
                );
+
                let max_price_text = format!(
                   "Max Price {:.6} {} / {}",
                   max_price,
                   token1.symbol(),
                   token0.symbol()
                );
+
                let current_price_text = format!(
                   "Current Price {:.6} {} / {}",
                   current_price,
                   token1.symbol(),
                   token0.symbol()
                );
+
+               ui.label(RichText::new(id).size(theme.text_sizes.normal));
+               ui.label(RichText::new(lower_tick).size(theme.text_sizes.normal));
+               ui.label(RichText::new(upper_tick).size(theme.text_sizes.normal));
                ui.label(RichText::new(min_price_text).size(theme.text_sizes.normal));
                ui.label(RichText::new(max_price_text).size(theme.text_sizes.normal));
                ui.label(RichText::new(current_price_text).size(theme.text_sizes.normal));

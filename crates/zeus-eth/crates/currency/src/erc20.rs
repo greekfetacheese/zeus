@@ -137,6 +137,15 @@ impl ERC20Token {
       Ok(allowance)
    }
 
+   pub async fn get_total_supply<P, N>(&self, client: P) -> Result<U256, anyhow::Error>
+   where
+      P: Provider<N> + Clone + 'static,
+      N: Network,
+   {
+      let total_supply = abi::erc20::total_supply(self.address, client).await?;
+      Ok(total_supply)
+   }
+
    pub fn encode_balance_of(&self, owner: Address) -> Bytes {
       abi::erc20::encode_balance_of(owner)
    }
