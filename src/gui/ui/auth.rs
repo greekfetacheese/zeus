@@ -3,13 +3,176 @@ use crate::core::{Account, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{Align, Align2, Button, FontId, Frame, Layout, RichText, Ui, Window, vec2};
 use egui::{Color32, Margin};
-use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
 use egui_theme::Theme;
+use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
 use egui_widgets::SecureTextEdit;
-#[cfg(feature = "dev")]
-use ncrypt_me::secure_types::SecureString;
 use ncrypt_me::{Argon2Params, Credentials};
+use secure_types::SecureString;
 use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InputField {
+   Username,
+   Password,
+   ConfirmPassword,
+}
+
+pub struct VirtualKeyboard {
+   pub open: bool,
+   active_target: Option<InputField>,
+   shift_active: bool,
+   caps_lock_active: bool,
+}
+
+impl VirtualKeyboard {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         active_target: None,
+         shift_active: false,
+         caps_lock_active: false,
+      }
+   }
+
+   pub fn show(&mut self, ui: &mut Ui, theme: &Theme, credentials: &mut Credentials) {
+      if !self.open {
+         return;
+      }
+
+      // Get a mutable reference to the currently focused SecureString
+      let target_str = match self.active_target {
+         Some(InputField::Username) => &mut credentials.username,
+         Some(InputField::Password) => &mut credentials.password,
+         Some(InputField::ConfirmPassword) => &mut credentials.confirm_password,
+         None => return, // Don't render if no field is targeted
+      };
+
+      // Define the keyboard layout
+      let keys_layout_lower = vec![
+         vec![
+            "`",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "0",
+            "-",
+            "=",
+            "Backspace",
+         ],
+         vec![
+            "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", "\\",
+         ],
+         vec![
+            "Caps", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Enter",
+         ],
+         vec![
+            "Shift", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "Shift",
+         ],
+      ];
+      let keys_layout_upper = vec![
+         vec![
+            "~",
+            "!",
+            "@",
+            "#",
+            "$",
+            "%",
+            "^",
+            "&",
+            "*",
+            "(",
+            ")",
+            "_",
+            "+",
+            "Backspace",
+         ],
+         vec![
+            "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "|",
+         ],
+         vec![
+            "Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "Enter",
+         ],
+         vec![
+            "Shift", "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "Shift",
+         ],
+      ];
+
+      ui.add_space(10.0);
+      Frame::group(&theme.style)
+         .fill(theme.colors.secondary_bg_color)
+         .show(ui, |ui| {
+           let hover_color = theme.colors.widget_bg_color_hover;
+           bg_color_on_hover(ui, hover_color);
+
+            ui.vertical(|ui| {
+               let is_uppercase = self.shift_active ^ self.caps_lock_active;
+               let layout = if is_uppercase {
+                  &keys_layout_upper
+               } else {
+                  &keys_layout_lower
+               };
+
+               for row in layout {
+                  ui.horizontal(|ui| {
+                     for &key in row {
+                        let key_button =
+                           Button::new(RichText::new(key).size(theme.text_sizes.normal))
+                              .min_size(vec2(30.0, 30.0));
+                        if ui.add(key_button).clicked() {
+                           self.handle_key_press(key, target_str);
+                        }
+                     }
+                  });
+               }
+               // Spacebar
+               ui.horizontal(|ui| {
+                  if ui
+                     .add(Button::new(" ").min_size(vec2(30.0 * 5.0, 30.0)))
+                     .clicked()
+                  {
+                     target_str.push_str(" ");
+                  }
+               });
+            });
+         });
+   }
+
+   fn handle_key_press(&mut self, key: &str, target: &mut SecureString) {
+      match key {
+         "Backspace" => {
+            target.mut_scope(|s| {
+               let len = s.char_len();
+               if len > 0 {
+                  s.delete_text_char_range(len - 1..len);
+               }
+            });
+         }
+         "Shift" => {
+            self.shift_active = !self.shift_active;
+         }
+         "Caps" => {
+            self.caps_lock_active = !self.caps_lock_active;
+            self.shift_active = false; // Typically, pressing Caps disables Shift
+         }
+         "Enter" => {
+            // For now, we do nothing.
+         }
+         _ => {
+            target.push_str(key);
+            // Deactivate shift after a character press
+            if self.shift_active {
+               self.shift_active = false;
+            }
+         }
+      }
+   }
+}
 
 pub struct CredentialsForm {
    pub open: bool,
@@ -24,6 +187,7 @@ pub struct CredentialsForm {
    // By how much to add horizontal space for the text edits
    // Eg. 0.2 means 20% of the available width
    pub text_edit_h_space: f32,
+   pub virtual_keyboard: VirtualKeyboard,
 }
 
 impl CredentialsForm {
@@ -38,6 +202,7 @@ impl CredentialsForm {
          y_spacing: 15.0,
          x_spacing: 10.0,
          text_edit_h_space: 0.2,
+         virtual_keyboard: VirtualKeyboard::new(),
       }
    }
 
@@ -83,6 +248,7 @@ impl CredentialsForm {
          let ui_width = ui.available_width();
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
+         // --- Username Field ---
          ui.label(RichText::new("Username").size(theme.text_sizes.large));
          self.credentials.username.mut_scope(|username| {
             let text_edit = SecureTextEdit::singleline(username)
@@ -93,9 +259,12 @@ impl CredentialsForm {
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.add_space(ui_width * self.text_edit_h_space);
-               text_edit.show(ui);
                ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
+               if text_edit.show(ui).response.gained_focus() {
+                  self.virtual_keyboard.open = true;
+                  self.virtual_keyboard.active_target = Some(InputField::Username);
+               }
 
                let icon = if self.hide_username {
                   icons.hide_light()
@@ -110,6 +279,7 @@ impl CredentialsForm {
             });
          });
 
+         // --- Password Field ---
          ui.label(RichText::new("Password").size(theme.text_sizes.large));
          self.credentials.password.mut_scope(|password| {
             let text_edit = SecureTextEdit::singleline(password)
@@ -120,8 +290,12 @@ impl CredentialsForm {
 
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                ui.add_space(ui_width * self.text_edit_h_space);
-               text_edit.show(ui);
                ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+
+               if text_edit.show(ui).response.gained_focus() {
+                  self.virtual_keyboard.open = true;
+                  self.virtual_keyboard.active_target = Some(InputField::Password);
+               }
 
                let icon = if self.hide_password {
                   icons.hide_light()
@@ -136,6 +310,7 @@ impl CredentialsForm {
             });
          });
 
+         // --- Confirm Password Field ---
          if self.confrim_password {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
             self
@@ -150,8 +325,12 @@ impl CredentialsForm {
 
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                      ui.add_space(ui_width * self.text_edit_h_space);
-                     text_edit.show(ui);
                      ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+
+                     if text_edit.show(ui).response.gained_focus() {
+                        self.virtual_keyboard.open = true;
+                        self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
+                     }
 
                      let icon = if self.hide_password {
                         icons.hide_light()
@@ -168,6 +347,8 @@ impl CredentialsForm {
          } else {
             self.credentials.copy_passwd_to_confirm();
          }
+
+         self.virtual_keyboard.show(ui, theme, &mut self.credentials);
       });
    }
 }
@@ -302,7 +483,7 @@ impl RegisterUi {
    pub fn new() -> Self {
       Self {
          credentials_form: CredentialsForm::new().open(true).confirm_password(true),
-         size: (450.0, 300.0),
+         size: (550.0, 350.0),
       }
    }
 

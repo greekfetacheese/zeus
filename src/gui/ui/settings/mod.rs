@@ -39,9 +39,9 @@ impl SettingsUi {
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
          contacts_ui: ContactsUi::new(),
-         credentials: CredentialsForm::new().with_text_edit_h_space(0.1),
+         credentials: CredentialsForm::new(),
          verified_credentials: false,
-         size: (400.0, 250.0),
+         size: (550.0, 350.0),
       }
    }
 
@@ -149,8 +149,8 @@ impl SettingsUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+
 
             if self.credentials.additional_frame {
                tracing::info!("Running additional frame");

@@ -70,10 +70,10 @@ impl ExportKeyUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new().with_text_edit_h_space(0.1),
+         credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          exporter: KeyExporter::new(),
-         size: (400.0, 250.0),
+         size: (550.0, 350.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -105,7 +105,6 @@ impl ExportKeyUi {
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
@@ -173,10 +172,10 @@ impl DeleteWalletUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new().with_text_edit_h_space(0.1),
+         credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          wallet_to_delete: None,
-         size: (400.0, 250.0),
+         size: (550.0, 350.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
@@ -200,8 +199,7 @@ impl DeleteWalletUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_min_size(vec2(self.size.0, self.size.1));
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
