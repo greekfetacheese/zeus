@@ -16,7 +16,6 @@ pub struct Portfolio {
    pub tokens: Vec<Currency>,
    pub chain_id: u64,
    pub owner: Address,
-   pub balance: NumericValue,
    pub value: NumericValue,
 }
 
@@ -26,7 +25,6 @@ impl Portfolio {
          tokens: Vec::new(),
          chain_id,
          owner,
-         balance: NumericValue::default(),
          value: NumericValue::default(),
       }
    }

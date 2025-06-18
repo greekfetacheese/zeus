@@ -1,14 +1,12 @@
-use crate::core::{
-   ZeusCtx,
-   utils::{RT, update::update_eth_balance},
-};
+use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui_widgets::SecureTextEdit;
 use egui_theme::{Theme, utils::*};
+use egui_widgets::SecureTextEdit;
 use secure_types::SecureString;
+use zeus_eth::{alloy_provider::Provider, currency::NativeCurrency, types::SUPPORTED_CHAINS};
 
 #[derive(PartialEq, Eq)]
 pub enum ImportWalletType {
@@ -100,15 +98,16 @@ impl ImportWallet {
             let mut account = ctx.get_account();
 
             // Import the wallet
-            match account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
-               Ok(_) => {}
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to import wallet", e.to_string());
-                  });
-                  return;
-               }
-            };
+            let new_wallet_address =
+               match account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
+                  Ok(address) => address,
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window("Failed to import wallet", e.to_string());
+                     });
+                     return;
+                  }
+               };
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting account...");
@@ -159,9 +158,47 @@ impl ImportWallet {
 
             ctx.set_account(account);
 
-            // Fetch any balances for the new wallet
+            // Fetch the balance for the new wallet across all chains and add it to the portfolio db
             RT.spawn(async move {
-               let _ = update_eth_balance(ctx.clone()).await;
+               for chain in SUPPORTED_CHAINS {
+                  let ctx = ctx.clone();
+                  let client = match ctx.get_client(chain).await {
+                     Ok(client) => client,
+                     Err(e) => {
+                        tracing::error!(
+                           "Error getting client for chain {}: {:?}",
+                           chain,
+                           e
+                        );
+                        return;
+                     }
+                  };
+
+                  let balance = match client.get_balance(new_wallet_address).await {
+                     Ok(balance) => balance,
+                     Err(e) => {
+                        tracing::error!(
+                           "Error getting balance for wallet {}: {:?}",
+                           new_wallet_address,
+                           e
+                        );
+                        return;
+                     }
+                  };
+
+                  let native = NativeCurrency::from(chain);
+
+                  ctx.write(|ctx| {
+                     ctx.balance_db
+                        .insert_eth_balance(chain, new_wallet_address, balance, &native);
+                  });
+
+                  // Portfolio is created and saved here
+                  ctx.calculate_portfolio_value(chain, new_wallet_address);
+
+                  ctx.save_balance_db();
+                  ctx.save_portfolio_db();
+               }
             });
          });
       }

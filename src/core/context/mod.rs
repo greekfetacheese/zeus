@@ -507,11 +507,17 @@ impl ZeusCtx {
       let mut value = 0.0;
 
       for token in &portfolio.tokens {
-         let currency = token.clone().into();
-         let price = self.get_currency_price(&currency).f64();
-         let balance = self.get_currency_balance(chain, owner, &currency).f64();
+         let price = self.get_currency_price(&token).f64();
+         let balance = self.get_currency_balance(chain, owner, &token).f64();
          value += NumericValue::value(balance, price).f64()
       }
+
+      let eth_balance = self.get_eth_balance(chain, owner);
+      let eth_price = self.get_currency_price(&Currency::from(ERC20Token::wrapped_native_token(
+         chain,
+      )));
+      let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
+      value += eth_value.f64();
 
       let new_value = NumericValue::from_f64(value);
       portfolio.value = new_value;
