@@ -307,13 +307,17 @@ pub async fn send_transaction(
    // update wallet balances
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      let _ = get_eth_balance(ctx_clone.clone(), chain.id(), from).await;
+      let manager = ctx_clone.balance_manager();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+      ctx_clone.save_balance_manager();
    });
 
    let exists = ctx.wallet_exists(interact_to);
    if exists {
       RT.spawn(async move {
-         let _ = get_eth_balance(ctx.clone(), chain.id(), interact_to).await;
+         let manager = ctx.balance_manager();
+         manager.update_eth_balance(ctx.clone(), chain.id(), interact_to).await.unwrap();
+         ctx.save_balance_manager();
       });
    }
 
@@ -595,8 +599,9 @@ pub async fn wrap_or_unwrap_eth(
 
    // update balances
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx.clone(), chain.id(), from, vec![wrapped])
-         .await;
+      let manager = ctx.balance_manager();
+      manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![wrapped]).await.unwrap();
+      ctx.save_balance_manager();
    });
 
    Ok(())
@@ -875,8 +880,9 @@ pub async fn swap(
       currency_out.to_erc20().into_owned(),
    ];
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx.clone(), chain.id(), from, tokens).await;
-      ctx.save_balance_db();
+      let manager = ctx.balance_manager();
+      manager.update_tokens_balance(ctx.clone(), chain.id(), from, tokens).await.unwrap();
+      ctx.save_balance_manager();
    });
 
    Ok(())
@@ -946,8 +952,9 @@ pub async fn collect_fees_position_v3(
 
    let ctx2 = ctx.clone();
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx2.clone(), chain.id(), from, tokens).await;
-      ctx2.save_balance_db();
+      let manager = ctx2.balance_manager();
+      manager.update_tokens_balance(ctx2.clone(), chain.id(), from, tokens).await.unwrap();
+      ctx2.save_balance_manager();
    });
 
    let updated_position =
@@ -1163,8 +1170,9 @@ pub async fn decrease_liquidity_position_v3(
 
    let ctx2 = ctx.clone();
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx2.clone(), chain.id(), from, tokens).await;
-      ctx2.save_balance_db();
+      let manager = ctx2.balance_manager();
+      manager.update_tokens_balance(ctx2.clone(), chain.id(), from, tokens).await.unwrap();
+      ctx2.save_balance_manager();
    });
 
    let updated_position =
@@ -1567,8 +1575,9 @@ pub async fn increase_liquidity_position_v3(
 
    let ctx2 = ctx.clone();
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx2.clone(), chain.id(), from, tokens).await;
-      ctx2.save_balance_db();
+      let manager = ctx2.balance_manager();
+      manager.update_tokens_balance(ctx2.clone(), chain.id(), from, tokens).await.unwrap();
+      ctx2.save_balance_manager();
    });
 
    let updated_position =
@@ -2003,8 +2012,9 @@ pub async fn mint_new_liquidity_position_v3(
 
    let ctx2 = ctx.clone();
    RT.spawn(async move {
-      let _ = update::update_tokens_balance_for_chain(ctx2.clone(), chain.id(), from, tokens).await;
-      ctx2.save_balance_db();
+      let manager = ctx2.balance_manager();
+      manager.update_tokens_balance(ctx2.clone(), chain.id(), from, tokens).await.unwrap();
+      ctx2.save_balance_manager();
    });
 
    if position_info.is_some() {
@@ -2208,158 +2218,9 @@ pub async fn send_crypto(
    Ok(())
 }
 
-/// Get the balance of the given owner in the given chain
-///
-/// And update the balance db
-pub async fn get_eth_balance(
-   ctx: ZeusCtx,
-   chain: u64,
-   owner: Address,
-) -> Result<NumericValue, anyhow::Error> {
-   let client = ctx.get_client(chain).await?;
-   let balance = client.get_balance(owner).await?;
-   let value = NumericValue::currency_balance(balance, 18);
 
-   ctx.write(|ctx| {
-      ctx.balance_db.insert_eth_balance(
-         chain,
-         owner,
-         value.wei().unwrap(),
-         &NativeCurrency::from_chain_id(chain).unwrap(),
-      );
-   });
 
-   RT.spawn_blocking(move || {
-      ctx.calculate_portfolio_value(chain, owner);
-      let _ = ctx.save_balance_db();
-      let _ = ctx.save_portfolio_db();
-   });
 
-   Ok(value)
-}
-
-/// Get the balance of the given owner in the given token
-///
-/// And update the balance db
-pub async fn get_token_balance(
-   ctx: ZeusCtx,
-   owner: Address,
-   token: ERC20Token,
-) -> Result<NumericValue, anyhow::Error> {
-   let client = ctx.get_client(token.chain_id).await?;
-   let balance = token.balance_of(client, owner, None).await?;
-   let balance = NumericValue::currency_balance(balance, token.decimals);
-
-   ctx.write(|ctx| {
-      ctx.balance_db
-         .insert_token_balance(token.chain_id, owner, balance.wei2(), &token);
-   });
-
-   RT.spawn_blocking(move || {
-      ctx.calculate_portfolio_value(token.chain_id, owner);
-      let _ = ctx.save_balance_db();
-      let _ = ctx.save_portfolio_db();
-   });
-
-   Ok(balance)
-}
-
-pub async fn get_currency_balance(
-   ctx: ZeusCtx,
-   owner: Address,
-   currency: Currency,
-) -> Result<NumericValue, anyhow::Error> {
-   if currency.is_native() {
-      get_eth_balance(ctx, currency.chain_id(), owner).await
-   } else {
-      get_token_balance(ctx, owner, currency.erc20().cloned().unwrap()).await
-   }
-}
-
-/// Get the ERC20 Token from the blockchain and update the db
-pub async fn get_erc20_token(
-   ctx: ZeusCtx,
-   chain: u64,
-   owner: Address,
-   token_address: Address,
-) -> Result<ERC20Token, anyhow::Error> {
-   let client = ctx.get_client(chain).await?;
-   let token = ERC20Token::new(client.clone(), token_address, chain).await?;
-
-   let balance = if owner != Address::ZERO {
-      token.balance_of(client.clone(), owner, None).await?
-   } else {
-      U256::ZERO
-   };
-
-   let currency = Currency::from(token.clone());
-
-   // Update the db
-   ctx.write(|ctx| {
-      ctx.currency_db.insert_currency(chain, currency.clone());
-      ctx.balance_db
-         .insert_token_balance(chain, owner, balance, &token);
-   });
-
-   // If there is a balance add the token to the portfolio
-   if !balance.is_zero() {
-      let mut portfolio = ctx.get_portfolio(chain, owner);
-      portfolio.add_token(currency.clone());
-      ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
-   }
-
-   // Sync the pools for the token
-   let ctx_clone = ctx.clone();
-   let token_clone = token.clone();
-   RT.spawn(async move {
-      ctx_clone.write(|ctx| {
-         ctx.data_syncing = true;
-      });
-
-      match sync_pools_for_tokens(
-         ctx_clone.clone(),
-         chain,
-         vec![token_clone.clone()],
-         false,
-      )
-      .await
-      {
-         Ok(_) => {
-            tracing::info!("Synced Pools for {}", token_clone.symbol);
-         }
-         Err(e) => tracing::error!(
-            "Error syncing pools for {}: {:?}",
-            token_clone.symbol,
-            e
-         ),
-      }
-
-      let pool_manager = ctx_clone.pool_manager();
-      match pool_manager
-         .update_for_currencies(client, chain, vec![currency])
-         .await
-      {
-         Ok(_) => {
-            tracing::info!("Updated pool state for {}", token_clone.symbol);
-         }
-         Err(e) => {
-            tracing::error!(
-               "Error updating pool state for {}: {:?}",
-               token_clone.symbol,
-               e
-            );
-         }
-      }
-
-      RT.spawn_blocking(move || {
-         ctx_clone.calculate_portfolio_value(chain, owner);
-         ctx_clone.write(|ctx| ctx.data_syncing = false);
-         ctx_clone.save_all();
-      });
-   });
-
-   Ok(token)
-}
 
 pub async fn sync_pools_for_tokens(
    ctx: ZeusCtx,

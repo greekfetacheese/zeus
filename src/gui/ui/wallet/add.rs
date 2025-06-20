@@ -6,7 +6,7 @@ use eframe::egui::{
 use egui_theme::{Theme, utils::*};
 use egui_widgets::SecureTextEdit;
 use secure_types::SecureString;
-use zeus_eth::{alloy_provider::Provider, currency::NativeCurrency, types::SUPPORTED_CHAINS};
+use zeus_eth::types::SUPPORTED_CHAINS;
 
 #[derive(PartialEq, Eq)]
 pub enum ImportWalletType {
@@ -160,43 +160,16 @@ impl ImportWallet {
 
             // Fetch the balance for the new wallet across all chains and add it to the portfolio db
             RT.spawn(async move {
+               let manager = ctx.balance_manager();
                for chain in SUPPORTED_CHAINS {
-                  let ctx = ctx.clone();
-                  let client = match ctx.get_client(chain).await {
-                     Ok(client) => client,
-                     Err(e) => {
-                        tracing::error!(
-                           "Error getting client for chain {}: {:?}",
-                           chain,
-                           e
-                        );
-                        return;
-                     }
-                  };
-
-                  let balance = match client.get_balance(new_wallet_address).await {
-                     Ok(balance) => balance,
-                     Err(e) => {
-                        tracing::error!(
-                           "Error getting balance for wallet {}: {:?}",
-                           new_wallet_address,
-                           e
-                        );
-                        return;
-                     }
-                  };
-
-                  let native = NativeCurrency::from(chain);
-
-                  ctx.write(|ctx| {
-                     ctx.balance_db
-                        .insert_eth_balance(chain, new_wallet_address, balance, &native);
-                  });
+                  let _ = manager
+                     .update_eth_balance(ctx.clone(), chain, new_wallet_address)
+                     .await;
 
                   // Portfolio is created and saved here
                   ctx.calculate_portfolio_value(chain, new_wallet_address);
 
-                  ctx.save_balance_db();
+                  ctx.save_balance_manager();
                   ctx.save_portfolio_db();
                }
             });

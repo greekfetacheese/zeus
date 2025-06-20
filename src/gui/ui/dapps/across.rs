@@ -1,6 +1,5 @@
 use crate::assets::icons::Icons;
 use crate::core::utils::action::OnChainAction;
-use crate::core::utils::eth::get_eth_balance;
 use crate::core::{
    ZeusCtx,
    utils::{RT, estimate_tx_cost, eth},
@@ -126,7 +125,7 @@ impl AcrossBridge {
                      ))
                      .clicked()
                   {
-                     self.get_balance(ctx.clone(), depositor);
+                     self.sync_balance(ctx.clone(), depositor);
                   }
                });
 
@@ -472,24 +471,20 @@ impl AcrossBridge {
       }
    }
 
-   fn get_balance(&mut self, ctx: ZeusCtx, depositor: Address) {
+   fn sync_balance(&mut self, ctx: ZeusCtx, depositor: Address) {
       let chain = self.from_chain.chain.id();
       let ctx_clone = ctx.clone();
       self.balance_syncing = true;
       RT.spawn(async move {
-         match get_eth_balance(ctx_clone, chain, depositor).await {
-            Ok(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.across_bridge.balance_syncing = false;
-               });
-            }
-            Err(e) => {
-               tracing::error!("Error getting balance: {:?}", e);
-               SHARED_GUI.write(|gui| {
-                  gui.across_bridge.balance_syncing = false;
-               });
-            }
-         }
+         let manager = ctx_clone.balance_manager();
+         let _ = manager
+            .update_eth_balance(ctx_clone.clone(), chain, depositor)
+            .await;
+         ctx_clone.save_balance_manager();
+         
+         SHARED_GUI.write(|gui| {
+            gui.across_bridge.balance_syncing = false;
+         });
       });
    }
 

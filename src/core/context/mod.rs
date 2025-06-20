@@ -26,8 +26,10 @@ const CLIENT_TIMEOUT: u64 = 10;
 
 pub mod db;
 pub mod providers;
+pub mod balance_manager;
 
-pub use db::{BalanceDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
+pub use balance_manager::BalanceManagerHandle;
+pub use db::{CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use providers::{Rpc, RpcProviders};
 
 /// Thread-safe handle to the [ZeusContext]
@@ -51,6 +53,10 @@ impl ZeusCtx {
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
       self.read(|ctx| ctx.pool_manager.clone())
+   }
+
+   pub fn balance_manager(&self) -> BalanceManagerHandle {
+      self.read(|ctx| ctx.balance_manager.clone())
    }
 
    /// If pool_data.json has been deleted, we need to re-sync the pools
@@ -342,13 +348,13 @@ impl ZeusCtx {
       self.read(|ctx| ctx.chain.clone())
    }
 
-   pub fn save_balance_db(&self) {
-      self.read(|ctx| match ctx.balance_db.save() {
+   pub fn save_balance_manager(&self) {
+      self.read(|ctx| match ctx.balance_manager.save() {
          Ok(_) => {
-            tracing::info!("BalanceDB saved");
+            tracing::info!("Balance Manager saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving Balance Manager: {:?}", e);
          }
       })
    }
@@ -359,7 +365,7 @@ impl ZeusCtx {
             tracing::info!("V3PositionsDB saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving V3 Positions DB: {:?}", e);
          }
       })
    }
@@ -370,7 +376,7 @@ impl ZeusCtx {
             tracing::info!("CurrencyDB saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving CurrencyDB: {:?}", e);
          }
       })
    }
@@ -381,7 +387,7 @@ impl ZeusCtx {
             tracing::info!("PortfolioDB saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving PortfolioDB: {:?}", e);
          }
       })
    }
@@ -392,7 +398,7 @@ impl ZeusCtx {
             tracing::info!("ContactDB saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving ContactDB: {:?}", e);
          }
       })
    }
@@ -403,7 +409,7 @@ impl ZeusCtx {
             tracing::info!("Providers saved");
          }
          Err(e) => {
-            tracing::error!("Error saving DB: {:?}", e);
+            tracing::error!("Error saving Providers: {:?}", e);
          }
       })
    }
@@ -416,7 +422,7 @@ impl ZeusCtx {
    }
 
    pub fn save_all(&self) {
-      self.save_balance_db();
+      self.save_balance_manager();
       self.save_currency_db();
       self.save_portfolio_db();
       self.save_contact_db();
@@ -457,11 +463,11 @@ impl ZeusCtx {
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.read(|ctx| ctx.balance_db.get_eth_balance(chain, owner))
+      self.read(|ctx| ctx.balance_manager.get_eth_balance(chain, owner))
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
-      self.read(|ctx| ctx.balance_db.get_token_balance(chain, owner, token))
+      self.read(|ctx| ctx.balance_manager.get_token_balance(chain, owner, token))
    }
 
    pub fn get_currencies(&self, chain: u64) -> Arc<Vec<Currency>> {
@@ -836,13 +842,13 @@ pub struct ZeusContext {
 
    pub account_exists: bool,
    pub logged_in: bool,
-   pub balance_db: BalanceDB,
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
    pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
    pub v3_positions_db: V3PositionsDB,
    pub pool_manager: PoolManagerHandle,
+   pub balance_manager: BalanceManagerHandle,
    pub data_syncing: bool,
    pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,
@@ -867,11 +873,11 @@ impl ZeusContext {
          }
       };
 
-      let balance_db = match BalanceDB::load_from_file() {
+      let balance_manager = match BalanceManagerHandle::load_from_file() {
          Ok(db) => db,
          Err(e) => {
             tracing::error!("Failed to load balances, {:?}", e);
-            BalanceDB::default()
+            BalanceManagerHandle::default()
          }
       };
 
@@ -938,13 +944,13 @@ impl ZeusContext {
          account: Account::default(),
          account_exists,
          logged_in: false,
-         balance_db,
          currency_db,
          portfolio_db,
          contact_db,
          tx_db,
          v3_positions_db,
          pool_manager,
+         balance_manager,
          data_syncing: false,
          on_startup_syncing: false,
          base_fee: HashMap::new(),

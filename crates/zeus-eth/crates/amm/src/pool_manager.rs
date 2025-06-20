@@ -561,7 +561,7 @@ impl PoolManagerHandle {
             let task = tokio::task::spawn(async move {
                let checkpoint = checkpoint.unwrap();
                let _permit = semaphore.acquire().await?;
-               let synced = sync_from_checkpoints(client.clone(), concurrency.into(), batch, vec![checkpoint]).await?;
+               let synced = sync_from_checkpoints(client.clone(), concurrency, batch, vec![checkpoint]).await?;
                manager.add_v4_pool_last_sync_time(chain, dex);
                results.lock().await.extend(synced);
                Ok(())

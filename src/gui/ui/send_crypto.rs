@@ -11,7 +11,7 @@ use crate::core::{
    utils::{
       RT,
       estimate_tx_cost,
-      eth::{self, get_currency_balance},
+      eth,
    },
 };
 
@@ -308,21 +308,18 @@ impl SendCryptoUi {
    fn sync_balance(&mut self, owner: Address, ctx: ZeusCtx) {
       self.syncing_balance = true;
       let currency = self.currency.clone();
+      let chain = currency.chain_id();
       RT.spawn(async move {
-         match get_currency_balance(ctx.clone(), owner, currency.clone()).await {
-            Ok(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.send_crypto.syncing_balance = false;
-               });
-            }
-            Err(e) => {
-               tracing::error!("Error getting balance: {:?}", e);
-               SHARED_GUI.write(|gui| {
-                  gui.send_crypto.syncing_balance = false;
-               });
-               return;
-            }
-         };
+         let balance_manager = ctx.balance_manager();
+         if currency.is_native() {
+           let _ = balance_manager.update_eth_balance(ctx.clone(), chain, owner).await;
+         } else {
+            let token = currency.to_erc20().into_owned();
+           let _ = balance_manager.update_tokens_balance(ctx.clone(), chain, owner, vec![token]).await;
+         }
+         SHARED_GUI.write(|gui| {
+            gui.send_crypto.syncing_balance = false;
+         });
       });
    }
 

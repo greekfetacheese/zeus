@@ -6,10 +6,10 @@ use crate::core::{serde_hashmap, utils::*};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
-   types,
+   types::{ARBITRUM, BASE, BSC, ETH, OPTIMISM},
 };
 use zeus_token_list::{
-   ARBITRUM, BASE, BINANCE_SMART_CHAIN, ETHEREUM, OPTIMISM, tokens::UniswapToken,
+   ARBITRUM as ARBITRUM_TOKENS, BASE as BASE_TOKENS, BINANCE_SMART_CHAIN as BSC_TOKENS, ETHEREUM as ETH_TOKENS, OPTIMISM as OP_TOKENS, tokens::UniswapToken,
 };
 
 const FILE_NAME: &str = "currencies.json";
@@ -99,35 +99,34 @@ impl CurrencyDB {
    }
 
    pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {
-      // Native Currencies
 
       // Ethereum
-      let eth_native = NativeCurrency::from_chain_id(types::ETH)?;
-      self.insert_currency(types::ETH, Currency::from(eth_native.clone()));
+      let eth = NativeCurrency::from(ETH);
+      self.insert_currency(ETH, Currency::from(eth));
 
       // Binance Smart Chain
-      let bnb_native = NativeCurrency::from_chain_id(types::BSC)?;
-      self.insert_currency(types::BSC, Currency::from(bnb_native));
+      let bnb_native = NativeCurrency::from(BSC);
+      self.insert_currency(BSC, Currency::from(bnb_native));
 
       // Optimism
-      self.insert_currency(
-         types::OPTIMISM,
-         Currency::from(eth_native.clone()),
-      );
+      let eth_op = NativeCurrency::from(OPTIMISM);
+      self.insert_currency(OPTIMISM, Currency::from(eth_op));
 
       // Base Network
-      self.insert_currency(types::BASE, Currency::from(eth_native.clone()));
+      let eth_base = NativeCurrency::from(BASE);
+      self.insert_currency(BASE, Currency::from(eth_base));
 
       // Arbitrum
-      self.insert_currency(types::ARBITRUM, Currency::from(eth_native));
+      let eth_arb = NativeCurrency::from(ARBITRUM);
+      self.insert_currency(ARBITRUM, Currency::from(eth_arb));
 
       // Load the default token list
       let mut default_tokens: Vec<ERC20Token> = Vec::new();
-      let eth_tokens: Vec<UniswapToken> = serde_json::from_str(ETHEREUM)?;
-      let op_tokens: Vec<UniswapToken> = serde_json::from_str(OPTIMISM)?;
-      let base_tokens: Vec<UniswapToken> = serde_json::from_str(BASE)?;
-      let arbitrum_tokens: Vec<UniswapToken> = serde_json::from_str(ARBITRUM)?;
-      let bnb_tokens: Vec<UniswapToken> = serde_json::from_str(BINANCE_SMART_CHAIN)?;
+      let eth_tokens: Vec<UniswapToken> = serde_json::from_str(ETH_TOKENS)?;
+      let op_tokens: Vec<UniswapToken> = serde_json::from_str(OP_TOKENS)?;
+      let base_tokens: Vec<UniswapToken> = serde_json::from_str(BASE_TOKENS)?;
+      let arbitrum_tokens: Vec<UniswapToken> = serde_json::from_str(ARBITRUM_TOKENS)?;
+      let bnb_tokens: Vec<UniswapToken> = serde_json::from_str(BSC_TOKENS)?;
 
       for token in eth_tokens {
          let erc20 = ERC20Token {

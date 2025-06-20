@@ -1,17 +1,14 @@
 use crate::core::{BaseFee, ZeusCtx, context::providers::client_test, utils::*};
 use anyhow::{anyhow, bail};
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use zeus_eth::alloy_rpc_types::BlockId;
 use zeus_eth::amm::DexKind;
-use zeus_eth::currency::NativeCurrency;
 use zeus_eth::{
-   alloy_primitives::{Address, U256, utils::format_units},
+   alloy_primitives::{U256, utils::format_units},
    alloy_provider::Provider,
    currency::ERC20Token,
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
-   utils::batch::get_erc20_balances,
    utils::block::calculate_next_block_base_fee,
    utils::client,
 };
@@ -19,7 +16,7 @@ use zeus_eth::{
 const MEASURE_RPCS_INTERVAL: u64 = 60;
 const POOL_MANAGER_INTERVAL: u64 = 600;
 const PORTFOLIO_INTERVAL: u64 = 60;
-const BALANCE_INTERVAL: u64 = 120;
+const BALANCE_INTERVAL: u64 = 600;
 const PRIORITY_FEE_INTERVAL: u64 = 90;
 const BASE_FEE_INTERVAL: u64 = 180;
 
@@ -58,8 +55,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       });
    }
 
-   let eth_fut = update_eth_balance(ctx.clone());
-   let token_fut = update_token_balance(ctx.clone());
+   let balance_manager = ctx.balance_manager();
+
+   let eth_balance_fut = balance_manager.update_eth_balance_across_wallets_and_chains(ctx.clone());
+   let token_balance_fut = balance_manager.update_tokens_balance_across_wallets_and_chains(ctx.clone());
 
    resync_pools(ctx.clone()).await;
 
@@ -67,15 +66,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
       update_pool_manager(ctx.clone()).await;
    }
 
-   match eth_fut.await {
-      Ok(_) => tracing::info!("Updated ETH balances"),
-      Err(e) => tracing::error!("Error updating ETH balance: {:?}", e),
-   }
-
-   match token_fut.await {
-      Ok(_) => tracing::info!("Updated token balances"),
-      Err(e) => tracing::error!("Error updating token balance: {:?}", e),
-   }
+   eth_balance_fut.await;
+   token_balance_fut.await;
 
    // Calculate the portfolio value for all chains
 
@@ -159,8 +151,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let _ = task.await;
    }
 
-      RT.spawn_blocking(move || {
-      ctx.save_pool_manager().unwrap();
+   RT.spawn_blocking(move || {
+      ctx.save_all();
    });
 
    /*
@@ -211,43 +203,7 @@ pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    }
 }
 
-/// Update the portfolio state for the given chain and wallet
-pub async fn update_portfolio_state(
-   ctx: ZeusCtx,
-   chain: u64,
-   owner: Address,
-) -> Result<(), anyhow::Error> {
-   let pool_manager = ctx.pool_manager();
-   let client = ctx.get_client(chain).await?;
-   let portfolio = ctx.get_portfolio(chain, owner);
-   let dex_kinds = DexKind::main_dexes(chain);
-   let tokens = portfolio.get_tokens();
 
-   update_eth_balance(ctx.clone()).await?;
-   update_tokens_balance_for_chain(ctx.clone(), chain, owner, tokens.clone()).await?;
-
-   match pool_manager
-      .sync_pools_for_tokens(
-         client.clone(),
-         chain,
-         tokens,
-         dex_kinds.clone(),
-         false,
-      )
-      .await
-   {
-      Ok(_) => {}
-      Err(e) => tracing::error!("Error syncing pools for chain {}: {:?}", chain, e),
-   }
-
-   pool_manager.update(client, chain).await?;
-   RT.spawn_blocking(move || {
-      ctx.calculate_portfolio_value(chain, owner);
-      ctx.save_all();
-   });
-
-   Ok(())
-}
 
 pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
@@ -262,7 +218,7 @@ pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
 }
 
 /// Update the pool manager state for all chains
-pub async fn update_pool_manager(ctx: ZeusCtx) {
+async fn update_pool_manager(ctx: ZeusCtx) {
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let ctx = ctx.clone();
@@ -281,21 +237,34 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
 
          let pool_manager = ctx.pool_manager();
 
-         /*
-         let tokens = ctx.get_all_erc20_tokens(chain);
+         let tokens = ctx.get_all_tokens_from_portfolios(chain);
          let mut currencies = Vec::new();
          for token in tokens {
-            // skip this step for now and just update all pools
-
             if token.is_weth() || token.is_wbnb() {
                continue;
             }
 
             currencies.push(Currency::from(token));
          }
-         */
 
-         match pool_manager.update(client, chain).await {
+         if currencies.is_empty() {
+            match pool_manager
+               .update_base_token_prices(client.clone(), chain)
+               .await
+            {
+               Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
+               Err(e) => tracing::error!(
+                  "Error updating base token prices for chain {}: {:?}",
+                  chain,
+                  e
+               ),
+            }
+         }
+
+         match pool_manager
+            .update_for_currencies(client, chain, currencies)
+            .await
+         {
             Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
             Err(e) => tracing::error!(
                "Error updating pool manager for chain {}: {:?}",
@@ -316,145 +285,16 @@ pub async fn update_pool_manager(ctx: ZeusCtx) {
    });
 }
 
-/// Update the eth balance for all wallets across all chains
-pub async fn update_eth_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ctx = ctx.clone();
-      let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
 
-      let task = RT.spawn(async move {
-         let client = match ctx.get_client(chain).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error getting client for chain {}: {:?}",
-                  chain,
-                  e
-               );
-               return;
-            }
-         };
-
-         for portfolio in &portfolios {
-            let balance = match client.get_balance(portfolio.owner).await {
-               Ok(balance) => balance,
-               Err(e) => {
-                  tracing::error!(
-                     "Error getting balance for chain {}: {:?}",
-                     chain,
-                     e
-                  );
-                  continue;
-               }
-            };
-            let native = NativeCurrency::from_chain_id(chain).unwrap();
-
-            ctx.write(|ctx| {
-               ctx.balance_db
-                  .insert_eth_balance(chain, portfolio.owner, balance, &native);
-            })
-         }
-      });
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      if let Err(e) = task.await {
-         tracing::error!("Error updating ETH balance: {:?}", e);
-      }
-   }
-
-   RT.spawn_blocking(move || {
-      ctx.save_balance_db();
-   });
-
-   Ok(())
-}
-
-/// Update the balance of tokens for the given chain and owner
-pub async fn update_tokens_balance_for_chain(
-   ctx: ZeusCtx,
-   chain: u64,
-   owner: Address,
-   tokens: Vec<ERC20Token>,
-) -> Result<(), anyhow::Error> {
-   let token_map: HashMap<Address, &ERC20Token> =
-      tokens.iter().map(|token| (token.address, token)).collect();
-   let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
-   let client = ctx.get_client(chain).await?;
-
-   let mut token_with_balance = Vec::new();
-   for token_addr in tokens_addr.chunks(100) {
-      let balances = get_erc20_balances(client.clone(), None, owner, token_addr.to_vec()).await?;
-      for balance in balances {
-         token_with_balance.push((balance.token, balance.balance));
-      }
-   }
-
-   // Match each balance with its corresponding ERC20Token
-   for (token_address, balance) in token_with_balance {
-      if let Some(token) = token_map.get(&token_address) {
-         ctx.write(|ctx| {
-            ctx.balance_db
-               .insert_token_balance(chain, owner, balance, *token);
-         });
-      } else {
-         tracing::warn!(
-            "No matching token found for address: {:?}",
-            token_address
-         );
-      }
-   }
-   Ok(())
-}
-
-/// Update the token balance for all wallets across all chains
-pub async fn update_token_balance(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ctx = ctx.clone();
-      let porfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
-
-      let task = RT.spawn(async move {
-         for portfolio in &porfolios {
-            let tokens = portfolio.get_tokens();
-
-            match update_tokens_balance_for_chain(ctx.clone(), chain, portfolio.owner, tokens).await
-            {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!(
-                     "Error updating token balance for chain {}: {:?}",
-                     chain,
-                     e
-                  );
-               }
-            }
-         }
-      });
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      if let Err(e) = task.await {
-         tracing::error!("Error updating token balance: {:?}", e);
-      }
-   }
-   Ok(())
-}
 
 async fn balance_update_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > BALANCE_INTERVAL {
-         if let Err(e) = update_eth_balance(ctx.clone()).await {
-            tracing::error!("Error updating eth balance: {:?}", e);
-         }
-         if let Err(e) = update_token_balance(ctx.clone()).await {
-            tracing::error!("Error updating token balance: {:?}", e);
-         }
+         let manager = ctx.balance_manager();
+         manager.update_eth_balance_across_wallets_and_chains(ctx.clone()).await;
+         manager.update_tokens_balance_across_wallets_and_chains(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
@@ -689,13 +529,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          let pool_manager = ctx.pool_manager();
 
          match pool_manager
-            .sync_pools_for_tokens(
-               client.clone(),
-               chain,
-               tokens,
-               dexes,
-               false,
-            )
+            .sync_pools_for_tokens(client.clone(), chain, tokens, dexes, false)
             .await
          {
             Ok(_) => {}

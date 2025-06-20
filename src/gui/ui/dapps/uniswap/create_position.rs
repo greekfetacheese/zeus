@@ -10,7 +10,7 @@ use super::{UniswapSettingsUi, swap::InOrOut};
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
-   utils::{RT, eth, update},
+   utils::{RT, eth},
 };
 use crate::gui::ui::dapps::uniswap::{ProtocolVersion, currencies_amount_and_value};
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
@@ -651,14 +651,16 @@ impl CreatePositionUi {
          let token_a = self.currency0.to_erc20().into_owned();
          let token_b = self.currency1.to_erc20().into_owned();
          RT.spawn(async move {
-            let _ = update::update_tokens_balance_for_chain(
-               ctx_clone.clone(),
-               chain_id,
-               owner,
-               vec![token_a, token_b],
-            )
-            .await;
-            ctx_clone.save_balance_db();
+            let manager = ctx_clone.balance_manager();
+            let _ = manager
+               .update_tokens_balance(
+                  ctx_clone.clone(),
+                  chain_id,
+                  owner,
+                  vec![token_a, token_b],
+               )
+               .await;
+            ctx_clone.save_balance_manager();
          });
       }
 

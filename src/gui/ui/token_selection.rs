@@ -11,7 +11,11 @@ use crate::core::utils::{RT, eth};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use egui_theme::Theme;
-use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
+use zeus_eth::{
+   alloy_primitives::Address,
+   currency::{Currency, ERC20Token},
+   utils::NumericValue,
+};
 
 /// A simple window that allows the user to select a token
 /// based on the a list of [Currency] we pass to it
@@ -209,7 +213,7 @@ impl TokenSelectionWindow {
                   gui.loading_window.open("Retrieving token...");
                });
 
-               let token = match eth::get_erc20_token(ctx, chain, owner, address).await {
+               let token = match get_erc20_token(ctx, chain, owner, address).await {
                   Ok(token) => {
                      SHARED_GUI.write(|gui| {
                         gui.loading_window.open = false;
@@ -260,4 +264,85 @@ impl TokenSelectionWindow {
       }
       false
    }
+}
+
+async fn get_erc20_token(
+   ctx: ZeusCtx,
+   chain: u64,
+   owner: Address,
+   token_address: Address,
+) -> Result<ERC20Token, anyhow::Error> {
+   let client = ctx.get_client(chain).await?;
+   let token = ERC20Token::new(client.clone(), token_address, chain).await?;
+   let manager = ctx.balance_manager();
+   manager
+      .update_tokens_balance(ctx.clone(), chain, owner, vec![token.clone()])
+      .await?;
+
+   let currency = Currency::from(token.clone());
+
+   // Update the db
+   ctx.write(|ctx| {
+      ctx.currency_db.insert_currency(chain, currency.clone());
+   });
+
+   // If there is a balance add the token to the portfolio
+   let balance = manager.get_token_balance(chain, owner, token.address);
+   if !balance.is_zero() {
+      let mut portfolio = ctx.get_portfolio(chain, owner);
+      portfolio.add_token(currency.clone());
+      ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
+   }
+
+   // Sync the pools for the token
+   let ctx_clone = ctx.clone();
+   let token_clone = token.clone();
+   RT.spawn(async move {
+      ctx_clone.write(|ctx| {
+         ctx.data_syncing = true;
+      });
+
+      match eth::sync_pools_for_tokens(
+         ctx_clone.clone(),
+         chain,
+         vec![token_clone.clone()],
+         false,
+      )
+      .await
+      {
+         Ok(_) => {
+            tracing::info!("Synced Pools for {}", token_clone.symbol);
+         }
+         Err(e) => tracing::error!(
+            "Error syncing pools for {}: {:?}",
+            token_clone.symbol,
+            e
+         ),
+      }
+
+      let pool_manager = ctx_clone.pool_manager();
+      match pool_manager
+         .update_for_currencies(client, chain, vec![currency])
+         .await
+      {
+         Ok(_) => {
+            tracing::info!("Updated pool state for {}", token_clone.symbol);
+         }
+         Err(e) => {
+            tracing::error!(
+               "Error updating pool state for {}: {:?}",
+               token_clone.symbol,
+               e
+            );
+         }
+      }
+
+      RT.spawn_blocking(move || {
+         ctx_clone.calculate_portfolio_value(chain, owner);
+         ctx_clone.write(|ctx| ctx.data_syncing = false);
+         ctx_clone.save_all();
+      });
+   });
+
+   Ok(token)
 }

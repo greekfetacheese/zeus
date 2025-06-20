@@ -6,17 +6,13 @@ use egui::{FontId, Margin};
 use std::sync::Arc;
 use zeus_eth::amm::DexKind;
 use zeus_eth::currency::NativeCurrency;
-use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
 use crate::core::utils::format_expiry;
 use crate::core::utils::sign::SignMsgType;
+use crate::core::utils::truncate_address;
 use crate::core::utils::tx::TxSummary;
-use crate::core::utils::{truncate_address, update::update_portfolio_state};
-use crate::core::{
-   WalletInfo, ZeusCtx,
-   utils::{RT, eth},
-};
+use crate::core::{WalletInfo, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
@@ -1250,15 +1246,39 @@ impl PortfolioUi {
       self.show_spinner = true;
       RT.spawn(async move {
          let chain = ctx.chain().id();
+         let portfolio = ctx.get_portfolio(chain, owner);
+         let tokens = portfolio.get_tokens();
 
-         match update_portfolio_state(ctx, chain, owner).await {
-            Ok(_) => {
-               tracing::info!("Updated portfolio state");
-            }
-            Err(e) => {
-               tracing::error!("Error updating portfolio state: {:?}", e);
-            }
+         // Update the eth and token balances
+         let balance_manager = ctx.balance_manager();
+         let _ = balance_manager
+            .update_eth_balance(ctx.clone(), chain, owner)
+            .await;
+         let _ = balance_manager
+            .update_tokens_balance(ctx.clone(), chain, owner, tokens)
+            .await;
+
+         // Update the pool state that includes these tokens
+         let pool_manager = ctx.pool_manager();
+         let mut pools_to_update = Vec::new();
+         for currency in &portfolio.tokens {
+            let pools = pool_manager.get_pools_that_have_currency(&currency);
+            pools_to_update.extend(pools);
          }
+
+         let client = match ctx.get_client(chain).await {
+            Ok(client) => client,
+            Err(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.portofolio.show_spinner = false;
+               });
+               return;
+            }
+         };
+
+         let _ = pool_manager
+            .update_state_for_pools(client, chain, pools_to_update)
+            .await;
 
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;
@@ -1283,7 +1303,8 @@ impl PortfolioUi {
       let mut portfolio = ctx.get_portfolio(chain_id, owner);
       portfolio.add_token(currency.clone());
       ctx.write(|ctx| {
-         ctx.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+         ctx.portfolio_db
+            .insert_portfolio(chain_id, owner, portfolio);
       });
 
       let ctx_clone = ctx.clone();
@@ -1308,7 +1329,16 @@ impl PortfolioUi {
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-         let client = ctx_clone.get_client(chain_id).await.unwrap();
+         let client = match ctx_clone.get_client(chain_id).await {
+            Ok(client) => client,
+            Err(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.portofolio.show_spinner = false;
+               });
+               return;
+            }
+         };
+
          match manager
             .sync_pools_for_tokens(
                client.clone(),
@@ -1329,7 +1359,10 @@ impl PortfolioUi {
             ),
          }
 
-         match manager.update_for_currencies(client, chain_id, vec![currency]).await {
+         match manager
+            .update_for_currencies(client, chain_id, vec![currency])
+            .await
+         {
             Ok(_) => {
                tracing::info!("Updated pool state for {}", token.symbol);
                SHARED_GUI.write(|gui| {
@@ -1348,17 +1381,11 @@ impl PortfolioUi {
             }
          }
 
-         let balance = match eth::get_token_balance(ctx_clone.clone(), owner, token.clone()).await {
-            Ok(b) => b,
-            Err(e) => {
-               tracing::error!("Error getting token balance: {:?}", e);
-               NumericValue::default()
-            }
-         };
-         ctx_clone.write(|ctx| {
-            ctx.balance_db
-               .insert_token_balance(chain_id, owner, balance.wei2(), &token);
-         });
+         let balance_manager = ctx_clone.balance_manager();
+         let _ = balance_manager
+            .update_tokens_balance(ctx_clone.clone(), chain_id, owner, vec![token])
+            .await;
+
          RT.spawn_blocking(move || {
             ctx_clone.calculate_portfolio_value(chain_id, owner);
             ctx_clone.save_all();
