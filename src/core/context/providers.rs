@@ -1,12 +1,13 @@
-use crate::core::utils::data_dir;
+use crate::core::{ZeusCtx, utils::data_dir};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, time::Duration};
 use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
+   amm::UniswapPool,
    currency::ERC20Token,
-   utils::client,
+   utils::{batch, client},
 };
 
 const PROVIDERS_FILE: &str = "providers.json";
@@ -123,7 +124,7 @@ impl RpcProviders {
    pub fn reset_working(&mut self) {
       self.rpcs.iter_mut().for_each(|(_, rpcs)| {
          rpcs.iter_mut().for_each(|rpc| {
-            rpc.working = true;
+            rpc.working = false;
          })
       });
    }
@@ -185,7 +186,6 @@ impl Default for RpcProviders {
 
       // Commented out RPCs that are not supporting at least one eth method on their public endpoint
       // For example some of the RPCs are not supporting eth_getLogs
-      // TODO: make a blacklist?
 
       // Chain ID 1: Ethereum
 
@@ -544,15 +544,15 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
          Ok(old_block) => {
             if old_block.is_some() {
                tracing::debug!("{} is Archive Node", rpc.url);
-              return Ok(true)
+               return Ok(true);
             } else {
                tracing::debug!("{} is NOT Archive Node", rpc.url);
-               return Ok(false)
+               return Ok(false);
             }
          }
          Err(e) => {
             tracing::debug!("Error getting historical block: {:?}", e);
-           return Ok(false)
+            return Ok(false);
          }
       }
    }
@@ -566,6 +566,7 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
    // request the latest block number 25 times concurrently
    // if the throttle and retry layers are working correctly
    // this should not fail
+   // For some endpoints this actually fails
    let mut tasks: Vec<tokio::task::JoinHandle<Result<u64, anyhow::Error>>> = Vec::new();
    for _ in 0..24 {
       let client = client.clone();
@@ -588,20 +589,63 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
       )))
       .await;
 
-   match old_block {
+   let is_archive = match old_block {
       Ok(old_block) => {
          if old_block.is_some() {
             tracing::debug!("{} is Archive Node", rpc.url);
-            Ok(true)
+            true
          } else {
             tracing::debug!("{} is NOT Archive Node", rpc.url);
-            Ok(false)
+            false
          }
       }
       Err(e) => {
          tracing::debug!("Error getting historical block: {:?}", e);
-         Ok(false)
+         false
       }
+   };
+
+   // This is actually important, A lot of providers have a very low staticalll gas limit
+   // and requests like batch fetching the state for V3 pools can fail
+
+   let ctx = ZeusCtx::new();
+   let pool_manager = ctx.pool_manager();
+
+   let v3_pools = pool_manager.get_v3_pools_for_chain(rpc.chain_id);
+   let mut state_res = None;
+
+   if v3_pools.len() >= 10 {
+
+      let mut pools_to_update = Vec::new();
+      for pool in &v3_pools {
+         if pools_to_update.len() >= 10 {
+            break;
+         }
+         pools_to_update.push(batch::V3Pool {
+            pool: pool.address(),
+            token0: pool.currency0().address(),
+            token1: pool.currency1().address(),
+            tickSpacing: pool.fee().tick_spacing(),
+         });
+      }
+
+      let state_data_res = batch::get_v3_state(client, None, pools_to_update).await;
+      state_res = Some(state_data_res);
+   } else {
+      // If we dont have at least 10 pools just skip this check
+      tracing::info!("Not enough V3 pools for testing {}", rpc.url);
+   }
+
+   if let Some(res) = state_res {
+      match res {
+         Ok(_res) => Ok(is_archive),
+         Err(e) => {
+            tracing::debug!("Error getting V3 pool state: {:?}", e);
+            return Err(anyhow!("Error getting V3 pool state {}", e));
+         }
+      }
+   } else {
+      Ok(is_archive)
    }
 }
 

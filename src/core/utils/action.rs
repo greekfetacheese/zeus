@@ -518,9 +518,9 @@ impl BridgeParams {
       let decoded_log = decode_log.unwrap();
 
       let amount = NumericValue::format_wei(decoded.inputAmount, input_token.decimals);
-      let amount_usd = ctx.get_currency_value2(amount.f64(), &Currency::from(input_token.clone()));
+      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(input_token.clone()));
       let received = NumericValue::format_wei(decoded_log.output_amount, output_token.decimals);
-      let received_usd = ctx.get_currency_value2(
+      let received_usd = ctx.get_currency_value_for_amount(
          received.f64(),
          &Currency::from(output_token.clone()),
       );
@@ -707,9 +707,9 @@ impl SwapParams {
 
       let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
       let amount_in_usd =
-         ctx.get_currency_value2(amount_in.f64(), &Currency::from(token_in.clone()));
+         ctx.get_currency_value_for_amount(amount_in.f64(), &Currency::from(token_in.clone()));
       let amount_out = NumericValue::format_wei(amount_out, token_out.decimals);
-      let amount_out_usd = ctx.get_currency_value2(
+      let amount_out_usd = ctx.get_currency_value_for_amount(
          amount_out.f64(),
          &Currency::from(token_out.clone()),
       );
@@ -801,9 +801,9 @@ impl SwapParams {
 
       let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
       let amount_in_usd =
-         ctx.get_currency_value2(amount_in.f64(), &Currency::from(token_in.clone()));
+         ctx.get_currency_value_for_amount(amount_in.f64(), &Currency::from(token_in.clone()));
       let amount_out = NumericValue::format_wei(amount_out, token_out.decimals);
-      let amount_out_usd = ctx.get_currency_value2(
+      let amount_out_usd = ctx.get_currency_value_for_amount(
          amount_out.f64(),
          &Currency::from(token_out.clone()),
       );
@@ -857,7 +857,7 @@ impl TransferParams {
          let native = NativeCurrency::from_chain_id(chain)?;
          let currency = Currency::from(native);
          let amount = NumericValue::format_wei(value, currency.decimals());
-         let amount_usd = ctx.get_currency_value2(amount.f64(), &currency);
+         let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &currency);
 
          Ok(Self {
             currency,
@@ -883,7 +883,7 @@ impl TransferParams {
          };
 
          let amount = NumericValue::format_wei(amount, token.decimals);
-         let amount_usd = ctx.get_currency_value2(amount.f64(), &Currency::from(token.clone()));
+         let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
 
          Ok(Self {
             currency: Currency::from(token),
@@ -950,7 +950,7 @@ impl TokenApproveParams {
       };
 
       let amount = NumericValue::format_wei(decoded.value, token.decimals);
-      let amount_usd = ctx.get_currency_value2(amount.f64(), &Currency::from(token.clone()));
+      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
       let owner = decoded.owner;
       let spender = decoded.spender;
 
@@ -1001,9 +1001,9 @@ impl WrapETHParams {
 
       let currency = Currency::from(NativeCurrency::from_chain_id(chain).unwrap());
       let eth_amount = NumericValue::format_wei(value, currency.decimals());
-      let eth_amount_usd = ctx.get_currency_value2(eth_amount.f64(), &currency);
+      let eth_amount_usd = ctx.get_currency_value_for_amount(eth_amount.f64(), &currency);
       let weth_amount = NumericValue::format_wei(decoded.wad, currency.decimals());
-      let weth_amount_usd = ctx.get_currency_value2(weth_amount.f64(), &currency);
+      let weth_amount_usd = ctx.get_currency_value_for_amount(weth_amount.f64(), &currency);
 
       Ok(Self {
          from,
@@ -1054,9 +1054,9 @@ impl UnwrapWETHParams {
 
       let currency = Currency::from(NativeCurrency::from_chain_id(chain).unwrap());
       let weth_amount = NumericValue::format_wei(value, currency.decimals());
-      let weth_amount_usd = ctx.get_currency_value2(weth_amount.f64(), &currency);
+      let weth_amount_usd = ctx.get_currency_value_for_amount(weth_amount.f64(), &currency);
       let eth_amount = NumericValue::format_wei(decoded.wad, currency.decimals());
-      let eth_amount_usd = ctx.get_currency_value2(eth_amount.f64(), &currency);
+      let eth_amount_usd = ctx.get_currency_value_for_amount(eth_amount.f64(), &currency);
 
       Ok(Self {
          from,
@@ -1199,8 +1199,8 @@ impl UniswapPositionParams {
       let collected0 = NumericValue::format_wei(collected0, pool.currency0().decimals());
       let collected1 = NumericValue::format_wei(collected1, pool.currency1().decimals());
 
-      let collected0_usd = ctx.get_currency_value2(collected0.f64(), &pool.currency0());
-      let collected1_usd = ctx.get_currency_value2(collected1.f64(), &pool.currency1());
+      let collected0_usd = ctx.get_currency_value_for_amount(collected0.f64(), &pool.currency0());
+      let collected1_usd = ctx.get_currency_value_for_amount(collected1.f64(), &pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::CollectFees,
@@ -1280,9 +1280,9 @@ impl UniswapPositionParams {
       let amount1_removed = NumericValue::format_wei(burn.amount1, pool.currency1().decimals());
 
       let amount0_usd_to_be_removed =
-         ctx.get_currency_value2(amount0_removed.f64(), &pool.currency0());
+         ctx.get_currency_value_for_amount(amount0_removed.f64(), &pool.currency0());
       let amount1_usd_to_be_removed =
-         ctx.get_currency_value2(amount1_removed.f64(), &pool.currency1());
+         ctx.get_currency_value_for_amount(amount1_removed.f64(), &pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::DecreaseLiquidity,
@@ -1361,8 +1361,8 @@ impl UniswapPositionParams {
       let amount0_minted = NumericValue::format_wei(mint.amount0, pool.currency0().decimals());
       let amount1_minted = NumericValue::format_wei(mint.amount1, pool.currency1().decimals());
 
-      let amount0_usd = ctx.get_currency_value2(amount0_minted.f64(), &pool.currency0());
-      let amount1_usd = ctx.get_currency_value2(amount1_minted.f64(), &pool.currency1());
+      let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &pool.currency0());
+      let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::AddLiquidity,

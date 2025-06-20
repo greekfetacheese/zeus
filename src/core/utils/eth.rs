@@ -753,9 +753,9 @@ pub async fn swap(
       time.elapsed().as_millis()
    );
 
-   let amount_in_usd = ctx.get_currency_value2(amount_in.f64(), &currency_in);
-   let received_usd = ctx.get_currency_value2(real_amount_out.f64(), &currency_out);
-   let min_received_usd = ctx.get_currency_value2(amount_out_with_slippage.f64(), &currency_out);
+   let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
+   let received_usd = ctx.get_currency_value_for_amount(real_amount_out.f64(), &currency_out);
+   let min_received_usd = ctx.get_currency_value_for_amount(amount_out_with_slippage.f64(), &currency_out);
    let swap_params = SwapParams {
       dapp: Dapp::Uniswap,
       input_currency: currency_in.clone(),
@@ -1067,13 +1067,13 @@ pub async fn decrease_liquidity_position_v3(
    minimum_amount0_to_be_removed.calc_slippage(slippage, pool.token0().decimals);
    minimum_amount1_to_be_removed.calc_slippage(slippage, pool.token1().decimals);
 
-   let amount0_usd_to_be_removed = ctx.get_currency_value2(amount0_removed.f64(), pool.currency0());
-   let amount1_usd_to_be_removed = ctx.get_currency_value2(amount1_removed.f64(), pool.currency1());
-   let minimum_amount0_usd_to_be_removed = ctx.get_currency_value2(
+   let amount0_usd_to_be_removed = ctx.get_currency_value_for_amount(amount0_removed.f64(), pool.currency0());
+   let amount1_usd_to_be_removed = ctx.get_currency_value_for_amount(amount1_removed.f64(), pool.currency1());
+   let minimum_amount0_usd_to_be_removed = ctx.get_currency_value_for_amount(
       minimum_amount0_to_be_removed.f64(),
       pool.currency0(),
    );
-   let minimum_amount1_usd_to_be_removed = ctx.get_currency_value2(
+   let minimum_amount1_usd_to_be_removed = ctx.get_currency_value_for_amount(
       minimum_amount1_to_be_removed.f64(),
       pool.currency1(),
    );
@@ -1370,10 +1370,10 @@ pub async fn increase_liquidity_position_v3(
    let currency0 = Currency::from(pool.token0().into_owned());
    let currency1 = Currency::from(pool.token1().into_owned());
 
-   let amount0_usd = ctx.get_currency_value2(amount0_minted.f64(), &currency0);
-   let amount1_usd = ctx.get_currency_value2(amount1_minted.f64(), &currency1);
-   let min_amount0_usd = ctx.get_currency_value2(min_amount0_minted.f64(), &currency0);
-   let min_amount1_usd = ctx.get_currency_value2(min_amount1_minted.f64(), &currency1);
+   let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
+   let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
+   let min_amount0_usd = ctx.get_currency_value_for_amount(min_amount0_minted.f64(), &currency0);
+   let min_amount1_usd = ctx.get_currency_value_for_amount(min_amount1_minted.f64(), &currency1);
 
    let position_params = UniswapPositionParams {
       position_operation: PositionOperation::AddLiquidity,
@@ -1783,10 +1783,10 @@ pub async fn mint_new_liquidity_position_v3(
    let currency0 = Currency::from(pool.token0().into_owned());
    let currency1 = Currency::from(pool.token1().into_owned());
 
-   let amount0_usd = ctx.get_currency_value2(amount0_minted.f64(), &currency0);
-   let amount1_usd = ctx.get_currency_value2(amount1_minted.f64(), &currency1);
-   let min_amount0_usd = ctx.get_currency_value2(min_amount0_minted.f64(), &currency0);
-   let min_amount1_usd = ctx.get_currency_value2(min_amount1_minted.f64(), &currency1);
+   let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
+   let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
+   let min_amount0_usd = ctx.get_currency_value_for_amount(min_amount0_minted.f64(), &currency0);
+   let min_amount1_usd = ctx.get_currency_value_for_amount(min_amount1_minted.f64(), &currency1);
 
    let position_params = UniswapPositionParams {
       position_operation: PositionOperation::AddLiquidity,

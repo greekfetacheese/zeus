@@ -981,15 +981,15 @@ impl ViewPositionsUi {
    }
 
    fn position_value(&self, ctx: ZeusCtx, position: &V3Position) -> NumericValue {
-      let value0 = ctx.get_currency_value2(position.amount0.f64(), &position.token0);
-      let value1 = ctx.get_currency_value2(position.amount1.f64(), &position.token1);
+      let value0 = ctx.get_currency_value_for_amount(position.amount0.f64(), &position.token0);
+      let value1 = ctx.get_currency_value_for_amount(position.amount1.f64(), &position.token1);
       let value = NumericValue::from_f64(value0.f64() + value1.f64());
       value
    }
 
    fn uncollected_fees_value(&self, ctx: ZeusCtx, position: &V3Position) -> NumericValue {
-      let value0 = ctx.get_currency_value2(position.tokens_owed0.f64(), &position.token0);
-      let value1 = ctx.get_currency_value2(position.tokens_owed1.f64(), &position.token1);
+      let value0 = ctx.get_currency_value_for_amount(position.tokens_owed0.f64(), &position.token0);
+      let value1 = ctx.get_currency_value_for_amount(position.tokens_owed1.f64(), &position.token1);
       let value = NumericValue::from_f64(value0.f64() + value1.f64());
       value
    }

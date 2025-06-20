@@ -535,26 +535,26 @@ impl ZeusCtx {
       self.read(|ctx| ctx.v3_positions_db.get(chain, owner))
    }
 
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
+   pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
       self.read(|ctx| ctx.pool_manager.get_token_price(token))
    }
 
    pub fn get_eth_price(&self) -> NumericValue {
       let weth = ERC20Token::weth();
-      self.get_token_price(&weth).unwrap_or_default()
+      self.get_token_price(&weth)
    }
 
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
       if currency.is_native() {
          let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
-         self.get_token_price(&wrapped_token).unwrap_or_default()
+         self.get_token_price(&wrapped_token)
       } else {
          let token = currency.erc20().unwrap();
-         self.get_token_price(&token).unwrap_or_default()
+         self.get_token_price(&token)
       }
    }
 
-   pub fn get_currency_value(
+   pub fn get_currency_value_for_owner(
       &self,
       chain: u64,
       owner: Address,
@@ -566,8 +566,13 @@ impl ZeusCtx {
    }
 
    /// Get the value of the given amount in the given currency
-   pub fn get_currency_value2(&self, amount: f64, currency: &Currency) -> NumericValue {
+   pub fn get_currency_value_for_amount(&self, amount: f64, currency: &Currency) -> NumericValue {
       let price = self.get_currency_price(currency);
+      NumericValue::value(amount, price.f64())
+   }
+
+   pub fn get_token_value_for_amount(&self, amount: f64, token: &ERC20Token) -> NumericValue {
+      let price = self.get_token_price(token);
       NumericValue::value(amount, price.f64())
    }
 

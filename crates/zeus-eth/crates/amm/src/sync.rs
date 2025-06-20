@@ -38,7 +38,6 @@ pub struct Checkpoint {
    pub chain_id: u64,
    pub block: u64,
    pub dex: DexKind,
-   pub pool_len: usize,
 }
 
 impl Default for Checkpoint {
@@ -47,18 +46,16 @@ impl Default for Checkpoint {
          chain_id: 0,
          block: 0,
          dex: DexKind::UniswapV2,
-         pool_len: 0,
       }
    }
 }
 
 impl Checkpoint {
-   pub fn new(chain_id: u64, block: u64, dex: DexKind, pool_len: usize) -> Self {
+   pub fn new(chain_id: u64, block: u64, dex: DexKind) -> Self {
       Self {
          chain_id,
          block,
          dex,
-         pool_len,
       }
    }
 }
@@ -102,13 +99,13 @@ impl SyncResult {
 pub struct SyncConfig {
    pub chain_id: u64,
    pub dex: Vec<DexKind>,
-   pub concurrency: u8,
+   pub concurrency: usize,
    pub batch_size: usize,
    pub from_block: Option<u64>,
 }
 
 impl SyncConfig {
-   pub fn new(chain_id: u64, dex: Vec<DexKind>, concurrency: u8, batch_size: usize, from_block: Option<u64>) -> Self {
+   pub fn new(chain_id: u64, dex: Vec<DexKind>, concurrency: usize, batch_size: usize, from_block: Option<u64>) -> Self {
       Self {
          chain_id,
          dex,
@@ -122,7 +119,7 @@ impl SyncConfig {
 /// Sync pools from the given checkpoints
 pub async fn sync_from_checkpoints<P, N>(
    client: P,
-   concurrency: u8,
+   concurrency: usize,
    batch_size: usize,
    checkpoints: Vec<Checkpoint>,
 ) -> Result<Vec<SyncResult>, anyhow::Error>
@@ -322,7 +319,7 @@ where
    }
 
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
-   let checkpoint = Checkpoint::new(chain_id, synced_block, dex, pools.len());
+   let checkpoint = Checkpoint::new(chain_id, synced_block, dex);
    tracing::trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.to_str(), chain_id);
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)

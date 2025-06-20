@@ -1239,7 +1239,7 @@ impl PortfolioUi {
          ui.label(RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal));
       });
 
-      let value = ctx.get_currency_value(chain, owner, currency);
+      let value = ctx.get_currency_value_for_owner(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));

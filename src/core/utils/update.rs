@@ -137,6 +137,32 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
+   // Sync base pools
+   let mut tasks = Vec::new();
+   for chain in SUPPORTED_CHAINS {
+      let ctx_clone = ctx.clone();
+      let tokens = ERC20Token::base_tokens(chain);
+      let task = RT.spawn(async move {
+         match eth::sync_pools_for_tokens(ctx_clone, chain, tokens, false).await {
+            Ok(_) => {
+               tracing::info!("Synced base pools for {}", chain);
+            }
+            Err(e) => {
+               tracing::error!("Error syncing base pools for {}: {:?}", chain, e);
+            }
+         }
+      });
+      tasks.push(task);
+   }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+
+      RT.spawn_blocking(move || {
+      ctx.save_pool_manager().unwrap();
+   });
+
    /*
    // Sync v4 pools and base pools
    ctx.write(|ctx| {
@@ -163,9 +189,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       ctx.data_syncing = false;
    });
 
-   RT.spawn_blocking(move || {
-      ctx.save_pool_manager().unwrap();
-   });
+
    */
 }
 
@@ -668,7 +692,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             .sync_pools_for_tokens(
                client.clone(),
                chain,
-               tokens.clone(),
+               tokens,
                dexes,
                false,
             )
@@ -707,7 +731,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       ctx.save_portfolio_db();
 
       match ctx.save_pool_manager() {
-         Ok(_) => tracing::info!("Pool data saved for"),
+         Ok(_) => tracing::info!("Pool data saved"),
          Err(e) => tracing::error!("Error saving pool data: {:?}", e),
       }
    });

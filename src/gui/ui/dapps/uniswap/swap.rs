@@ -1174,7 +1174,7 @@ pub fn swap_section(
          // USD Value
          ui.horizontal(|ui| {
             let amount = amount.parse().unwrap_or(0.0);
-            let usd_value = ctx.get_currency_value2(amount, currency);
+            let usd_value = ctx.get_currency_value_for_amount(amount, currency);
             ui.label(
                RichText::new(format!("${}", usd_value.formatted())).size(theme.text_sizes.normal),
             );

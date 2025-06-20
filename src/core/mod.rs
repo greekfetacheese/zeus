@@ -2,6 +2,8 @@ pub mod context;
 pub mod user;
 pub mod utils;
 
+mod tests;
+
 pub use context::*;
 pub use user::{Account, wallet::*};
 

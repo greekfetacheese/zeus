@@ -19,6 +19,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let icons = gui.icons.clone();
    let theme = &gui.theme;
 
+  // tracing::info!("On Startup Syncing: {} Data Syncing: {}", on_startup_syncing, data_syncing);
    if data_syncing && !on_startup_syncing {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));

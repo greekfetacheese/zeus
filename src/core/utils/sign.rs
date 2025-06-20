@@ -141,7 +141,7 @@ impl Permit2Details {
          .ok_or(anyhow!("Missing amount"))?;
       let amount = U256::from_str(amount)?;
       let amount = NumericValue::format_wei(amount, token.decimals);
-      let amount_usd = ctx.get_currency_value2(amount.f64(), &Currency::from(token.clone()));
+      let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
 
       let expiration = message["details"]["expiration"]
          .as_str()

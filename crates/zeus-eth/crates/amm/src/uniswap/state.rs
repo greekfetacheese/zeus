@@ -373,15 +373,14 @@ where
 pub async fn batch_update_state<P, N>(
    client: P,
    chain_id: u64,
-   concurrency: u8,
+   concurrency: usize,
+   batch_size: usize,
    mut pools: Vec<AnyUniswapPool>,
 ) -> Result<Vec<AnyUniswapPool>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   const BATCH_SIZE: usize = 20;
-   const BATCH_SIZE_2: usize = 10;
 
    let v2_addresses: Vec<Address> = pools
       .iter()
@@ -394,7 +393,7 @@ where
    let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let semaphore = Arc::new(Semaphore::new(concurrency as usize));
 
-   for chunk in v2_addresses.chunks(BATCH_SIZE) {
+   for chunk in v2_addresses.chunks(batch_size) {
       let client = client.clone();
       let chunk_clone = chunk.to_vec();
       let semaphore = semaphore.clone();
@@ -407,7 +406,7 @@ where
                v2_reserves.lock().await.extend(data);
             }
             Err(e) => {
-               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v2 pool reserves: {:?}", e);
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v2 pool reserves: (ChainId {}): {:?}", chain_id, e);
             }
          }
          Ok(())
@@ -431,7 +430,7 @@ where
    }
 
    tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V3 pools ChainId {}", v3_pool_info.len(), chain_id);
-   for pool in v3_pool_info.chunks(BATCH_SIZE_2) {
+   for pool in v3_pool_info.chunks(batch_size) {
       let client = client.clone();
       let semaphore = semaphore.clone();
       let v3_data = v3_data.clone();
@@ -470,7 +469,7 @@ where
 
    tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V4 pools ChainId {}", v4_pool_info.len(), chain_id);
    let state_view = utils::address::uniswap_v4_stateview(chain_id)?;
-   for pool in v4_pool_info.chunks(BATCH_SIZE_2) {
+   for pool in v4_pool_info.chunks(batch_size) {
       let client = client.clone();
       let semaphore = semaphore.clone();
       let v4_data = v4_data.clone();
@@ -510,8 +509,8 @@ where
    }
 
    let v2_reserves = Arc::try_unwrap(v2_reserves).unwrap().into_inner();
-   let v3_reserves = Arc::try_unwrap(v3_data).unwrap().into_inner();
-   let v4_reserves = Arc::try_unwrap(v4_data).unwrap().into_inner();
+   let v3_pool_data = Arc::try_unwrap(v3_data).unwrap().into_inner();
+   let v4_pool_data = Arc::try_unwrap(v4_data).unwrap().into_inner();
 
    // update the state of the pools
    for pool in pools.iter_mut() {
@@ -524,9 +523,8 @@ where
       }
 
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
-         for data in &v3_reserves {
+         for data in &v3_pool_data {
             if data.pool == pool.address() {
-               tracing::debug!(target: "zeus_eth::amm::uniswap::state", "Updating State for pool: {}", data.pool);
                let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
                pool.set_state(State::v3(state));
                pool.v3_mut(|pool| { 
@@ -538,7 +536,7 @@ where
       }
 
       if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
-         for data in &v4_reserves {
+         for data in &v4_pool_data {
             if data.pool == pool.pool_id() {
                let state = V3PoolState::v4(pool, data.clone(), None)?;
                pool.set_state(State::v4(state));

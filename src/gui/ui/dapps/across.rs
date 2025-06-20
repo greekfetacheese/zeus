@@ -602,15 +602,9 @@ impl AcrossBridge {
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let input_usd = ctx.get_currency_value2(
-         input_amount.f64(),
-         &Currency::from(input_token.clone()),
-      );
+      let input_usd = ctx.get_token_value_for_amount(input_amount.f64(), &input_token);
       let output_amount = self.minimum_amount();
-      let output_usd = ctx.get_currency_value2(
-         output_amount.f64(),
-         &Currency::from(output_token.clone()),
-      );
+      let output_usd = ctx.get_token_value_for_amount(output_amount.f64(), &output_token);
 
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).unwrap().key;

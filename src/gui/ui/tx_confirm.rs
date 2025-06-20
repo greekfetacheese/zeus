@@ -891,7 +891,7 @@ impl TxConfirmWindow {
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let value_usd = ctx.get_currency_value2(self.value.f64(), &eth);
+                           let value_usd = ctx.get_currency_value_for_amount(self.value.f64(), &eth);
                            ui.label(
                               RichText::new(format!("${}", value_usd.formatted()))
                                  .size(theme.text_sizes.small),

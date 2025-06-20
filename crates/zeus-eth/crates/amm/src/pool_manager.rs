@@ -173,8 +173,8 @@ impl PoolManagerHandle {
       self.write(|manager| manager.remove_pool(chain_id, dex, fee, currency0, currency1));
    }
 
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
-      self.read(|manager| manager.get_token_price(token))
+   pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
+      self.read(|manager| manager.get_token_price(token)).unwrap_or_default()
    }
 
    /// Update the state of the manager for the given chain
@@ -209,7 +209,8 @@ impl PoolManagerHandle {
       }
 
       let concurrency = self.read(|manager| manager.concurrency);
-      let pools = batch_update_state(client.clone(), chain, concurrency, pools_to_update).await?;
+      let batch_size = self.read(|manager| manager.batch_size);
+      let pools = batch_update_state(client.clone(), chain, concurrency, batch_size, pools_to_update).await?;
       self.write(|manager| {
          for pool in pools {
             manager.add_pool(pool.clone());
@@ -227,7 +228,8 @@ impl PoolManagerHandle {
    {
       let pools = self.get_pools_for_chain(chain_id);
       let concurrency = self.read(|manager| manager.concurrency);
-      let pools = batch_update_state(client, chain_id, concurrency, pools).await?;
+      let batch_size = self.read(|manager| manager.batch_size);
+      let pools = batch_update_state(client, chain_id, concurrency, batch_size, pools).await?;
       self.write(|manager| {
          for pool in pools {
             manager.add_pool(pool);
@@ -252,7 +254,8 @@ impl PoolManagerHandle {
          .map(|p| AnyUniswapPool::from_pool(p))
          .collect::<Vec<_>>();
       let concurrency = self.read(|manager| manager.concurrency);
-      let pools = batch_update_state(client.clone(), chain, concurrency, pools).await?;
+      let batch_size = self.read(|manager| manager.batch_size);
+      let pools = batch_update_state(client.clone(), chain, concurrency, batch_size, pools).await?;
       self.write(|manager| {
          for pool in pools {
             manager.add_pool(pool);
@@ -615,6 +618,14 @@ type TokenPrices = HashMap<(u64, Address), NumericValue>;
 /// Key: (chain_id, dex) -> Value: Checkpoint
 type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 
+fn default_batch_size() -> usize {
+    10
+}
+
+fn default_concurrency() -> usize {
+    1
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
@@ -633,7 +644,12 @@ pub struct PoolManager {
    pub checkpoints: CheckpointMap,
 
    /// Set to 1 for no concurrency
-   pub concurrency: u8,
+   #[serde(default = "default_concurrency")]
+   pub concurrency: usize,
+
+   /// Batch size when syncing the pools state
+   #[serde(default = "default_batch_size")]
+   pub batch_size: usize
 }
 
 impl Default for PoolManager {
@@ -645,29 +661,12 @@ impl Default for PoolManager {
          v4_pool_last_sync: HashMap::new(),
          checkpoints: HashMap::new(),
          concurrency: 1,
+         batch_size: 10
       }
    }
 }
 
 impl PoolManager {
-   pub fn new(
-      pools: Pools,
-      token_prices: TokenPrices,
-      pool_last_sync: PoolLastSync,
-      v4_pool_last_sync: V4PoolLastSync,
-      checkpoints: CheckpointMap,
-      concurrency: u8,
-   ) -> Self {
-      Self {
-         pools,
-         token_prices,
-         pool_last_sync,
-         v4_pool_last_sync,
-         checkpoints,
-         concurrency,
-      }
-   }
-
    fn add_token_last_sync(&mut self, chain: u64, dex: DexKind, token_a: Address, token_b: Address) {
       let key = (chain, dex, token_a, token_b);
       self.pool_last_sync.insert(key, Instant::now());
