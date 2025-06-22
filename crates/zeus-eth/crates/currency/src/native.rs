@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use types::ChainId;
 
 /// Represents a Native Currency to its chain
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NativeCurrency {
    pub chain_id: u64,
    pub symbol: String,

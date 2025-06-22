@@ -10,7 +10,7 @@ pub use erc20::ERC20Token;
 pub use native::NativeCurrency;
 
 /// Represents a Currency, this can be a [NativeCurrency] to its chain (eg ETH, BNB) or any [ERC20Token]
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Currency {
    Native(NativeCurrency),
    ERC20(ERC20Token),

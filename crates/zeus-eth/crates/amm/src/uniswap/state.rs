@@ -169,7 +169,6 @@ pub struct V3PoolState {
    pub tick_spacing: i32,
    pub tick_bitmap: HashMap<i16, U256>,
    pub ticks: HashMap<i32, TickInfo>,
-   pub pool_tick: PoolTick,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -181,15 +180,9 @@ pub struct TickInfo {
    pub initialized: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct PoolTick {
-   pub tick: i32,
-   pub liquidity_net: i128,
-   pub block: u64,
-}
 
 impl V3PoolState {
-   pub fn new(pool_data: V3PoolData, tick_spacing: I24, block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn new(pool_data: V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
@@ -201,18 +194,8 @@ impl V3PoolState {
          initialized: pool_data.initialized,
       };
 
-      let block = if let Some(b) = block {
-         b.as_u64().unwrap_or(0)
-      } else {
-         0
-      };
       let tick: i32 = pool_data.tick.to_string().parse()?;
 
-      let pool_tick = PoolTick {
-         tick,
-         liquidity_net: pool_data.liquidityNet,
-         block,
-      };
 
       let mut ticks_map = HashMap::new();
       ticks_map.insert(tick, ticks_info);
@@ -229,11 +212,10 @@ impl V3PoolState {
          tick_spacing,
          tick_bitmap: tick_bitmap_map,
          ticks: ticks_map,
-         pool_tick,
       })
    }
 
-   pub fn v4(pool: &impl UniswapPool, data: batch::V4PoolData, block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn v4(pool: &impl UniswapPool, data: batch::V4PoolData, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
 
@@ -244,20 +226,8 @@ impl V3PoolState {
          liquidity_net: data.liquidityNet,
          initialized: true,
       };
-
-      let block = if let Some(b) = block {
-         b.as_u64().unwrap_or(0)
-      } else {
-         0
-      };
       
       let tick: i32 = data.tick.to_string().parse()?;
-
-      let pool_tick = PoolTick {
-         tick,
-         liquidity_net: data.liquidityNet,
-         block,
-      };
 
       let mut ticks_map = HashMap::new();
       ticks_map.insert(tick, ticks_info);
@@ -274,7 +244,6 @@ impl V3PoolState {
          tick_spacing,
          tick_bitmap: tick_bitmap_map,
          ticks: ticks_map,
-         pool_tick,
       })
    }
 }

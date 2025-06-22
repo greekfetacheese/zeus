@@ -15,7 +15,8 @@ use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::RT};
+use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use egui_theme::Theme;
 use std::sync::Arc;
@@ -52,7 +53,6 @@ impl ProtocolVersion {
 pub struct UniswapSettingsUi {
    open: bool,
    pub max_hops: usize,
-   pub max_paths: usize,
    pub mev_protect: bool,
    pub slippage: String,
    /// Applies only to [SwapUi]
@@ -66,8 +66,7 @@ impl UniswapSettingsUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         max_hops: 2,
-         max_paths: 2,
+         max_hops: 4,
          mev_protect: true,
          slippage: "0.5".to_string(),
          simulate_mode: false,
@@ -89,6 +88,7 @@ impl UniswapSettingsUi {
 
    pub fn show(
       &mut self,
+      ctx: ZeusCtx,
       swap_ui_open: bool,
       view_position_open: bool,
       theme: &Theme,
@@ -119,10 +119,15 @@ impl UniswapSettingsUi {
                   .show(ui);
 
                ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
-               ui.add(Slider::new(&mut self.max_hops, 1..=10));
-
-               ui.label(RichText::new("Max Paths").size(theme.text_sizes.normal));
-               ui.add(Slider::new(&mut self.max_paths, 1..=10));
+               let res =ui.add(Slider::new(&mut self.max_hops, 1..=10));
+               if res.changed() {
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let settings = &gui.uniswap.settings;
+                        gui.uniswap.swap_ui.get_quote(ctx, settings);
+                     });
+                  });
+               }
 
                if swap_ui_open {
                   let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);

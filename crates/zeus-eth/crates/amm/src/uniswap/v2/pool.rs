@@ -20,6 +20,8 @@ use currency::{Currency, ERC20Token};
 use utils::{NumericValue, price_feed::get_base_token_price};
 
 use alloy_contract::private::{Network, Provider};
+use std::hash::{Hash, Hasher};
+use core::cmp::Ordering;
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
@@ -38,9 +40,33 @@ pub struct UniswapV2Pool {
    pub state: State,
 }
 
+impl Ord for UniswapV2Pool {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.address.cmp(&other.address)
+   }
+}
+
+impl PartialOrd for UniswapV2Pool {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
+
+impl Eq for UniswapV2Pool {}
+
 impl PartialEq for UniswapV2Pool {
    fn eq(&self, other: &Self) -> bool {
       self.address == other.address && self.chain_id == other.chain_id
+   }
+}
+
+impl Hash for UniswapV2Pool {
+   fn hash<H: Hasher>(&self, state: &mut H) {
+      self.chain_id.hash(state);
+      self.currency0.hash(state);
+      self.currency1.hash(state);
+      self.fee.hash(state);
+      self.dex.hash(state);
    }
 }
 

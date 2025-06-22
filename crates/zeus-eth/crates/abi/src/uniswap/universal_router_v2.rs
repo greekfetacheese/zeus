@@ -18,6 +18,13 @@ sol! {
 
          type Currency is address;
 
+         #[derive(Debug)]
+         struct Sweep {
+            address token;
+            address recipient;
+            uint256 amountMin;
+         }
+
         #[derive(Debug, Default, PartialEq, Eq)]
         /// @notice Parameters for a single-hop exact-input swap
         struct ExactInputSingleParams {

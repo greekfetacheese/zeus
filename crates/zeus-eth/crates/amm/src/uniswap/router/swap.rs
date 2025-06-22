@@ -1,10 +1,11 @@
-use super::{SwapExecuteParams, Commands, SwapStep, SwapType, UniswapPool};
+use super::{Commands, SwapExecuteParams, SwapStep, SwapType, UniswapPool};
 use crate::uniswap::v4::Actions;
 use abi::{
    permit::*,
    uniswap::{
       encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      universal_router_v2::*, v4::{ActionsParams, TakeAllParams, SettleParams},
+      universal_router_v2::{IV4Router::Sweep, *},
+      v4::{ActionsParams, SettleParams, TakeAllParams},
    },
 };
 use alloy_contract::private::{Network, Provider};
@@ -12,17 +13,12 @@ use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
-use utils::{address::permit2_contract,generate_permit2_single_value, parse_typed_data};
+use utils::{address::permit2_contract, generate_permit2_single_value, parse_typed_data};
 use wallet::{SecureSigner, alloy_signer::Signer};
 
+use std::collections::HashSet;
 
-
-
-// ! V4 swaps from ETH to ERC and vice versa are working fine
-// ! But from ERC to ERC they dont work
 /// Encode the calldata for a swap using the universal router
-///
-/// Currently does not support V4 swaps
 pub async fn encode_swap<P, N>(
    client: P,
    chain_id: u64,
@@ -43,47 +39,38 @@ where
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
    }
-
    if !swap_type.is_exact_input() {
       return Err(anyhow!("Only support exact input"));
    }
 
-   for swap in &swap_steps {
-      if !swap.pool.dex_kind().is_uniswap() {
-         return Err(anyhow!("Only support Uniswap"));
-      }
-
-      if swap.pool.dex_kind().is_uniswap_v4() {
-         /*
-         if swap.pool.currency0().is_erc20() && swap.pool.currency1().is_erc20() {
-            return Err(anyhow!("ERC20 to ERC20 swaps are not supported yet on V4"));
-         }
-         */
-      }
-   }
-
-   let router_addr = utils::address::universal_router_v2(chain_id)?;
-   let need_to_wrap_eth = currency_in.is_native() && !swap_steps[0].pool.dex_kind().is_uniswap_v4();
-   let mut need_to_unwrap_weth = currency_out.is_native();
-
    let owner = signer.address();
+   let router_addr = utils::address::universal_router_v2(chain_id)?;
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
    let mut execute_params = SwapExecuteParams::new();
 
-   if need_to_wrap_eth {
-      let data = abi::uniswap::encode_wrap_eth(router_addr, amount_in);
-      commands.push(Commands::WRAP_ETH as u8);
-      inputs.push(data);
+   let weth_currency = currency_in.to_weth_currency();
 
+   if currency_in.is_native() {
+      // Always set the tx value to the total input amount when dealing with native ETH.
       execute_params.set_value(amount_in);
+
+      // Calculate how much ETH needs to be wrapped for V2/V3 pools.
+      let amount_to_wrap: U256 = swap_steps
+         .iter()
+         // Compare against `weth_currency`, not the native `currency_in`.
+         .filter(|s| s.currency_in == weth_currency && !s.pool.dex_kind().is_uniswap_v4())
+         .map(|s| s.amount_in.wei2())
+         .sum();
+
+      if amount_to_wrap > U256::ZERO {
+         let data = abi::uniswap::encode_wrap_eth(router_addr, amount_to_wrap);
+         commands.push(Commands::WRAP_ETH as u8);
+         inputs.push(data);
+      }
    }
 
-   // Set the Tx Value to amount_in if the currency_in is native and the first step is v4 swap
-   if currency_in.is_native() && swap_steps[0].pool.dex_kind().is_uniswap_v4() {
-      execute_params.set_value(amount_in);
-   }
-
+   // Handle Permit2 approvals
    let mut first_step_uses_permit2 = false;
    if currency_in.is_erc20() {
       let token_in = currency_in.to_erc20();
@@ -125,7 +112,10 @@ where
          );
          let typed_data = parse_typed_data(value.clone())?;
 
-         let signature = signer.to_signer().sign_dynamic_typed_data(&typed_data).await?;
+         let signature = signer
+            .to_signer()
+            .sign_dynamic_typed_data(&typed_data)
+            .await?;
 
          let permit_input = encode_permit2_permit_ur_input(
             token_in.address,
@@ -144,69 +134,71 @@ where
       }
    }
 
-   let steps_len = swap_steps.len();
-   let multiple_steps = steps_len > 1;
-   for (i, swap) in swap_steps.iter().enumerate() {
-      let is_first_step = i == 0;
-      let is_last_step = i == steps_len - 1;
+   let intermediate_inputs: HashSet<Currency2> = swap_steps.iter().map(|s| s.currency_in.clone()).collect();
 
-      // last step is v4 with native as output we don't need to unwrap weth
-      if is_last_step && swap.pool.dex_kind().is_uniswap_v4() && swap.currency_out.is_native() {
-         need_to_unwrap_weth = false;
-      }
+   for swap in &swap_steps {
+      /* 
+      eprintln!("|=== Swap Step ===|");
+      eprintln!(
+         "Swap Step: {} {} -> {} {} {} ({})",
+         swap.amount_in.format_abbreviated(),
+         swap.currency_in.symbol(),
+         swap.amount_out.format_abbreviated(),
+         swap.currency_out.symbol(),
+         swap.pool.dex_kind().to_str(),
+         swap.pool.fee().fee_percent()
+      );
+      */
 
-      // keep weth in router so we can unwrap it
-      let need_to_keep_weth = need_to_unwrap_weth && is_last_step;
-      // Keep tokens in router if we are swapping on multiple pools
-      let need_to_keep_tokens = multiple_steps && !is_last_step;
+      // A step uses initial funds if its input is the main currency OR its WETH equivalent.
+      let uses_initial_funds = swap.currency_in == currency_in || swap.currency_in == weth_currency;
 
-      let recipient_addr = if need_to_keep_weth || need_to_keep_tokens {
-         router_addr
+      let is_last_step_of_path = !intermediate_inputs.contains(&swap.currency_out);
+
+      // All intermediate swaps send funds back to the router.
+      // The final output is handled by SWEEP or UNWRAP_WETH at the end.
+      let recipient_addr = router_addr;
+
+      // Slippage is only enforced at the very end.
+      let step_amount_out_min = U256::ZERO;
+
+      // For V2/V3, the input currency should always be the WETH address, even if the user starts with ETH.
+      // The WRAP_ETH command ensures the router has the WETH.
+      let step_currency_in = if swap.currency_in.is_native() {
+         &weth_currency
       } else {
-         recipient
-      };
-
-      let current_step_uses_permit2 = is_first_step && first_step_uses_permit2;
-
-      // For the last step, make sure to use the amount_out_min
-      let step_amount_out_min = if is_last_step {
-         amount_out_min
-      } else {
-         swap.amount_out.wei2()
+         &swap.currency_in
       };
 
       if swap.pool.dex_kind().is_uniswap_v2() {
-         let path = vec![swap.currency_in.address(), swap.currency_out.address()];
-
+         let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let input = encode_v2_swap_exact_in(
             recipient_addr,
             swap.amount_in.wei2(),
             step_amount_out_min,
             path,
-            current_step_uses_permit2,
+            uses_initial_funds && first_step_uses_permit2,
          )?;
-
          commands.push(Commands::V2_SWAP_EXACT_IN as u8);
          inputs.push(input);
       }
 
       if swap.pool.dex_kind().is_uniswap_v3() {
-         let path = vec![swap.currency_in.address(), swap.currency_out.address()];
+         let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let fees = vec![swap.pool.fee().fee_u24()];
-
          let input = encode_v3_swap_exact_in(
             recipient_addr,
             swap.amount_in.wei2(),
             step_amount_out_min,
             path,
             fees,
-            current_step_uses_permit2,
+            uses_initial_funds && first_step_uses_permit2,
          )?;
-
          commands.push(Commands::V3_SWAP_EXACT_IN as u8);
          inputs.push(input);
       }
 
+      // V4 logic can use the original `swap.currency_in` as it handles native ETH directly.
       if swap.pool.dex_kind().is_uniswap_v4() {
          let input = encode_v4_commands(
             &swap.pool,
@@ -215,28 +207,38 @@ where
             &swap.currency_out,
             swap.amount_in.wei2(),
             step_amount_out_min,
-            is_first_step,
-            is_last_step,
+            uses_initial_funds,
+            is_last_step_of_path,
             recipient_addr,
          )?;
-
          commands.push(Commands::V4_SWAP as u8);
          inputs.push(input);
       }
    }
 
-   if need_to_unwrap_weth {
+   // Handle ETH wrapping and final output
+   if currency_out.is_native() {
+      eprintln!("UnWrapping ETH");
       let data = abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
       commands.push(Commands::UNWRAP_WETH as u8);
+      inputs.push(data);
+   } else {
+      eprintln!("Sweeping Tokens");
+      let sweep_params = Sweep {
+         token: currency_out.address(),
+         recipient,
+         amountMin: amount_out_min,
+      };
+      let data = sweep_params.abi_encode_params().into();
+      commands.push(Commands::SWEEP as u8);
       inputs.push(data);
    }
 
    let command_bytes = Bytes::from(commands);
-  // println!("Command Bytes: {:?}", command_bytes);
+   eprintln!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
-   let calldata = if deadline.is_some() {
-      let deadline = deadline.unwrap();
-      encode_execute_with_deadline(command_bytes, inputs, deadline)
+   let calldata = if let Some(deadline_val) = deadline {
+      encode_execute_with_deadline(command_bytes, inputs, deadline_val)
    } else {
       encode_execute(command_bytes, inputs)
    };
@@ -244,8 +246,6 @@ where
 
    Ok(execute_params)
 }
-
-
 
 
 fn encode_v4_commands(
@@ -369,12 +369,6 @@ fn encode_v4_router_command_input(
    Ok(params.into())
 }
 
-
-
-
-
-
-
 /*
 /// V4 specific
 pub fn encode_route_to_path(
@@ -405,7 +399,7 @@ pub fn encode_route_to_path(
 
    */
 
-   /* 
+/*
 /// V4 specific
 pub fn get_next_path_key(pool: &impl UniswapPool, currecy_in: &Currency2) -> (Currency2, PathKey) {
    let next_currency = if currecy_in == pool.currency0() {

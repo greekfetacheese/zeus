@@ -140,7 +140,7 @@ pub trait UniswapPool {
       N: Network;
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AnyUniswapPool {
    V2(UniswapV2Pool),
    V3(UniswapV3Pool),

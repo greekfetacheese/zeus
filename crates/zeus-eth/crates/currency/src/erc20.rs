@@ -11,6 +11,7 @@ use utils::{
 
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+use std::cmp::Ordering;
 
 /// Represents an ERC20 token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,6 +27,18 @@ pub struct ERC20Token {
 impl PartialEq for ERC20Token {
    fn eq(&self, other: &Self) -> bool {
       self.chain_id == other.chain_id && self.address == other.address
+   }
+}
+
+impl Ord for ERC20Token {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.address.cmp(&other.address)
+   }
+}
+
+impl PartialOrd for ERC20Token {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
    }
 }
 

@@ -58,7 +58,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let balance_manager = ctx.balance_manager();
 
    let eth_balance_fut = balance_manager.update_eth_balance_across_wallets_and_chains(ctx.clone());
-   let token_balance_fut = balance_manager.update_tokens_balance_across_wallets_and_chains(ctx.clone());
+   let token_balance_fut =
+      balance_manager.update_tokens_balance_across_wallets_and_chains(ctx.clone());
 
    resync_pools(ctx.clone()).await;
 
@@ -203,8 +204,6 @@ pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    }
 }
 
-
-
 pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
@@ -285,16 +284,18 @@ async fn update_pool_manager(ctx: ZeusCtx) {
    });
 }
 
-
-
 async fn balance_update_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > BALANCE_INTERVAL {
          let manager = ctx.balance_manager();
-         manager.update_eth_balance_across_wallets_and_chains(ctx.clone()).await;
-         manager.update_tokens_balance_across_wallets_and_chains(ctx.clone()).await;
+         manager
+            .update_eth_balance_across_wallets_and_chains(ctx.clone())
+            .await;
+         manager
+            .update_tokens_balance_across_wallets_and_chains(ctx.clone())
+            .await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;

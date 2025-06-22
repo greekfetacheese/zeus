@@ -24,6 +24,8 @@ use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
+use std::hash::{Hash, Hasher};
+use core::cmp::Ordering;
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 
@@ -42,9 +44,33 @@ pub struct UniswapV3Pool {
    pub liquidity_amount1: U256,
 }
 
+impl Ord for UniswapV3Pool {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.address.cmp(&other.address)
+   }
+}
+
+impl PartialOrd for UniswapV3Pool {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
+
+impl Eq for UniswapV3Pool {}
+
 impl PartialEq for UniswapV3Pool {
    fn eq(&self, other: &Self) -> bool {
       self.address == other.address && self.chain_id == other.chain_id
+   }
+}
+
+impl Hash for UniswapV3Pool {
+   fn hash<H: Hasher>(&self, state: &mut H) {
+      self.chain_id.hash(state);
+      self.currency0.hash(state);
+      self.currency1.hash(state);
+      self.fee.hash(state);
+      self.dex.hash(state);
    }
 }
 

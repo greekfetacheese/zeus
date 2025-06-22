@@ -99,7 +99,7 @@ pub fn get_possible_v3_pairs(dex_kind: DexKind, token: ERC20Token, base_tokens: 
 }
 
 /// Enum to define in which DEX a pool belongs to
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum DexKind {
    UniswapV2,
    UniswapV3,

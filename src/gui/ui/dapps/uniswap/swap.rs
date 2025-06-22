@@ -250,7 +250,7 @@ pub struct SwapUi {
    pub pool_data_syncing: bool,
    pub syncing_pools: bool,
    pub getting_quote: bool,
-   pub quote_routes: QuoteRoutes,
+   pub quote: Quote,
    pub protocol_version: ProtocolVersion,
 
    /// Pool to simulate if simulate mode is on
@@ -275,7 +275,7 @@ impl SwapUi {
          pool_data_syncing: false,
          syncing_pools: false,
          getting_quote: false,
-         quote_routes: QuoteRoutes::default(),
+         quote: Quote::default(),
          protocol_version: ProtocolVersion::V3,
          pool: None,
          simulate_window: SimulateWindow::new(),
@@ -588,7 +588,7 @@ impl SwapUi {
       ui: &mut Ui,
    ) {
       let valid = self.valid_inputs(ctx.clone());
-      let has_routes = !self.quote_routes.routes.is_empty();
+      let has_routes = self.quote.route.is_some();
       let has_balance = self.sufficient_balance(ctx.clone());
       let has_entered_amount = !self.amount_in.is_empty();
       let action = self.action();
@@ -872,49 +872,50 @@ impl SwapUi {
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
       let max_hops = settings.max_hops;
-      let max_paths = settings.max_paths;
 
       RT.spawn_blocking(move || {
          let quote = get_quote(
-            amount_in.wei2(),
-            currency_in,
-            currency_out,
+            amount_in.clone(),
+            currency_in.clone(),
+            currency_out.clone(),
             pools,
             eth_price,
             currency_out_price,
             base_fee,
             priority_fee.wei2(),
             max_hops,
-            max_paths,
          );
 
-         // tracing::info!("Swap Route Length: {}", quote.swaps_len());
-         // tracing::info!("Route {}", quote.currency_path_str());
-         // tracing::info!("Gas Used: {}", quote.total_gas_used());
-         // tracing::info!("Gas Cost USD: {}", quote.total_gas_cost_usd());
-
-         let swap_steps = quote.get_swap_steps();
+         tracing::info!(
+            "Quote for {} {} -> {}",
+            amount_in.format_abbreviated(),
+            currency_in.symbol(),
+            currency_out.symbol()
+         );
+         let swap_steps = quote.swap_steps.clone();
+         let amount_out = quote.amount_out.clone();
          tracing::info!("Swap Steps Length: {}", swap_steps.len());
          for swap in &swap_steps {
             tracing::info!(
                "Swap Step: {} {} -> {} {} {} ({})",
-               swap.amount_in.f64(),
+               swap.amount_in.format_abbreviated(),
                swap.currency_in.symbol(),
-               swap.amount_out.f64(),
+               swap.amount_out.format_abbreviated(),
                swap.currency_out.symbol(),
                swap.pool.dex_kind().to_str(),
                swap.pool.fee().fee()
             );
          }
 
+         let quote_clone = quote.clone();
          SHARED_GUI.write(|gui| {
-            if !quote.routes.is_empty() {
-               gui.uniswap.swap_ui.amount_out = quote.total_amount_out().flatten();
+            if !quote.amount_out.is_zero() {
+               gui.uniswap.swap_ui.amount_out = amount_out.flatten();
 
                gui.uniswap.swap_ui.getting_quote = false;
-               gui.uniswap.swap_ui.quote_routes = quote;
+               gui.uniswap.swap_ui.quote = quote_clone;
             } else {
-               gui.uniswap.swap_ui.quote_routes = QuoteRoutes::default();
+               gui.uniswap.swap_ui.quote = Quote::default();
                gui.uniswap.swap_ui.amount_out = String::new();
                gui.uniswap.swap_ui.getting_quote = false;
             }
@@ -923,8 +924,6 @@ impl SwapUi {
    }
 
    fn swap_details(&self, _ctx: ZeusCtx, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
-      let quote = &self.quote_routes;
-
       // Slippage
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -945,7 +944,7 @@ impl SwapUi {
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let mut amount_out = quote.total_amount_out();
+            let mut amount_out = self.quote.amount_out.clone();
             let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
             amount_out.calc_slippage(slippage, self.currency_out.decimals());
 
@@ -1002,22 +1001,14 @@ impl SwapUi {
          return;
       }
 
-      let quote = self.quote_routes.clone();
-      let amount_in = quote.total_amount_in();
-      let mev_protect = settings.mev_protect;
-      let currency_in = quote.currency_in.clone();
-      let currency_out = quote.currency_out.clone();
-      let amount_out = quote.total_amount_out();
-      let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
+      let currency_in = self.quote.currency_in.clone();
+      let currency_out = self.quote.currency_out.clone();
+      let amount_in = self.quote.amount_in.clone();
+      let amount_out = self.quote.amount_out.clone();
+      let swap_steps = self.quote.swap_steps.clone();
 
-      // set no slippage on intermidiate swaps to make sure they don't fail
-      let mut swap_steps = quote.get_swap_steps();
-      let len = swap_steps.len();
-      for (i, swap) in swap_steps.iter_mut().enumerate() {
-         if i < len - 1 {
-            swap.amount_out = NumericValue::default()
-         }
-      }
+      let mev_protect = settings.mev_protect;
+      let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
 
       RT.spawn(async move {
          SHARED_GUI.open_loading("Wait while magic happens");
@@ -1127,7 +1118,6 @@ pub fn swap_section(
    token_selection: &mut TokenSelectionWindow,
 ) -> bool {
    let frame = theme.frame1;
-   let _frame_bg_color = frame.fill;
 
    let mut amount_changed = false;
 

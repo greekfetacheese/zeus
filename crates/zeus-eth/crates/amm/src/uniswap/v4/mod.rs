@@ -105,7 +105,7 @@ impl Actions {
 
 
 /// The default factory enabled fee amounts, denominated in hundredths of bips.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(u32)]
 #[allow(non_camel_case_types)]
 pub enum FeeAmount {

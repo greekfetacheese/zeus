@@ -20,6 +20,8 @@ use uniswap_v3_math::{
 };
 use utils::{NumericValue, batch, price_feed::get_base_token_price};
 
+use std::hash::{Hash, Hasher};
+use core::cmp::Ordering;
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +41,33 @@ pub struct UniswapV4Pool {
    pub liquidity_amount1: U256,
 }
 
+impl Ord for UniswapV4Pool {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.pool_id.cmp(&other.pool_id)
+   }
+}
+
+impl PartialOrd for UniswapV4Pool {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
+
+impl Eq for UniswapV4Pool {}
+
 impl PartialEq for UniswapV4Pool {
    fn eq(&self, other: &Self) -> bool {
       self.pool_id == other.pool_id && self.chain_id == other.chain_id
+   }
+}
+
+impl Hash for UniswapV4Pool {
+   fn hash<H: Hasher>(&self, state: &mut H) {
+      self.chain_id.hash(state);
+      self.currency0.hash(state);
+      self.currency1.hash(state);
+      self.fee.hash(state);
+      self.dex.hash(state);
    }
 }
 
