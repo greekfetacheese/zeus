@@ -122,7 +122,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
 
-      /*
       #[cfg(feature = "dev")]
       {
          let sync_pools = ui.add(Button::new(
@@ -130,16 +129,16 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          ));
          if sync_pools.clicked() {
             gui.portofolio.open = false;
-            gui.swap_ui.open = false;
+            gui.uniswap.close();
             gui.send_crypto.open = false;
             gui.wallet_ui.open = false;
             gui.tx_history.open = false;
             gui.across_bridge.open = false;
+            gui.sync_pools_ui.open = false;
             gui.settings.open = false;
             gui.sync_pools_ui.open = true;
          }
       }
-      */
 
       #[cfg(feature = "dev")]
       {

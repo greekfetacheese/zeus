@@ -474,7 +474,7 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn enough_liquidity(&self) -> bool {
-      let threshold = minimum_liquidity(&self.base_token());
+      let threshold = minimum_liquidity(&self.base_token(), self.dex);
       let balance = self.base_balance();
       balance.wei2() >= threshold
    }
@@ -506,22 +506,18 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn base_balance(&self) -> NumericValue {
-      let amount0 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
-      let amount1 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
       if self.currency0().is_base() {
-         amount0
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       } else {
-         amount1
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       }
    }
 
    fn quote_balance(&self) -> NumericValue {
-      let amount0 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
-      let amount1 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
       if self.currency0().is_base() {
-         amount1
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       } else {
-         amount0
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       }
    }
 
@@ -535,12 +531,8 @@ impl UniswapPool for UniswapV3Pool {
       Ok(price)
    }
 
-   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
-      return Err(anyhow!("Not implemented"));
-   }
-
-   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
-      return Err(anyhow!("Not implemented"));
+   fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
+      Ok(())
    }
 
    async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>

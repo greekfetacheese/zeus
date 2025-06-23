@@ -44,11 +44,7 @@ impl PoolsUi {
             .show(ui);
 
          let manager = ctx.pool_manager();
-         let v2_pools = manager.get_v2_pools_for_chain(ctx.chain().id());
-         let v3_pools = manager.get_v3_pools_for_chain(ctx.chain().id());
-         let mut pools = Vec::new();
-         pools.extend(v3_pools);
-         pools.extend(v2_pools);
+         let pools = manager.get_pools_for_chain(ctx.chain().id());
 
          let column_width = ui_width / 5.0;
          let query = &self.search_query;
@@ -71,9 +67,6 @@ impl PoolsUi {
                   ui.label(RichText::new("Fee").size(theme.text_sizes.large));
 
                   ui.label(RichText::new("Has State").size(theme.text_sizes.large));
-
-                  // TVL
-                  ui.label(RichText::new("TVL").size(theme.text_sizes.large));
 
                   ui.end_row();
 
@@ -130,8 +123,10 @@ impl PoolsUi {
                         ui.set_width(column_width);
                         let text = if pool.dex_kind().is_v2() {
                            RichText::new("V2").size(theme.text_sizes.normal)
-                        } else {
+                        } else if pool.dex_kind().is_v3() {
                            RichText::new("V3").size(theme.text_sizes.normal)
+                        } else {
+                           RichText::new("V4").size(theme.text_sizes.normal)
                         };
                         ui.label(text);
                      });
@@ -145,18 +140,13 @@ impl PoolsUi {
                         ui.label(text);
                      });
 
-                        ui.scope(|ui| {
+                     ui.scope(|ui| {
                         ui.set_width(column_width);
 
                         let has_state = pool.state().is_some();
-                        let text = RichText::new(if has_state { "Yes" } else { "No" }).size(theme.text_sizes.normal);
+                        let text = RichText::new(if has_state { "Yes" } else { "No" })
+                           .size(theme.text_sizes.normal);
                         ui.label(text);
-                     });
-
-                     // TVL
-                     ui.scope(|ui| {
-                        ui.set_width(column_width);
-                        ui.label(RichText::new("TODO").size(theme.text_sizes.normal));
                      });
 
                      ui.end_row();

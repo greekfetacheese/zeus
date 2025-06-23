@@ -30,7 +30,6 @@ use tracing::error;
 use types::ChainId;
 use utils::{address, get_logs_for};
 
-pub const RECOMMENDED_BATCH_SIZE: usize = 30;
 
 /// Sync pools from the last checkpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]

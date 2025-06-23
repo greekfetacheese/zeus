@@ -387,7 +387,7 @@ impl SwapUi {
       }
 
       if self.should_update_pool_state() {
-         self.update_pool_state(ctx.clone());
+         self.update_pool_state(ctx.clone(), settings);
       }
 
       let chain_id = ctx.chain().id();
@@ -425,8 +425,8 @@ impl SwapUi {
 
                let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
-                  self.update_pool_state(ctx.clone());
-                  self.sync_pools(ctx.clone(), true);
+                  self.update_pool_state(ctx.clone(), settings);
+                  self.sync_pools(ctx.clone(), settings, true);
                }
 
                if self.pool_data_syncing || self.syncing_pools {
@@ -524,7 +524,7 @@ impl SwapUi {
             token_selection.reset();
          }
 
-         self.sync_pools(ctx.clone(), changed_currency);
+         self.sync_pools(ctx.clone(), settings, changed_currency);
 
          if should_get_quote {
             self.get_quote(ctx.clone(), settings);
@@ -650,7 +650,7 @@ impl SwapUi {
    }
 
    /// Sync pools for the first time for currency out
-   fn sync_pools(&mut self, ctx: ZeusCtx, changed_currency: bool) {
+   fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, changed_currency: bool) {
       if self.syncing_pools {
          return;
       }
@@ -674,9 +674,12 @@ impl SwapUi {
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
-      let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
       tracing::info!("Token to sync pools for: {}", token_out.symbol);
+
+      let swap_on_v2 = settings.swap_on_v2;
+      let swap_on_v3 = settings.swap_on_v3;
+      let swap_on_v4 = settings.swap_on_v4;
 
       self.syncing_pools = true;
 
@@ -696,7 +699,14 @@ impl SwapUi {
             gui.uniswap.swap_ui.pool_data_syncing = true;
          });
 
-         let pools = pools_to_update(ctx2.clone(), currency_in, currency_out);
+         let pools = get_relevant_pools(
+            ctx2.clone(),
+            swap_on_v2,
+            swap_on_v3,
+            swap_on_v4,
+            &currency_out,
+         );
+
          match manager
             .update_state_for_pools(client, chain_id, pools)
             .await
@@ -764,16 +774,18 @@ impl SwapUi {
       true
    }
 
-   fn update_pool_state(&mut self, ctx: ZeusCtx) {
+   fn update_pool_state(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
       let action = self.action();
       if action.is_wrap() || action.is_unwrap() {
          return;
       }
 
-      let pools = pools_to_update(
+      let pools = get_relevant_pools(
          ctx.clone(),
-         self.currency_in.clone(),
-         self.currency_out.clone(),
+         settings.swap_on_v2,
+         settings.swap_on_v3,
+         settings.swap_on_v4,
+         &self.currency_out,
       );
 
       if pools.is_empty() {
@@ -864,16 +876,25 @@ impl SwapUi {
       let chain = ctx.chain().id();
 
       self.getting_quote = true;
-      let manager = ctx.pool_manager();
-      let pools = manager.get_pools_for_chain(chain);
       let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
       let priority_fee = ctx.get_priority_fee(chain).unwrap_or_default();
       let eth_price = ctx.get_eth_price();
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
       let max_hops = settings.max_hops;
+      let swap_on_v2 = settings.swap_on_v2;
+      let swap_on_v3 = settings.swap_on_v3;
+      let swap_on_v4 = settings.swap_on_v4;
 
       RT.spawn_blocking(move || {
+         let pools = get_relevant_pools(
+            ctx.clone(),
+            swap_on_v2,
+            swap_on_v3,
+            swap_on_v4,
+            &currency_out,
+         );
+
          let quote = get_quote(
             amount_in.clone(),
             currency_in.clone(),
@@ -1048,53 +1069,51 @@ impl SwapUi {
 }
 
 /// Which pools to update the state for
-// ! Depending on how much currencies and thus pools we hold this may need an adjustement to reduce the number of pools to update
-fn pools_to_update(
+fn get_relevant_pools(
    ctx: ZeusCtx,
-   currency_in: Currency,
-   currency_out: Currency,
+   swap_on_v2: bool,
+   swap_on_v3: bool,
+   swap_on_v4: bool,
+   currency_out: &Currency,
 ) -> Vec<AnyUniswapPool> {
-   let currency_in = if currency_in.is_native() {
-      currency_in.to_weth_currency()
-   } else {
-      currency_in.clone()
-   };
-
-   let currency_out = if currency_out.is_native() {
-      currency_out.to_weth_currency()
-   } else {
-      currency_out.clone()
-   };
-
    let manager = ctx.pool_manager();
-   let all_pools = manager.get_pools_for_chain(currency_in.chain_id());
+   let all_pools = manager.get_pools_for_chain(currency_out.chain_id());
    let mut added_pools = HashSet::new();
 
    let mut good_pools = Vec::new();
    for pool in all_pools {
-      // ! Skip V4 pools
-      if pool.dex_kind().is_uniswap_v4() {
+      if !swap_on_v2 && pool.dex_kind().is_v2() {
          continue;
       }
 
-      let involves_in = pool.have(&currency_in);
-      let involves_out = pool.have(&currency_out);
-      let is_base_to_base_connector = pool.currency0().is_base() && pool.currency1().is_base();
-
-      if involves_in || involves_out || is_base_to_base_connector {
-         if !added_pools.contains(&pool.address()) {
-            good_pools.push(pool.clone());
-            added_pools.insert(pool.address());
-         }
+      if !swap_on_v3 && pool.dex_kind().is_v3() {
+         continue;
       }
-   }
 
-   if good_pools.is_empty() {
-      tracing::warn!(
-         "No pools found for{}-{}",
-         currency_in.symbol(),
-         currency_out.symbol()
-      );
+      if !swap_on_v4 && pool.dex_kind().is_v4() {
+         continue;
+      }
+
+      let pool_key = (pool.chain_id(), pool.address(), pool.pool_id());
+
+      if added_pools.contains(&pool_key) {
+         continue;
+      }
+
+      // If the output currency is base, we only want to push pools that are paired with base tokens
+      // This is to avoid pools that are paired with shit tokens
+      let should_push = if currency_out.is_base() {
+         pool.have(&currency_out) && pool.currency0().is_base() && pool.currency1().is_base()
+      } else {
+         pool.have(&currency_out)
+      };
+
+      // let base_pool = pool.currency0().is_base() && pool.currency1().is_base();
+
+      if should_push {
+         good_pools.push(pool);
+         added_pools.insert(pool_key);
+      }
    }
 
    good_pools

@@ -45,6 +45,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       );
    });
 
+
    for chain in SUPPORTED_CHAINS {
       let ctx2 = ctx.clone();
       RT.spawn(async move {
@@ -130,19 +131,46 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
-   // Sync base pools
+   // Sync v4 pools and base pools
+   ctx.write(|ctx| {
+      ctx.data_syncing = true;
+   });
+
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let ctx_clone = ctx.clone();
       let tokens = ERC20Token::base_tokens(chain);
       let task = RT.spawn(async move {
-         match eth::sync_pools_for_tokens(ctx_clone, chain, tokens, false).await {
-            Ok(_) => {
-               tracing::info!("Synced base pools for {}", chain);
-            }
+         match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, true).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
+         }
+
+         let client = match ctx_clone.get_client(chain).await {
+            Ok(client) => client,
             Err(e) => {
-               tracing::error!("Error syncing base pools for {}: {:?}", chain, e);
+               tracing::error!(
+                  "Error getting client for chain {}: {:?}",
+                  chain,
+                  e
+               );
+               return;
             }
+         };
+
+         let manager = ctx_clone.pool_manager();
+         let v4_pools = manager.get_v4_pools_for_chain(chain);
+
+         match manager
+            .update_state_for_pools(client, chain, v4_pools)
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => tracing::error!(
+               "Error updating pool manager for chain {}: {:?}",
+               chain,
+               e
+            ),
          }
       });
       tasks.push(task);
@@ -152,38 +180,16 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let _ = task.await;
    }
 
-   RT.spawn_blocking(move || {
-      ctx.save_all();
-   });
-
-   /*
-   // Sync v4 pools and base pools
-   ctx.write(|ctx| {
-      ctx.data_syncing = true;
-   });
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ctx_clone = ctx.clone();
-      let tokens = ERC20Token::base_tokens(chain);
-      let task = RT.spawn(async move {
-         match eth::sync_pools_for_tokens(ctx_clone, chain, tokens, true).await {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
-         }
-      });
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      task.await.unwrap();
-   }
+   let manager = ctx.pool_manager();
+   manager.cleanup_v4_pools();
 
    ctx.write(|ctx| {
       ctx.data_syncing = false;
    });
 
-
-   */
+   RT.spawn_blocking(move || {
+      ctx.save_all();
+   });
 }
 
 pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {

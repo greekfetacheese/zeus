@@ -632,7 +632,7 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
       let state_data_res = batch::get_v3_state(client, None, pools_to_update).await;
       state_res = Some(state_data_res);
    } else {
-      // If we dont have at least 10 pools just skip this check
+      // If we dont have at least 10 pools just skip this check and assume that the RPC is ok
       tracing::info!("Not enough V3 pools for testing {}", rpc.url);
    }
 

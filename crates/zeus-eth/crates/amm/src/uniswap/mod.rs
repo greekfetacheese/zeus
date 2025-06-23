@@ -74,21 +74,9 @@ pub trait UniswapPool {
    /// Quote Currency Pool Balance
    fn quote_balance(&self) -> NumericValue;
 
-   /// Caluclate the liquidity amounts of this pool across all tick ranges
-   ///
-   /// Requires to populate all tick data of the pool
-   ///
-   /// V4 specific
-   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error>;
 
-   /// Caluclate the liquidity of this pool for a very small range
-   ///
-   /// Does not require to populate all tick data of the pool
-   ///
-   /// This is just to give us an idea if there is liquidity in the pool even if we don't have all the tick data
-   ///
-   /// V4 specific
-   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error>;
+   /// Computes the virtual reserves of the pool
+   fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error>;
 
    /// Does this pool have enough liquidity
    fn enough_liquidity(&self) -> bool;
@@ -464,19 +452,11 @@ impl UniswapPool for AnyUniswapPool {
       }
    }
 
-   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
+   fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
       match self {
-         AnyUniswapPool::V2(pool) => pool.calculate_liquidity(),
-         AnyUniswapPool::V3(pool) => pool.calculate_liquidity(),
-         AnyUniswapPool::V4(pool) => pool.calculate_liquidity(),
-      }
-   }
-
-   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.calculate_liquidity2(),
-         AnyUniswapPool::V3(pool) => pool.calculate_liquidity2(),
-         AnyUniswapPool::V4(pool) => pool.calculate_liquidity2(),
+         AnyUniswapPool::V2(pool) => pool.compute_virtual_reserves(),
+         AnyUniswapPool::V3(pool) => pool.compute_virtual_reserves(),
+         AnyUniswapPool::V4(pool) => pool.compute_virtual_reserves(),
       }
    }
 

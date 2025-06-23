@@ -1,5 +1,7 @@
 use alloy_primitives::U256;
+use rayon::prelude::*;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 
 use crate::uniswap::{AnyUniswapPool, UniswapPool, router::SwapStep};
 use currency::Currency;
@@ -12,7 +14,6 @@ use utils::NumericValue;
 const BASE_GAS: u64 = 146_000;
 /// An estimate of the gas cost for a hop (intermidiate swaps always cost lower gas)
 const HOP_GAS: u64 = 80_000;
-
 
 #[derive(Clone, Debug)]
 pub struct RouteStep {
@@ -36,29 +37,28 @@ pub struct Quote {
 // Internal struct for pathfinding
 #[derive(Clone, Debug)]
 struct Path {
-    pools: Vec<AnyUniswapPool>,
-    // The sequence of currencies, e.g., [currency_in, hop1_currency, currency_out]
-    path_currencies: Vec<Currency>, 
+   pools: Vec<Arc<AnyUniswapPool>>,
+   // The sequence of currencies, e.g., [currency_in, hop1_currency, currency_out]
+   path_currencies: Vec<Currency>,
 }
 
 // Internal struct for ranking valid, simulated routes
 #[derive(Clone, Debug)]
 struct EvaluatedRoute {
-    steps: Vec<RouteStep>,
-    amount_in: NumericValue,
-    amount_out: NumericValue,
-    gas_cost_usd: NumericValue,
+   pools: Vec<Arc<AnyUniswapPool>>,
+   path_currencies: Vec<Currency>,
+   amount_in: NumericValue,
+   amount_out: NumericValue,
+   gas_cost_usd: NumericValue,
 }
 
 impl EvaluatedRoute {
-    // Calculates the net value of the route in USD for ranking purposes
-    fn net_value(&self, currency_out_price: &NumericValue) -> f64 {
-        let out_value_usd = self.amount_out.f64() * currency_out_price.f64();
-        out_value_usd - self.gas_cost_usd.f64()
-    }
+   // Calculates the net value of the route in USD for ranking purposes
+   fn net_value(&self, currency_out_price: &NumericValue) -> f64 {
+      let out_value_usd = self.amount_out.f64() * currency_out_price.f64();
+      out_value_usd - self.gas_cost_usd.f64()
+   }
 }
-
-
 
 pub fn get_quote(
    amount_to_swap: NumericValue,
@@ -71,199 +71,198 @@ pub fn get_quote(
    priority_fee: U256,
    max_hops: usize,
 ) -> Quote {
+   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(|p| Arc::new(p)).collect();
+  // tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
-    // Find all possible paths from currency_in to currency_out
-    let all_paths = find_all_paths(
-        &all_pools,
-        currency_in.clone(),
-        currency_out.clone(),
-        max_hops,
-    );
+  /* 
+   for pool in all_pools.iter() {
+      tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} {}", pool.currency0().symbol(),
+       pool.currency1().symbol(),
+        pool.dex_kind().to_str(),
+         pool.fee().fee_percent());
+   }
+   */
 
-    if all_paths.is_empty() {
-        tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
-        return Quote::default();
-    }
-    
-    // Evaluate and rank each path
-    let mut evaluated_routes = evaluate_and_rank_routes(
-        all_paths,
-        amount_to_swap.clone(),
-        &eth_price,
-        &currency_out_price,
-        base_fee,
-        priority_fee,
-    );
-    
-    // Select the best route
-    evaluated_routes.sort_by(|a, b| 
-        b.net_value(&currency_out_price)
+   // Find all possible paths from currency_in to currency_out
+   let all_paths = find_all_paths(
+      &all_pools,
+      currency_in.clone(),
+      currency_out.clone(),
+      max_hops,
+   );
+
+  // tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Paths Length: {}", all_paths.len());
+
+   if all_paths.is_empty() {
+      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
+      return Quote::default();
+   }
+
+   // Evaluate and rank each path
+   let mut evaluated_routes = evaluate_and_rank_routes(
+      all_paths,
+      amount_to_swap.clone(),
+      &eth_price,
+      &currency_out_price,
+      base_fee,
+      priority_fee,
+   );
+
+  // tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Evaluated Routes Length: {}", evaluated_routes.len());
+
+   // Select the best route
+   evaluated_routes.sort_by(|a, b| {
+      b.net_value(&currency_out_price)
          .partial_cmp(&a.net_value(&currency_out_price))
          .unwrap_or(std::cmp::Ordering::Equal)
-    );
-    
-    if let Some(best_route) = evaluated_routes.into_iter().next() {
-        // Build the final quote from the best route
-        build_quote_from_route(best_route, currency_in, currency_out)
-    } else {
-        tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No profitable routes found after evaluation.");
-        Quote::default()
-    }
+   });
+
+   if let Some(best_route) = evaluated_routes.into_iter().next() {
+      build_quote_from_route(best_route, currency_in, currency_out)
+   } else {
+      tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No profitable routes found after evaluation.");
+      Quote::default()
+   }
 }
-
-
 
 /// Finds all possible sequences of pools to connect input and output currencies.
 fn find_all_paths(
-    all_pools: &[AnyUniswapPool],
-    start_currency: Currency,
-    end_currency: Currency,
-    max_hops: usize,
+   all_pools: &[Arc<AnyUniswapPool>],
+   start_currency: Currency,
+   end_currency: Currency,
+   max_hops: usize,
 ) -> Vec<Path> {
-    // Adjacency list: Currency -> Vec<(NeighborCurrency, Pool)>
-    let mut adj: HashMap<Currency, Vec<(Currency, AnyUniswapPool)>> = HashMap::new();
-    for pool in all_pools {
-        if !pool.enough_liquidity() || pool.dex_kind().is_uniswap_v4() { // Skip V4 for now as in old code
-            continue;
-        }
-        let c0 = pool.currency0().clone();
-        let c1 = pool.currency1().clone();
-        adj.entry(c0.clone()).or_default().push((c1.clone(), pool.clone()));
-        adj.entry(c1).or_default().push((c0, pool.clone()));
-    }
+   // Adjacency list: Currency -> Vec<(NeighborCurrency, Pool)>
+   let mut adj: HashMap<Currency, Vec<(Currency, Arc<AnyUniswapPool>)>> = HashMap::new();
+   for pool in all_pools {
+      if !pool.enough_liquidity() {
+         continue;
+      }
+      let c0 = pool.currency0().clone();
+      let c1 = pool.currency1().clone();
+      adj.entry(c0.clone())
+         .or_default()
+         .push((c1.clone(), pool.clone()));
+      adj.entry(c1).or_default().push((c0, pool.clone()));
+   }
 
-    let mut valid_paths = Vec::new();
-    // A queue for BFS: stores the path of pools taken so far
-    let mut queue: VecDeque<Path> = VecDeque::new();
-    
-    // Handle ETH -> WETH equivalence by treating them as the same starting node
-    let start_nodes = if start_currency.is_native() {
-        vec![start_currency.clone(), start_currency.to_weth_currency()]
-    } else {
-        vec![start_currency]
-    };
+   let mut valid_paths = Vec::new();
+   // A queue for BFS: stores the path of pools taken so far
+   let mut queue: VecDeque<Path> = VecDeque::new();
 
-    for start_node in start_nodes {
-        if let Some(neighbors) = adj.get(&start_node) {
-            for (neighbor_currency, pool) in neighbors {
-                queue.push_back(Path {
-                    pools: vec![pool.clone()],
-                    path_currencies: vec![start_node.clone(), neighbor_currency.clone()],
-                });
+   // Handle ETH -> WETH equivalence by treating them as the same starting node
+   let start_nodes = if start_currency.is_native() {
+      vec![start_currency.clone(), start_currency.to_weth_currency()]
+   } else {
+      vec![start_currency]
+   };
+
+   for start_node in start_nodes {
+      if let Some(neighbors) = adj.get(&start_node) {
+         for (neighbor_currency, pool) in neighbors {
+            queue.push_back(Path {
+               pools: vec![pool.clone()],
+               path_currencies: vec![start_node.clone(), neighbor_currency.clone()],
+            });
+         }
+      }
+   }
+
+   while let Some(current_path) = queue.pop_front() {
+      if current_path.pools.len() >= max_hops {
+         continue;
+      }
+
+      let last_currency_in_path = current_path.path_currencies.last().unwrap();
+
+      // Handle ETH/WETH equivalence for the destination
+      let is_end_node = if end_currency.is_native() {
+         *last_currency_in_path == end_currency || *last_currency_in_path == end_currency.to_weth_currency()
+      } else {
+         *last_currency_in_path == end_currency
+      };
+
+      if is_end_node {
+         valid_paths.push(current_path.clone());
+         // Continue searching, longer paths might yield better results
+      }
+
+      if let Some(neighbors) = adj.get(last_currency_in_path) {
+         for (next_currency, pool) in neighbors {
+            // Avoid cycles by checking if the currency is already in the path
+            if !current_path.path_currencies.contains(next_currency) {
+               let mut new_pools = current_path.pools.clone();
+               new_pools.push(pool.clone());
+
+               let mut new_currencies = current_path.path_currencies.clone();
+               new_currencies.push(next_currency.clone());
+
+               queue.push_back(Path {
+                  pools: new_pools,
+                  path_currencies: new_currencies,
+               });
             }
-        }
-    }
-    
-    while let Some(current_path) = queue.pop_front() {
-        if current_path.pools.len() >= max_hops {
-            continue;
-        }
-
-        let last_currency_in_path = current_path.path_currencies.last().unwrap();
-        
-        // Handle ETH/WETH equivalence for the destination
-        let is_end_node = if end_currency.is_native() {
-            *last_currency_in_path == end_currency || *last_currency_in_path == end_currency.to_weth_currency()
-        } else {
-            *last_currency_in_path == end_currency
-        };
-        
-        if is_end_node {
-            valid_paths.push(current_path.clone());
-            // Continue searching, longer paths might yield better results
-        }
-        
-        if let Some(neighbors) = adj.get(last_currency_in_path) {
-            for (next_currency, pool) in neighbors {
-                // Avoid cycles by checking if the currency is already in the path
-                if !current_path.path_currencies.contains(next_currency) {
-                    let mut new_pools = current_path.pools.clone();
-                    new_pools.push(pool.clone());
-                    
-                    let mut new_currencies = current_path.path_currencies.clone();
-                    new_currencies.push(next_currency.clone());
-
-                    queue.push_back(Path {
-                        pools: new_pools,
-                        path_currencies: new_currencies,
-                    });
-                }
-            }
-        }
-    }
-    valid_paths
+         }
+      }
+   }
+   valid_paths
 }
 
 /// Simulates each path and calculates its value.
 fn evaluate_and_rank_routes(
-    paths: Vec<Path>,
-    amount_in: NumericValue,
-    eth_price: &NumericValue,
-    _currency_out_price: &NumericValue,
-    base_fee: u64,
-    priority_fee: U256,
+   paths: Vec<Path>,
+   amount_in: NumericValue,
+   eth_price: &NumericValue,
+   _currency_out_price: &NumericValue,
+   base_fee: u64,
+   priority_fee: U256,
 ) -> Vec<EvaluatedRoute> {
-    paths
-        .into_iter()
-        .filter_map(|path| {
-            let mut steps = Vec::new();
-            let mut current_amount_in = amount_in.wei2();
-            
-            // Simulate the swap through the path, step-by-step
-            for i in 0..path.pools.len() {
-                let pool = &path.pools[i];
-                let currency_in_step = &path.path_currencies[i];
-                let currency_out_step = &path.path_currencies[i+1];
-                
-                if current_amount_in.is_zero() {
-                    return None; // Path dried up
-                }
+   paths
+      .into_par_iter()
+      .filter_map(|path| {
+         let mut current_amount_in = amount_in.wei2();
 
-                match pool.simulate_swap(currency_in_step, current_amount_in) {
-                    Ok(amount_out_wei) => {
-                        steps.push(RouteStep {
-                           pool: pool.clone(),
-                           currency_in: currency_in_step.clone(),
-                           currency_out: currency_out_step.clone(),
-                           amount_in: NumericValue::format_wei(current_amount_in, currency_in_step.decimals()),
-                           amount_out: NumericValue::format_wei(amount_out_wei, currency_out_step.decimals()),
-                        });
-                        current_amount_in = amount_out_wei;
-                    }
-                    Err(_) => return None, // Simulation failed for this path
-                }
-            }
-            
-            if steps.is_empty() || current_amount_in.is_zero() {
-                return None;
+         for i in 0..path.pools.len() {
+            let pool = &path.pools[i];
+            let currency_in_step = &path.path_currencies[i];
+
+            if current_amount_in.is_zero() {
+               return None;
             }
 
-            let final_amount_out = steps.last().unwrap().amount_out.clone();
+            match pool.simulate_swap(currency_in_step, current_amount_in) {
+               Ok(amount_out_wei) => current_amount_in = amount_out_wei,
+               Err(_) => return None,
+            }
+         }
 
-            let (gas_cost_usd, _) = estimate_gas_cost_for_route(
-                eth_price, 
-                base_fee, 
-                priority_fee, 
-                &path.pools
-            );
+         if current_amount_in.is_zero() {
+            return None;
+         }
 
-            Some(EvaluatedRoute {
-                steps,
-                amount_in: amount_in.clone(),
-                amount_out: final_amount_out,
-                gas_cost_usd,
-            })
-        })
-        .collect()
+         let final_amount_out = NumericValue::format_wei(
+            current_amount_in,
+            path.path_currencies.last().unwrap().decimals(),
+         );
+
+         let (gas_cost_usd, _) = estimate_gas_cost_for_route(eth_price, base_fee, priority_fee, &path.pools);
+
+         Some(EvaluatedRoute {
+            pools: path.pools,
+            path_currencies: path.path_currencies,
+            amount_in: amount_in.clone(),
+            amount_out: final_amount_out,
+            gas_cost_usd,
+         })
+      })
+      .collect()
 }
-
-
 
 fn estimate_gas_cost_for_route(
    eth_price: &NumericValue,
    base_fee: u64,
    priority_fee: U256,
-   pools: &[AnyUniswapPool],
+   pools: &[Arc<AnyUniswapPool>],
 ) -> (NumericValue, u64) {
    if pools.is_empty() {
       return (NumericValue::default(), 0);
@@ -278,31 +277,51 @@ fn estimate_gas_cost_for_route(
    (cost_in_usd, total_gas)
 }
 
-
 fn build_quote_from_route(route: EvaluatedRoute, currency_in: Currency, currency_out: Currency) -> Quote {
-    let swap_steps = route.steps.iter().map(|step| SwapStep {
-        pool: step.pool.clone(),
-        currency_in: step.currency_in.clone(),
-        currency_out: step.currency_out.clone(),
-        amount_in: step.amount_in.clone(),
-        amount_out: step.amount_out.clone(),
-    }).collect();
+   let mut steps = Vec::new();
+   let mut current_amount_in = route.amount_in.wei2();
 
-    Quote {
-        currency_in,
-        currency_out,
-        amount_in: route.amount_in,
-        amount_out: route.amount_out,
-        route: Some(route.steps),
-        swap_steps,
-    }
+   // Re-simulate the best path one last time to build the final step-by-step structs.
+   for i in 0..route.pools.len() {
+      let pool = &route.pools[i];
+      let currency_in_step = &route.path_currencies[i];
+      let currency_out_step = &route.path_currencies[i + 1];
+
+      let amount_out_wei = pool
+         .simulate_swap(currency_in_step, current_amount_in)
+         .unwrap_or_default();
+
+      steps.push(RouteStep {
+         pool: (**pool).clone(),
+         currency_in: currency_in_step.clone(),
+         currency_out: currency_out_step.clone(),
+         amount_in: NumericValue::format_wei(current_amount_in, currency_in_step.decimals()),
+         amount_out: NumericValue::format_wei(amount_out_wei, currency_out_step.decimals()),
+      });
+
+      current_amount_in = amount_out_wei;
+   }
+
+   let swap_steps = steps
+      .iter()
+      .map(|step| SwapStep {
+         pool: step.pool.clone(),
+         currency_in: step.currency_in.clone(),
+         currency_out: step.currency_out.clone(),
+         amount_in: step.amount_in.clone(),
+         amount_out: step.amount_out.clone(),
+      })
+      .collect();
+
+   Quote {
+      currency_in,
+      currency_out,
+      amount_in: route.amount_in,
+      amount_out: route.amount_out,
+      route: Some(steps),
+      swap_steps,
+   }
 }
-
-
-
-
-
-
 
 /*
 // credits: https://github.com/mouseless0x/rusty-sando

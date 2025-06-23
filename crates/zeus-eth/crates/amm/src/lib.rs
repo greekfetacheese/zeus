@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, U256, utils::parse_units};
+use alloy_primitives::{Address, U256, B256, utils::parse_units};
 use anyhow::bail;
 use currency::{Currency, ERC20Token};
 use types::ChainId;
@@ -17,6 +17,22 @@ pub use uniswap::v4::pool::UniswapV4Pool;
 pub use uniswap::{AnyUniswapPool, FeeAmount, UniswapPool};
 pub use uniswap_v3_math;
 
+/// A simple struct to identify a V2/V3/V4 pool
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PoolID {
+   pub chain_id: u64,
+   /// For V4 this is zero
+   pub address: Address,
+   /// For V2/V3 this is zero
+   pub pool_id: B256,
+}
+
+impl PoolID {
+   pub fn new(chain_id: u64, address: Address, pool_id: B256) -> Self {
+      Self { chain_id, address, pool_id }
+   }
+}
+
 pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
    if currency_a.is_native() {
       return true;
@@ -32,15 +48,35 @@ pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
 // TODO: This should be based on a USD value
-pub fn minimum_liquidity(token: &ERC20Token) -> U256 {
-   if token.is_weth() {
+pub fn minimum_liquidity(token: &ERC20Token, dex: DexKind) -> U256 {
+   let weth_amount = if !dex.is_v4() {
       parse_units("20", token.decimals).unwrap().get_absolute()
-   } else if token.is_wbnb() {
+   } else {
+      parse_units("100", token.decimals).unwrap().get_absolute()
+   };
+
+   let wbnb_amount = if !dex.is_v4() {
       parse_units("200", token.decimals).unwrap().get_absolute()
    } else {
+      parse_units("100", token.decimals).unwrap().get_absolute()
+   };
+
+   let stable_amount = if !dex.is_v4() {
       parse_units("40_000", token.decimals)
          .unwrap()
          .get_absolute()
+   } else {
+      parse_units("200_000", token.decimals)
+         .unwrap()
+         .get_absolute()
+   };
+
+   if token.is_weth() {
+      weth_amount
+   } else if token.is_wbnb() {
+      wbnb_amount
+   } else {
+      stable_amount
    }
 }
 
@@ -188,9 +224,9 @@ impl DexKind {
    }
 
    /// Return the creation block of this Dex
-   /// 
+   ///
    /// For V2 & V3 this is the block in which the factory was deployed
-   /// 
+   ///
    /// For V4 is the block which the PoolManager contract was deployed
    pub fn creation_block(&self, chain: u64) -> Result<u64, anyhow::Error> {
       match self {
@@ -256,7 +292,7 @@ impl DexKind {
    }
 }
 
-/// V3 NFT Position Manager contract creation block
+/// Uniswap V3 NFT Position Manager contract creation block
 pub fn nft_position_manager_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
@@ -322,8 +358,6 @@ fn pancakeswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Erro
       ChainId::Arbitrum(_) => Ok(101028949),
    }
 }
-
-
 
 mod tests {
    #[allow(unused_imports)]

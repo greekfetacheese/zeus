@@ -174,7 +174,9 @@ impl PoolManagerHandle {
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self.read(|manager| manager.get_token_price(token)).unwrap_or_default()
+      self
+         .read(|manager| manager.get_token_price(token))
+         .unwrap_or_default()
    }
 
    /// Update the state of the manager for the given chain
@@ -185,7 +187,6 @@ impl PoolManagerHandle {
    {
       self.update_pool_state(client.clone(), chain).await?;
       self.update_base_token_prices(client.clone(), chain).await?;
-      // self.cleanup_pools();
       self.calculate_prices();
       Ok(())
    }
@@ -210,7 +211,14 @@ impl PoolManagerHandle {
 
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size);
-      let pools = batch_update_state(client.clone(), chain, concurrency, batch_size, pools_to_update).await?;
+      let pools = batch_update_state(
+         client.clone(),
+         chain,
+         concurrency,
+         batch_size,
+         pools_to_update,
+      )
+      .await?;
       self.write(|manager| {
          for pool in pools {
             manager.add_pool(pool.clone());
@@ -280,6 +288,11 @@ impl PoolManagerHandle {
    /// Cleanup pools that do not have sufficient liquidity
    pub fn cleanup_pools(&self) {
       self.write(|manager| manager.cleanup_pools())
+   }
+
+   /// Cleanup V4 pools that do not have sufficient liquidity
+   pub fn cleanup_v4_pools(&self) {
+      self.write(|manager| manager.cleanup_v4_pools())
    }
 
    pub fn calculate_prices(&self) {
@@ -538,10 +551,10 @@ impl PoolManagerHandle {
       N: Network,
    {
       let concurrency = self.read(|manager| manager.concurrency);
+      let batch_size = self.read(|manager| manager.batch_size_for_syncing_pools);
       let semaphore = Arc::new(Semaphore::new(concurrency.into()));
       let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
       let results = Arc::new(Mutex::new(Vec::new()));
-      let batch = RECOMMENDED_BATCH_SIZE;
 
       for dex in &dexes {
          if !self.should_sync_v4_pools(chain, *dex) {
@@ -561,7 +574,7 @@ impl PoolManagerHandle {
             let task = tokio::task::spawn(async move {
                let checkpoint = checkpoint.unwrap();
                let _permit = semaphore.acquire().await?;
-               let synced = sync_from_checkpoints(client.clone(), concurrency, batch, vec![checkpoint]).await?;
+               let synced = sync_from_checkpoints(client.clone(), concurrency, batch_size, vec![checkpoint]).await?;
                manager.add_v4_pool_last_sync_time(chain, dex);
                results.lock().await.extend(synced);
                Ok(())
@@ -569,7 +582,7 @@ impl PoolManagerHandle {
             tasks.push(task);
          } else {
             let task = tokio::task::spawn(async move {
-               let config = SyncConfig::new(chain, vec![dex], concurrency, batch, None);
+               let config = SyncConfig::new(chain, vec![dex], concurrency, batch_size, None);
                let _permit = semaphore.acquire().await?;
                let synced = sync_pools(client.clone(), config).await?;
                manager.add_v4_pool_last_sync_time(chain, dex);
@@ -589,12 +602,12 @@ impl PoolManagerHandle {
 
       let results = Arc::try_unwrap(results).unwrap().into_inner();
 
-      for res in &results {
+      for res in results {
          self.write(|manager| {
             manager.add_checkpoint(chain, res.checkpoint.dex, res.checkpoint.clone());
          });
-         for pool in &res.pools {
-            self.add_pool(pool.clone());
+         for pool in res.pools {
+            self.add_pool(pool);
          }
       }
 
@@ -605,6 +618,7 @@ impl PoolManagerHandle {
 /// Key: (chain_id, dex, tokenA, tokenB) -> Value: Time since last sync
 type PoolLastSync = HashMap<(u64, DexKind, Address, Address), Instant>;
 
+/// V4 Pools are synced by using the `eth_get_logs` method so they get a different map
 type V4PoolLastSync = HashMap<(u64, DexKind), Instant>;
 
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
@@ -619,11 +633,15 @@ type TokenPrices = HashMap<(u64, Address), NumericValue>;
 type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 
 fn default_batch_size() -> usize {
-    10
+   10
+}
+
+fn default_batch_size_for_syncing_pools() -> usize {
+   30
 }
 
 fn default_concurrency() -> usize {
-    1
+   1
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -649,7 +667,11 @@ pub struct PoolManager {
 
    /// Batch size when syncing the pools state
    #[serde(default = "default_batch_size")]
-   pub batch_size: usize
+   pub batch_size: usize,
+
+   /// Batch size when syncing pools from logs
+   #[serde(default = "default_batch_size_for_syncing_pools")]
+   pub batch_size_for_syncing_pools: usize,
 }
 
 impl Default for PoolManager {
@@ -660,8 +682,9 @@ impl Default for PoolManager {
          pool_last_sync: HashMap::new(),
          v4_pool_last_sync: HashMap::new(),
          checkpoints: HashMap::new(),
-         concurrency: 1,
-         batch_size: 10
+         concurrency: default_concurrency(),
+         batch_size: default_batch_size(),
+         batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),
       }
    }
 }
@@ -723,6 +746,26 @@ impl PoolManager {
 
    pub fn cleanup_pools(&mut self) {
       self.pools.retain(|_, pool| pool.enough_liquidity());
+   }
+
+   pub fn cleanup_v4_pools(&mut self) {
+      let pools = self
+         .pools
+         .values()
+         .filter(|pool| pool.dex_kind().is_v4())
+         .cloned()
+         .collect::<Vec<_>>();
+      for pool in pools {
+         if !pool.enough_liquidity() {
+            self.remove_pool(
+               pool.chain_id(),
+               pool.dex_kind(),
+               pool.fee().fee(),
+               pool.currency0().clone(),
+               pool.currency1().clone(),
+            );
+         }
+      }
    }
 
    pub fn add_pool(&mut self, pool: impl UniswapPool) {

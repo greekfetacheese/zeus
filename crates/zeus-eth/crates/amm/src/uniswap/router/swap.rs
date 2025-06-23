@@ -216,14 +216,20 @@ where
       }
    }
 
+   // get the dex kind of the last pool
+   let dex_kind = swap_steps.last().unwrap().pool.dex_kind();
+
+   // If the last pool is V4 skip this part as the 
+   // TAKE_ALL command will handle sending the tokens or ETH back to the receipient
+
+   if !dex_kind.is_v4() {
    // Handle ETH wrapping and final output
    if currency_out.is_native() {
-      eprintln!("UnWrapping ETH");
       let data = abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
    } else {
-      eprintln!("Sweeping Tokens");
+      
       let sweep_params = Sweep {
          token: currency_out.address(),
          recipient,
@@ -232,10 +238,12 @@ where
       let data = sweep_params.abi_encode_params().into();
       commands.push(Commands::SWEEP as u8);
       inputs.push(data);
+      
    }
+}
 
    let command_bytes = Bytes::from(commands);
-   eprintln!("Command Bytes: {:?}", command_bytes);
+  // eprintln!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
    let calldata = if let Some(deadline_val) = deadline {
       encode_execute_with_deadline(command_bytes, inputs, deadline_val)

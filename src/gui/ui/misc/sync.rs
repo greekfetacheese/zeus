@@ -73,12 +73,13 @@ impl SyncPoolsUi {
             });
          }
 
-         let button = Button::new(RichText::new("Update Pool State").size(theme.text_sizes.normal));
+         let button =
+            Button::new(RichText::new("Update and Cleanup Pools").size(theme.text_sizes.normal));
          if ui.add_enabled(enabled, button).clicked() {
             self.updating_state = true;
             let ctx2 = ctx.clone();
             RT.spawn(async move {
-               match update_and_filter_pools(ctx2.clone()).await {
+               match update_and_cleanup_pools(ctx2.clone()).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
                         gui.sync_pools_ui.updating_state = false;
@@ -172,7 +173,7 @@ impl SyncPoolsUi {
    }
 }
 
-async fn update_and_filter_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+async fn update_and_cleanup_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let ctx = ctx.clone();
@@ -181,9 +182,7 @@ async fn update_and_filter_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
          let client = ctx.get_client(chain).await?;
 
          manager.update(client, chain).await?;
-         manager.cleanup_pools();
 
-         manager.save_to_dir(&pool_data_dir()?)?;
          tracing::info!("Pool state is updated for chain {}", chain);
          Ok(())
       });
@@ -197,23 +196,41 @@ async fn update_and_filter_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       }
    }
 
+   let manager = ctx.pool_manager();
+   manager.cleanup_pools();
+   manager.save_to_dir(&pool_data_dir()?)?;
+
    Ok(())
 }
 
 async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   let manager = ctx.pool_manager();
    let dex = DexKind::UniswapV4;
+   let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
    for chain in ChainId::supported_chains() {
       if chain.is_bsc() {
          continue;
       }
-      let client = ctx.get_archive_client(chain.id()).await?;
-      manager
-         .sync_pools(client.clone(), chain.id(), vec![dex])
-         .await?;
+
+      let ctx = ctx.clone();
+      let task = RT.spawn(async move {
+         let client = ctx.get_archive_client(chain.id()).await?;
+         let manager = ctx.pool_manager();
+
+         manager
+            .sync_pools(client.clone(), chain.id(), vec![dex])
+            .await?;
+
+         Ok(())
+      });
+      tasks.push(task);
    }
 
+   for task in tasks {
+      let _ = task.await;
+   }
+
+   let manager = ctx.pool_manager();
    let manager_string = manager
       .to_string()
       .map_err(|e| anyhow::anyhow!("Failed to serialize pool manager: {:?}", e))?;

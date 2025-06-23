@@ -15,15 +15,15 @@ use crate::{
 use abi::uniswap::v4::PoolKey;
 use currency::{Currency, ERC20Token, NativeCurrency};
 use uniswap_v3_math::{
-   sqrt_price_math,
-   tick_math::{self, MAX_TICK, MIN_TICK},
+   sqrt_price_math::Q96,
+   tick_math::{MAX_TICK, MIN_TICK},
 };
 use utils::{NumericValue, batch, price_feed::get_base_token_price};
 
-use std::hash::{Hash, Hasher};
+use anyhow::bail;
 use core::cmp::Ordering;
-use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV4Pool {
@@ -283,6 +283,30 @@ impl UniswapV4Pool {
       )
    }
 
+   #[allow(dead_code)]
+   fn dsync_eth() -> Self {
+      let dync = ERC20Token {
+         chain_id: 1,
+         address: address!("0xf94e7d0710709388bCe3161C32B4eEA56d3f91CC"),
+         symbol: "DSYNC".to_string(),
+         name: "dSync".to_string(),
+         decimals: 18,
+         total_supply: U256::ZERO,
+      };
+
+      let eth = Currency::from(NativeCurrency::from(1));
+      let dsync = Currency::from(dync);
+
+      Self::from(
+         1,
+         eth,
+         dsync,
+         FeeAmount::HIGH,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
    pub fn set_tick_data(&mut self, ticks: HashMap<i32, TickInfo>, tick_bitmap: HashMap<i16, U256>) {
       let mut state = self.state.v3_or_v4_state().cloned().unwrap();
       state.ticks = ticks;
@@ -290,7 +314,6 @@ impl UniswapV4Pool {
       self.set_state(State::V4(state));
    }
 
-   /*
    /// Gets all tick data (liquidityGross, liquidityNet) for initialized ticks
    /// and the corresponding tick bitmaps for a given Uniswap V4 pool.
    pub async fn get_all_tick_data<P, N>(
@@ -342,6 +365,7 @@ impl UniswapV4Pool {
                liquidity_gross: tick.liquidityGross,
                liquidity_net: tick.liquidityNet,
                initialized: true,
+               ..Default::default()
             },
          );
       }
@@ -352,7 +376,6 @@ impl UniswapV4Pool {
 
       Ok((all_ticks_info, all_tick_bitmaps))
    }
-   */
 }
 
 impl UniswapPool for UniswapV4Pool {
@@ -440,7 +463,7 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn enough_liquidity(&self) -> bool {
-      let threshold = minimum_liquidity(&self.base_currency().to_erc20());
+      let threshold = minimum_liquidity(&self.base_currency().to_erc20(), self.dex);
       let balance = self.base_balance();
       balance.wei2() >= threshold
    }
@@ -482,140 +505,51 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn base_balance(&self) -> NumericValue {
-      let amount0 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
-      let amount1 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
       if self.currency0().is_base() {
-         amount0
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       } else {
-         amount1
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       }
    }
 
    fn quote_balance(&self) -> NumericValue {
-      let amount0 = NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals());
-      let amount1 = NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals());
       if self.currency0().is_base() {
-         amount1
+         NumericValue::format_wei(self.liquidity_amount1, self.currency1().decimals())
       } else {
-         amount0
+         NumericValue::format_wei(self.liquidity_amount0, self.currency0().decimals())
       }
    }
 
-   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
+   fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
       let state = self
          .state()
          .v3_or_v4_state()
-         .cloned()
-         .ok_or(anyhow!("State not initialized"))?;
+         .ok_or_else(|| anyhow::anyhow!("Pool state has not been initialized"))?;
 
-      let current_price = self.calculate_price(self.currency0())?;
+      let liquidity = state.liquidity;
 
-      let is_stable_pair = self.currency0().is_stablecoin() && self.currency1().is_stablecoin();
-
-      // for stable pairs use a 0.01% range, for others 1%
-      let (lower_price, upper_price) = if is_stable_pair {
-         let lower_price = current_price * 0.999;
-         let upper_price = current_price * 1.001;
-         (lower_price, upper_price)
-      } else {
-         let lower_price = current_price * 0.99;
-         let upper_price = current_price * 1.01;
-         (lower_price, upper_price)
-      };
-
-      let lower_tick = get_tick_from_price(lower_price);
-      let upper_tick = get_tick_from_price(upper_price);
-
-      let sqrt_price_ax96 = tick_math::get_sqrt_ratio_at_tick(lower_tick)?;
-      let sqrt_price_bx96 = tick_math::get_sqrt_ratio_at_tick(upper_tick)?;
-
-      let liquidity0 = sqrt_price_math::_get_amount_0_delta(sqrt_price_ax96, sqrt_price_bx96, state.liquidity, true)?;
-      let liquidity1 = sqrt_price_math::_get_amount_1_delta(sqrt_price_ax96, sqrt_price_bx96, state.liquidity, true)?;
-
-      self.liquidity_amount0 = liquidity0;
-      self.liquidity_amount1 = liquidity1;
-      Ok(())
-   }
-
-   #[allow(non_snake_case)]
-   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
-      let v3_state = self
-         .state()
-         .v3_or_v4_state()
-         .cloned()
-         .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
-
-      let current_pool_sqrt_price_x96 = v3_state.sqrt_price;
-
-      let mut total_calculated_amount0 = U256::ZERO;
-      let mut total_calculated_amount1 = U256::ZERO;
-
-      let mut sorted_tick_indices: Vec<i32> = v3_state.ticks.keys().cloned().collect();
-      sorted_tick_indices.sort_unstable();
-
-      if sorted_tick_indices.is_empty() {
-         if v3_state.liquidity > 0 {
-            let (amount0, amount1) = calculate_liquidity_amounts(
-               current_pool_sqrt_price_x96,
-               tick_math::MIN_SQRT_RATIO,
-               tick_math::MAX_SQRT_RATIO,
-               v3_state.liquidity,
-            )?;
-            total_calculated_amount0 = amount0;
-            total_calculated_amount1 = amount1;
-         }
-      } else {
-         let mut current_L_net_accumulator: i128 = 0;
-         let mut tick_lower_bound_for_segment: i32 = tick_math::MIN_TICK;
-
-         for i in 0..=sorted_tick_indices.len() {
-            let tick_upper_bound_for_segment: i32 = if i < sorted_tick_indices.len() {
-               sorted_tick_indices[i]
-            } else {
-               tick_math::MAX_TICK
-            };
-
-            if current_L_net_accumulator > 0 {
-               let liquidity_for_this_segment = current_L_net_accumulator as u128;
-
-               let sqrt_price_segment_lower = tick_math::get_sqrt_ratio_at_tick(tick_lower_bound_for_segment)?;
-               let sqrt_price_segment_upper = tick_math::get_sqrt_ratio_at_tick(tick_upper_bound_for_segment)?;
-
-               if sqrt_price_segment_lower != sqrt_price_segment_upper {
-                  let (segment_amount0, segment_amount1) = calculate_liquidity_amounts(
-                     current_pool_sqrt_price_x96,
-                     sqrt_price_segment_lower,
-                     sqrt_price_segment_upper,
-                     liquidity_for_this_segment,
-                  )?;
-
-                  total_calculated_amount0 = total_calculated_amount0.saturating_add(segment_amount0);
-                  total_calculated_amount1 = total_calculated_amount1.saturating_add(segment_amount1);
-               }
-            }
-
-            if i < sorted_tick_indices.len() {
-               let current_processed_tick_index = sorted_tick_indices[i];
-               if let Some(tick_info) = v3_state.ticks.get(&current_processed_tick_index) {
-                  current_L_net_accumulator += tick_info.liquidity_net;
-               } else {
-                  return Err(anyhow::anyhow!(
-                     "Tick info missing for tick: {}",
-                     current_processed_tick_index
-                  ));
-               }
-            }
-
-            tick_lower_bound_for_segment = tick_upper_bound_for_segment;
-
-            if tick_lower_bound_for_segment >= tick_math::MAX_TICK && i < sorted_tick_indices.len() {
-               break;
-            }
-         }
+      if liquidity == 0 {
+         self.liquidity_amount0 = U256::ZERO;
+         self.liquidity_amount1 = U256::ZERO;
+         return Ok(());
       }
 
-      self.liquidity_amount0 = total_calculated_amount0;
-      self.liquidity_amount1 = total_calculated_amount1;
+      let sqrt_price_x96 = state.sqrt_price;
+
+      if sqrt_price_x96.is_zero() {
+         return Err(anyhow::anyhow!("Invalid state: sqrt_price is zero"));
+      }
+
+      let liquidity_u256 = U256::from(liquidity);
+
+      // virtual amount of token0
+      let amount0 = (liquidity_u256 * Q96) / sqrt_price_x96;
+
+      // virtual amount of token1
+      let amount1 = (liquidity_u256 * sqrt_price_x96) / Q96;
+
+      self.liquidity_amount0 = amount0;
+      self.liquidity_amount1 = amount1;
 
       Ok(())
    }
@@ -627,7 +561,7 @@ impl UniswapPool for UniswapV4Pool {
    {
       let state = get_v4_pool_state(client, self, block).await?;
       self.set_state(state);
-      self.calculate_liquidity2()?;
+      self.compute_virtual_reserves()?;
       Ok(())
    }
 
@@ -657,7 +591,7 @@ impl UniswapPool for UniswapV4Pool {
          .state_mut()
          .v3_or_v4_state_mut()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
-      let amount_out = calculate_swap(&mut state, fee, zero_for_one, amount_in)?;
+      let amount_out = calculate_swap_mut(&mut state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
    }
@@ -754,27 +688,21 @@ mod tests {
       );
    }
 
-   /*
    #[tokio::test]
    async fn test_base_token_liquidity_eth_uni() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
-      let state_view = utils::address::uniswap_v4_stateview(1).unwrap();
       let mut pool = UniswapV4Pool::eth_uni();
       pool.update_state(client.clone(), None).await.unwrap();
-      let (ticks, bitmaps) = UniswapV4Pool::get_all_tick_data(client.clone(), pool.clone(), state_view, None)
-         .await
-         .unwrap();
-
-      pool.set_tick_data(ticks, bitmaps);
-      pool.calculate_liquidity().unwrap();
+      pool.compute_virtual_reserves().unwrap();
 
       let eth_balance = pool.base_balance();
+      let uni_balance = pool.quote_balance();
 
-      println!("ETH Liquidity: {}", eth_balance.formatted());
+      println!("ETH Balance: {}", eth_balance.formatted());
+      println!("UNI Balance: {}", uni_balance.formatted());
    }
-   */
 
    #[tokio::test]
    async fn test_base_token_liquidity_usdc_usdt() {
@@ -783,13 +711,42 @@ mod tests {
 
       let mut pool = UniswapV4Pool::usdc_usdt();
       pool.update_state(client.clone(), None).await.unwrap();
-      pool.calculate_liquidity2().unwrap();
-      let base_liq = pool.base_balance();
+      pool.compute_virtual_reserves().unwrap();
 
-      println!(
-         "{} Liquidity: {}",
-         pool.base_currency().symbol(),
-         base_liq.formatted()
+      let (balance0, balance1) = pool.pool_balances();
+
+      eprintln!(
+         "{} {}",
+         pool.currency0().symbol(),
+         balance0.format_abbreviated()
+      );
+      eprintln!(
+         "{} {}",
+         pool.currency1().symbol(),
+         balance1.format_abbreviated()
+      );
+   }
+
+   #[tokio::test]
+   async fn compute_reserves_dsync_eth() {
+      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let mut pool = UniswapV4Pool::dsync_eth();
+      pool.update_state(client.clone(), None).await.unwrap();
+      pool.compute_virtual_reserves().unwrap();
+
+      let (balance0, balance1) = pool.pool_balances();
+
+      eprintln!(
+         "{} {}",
+         pool.currency0().symbol(),
+         balance0.format_abbreviated()
+      );
+      eprintln!(
+         "{} {}",
+         pool.currency1().symbol(),
+         balance1.format_abbreviated()
       );
    }
 
@@ -800,13 +757,19 @@ mod tests {
 
       let mut pool = UniswapV4Pool::usdc_wbtc();
       pool.update_state(client.clone(), None).await.unwrap();
-      pool.calculate_liquidity2().unwrap();
-      let base_liq = pool.base_balance();
+      pool.compute_virtual_reserves().unwrap();
 
-      println!(
-         "{} Liquidity: {}",
-         pool.base_currency().symbol(),
-         base_liq.formatted()
+      let (balance0, balance1) = pool.pool_balances();
+
+      eprintln!(
+         "{} {}",
+         pool.currency0().symbol(),
+         balance0.format_abbreviated()
+      );
+      eprintln!(
+         "{} {}",
+         pool.currency1().symbol(),
+         balance1.format_abbreviated()
       );
    }
 
@@ -817,7 +780,7 @@ mod tests {
 
       let mut pool = UniswapV4Pool::eth_uni();
       pool.update_state(client.clone(), None).await.unwrap();
-      pool.calculate_liquidity2().unwrap();
+      pool.compute_virtual_reserves().unwrap();
 
       let (base_price, quote_price) = pool.tokens_price(client.clone(), None).await.unwrap();
 

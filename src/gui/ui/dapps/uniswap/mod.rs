@@ -52,6 +52,9 @@ impl ProtocolVersion {
 #[derive(Clone)]
 pub struct UniswapSettingsUi {
    open: bool,
+   pub swap_on_v2: bool,
+   pub swap_on_v3: bool,
+   pub swap_on_v4: bool,
    pub max_hops: usize,
    pub mev_protect: bool,
    pub slippage: String,
@@ -66,6 +69,9 @@ impl UniswapSettingsUi {
    pub fn new() -> Self {
       Self {
          open: false,
+         swap_on_v2: true,
+         swap_on_v3: true,
+         swap_on_v4: false,
          max_hops: 4,
          mev_protect: true,
          slippage: "0.5".to_string(),
@@ -118,6 +124,10 @@ impl UniswapSettingsUi {
                   .margin(Margin::same(10))
                   .show(ui);
 
+               if swap_ui_open {
+
+               ui.label(RichText::new("Routing").size(theme.text_sizes.large));
+
                ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
                let res =ui.add(Slider::new(&mut self.max_hops, 1..=10));
                if res.changed() {
@@ -129,10 +139,17 @@ impl UniswapSettingsUi {
                   });
                }
 
-               if swap_ui_open {
+                let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
+                ui.checkbox(&mut self.swap_on_v2, text);
+
+                let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
+                ui.checkbox(&mut self.swap_on_v3, text);
+                
+                let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
+                ui.checkbox(&mut self.swap_on_v4, text);
+               
                   let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
-                  ui.label(text);
-                  ui.checkbox(&mut self.simulate_mode, "");
+                  ui.checkbox(&mut self.simulate_mode, text);
                }
 
                if view_position_open {

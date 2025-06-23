@@ -20,12 +20,11 @@ use currency::{Currency, ERC20Token};
 use utils::{NumericValue, price_feed::get_base_token_price};
 
 use alloy_contract::private::{Network, Provider};
-use std::hash::{Hash, Hasher};
 use core::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 use anyhow::{anyhow, bail};
 use serde::{Deserialize, Serialize};
-
 
 /// Represents a Uniswap V2 Pool
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,19 +264,9 @@ impl UniswapPool for UniswapV2Pool {
    }
 
    fn enough_liquidity(&self) -> bool {
-      if !self.state.is_v2() {
-         return false;
-      }
-      let state = self.state.v2_reserves().unwrap();
-      let base_token = self.base_token();
-      let reserve = if self.is_token0(base_token.address) {
-         state.reserve0
-      } else {
-         state.reserve1
-      };
-
-      let threshold = minimum_liquidity(&base_token);
-      reserve >= threshold
+      let balance = self.base_balance();
+      let threshold = minimum_liquidity(&self.base_token(), self.dex);
+      balance.wei2() >= threshold
    }
 
    fn base_currency_exists(&self) -> bool {
@@ -329,12 +318,10 @@ impl UniswapPool for UniswapV2Pool {
       }
 
       let state = state.unwrap();
-      let amount0 = NumericValue::format_wei(state.reserve0, self.currency0().decimals());
-      let amount1 = NumericValue::format_wei(state.reserve1, self.currency1().decimals());
       if self.currency0().is_base() {
-         amount0
+         NumericValue::format_wei(state.reserve0, self.currency0().decimals())
       } else {
-         amount1
+         NumericValue::format_wei(state.reserve1, self.currency1().decimals())
       }
    }
 
@@ -345,20 +332,15 @@ impl UniswapPool for UniswapV2Pool {
       }
 
       let state = state.unwrap();
-      let amount0 = NumericValue::format_wei(state.reserve1, self.currency1().decimals());
-      let amount1 = NumericValue::format_wei(state.reserve0, self.currency0().decimals());
+
       if self.currency0().is_base() {
-         amount1
+         NumericValue::format_wei(state.reserve1, self.currency1().decimals())
       } else {
-         amount0
+         NumericValue::format_wei(state.reserve0, self.currency0().decimals())
       }
    }
 
-   fn calculate_liquidity(&mut self) -> Result<(), anyhow::Error> {
-      return Err(anyhow!("This method only applies to V4"));
-   }
-
-   fn calculate_liquidity2(&mut self) -> Result<(), anyhow::Error> {
+   fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
       return Err(anyhow!("This method only applies to V4"));
    }
 

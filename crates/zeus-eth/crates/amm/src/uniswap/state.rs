@@ -12,7 +12,6 @@ use tokio::{
 };
 use utils::batch::{self, V2PoolReserves, V3Pool, V3PoolData};
 
-
 /// Decodes a Uniswap V3 tick bitmap into a list of tick indexes.
 ///
 /// # Arguments
@@ -23,24 +22,23 @@ use utils::batch::{self, V2PoolReserves, V3Pool, V3PoolData};
 /// # Returns
 /// A vector of i32 tick indexes.
 pub fn decode_bitmap(word_pos: i16, bitmap: U256, tick_spacing: i32) -> Vec<i32> {
-    let mut ticks = Vec::new();
-    if bitmap == U256::ZERO {
-        return ticks;
-    }
+   let mut ticks = Vec::new();
+   if bitmap == U256::ZERO {
+      return ticks;
+   }
 
-    // The start of the tick range for this word
-    let tick_start = (word_pos as i32) * 256 * tick_spacing;
+   // The start of the tick range for this word
+   let tick_start = (word_pos as i32) * 256 * tick_spacing;
 
-    for i in 0..256 {
-        // Check if the i-th bit is set
-        if (bitmap >> i) & U256::from(1) != U256::ZERO {
-            let tick_offset = i as i32 * tick_spacing;
-            ticks.push(tick_start + tick_offset);
-        }
-    }
-    ticks
+   for i in 0..256 {
+      // Check if the i-th bit is set
+      if (bitmap >> i) & U256::from(1) != U256::ZERO {
+         let tick_offset = i as i32 * tick_spacing;
+         ticks.push(tick_start + tick_offset);
+      }
+   }
+   ticks
 }
-
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum State {
@@ -180,7 +178,6 @@ pub struct TickInfo {
    pub initialized: bool,
 }
 
-
 impl V3PoolState {
    pub fn new(pool_data: V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
@@ -195,7 +192,6 @@ impl V3PoolState {
       };
 
       let tick: i32 = pool_data.tick.to_string().parse()?;
-
 
       let mut ticks_map = HashMap::new();
       ticks_map.insert(tick, ticks_info);
@@ -226,7 +222,7 @@ impl V3PoolState {
          liquidity_net: data.liquidityNet,
          initialized: true,
       };
-      
+
       let tick: i32 = data.tick.to_string().parse()?;
 
       let mut ticks_map = HashMap::new();
@@ -247,8 +243,6 @@ impl V3PoolState {
       })
    }
 }
-
-
 
 pub async fn get_v2_pool_state<P, N>(
    client: P,
@@ -350,7 +344,6 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-
    let v2_addresses: Vec<Address> = pools
       .iter()
       .filter(|p| p.dex_kind().is_v2() && p.chain_id() == chain_id)
@@ -496,9 +489,9 @@ where
             if data.pool == pool.address() {
                let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
                pool.set_state(State::v3(state));
-               pool.v3_mut(|pool| { 
-                   pool.liquidity_amount0 = data.token0Balance;
-                   pool.liquidity_amount1 = data.token1Balance;
+               pool.v3_mut(|pool| {
+                  pool.liquidity_amount0 = data.token0Balance;
+                  pool.liquidity_amount1 = data.token1Balance;
                });
             }
          }
@@ -509,10 +502,13 @@ where
             if data.pool == pool.pool_id() {
                let state = V3PoolState::v4(pool, data.clone(), None)?;
                pool.set_state(State::v4(state));
-               match pool.calculate_liquidity2() {
-                  Ok(_) => {},
+               match pool.compute_virtual_reserves() {
+                  Ok(_) => {}
                   Err(e) => {
-                     tracing::error!(target: "zeus_eth::amm::uniswap::state","Error calculating liquidity for pool: {:?}", e);
+                     tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
+                      pool.currency0().symbol(),
+                       pool.currency1().symbol(),
+                        pool.pool_id(), e);
                   }
                }
             }
