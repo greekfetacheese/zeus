@@ -1,7 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use egui::{Align2, Button, Frame, Grid, RichText, Slider, Ui, Window, vec2};
+use egui::{Align2, Button, Frame, Order, RichText, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, utils::*};
 use ncrypt_me::Argon2Params;
 use std::sync::Arc;
@@ -23,6 +23,7 @@ const P_COST_TIP: &str = "You should probably leave this to 1.";
 pub struct SettingsUi {
    pub open: bool,
    pub main_ui: bool,
+   pub performance: PerformanceSettings,
    pub encryption: EncryptionSettings,
    pub network: NetworkSettings,
    pub contacts_ui: ContactsUi,
@@ -32,10 +33,11 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new() -> Self {
+   pub fn new(ctx: ZeusCtx) -> Self {
       Self {
          open: false,
          main_ui: true,
+         performance: PerformanceSettings::new(ctx),
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
          contacts_ui: ContactsUi::new(),
@@ -62,7 +64,8 @@ impl SettingsUi {
          &mut main_ui,
          ui,
       );
-      self.contacts_ui.show(ctx, theme, icons, ui);
+      self.contacts_ui.show(ctx.clone(), theme, icons, ui);
+      self.performance.show(ctx, theme, ui);
       self.main_ui = main_ui;
    }
 
@@ -125,11 +128,26 @@ impl SettingsUi {
                   *open = false;
                   self.network.open = true;
                }
+
+               let performance =
+                  Button::new(RichText::new("Performance Settings").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
+               if ui.add(performance).clicked() {
+                  *open = false;
+                  self.performance.open = true;
+               }
             });
          });
    }
 
-   fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn change_credentials_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let title = if self.verified_credentials {
          "New Credentials"
       } else {
@@ -146,11 +164,11 @@ impl SettingsUi {
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
+         .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-
 
             if self.credentials.additional_frame {
                tracing::info!("Running additional frame");
@@ -167,7 +185,9 @@ impl SettingsUi {
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.normal));
+                  let size = vec2(ui.available_width() * 0.7, 35.0);
+                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.large)).min_size(size);
+
                   if ui.add(verify).clicked() {
                      let mut account = ctx.get_account();
                      account.set_credentials(self.credentials.credentials.clone());
@@ -211,7 +231,8 @@ impl SettingsUi {
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
+                  let size = vec2(ui.available_width() * 0.7, 35.0);
+                  let save = Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
                   if ui.add(save).clicked() {
                      let mut account = ctx.get_account();
@@ -296,7 +317,7 @@ impl EncryptionSettings {
       Self {
          open: false,
          argon_params: Argon2Params::balanced(),
-         size: (500.0, 400.0),
+         size: (450.0, 350.0),
       }
    }
 
@@ -306,110 +327,289 @@ impl EncryptionSettings {
       }
 
       let mut open = self.open;
-      Window::new("Encryption Settings")
+      let title = RichText::new("Encryption Settings").size(theme.text_sizes.heading);
+      Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
+         .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            ui.add_space(20.0);
+            ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
-            let content_width = ui.available_width() * 0.3;
+            let slider_size = vec2(ui.available_width() * 0.4, 20.0);
 
-            ui.horizontal(|ui| {
-               ui.add_space((ui.available_width() - content_width) / 2.0);
+            ui.vertical_centered(|ui| {
+               ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
+                  .on_hover_text(M_COST_TIP);
 
-               Grid::new("encryption_settings")
-                  .spacing([0.0, 15.0])
-                  .show(ui, |ui| {
-                     ui.set_width(content_width);
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(
+                     Slider::new(&mut self.argon_params.m_cost, 64_000..=4096_000)
+                        .custom_formatter(|v, _ctx| format!("{:.0} MB", v / 1000.0)),
+                  );
+               });
 
-                     ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
-                        .on_hover_text(M_COST_TIP);
-                     ui.end_row();
+               ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal))
+                  .on_hover_text(T_COST_TIP);
 
-                     ui.add(
-                        Slider::new(&mut self.argon_params.m_cost, 64_000..=4096_000)
-                           .custom_formatter(|v, _ctx| format!("{:.0} MB", v / 1000.0)),
-                     );
-                     ui.end_row();
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.argon_params.t_cost,
+                     5..=200,
+                  ));
+               });
 
-                     ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal))
-                        .on_hover_text(T_COST_TIP);
-                     ui.end_row();
+               ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal))
+                  .on_hover_text(P_COST_TIP);
 
-                     ui.add(Slider::new(
-                        &mut self.argon_params.t_cost,
-                        5..=200,
-                     ));
-                     ui.end_row();
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=8));
+               });
 
-                     ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal))
-                        .on_hover_text(P_COST_TIP);
-                     ui.end_row();
+               ui.add_space(20.0);
 
-                     ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=8));
-                     ui.end_row();
+               let size = vec2(ui.available_width() * 0.7, 35.0);
+               let save =
+                  Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
-                     let save = Button::new(RichText::new("Save").size(theme.text_sizes.normal));
-                     if ui.add(save).clicked() {
-                        let params = self.argon_params.clone();
-                        let account = ctx.get_account();
-
-                        RT.spawn_blocking(move || {
-                           SHARED_GUI.write(|gui| {
-                              gui.loading_window.open("Encrypting account...");
-                           });
-
-                           // Encrypt the account with the new params
-                           let data = match account.encrypt(Some(params.clone())) {
-                              Ok(data) => data,
-                              Err(e) => {
-                                 SHARED_GUI.write(|gui| {
-                                    gui.open_msg_window(
-                                       "Failed to update encryption settings",
-                                       &format!("{}", e),
-                                    );
-                                    gui.loading_window.open = false;
-                                 });
-                                 return;
-                              }
-                           };
-
-                           // Save the encrypted data to the account file
-                           match account.save(None, data) {
-                              Ok(_) => {
-                                 SHARED_GUI.write(|gui| {
-                                    gui.loading_window.open = false;
-                                    gui.open_msg_window(
-                                       "Encryption settings have been updated",
-                                       "",
-                                    );
-                                    gui.settings.encryption.open = false;
-                                    gui.settings.encryption.argon_params = params;
-                                    gui.loading_window.open = false;
-                                 });
-                              }
-                              Err(e) => {
-                                 SHARED_GUI.write(|gui| {
-                                    gui.loading_window.open = false;
-                                    gui.open_msg_window(
-                                       "Failed to save account",
-                                       &format!("{}", e),
-                                    );
-                                 });
-                              }
-                           };
-                        });
-                     }
-                     ui.end_row();
-                  });
+               if ui.add(save).clicked() {
+                  self.save(ctx);
+               }
             });
          });
       self.open = open;
+   }
+
+   fn save(&self, ctx: ZeusCtx) {
+      let params = self.argon_params.clone();
+      let account = ctx.get_account();
+
+      RT.spawn_blocking(move || {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Encrypting account...");
+         });
+
+         // Encrypt the account with the new params
+         let data = match account.encrypt(Some(params.clone())) {
+            Ok(data) => data,
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window(
+                     "Failed to update encryption settings",
+                     &format!("{}", e),
+                  );
+                  gui.loading_window.open = false;
+               });
+               return;
+            }
+         };
+
+         // Save the encrypted data to the account file
+         match account.save(None, data) {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.open = false;
+                  gui.open_msg_window("Encryption settings have been updated", "");
+                  gui.settings.encryption.open = false;
+                  gui.settings.encryption.argon_params = params;
+                  gui.loading_window.open = false;
+               });
+            }
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.open = false;
+                  gui.open_msg_window("Failed to save account", &format!("{}", e));
+               });
+            }
+         };
+      });
+   }
+}
+
+pub struct PerformanceSettings {
+   open: bool,
+   sync_v4_pools_on_startup: bool,
+   concurrency_for_syncing_balances: usize,
+   concurrency_for_syncing_pools: usize,
+   batch_size_for_syncing_balances: usize,
+   batch_size_for_updating_pools_state: usize,
+   batch_size_for_syncing_pools: usize,
+   pub size: (f32, f32),
+}
+
+impl PerformanceSettings {
+   pub fn new(ctx: ZeusCtx) -> Self {
+      let pool_manager = ctx.pool_manager();
+      let balance_manager = ctx.balance_manager();
+      Self {
+         open: false,
+         sync_v4_pools_on_startup: pool_manager.do_we_sync_v4_pools(),
+         concurrency_for_syncing_balances: balance_manager.concurrency(),
+         concurrency_for_syncing_pools: pool_manager.concurrency(),
+         batch_size_for_syncing_balances: balance_manager.batch_size(),
+         batch_size_for_updating_pools_state: pool_manager.batch_size_for_updating_pools_state(),
+         batch_size_for_syncing_pools: pool_manager.batch_size_for_syncing_pools(),
+         size: (400.0, 550.0),
+      }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let title = RichText::new("Performance Settings").size(theme.text_sizes.heading);
+      Window::new(title)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(5.0, 20.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+
+            ui.vertical_centered(|ui| {
+               let slider_size = vec2(ui.available_width() * 0.4, 20.0);
+
+               let header = RichText::new("Pool Manager").size(theme.text_sizes.very_large);
+               ui.label(header);
+
+               let text = RichText::new("Sync V4 Pools on startup").size(theme.text_sizes.normal);
+               ui.checkbox(&mut self.sync_v4_pools_on_startup, text);
+
+               ui.label(
+                  RichText::new("Concurrency for Syncing Pools").size(theme.text_sizes.normal),
+               );
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.concurrency_for_syncing_pools,
+                     1..=10,
+                  ));
+               });
+
+               ui.label(
+                  RichText::new("Batch Size for Syncing Pools").size(theme.text_sizes.normal),
+               );
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.batch_size_for_syncing_pools,
+                     1..=60,
+                  ));
+               });
+
+               ui.label(
+                  RichText::new("Batch Size when updating pools state")
+                     .size(theme.text_sizes.normal),
+               );
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.batch_size_for_updating_pools_state,
+                     1..=50,
+                  ));
+               });
+
+               let header = RichText::new("Balance Manager").size(theme.text_sizes.very_large);
+               ui.label(header);
+
+               ui.label(
+                  RichText::new("Concurrency for syncing balances").size(theme.text_sizes.normal),
+               );
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.concurrency_for_syncing_balances,
+                     1..=10,
+                  ));
+               });
+
+               ui.label(
+                  RichText::new("Batch Size for syncing balances").size(theme.text_sizes.normal),
+               );
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.add(Slider::new(
+                     &mut self.batch_size_for_syncing_balances,
+                     1..=50,
+                  ));
+               });
+
+               let btn_size = vec2(ui.available_width() * 0.7, 45.0);
+               let button = Button::new(RichText::new("Save").size(theme.text_sizes.normal))
+                  .min_size(btn_size);
+
+               if ui.add(button).clicked() {
+                  self.open = false;
+                  self.save_settings(ctx);
+               }
+            });
+         });
+   }
+
+   fn save_settings(&self, ctx: ZeusCtx) {
+      let save_balance_manager =
+         if self.concurrency_for_syncing_balances != ctx.balance_manager().concurrency() {
+            ctx.balance_manager()
+               .set_concurrency(self.concurrency_for_syncing_balances);
+            true
+         } else if self.batch_size_for_syncing_balances != ctx.balance_manager().batch_size() {
+            ctx.balance_manager()
+               .set_batch_size(self.batch_size_for_syncing_balances);
+            true
+         } else {
+            false
+         };
+
+      let save_pool_manager =
+         if self.concurrency_for_syncing_pools != ctx.pool_manager().concurrency() {
+            ctx.pool_manager()
+               .set_concurrency(self.concurrency_for_syncing_pools);
+            true
+         } else if self.batch_size_for_updating_pools_state
+            != ctx.pool_manager().batch_size_for_updating_pools_state()
+         {
+            ctx.pool_manager()
+               .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
+            true
+         } else if self.batch_size_for_syncing_pools
+            != ctx.pool_manager().batch_size_for_syncing_pools()
+         {
+            ctx.pool_manager()
+               .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
+            true
+         } else if self.sync_v4_pools_on_startup != ctx.pool_manager().do_we_sync_v4_pools() {
+            ctx.pool_manager()
+               .set_sync_v4_pools(self.sync_v4_pools_on_startup);
+            true
+         } else {
+            false
+         };
+
+      RT.spawn_blocking(move || {
+         if save_balance_manager {
+            ctx.save_balance_manager();
+         }
+
+         if save_pool_manager {
+            let _ = ctx.save_pool_manager();
+         }
+      });
    }
 }

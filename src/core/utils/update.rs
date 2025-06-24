@@ -45,7 +45,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
       );
    });
 
-
    for chain in SUPPORTED_CHAINS {
       let ctx2 = ctx.clone();
       RT.spawn(async move {
@@ -62,9 +61,9 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let token_balance_fut =
       balance_manager.update_tokens_balance_across_wallets_and_chains(ctx.clone());
 
-   resync_pools(ctx.clone()).await;
-
-   if !ctx.pools_need_resync() {
+   if ctx.pools_need_resync() {
+      resync_pools(ctx.clone()).await;
+   } else {
       update_pool_manager(ctx.clone()).await;
    }
 
@@ -131,6 +130,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
+   let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
+
    // Sync v4 pools and base pools
    ctx.write(|ctx| {
       ctx.data_syncing = true;
@@ -141,7 +142,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let ctx_clone = ctx.clone();
       let tokens = ERC20Token::base_tokens(chain);
       let task = RT.spawn(async move {
-         match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, true).await {
+         match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, sync_v4).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
          }
@@ -158,19 +159,21 @@ pub async fn on_startup(ctx: ZeusCtx) {
             }
          };
 
-         let manager = ctx_clone.pool_manager();
-         let v4_pools = manager.get_v4_pools_for_chain(chain);
+         if sync_v4 {
+            let manager = ctx_clone.pool_manager();
+            let v4_pools = manager.get_v4_pools_for_chain(chain);
 
-         match manager
-            .update_state_for_pools(client, chain, v4_pools)
-            .await
-         {
-            Ok(_) => {}
-            Err(e) => tracing::error!(
-               "Error updating pool manager for chain {}: {:?}",
-               chain,
-               e
-            ),
+            match manager
+               .update_state_for_pools(client, chain, v4_pools)
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => tracing::error!(
+                  "Error updating pool manager for chain {}: {:?}",
+                  chain,
+                  e
+               ),
+            }
          }
       });
       tasks.push(task);
@@ -180,8 +183,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let _ = task.await;
    }
 
-   let manager = ctx.pool_manager();
-   manager.cleanup_v4_pools();
+   if sync_v4 {
+      let manager = ctx.pool_manager();
+      manager.cleanup_v4_pools();
+   }
 
    ctx.write(|ctx| {
       ctx.data_syncing = false;
@@ -500,13 +505,6 @@ pub async fn sync_basic_pools(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Er
 
 /// If needed re-sync pools for all tokens across all chains
 pub async fn resync_pools(ctx: ZeusCtx) {
-   let need_resync = ctx.pools_need_resync();
-
-   if !need_resync {
-      tracing::info!("No need to resync pools");
-      return;
-   }
-
    ctx.write(|ctx| {
       ctx.data_syncing = true;
    });

@@ -91,6 +91,8 @@ pub struct GUI {
 
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
+      let ctx = ZeusCtx::new();
+      
       let token_selection = ui::TokenSelectionWindow::new();
       let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
@@ -103,7 +105,7 @@ impl GUI {
       let confirm_window = ui::misc::ConfirmWindow::new();
       let tx_confirm_window = ui::TxConfirmWindow::new();
       let wallet_ui = ui::WalletUi::new();
-      let settings = settings::SettingsUi::new();
+      let settings = settings::SettingsUi::new(ctx.clone());
       let tx_history = ui::tx_history::TxHistory::new();
       let ui_testing = ui::panels::central_panel::UiTesting::new();
       let progress_window = ui::misc::ProgressWindow::new();
@@ -112,7 +114,7 @@ impl GUI {
 
       Self {
          egui_ctx,
-         ctx: ZeusCtx::new(),
+         ctx: ctx.clone(),
          theme,
          chain_selection,
          wallet_selection,

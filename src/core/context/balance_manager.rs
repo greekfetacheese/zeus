@@ -54,6 +54,14 @@ impl BalanceManagerHandle {
       Ok(())
    }
 
+   pub fn set_concurrency(&self, concurrency: usize) {
+      self.write(|manager| manager.concurrency = concurrency);
+   }
+
+   pub fn set_batch_size(&self, batch_size: usize) {
+      self.write(|manager| manager.batch_size = batch_size);
+   }
+
    pub fn concurrency(&self) -> usize {
       self.read(|manager| manager.concurrency)
    }

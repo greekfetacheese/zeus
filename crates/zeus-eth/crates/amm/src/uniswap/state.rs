@@ -444,7 +444,7 @@ where
                v4_data.lock().await.extend(data);
             }
             Err(e) => {
-               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data: {:?}", e);
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data (ChainId {}): {:?}", chain_id, e);
             }
          }
          Ok(())

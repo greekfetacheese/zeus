@@ -43,7 +43,7 @@ impl PoolManagerHandle {
 
    /// Exclusive mutable access to the pool manager
    pub fn write<R>(&self, writer: impl FnOnce(&mut PoolManager) -> R) -> R {
-      writer(&mut self.0.write().unwrap())
+     writer(&mut self.0.write().unwrap())
    }
 
    /// Deserialize the [PoolManager] from a JSON string
@@ -73,6 +73,38 @@ impl PoolManagerHandle {
 
    pub fn reset_token_prices(&self) {
       self.write(|manager| manager.token_prices.clear());
+   }
+
+   pub fn concurrency(&self) -> usize {
+      self.read(|manager| manager.concurrency)
+   }
+
+   pub fn batch_size_for_updating_pools_state(&self) -> usize {
+      self.read(|manager| manager.batch_size)
+   }
+
+   pub fn batch_size_for_syncing_pools(&self) -> usize {
+      self.read(|manager| manager.batch_size_for_syncing_pools)
+   }
+
+   pub fn do_we_sync_v4_pools(&self) -> bool {
+      self.read(|manager| manager.sync_v4_pools)
+   }
+
+   pub fn set_sync_v4_pools(&self, sync_v4_pools: bool) {
+      self.write(|manager| manager.sync_v4_pools = sync_v4_pools);
+   }
+
+   pub fn set_concurrency(&self, concurrency: usize) {
+      self.write(|manager| manager.concurrency = concurrency);
+   }
+
+   pub fn set_batch_size_for_updating_pools_state(&self, batch_size: usize) {
+      self.write(|manager| manager.batch_size = batch_size);
+   }
+
+   pub fn set_batch_size_for_syncing_pools(&self, batch_size: usize) {
+      self.write(|manager| manager.batch_size_for_syncing_pools = batch_size);
    }
 
    /// Get all pools that include the given currency
@@ -618,7 +650,6 @@ impl PoolManagerHandle {
 /// Key: (chain_id, dex, tokenA, tokenB) -> Value: Time since last sync
 type PoolLastSync = HashMap<(u64, DexKind, Address, Address), Instant>;
 
-/// V4 Pools are synced by using the `eth_get_logs` method so they get a different map
 type V4PoolLastSync = HashMap<(u64, DexKind), Instant>;
 
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
@@ -644,6 +675,10 @@ fn default_concurrency() -> usize {
    1
 }
 
+fn default_sync_v4_pools() -> bool {
+   true
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
@@ -652,9 +687,11 @@ pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
    pub token_prices: TokenPrices,
 
+   /// Last time we requested to sync a specific pool
    #[serde(skip)]
    pub pool_last_sync: PoolLastSync,
 
+   /// V4 Pools are synced by using the `eth_get_logs` method so they get a different map
    #[serde(skip)]
    pub v4_pool_last_sync: V4PoolLastSync,
 
@@ -672,6 +709,9 @@ pub struct PoolManager {
    /// Batch size when syncing pools from logs
    #[serde(default = "default_batch_size_for_syncing_pools")]
    pub batch_size_for_syncing_pools: usize,
+
+   #[serde(default = "default_sync_v4_pools")]
+   pub sync_v4_pools: bool,
 }
 
 impl Default for PoolManager {
@@ -685,6 +725,7 @@ impl Default for PoolManager {
          concurrency: default_concurrency(),
          batch_size: default_batch_size(),
          batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),
+         sync_v4_pools: default_sync_v4_pools(),
       }
    }
 }

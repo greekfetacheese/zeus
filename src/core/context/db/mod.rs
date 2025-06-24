@@ -1,26 +1,109 @@
-// pub mod balances;
 pub mod currencies;
 pub mod portfolio;
 
-// pub use balances::BalanceDB;
 pub use currencies::CurrencyDB;
 pub use portfolio::{Portfolio, PortfolioDB};
 
+use super::Contact;
 use crate::core::{
    serde_hashmap,
    utils::{data_dir, tx::TxSummary},
 };
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use zeus_eth::{alloy_primitives::{Address, U256}, amm::{DexKind, FeeAmount}, currency::Currency, utils::NumericValue};
+use zeus_eth::{
+   alloy_primitives::{Address, U256},
+   amm::{DexKind, FeeAmount},
+   currency::Currency,
+   utils::NumericValue,
+};
 
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
 
 pub const V3_POSITIONS_FILE: &str = "v3_positions.json";
 
+pub const CONTACTS_FILE: &str = "contacts.json";
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ContactDB {
+   pub contacts: Vec<Contact>,
+}
+
+impl ContactDB {
+   const MAX_CHARS: usize = 20;
+
+   pub fn new() -> Self {
+      Self {
+         contacts: Vec::new(),
+      }
+   }
+   /// Load from file
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = data_dir()?.join(CONTACTS_FILE);
+      let data = std::fs::read(dir)?;
+      let db = serde_json::from_slice(&data)?;
+      Ok(db)
+   }
+
+   /// Save to file
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let db = serde_json::to_string(&self)?;
+      let dir = data_dir()?.join(CONTACTS_FILE);
+      std::fs::write(dir, db)?;
+      Ok(())
+   }
+
+   pub fn contact_address_exists(&self, address: &str) -> bool {
+      self.contacts.iter().any(|c| &c.address == address)
+   }
+
+   pub fn contact_name_exists(&self, name: &str) -> bool {
+      self.contacts.iter().any(|c| &c.name == name)
+   }
+
+   pub fn contact_mut(&mut self, contact: &Contact) -> Option<&mut Contact> {
+      self
+         .contacts
+         .iter_mut()
+         .find(|c| c.address == contact.address)
+   }
+
+   pub fn add_contact(&mut self, contact: Contact) -> Result<(), anyhow::Error> {
+      if contact.name.is_empty() {
+         return Err(anyhow!("Contact name cannot be empty"));
+      }
+
+      if contact.name.len() > Self::MAX_CHARS {
+         return Err(anyhow!(
+            "Contact name cannot be longer than {} characters",
+            Self::MAX_CHARS
+         ));
+      }
+
+      // make sure name and address are unique
+      if self.contacts.iter().any(|c| c.name == contact.name) {
+         return Err(anyhow!(
+            "Contact with name {} already exists",
+            contact.name
+         ));
+      } else if self.contacts.iter().any(|c| c.address == contact.address) {
+         return Err(anyhow!(
+            "Contact with address {} already exists",
+            contact.address
+         ));
+      }
+      self.contacts.push(contact);
+      Ok(())
+   }
+
+   pub fn remove_contact(&mut self, address: String) {
+      self.contacts.retain(|c| c.address != address);
+   }
+}
+
 /// Transactions by chain and wallet address
 pub type Transactions = HashMap<(u64, Address), Vec<TxSummary>>;
-
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionsDB {
@@ -122,7 +205,7 @@ pub struct V3Position {
    /// Unclaimed fees
    pub tokens_owed1: NumericValue,
 
-   pub apr: f64, 
+   pub apr: f64,
 }
 
 impl PartialEq for V3Position {
@@ -162,7 +245,11 @@ impl V3PositionsDB {
 
    pub fn insert(&mut self, chain: u64, owner: Address, position: V3Position) {
       self.remove(chain, owner, &position);
-      self.positions.entry((chain, owner)).or_default().push(position);
+      self
+         .positions
+         .entry((chain, owner))
+         .or_default()
+         .push(position);
    }
 
    pub fn remove(&mut self, chain: u64, owner: Address, position: &V3Position) {

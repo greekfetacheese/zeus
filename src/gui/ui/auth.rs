@@ -107,8 +107,8 @@ impl VirtualKeyboard {
       Frame::group(&theme.style)
          .fill(theme.colors.secondary_bg_color)
          .show(ui, |ui| {
-           let hover_color = theme.colors.widget_bg_color_hover;
-           bg_color_on_hover(ui, hover_color);
+            let hover_color = theme.colors.widget_bg_color_hover;
+            bg_color_on_hover(ui, hover_color);
 
             ui.vertical(|ui| {
                let is_uppercase = self.shift_active ^ self.caps_lock_active;
@@ -184,9 +184,6 @@ pub struct CredentialsForm {
    pub hide_password: bool,
    pub y_spacing: f32,
    pub x_spacing: f32,
-   // By how much to add horizontal space for the text edits
-   // Eg. 0.2 means 20% of the available width
-   pub text_edit_h_space: f32,
    pub virtual_keyboard: VirtualKeyboard,
 }
 
@@ -201,18 +198,12 @@ impl CredentialsForm {
          hide_password: true,
          y_spacing: 15.0,
          x_spacing: 10.0,
-         text_edit_h_space: 0.2,
          virtual_keyboard: VirtualKeyboard::new(),
       }
    }
 
    pub fn open(mut self, open: bool) -> Self {
       self.open = open;
-      self
-   }
-
-   pub fn with_text_edit_h_space(mut self, text_edit_h_space: f32) -> Self {
-      self.text_edit_h_space = text_edit_h_space;
       self
    }
 
@@ -257,25 +248,26 @@ impl CredentialsForm {
                .password(self.hide_username)
                .font(FontId::proportional(theme.text_sizes.normal));
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add_space(ui_width * self.text_edit_h_space);
-               ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+            ui.allocate_ui(text_edit_size, |ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
-               if text_edit.show(ui).response.gained_focus() {
-                  self.virtual_keyboard.open = true;
-                  self.virtual_keyboard.active_target = Some(InputField::Username);
-               }
+                  if text_edit.show(ui).response.gained_focus() {
+                     self.virtual_keyboard.open = true;
+                     self.virtual_keyboard.active_target = Some(InputField::Username);
+                  }
 
-               let icon = if self.hide_username {
-                  icons.hide_light()
-               } else {
-                  icons.view_light()
-               };
+                  let icon = if self.hide_username {
+                     icons.hide_light()
+                  } else {
+                     icons.view_light()
+                  };
 
-               let hide_view = Button::image(icon);
-               if ui.add(hide_view).clicked() {
-                  self.hide_username = !self.hide_username;
-               }
+                  let hide_view = Button::image(icon);
+                  if ui.add(hide_view).clicked() {
+                     self.hide_username = !self.hide_username;
+                  }
+               });
             });
          });
 
@@ -288,25 +280,26 @@ impl CredentialsForm {
                .font(FontId::proportional(theme.text_sizes.normal))
                .password(self.hide_password);
 
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add_space(ui_width * self.text_edit_h_space);
-               ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+            ui.allocate_ui(text_edit_size, |ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
-               if text_edit.show(ui).response.gained_focus() {
-                  self.virtual_keyboard.open = true;
-                  self.virtual_keyboard.active_target = Some(InputField::Password);
-               }
+                  if text_edit.show(ui).response.gained_focus() {
+                     self.virtual_keyboard.open = true;
+                     self.virtual_keyboard.active_target = Some(InputField::Password);
+                  }
 
-               let icon = if self.hide_password {
-                  icons.hide_light()
-               } else {
-                  icons.view_light()
-               };
+                  let icon = if self.hide_password {
+                     icons.hide_light()
+                  } else {
+                     icons.view_light()
+                  };
 
-               let hide_view = Button::image(icon);
-               if ui.add(hide_view).clicked() {
-                  self.hide_password = !self.hide_password;
-               }
+                  let hide_view = Button::image(icon);
+                  if ui.add(hide_view).clicked() {
+                     self.hide_password = !self.hide_password;
+                  }
+               });
             });
          });
 
@@ -323,25 +316,26 @@ impl CredentialsForm {
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .password(self.hide_password);
 
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     ui.add_space(ui_width * self.text_edit_h_space);
-                     ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+                  ui.allocate_ui(text_edit_size, |ui| {
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
-                     if text_edit.show(ui).response.gained_focus() {
-                        self.virtual_keyboard.open = true;
-                        self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
-                     }
+                        if text_edit.show(ui).response.gained_focus() {
+                           self.virtual_keyboard.open = true;
+                           self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
+                        }
 
-                     let icon = if self.hide_password {
-                        icons.hide_light()
-                     } else {
-                        icons.view_light()
-                     };
+                        let icon = if self.hide_password {
+                           icons.hide_light()
+                        } else {
+                           icons.view_light()
+                        };
 
-                     let hide_view = Button::image(icon);
-                     if ui.add(hide_view).clicked() {
-                        self.hide_password = !self.hide_password;
-                     }
+                        let hide_view = Button::image(icon);
+                        if ui.add(hide_view).clicked() {
+                           self.hide_password = !self.hide_password;
+                        }
+                     });
                   });
                });
          } else {
