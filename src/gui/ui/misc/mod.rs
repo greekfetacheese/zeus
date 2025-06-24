@@ -1255,7 +1255,7 @@ impl PortfolioUi {
             .update_eth_balance(ctx.clone(), chain, owner)
             .await;
          let _ = balance_manager
-            .update_tokens_balance(ctx.clone(), chain, owner, tokens)
+            .update_tokens_balance(ctx.clone(), chain, owner, tokens.clone())
             .await;
 
          // Update the pool state that includes these tokens
@@ -1276,9 +1276,32 @@ impl PortfolioUi {
             }
          };
 
-         let _ = pool_manager
-            .update_state_for_pools(client, chain, pools_to_update)
-            .await;
+         if !pools_to_update.is_empty() {
+            let _ = pool_manager
+               .update_state_for_pools(client, chain, pools_to_update)
+               .await;
+         } else {
+            let dex = DexKind::main_dexes(chain);
+            let _ = pool_manager
+               .sync_pools_for_tokens(client.clone(), chain, tokens.clone(), dex, false)
+               .await;
+            let mut pools = Vec::new();
+            for token in tokens {
+               let c = token.into();
+               pools.extend(pool_manager.get_pools_that_have_currency(&c));
+            }
+            let _ = pool_manager
+               .update_state_for_pools(client, chain, pools)
+               .await;
+         }
+
+         ctx.calculate_portfolio_value(chain, owner);
+
+         RT.spawn_blocking(move || {
+         ctx.save_portfolio_db();
+         ctx.save_balance_manager();
+         let _ = ctx.save_pool_manager();
+         });
 
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;

@@ -417,7 +417,6 @@ impl ZeusCtx {
       let data = self.read(|ctx| ctx.pool_manager.to_string())?;
       let dir = pool_data_dir()?;
       std::fs::write(dir, data)?;
-      tracing::info!("Pool Manager saved");
       Ok(())
    }
 
