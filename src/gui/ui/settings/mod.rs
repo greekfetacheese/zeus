@@ -22,7 +22,6 @@ const P_COST_TIP: &str = "You should probably leave this to 1.";
 
 pub struct SettingsUi {
    pub open: bool,
-   pub main_ui: bool,
    pub performance: PerformanceSettings,
    pub encryption: EncryptionSettings,
    pub network: NetworkSettings,
@@ -36,7 +35,6 @@ impl SettingsUi {
    pub fn new(ctx: ZeusCtx) -> Self {
       Self {
          open: false,
-         main_ui: true,
          performance: PerformanceSettings::new(ctx),
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
@@ -52,27 +50,20 @@ impl SettingsUi {
          return;
       }
 
-      let mut main_ui = self.main_ui;
-
-      self.main_ui(theme, &mut main_ui, ui);
+      self.main_ui(theme, ui);
       self.encryption.show(ctx.clone(), theme, ui);
       self.change_credentials_ui(ctx.clone(), theme, icons.clone(), ui);
       self.network.show(
          ctx.clone(),
          theme,
          icons.clone(),
-         &mut main_ui,
          ui,
       );
       self.contacts_ui.show(ctx.clone(), theme, icons, ui);
       self.performance.show(ctx, theme, ui);
-      self.main_ui = main_ui;
    }
 
-   pub fn main_ui(&mut self, theme: &Theme, open: &mut bool, ui: &mut Ui) {
-      if !*open {
-         return;
-      }
+   pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
 
       // Transparent window
       Window::new("settings_main_ui")
@@ -99,7 +90,6 @@ impl SettingsUi {
                .corner_radius(5)
                .min_size(size);
                if ui.add(credentials).clicked() {
-                  *open = false;
                   self.credentials.open = true;
                }
 
@@ -108,7 +98,6 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(encryption_settings).clicked() {
-                  *open = false;
                   self.encryption.open = true;
                }
 
@@ -116,7 +105,6 @@ impl SettingsUi {
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(contacts).clicked() {
-                  *open = false;
                   self.contacts_ui.open = true;
                }
 
@@ -125,7 +113,6 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(network).clicked() {
-                  *open = false;
                   self.network.open = true;
                }
 
@@ -134,7 +121,6 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(performance).clicked() {
-                  *open = false;
                   self.performance.open = true;
                }
             });
@@ -251,7 +237,6 @@ impl SettingsUi {
                                  gui.settings.verified_credentials = false;
                                  gui.settings.credentials.open = false;
                                  gui.settings.credentials.additional_frame = true;
-                                 gui.settings.main_ui = true;
                                  gui.loading_window.open = false;
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
@@ -300,7 +285,6 @@ impl SettingsUi {
             self.credentials.open = false;
             self.credentials.additional_frame = true;
             self.verified_credentials = false;
-            self.main_ui = true;
          }
       }
    }

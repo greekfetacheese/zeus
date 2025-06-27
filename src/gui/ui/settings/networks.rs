@@ -47,7 +47,6 @@ impl NetworkSettings {
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
-      parent_open: &mut bool,
       ui: &mut Ui,
    ) {
       self.add_rpc(ctx.clone(), theme, ui);
@@ -196,17 +195,14 @@ impl NetworkSettings {
                            Button::new(RichText::new("Remove").size(theme.text_sizes.small));
                         ui.horizontal(|ui| {
                            ui.set_width(column_widths[5]);
-                           // only allow rpcs added by the user to be removed
-                           if !rpc.default {
-                              if ui.add(button).clicked() {
-                                 ctx.write(|ctx| {
-                                    ctx.providers.remove_rpc(chain, rpc.url.clone());
-                                 });
-                                 let ctx_clone = ctx.clone();
-                                 RT.spawn_blocking(move || {
-                                    ctx_clone.save_providers();
-                                 });
-                              }
+                           if ui.add(button).clicked() {
+                              ctx.write(|ctx| {
+                                 ctx.providers.remove_rpc(chain, rpc.url.clone());
+                              });
+                              let ctx_clone = ctx.clone();
+                              RT.spawn_blocking(move || {
+                                 ctx_clone.save_providers();
+                              });
                            }
                         });
 
@@ -217,7 +213,6 @@ impl NetworkSettings {
             });
          });
       self.open = open;
-      *parent_open = !open;
    }
 
    pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {

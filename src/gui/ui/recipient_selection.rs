@@ -57,10 +57,9 @@ impl RecipientSelectionWindow {
       let frame = Frame::window(ui.style());
       let bg_color = frame.fill;
 
-      let window_size = Some((self.size.0 + 10.0, self.size.1 + 10.0));
       contacts_ui
          .add_contact
-         .show(ctx.clone(), theme, window_size, false, ui);
+         .show(ctx.clone(), theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
@@ -108,7 +107,6 @@ impl RecipientSelectionWindow {
             let wallets = ctx.wallets_info();
             let contacts = ctx.contacts();
 
-            // TODO: Optimize this
             let query = self.search_query.clone();
             let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
             let are_valid_wallets =

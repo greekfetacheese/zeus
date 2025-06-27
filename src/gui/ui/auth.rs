@@ -178,6 +178,10 @@ pub struct CredentialsForm {
    pub open: bool,
    pub confrim_password: bool,
    /// Flag to allow the Ui to run for one more frame
+   /// 
+   /// Running an extra frame on a text edit can help clear out any strings left in memory
+   /// in case we dont use the hide option on a field
+   /// But it doesnt always work, maybe i should remove this
    pub additional_frame: bool,
    pub credentials: Credentials,
    pub hide_username: bool,

@@ -41,20 +41,8 @@ impl AddContact {
       &self.contact
    }
 
-   /// `size`: Optional pass a sliglthy bigger size if this is shown on top of another window
-   ///
-   /// So we dont lose it if click on window behind it
-   pub fn show(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      size: Option<(f32, f32)>,
-      reset_on_success: bool,
-      ui: &mut Ui,
-   ) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let mut open = self.open;
-
-      let (width, height) = size.unwrap_or((self.size.0, self.size.1));
 
       Window::new(RichText::new("Add new contact").size(theme.text_sizes.large))
          .open(&mut open)
@@ -64,8 +52,8 @@ impl AddContact {
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(width);
-            ui.set_height(height);
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
@@ -162,14 +150,10 @@ impl DeleteContact {
       }
    }
 
-   /// `size`: Optional pass a sliglthy bigger size if this is shown on top of another window
-   ///
-   /// So we dont lose it if click on window behind it
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, size: Option<(f32, f32)>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       let mut should_close = false;
-      let (width, height) = size.unwrap_or((self.size.0, self.size.1));
 
       Window::new(RichText::new("Delete contact").size(theme.text_sizes.large))
          .open(&mut open)
@@ -179,8 +163,8 @@ impl DeleteContact {
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(width);
-            ui.set_height(height);
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
@@ -239,12 +223,8 @@ impl EditContact {
       }
    }
 
-   /// `size`: Optional pass a sliglthy bigger size if this is shown on top of another window
-   ///
-   /// So we dont lose it if click on window behind it
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, size: Option<(f32, f32)>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
-      let (width, height) = size.unwrap_or((self.size.0, self.size.1));
 
       Window::new(RichText::new("Edit contact").size(theme.text_sizes.large))
          .open(&mut open)
@@ -254,8 +234,8 @@ impl EditContact {
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(width);
-            ui.set_height(height);
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
@@ -356,16 +336,10 @@ impl ContactsUi {
          return;
       }
 
-      let window_size = Some((self.size.0 + 10.0, self.size.1 + 10.0));
-
       self.main_ui(ctx.clone(), theme, ui);
-      self
-         .add_contact
-         .show(ctx.clone(), theme, window_size, true, ui);
-      self
-         .delete_contact
-         .show(ctx.clone(), theme, window_size, ui);
-      self.edit_contact.show(ctx, theme, window_size, ui);
+      self.add_contact.show(ctx.clone(), theme, true, ui);
+      self.delete_contact.show(ctx.clone(), theme, ui);
+      self.edit_contact.show(ctx, theme, ui);
    }
 
    pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
