@@ -878,7 +878,7 @@ impl SwapUi {
       self.getting_quote = true;
       let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
       let priority_fee = ctx.get_priority_fee(chain).unwrap_or_default();
-      let eth_price = ctx.get_eth_price();
+      let eth_price = ctx.get_token_price(&ERC20Token::wrapped_native_token(chain));
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
       let max_hops = settings.max_hops;

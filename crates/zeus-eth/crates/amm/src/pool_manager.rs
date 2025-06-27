@@ -43,7 +43,7 @@ impl PoolManagerHandle {
 
    /// Exclusive mutable access to the pool manager
    pub fn write<R>(&self, writer: impl FnOnce(&mut PoolManager) -> R) -> R {
-     writer(&mut self.0.write().unwrap())
+      writer(&mut self.0.write().unwrap())
    }
 
    /// Deserialize the [PoolManager] from a JSON string
@@ -793,24 +793,15 @@ impl PoolManager {
       self.pools.retain(|_, pool| pool.enough_liquidity());
    }
 
+   /// Removes V4 pools that have no liquidity
    pub fn cleanup_v4_pools(&mut self) {
-      let pools = self
-         .pools
-         .values()
-         .filter(|pool| pool.dex_kind().is_v4())
-         .cloned()
-         .collect::<Vec<_>>();
-      for pool in pools {
-         if !pool.enough_liquidity() {
-            self.remove_pool(
-               pool.chain_id(),
-               pool.dex_kind(),
-               pool.fee().fee(),
-               pool.currency0().clone(),
-               pool.currency1().clone(),
-            );
-         }
-      }
+      self.pools.retain(|_key, pool| {
+         // Keep the pool if it's NOT a V4 pool, OR
+         // if it IS a V4 pool AND it has enough liquidity.
+         !pool.dex_kind().is_v4() || pool.enough_liquidity()
+      });
+
+      self.pools.shrink_to_fit();
    }
 
    pub fn add_pool(&mut self, pool: impl UniswapPool) {

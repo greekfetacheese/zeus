@@ -544,11 +544,6 @@ impl ZeusCtx {
       self.read(|ctx| ctx.pool_manager.get_token_price(token))
    }
 
-   pub fn get_eth_price(&self) -> NumericValue {
-      let weth = ERC20Token::weth();
-      self.get_token_price(&weth)
-   }
-
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
       if currency.is_native() {
          let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
