@@ -6,7 +6,7 @@ pub mod recipient_selection;
 pub mod send_crypto;
 pub mod settings;
 pub mod token_selection;
-pub mod tx_confirm;
+pub mod tx_window;
 pub mod wallet;
 
 pub use auth::{CredentialsForm, LoginUi, RegisterUi};
@@ -16,7 +16,7 @@ pub use recipient_selection::RecipientSelectionWindow;
 pub use send_crypto::SendCryptoUi;
 pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
-pub use tx_confirm::TxConfirmWindow;
+pub use tx_window::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
 
 pub const GREEN_CHECK: &str = "✅";

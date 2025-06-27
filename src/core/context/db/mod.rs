@@ -7,7 +7,8 @@ pub use portfolio::{Portfolio, PortfolioDB};
 use super::Contact;
 use crate::core::{
    serde_hashmap,
-   utils::{data_dir, tx::TxSummary},
+   utils::data_dir,
+   TransactionRich,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -103,7 +104,7 @@ impl ContactDB {
 }
 
 /// Transactions by chain and wallet address
-pub type Transactions = HashMap<(u64, Address), Vec<TxSummary>>;
+pub type Transactions = HashMap<(u64, Address), Vec<TransactionRich>>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionsDB {
@@ -134,8 +135,8 @@ impl TransactionsDB {
       Ok(())
    }
 
-   pub fn add_tx(&mut self, chain: u64, owner: Address, summary: TxSummary) {
-      self.txs.entry((chain, owner)).or_default().push(summary);
+   pub fn add_tx(&mut self, chain: u64, owner: Address, tx: TransactionRich) {
+      self.txs.entry((chain, owner)).or_default().push(tx);
       // sort the txs by newest to oldest
       self
          .txs
@@ -144,7 +145,7 @@ impl TransactionsDB {
          .sort_by(|a, b| b.block.cmp(&a.block));
    }
 
-   pub fn get_txs(&self, chain: u64, owner: Address) -> Option<&Vec<TxSummary>> {
+   pub fn get_txs(&self, chain: u64, owner: Address) -> Option<&Vec<TransactionRich>> {
       self.txs.get(&(chain, owner))
    }
 
@@ -158,7 +159,7 @@ impl TransactionsDB {
       owner: Address,
       page: usize,
       per_page: usize,
-   ) -> Option<Vec<TxSummary>> {
+   ) -> Option<Vec<TransactionRich>> {
       self.txs.get(&(chain, owner)).map(|txs| {
          let mut sorted_txs = txs.clone();
          sorted_txs.sort_by(|a, b| b.block.cmp(&a.block));

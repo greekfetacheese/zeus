@@ -205,7 +205,7 @@ impl Icons {
    }
 
    /// Return the chain icon based on the chain_id
-   pub fn chain_icon(&self, id: &u64) -> Image<'static> {
+   pub fn chain_icon(&self, id: u64) -> Image<'static> {
       match id {
          1 => Image::new(&self.chain.eth),
          10 => Image::new(&self.chain.op),
@@ -216,7 +216,7 @@ impl Icons {
       }
    }
 
-   pub fn chain_icon_x16(&self, id: &u64) -> Image<'static> {
+   pub fn chain_icon_x16(&self, id: u64) -> Image<'static> {
       match id {
          1 => Image::new(&self.chain.eth_x16),
          10 => Image::new(&self.chain.op_x16),

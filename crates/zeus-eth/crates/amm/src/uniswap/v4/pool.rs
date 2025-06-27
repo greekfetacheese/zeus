@@ -12,7 +12,7 @@ use crate::{
    uniswap::{UniswapPool, state::*, v3::*, v4::FeeAmount},
 };
 
-use abi::uniswap::v4::PoolKey;
+use abi::uniswap::universal_router_v2::PoolKey;
 use currency::{Currency, ERC20Token, NativeCurrency};
 use uniswap_v3_math::{
    sqrt_price_math::Q96,

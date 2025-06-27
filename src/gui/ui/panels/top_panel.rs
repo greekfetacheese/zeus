@@ -61,7 +61,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
    ui.horizontal(|ui| {
-      if gui.tx_confirm_window.is_open() {
+      if gui.tx_confirmation_window.is_open() {
          ui.disable();
       }
 
@@ -76,7 +76,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    ui.horizontal(|ui| {
       // Disable the wallet selection when we are in the review window
       // To avoid any mistakes
-      if gui.tx_confirm_window.is_open() {
+      if gui.tx_confirmation_window.is_open() {
          ui.disable();
       }
 

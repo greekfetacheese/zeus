@@ -260,7 +260,7 @@ impl RecipientSelectionWindow {
                      ui.set_width(column_width);
                      ui.horizontal(|ui| {
                         for chain in chains {
-                           let icon = icons.chain_icon_x16(&chain);
+                           let icon = icons.chain_icon_x16(chain);
                            ui.add(icon);
                         }
                      });

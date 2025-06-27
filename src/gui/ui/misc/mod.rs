@@ -11,8 +11,7 @@ use crate::assets::icons::Icons;
 use crate::core::utils::format_expiry;
 use crate::core::utils::sign::SignMsgType;
 use crate::core::utils::truncate_address;
-use crate::core::utils::tx::TxSummary;
-use crate::core::{WalletInfo, ZeusCtx, utils::RT};
+use crate::core::{WalletInfo, ZeusCtx, TransactionRich, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
@@ -123,7 +122,7 @@ impl ChainSelect {
       let selected_chain = self.chain;
       let mut clicked = false;
       let supported_chains = ChainId::supported_chains();
-      let icon = icons.chain_icon(&selected_chain.id());
+      let icon = icons.chain_icon(selected_chain.id());
       let selected_chain = Label::new(
          RichText::new(selected_chain.name()).size(theme.text_sizes.normal),
          Some(icon),
@@ -140,7 +139,7 @@ impl ChainSelect {
                }
 
                let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
-               let icon = icons.chain_icon(&chain.id());
+               let icon = icons.chain_icon(chain.id());
                let chain_label = Label::new(text.clone(), Some(icon))
                   .image_on_left()
                   .sense(Sense::click());
@@ -287,7 +286,7 @@ pub struct ProgressWindow {
    open: bool,
    steps: Vec<Step>,
    final_msg: String,
-   tx_summary: Option<TxSummary>,
+   tx: Option<TransactionRich>,
    size: (f32, f32),
 }
 
@@ -297,7 +296,7 @@ impl ProgressWindow {
          open: false,
          steps: Vec::new(),
          final_msg: String::new(),
-         tx_summary: None,
+         tx: None,
          size: (350.0, 150.0),
       }
    }
@@ -330,8 +329,8 @@ impl ProgressWindow {
       self.open = true;
    }
 
-   pub fn set_tx_summary(&mut self, summary: TxSummary) {
-      self.tx_summary = Some(summary);
+   pub fn set_tx(&mut self, tx: TransactionRich) {
+      self.tx = Some(tx);
    }
 
    pub fn add_step(&mut self, id: &'static str, in_progress: bool, finished: bool, msg: String) {
@@ -385,7 +384,7 @@ impl ProgressWindow {
 
    pub fn reset(&mut self) {
       self.open = false;
-      self.tx_summary = None;
+      self.tx = None;
       self.final_msg.clear();
       self.steps.clear();
    }
@@ -447,13 +446,13 @@ impl ProgressWindow {
                      let summary_btn = Button::new(RichText::new("Summary").size(normal));
                      if self.finished() {
                         if ui.add(summary_btn).clicked() {
-                           let summary = self.tx_summary.take();
+                           let tx = self.tx.clone();
                            self.reset();
 
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
-                                 gui.tx_confirm_window
-                                    .open_as_summary(summary.unwrap_or_default());
+                                 gui.tx_window
+                                    .open(tx);
                               });
                            });
                         }
@@ -526,7 +525,7 @@ impl SignMsgWindow {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let text = RichText::new(self.chain.name()).size(theme.text_sizes.normal);
-            let icon = icons.chain_icon(&self.chain.id());
+            let icon = icons.chain_icon(self.chain.id());
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
@@ -624,7 +623,7 @@ impl SignMsgWindow {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let text = RichText::new(self.chain.name()).size(theme.text_sizes.normal);
-            let icon = icons.chain_icon(&self.chain.id());
+            let icon = icons.chain_icon(self.chain.id());
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });

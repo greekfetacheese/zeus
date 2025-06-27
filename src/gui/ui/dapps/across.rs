@@ -1,5 +1,4 @@
 use crate::assets::icons::Icons;
-use crate::core::utils::action::OnChainAction;
 use crate::core::{
    ZeusCtx,
    utils::{RT, estimate_tx_cost, eth},
@@ -16,7 +15,6 @@ use egui_theme::{Theme, utils::widget_visuals};
 use egui_widgets::Label;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
-use zeus_eth::dapps::Dapp;
 use zeus_eth::{
    abi::protocols::across::{DepositV3Args, encode_deposit_v3},
    alloy_primitives::{Address, Bytes, U256},
@@ -597,9 +595,7 @@ impl AcrossBridge {
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      let input_usd = ctx.get_token_value_for_amount(input_amount.f64(), &input_token);
       let output_amount = self.minimum_amount();
-      let output_usd = ctx.get_token_value_for_amount(output_amount.f64(), &output_token);
 
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).unwrap().key;
@@ -637,19 +633,6 @@ impl AcrossBridge {
 
       let call_data = encode_deposit_v3(deposit_args.clone());
       let transact_to = spoke_pool_address(self.from_chain.chain.id()).unwrap();
-      let action = OnChainAction::new_bridge(
-         Dapp::Across,
-         from_chain.id(),
-         to_chain.id(),
-         input_token.into(),
-         output_token.into(),
-         input_amount.clone(),
-         input_usd,
-         output_amount,
-         output_usd,
-         depositor,
-         recipient,
-      );
 
       RT.spawn(async move {
          SHARED_GUI.write(|gui| {
@@ -662,7 +645,6 @@ impl AcrossBridge {
             from_chain,
             to_chain,
             deadline,
-            action,
             depositor,
             recipient,
             transact_to,

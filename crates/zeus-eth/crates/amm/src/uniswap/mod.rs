@@ -6,7 +6,7 @@ pub mod v3;
 pub mod v4;
 
 use super::DexKind;
-use abi::uniswap::v4::PoolKey;
+use abi::uniswap::universal_router_v2::PoolKey;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, B256, U256};
 use alloy_rpc_types::BlockId;

@@ -18,7 +18,7 @@ use crate::gui::ui::{
    tx_history::TxHistory,
    sync::SyncPoolsUi,
    WalletUi, RegisterUi, LoadingWindow, LoginUi, PortfolioUi, ProgressWindow, SendCryptoUi, SettingsUi,
-   MsgWindow, ConfirmWindow, TxConfirmWindow, SignMsgWindow, TestingWindow,
+   MsgWindow, ConfirmWindow, TxConfirmationWindow, TxWindow, SignMsgWindow, TestingWindow,
 };
 
 lazy_static! {
@@ -84,7 +84,8 @@ pub struct GUI {
    pub ui_testing: UiTesting,
    pub progress_window: ProgressWindow,
    pub confirm_window: ConfirmWindow,
-   pub tx_confirm_window: TxConfirmWindow,
+   pub tx_confirmation_window: TxConfirmationWindow,
+   pub tx_window: TxWindow,
    pub sign_msg_window: SignMsgWindow,
    pub sync_pools_ui: SyncPoolsUi,
 }
@@ -103,7 +104,9 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::misc::ConfirmWindow::new();
-      let tx_confirm_window = ui::TxConfirmWindow::new();
+     // let tx_confirm_window = ui::TxConfirmWindow::new();
+      let tx_confirmation_window = TxConfirmationWindow::new();
+       let tx_window = TxWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new(ctx.clone());
       let tx_history = ui::tx_history::TxHistory::new();
@@ -137,7 +140,8 @@ impl GUI {
          testing_window: TestingWindow::new(),
          ui_testing,
          confirm_window,
-         tx_confirm_window,
+         tx_confirmation_window,
+         tx_window,
          progress_window,
          sign_msg_window,
          sync_pools_ui,

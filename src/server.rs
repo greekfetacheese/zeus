@@ -906,7 +906,7 @@ async fn eth_send_transaction(
    info!("Value: {:?}", value);
    info!("Data: {:?}", call_data);
 
-   let (receipt, tx_summary) = match eth::send_transaction(
+   let (receipt, _) = match eth::send_transaction(
       ctx.clone(),
       origin.clone(),
       None,
@@ -924,7 +924,7 @@ async fn eth_send_transaction(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            gui.tx_confirm_window.reset();
+            gui.tx_confirmation_window.reset();
             gui.msg_window
                .open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
@@ -941,12 +941,14 @@ async fn eth_send_transaction(
       msg: "Transaction Sent".to_string(),
    };
 
+   /*
    SHARED_GUI.write(|gui| {
       gui.progress_window
          .open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx_summary(tx_summary);
+      gui.progress_window.set_tx(tx_summary);
       gui.request_repaint();
    });
+    */
 
    let hash = receipt.transaction_hash;
    let hash_str = format!("0x{}", hash.to_string());

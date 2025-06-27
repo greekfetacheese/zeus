@@ -495,14 +495,19 @@ impl AddLiquidity {
                let sqrt_price_lower =
                   uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_lower)
                      .unwrap_or_default();
+                 // tracing::info!("Sqrt price lower {}", sqrt_price_lower);
+
                let sqrt_price_upper =
                   uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_upper)
                      .unwrap_or_default();
+                 // tracing::info!("Sqrt price upper {}", sqrt_price_upper);
 
                let deposit_amount =
                   NumericValue::parse_to_wei(&self.deposit_amount, token0.decimals());
+                // tracing::info!("Deposit amount {} {}", token0.symbol(), deposit_amount.format_abbreviated());
+                // tracing::info!("Pool SqrtPrice {}", state.sqrt_price);
 
-               // Calculate the liquidity based on your desired amount of token0
+               // Calculate the liquidity based on the desired amount of token0
                let liquidity = calculate_liquidity_from_amount(
                   state.sqrt_price,
                   sqrt_price_lower,
@@ -511,6 +516,7 @@ impl AddLiquidity {
                   true,
                )
                .unwrap_or_default();
+              // tracing::info!("Liquidity {}", liquidity);
 
                let (amount0, amount1) = calculate_liquidity_amounts(
                   state.sqrt_price,
@@ -519,6 +525,7 @@ impl AddLiquidity {
                   liquidity,
                )
                .unwrap_or_default();
+              // tracing::info!("Amount0 {} Amount1 {}", amount0, amount1);
 
                let amount0_needed = NumericValue::format_wei(amount0, token0.decimals());
                let amount1_needed = NumericValue::format_wei(amount1, token1.decimals());
@@ -792,6 +799,10 @@ impl ViewPositionsUi {
 
       self.collect_fees.show(ctx.clone(), theme, icons, ui);
 
+      let owner = ctx.current_wallet().address;
+      let chain = ctx.chain();
+      let positions = ctx.get_v3_positions(chain.id(), owner);
+
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
@@ -828,14 +839,17 @@ impl ViewPositionsUi {
                });
             }
 
+            let text = RichText::new("Refresh").size(theme.text_sizes.normal);
+            let button = Button::new(text);
+            if ui.add(button).clicked() {
+               let positions = positions.clone();
+               self.sync_pool_state(ctx.clone(), owner, positions);
+            }
+
             if self.syncing || self.state_syncing {
                ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
             }
          });
-
-         let owner = ctx.current_wallet().address;
-         let chain = ctx.chain();
-         let positions = ctx.get_v3_positions(chain.id(), owner);
 
          if positions.is_empty() {
             let text = RichText::new("No positions found").size(theme.text_sizes.normal);
@@ -1035,7 +1049,6 @@ impl ViewPositionsUi {
 
       let mut pools = Vec::new();
       for position in &positions {
-
          if position.liquidity == 0 {
             ctx.write(|ctx| {
                ctx.v3_positions_db.remove(chain_id, owner, position);

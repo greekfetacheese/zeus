@@ -255,7 +255,21 @@ where
    Ok(params)
 }
 
-// ABI Encode functions
+pub fn collect_call_selector() -> [u8; 4] {
+   INonfungiblePositionManager::collectCall::SELECTOR
+}
+
+pub fn decrease_liquidity_call_selector() -> [u8; 4] {
+   INonfungiblePositionManager::decreaseLiquidityCall::SELECTOR
+}
+
+pub fn increase_liquidity_call_selector() -> [u8; 4] {
+   INonfungiblePositionManager::increaseLiquidityCall::SELECTOR
+}
+
+pub fn mint_call_selector() -> [u8; 4] {
+   INonfungiblePositionManager::mintCall::SELECTOR
+}
 
 pub fn encode_create_pool(
    token0: Address,

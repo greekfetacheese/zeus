@@ -1,5 +1,5 @@
 use alloy_contract::private::{Network, Provider};
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -169,6 +169,10 @@ impl PoolManagerHandle {
 
    pub fn get_v3_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
       self.read(|manager| manager.get_v3_pool_from_address(chain_id, address).cloned())
+   }
+
+   pub fn get_v4_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<AnyUniswapPool> {
+      self.read(|manager| manager.get_v4_pool_from_id(chain_id, pool_id).cloned())
    }
 
    pub fn get_v3_pool_from_token_addresses_and_fee(
@@ -964,6 +968,18 @@ impl PoolManager {
          .pools
          .iter()
          .find(|(_, p)| p.address() == address && p.chain_id() == chain_id && p.dex_kind().is_v3())
+      {
+         Some(pool.1)
+      } else {
+         None
+      }
+   }
+
+   pub fn get_v4_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<&AnyUniswapPool> {
+      if let Some(pool) = self
+         .pools
+         .iter()
+         .find(|(_, p)| p.pool_id() == pool_id && p.chain_id() == chain_id)
       {
          Some(pool.1)
       } else {

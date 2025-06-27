@@ -1,6 +1,7 @@
 use crate::core::WalletInfo;
 use crate::core::{
    ZeusCtx,
+   TransactionRich,
    utils::{RT, truncate_address},
 };
 use crate::gui::SHARED_GUI;
@@ -10,7 +11,6 @@ use zeus_eth::{alloy_primitives::Address, types::ChainId};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::core::utils::tx::TxSummary;
 
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 
@@ -154,6 +154,7 @@ impl TxHistory {
                   }
                });
 
+               /* 
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Add Dummy Tx")).clicked() {
                let wallet = ctx.current_wallet();
@@ -166,7 +167,9 @@ impl TxHistory {
                   );
                });
             }
+            */
 
+            /* 
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Add 50 Dummy Txs")).clicked() {
                let wallet = ctx.current_wallet();
@@ -181,6 +184,7 @@ impl TxHistory {
                   }
                });
             }
+            */
 
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Save TxDB")).clicked() {
@@ -194,7 +198,7 @@ impl TxHistory {
 
          // --- Transaction Data Fetching and Filtering ---
          let all_wallets = ctx.wallets_info();
-         let filtered_txs: Vec<TxSummary> = ctx.read(|ctx_read| {
+         let filtered_txs: Vec<TransactionRich> = ctx.read(|ctx_read| {
             let mut txs = Vec::new();
             for wallet in &all_wallets {
                if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
@@ -331,7 +335,7 @@ impl TxHistory {
 
                         for tx in txs_on_page {
                            // Wallet Name Column
-                           let name = self.wallet_name_or_address(ctx.clone(), tx.from);
+                           let name = self.wallet_name_or_address(ctx.clone(), tx.sender());
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[0]);
                               ui.label(
@@ -373,7 +377,7 @@ impl TxHistory {
                                  let tx_clone = tx.clone();
                                  RT.spawn_blocking(move || {
                                     SHARED_GUI.write(|gui| {
-                                       gui.tx_confirm_window.open_as_summary(tx_clone);
+                                       gui.tx_window.open(Some(tx_clone));
                                     });
                                  });
                               }

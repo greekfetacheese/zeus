@@ -257,7 +257,7 @@ impl WalletUi {
                      let value = ctx.get_portfolio_value_all_chains(wallet.address);
                      ui.horizontal(|ui| {
                         for chain in chains {
-                           let icon = icons.chain_icon_x16(&chain);
+                           let icon = icons.chain_icon_x16(chain);
                            ui.add(icon);
                         }
                      });

@@ -108,6 +108,7 @@ impl UniswapSettingsUi {
 
       // For some fucking reason cargo fmt doesnt work here
       ui.vertical_centered(|ui| {
+         let slider_size = vec2(ui.available_width() * 0.5, 25.0);
 
                   let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
                   ui.label(text).on_hover_text("Protect against front-running attacks");
@@ -129,7 +130,8 @@ impl UniswapSettingsUi {
                ui.label(RichText::new("Routing").size(theme.text_sizes.large));
 
                ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
-               let res =ui.add(Slider::new(&mut self.max_hops, 1..=10));
+               ui.allocate_ui(slider_size, |ui| {
+               let res = ui.add(Slider::new(&mut self.max_hops, 1..=10));
                if res.changed() {
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
@@ -138,6 +140,7 @@ impl UniswapSettingsUi {
                      });
                   });
                }
+            });
 
                 let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
                 ui.checkbox(&mut self.swap_on_v2, text);

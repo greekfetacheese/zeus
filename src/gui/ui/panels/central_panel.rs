@@ -1,14 +1,16 @@
 use crate::{
    assets::icons::Icons,
    core::{
-      ZeusCtx,
-      utils::{RT, sign::SignMsgType, tx::TxSummary},
+      TransactionAction, TransactionAnalysis, ZeusCtx,
+      utils::{RT, sign::SignMsgType},
    },
    gui::{GUI, SHARED_GUI},
 };
 use eframe::egui::{Button, Ui, vec2};
 use egui_theme::Theme;
 use std::sync::Arc;
+
+use zeus_eth::utils::NumericValue;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -20,8 +22,9 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
-   gui.tx_confirm_window
+   gui.tx_confirmation_window
       .show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_window.show(ctx.clone(), theme, icons.clone(), ui);
    gui.confirm_window.show(theme, ui);
    gui.testing_window.show(theme, icons.clone(), ui);
    gui.progress_window.show(theme, ui);
@@ -88,9 +91,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.theme = theme;
       }
    }
-
 }
-
 
 pub struct UiTesting {
    pub show: bool,
@@ -101,7 +102,7 @@ impl UiTesting {
       Self { show: false }
    }
 
-   pub fn show(&mut self, _ctx: ZeusCtx, _theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, _theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
       if !self.show {
          return;
       }
@@ -111,62 +112,159 @@ impl UiTesting {
          ui.spacing_mut().item_spacing.y = 10.0;
          let btn_size = vec2(100.0, 25.0);
 
-         let button = Button::new("Swap Transaction Summary").min_size(btn_size);
+         let button = Button::new("Swap Tx Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
+
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_swap();
+               let params = TransactionAction::dummy_swap().swap_params().clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Swap".to_string(),
+                  swaps: vec![params],
+                  gas_used: 160_000,
+                  ..Default::default()
+               };
+
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }
 
-         let button = Button::new("Uniswap Position Op Summary").min_size(btn_size);
+         let button = Button::new("Transfer Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_uniswap_position();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  value: NumericValue::parse_to_wei("1", 18).wei2(),
+                  contract_interact: false,
+                  decoded_selector: "Transfer".to_string(),
+                  gas_used: 21_000,
+                  ..Default::default()
+               };
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }
 
-         let button = Button::new("Token Approval Transaction Summary").min_size(btn_size);
+         let button = Button::new("ERC20 Transfer Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_token_approve();
+               let params = TransactionAction::dummy_erc20_transfer()
+                  .erc20_transfer_params()
+                  .clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "ERC20 Transfer".to_string(),
+                  gas_used: 50_000,
+                  erc20_transfers: vec![params],
+                  ..Default::default()
+               };
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }
 
-         let button = Button::new("Transfer Transaction Summary").min_size(btn_size);
+         let button = Button::new("ERC20 Approval Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_transfer();
+               let params = TransactionAction::dummy_token_approve()
+                  .token_approval_params()
+                  .clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Approve".to_string(),
+                  gas_used: 50_000,
+                  token_approvals: vec![params],
+                  ..Default::default()
+               };
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }
 
-         let button = Button::new("Bridge Transaction Summary").min_size(btn_size);
+         let button = Button::new("Uniswap AddLiquidity V3 Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_bridge();
+               let params = TransactionAction::dummy_uniswap_position_operation()
+                  .uniswap_position_params()
+                  .clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "AddLiquidity".to_string(),
+                  gas_used: 120_000,
+                  positions_ops: vec![params],
+                  ..Default::default()
+               };
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }
 
-         let button = Button::new("Other Transaction Summary").min_size(btn_size);
+         let button = Button::new("Bridge Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let summary = TxSummary::dummy_other();
+               let params = TransactionAction::dummy_bridge().bridge_params().clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Bridge".to_string(),
+                  gas_used: 120_000,
+                  bridge: vec![params],
+                  ..Default::default()
+               };
                SHARED_GUI.write(|gui| {
-                  gui.tx_confirm_window.open_as_summary(summary);
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                  );
                });
             });
          }

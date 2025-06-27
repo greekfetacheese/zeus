@@ -15,7 +15,7 @@ use zeus_eth::{
    abi::permit::{self, Permit2::{PermitBatch, PermitDetails}},
 };
 
-pub mod action;
+
 pub mod eth;
 pub mod sign;
 pub mod trace;
@@ -83,7 +83,7 @@ pub fn estimate_tx_cost(
    let total_fee = priority_fee + U256::from(base_fee);
 
    // native currency price
-   let native = NativeCurrency::from_chain_id(chain).unwrap();
+   let native = NativeCurrency::from(chain);
    let price = ctx.get_currency_price(&Currency::from(native.clone()));
 
    let cost_in_wei = total_fee * U256::from(gas_used);

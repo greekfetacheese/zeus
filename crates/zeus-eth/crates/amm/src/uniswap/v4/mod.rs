@@ -6,7 +6,7 @@ use alloy_primitives::{
    aliases::{I24, U24},
 };
 use alloy_sol_types::SolValue;
-use abi::uniswap::{universal_router_v2::*, v4::*};
+use abi::uniswap::universal_router_v2::IV4Router::*;
 use serde::{Deserialize, Serialize};
 
 #[allow(non_camel_case_types)]

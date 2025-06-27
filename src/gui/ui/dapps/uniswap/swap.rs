@@ -988,7 +988,7 @@ impl SwapUi {
       let from = ctx.current_wallet().address;
       let chain = ctx.chain();
 
-      if action.is_wrap() || action.is_unwrap() {
+      if action.is_wrap() {
          let amount_in = self.amount_in.clone();
          let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
          RT.spawn(async move {
@@ -997,18 +997,48 @@ impl SwapUi {
                gui.request_repaint();
             });
 
-            match eth::wrap_or_unwrap_eth(
+            match eth::wrap_eth(
                ctx.clone(),
                from,
                chain,
                amount_in.clone(),
-               action.is_wrap(),
             )
             .await
             {
                Ok(_) => {}
                Err(e) => {
-                  tracing::error!("Error wrapping/unwrapping: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.progress_window.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Transaction Error", e.to_string());
+                     gui.request_repaint();
+                  });
+               }
+            }
+         });
+
+         return;
+      }
+
+         if action.is_unwrap() {
+         let amount_in = self.amount_in.clone();
+         let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
+         RT.spawn(async move {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
+               gui.request_repaint();
+            });
+
+            match eth::unwrap_weth(
+               ctx.clone(),
+               from,
+               chain,
+               amount_in.clone(),
+            )
+            .await
+            {
+               Ok(_) => {}
+               Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.progress_window.reset();
                      gui.loading_window.reset();
@@ -1058,7 +1088,7 @@ impl SwapUi {
                SHARED_GUI.write(|gui| {
                   gui.progress_window.reset();
                   gui.loading_window.reset();
-                  gui.tx_confirm_window.reset();
+                  gui.tx_confirmation_window.reset();
                   gui.msg_window.open("Transaction Error", &e.to_string());
                   gui.request_repaint();
                });

@@ -1,11 +1,15 @@
 pub mod context;
 pub mod user;
 pub mod utils;
+pub mod transaction;
+pub mod tx_analysis;
 
 mod tests;
 
 pub use context::*;
 pub use user::{Account, wallet::*};
+pub use transaction::*;
+pub use tx_analysis::TransactionAnalysis;
 
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
