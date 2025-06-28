@@ -26,6 +26,7 @@ pub enum ProtocolVersion {
    V2,
    #[default]
    V3,
+   V4,
 }
 
 impl ProtocolVersion {
@@ -37,15 +38,29 @@ impl ProtocolVersion {
       matches!(self, Self::V3)
    }
 
+   pub fn is_v4(&self) -> bool {
+      matches!(self, Self::V4)
+   }
+
    pub fn to_str(&self) -> &'static str {
       match self {
          ProtocolVersion::V2 => "V2",
          ProtocolVersion::V3 => "V3",
+         ProtocolVersion::V4 => "V4",
+      }
+   }
+
+   pub fn from_str(s: &str) -> Option<Self> {
+      match s {
+         "V2" => Some(Self::V2),
+         "V3" => Some(Self::V3),
+         "V4" => Some(Self::V4),
+         _ => None,
       }
    }
 
    pub fn all() -> Vec<Self> {
-      vec![ProtocolVersion::V2, ProtocolVersion::V3]
+      vec![ProtocolVersion::V2, ProtocolVersion::V3, ProtocolVersion::V4]
    }
 }
 
