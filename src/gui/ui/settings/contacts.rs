@@ -48,7 +48,7 @@ impl AddContact {
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {

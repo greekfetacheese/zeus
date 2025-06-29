@@ -448,6 +448,8 @@ impl TxWindow {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+                  ui.add_space(20.0);
+
                   if self.tx.is_none() {
                      ui.label(RichText::new("Transaction not found").size(theme.text_sizes.large));
                      let size = vec2(ui.available_width() * 0.8, 45.0);
@@ -1323,7 +1325,7 @@ fn uniswap_position_op_event_ui(
    };
 
    if min_amount0.is_some() && min_amount1.is_some() {
-      ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      ui.label(RichText::new(text).size(theme.text_sizes.large));
    }
 
    // Minimum Amount A and Amount & value

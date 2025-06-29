@@ -26,7 +26,7 @@ impl RecipientSelectionWindow {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (450.0, 350.0),
+         size: (450.0, 550.0),
       }
    }
 
@@ -66,7 +66,8 @@ impl RecipientSelectionWindow {
          open = false;
       }
 
-      Window::new("Recipient")
+      let title = RichText::new("Recipient").size(theme.text_sizes.large);
+      Window::new(title)
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -74,8 +75,8 @@ impl RecipientSelectionWindow {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(450.0);
-            ui.set_height(350.0);
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
             let ui_width = ui.available_width();
             let column_width = ui.available_width() * 0.33;
@@ -84,7 +85,7 @@ impl RecipientSelectionWindow {
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
                let add_contact =
-                  Button::new(RichText::new("Add a contact").size(theme.text_sizes.small));
+                  Button::new(RichText::new("Add a contact").size(theme.text_sizes.normal));
                if ui.add(add_contact).clicked() {
                   contacts_ui.add_contact.open = true;
                }
@@ -110,7 +111,7 @@ impl RecipientSelectionWindow {
 
             ScrollArea::vertical()
                .id_salt("recipient_select_scroll")
-               .max_height(350.0)
+               .max_height(self.size.1)
                .max_width(ui_width)
                .show(ui, |ui| {
                   if are_valid_wallets {

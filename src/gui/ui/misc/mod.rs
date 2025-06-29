@@ -924,7 +924,7 @@ impl MsgWindow {
 
       Window::new(title)
          .resizable(false)
-         .order(Order::Foreground)
+         .order(Order::Tooltip)
          .movable(true)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
@@ -1044,6 +1044,7 @@ impl PortfolioUi {
                   Grid::new("currency_grid")
                      .num_columns(5)
                      .spacing([20.0, 30.0])
+                     .striped(true)
                      .show(ui, |ui| {
                         // Header
                         ui.label(RichText::new("Asset").size(theme.text_sizes.large));

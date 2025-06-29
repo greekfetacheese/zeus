@@ -1,7 +1,6 @@
 use crate::core::WalletInfo;
 use crate::core::{
-   ZeusCtx,
-   TransactionRich,
+   TransactionRich, ZeusCtx,
    utils::{RT, truncate_address},
 };
 use crate::gui::SHARED_GUI;
@@ -10,7 +9,6 @@ use egui_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
 
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 
@@ -150,7 +148,7 @@ impl TxHistory {
                   }
                });
 
-               /* 
+            /*
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Add Dummy Tx")).clicked() {
                let wallet = ctx.current_wallet();
@@ -165,7 +163,7 @@ impl TxHistory {
             }
             */
 
-            /* 
+            /*
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Add 50 Dummy Txs")).clicked() {
                let wallet = ctx.current_wallet();
@@ -268,7 +266,6 @@ impl TxHistory {
          });
          ui.add_space(20.0);
 
-         // --- Transaction List ---
          ScrollArea::vertical()
             .id_salt("tx_history_scroll_area")
             .auto_shrink([false; 2])
@@ -297,6 +294,7 @@ impl TxHistory {
                   Grid::new("tx_history_grid")
                      .spacing([20.0, 10.0])
                      .num_columns(4)
+                     .striped(true)
                      .show(ui, |ui| {
                         ui.label(
                            RichText::new("Wallet")
