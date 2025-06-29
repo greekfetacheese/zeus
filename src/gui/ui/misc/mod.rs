@@ -11,11 +11,11 @@ use crate::assets::icons::Icons;
 use crate::core::utils::format_expiry;
 use crate::core::utils::sign::SignMsgType;
 use crate::core::utils::truncate_address;
-use crate::core::{WalletInfo, ZeusCtx, TransactionRich, utils::RT};
+use crate::core::{TransactionRich, WalletInfo, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
-use egui_theme::{Theme, utils::*};
+use egui_theme::Theme;
 use egui_widgets::{ComboBox, Label};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -28,61 +28,9 @@ use super::GREEN_CHECK;
 pub mod sync;
 pub mod tx_history;
 
-pub struct PriorityFeeTextBox {
-   chain: ChainId,
-   fee: String,
-}
-
-impl PriorityFeeTextBox {
-   pub fn new() -> Self {
-      Self {
-         chain: ChainId::default(),
-         fee: "1".to_string(),
-      }
-   }
-
-   pub fn set_priority_fee(&mut self, chain: ChainId, fee: String) {
-      // No priority fee for Binance Smart Chain
-      // Set empty to avoid frame shutter due to invalid fee
-      if chain.is_bsc() {
-         self.fee = String::new();
-         self.chain = chain;
-      } else {
-         self.fee = fee;
-         self.chain = chain;
-      }
-   }
-
-   pub fn get_chain(&self) -> ChainId {
-      self.chain
-   }
-
-   pub fn get_fee(&self) -> String {
-      self.fee.clone()
-   }
-
-   pub fn show(
-      &mut self,
-      min_size: Vec2,
-      margin: Margin,
-      bg_color: Color32,
-      font_size: f32,
-      ui: &mut Ui,
-   ) {
-      ui.add(
-         TextEdit::singleline(&mut self.fee)
-            .min_size(min_size)
-            .margin(margin)
-            .background_color(bg_color)
-            .font(egui::FontId::proportional(font_size)),
-      );
-   }
-}
-
 /// A ComboBox to select a chain
 pub struct ChainSelect {
    pub id: &'static str,
-   pub grid_id: &'static str,
    pub chain: ChainId,
    pub size: Vec2,
    pub show_icon: bool,
@@ -92,7 +40,6 @@ impl ChainSelect {
    pub fn new(id: &'static str, default_chain: u64) -> Self {
       Self {
          id,
-         grid_id: "chain_select_grid",
          chain: ChainId::new(default_chain).unwrap(),
          size: (200.0, 25.0).into(),
          show_icon: true,
@@ -451,8 +398,7 @@ impl ProgressWindow {
 
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
-                                 gui.tx_window
-                                    .open(tx);
+                                 gui.tx_window.open(tx);
                               });
                            });
                         }
@@ -576,7 +522,7 @@ impl SignMsgWindow {
             ui.hyperlink_to(
                RichText::new(truncate_address(contract.to_string()))
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -595,7 +541,7 @@ impl SignMsgWindow {
             ui.hyperlink_to(
                RichText::new(truncate_address(spender.to_string()))
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -685,7 +631,7 @@ impl SignMsgWindow {
             ui.hyperlink_to(
                RichText::new(truncate_address(contract.to_string()))
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -704,7 +650,7 @@ impl SignMsgWindow {
             ui.hyperlink_to(
                RichText::new(truncate_address(spender.to_string()))
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -769,23 +715,28 @@ impl SignMsgWindow {
                });
 
                ui.add_space(20.0);
-               ui.horizontal(|ui| {
-                  let width = ui.available_width() * 0.9;
+               let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+               let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
-                  let ok_btn = Button::new(RichText::new("Sign").size(theme.text_sizes.normal))
-                     .min_size(vec2(width * 0.75, 50.0));
-                  if ui.add(ok_btn).clicked() {
-                     self.open = false;
-                     self.signed = Some(true)
-                  }
+               ui.allocate_ui(ui_size, |ui| {
+                  ui.horizontal(|ui| {
+                     let ok_btn = Button::new(RichText::new("Sign").size(theme.text_sizes.normal))
+                        .min_size(button_size);
+                     if ui.add(ok_btn).clicked() {
+                        self.open = false;
+                        self.signed = Some(true)
+                     }
 
-                  let cancel_btn =
-                     Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
-                        .min_size(vec2(width * 0.25, 50.0));
-                  if ui.add(cancel_btn).clicked() {
-                     self.open = false;
-                     self.signed = Some(false)
-                  }
+                     ui.add_space(20.0);
+
+                     let cancel_btn =
+                        Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
+                           .min_size(button_size);
+                     if ui.add(cancel_btn).clicked() {
+                        self.open = false;
+                        self.signed = Some(false)
+                     }
+                  });
                });
             });
          });
@@ -1035,8 +986,6 @@ impl PortfolioUi {
          ui.horizontal(|ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let visuals = theme.get_button_visuals(theme.colors.bg_color);
-               widget_visuals(ui, visuals);
 
                let add_token =
                   Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
@@ -1044,7 +993,7 @@ impl PortfolioUi {
                   token_selection.open = true;
                }
 
-               let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
+               let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
                   self.refresh(owner, ctx.clone());
                }
@@ -1297,9 +1246,9 @@ impl PortfolioUi {
          ctx.calculate_portfolio_value(chain, owner);
 
          RT.spawn_blocking(move || {
-         ctx.save_portfolio_db();
-         ctx.save_balance_manager();
-         let _ = ctx.save_pool_manager();
+            ctx.save_portfolio_db();
+            ctx.save_balance_manager();
+            let _ = ctx.save_pool_manager();
          });
 
          SHARED_GUI.write(|gui| {

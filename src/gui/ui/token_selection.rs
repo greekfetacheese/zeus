@@ -10,7 +10,7 @@ use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
-use egui_theme::Theme;
+use egui_theme::{Theme, utils};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
@@ -95,6 +95,7 @@ impl TokenSelectionWindow {
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text(RichText::new("Search tokens or enter an address"))
                      .desired_width(ui_width * 0.7)
+                     .background_color(theme.colors.text_edit_bg)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
@@ -119,6 +120,8 @@ impl TokenSelectionWindow {
                .auto_shrink(Vec2b::new(false, false))
                .show(ui, |ui| {
                   ui.spacing_mut().item_spacing.y = 10.0;
+                  utils::no_border(ui);
+                  utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                   let mut currencies_with_balances: Vec<(&Currency, NumericValue)> = currencies
                      .iter()
@@ -148,7 +151,6 @@ impl TokenSelectionWindow {
 
                         ui.horizontal(|ui| {
                            ui.set_width(ui_width * 0.9);
-                           egui_theme::utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                            if ui.add(button).clicked() {
                               self.selected_currency = Some(currency.clone());
@@ -158,7 +160,7 @@ impl TokenSelectionWindow {
 
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                               ui.label(
-                                 RichText::new(balance.formatted()).size(theme.text_sizes.normal),
+                                 RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal),
                               );
                            });
                         });

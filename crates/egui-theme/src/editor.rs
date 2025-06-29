@@ -1,5 +1,7 @@
+use std::path::PathBuf;
+
 use egui::{
-   CollapsingHeader, ComboBox, Frame, ScrollArea, Slider, Ui, Window,
+   CollapsingHeader, ComboBox, Frame, RichText, ScrollArea, Slider, Ui, Window, vec2,
    widgets::color_picker::{Alpha, color_edit_button_srgba},
 };
 
@@ -42,9 +44,9 @@ impl WidgetState {
 #[derive(Clone)]
 pub struct ThemeEditor {
    pub open: bool,
-
    /// The current widget state being edited
    pub widget_state: WidgetState,
+   pub size: (f32, f32),
 }
 
 impl ThemeEditor {
@@ -52,13 +54,14 @@ impl ThemeEditor {
       Self {
          open: false,
          widget_state: WidgetState::NonInteractive,
+         size: (350.0, 500.0),
       }
    }
 
    /// Show the theme editor in a window
    ///
    /// Returns the new theme if we change it
-   pub fn show(&mut self, theme: &mut Theme, ui: &mut Ui) -> Option<Theme> {
+   pub fn show(&mut self, theme: &mut Theme, dir: Option<PathBuf>, ui: &mut Ui) -> Option<Theme> {
       if !self.open {
          return None;
       }
@@ -70,25 +73,32 @@ impl ThemeEditor {
          .resizable([true, true])
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size((350.0, 500.0).into());
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
             ui.horizontal(|ui| {
                new_theme = utils::change_theme(theme, ui);
 
                ui.add_space(20.0);
 
-               if ui.button("Save Theme").clicked() {
-                  let current_dir = std::env::current_dir().unwrap();
-                  let save_path = current_dir.join("my-custom-theme.json");
+               let text = RichText::new("Save Theme").size(theme.text_sizes.normal);
+               if ui.button(text).clicked() {
+                  if dir.is_none() {
+                     return;
+                  }
+                  let dir = dir.unwrap();
+                  let save_path = dir.join("theme.json");
                   let data = theme.to_json().unwrap();
                   std::fs::write(&save_path, data).unwrap();
-                  println!("Theme saved to: {:?}", save_path);
                }
             });
+
             ui.add_space(20.0);
 
             ScrollArea::vertical().show(ui, |ui| {
-               ui.set_min_size((350.0, 500.0).into());
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
                self.ui(theme, ui);
             });
          });
@@ -118,9 +128,6 @@ impl ThemeEditor {
             ui.label("Extreme Background Color");
             color_edit_button_srgba(ui, &mut theme.colors.extreme_bg_color, Alpha::OnlyBlend);
 
-            ui.label("Extreme Background Color 2");
-            color_edit_button_srgba(ui, &mut theme.colors.extreme_bg_color2, Alpha::OnlyBlend);
-
             ui.label("Window Fill");
             color_edit_button_srgba(ui, &mut theme.colors.window_fill, Alpha::OnlyBlend);
 
@@ -139,23 +146,23 @@ impl ThemeEditor {
             ui.label("Text Secondary Color");
             color_edit_button_srgba(ui, &mut theme.colors.text_secondary, Alpha::OnlyBlend);
 
+            ui.label("Error Color");
+            color_edit_button_srgba(ui, &mut theme.colors.error_color, Alpha::OnlyBlend);
+
+            ui.label("Success Color");
+            color_edit_button_srgba(ui, &mut theme.colors.success_color, Alpha::OnlyBlend);
+
+            ui.label("Hyperlink Color");
+            color_edit_button_srgba(ui, &mut theme.colors.hyperlink_color, Alpha::OnlyBlend);
+
             ui.label("Text Edit Background Color");
             color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg, Alpha::OnlyBlend);
-
-            ui.label("Text Edit Background Color 2");
-            color_edit_button_srgba(ui, &mut theme.colors.text_edit_bg2, Alpha::OnlyBlend);
 
             ui.label("Button Background Color");
             color_edit_button_srgba(ui, &mut theme.colors.button_bg, Alpha::OnlyBlend);
 
-            ui.label("Button Background Color 2");
-            color_edit_button_srgba(ui, &mut theme.colors.button_bg2, Alpha::OnlyBlend);
-
             ui.label("Widget Bg Color");
             color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color, Alpha::OnlyBlend);
-
-            ui.label("Widget Bg Color 2");
-            color_edit_button_srgba(ui, &mut theme.colors.widget_bg_color2, Alpha::OnlyBlend);
 
             ui.label("Widget Bg Color on click");
             color_edit_button_srgba(
@@ -399,7 +406,7 @@ impl ThemeEditor {
       color_edit_button_srgba(ui, &mut frame.fill, Alpha::OnlyBlend);
 
       ui.label("Stroke Width & Color");
-      ui.add(Slider::new(&mut frame.stroke.width, 0.0..=10.0).text("Stroke Width"));
+      ui.add(Slider::new(&mut frame.stroke.width, 0.0..=100.0).text("Stroke Width"));
       color_edit_button_srgba(ui, &mut frame.stroke.color, Alpha::OnlyBlend);
    }
 
@@ -412,11 +419,11 @@ impl ThemeEditor {
 
       ui.label("Border Color on hover");
       color_edit_button_srgba(ui, &mut visuals.border_on_hover.1, Alpha::OnlyBlend);
-      ui.add(Slider::new(&mut visuals.border_on_hover.0, 0.0..=10.0).text("Border Width on hover"));
+      ui.add(Slider::new(&mut visuals.border_on_hover.0, 0.0..=100.0).text("Border Width on hover"));
 
       ui.label("Border Color on click");
       color_edit_button_srgba(ui, &mut visuals.border_on_click.1, Alpha::OnlyBlend);
-      ui.add(Slider::new(&mut visuals.border_on_click.0, 0.0..=10.0).text("Border Width on click"));
+      ui.add(Slider::new(&mut visuals.border_on_click.0, 0.0..=100.0).text("Border Width on click"));
    }
 
    fn select_widget_state(&mut self, ui: &mut Ui) {

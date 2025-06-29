@@ -8,11 +8,7 @@ use std::sync::Arc;
 
 use crate::core::{
    ZeusCtx,
-   utils::{
-      RT,
-      estimate_tx_cost,
-      eth,
-   },
+   utils::{RT, estimate_tx_cost, eth},
 };
 
 use crate::assets::icons::Icons;
@@ -82,7 +78,6 @@ impl SendCryptoUi {
       let recipient_name = recipient_selection.get_recipient_name();
 
       let frame = theme.frame1;
-      let bg_color = frame.fill;
       Window::new("send_crypto_ui")
          .title_bar(false)
          .resizable(false)
@@ -133,13 +128,12 @@ impl SendCryptoUi {
                ui.add_space(5.0);
 
                ui.horizontal(|ui| {
-                  widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                   let res = ui.add(
                      TextEdit::singleline(&mut recipient_selection.recipient)
                         .hint_text("Search contacts or enter an address")
                         .min_size(vec2(ui_width * 0.85, 25.0))
                         .margin(Margin::same(10))
-                        .background_color(theme.colors.text_edit_bg2)
+                        .background_color(theme.colors.text_edit_bg)
                         .font(FontId::proportional(theme.text_sizes.large)),
                   );
                   if res.clicked() {
@@ -184,9 +178,12 @@ impl SendCryptoUi {
 
                      let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
                      ui.label(
-                        RichText::new(format!("Balance: {}", balance.format_abbreviated()))
-                           .color(theme.colors.text_secondary)
-                           .size(theme.text_sizes.normal),
+                        RichText::new(format!(
+                           "Balance: {}",
+                           balance.format_abbreviated()
+                        ))
+                        .color(theme.colors.text_secondary)
+                        .size(theme.text_sizes.normal),
                      );
 
                      if self.syncing_balance {
@@ -217,7 +214,6 @@ impl SendCryptoUi {
                   .spacing(vec2(10.0, 0.0))
                   .show(ui, |ui| {
                      ui.label(RichText::new("Amount").size(theme.text_sizes.large));
-                     widget_visuals(ui, theme.get_button_visuals(bg_color));
                      ui.spacing_mut().button_padding = vec2(5.0, 5.0);
                      let max_button =
                         Button::new(RichText::new("Max").size(theme.text_sizes.small));
@@ -231,12 +227,11 @@ impl SendCryptoUi {
 
                ui.horizontal(|ui| {
                   ui.set_width(ui_width * 0.5);
-                  widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                   ui.add(
                      TextEdit::singleline(&mut self.amount)
                         .hint_text("0")
                         .font(egui::FontId::proportional(theme.text_sizes.large))
-                        .background_color(theme.colors.text_edit_bg2)
+                        .background_color(theme.colors.text_edit_bg)
                         .min_size(vec2(ui_width * 0.5, 25.0))
                         .margin(Margin::same(10)),
                   );
@@ -278,7 +273,6 @@ impl SendCryptoUi {
                ui.add_space(space);
 
                // Send Button
-               widget_visuals(ui, theme.get_button_visuals(bg_color));
                let send = Button::new(RichText::new("Send").size(theme.text_sizes.normal))
                   .min_size(vec2(ui_width * 0.9, 40.0));
 
@@ -312,10 +306,14 @@ impl SendCryptoUi {
       RT.spawn(async move {
          let balance_manager = ctx.balance_manager();
          if currency.is_native() {
-           let _ = balance_manager.update_eth_balance(ctx.clone(), chain, owner).await;
+            let _ = balance_manager
+               .update_eth_balance(ctx.clone(), chain, owner)
+               .await;
          } else {
             let token = currency.to_erc20().into_owned();
-           let _ = balance_manager.update_tokens_balance(ctx.clone(), chain, owner, vec![token]).await;
+            let _ = balance_manager
+               .update_tokens_balance(ctx.clone(), chain, owner, vec![token])
+               .await;
          }
          SHARED_GUI.write(|gui| {
             gui.send_crypto.syncing_balance = false;
@@ -352,9 +350,15 @@ impl SendCryptoUi {
             let dexes = DexKind::main_dexes(chain_id);
 
             RT.spawn(async move {
-            let client = ctx.get_client(chain_id).await.unwrap();
+               let client = ctx.get_client(chain_id).await.unwrap();
                match manager
-                  .sync_pools_for_tokens(client.clone(), chain_id, vec![token], dexes, false)
+                  .sync_pools_for_tokens(
+                     client.clone(),
+                     chain_id,
+                     vec![token],
+                     dexes,
+                     false,
+                  )
                   .await
                {
                   Ok(_) => {

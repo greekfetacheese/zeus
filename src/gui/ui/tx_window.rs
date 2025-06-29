@@ -1,5 +1,5 @@
 use egui::{
-   Align, Align2, Button, Color32, Frame, Layout, Margin, Order, RichText, TextEdit, Ui, Window,
+   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, TextEdit, Ui, Window,
    vec2,
 };
 use egui_theme::Theme;
@@ -352,8 +352,8 @@ impl TxConfirmationWindow {
                   if !sufficient_balance {
                      ui.label(
                         RichText::new("Insufficient balance to send transaction")
-                           .size(theme.text_sizes.normal)
-                           .color(Color32::RED),
+                           .size(theme.text_sizes.large)
+                           .color(theme.colors.error_color),
                      );
                   }
 
@@ -450,6 +450,14 @@ impl TxWindow {
 
                   if self.tx.is_none() {
                      ui.label(RichText::new("Transaction not found").size(theme.text_sizes.large));
+                     let size = vec2(ui.available_width() * 0.8, 45.0);
+                     let close_button =
+                        Button::new(RichText::new("Close").size(theme.text_sizes.normal))
+                           .min_size(size);
+
+                     if ui.add(close_button).clicked() {
+                        self.close();
+                     }
                      return;
                   }
 
@@ -640,7 +648,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
             ui.hyperlink_to(
                RichText::new(hash_str)
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -688,7 +696,7 @@ pub fn contract_interact(chain: ChainId, interact_to: Address, theme: &Theme, ui
             ui.hyperlink_to(
                RichText::new(interact_short)
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -820,7 +828,7 @@ pub fn token_approval_event_ui(
             ui.hyperlink_to(
                RichText::new(spender_short)
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -894,7 +902,7 @@ fn transfer_event_ui(
             ui.hyperlink_to(
                RichText::new(recipient)
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -967,7 +975,7 @@ fn erc20_transfer_event_ui(
             ui.hyperlink_to(
                RichText::new(recipient)
                   .size(theme.text_sizes.normal)
-                  .strong(),
+                  .color(theme.colors.hyperlink_color),
                link,
             );
          });
@@ -990,7 +998,7 @@ fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: 
             currency.symbol()
          ))
          .size(theme.text_sizes.normal)
-         .color(Color32::RED);
+         .color(theme.colors.error_color);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -1020,7 +1028,7 @@ fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: 
                currency.symbol()
             ))
             .size(theme.text_sizes.normal)
-            .color(Color32::GREEN);
+            .color(theme.colors.success_color);
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
@@ -1090,7 +1098,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             currency.symbol()
          ))
          .size(theme.text_sizes.large)
-         .color(Color32::RED);
+         .color(theme.colors.error_color);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -1120,7 +1128,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
                currency.symbol()
             ))
             .size(theme.text_sizes.large)
-            .color(Color32::GREEN);
+            .color(theme.colors.success_color);
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
@@ -1181,7 +1189,7 @@ fn wrap_eth_event_ui(
             weth.symbol()
          ))
          .size(theme.text_sizes.normal)
-         .color(Color32::GREEN);
+         .color(theme.colors.success_color);
          let label = Label::new(text, Some(weth_icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -1220,7 +1228,7 @@ fn unwrap_weth_event_ui(
             eth.symbol
          ))
          .size(theme.text_sizes.normal)
-         .color(Color32::GREEN);
+         .color(theme.colors.success_color);
          let label = Label::new(text, Some(eth_icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);

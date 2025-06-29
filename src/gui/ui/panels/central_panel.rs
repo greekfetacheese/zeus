@@ -12,6 +12,9 @@ use std::sync::Arc;
 
 use zeus_eth::utils::NumericValue;
 
+#[cfg(feature = "dev")]
+use crate::core::utils::data_dir;
+
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
    let logged_in = ctx.logged_in();
@@ -84,9 +87,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    #[cfg(feature = "dev")]
    gui.sync_pools_ui.show(ctx.clone(), theme, ui);
 
-   #[cfg(feature = "dev")]
+  #[cfg(feature = "dev")]
    {
-      let theme = gui.editor.show(&mut gui.theme, ui);
+      let dir = if let Ok(dir) = data_dir() {
+         Some(dir)
+      } else {
+         None
+      };
+      let theme = gui.editor.show(&mut gui.theme, dir, ui);
       if let Some(theme) = theme {
          gui.theme = theme;
       }

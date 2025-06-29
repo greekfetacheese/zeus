@@ -15,6 +15,8 @@ use zeus_eth::{
    abi::permit::{self, Permit2::{PermitBatch, PermitDetails}},
 };
 
+use egui_theme::ThemeKind;
+
 
 pub mod eth;
 pub mod sign;
@@ -26,6 +28,7 @@ lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
 }
 
+const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
 
@@ -38,6 +41,18 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
    }
 
    Ok(dir)
+}
+
+pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(THEME_FILE);
+   Ok(dir)
+}
+
+pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
+   let dir = theme_kind_dir()?;
+   let theme_kind_str = std::fs::read_to_string(dir)?;
+   let theme_kind = serde_json::from_str(&theme_kind_str)?;
+   Ok(theme_kind)
 }
 
 /// Pool data directory

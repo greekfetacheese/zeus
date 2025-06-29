@@ -9,7 +9,7 @@ use eframe::egui::{
    Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
-use egui_theme::{Theme, utils::widget_visuals};
+use egui_theme::Theme;
 use std::sync::Arc;
 
 pub struct NetworkSettings {
@@ -68,9 +68,6 @@ impl NetworkSettings {
             let chain = self.chain_select.chain.id();
             let providers = ctx.rpc_providers();
             let mut rpcs = providers.get_all_fastest(chain);
-
-            let visuals = theme.get_widget_visuals(theme.colors.window_fill);
-            widget_visuals(ui, visuals);
 
             ui.horizontal(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {

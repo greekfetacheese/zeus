@@ -6,7 +6,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use egui::{Align, Button, ComboBox, Frame, Grid, Layout, Margin, RichText, ScrollArea, Ui, vec2};
-use egui_theme::{Theme, utils::widget_visuals};
+use egui_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -67,10 +67,6 @@ impl TxHistory {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.spacing_mut().item_spacing.x = 20.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            widget_visuals(
-               ui,
-               theme.get_widget_visuals(theme.colors.bg_color),
-            );
 
             // Wallet Filter
             let wallets = ctx.wallets_info();

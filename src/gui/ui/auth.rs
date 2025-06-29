@@ -107,9 +107,6 @@ impl VirtualKeyboard {
       Frame::group(&theme.style)
          .fill(theme.colors.secondary_bg_color)
          .show(ui, |ui| {
-            let hover_color = theme.colors.widget_bg_color_hover;
-            bg_color_on_hover(ui, hover_color);
-
             ui.vertical(|ui| {
                let is_uppercase = self.shift_active ^ self.caps_lock_active;
                let layout = if is_uppercase {
@@ -178,7 +175,7 @@ pub struct CredentialsForm {
    pub open: bool,
    pub confrim_password: bool,
    /// Flag to allow the Ui to run for one more frame
-   /// 
+   ///
    /// Running an extra frame on a text edit can help clear out any strings left in memory
    /// in case we dont use the hide option on a field
    /// But it doesnt always work, maybe i should remove this

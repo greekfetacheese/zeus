@@ -1,7 +1,7 @@
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
-   utils::{RT, update},
+   utils::{RT, load_theme_kind, update},
 };
 use crate::gui::{GUI, SHARED_GUI, window::window_frame};
 use crate::server::run_server;
@@ -22,8 +22,13 @@ impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
       let egui_ctx = cc.egui_ctx.clone();
 
-      let mut theme = Theme::new(ThemeKind::Mocha);
-      theme.style.animation_time = 0.3;
+      let theme_kind = if let Ok(kind) = load_theme_kind() {
+         kind
+      } else {
+         ThemeKind::Nord
+      };
+
+      let theme = Theme::new(theme_kind);
       egui_ctx.set_style(theme.style.clone());
 
       // Load the icons

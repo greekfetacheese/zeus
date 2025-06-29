@@ -11,7 +11,7 @@ use egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, RichText, Spinner,
    TextEdit, Ui, Window, vec2,
 };
-use egui_theme::{Theme, utils::widget_visuals};
+use egui_theme::Theme;
 use egui_widgets::Label;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -96,7 +96,6 @@ impl AcrossBridge {
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
       let frame = theme.frame1;
-      let bg_color = frame.fill;
       Window::new("Across Bridge")
          .title_bar(false)
          .resizable(false)
@@ -144,7 +143,7 @@ impl AcrossBridge {
                               .hint_text("0")
                               .font(FontId::proportional(theme.text_sizes.normal))
                               .min_size(vec2(ui_width * 0.25, 25.0))
-                              .background_color(theme.colors.text_edit_bg2)
+                              .background_color(theme.colors.text_edit_bg)
                               .margin(Margin::same(10)),
                         );
                         let icon = icons.native_currency_icon(self.currency.chain_id);
@@ -156,7 +155,6 @@ impl AcrossBridge {
 
                         // Max amount button
                         ui.spacing_mut().button_padding = vec2(5.0, 5.0);
-                        widget_visuals(ui, theme.get_button_visuals(bg_color));
                         let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
                         if ui.add(button).clicked() {
                            self.amount = self.max_amount(ctx.clone()).flatten().clone();
@@ -238,7 +236,7 @@ impl AcrossBridge {
                         .hint_text("Search contacts or enter an address")
                         .min_size(vec2(ui_width * 0.5, 25.0))
                         .margin(Margin::same(10))
-                        .background_color(theme.colors.text_edit_bg2)
+                        .background_color(theme.colors.text_edit_bg)
                         .font(FontId::proportional(theme.text_sizes.normal)),
                   );
 
@@ -248,11 +246,9 @@ impl AcrossBridge {
                });
                ui.add_space(10.0);
 
-               widget_visuals(ui, theme.get_widget_visuals(bg_color));
-
                // From Chain
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  Grid::new("from_chain")
+                  Grid::new("across_bridge_from_chain")
                      .spacing(vec2(5.0, 0.0))
                      .show(ui, |ui| {
                         ui.label(RichText::new("From").size(theme.text_sizes.large));
@@ -264,11 +260,10 @@ impl AcrossBridge {
 
                // To Chain
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  Grid::new("to_chain")
+                  Grid::new("across_bridge_to_chain")
                      .spacing(vec2(5.0, 0.0))
                      .show(ui, |ui| {
                         ui.label(RichText::new("To").size(theme.text_sizes.large));
-                        self.to_chain.grid_id = "across_bridge_to_chain";
                         self.to_chain.show(BSC, theme, icons.clone(), ui);
                         ui.end_row();
                      });
@@ -324,7 +319,6 @@ impl AcrossBridge {
                }
 
                // Bridge Button
-               widget_visuals(ui, theme.get_button_visuals(bg_color));
 
                let bridge = Button::new(RichText::new("Bridge").size(theme.text_sizes.normal))
                   .min_size(vec2(ui_width * 0.90, 40.0));
@@ -479,7 +473,7 @@ impl AcrossBridge {
             .update_eth_balance(ctx_clone.clone(), chain, depositor)
             .await;
          ctx_clone.save_balance_manager();
-         
+
          SHARED_GUI.write(|gui| {
             gui.across_bridge.balance_syncing = false;
          });

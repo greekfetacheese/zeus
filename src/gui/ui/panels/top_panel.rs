@@ -5,7 +5,7 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect},
 };
 use egui::{Align, Grid, Layout, RichText, SelectableLabel, Spinner, Ui, vec2};
-use egui_theme::{Theme, utils::*};
+use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::currency::{Currency, NativeCurrency};
 
@@ -120,10 +120,6 @@ impl ChainSelection {
       ui.vertical(|ui| {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-         widget_visuals(
-            ui,
-            theme.get_widget_visuals(theme.colors.bg_color),
-         );
 
          // Chain Select
          let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
@@ -172,10 +168,6 @@ impl WalletSelection {
       ui.vertical(|ui| {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-         widget_visuals(
-            ui,
-            theme.get_widget_visuals(theme.colors.bg_color),
-         );
 
          // Wallet Select
          ui.spacing_mut().button_padding = vec2(10.0, 12.0);

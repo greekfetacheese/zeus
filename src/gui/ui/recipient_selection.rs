@@ -2,10 +2,10 @@ use crate::assets::icons::Icons;
 use crate::core::{Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText,
+   Align, Align2, Button, FontId, Frame, Grid, Layout, Margin, Order, RichText,
    ScrollArea, TextEdit, Ui, Window, vec2,
 };
-use egui_theme::{Theme, utils::widget_visuals};
+use egui_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
@@ -55,11 +55,8 @@ impl RecipientSelectionWindow {
       let mut open = self.open;
       let mut close_window = false;
       let frame = Frame::window(ui.style());
-      let bg_color = frame.fill;
 
-      contacts_ui
-         .add_contact
-         .show(ctx.clone(), theme, false, ui);
+      contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
@@ -92,7 +89,6 @@ impl RecipientSelectionWindow {
                   contacts_ui.add_contact.open = true;
                }
 
-               widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.add_space(20.0);
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
@@ -122,7 +118,6 @@ impl RecipientSelectionWindow {
                         ctx.clone(),
                         theme,
                         icons.clone(),
-                        bg_color,
                         column_width,
                         &mut close_window,
                         ui,
@@ -133,7 +128,6 @@ impl RecipientSelectionWindow {
                      self.account_contacts(
                         ctx.clone(),
                         theme,
-                        bg_color,
                         column_width,
                         &mut close_window,
                         ui,
@@ -171,7 +165,6 @@ impl RecipientSelectionWindow {
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
-      bg_color: Color32,
       column_width: f32,
       close_window: &mut bool,
       ui: &mut Ui,
@@ -216,7 +209,6 @@ impl RecipientSelectionWindow {
 
       ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-      widget_visuals(ui, theme.get_button_visuals(bg_color));
 
       for wallet in &wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
@@ -277,7 +269,6 @@ impl RecipientSelectionWindow {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
-      bg_color: Color32,
       column_width: f32,
       close_window: &mut bool,
       ui: &mut Ui,
@@ -290,7 +281,6 @@ impl RecipientSelectionWindow {
 
       ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-      widget_visuals(ui, theme.get_button_visuals(bg_color));
 
       Grid::new("recipient_select_contact_grid")
          .spacing(vec2(5.0, 10.0))

@@ -10,8 +10,17 @@ pub use editor::ThemeEditor;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeKind {
-   /// https://catppuccin.com/palette/
-   Mocha,
+   /// https://catppuccin.com
+   Frappe,
+
+   /// https://catppuccin.com
+   Latte,
+
+   /// https://github.com/tokyo-night
+   TokyoNight,
+
+   /// https://www.nordtheme.com/
+   Nord,
 
    /// A custom theme
    Custom,
@@ -20,13 +29,16 @@ pub enum ThemeKind {
 impl ThemeKind {
    pub fn to_str(&self) -> &str {
       match self {
-         ThemeKind::Mocha => "Mocha",
+         ThemeKind::Frappe => "Frappe",
+         ThemeKind::Latte => "Latte",
+         ThemeKind::TokyoNight => "TokyoNight",
+         ThemeKind::Nord => "Nord",
          ThemeKind::Custom => "Custom",
       }
    }
 
    pub fn to_vec() -> Vec<Self> {
-      vec![{ Self::Mocha }]
+      vec![Self::Frappe, Self::Latte, Self::TokyoNight, Self::Nord]
    }
 }
 
@@ -36,9 +48,13 @@ pub struct Theme {
    pub style: Style,
    pub colors: ThemeColors,
    pub text_sizes: TextSizes,
+   /// Base container frame for major UI sections.
    pub frame1: Frame,
+   /// Frame for nested elements, like individual list items.
    pub frame2: Frame,
+   /// Visuals for interactive elements inside a `frame1`.
    pub frame1_visuals: FrameVisuals,
+   /// Visuals for interactive elements inside a `frame2`.
    pub frame2_visuals: FrameVisuals,
 }
 
@@ -48,7 +64,10 @@ impl Theme {
    /// Use [Theme::from_custom()] instead
    pub fn new(kind: ThemeKind) -> Self {
       let theme = match kind {
-         ThemeKind::Mocha => themes::mocha::theme(),
+         ThemeKind::Frappe => themes::frappe::theme(),
+         ThemeKind::Latte => themes::latte::theme(),
+         ThemeKind::TokyoNight => themes::tokyo_night::theme(),
+         ThemeKind::Nord => themes::nord::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       };
 
@@ -56,8 +75,6 @@ impl Theme {
    }
 
    /// Load a custom theme from a json file
-   ///
-   /// We expect the [Theme] to be serialized as it is
    pub fn from_custom(path: std::path::PathBuf) -> Result<Self, std::io::Error> {
       let data = std::fs::read(path)?;
       let mut theme: Theme = serde_json::from_slice::<Theme>(&data)?;
@@ -69,30 +86,6 @@ impl Theme {
    /// Serialize the theme to a json string
    pub fn to_json(&self) -> Result<String, serde_json::Error> {
       serde_json::to_string(self)
-   }
-
-   /// Get the button visuals based on the bg color provided
-   pub fn get_button_visuals(&self, bg_color: Color32) -> WidgetVisuals {
-      match self.kind {
-         ThemeKind::Mocha => themes::mocha::button_visuals(bg_color, &self.colors),
-         ThemeKind::Custom => panic!("Not implemented"),
-      }
-   }
-
-   /// Get the text edit visuals based on the bg color provided
-   pub fn get_text_edit_visuals(&self, bg_color: Color32) -> WidgetVisuals {
-      match self.kind {
-         ThemeKind::Mocha => themes::mocha::text_edit_visuals(bg_color, &self.colors),
-         ThemeKind::Custom => panic!("Not implemented"),
-      }
-   }
-
-   /// Get the widget visuals based on the bg color provided
-   pub fn get_widget_visuals(&self, bg_color: Color32) -> WidgetVisuals {
-      match self.kind {
-         ThemeKind::Mocha => themes::mocha::widget_visuals(bg_color, &self.colors),
-         ThemeKind::Custom => panic!("Not implemented"),
-      }
    }
 }
 
@@ -112,9 +105,6 @@ pub struct ThemeColors {
    /// Something to make good contrast with the main background
    pub extreme_bg_color: Color32,
 
-   /// Something to make good contrast with the `secondary_bg_color`
-   pub extreme_bg_color2: Color32,
-
    /// Background color for windows
    pub window_fill: Color32,
 
@@ -132,23 +122,27 @@ pub struct ThemeColors {
    /// Secondary text color
    pub text_secondary: Color32,
 
-   /// Bg for TextEdit when the background is the main background
+   /// A color to use for errors (for most themes this could be a shade of red)
+   ///
+   /// This can also used to anything that a red color can be used for.
+   pub error_color: Color32,
+
+   /// A color to use for success (for most themes this could be a shade of green)
+   ///
+   /// This can also used to anything that a green color can be used for.
+   pub success_color: Color32,
+
+   /// A color to use for hyperlinks (for most themes this could be a shade of blue)
+   pub hyperlink_color: Color32,
+
+   /// Background color for text edits
    pub text_edit_bg: Color32,
 
-   /// Bg for TextEdit when the background is the `secondary_bg_color`
-   pub text_edit_bg2: Color32,
-
-   /// Bg for Buttons when the background is the main background
+   /// Background color for buttons
    pub button_bg: Color32,
 
-   /// Bg for Buttons when the background is the `secondary_bg_color`
-   pub button_bg2: Color32,
-
-   /// Widget bg color when the background is the main background
+   /// Widget background color
    pub widget_bg_color: Color32,
-
-   /// Widget bg color when the background is the `secondary_bg_color`
-   pub widget_bg_color2: Color32,
 
    /// Background color for active widgets (click)
    ///

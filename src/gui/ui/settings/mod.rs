@@ -1,8 +1,12 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::RT};
+use crate::core::{
+   ZeusCtx,
+   utils::{RT, theme_kind_dir},
+};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use egui::{Align2, Button, Frame, Order, RichText, Slider, Ui, Window, vec2};
-use egui_theme::{Theme, utils::*};
+use egui::{Align2, Button, Frame, Order, RichText, Sense, Slider, Ui, Window, vec2};
+use egui_theme::{Theme, ThemeKind};
+use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2Params;
 use std::sync::Arc;
 
@@ -20,11 +24,105 @@ const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run
 
 const P_COST_TIP: &str = "You should probably leave this to 1.";
 
+pub struct ThemeSettings {
+   open: bool,
+   size: (f32, f32),
+}
+
+impl ThemeSettings {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         size: (200.0, 150.0),
+      }
+   }
+
+   // ! For some reason the contents of the window are not centered
+   // ! But if we minimιze the window app and then brign it up again, the contents are centered
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let title = RichText::new("Theme Settings").size(theme.text_sizes.large);
+      Window::new(title)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               let selected_text = RichText::new(theme.kind.to_str()).size(theme.text_sizes.normal);
+               let label = Label::new(selected_text, None);
+               ComboBox::new("theme_settings_combobox", label)
+                  .width(ui.available_width())
+                  .show_ui(ui, |ui| {
+                     for kind in ThemeKind::to_vec() {
+                        let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None).sense(Sense::click());
+
+                        if ui.add(label).clicked() {
+                           let new_theme = Theme::new(kind);
+                           ui.ctx().set_style(new_theme.style.clone());
+                           RT.spawn_blocking(move || {
+                              SHARED_GUI.write(|gui| {
+                                 gui.theme = new_theme;
+                              });
+                           });
+                        }
+                     }
+                  });
+
+               let text = RichText::new("Save").size(theme.text_sizes.normal);
+               let button = Button::new(text).min_size(vec2(ui.available_width() * 0.7, 35.0));
+               if ui.add(button).clicked() {
+                  self.open = false;
+
+                  RT.spawn_blocking(move || {
+                     let dir = match theme_kind_dir() {
+                        Ok(dir) => dir,
+                        Err(e) => {
+                           tracing::error!("Error saving theme: {:?}", e);
+                           SHARED_GUI.write(|gui| {
+                              gui.msg_window.open("Failed to save theme", e.to_string());
+                           });
+                           return;
+                        }
+                     };
+
+                     let theme = SHARED_GUI.read(|gui| gui.theme.clone());
+                     let theme_kind_str = serde_json::to_string(&theme.kind).unwrap();
+                     match std::fs::write(dir, theme_kind_str) {
+                        Ok(_) => {
+                           tracing::info!("Saved theme");
+                        }
+                        Err(e) => {
+                           tracing::error!("Error saving theme: {:?}", e);
+                           SHARED_GUI.write(|gui| {
+                              gui.msg_window.open("Failed to save theme", e.to_string());
+                           });
+                           return;
+                        }
+                     }
+                  });
+               }
+            });
+         });
+   }
+}
+
 pub struct SettingsUi {
    pub open: bool,
    pub performance: PerformanceSettings,
    pub encryption: EncryptionSettings,
    pub network: NetworkSettings,
+   pub theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
    pub credentials: CredentialsForm,
    pub verified_credentials: bool,
@@ -38,6 +136,7 @@ impl SettingsUi {
          performance: PerformanceSettings::new(ctx),
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
+         theme: ThemeSettings::new(),
          contacts_ui: ContactsUi::new(),
          credentials: CredentialsForm::new(),
          verified_credentials: false,
@@ -53,18 +152,13 @@ impl SettingsUi {
       self.main_ui(theme, ui);
       self.encryption.show(ctx.clone(), theme, ui);
       self.change_credentials_ui(ctx.clone(), theme, icons.clone(), ui);
-      self.network.show(
-         ctx.clone(),
-         theme,
-         icons.clone(),
-         ui,
-      );
+      self.network.show(ctx.clone(), theme, icons.clone(), ui);
       self.contacts_ui.show(ctx.clone(), theme, icons, ui);
       self.performance.show(ctx, theme, ui);
+      self.theme.show(theme, ui);
    }
 
    pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-
       // Transparent window
       Window::new("settings_main_ui")
          .title_bar(false)
@@ -78,8 +172,6 @@ impl SettingsUi {
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
-               let visuals = theme.get_button_visuals(theme.colors.bg_color);
-               widget_visuals(ui, visuals);
 
                ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
@@ -122,6 +214,14 @@ impl SettingsUi {
                      .min_size(size);
                if ui.add(performance).clicked() {
                   self.performance.open = true;
+               }
+
+               let theme =
+                  Button::new(RichText::new("Theme Settings").size(theme.text_sizes.large))
+                     .corner_radius(5)
+                     .min_size(size);
+               if ui.add(theme).clicked() {
+                  self.theme.open = true;
                }
             });
          });
@@ -172,7 +272,8 @@ impl SettingsUi {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   let size = vec2(ui.available_width() * 0.7, 35.0);
-                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.large)).min_size(size);
+                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.large))
+                     .min_size(size);
 
                   if ui.add(verify).clicked() {
                      let mut account = ctx.get_account();
@@ -218,7 +319,8 @@ impl SettingsUi {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   let size = vec2(ui.available_width() * 0.7, 35.0);
-                  let save = Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
+                  let save =
+                     Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
                   if ui.add(save).clicked() {
                      let mut account = ctx.get_account();

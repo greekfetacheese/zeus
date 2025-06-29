@@ -14,7 +14,7 @@ use crate::core::{
 };
 use crate::gui::ui::dapps::uniswap::{ProtocolVersion, currencies_amount_and_value};
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
-use egui_theme::{Theme, utils::*};
+use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -119,10 +119,6 @@ impl CreatePositionUi {
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut current_version = self.protocol_version;
       let versions = vec![ProtocolVersion::V3];
-      widget_visuals(
-         ui,
-         theme.get_widget_visuals(theme.colors.bg_color),
-      );
 
       let selected_text = RichText::new(current_version.to_str()).size(theme.text_sizes.normal);
 

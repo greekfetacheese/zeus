@@ -10,9 +10,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       ui.visuals_mut().widgets.active.expansion = 15.0;
 
       utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
-      utils::bg_color_on_hover(ui, gui.theme.colors.widget_bg_color);
-      utils::bg_color_on_click(ui, gui.theme.colors.widget_bg_color_click);
-      utils::no_border_on_click(ui);
+      utils::no_border(ui);
 
       let home = Button::new(RichText::new("Home").size(21.0));
       if ui.add(home).clicked() {
@@ -147,6 +145,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          ));
          if ui_testing.clicked() {
             gui.ui_testing.show = true;
+            gui.portofolio.open = false;
+            gui.uniswap.close();
+            gui.send_crypto.open = false;
+            gui.wallet_ui.open = false;
+            gui.tx_history.open = false;
+            gui.across_bridge.open = false;
+            gui.sync_pools_ui.open = false;
+            gui.settings.open = false;
          }
       }
    });

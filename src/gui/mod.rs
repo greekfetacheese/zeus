@@ -182,7 +182,7 @@ impl Default for GUI {
       let icons = Arc::new(Icons::new(&Context::default()).unwrap());
       GUI::new(
          icons,
-         Theme::new(ThemeKind::Mocha),
+         Theme::new(ThemeKind::Nord),
          Context::default(),
       )
    }

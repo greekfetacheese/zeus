@@ -3,7 +3,7 @@ use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui_theme::{Theme, utils::*};
+use egui_theme::Theme;
 use egui_widgets::SecureTextEdit;
 use secure_types::SecureString;
 use zeus_eth::types::SUPPORTED_CHAINS;
@@ -237,10 +237,6 @@ impl AddWalletUi {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.add_space(30.0);
                let size = vec2(ui.available_width() * 0.9, 50.0);
-               widget_visuals(
-                  ui,
-                  theme.get_button_visuals(theme.colors.bg_color),
-               );
 
                // From private key
                let button1 =

@@ -102,10 +102,6 @@ impl PoolsUi {
             .show(ui);
 
          ui.scope(|ui| {
-            widget_visuals(
-               ui,
-               theme.get_widget_visuals(theme.colors.bg_color),
-            );
             self.select_version(theme, ui);
          });
 

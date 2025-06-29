@@ -51,7 +51,9 @@ impl WalletUi {
 
       self.main_ui(ctx.clone(), theme, icons.clone(), ui);
       self.add_wallet_ui.show(ctx.clone(), theme, ui);
-      self.export_key_ui.show(ctx.clone(), theme, icons.clone(), ui);
+      self
+         .export_key_ui
+         .show(ctx.clone(), theme, icons.clone(), ui);
       self.delete_wallet_ui.show(ctx.clone(), theme, icons, ui);
    }
 
@@ -112,9 +114,6 @@ impl WalletUi {
 
             ui.vertical_centered(|ui| {
                // Add Wallet Button
-               ui.scope(|ui| {
-                  let visuals = theme.get_button_visuals(frame.fill);
-                  widget_visuals(ui, visuals);
                   if ui
                      .add(Button::new(
                         RichText::new("Add Wallet").size(theme.text_sizes.normal),
@@ -124,7 +123,6 @@ impl WalletUi {
                      self.add_wallet_ui.open = true;
                      self.add_wallet_ui.main_ui = true;
                   }
-               });
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
@@ -144,7 +142,7 @@ impl WalletUi {
                      .hint_text("Search...")
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal))
-                     .background_color(theme.colors.text_edit_bg2)
+                     .background_color(theme.colors.text_edit_bg)
                      .min_size(vec2(ui.available_width() * 0.7, 20.0)),
                );
                ui.add_space(8.0);
@@ -187,14 +185,9 @@ impl WalletUi {
       is_current: bool,
       ui: &mut Ui,
    ) {
-      let overlay = theme.colors.extreme_bg_color2;
-      let bg_color = if is_current {
-         overlay
-      } else {
-         theme.colors.bg_color
-      };
-
-      let mut frame = Frame::group(ui.style()).inner_margin(8.0).fill(bg_color);
+      let mut frame = Frame::group(ui.style())
+         .inner_margin(8.0)
+         .fill(theme.colors.bg_color);
 
       let visuals = if is_current {
          None
@@ -205,8 +198,6 @@ impl WalletUi {
       let res = frame_it(&mut frame, visuals, ui, |ui| {
          ui.set_width(ui.available_width() * 0.7);
          ui.spacing_mut().button_padding = Vec2::new(8.0, 8.0);
-         let visuals = theme.get_button_visuals(bg_color);
-         widget_visuals(ui, visuals);
 
          // Wallet info column
          ui.vertical(|ui| {

@@ -7,7 +7,7 @@ use egui::{
    Align, Button, Color32, ComboBox, FontId, Frame, Grid, Id, Layout, Margin, RichText, ScrollArea,
    Spinner, TextEdit, Ui, Window, vec2,
 };
-use egui_theme::{Theme, utils::widget_visuals};
+use egui_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::amm::uniswap::{quoter::*, router::SwapType};
@@ -313,10 +313,6 @@ impl SwapUi {
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
       let mut current_version = self.protocol_version;
       let versions = ProtocolVersion::all();
-      widget_visuals(
-         ui,
-         theme.get_widget_visuals(theme.colors.bg_color),
-      );
 
       let selected_text = RichText::new(current_version.to_str()).size(theme.text_sizes.normal);
 
@@ -423,7 +419,7 @@ impl SwapUi {
                ui.spacing_mut().item_spacing.x = 10.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
+               let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
                   self.update_pool_state(ctx.clone(), settings);
                   self.sync_pools(ctx.clone(), settings, true);
@@ -1186,7 +1182,7 @@ pub fn swap_section(
             let amount_input = TextEdit::singleline(amount)
                .font(FontId::proportional(theme.text_sizes.heading))
                .hint_text(RichText::new("0").color(theme.colors.text_secondary))
-               .background_color(theme.colors.text_edit_bg2)
+               .background_color(theme.colors.text_edit_bg)
                .margin(Margin::same(10))
                .desired_width(ui.available_width() * 0.6)
                .min_size(vec2(0.0, 50.0));

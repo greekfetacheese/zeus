@@ -5,15 +5,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-eframe = {version = "0.31.0", optional = true}
 egui = {version = "0.31.0", features = ["serde"]}
 serde_json = "1.0.135"
 serde = { version = "1.0.217", features = ["derive"] }
-
-[[bin]]
-name = "demo"
-path = "src/bin/demo.rs"
-required-features = ["demo"]
-
-[features]
-demo = ["eframe"]
