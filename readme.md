@@ -15,6 +15,9 @@
 
 **Zeus saves and loads its data from the current directory it exists, so if you want to move it move it with the entire folder**
 
+### Keeping backups
+All the data Zeus uses lives in the `data` folder, `account.data` keeps the private keys of your wallets encrypted with your credentials which you used when you first created that `account`, so its safe to copy it wherever you want.
+
 ## Supported Chains
 | Chain               | Status       |
 |---------------------|--------------|
@@ -35,16 +38,18 @@
 
 ## Features
 
-### Zeus is still in heavy development, so as for now the features are limited to:
+### Zeus is still in heavy development, but you can still do pretty much almost all of the most basic operations:
 - **Wallet Management:** Import and manage your wallets.
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
 - **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
 - **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
 - **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments)). Still experimental, only works on Ethereum mainnet.
-- **Transaction Simulation:** Zeus run local EVM simulations to verify transactions before you submit them.
-
+- **V3 Liquidity Positions:** Add, manage and remove liquidity on Uniswap V3 pools, still WIP works only on Ethereum mainnet.
+- **Transaction Simulations:** Zeus run local EVM simulations using [revm](https://github.com/bluealloy/revm) to verify transactions before you submit them, what you see on the screen is what you will get.
+- **MEV Protect:** For transactions that are vulnerable to MEV by default Zeus uses mev-protect rpc endpoints (ETH mainnet only).
 
  Currently Zeus does not use an indexer, it does not rely on any **Third-Party API** to index your wallet balances etc...
+ It has been designed to work with what the Ethereum node JSON-RPC APIs provides, no connection to third-party server or any other bs.
  
  That also means you need to manually add any tokens to each wallet if you want to see their balances.
  By default it uses free public rpc endpoints obtained from [Chainlist.org](https://chainlist.org/).
@@ -62,9 +67,6 @@
 
 ### Bridging Errors
 While bridging and waiting for the transaction to complete Zeus may return an error while trying to see if the order has been filled at the destination chain, this is RPC related and there is not much i can do. Some free RPC's work great some don't. But since the deposit has been confirmed on the origin chain the order should go through normally.
-
-### App Unresponsiveness
-There are some rare cases where the app becomes unresponsive and finally need to shut it down manually, this is because at some point the main thread which runs the gui is blocked. Not really sure yet why or where is happening.
 
 ---
 
