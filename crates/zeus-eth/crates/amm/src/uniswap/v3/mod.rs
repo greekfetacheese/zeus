@@ -419,7 +419,7 @@ pub fn calculate_swap_mut(
 pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f64, anyhow::Error> {
    let state = pool
       .state()
-      .v3_or_v4_state()
+      .v3_state()
       .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
    let tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;
@@ -440,28 +440,6 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
 
 
 
-
-
-pub fn get_liquidity_for_lower_upper_tick(
-   sqrt_price_a_x96: U256,
-   lower_tick: i32,
-   upper_tick: i32,
-   amount0_desired: U256,
-   amount1_desired: U256,
-) -> Result<u128, anyhow::Error> {
-   let sqrt_ratio_ax96 = get_sqrt_ratio_at_tick(lower_tick)?;
-   let sqrt_ratio_bx96 = get_sqrt_ratio_at_tick(upper_tick)?;
-
-   let liquidity = get_liquidity_for_amounts(
-      sqrt_price_a_x96,
-      sqrt_ratio_ax96,
-      sqrt_ratio_bx96,
-      amount0_desired,
-      amount1_desired,
-   )?;
-
-   Ok(liquidity)
-}
 
 /// Computes the maximum amount of liquidity received for a given amount of token0, token1, the current
 /// pool prices and the prices at the tick boundaries
@@ -564,7 +542,7 @@ fn get_liquidity_for_amount1(
 
 
 
-/// Calculates the liquidity for a position, based on the current price and a desired token amount.
+/// Calculates the liquidity needed
 /// 
 /// # Arguments
 /// 
@@ -577,7 +555,7 @@ fn get_liquidity_for_amount1(
 /// # Returns
 /// 
 /// * `u128` - The liquidity amount
-pub fn calculate_liquidity_from_amount(
+pub fn calculate_liquidity_needed(
     sqrt_ratio_current_x96: U256,
     sqrt_ratio_a_x96: U256,
     sqrt_ratio_b_x96: U256,

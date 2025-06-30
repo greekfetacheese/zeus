@@ -102,49 +102,6 @@ where
    Ok((reserve0, reserve1, reserves.blockTimestampLast))
 }
 
-/// Return the last k value of this pair
-pub async fn k_last<P, N>(pair_address: Address, client: P, block_id: Option<BlockId>) -> Result<U256, anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   let block = block_id.unwrap_or(BlockId::latest());
-   let contract = IUniswapV2Pair::new(pair_address, client);
-   let k_last = contract.kLast().call().block(block).await?;
-   Ok(k_last)
-}
-
-/// Return the price0CumulativeLast of this pair
-pub async fn price0_cumulative_last<P, N>(
-   pair_address: Address,
-   client: P,
-   block_id: Option<BlockId>,
-) -> Result<U256, anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   let block = block_id.unwrap_or(BlockId::latest());
-   let contract = IUniswapV2Pair::new(pair_address, client);
-   let price0_cumulative_last = contract.price0CumulativeLast().call().block(block).await?;
-   Ok(price0_cumulative_last)
-}
-
-/// Return the price1CumulativeLast of this pair
-pub async fn price1_cumulative_last<P, N>(
-   pair_address: Address,
-   client: P,
-   block_id: Option<BlockId>,
-) -> Result<U256, anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   let block = block_id.unwrap_or(BlockId::latest());
-   let contract = IUniswapV2Pair::new(pair_address, client);
-   let price1_cumulative_last = contract.price1CumulativeLast().call().block(block).await?;
-   Ok(price1_cumulative_last)
-}
 
 /// Return the address of token0
 pub async fn token0<P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
@@ -168,16 +125,6 @@ where
    Ok(token1)
 }
 
-/// Make a burn call to this pair
-pub async fn burn<P, N>(pair_address: Address, to: Address, client: P) -> Result<(), anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   let contract = IUniswapV2Pair::new(pair_address, client);
-   contract.burn(to).call().await?;
-   Ok(())
-}
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let b = IUniswapV2Pair::Swap::decode_raw_log(log.topics(), &log.data)?;
@@ -193,35 +140,5 @@ pub fn encode_factory() -> Bytes {
 /// Encode the function with signature `getReserves()` and selector `0x0902f1ac`
 pub fn encode_get_reserves() -> Bytes {
    let abi = IUniswapV2Pair::getReservesCall {};
-   Bytes::from(abi.abi_encode())
-}
-
-/// Encode the function with signature `kLast()` and selector `0x7464fc3d`
-pub fn encode_k_last() -> Bytes {
-   let abi = IUniswapV2Pair::kLastCall {};
-   Bytes::from(abi.abi_encode())
-}
-
-/// Encode the function with signature `price0CumulativeLast()` and selector `0x5909c0d5`
-pub fn encode_price0_cumulative_last() -> Bytes {
-   let abi = IUniswapV2Pair::price0CumulativeLastCall {};
-   Bytes::from(abi.abi_encode())
-}
-
-/// Encode the function with signature `price1CumulativeLast()` and selector `0x5a3d5493`
-pub fn encode_price1_cumulative_last() -> Bytes {
-   let abi = IUniswapV2Pair::price1CumulativeLastCall {};
-   Bytes::from(abi.abi_encode())
-}
-
-/// Encode the function with signature `token0()` and selector `0x0dfe1681`
-pub fn encode_token0() -> Bytes {
-   let abi = IUniswapV2Pair::token0Call {};
-   Bytes::from(abi.abi_encode())
-}
-
-/// Encode the function with signature `token1()` and selector `0xd21220a7`
-pub fn encode_token1() -> Bytes {
-   let abi = IUniswapV2Pair::token1Call {};
    Bytes::from(abi.abi_encode())
 }

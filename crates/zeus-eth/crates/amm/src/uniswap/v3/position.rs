@@ -7,7 +7,7 @@ use alloy_sol_types::SolEvent;
 
 use std::collections::HashMap;
 
-use crate::uniswap::v3::{get_tick_from_price, calculate_liquidity_amounts, calculate_liquidity_from_amount};
+use crate::uniswap::v3::{get_tick_from_price, calculate_liquidity_amounts, calculate_liquidity_needed};
 
 
 use super::{UniswapPool, pool::UniswapV3Pool};
@@ -170,7 +170,7 @@ where
    let sqrt_price_lower = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(lower_tick)?;
    let sqrt_price_upper = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(upper_tick)?;
 
-   let liquidity = calculate_liquidity_from_amount(
+   let liquidity = calculate_liquidity_needed(
       sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
@@ -659,7 +659,7 @@ mod tests {
          skip_simulating_burns,
       };
 
-      let result = simulate_position(client, BlockTime::Days(5), position, pool)
+      let result = simulate_position(client, BlockTime::Days(1), position, pool)
          .await
          .unwrap();
       eprintln!("Result: {:#?}", result);

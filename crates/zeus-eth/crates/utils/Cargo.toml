@@ -9,19 +9,19 @@ abi = {path = "../abi"}
 
 alloy-sol-types = {version = "1", features = ["json"]}
 alloy-dyn-abi = {version = "1.1.0", features = ["eip712"]}
-alloy-primitives = "1.1.0"
+alloy-primitives = "1.2.0"
 
-alloy-rpc-types = "1.0.3"
-alloy-contract = "1.0.3"
-alloy-provider = {version = "1.0.3", features = ["ws"]}
-alloy-network = "1.0.3"
-alloy-transport = {version = "1.0.3", features = ["throttle"]}
-alloy-rpc-client = {version = "1.0.3", features = ["reqwest"]}
+alloy-rpc-types = "1"
+alloy-contract = "1"
+alloy-provider = {version = "1", features = ["ws"]}
+alloy-network = "1"
+alloy-transport = {version = "1", features = ["throttle"]}
+alloy-rpc-client = {version = "1", features = ["reqwest"]}
 
 anyhow = "1.0.95"
 tracing = "0.1.41"
-serde = "1.0.217"
-serde_json = "1.0.138"
+serde = "1"
+serde_json = "1"
 url = "2.5.4"
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
 futures = "0.3.5"

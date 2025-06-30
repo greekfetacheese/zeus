@@ -5,11 +5,11 @@ edition = "2021"
 
 [dependencies]
 alloy-sol-types = {version = "1", features = ["json"]}
-alloy-primitives = "1.1.0"
+alloy-primitives = "1.2.0"
 
-alloy-rpc-types = "1.0.3"
-alloy-contract = "1.0.3"
-alloy-provider = "1.0.3"
+alloy-rpc-types = "1"
+alloy-contract = "1"
+alloy-provider = "1"
 
-anyhow = "1.0.95"
-serde = "1.0.217"
+anyhow = "1"
+serde = "1"

@@ -539,8 +539,8 @@ mod tests {
 
       evm.ctx().cfg.spec = OpSpecId::HOLOCENE;
       // evm.ctx().cfg.chain_id = chain_id;
-      evm.ctx().block.number = block.header.number;
-      evm.ctx().block.timestamp = block.header.timestamp;
+      evm.ctx().block.number = U256::from(block.header.number);
+      evm.ctx().block.timestamp = U256::from(block.header.timestamp);
       evm.ctx().block.beneficiary = block.header.beneficiary;
 
       evm.ctx().cfg.disable_balance_check = true;

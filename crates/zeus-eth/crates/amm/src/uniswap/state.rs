@@ -43,9 +43,8 @@ pub fn decode_bitmap(word_pos: i16, bitmap: U256, tick_spacing: i32) -> Vec<i32>
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum State {
    V2(PoolReserves),
+   /// Also used for V4
    V3(V3PoolState),
-   // Same as V3
-   V4(V3PoolState),
    None,
 }
 
@@ -76,20 +75,12 @@ impl State {
       Self::V3(state)
    }
 
-   pub fn v4(state: V3PoolState) -> Self {
-      Self::V4(state)
-   }
-
    pub fn is_v2(&self) -> bool {
       matches!(self, Self::V2(_))
    }
 
    pub fn is_v3(&self) -> bool {
       matches!(self, Self::V3(_))
-   }
-
-   pub fn is_v4(&self) -> bool {
-      matches!(self, Self::V4(_) | Self::V3(_))
    }
 
    pub fn v2_reserves(&self) -> Option<&PoolReserves> {
@@ -106,18 +97,9 @@ impl State {
       }
    }
 
-   pub fn v3_or_v4_state(&self) -> Option<&V3PoolState> {
+   pub fn v3_state_mut(&mut self) -> Option<&mut V3PoolState> {
       match self {
          Self::V3(state) => Some(state),
-         Self::V4(state) => Some(state),
-         _ => None,
-      }
-   }
-
-   pub fn v3_or_v4_state_mut(&mut self) -> Option<&mut V3PoolState> {
-      match self {
-         Self::V3(state) => Some(state),
-         Self::V4(state) => Some(state),
          _ => None,
       }
    }
@@ -325,7 +307,7 @@ where
 
    let pool_state = V3PoolState::v4(pool, state, block)?;
 
-   Ok(State::v4(pool_state))
+   Ok(State::v3(pool_state))
 }
 
 /// Update the state of all the pools for the given chain
@@ -501,7 +483,7 @@ where
          for data in &v4_pool_data {
             if data.pool == pool.pool_id() {
                let state = V3PoolState::v4(pool, data.clone(), None)?;
-               pool.set_state(State::v4(state));
+               pool.set_state(State::v3(state));
                match pool.compute_virtual_reserves() {
                   Ok(_) => {}
                   Err(e) => {

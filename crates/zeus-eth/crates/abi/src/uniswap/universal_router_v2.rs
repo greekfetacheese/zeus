@@ -65,7 +65,7 @@ sol! {
             uint128 amountInMaximum;
         }
 
-        #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct PoolKey {
         address currency0;
         address currency1;

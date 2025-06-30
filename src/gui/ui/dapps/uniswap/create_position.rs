@@ -21,7 +21,7 @@ use zeus_eth::{
    amm::{
       AnyUniswapPool, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
-         calculate_liquidity_amounts, calculate_liquidity_from_amount, get_tick_from_price,
+         calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price,
          position::{PositionResult, SimPositionConfig, simulate_position},
       },
       uniswap_v3_math,
@@ -811,7 +811,7 @@ impl SetPriceRangeUi {
          uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(upper_tick).unwrap_or_default();
 
       // Calculate the liquidity based on the desired amount of token0
-      let liquidity = calculate_liquidity_from_amount(
+      let liquidity = calculate_liquidity_needed(
          state.sqrt_price,
          sqrt_price_lower,
          sqrt_price_upper,

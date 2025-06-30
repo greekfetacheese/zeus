@@ -308,10 +308,10 @@ impl UniswapV4Pool {
    }
 
    pub fn set_tick_data(&mut self, ticks: HashMap<i32, TickInfo>, tick_bitmap: HashMap<i16, U256>) {
-      let mut state = self.state.v3_or_v4_state().cloned().unwrap();
+      let mut state = self.state.v3_state().cloned().unwrap();
       state.ticks = ticks;
       state.tick_bitmap = tick_bitmap;
-      self.set_state(State::V4(state));
+      self.set_state(State::V3(state));
    }
 
    /// Gets all tick data (liquidityGross, liquidityNet) for initialized ticks
@@ -454,7 +454,7 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn set_state_res(&mut self, state: State) -> Result<(), anyhow::Error> {
-      if state.is_v4() {
+      if state.is_v3() {
          self.state = state;
          Ok(())
       } else {
@@ -523,7 +523,7 @@ impl UniswapPool for UniswapV4Pool {
    fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
       let state = self
          .state()
-         .v3_or_v4_state()
+         .v3_state()
          .ok_or_else(|| anyhow::anyhow!("Pool state has not been initialized"))?;
 
       let liquidity = state.liquidity;
@@ -574,7 +574,7 @@ impl UniswapPool for UniswapV4Pool {
       let fee = self.fee.fee();
       let state = self
          .state()
-         .v3_or_v4_state()
+         .v3_state()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
       let amount_out = calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
@@ -589,7 +589,7 @@ impl UniswapPool for UniswapV4Pool {
       let fee = self.fee.fee();
       let mut state = self
          .state_mut()
-         .v3_or_v4_state_mut()
+         .v3_state_mut()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
       let amount_out = calculate_swap_mut(&mut state, fee, zero_for_one, amount_in)?;
 

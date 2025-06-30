@@ -11,7 +11,7 @@ use zeus_eth::{
    amm::{
       self, AnyUniswapPool, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
-         calculate_liquidity_amounts, calculate_liquidity_from_amount, get_price_from_tick,
+         calculate_liquidity_amounts, calculate_liquidity_needed, get_price_from_tick,
       },
       uniswap_v3_math,
    },
@@ -508,7 +508,7 @@ impl AddLiquidity {
                 // tracing::info!("Pool SqrtPrice {}", state.sqrt_price);
 
                // Calculate the liquidity based on the desired amount of token0
-               let liquidity = calculate_liquidity_from_amount(
+               let liquidity = calculate_liquidity_needed(
                   state.sqrt_price,
                   sqrt_price_lower,
                   sqrt_price_upper,

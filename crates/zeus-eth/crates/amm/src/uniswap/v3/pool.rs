@@ -205,7 +205,7 @@ impl UniswapV3Pool {
    {
       let mut state = self
          .state()
-         .v3_or_v4_state()
+         .v3_state()
          .ok_or_else(|| anyhow!("State not initialized"))?
          .clone();
 
@@ -286,7 +286,7 @@ impl UniswapV3Pool {
    {
       let mut state = self
          .state()
-         .v3_or_v4_state()
+         .v3_state()
          .ok_or_else(|| anyhow!("State not initialized"))?
          .clone();
 
@@ -552,7 +552,7 @@ impl UniswapPool for UniswapV3Pool {
       let fee = self.fee.fee();
       let state = self
          .state()
-         .v3_or_v4_state()
+         .v3_state()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
       let amount_out = super::calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
@@ -563,7 +563,7 @@ impl UniswapPool for UniswapV3Pool {
       let fee = self.fee.fee();
       let mut state = self
          .state_mut()
-         .v3_or_v4_state_mut()
+         .v3_state_mut()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
       let amount_out = super::calculate_swap_mut(&mut state, fee, zero_for_one, amount_in)?;
 

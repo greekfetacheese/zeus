@@ -10,8 +10,8 @@ types = { path = "../types" }
 
 
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
-serde = "1.0.217"
-anyhow = "1.0.95"
+serde = "1"
+anyhow = "1"
 
 [dev-dependencies]
 url = "2"

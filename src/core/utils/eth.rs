@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::future::IntoFuture;
 use std::time::{Duration, Instant};
 use zeus_eth::abi::uniswap::nft_position::encode_mint;
-use zeus_eth::amm::uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_from_amount};
+use zeus_eth::amm::uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed};
 use zeus_eth::amm::{UniswapV3Pool, uniswap_v3_math};
 use zeus_eth::{
    abi::{self, protocols::across::*, uniswap::nft_position::INonfungiblePositionManager},
@@ -1362,7 +1362,7 @@ pub async fn increase_liquidity_position_v3(
 
    let state = pool.state().v3_state().unwrap();
 
-   let liquidity = calculate_liquidity_from_amount(
+   let liquidity = calculate_liquidity_needed(
       state.sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
@@ -1744,7 +1744,7 @@ pub async fn mint_new_liquidity_position_v3(
 
    let state = pool.state().v3_state().unwrap();
 
-   let liquidity = calculate_liquidity_from_amount(
+   let liquidity = calculate_liquidity_needed(
       state.sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
