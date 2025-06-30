@@ -108,5 +108,5 @@ cargo build --profile dev --features dev
 
 For release:
 ```
-cargo build --profile maxperf
+cargo build --profile prod
 ```

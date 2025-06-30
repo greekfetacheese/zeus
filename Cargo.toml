@@ -58,9 +58,11 @@ serde = {version = "1.0.203", features = ["derive"]}
 serde_json = "1.0.117"
 lazy_static = "1.4.0"
 
-[profile.maxperf]
+[profile.prod]
 inherits = "release"
-codegen-units = 1
+codegen-units = 32
+incremental = true
+panic = "abort"
 strip = true
 # Slightly smaller binary size than level 3
 opt-level = 2
