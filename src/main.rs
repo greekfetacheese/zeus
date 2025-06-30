@@ -3,10 +3,10 @@
 use eframe::{
    egui,
    egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, MemoryHints, PowerPreference, PresentMode},
+   wgpu::{self, Backends, InstanceDescriptor, MemoryHints, PowerPreference, PresentMode},
 };
-use std::sync::Arc;
 use gui::app::ZeusApp;
+use std::sync::Arc;
 
 pub mod assets;
 pub mod core;
@@ -16,10 +16,6 @@ pub mod server;
 use core::utils::trace::*;
 use std::panic;
 
-// use mimalloc::MiMalloc;
-
-// #[global_allocator]
-// static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() -> eframe::Result {
    panic::set_hook(Box::new(|panic_info| {
@@ -35,7 +31,13 @@ fn main() -> eframe::Result {
       tracing::error!("Panic occurred: '{}' at {}", message, location);
    }));
 
+   let _tracing_guard = setup_tracing();
+
    let wgpu_setup = WgpuSetup::CreateNew(WgpuSetupCreateNew {
+      instance_descriptor: InstanceDescriptor {
+         backends: Backends::VULKAN | Backends::DX12 | Backends::GL,
+         ..Default::default()
+      },
       power_preference: PowerPreference::HighPerformance,
       device_descriptor: Arc::new(|adapter| {
          let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
@@ -58,7 +60,7 @@ fn main() -> eframe::Result {
    });
 
    let wgpu_config = WgpuConfiguration {
-      present_mode: PresentMode::AutoVsync,
+      present_mode: PresentMode::Fifo,
       desired_maximum_frame_latency: None,
       wgpu_setup,
       ..Default::default()
@@ -76,8 +78,6 @@ fn main() -> eframe::Result {
 
       ..Default::default()
    };
-
-   let _tracing_guard = setup_tracing();
 
    eframe::run_native(
       "Zeus",
