@@ -111,6 +111,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       }
 
       #[cfg(feature = "dev")]
+      if ui.add(Button::new(RichText::new("FPS Metrics").size(20.0))).clicked() {
+         gui.fps_metrics.open = true;
+      }
+
+      #[cfg(feature = "dev")]
       {
          let test_window = ui.add(Button::new(
             RichText::new("Test Window").size(20.0),

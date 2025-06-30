@@ -1,6 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use eframe::egui;
+use eframe::{
+   egui,
+   egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
+   wgpu::{self, MemoryHints, PowerPreference, PresentMode},
+};
+use std::sync::Arc;
 use gui::app::ZeusApp;
 
 pub mod assets;
@@ -30,15 +35,38 @@ fn main() -> eframe::Result {
       tracing::error!("Panic occurred: '{}' at {}", message, location);
    }));
 
-   // only use wgpu for windows
-   let renderer = if cfg!(target_os = "windows") {
-      eframe::Renderer::Wgpu
-   } else {
-      eframe::Renderer::Glow
+   let wgpu_setup = WgpuSetup::CreateNew(WgpuSetupCreateNew {
+      power_preference: PowerPreference::HighPerformance,
+      device_descriptor: Arc::new(|adapter| {
+         let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
+            wgpu::Limits::downlevel_webgl2_defaults()
+         } else {
+            wgpu::Limits::default()
+         };
+
+         wgpu::DeviceDescriptor {
+            label: Some("egui wgpu device"),
+            required_features: wgpu::Features::default(),
+            required_limits: wgpu::Limits {
+               max_texture_dimension_2d: 8192,
+               ..base_limits
+            },
+            memory_hints: MemoryHints::MemoryUsage,
+         }
+      }),
+      ..Default::default()
+   });
+
+   let wgpu_config = WgpuConfiguration {
+      present_mode: PresentMode::AutoVsync,
+      desired_maximum_frame_latency: None,
+      wgpu_setup,
+      ..Default::default()
    };
 
    let options = eframe::NativeOptions {
-      renderer,
+      renderer: eframe::Renderer::Wgpu,
+      wgpu_options: wgpu_config,
       viewport: egui::ViewportBuilder::default()
          .with_decorations(false)
          .with_inner_size([1280.0, 900.0])

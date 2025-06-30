@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 
 use crate::gui::ui::{
    RecipientSelectionWindow, TokenSelectionWindow,
-   panels::{top_panel::ChainSelection, top_panel::WalletSelection, central_panel::UiTesting},
+   panels::{top_panel::ChainSelection, top_panel::WalletSelection, central_panel::{FPSMetrics, UiTesting}},
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    tx_history::TxHistory,
    sync::SyncPoolsUi,
@@ -88,6 +88,7 @@ pub struct GUI {
    pub tx_window: TxWindow,
    pub sign_msg_window: SignMsgWindow,
    pub sync_pools_ui: SyncPoolsUi,
+   pub fps_metrics: FPSMetrics,
 }
 
 impl GUI {
@@ -145,6 +146,7 @@ impl GUI {
          progress_window,
          sign_msg_window,
          sync_pools_ui,
+         fps_metrics: FPSMetrics::new(),
       }
    }
 

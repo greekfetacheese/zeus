@@ -6,7 +6,8 @@ use crate::{
    },
    gui::{GUI, SHARED_GUI},
 };
-use eframe::egui::{Button, Ui, vec2};
+use eframe::egui::{Button, Frame, Ui, Window, vec2};
+use egui::RichText;
 use egui_theme::Theme;
 use std::sync::Arc;
 
@@ -87,7 +88,10 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    #[cfg(feature = "dev")]
    gui.sync_pools_ui.show(ctx.clone(), theme, ui);
 
-  #[cfg(feature = "dev")]
+   #[cfg(feature = "dev")]
+   gui.fps_metrics.show(ui);
+
+   #[cfg(feature = "dev")]
    {
       let dir = if let Ok(dir) = data_dir() {
          Some(dir)
@@ -317,5 +321,67 @@ impl UiTesting {
             self.show = false;
          }
       });
+   }
+}
+
+pub struct FPSMetrics {
+   pub open: bool,
+   pub max_fps: f64,
+   pub time_ms: f64,
+   pub time_ns: u128,
+}
+
+impl FPSMetrics {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         max_fps: 0.0,
+         time_ms: 0.0,
+         time_ns: 0,
+      }
+   }
+
+   pub fn update(&mut self, time_ns: u128) {
+      self.time_ns = time_ns;
+
+      if self.time_ns > 0 {
+         self.max_fps = 1_000_000_000.0 / self.time_ns as f64;
+
+         self.time_ms = self.time_ns as f64 / 1_000_000.0;
+      } else {
+         self.max_fps = 0.0;
+         self.time_ms = 0.0;
+      }
+   }
+
+   pub fn show(&mut self, ui: &mut Ui) {
+      let mut open = self.open;
+
+      let title = RichText::new("FPS Metrics").size(18.0);
+      Window::new(title)
+         .open(&mut open)
+         .resizable(true)
+         .collapsible(true)
+         .movable(true)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(150.0);
+            ui.set_height(100.0);
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+
+               let max_fps = RichText::new(format!("Max FPS: {:.2}", self.max_fps)).size(14.0);
+               ui.label(max_fps);
+
+               let time_ms = RichText::new(format!("Time: {:.4} ms", self.time_ms)).size(14.0);
+               ui.label(time_ms);
+
+               let time_ns = RichText::new(format!("Time: {} ns", self.time_ns)).size(14.0);
+               ui.label(time_ns);
+            });
+         });
+
+      self.open = open;
    }
 }

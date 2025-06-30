@@ -64,7 +64,7 @@ impl ZeusApp {
       if !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            update::on_startup(ctx_clone).await;
+             update::on_startup(ctx_clone).await;
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
@@ -102,6 +102,9 @@ impl eframe::App for ZeusApp {
    }
 
    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+      #[cfg(feature = "dev")]
+      let time = std::time::Instant::now();
+
       if !self.updated_started {
          self.start_update();
       }
@@ -171,6 +174,9 @@ impl eframe::App for ZeusApp {
                   );
                });
          });
+
+         #[cfg(feature = "dev")]
+         gui.fps_metrics.update(time.elapsed().as_nanos());
       });
    }
 }
