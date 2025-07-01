@@ -1215,6 +1215,8 @@ pub fn swap_section(
 
          // Balance and Max Button
          ui.horizontal(|ui| {
+            ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+
             let balance = ctx.get_currency_balance(chain_id, owner, currency);
             let balance_text = format!("Balance: {}", balance.format_abbreviated());
             ui.label(
@@ -1223,9 +1225,11 @@ pub fn swap_section(
                   .color(theme.colors.text_secondary),
             );
 
+            ui.add_space(5.0);
+
             // Max button
             let max_text = RichText::new("Max").size(theme.text_sizes.small);
-            let max_button = Button::new(max_text).min_size(vec2(40.0, 20.0));
+            let max_button = Button::new(max_text);
 
             if direction == InOrOut::In {
                if ui.add(max_button).clicked() {

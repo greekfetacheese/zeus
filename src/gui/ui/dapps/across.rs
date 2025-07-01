@@ -126,66 +126,65 @@ impl AcrossBridge {
                   }
                });
 
-               // Asset and amount selection
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               // Asset
+               ui.label(RichText::new("Asset").size(theme.text_sizes.large));
+               ui.horizontal(|ui| {
+                  let icon = icons.native_currency_icon(self.currency.chain_id);
+                  let text = RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
+                  ui.add(Label::new(text, Some(icon)));
+
+                  ui.add_space(10.0);
+
+                  // Balance
+                  let balance = ctx.get_eth_balance(from_chain, depositor);
+                  let text = format!("Balance: {}", balance.format_abbreviated());
+                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                  if self.balance_syncing {
+                     ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                  }
+               });
+
+               // Amount
+               ui.horizontal(|ui| {
                   ui.label(RichText::new("Amount").size(theme.text_sizes.large));
+
+                  ui.add_space(10.0);
+
+                  // Max amount button
+                  ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+                  let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
+                  if ui.add(button).clicked() {
+                     self.amount = self.max_amount(ctx.clone()).flatten().clone();
+                  }
                });
 
-               let balance = ctx.get_eth_balance(from_chain, depositor);
+               ui.add(
+                  TextEdit::singleline(&mut self.amount)
+                     .hint_text("0")
+                     .font(FontId::proportional(theme.text_sizes.normal))
+                     .min_size(vec2(ui_width * 0.25, 25.0))
+                     .background_color(theme.colors.text_edit_bg)
+                     .margin(Margin::same(10)),
+               );
 
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.set_max_width(ui_width * 0.25);
-                  Grid::new("asset_and_amount")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.add(
-                           TextEdit::singleline(&mut self.amount)
-                              .hint_text("0")
-                              .font(FontId::proportional(theme.text_sizes.normal))
-                              .min_size(vec2(ui_width * 0.25, 25.0))
-                              .background_color(theme.colors.text_edit_bg)
-                              .margin(Margin::same(10)),
-                        );
-                        let icon = icons.native_currency_icon(self.currency.chain_id);
-                        let text =
-                           RichText::new(&self.currency.symbol).size(theme.text_sizes.normal);
-                        ui.add(Label::new(text, Some(icon)));
-                        let text = format!("Balance: {}", balance.format_abbreviated());
-                        ui.label(RichText::new(text).size(theme.text_sizes.normal));
+               // Amount check
+               if !self.amount.is_empty() && !self.valid_amount() {
+                  ui.label(
+                     RichText::new("Invalid Amount")
+                        .size(theme.text_sizes.small)
+                        .color(Color32::RED),
+                  );
+               }
 
-                        // Max amount button
-                        ui.spacing_mut().button_padding = vec2(5.0, 5.0);
-                        let button = Button::new(RichText::new("Max").size(theme.text_sizes.small));
-                        if ui.add(button).clicked() {
-                           self.amount = self.max_amount(ctx.clone()).flatten().clone();
-                        }
-
-                        if self.balance_syncing {
-                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                        }
-                        ui.end_row();
-
-                        // Amount check
-                        if !self.amount.is_empty() && !self.valid_amount() {
-                           ui.label(
-                              RichText::new("Invalid Amount")
-                                 .size(theme.text_sizes.small)
-                                 .color(Color32::RED),
-                           );
-                           ui.end_row();
-                        }
-
-                        // Balance check
-                        if !self.sufficient_balance(ctx.clone(), depositor) {
-                           ui.label(
-                              RichText::new("Insufficient balance")
-                                 .size(theme.text_sizes.small)
-                                 .color(Color32::RED),
-                           );
-                           ui.end_row();
-                        }
-                     });
-               });
+               // Balance check
+               if !self.sufficient_balance(ctx.clone(), depositor) {
+                  ui.label(
+                     RichText::new("Insufficient balance")
+                        .size(theme.text_sizes.small)
+                        .color(Color32::RED),
+                  );
+               }
 
                let amount = self.amount.parse().unwrap_or(0.0);
                // Value
@@ -198,6 +197,7 @@ impl AcrossBridge {
                      .size(theme.text_sizes.normal),
                   );
                });
+
                ui.add_space(10.0);
 
                // Recipient
@@ -209,19 +209,23 @@ impl AcrossBridge {
 
                         if !recipient.is_empty() {
                            if let Some(name) = &recipient_name {
-                              ui.label(RichText::new(name).size(theme.text_sizes.normal).strong());
+                              ui.label(
+                                 RichText::new(name)
+                                    .size(theme.text_sizes.normal)
+                                    .color(theme.colors.text_secondary),
+                              );
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
                                     .size(theme.text_sizes.normal)
-                                    .color(Color32::RED),
+                                    .color(theme.colors.error_color),
                               );
                            }
                            if !self.valid_recipient(&recipient) {
                               ui.label(
                                  RichText::new("Invalid Address")
                                     .size(theme.text_sizes.normal)
-                                    .color(Color32::RED),
+                                    .color(theme.colors.error_color),
                               );
                            }
                         }
@@ -229,7 +233,6 @@ impl AcrossBridge {
                      });
                });
 
-               // widget_visuals(ui, theme.get_text_edit_visuals(bg_color));
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let res = ui.add(
                      TextEdit::singleline(&mut recipient_selection.recipient)
@@ -244,6 +247,7 @@ impl AcrossBridge {
                      recipient_selection.open = true;
                   }
                });
+
                ui.add_space(10.0);
 
                // From Chain
@@ -256,6 +260,7 @@ impl AcrossBridge {
                         ui.end_row();
                      });
                });
+
                ui.add_space(10.0);
 
                // To Chain
@@ -323,12 +328,9 @@ impl AcrossBridge {
                let bridge = Button::new(RichText::new("Bridge").size(theme.text_sizes.normal))
                   .min_size(vec2(ui_width * 0.90, 40.0));
 
-               if !self.valid_inputs(ctx.clone(), depositor, &recipient) {
-                  ui.disable();
-               }
-
+               let enabled = self.valid_inputs(ctx.clone(), depositor, &recipient);
                ui.vertical_centered(|ui| {
-                  if ui.add(bridge).clicked() {
+                  if ui.add_enabled(enabled, bridge).clicked() {
                      self.send_transaction(ctx, recipient);
                   }
                });

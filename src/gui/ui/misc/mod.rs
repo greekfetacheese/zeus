@@ -350,49 +350,58 @@ impl ProgressWindow {
          .frame(Frame::window(ui.style()))
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
-            Frame::new().inner_margin(Margin::same(20)).show(ui, |ui| {
+            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
                let normal = theme.text_sizes.normal;
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.vertical(|ui| {
+
+               ui.vertical_centered(|ui| {
                   ui.spacing_mut().item_spacing.y = 10.0;
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+                  let size = vec2(ui.available_width() * 0.3, 45.0);
 
                   for step in &self.steps {
-                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                        ui.add_space(120.0);
-                        ui.label(RichText::new(step.msg.clone()).size(normal));
-                        if step.in_progress {
-                           ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                        }
+                     ui.allocate_ui(size, |ui| {
+                        ui.horizontal(|ui| {
+                           ui.label(RichText::new(step.msg.clone()).size(normal));
+                           if step.in_progress {
+                              ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                           }
 
-                        if step.finished {
-                           ui.label(RichText::new(GREEN_CHECK).size(normal));
-                        }
+                           if step.finished {
+                              ui.label(RichText::new(GREEN_CHECK).size(normal));
+                           }
+                        });
                      });
                   }
 
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     ui.add_space(120.0);
-                     if self.finished() {
-                        ui.label(RichText::new(self.final_msg.clone()).size(normal));
-                     } else {
-                        // occupy the space
-                        ui.label(RichText::new("").size(normal));
-                     }
+                  ui.allocate_ui(size, |ui| {
+                     ui.horizontal(|ui| {
+                        if self.finished() {
+                           ui.label(RichText::new(self.final_msg.clone()).size(normal));
+                        } else {
+                           // occupy the space
+                           ui.label(RichText::new("").size(normal));
+                        }
+                     });
                   });
+
                   ui.add_space(20.0);
 
-                  ui.horizontal(|ui| {
-                     ui.add_space(110.0);
-                     let close = Button::new(RichText::new("Close").size(normal));
-                     if ui.add(close).clicked() {
-                        self.open = false;
-                     }
+                  let size = vec2(ui.available_width() * 0.9, 45.0);
+                  ui.allocate_ui(size, |ui| {
+                     ui.horizontal(|ui| {
+                        let button_size = vec2(ui.available_width() * 0.5, 45.0);
+                        let close =
+                           Button::new(RichText::new("Close").size(normal)).min_size(button_size);
+                        if ui.add(close).clicked() {
+                           self.open = false;
+                        }
 
-                     let summary_btn = Button::new(RichText::new("Summary").size(normal));
-                     if self.finished() {
-                        if ui.add(summary_btn).clicked() {
+                        let summary_btn =
+                           Button::new(RichText::new("Open Transaction Details").size(normal))
+                              .min_size(button_size);
+                        if ui.add_enabled(self.finished(), summary_btn).clicked() {
                            let tx = self.tx.clone();
                            self.reset();
 
@@ -402,7 +411,7 @@ impl ProgressWindow {
                               });
                            });
                         }
-                     }
+                     });
                   });
                });
             });
@@ -889,6 +898,7 @@ pub struct MsgWindow {
    pub open: bool,
    pub title: String,
    pub message: String,
+   pub size: (f32, f32),
 }
 
 impl MsgWindow {
@@ -897,6 +907,7 @@ impl MsgWindow {
          open: false,
          title: String::new(),
          message: String::new(),
+         size: (300.0, 100.0),
       }
    }
 
@@ -920,28 +931,29 @@ impl MsgWindow {
 
       let title = RichText::new(self.title.clone()).size(theme.text_sizes.large);
       let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
-      let ok = Button::new(RichText::new("Ok").size(theme.text_sizes.normal));
 
       Window::new(title)
          .resizable(false)
          .order(Order::Tooltip)
-         .movable(true)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+
             ui.vertical_centered(|ui| {
-               ui.set_min_size(vec2(300.0, 100.0));
-               ui.scope(|ui| {
-                  ui.spacing_mut().item_spacing.y = 20.0;
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  ui.label(msg);
+               ui.label(msg);
 
-                  if ui.add(ok).clicked() {
-                     self.open = false;
-                  }
-               });
+               let size = vec2(ui.available_width() * 0.5, 25.0);
+               let ok_button =
+                  Button::new(RichText::new("OK").size(theme.text_sizes.normal)).min_size(size);
+               if ui.add(ok_button).clicked() {
+                  self.open = false;
+               }
             });
          });
    }
@@ -1291,7 +1303,6 @@ impl PortfolioUi {
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-
          match manager
             .sync_pools_for_tokens(
                ctx_clone.clone(),

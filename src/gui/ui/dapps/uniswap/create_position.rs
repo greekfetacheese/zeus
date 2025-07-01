@@ -535,28 +535,31 @@ impl CreatePositionUi {
 
       ui.add_space(10.0);
 
-      ui.horizontal(|ui| {
-         ui.add_space(ui_width * 0.35);
-         ui.spacing_mut().item_spacing.x = 20.0;
+      let size = vec2(ui_width * 0.3, 40.0);
+      ui.allocate_ui(size, |ui| {
+         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 20.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         let icon0 = icons.currency_icon_x24(&self.currency0);
-         let icon1 = icons.currency_icon_x24(&self.currency1);
+            let icon0 = icons.currency_icon(&self.currency0);
+            let icon1 = icons.currency_icon(&self.currency1);
 
-         let text0 = RichText::new(self.currency0.symbol()).size(theme.text_sizes.normal);
-         let text1 = RichText::new(self.currency1.symbol()).size(theme.text_sizes.normal);
+            let text0 = RichText::new(self.currency0.symbol()).size(theme.text_sizes.normal);
+            let text1 = RichText::new(self.currency1.symbol()).size(theme.text_sizes.normal);
 
-         let button0 = Button::image_and_text(icon0, text0).min_size(vec2(100.0, 40.0));
-         let button1 = Button::image_and_text(icon1, text1).min_size(vec2(100.0, 40.0));
+            let button0 = Button::image_and_text(icon0, text0).min_size(vec2(100.0, 40.0));
+            let button1 = Button::image_and_text(icon1, text1).min_size(vec2(100.0, 40.0));
 
-         if ui.add(button0).clicked() {
-            token_selection.currency_direction = InOrOut::In;
-            token_selection.open = true;
-         }
+            if ui.add(button0).clicked() {
+               token_selection.currency_direction = InOrOut::In;
+               token_selection.open = true;
+            }
 
-         if ui.add(button1).clicked() {
-            token_selection.currency_direction = InOrOut::Out;
-            token_selection.open = true;
-         }
+            if ui.add(button1).clicked() {
+               token_selection.currency_direction = InOrOut::Out;
+               token_selection.open = true;
+            }
+         });
       });
 
       ui.add_space(10.0);

@@ -1,11 +1,9 @@
-use egui::{
-   CornerRadius, FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2,
-};
+use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2};
 use egui_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use egui_theme::{Theme, utils::*};
+use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::amm::{AnyUniswapPool, UniswapPool};
 
@@ -181,20 +179,18 @@ impl PoolsUi {
                               Some(icon1),
                            );
 
-                           let mut frame = Frame::new()
-                              .corner_radius(CornerRadius::same(10))
-                              .inner_margin(Margin::same(10));
-                           let visuals = theme.frame1_visuals.clone();
-                           frame_it(&mut frame, Some(visuals), ui, |ui| {
-                              ui.horizontal(|ui| {
-                                 ui.add(label0);
-                                 ui.add(Label::new(
-                                    RichText::new("/").size(theme.text_sizes.normal),
-                                    None,
-                                 ));
-                                 ui.add(label1);
+                           Frame::new()
+                              .inner_margin(Margin::same(5))
+                              .show(ui, |ui| {
+                                 ui.horizontal(|ui| {
+                                    ui.add(label0);
+                                    ui.add(Label::new(
+                                       RichText::new("/").size(theme.text_sizes.normal),
+                                       None,
+                                    ));
+                                    ui.add(label1);
+                                 });
                               });
-                           });
                         });
 
                         // Protocol Version
