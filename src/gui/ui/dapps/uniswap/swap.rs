@@ -679,11 +679,10 @@ impl SwapUi {
 
       self.syncing_pools = true;
 
-      let ctx2 = ctx.clone();
+      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client(chain_id).await.unwrap();
          let _ = eth::sync_pools_for_tokens(
-            ctx2.clone(),
+            ctx_clone.clone(),
             chain_id,
             vec![token_out.clone()],
             false,
@@ -696,7 +695,7 @@ impl SwapUi {
          });
 
          let pools = get_relevant_pools(
-            ctx2.clone(),
+            ctx_clone.clone(),
             swap_on_v2,
             swap_on_v3,
             swap_on_v4,
@@ -704,7 +703,7 @@ impl SwapUi {
          );
 
          match manager
-            .update_state_for_pools(client, chain_id, pools)
+            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
             .await
          {
             Ok(_) => {
@@ -725,10 +724,10 @@ impl SwapUi {
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                let settings = &gui.uniswap.settings;
-               gui.uniswap.swap_ui.get_quote(ctx2.clone(), &settings);
+               gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), &settings);
             });
 
-            match ctx2.save_pool_manager() {
+            match ctx_clone.save_pool_manager() {
                Ok(_) => {
                   tracing::info!("Pool Manager saved");
                }
@@ -803,11 +802,10 @@ impl SwapUi {
       let manager = ctx.pool_manager();
 
       self.pool_data_syncing = true;
-      let ctx2 = ctx.clone();
+      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client(chain_id).await.unwrap();
          match manager
-            .update_state_for_pools(client, chain_id, pools)
+            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
             .await
          {
             Ok(_) => {
@@ -827,7 +825,7 @@ impl SwapUi {
          // get a new quote
          SHARED_GUI.write(|gui| {
             let settings = &gui.uniswap.settings;
-            gui.uniswap.swap_ui.get_quote(ctx2, &settings);
+            gui.uniswap.swap_ui.get_quote(ctx_clone, &settings);
          });
       });
    }

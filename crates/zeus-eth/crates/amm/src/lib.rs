@@ -7,7 +7,6 @@ use utils::address;
 use serde::{Deserialize, Serialize};
 
 pub mod consts;
-pub mod pool_manager;
 pub mod sync;
 pub mod uniswap;
 

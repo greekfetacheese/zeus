@@ -14,7 +14,7 @@ use std::{
 use tokio::time::sleep;
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::{DexKind, pool_manager::PoolManagerHandle, uniswap::AnyUniswapPool},
+   amm::{DexKind, uniswap::AnyUniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
@@ -26,8 +26,10 @@ const CLIENT_TIMEOUT: u64 = 10;
 pub mod db;
 pub mod providers;
 pub mod balance_manager;
+pub mod pool_manager;
 
 pub use balance_manager::BalanceManagerHandle;
+pub use pool_manager::PoolManagerHandle;
 pub use db::{CurrencyDB, Portfolio, ContactDB, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use providers::{Rpc, RpcProviders};
 

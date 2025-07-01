@@ -147,24 +147,12 @@ pub async fn on_startup(ctx: ZeusCtx) {
             Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
          }
 
-         let client = match ctx_clone.get_client(chain).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error getting client for chain {}: {:?}",
-                  chain,
-                  e
-               );
-               return;
-            }
-         };
-
          if sync_v4 {
             let manager = ctx_clone.pool_manager();
             let v4_pools = manager.get_v4_pools_for_chain(chain);
 
             match manager
-               .update_state_for_pools(client, chain, v4_pools)
+               .update_state_for_pools(ctx_clone, chain, v4_pools)
                .await
             {
                Ok(_) => {}
@@ -233,18 +221,6 @@ async fn update_pool_manager(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
-         let client = match ctx.get_client(chain).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error getting client for chain {}: {:?}",
-                  chain,
-                  e
-               );
-               return;
-            }
-         };
-
          let pool_manager = ctx.pool_manager();
 
          let tokens = ctx.get_all_tokens_from_portfolios(chain);
@@ -259,7 +235,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
 
          if currencies.is_empty() {
             match pool_manager
-               .update_base_token_prices(client.clone(), chain)
+               .update_base_token_prices(ctx.clone(), chain)
                .await
             {
                Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
@@ -272,7 +248,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
          }
 
          match pool_manager
-            .update_for_currencies(client, chain, currencies)
+            .update_for_currencies(ctx, chain, currencies)
             .await
          {
             Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
@@ -518,23 +494,11 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          let base_tokens = ERC20Token::base_tokens(chain);
          tokens.extend(base_tokens);
 
-         let client = match ctx.get_client(chain).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error getting client for chain {}: {:?}",
-                  chain,
-                  e
-               );
-               return;
-            }
-         };
-
          let dexes = DexKind::main_dexes(chain);
          let pool_manager = ctx.pool_manager();
 
          match pool_manager
-            .sync_pools_for_tokens(client.clone(), chain, tokens, dexes, false)
+            .sync_pools_for_tokens(ctx.clone(), chain, tokens, dexes, false)
             .await
          {
             Ok(_) => {}
@@ -545,7 +509,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             ),
          }
 
-         match pool_manager.update(client, chain).await {
+         match pool_manager.update(ctx, chain).await {
             Ok(_) => {}
             Err(e) => tracing::error!(
                "Error updating price manager for chain {}: {:?}",

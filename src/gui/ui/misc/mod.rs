@@ -1215,24 +1215,14 @@ impl PortfolioUi {
             pools_to_update.extend(pools);
          }
 
-         let client = match ctx.get_client(chain).await {
-            Ok(client) => client,
-            Err(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.portofolio.show_spinner = false;
-               });
-               return;
-            }
-         };
-
          if !pools_to_update.is_empty() {
             let _ = pool_manager
-               .update_state_for_pools(client, chain, pools_to_update)
+               .update_state_for_pools(ctx.clone(), chain, pools_to_update)
                .await;
          } else {
             let dex = DexKind::main_dexes(chain);
             let _ = pool_manager
-               .sync_pools_for_tokens(client.clone(), chain, tokens.clone(), dex, false)
+               .sync_pools_for_tokens(ctx.clone(), chain, tokens.clone(), dex, false)
                .await;
             let mut pools = Vec::new();
             for token in tokens {
@@ -1240,7 +1230,7 @@ impl PortfolioUi {
                pools.extend(pool_manager.get_pools_that_have_currency(&c));
             }
             let _ = pool_manager
-               .update_state_for_pools(client, chain, pools)
+               .update_state_for_pools(ctx.clone(), chain, pools)
                .await;
          }
 
@@ -1301,19 +1291,10 @@ impl PortfolioUi {
       let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
-         let client = match ctx_clone.get_client(chain_id).await {
-            Ok(client) => client,
-            Err(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.portofolio.show_spinner = false;
-               });
-               return;
-            }
-         };
 
          match manager
             .sync_pools_for_tokens(
-               client.clone(),
+               ctx_clone.clone(),
                chain,
                vec![token.clone()],
                dex_kinds,
@@ -1332,7 +1313,7 @@ impl PortfolioUi {
          }
 
          match manager
-            .update_for_currencies(client, chain_id, vec![currency])
+            .update_for_currencies(ctx_clone.clone(), chain_id, vec![currency])
             .await
          {
             Ok(_) => {

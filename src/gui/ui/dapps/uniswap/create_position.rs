@@ -957,11 +957,10 @@ impl CreatePositionUi {
 
       self.syncing_pools = true;
 
-      let ctx2 = ctx.clone();
+      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client(chain_id).await.unwrap();
          let _ = eth::sync_pools_for_tokens(
-            ctx2.clone(),
+            ctx_clone.clone(),
             chain_id,
             vec![token_in, token_out],
             false,
@@ -975,7 +974,7 @@ impl CreatePositionUi {
 
          let pools = manager.get_pools_from_pair(&currency_in, &currency_out);
          match manager
-            .update_state_for_pools(client, chain_id, pools)
+            .update_state_for_pools(ctx_clone, chain_id, pools)
             .await
          {
             Ok(_) => {
@@ -1038,11 +1037,10 @@ impl CreatePositionUi {
       );
 
       self.pool_data_syncing = true;
-      let ctx2 = ctx.clone();
+      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let client = ctx2.get_client(chain_id).await.unwrap();
          match manager
-            .update_state_for_pools(client, chain_id, pools)
+            .update_state_for_pools(ctx_clone, chain_id, pools)
             .await
          {
             Ok(_) => {

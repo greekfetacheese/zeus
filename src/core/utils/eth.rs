@@ -2293,14 +2293,8 @@ pub async fn sync_pools_for_tokens(
    let pool_manager = ctx.pool_manager();
    let dex_kind = DexKind::main_dexes(chain);
 
-   let client = if let Ok(client) = ctx.get_archive_client(chain).await {
-      client
-   } else {
-      ctx.get_client(chain).await?
-   };
-
    pool_manager
-      .sync_pools_for_tokens(client, chain, tokens, dex_kind, sync_v4)
+      .sync_pools_for_tokens(ctx, chain, tokens, dex_kind, sync_v4)
       .await?;
 
    Ok(())

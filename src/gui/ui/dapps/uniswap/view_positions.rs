@@ -1082,7 +1082,7 @@ impl ViewPositionsUi {
          };
 
          match manager
-            .update_state_for_pools(client.clone(), chain_id, pools)
+            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
             .await
          {
             Ok(_) => {

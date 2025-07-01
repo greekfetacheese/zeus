@@ -1,11 +1,12 @@
 use crate::core::{
    context::ZeusCtx,
+   PoolManagerHandle,
    utils::{RT, pool_data_dir, pool_data_full_dir},
 };
 use crate::gui::{SHARED_GUI, Theme};
 use egui::{Button, Color32, RichText, ScrollArea, Spinner, Ui, vec2};
 use zeus_eth::{
-   amm::{DexKind, pool_manager::PoolManagerHandle},
+   amm::DexKind,
    types::*,
 };
 
@@ -179,9 +180,8 @@ async fn update_and_cleanup_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
          let manager = ctx.pool_manager();
-         let client = ctx.get_client(chain).await?;
 
-         manager.update(client, chain).await?;
+         manager.update(ctx, chain).await?;
 
          tracing::info!("Pool state is updated for chain {}", chain);
          Ok(())
@@ -214,11 +214,10 @@ async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
 
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
-         let client = ctx.get_archive_client(chain.id()).await?;
          let manager = ctx.pool_manager();
 
          manager
-            .sync_pools(client.clone(), chain.id(), vec![dex])
+            .sync_pools(ctx.clone(), chain.id(), vec![dex])
             .await?;
 
          Ok(())

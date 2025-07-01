@@ -350,10 +350,9 @@ impl SendCryptoUi {
             let dexes = DexKind::main_dexes(chain_id);
 
             RT.spawn(async move {
-               let client = ctx.get_client(chain_id).await.unwrap();
                match manager
                   .sync_pools_for_tokens(
-                     client.clone(),
+                     ctx.clone(),
                      chain_id,
                      vec![token],
                      dexes,
@@ -366,7 +365,7 @@ impl SendCryptoUi {
                         gui.send_crypto.pool_data_syncing = false;
                      });
 
-                     let _ = manager.update(client, chain_id).await;
+                     let _ = manager.update(ctx.clone(), chain_id).await;
 
                      RT.spawn_blocking(move || {
                         ctx.calculate_portfolio_value(chain_id, owner);

@@ -450,7 +450,7 @@ mod tests {
 
       let pools = pool_manager.get_pools_for_chain(chain_id);
       pool_manager
-         .update_state_for_pools(client.clone(), chain_id, pools)
+         .update_state_for_pools(ctx.clone(), chain_id, pools)
          .await
          .unwrap();
 
@@ -582,7 +582,7 @@ mod tests {
 
       let pools = pool_manager.get_pools_for_chain(chain_id);
       pool_manager
-         .update_state_for_pools(client.clone(), chain_id, pools)
+         .update_state_for_pools(ctx.clone(), chain_id, pools)
          .await
          .unwrap();
 
@@ -731,7 +731,7 @@ mod tests {
 
       let pools = pool_manager.get_pools_for_chain(chain_id);
       pool_manager
-         .update_state_for_pools(client.clone(), chain_id, pools)
+         .update_state_for_pools(ctx.clone(), chain_id, pools)
          .await
          .unwrap();
 

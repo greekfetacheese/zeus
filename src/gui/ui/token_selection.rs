@@ -324,7 +324,7 @@ async fn get_erc20_token(
 
       let pool_manager = ctx_clone.pool_manager();
       match pool_manager
-         .update_for_currencies(client, chain, vec![currency])
+         .update_for_currencies(ctx_clone.clone(), chain, vec![currency])
          .await
       {
          Ok(_) => {
