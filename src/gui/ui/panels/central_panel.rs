@@ -146,6 +146,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });
@@ -170,6 +171,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });
@@ -197,6 +199,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });
@@ -224,6 +227,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });
@@ -251,6 +255,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });
@@ -276,6 +281,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
+                     true
                   );
                });
             });

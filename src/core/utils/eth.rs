@@ -138,6 +138,7 @@ pub async fn send_transaction(
          chain,
          tx_analysis.clone(),
          priority_fee.formatted().clone(),
+         mev_protect,
       );
       gui.loading_window.reset();
       gui.request_repaint();
@@ -807,7 +808,7 @@ pub async fn swap(
    }
 
    let balance_before = if currency_out.is_native() {
-      client.get_balance(from).await?
+      ctx.get_eth_balance(chain.id(), from).wei2()
    } else {
       currency_out
          .to_erc20()
@@ -2154,13 +2155,14 @@ pub async fn across_bridge(
    let dest_client = ctx.get_client(dest_chain.id()).await?;
    let from_block_fut = dest_client.get_block_number().into_future();
 
+   let mev_protect = false;
    let (_, tx_rich) = send_transaction(
       ctx,
       "".to_string(),
       None,
       None,
       chain,
-      false,
+      mev_protect,
       from,
       interact_to,
       call_data,
@@ -2253,13 +2255,14 @@ pub async fn send_crypto(
    call_data: Bytes,
    value: U256,
 ) -> Result<(), anyhow::Error> {
+   let mev_protect = false;
    let (_, tx_rich) = send_transaction(
       ctx,
       "".to_string(),
       None,
       None,
       chain,
-      false,
+      mev_protect,
       from,
       interact_to,
       call_data,

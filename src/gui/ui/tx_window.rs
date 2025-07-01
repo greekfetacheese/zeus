@@ -1,6 +1,5 @@
 use egui::{
-   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, TextEdit, Ui, Window,
-   vec2,
+   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
 use egui_widgets::Label;
@@ -33,6 +32,7 @@ pub struct TxConfirmationWindow {
    tx_action: Option<TransactionAction>,
    /// Adjust priority fee
    priority_fee: String,
+   mev_protect: bool,
    gas_used: u64,
    /// Adjust gas limit
    gas_limit: u64,
@@ -53,6 +53,7 @@ impl TxConfirmationWindow {
          tx: None,
          tx_action: None,
          priority_fee: String::new(),
+         mev_protect: false,
          gas_used: 0,
          gas_limit: 0,
          adjusted_gas_limit: String::new(),
@@ -80,6 +81,7 @@ impl TxConfirmationWindow {
    /// - `chain` the chain id to be used
    /// - `tx` is the transaction to be confirmed
    /// - `priority_fee` set a starting value for the priority fee
+   /// - `mev_protect` whether we use an MEV protect endpoint or not
    pub fn open(
       &mut self,
       ctx: ZeusCtx,
@@ -87,6 +89,7 @@ impl TxConfirmationWindow {
       chain: ChainId,
       tx: TransactionAnalysis,
       priority_fee: String,
+      mev_protect: bool,
    ) {
       let native = NativeCurrency::from(chain.id());
       let action = tx.infer_action(ctx.clone(), chain.id());
@@ -94,6 +97,7 @@ impl TxConfirmationWindow {
 
       self.dapp = dapp;
       self.priority_fee = priority_fee;
+      self.mev_protect = mev_protect;
       self.gas_used = tx.gas_used;
       self.gas_limit = gas_limit;
       self.adjusted_gas_limit = gas_limit.to_string();
@@ -348,6 +352,26 @@ impl TxConfirmationWindow {
                            )),
                      );
                   });
+
+                  let base_case = self.chain.is_ethereum() && !action.is_other() && action.is_mev_vulnerable();
+                  let show_mev_protect = base_case || action.is_other();
+
+                  if show_mev_protect {
+                     let icon = if self.mev_protect {
+                        icons.green_circle()
+                     } else {
+                        icons.red_circle()
+                     };
+
+                     let text = if self.mev_protect {
+                        "MEV Protect is enabled"
+                     } else {
+                        "MEV Protect is disabled"
+                     };
+
+                     let text = RichText::new(text).size(theme.text_sizes.normal);
+                     ui.add(Label::new(text, Some(icon)));
+                  }
 
                   if !sufficient_balance {
                      ui.label(

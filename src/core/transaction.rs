@@ -298,6 +298,28 @@ impl TransactionAction {
       Self::Other
    }
 
+   /// We consider any action to be MEV vulnerable that involves some kind of slippage
+   pub fn is_mev_vulnerable(&self) -> bool {
+      if self.is_swap() {
+         return true;
+      }
+
+      if self.is_uniswap_position_op() {
+         let params = self.uniswap_position_params();
+         if params.op_is_collect_fees() {
+            return false;
+         } else {
+            return true;
+         }
+      }
+
+      if self.is_other() {
+         return true;
+      }
+
+      false
+   }
+
    pub fn name(&self) -> String {
       match self {
          Self::Bridge(_) => "Bridge".to_string(),
