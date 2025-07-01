@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,7 @@ use zeus_eth::{
       },
    },
    currency::{Currency, ERC20Token},
+   types::BASE,
    utils::{NumericValue, batch, price_feed::get_base_token_price},
 };
 
@@ -85,7 +86,7 @@ impl PoolManagerHandle {
    }
 
    pub fn batch_size_for_updating_pools_state(&self) -> usize {
-      self.read(|manager| manager.batch_size)
+      self.read(|manager| manager.batch_size_for_updating_pool_state)
    }
 
    pub fn batch_size_for_syncing_pools(&self) -> usize {
@@ -94,6 +95,14 @@ impl PoolManagerHandle {
 
    pub fn do_we_sync_v4_pools(&self) -> bool {
       self.read(|manager| manager.sync_v4_pools)
+   }
+
+   pub fn ignore_chains(&self) -> IgnoreChains {
+      self.read(|manager| manager.ignore_chains.clone())
+   }
+
+   pub fn set_ignore_chains(&self, ignore_chains: IgnoreChains) {
+      self.write(|manager| manager.ignore_chains = ignore_chains);
    }
 
    pub fn set_sync_v4_pools(&self, sync_v4_pools: bool) {
@@ -105,7 +114,7 @@ impl PoolManagerHandle {
    }
 
    pub fn set_batch_size_for_updating_pools_state(&self, batch_size: usize) {
-      self.write(|manager| manager.batch_size = batch_size);
+      self.write(|manager| manager.batch_size_for_updating_pool_state = batch_size);
    }
 
    pub fn set_batch_size_for_syncing_pools(&self, batch_size: usize) {
@@ -263,7 +272,7 @@ impl PoolManagerHandle {
       }
 
       let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size);
+      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain).await?;
 
       let pools = batch_update_state(
@@ -289,7 +298,7 @@ impl PoolManagerHandle {
    async fn update_pool_state(&self, ctx: ZeusCtx, chain_id: u64) -> Result<(), anyhow::Error> {
       let pools = self.get_pools_for_chain(chain_id);
       let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size);
+      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain_id).await?;
 
       let pools = batch_update_state(client, chain_id, concurrency, batch_size, pools).await?;
@@ -315,7 +324,7 @@ impl PoolManagerHandle {
          .map(|p| AnyUniswapPool::from_pool(p))
          .collect::<Vec<_>>();
       let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size);
+      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain).await?;
 
       let pools = batch_update_state(
@@ -647,6 +656,11 @@ impl PoolManagerHandle {
       chain: u64,
       dexes: Vec<DexKind>,
    ) -> Result<(), anyhow::Error> {
+      let ignore_chains = self.read(|manager| manager.ignore_chains.clone());
+      if ignore_chains.contains(&chain) {
+         return Ok(());
+      }
+
       let client = ctx.get_client(chain).await?;
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_syncing_pools);
@@ -735,6 +749,9 @@ type TokenPrices = HashMap<(u64, Address), NumericValue>;
 /// Key: (chain_id, dex) -> Value: Checkpoint
 type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 
+/// Ignore chains for V4 pool historic sync
+type IgnoreChains = HashSet<u64>;
+
 fn default_batch_size() -> usize {
    10
 }
@@ -749,6 +766,12 @@ fn default_concurrency() -> usize {
 
 fn default_sync_v4_pools() -> bool {
    true
+}
+
+fn default_ignore_chains() -> IgnoreChains {
+   let mut chains = HashSet::new();
+   chains.insert(BASE);
+   chains
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -776,7 +799,7 @@ pub struct PoolManager {
 
    /// Batch size when syncing the pools state
    #[serde(default = "default_batch_size")]
-   pub batch_size: usize,
+   pub batch_size_for_updating_pool_state: usize,
 
    /// Batch size when syncing pools from logs
    #[serde(default = "default_batch_size_for_syncing_pools")]
@@ -784,6 +807,9 @@ pub struct PoolManager {
 
    #[serde(default = "default_sync_v4_pools")]
    pub sync_v4_pools: bool,
+
+   #[serde(default = "default_ignore_chains")]
+   pub ignore_chains: IgnoreChains,
 }
 
 impl Default for PoolManager {
@@ -795,9 +821,10 @@ impl Default for PoolManager {
          v4_pool_last_sync: HashMap::new(),
          checkpoints: HashMap::new(),
          concurrency: default_concurrency(),
-         batch_size: default_batch_size(),
+         batch_size_for_updating_pool_state: default_batch_size(),
          batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),
          sync_v4_pools: default_sync_v4_pools(),
+         ignore_chains: default_ignore_chains(),
       }
    }
 }
@@ -872,7 +899,10 @@ impl PoolManager {
       self.pools.retain(|_key, pool| {
          // Keep the pool if it's NOT a V4 pool, OR
          // if it IS a V4 pool AND it has enough liquidity.
-         !pool.dex_kind().is_v4() || pool.enough_liquidity()
+         // Also ignore pools that are base pairs
+         !pool.dex_kind().is_v4()
+            || pool.enough_liquidity()
+            || pool.currency0().is_base() && pool.currency1().is_base()
       });
 
       self.pools.shrink_to_fit();

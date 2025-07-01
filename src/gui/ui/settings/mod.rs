@@ -4,11 +4,13 @@ use crate::core::{
    utils::{RT, theme_kind_dir},
 };
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use egui::{Align2, Button, Frame, Order, RichText, Sense, Slider, Ui, Window, vec2};
+use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2Params;
+use std::collections::HashSet;
 use std::sync::Arc;
+use zeus_eth::types::ChainId;
 
 pub mod contacts;
 pub mod networks;
@@ -525,6 +527,7 @@ pub struct PerformanceSettings {
    batch_size_for_syncing_balances: usize,
    batch_size_for_updating_pools_state: usize,
    batch_size_for_syncing_pools: usize,
+   ignore_chains: HashSet<u64>,
    pub size: (f32, f32),
 }
 
@@ -540,6 +543,7 @@ impl PerformanceSettings {
          batch_size_for_syncing_balances: balance_manager.batch_size(),
          batch_size_for_updating_pools_state: pool_manager.batch_size_for_updating_pools_state(),
          batch_size_for_syncing_pools: pool_manager.batch_size_for_syncing_pools(),
+         ignore_chains: pool_manager.ignore_chains(),
          size: (400.0, 550.0),
       }
    }
@@ -557,12 +561,11 @@ impl PerformanceSettings {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
+      let mut open = self.open;
 
       let title = RichText::new("Performance Settings").size(theme.text_sizes.heading);
       Window::new(title)
+         .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
@@ -575,78 +578,94 @@ impl PerformanceSettings {
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
             ui.vertical_centered(|ui| {
-               let slider_size = vec2(ui.available_width() * 0.4, 20.0);
+               ScrollArea::vertical().show(ui, |ui| {
+                  let slider_size = vec2(ui.available_width() * 0.4, 20.0);
 
-               let header = RichText::new("Pool Manager").size(theme.text_sizes.very_large);
-               ui.label(header);
+                  let header = RichText::new("Pool Manager").size(theme.text_sizes.very_large);
+                  ui.label(header);
 
-               let text = RichText::new("Sync V4 Pools on startup").size(theme.text_sizes.normal);
-               ui.checkbox(&mut self.sync_v4_pools_on_startup, text);
+                  let text =
+                     RichText::new("Sync V4 Pools on startup").size(theme.text_sizes.normal);
+                  ui.checkbox(&mut self.sync_v4_pools_on_startup, text);
 
-               ui.label(
-                  RichText::new("Concurrency for Syncing Pools").size(theme.text_sizes.normal),
-               );
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.concurrency_for_syncing_pools,
-                     1..=10,
-                  ));
+                  let text = RichText::new("Chains to ignore at V4 historic sync")
+                     .size(theme.text_sizes.normal);
+                  ui.label(text);
+                  for chain in ChainId::supported_chains() {
+                     let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                     let mut ignore = self.ignore_chains.contains(&chain.id());
+                     ui.checkbox(&mut ignore, text);
+                     if ignore {
+                        self.ignore_chains.insert(chain.id());
+                     } else {
+                        self.ignore_chains.remove(&chain.id());
+                     }
+                  }
+
+                  ui.label(
+                     RichText::new("Concurrency for Syncing & Updating Pools")
+                        .size(theme.text_sizes.normal),
+                  );
+                  ui.allocate_ui(slider_size, |ui| {
+                     ui.add(Slider::new(
+                        &mut self.concurrency_for_syncing_pools,
+                        1..=10,
+                     ));
+                  });
+
+                  ui.label(
+                     RichText::new("Batch Size for Syncing Pools").size(theme.text_sizes.normal),
+                  );
+                  ui.allocate_ui(slider_size, |ui| {
+                     ui.add(Slider::new(
+                        &mut self.batch_size_for_syncing_pools,
+                        1..=60,
+                     ));
+                  });
+
+                  ui.label(
+                     RichText::new("Batch Size when updating pools state")
+                        .size(theme.text_sizes.normal),
+                  );
+                  ui.allocate_ui(slider_size, |ui| {
+                     ui.add(Slider::new(
+                        &mut self.batch_size_for_updating_pools_state,
+                        1..=50,
+                     ));
+                  });
+
+                  let header = RichText::new("Balance Manager").size(theme.text_sizes.very_large);
+                  ui.label(header);
+
+                  ui.label(
+                     RichText::new("Concurrency for syncing balances")
+                        .size(theme.text_sizes.normal),
+                  );
+                  ui.allocate_ui(slider_size, |ui| {
+                     ui.add(Slider::new(
+                        &mut self.concurrency_for_syncing_balances,
+                        1..=10,
+                     ));
+                  });
+
+                  ui.label(
+                     RichText::new("Batch Size for syncing balances").size(theme.text_sizes.normal),
+                  );
+                  ui.allocate_ui(slider_size, |ui| {
+                     ui.add(Slider::new(
+                        &mut self.batch_size_for_syncing_balances,
+                        1..=50,
+                     ));
+                  });
                });
-
-               ui.label(
-                  RichText::new("Batch Size for Syncing Pools").size(theme.text_sizes.normal),
-               );
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.batch_size_for_syncing_pools,
-                     1..=60,
-                  ));
-               });
-
-               ui.label(
-                  RichText::new("Batch Size when updating pools state")
-                     .size(theme.text_sizes.normal),
-               );
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.batch_size_for_updating_pools_state,
-                     1..=50,
-                  ));
-               });
-
-               let header = RichText::new("Balance Manager").size(theme.text_sizes.very_large);
-               ui.label(header);
-
-               ui.label(
-                  RichText::new("Concurrency for syncing balances").size(theme.text_sizes.normal),
-               );
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.concurrency_for_syncing_balances,
-                     1..=10,
-                  ));
-               });
-
-               ui.label(
-                  RichText::new("Batch Size for syncing balances").size(theme.text_sizes.normal),
-               );
-               ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(
-                     &mut self.batch_size_for_syncing_balances,
-                     1..=50,
-                  ));
-               });
-
-               let btn_size = vec2(ui.available_width() * 0.7, 45.0);
-               let button = Button::new(RichText::new("Save").size(theme.text_sizes.normal))
-                  .min_size(btn_size);
-
-               if ui.add(button).clicked() {
-                  self.open = false;
-                  self.save_settings(ctx);
-               }
             });
          });
+      let closed = self.open && !open;
+      self.open = open;
+
+      if closed {
+         self.save_settings(ctx);
+      }
    }
 
    fn save_settings(&self, ctx: ZeusCtx) {
@@ -683,6 +702,10 @@ impl PerformanceSettings {
          } else if self.sync_v4_pools_on_startup != ctx.pool_manager().do_we_sync_v4_pools() {
             ctx.pool_manager()
                .set_sync_v4_pools(self.sync_v4_pools_on_startup);
+            true
+         } else if self.ignore_chains != ctx.pool_manager().ignore_chains() {
+            ctx.pool_manager()
+               .set_ignore_chains(self.ignore_chains.clone());
             true
          } else {
             false
