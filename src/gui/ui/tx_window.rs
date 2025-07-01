@@ -1,5 +1,6 @@
 use egui::{
-   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window,
+   vec2,
 };
 use egui_theme::Theme;
 use egui_widgets::Label;
@@ -59,7 +60,7 @@ impl TxConfirmationWindow {
          adjusted_gas_limit: String::new(),
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
-         size: (500.0, 550.0),
+         size: (500.0, 400.0),
       }
    }
 
@@ -135,6 +136,69 @@ impl TxConfirmationWindow {
          estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei2());
       self.tx_cost = cost_in_wei;
       self.tx_cost_usd = cost_in_usd;
+   }
+
+   fn show_action(
+      &self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      action: &TransactionAction,
+      ui: &mut Ui,
+   ) {
+      if action.is_transfer() {
+         let params = action.transfer_params();
+         transfer_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
+      }
+
+      if action.is_erc20_transfer() {
+         let params = action.erc20_transfer_params();
+         erc20_transfer_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
+      }
+
+      if action.is_token_approval() {
+         let params = action.token_approval_params();
+         token_approval_event_ui(self.chain, theme, icons.clone(), params, ui);
+      }
+
+      if action.is_wrap_eth() {
+         let params = action.wrap_eth_params();
+         wrap_eth_event_ui(self.chain, theme, icons.clone(), params, ui);
+      }
+
+      if action.is_unwrap_weth() {
+         let params = action.unwrap_weth_params();
+         unwrap_weth_event_ui(self.chain, theme, icons.clone(), params, ui);
+      }
+
+      if action.is_uniswap_position_op() {
+         let params = action.uniswap_position_params();
+         uniswap_position_op_event_ui(theme, icons.clone(), params, ui);
+      }
+
+      if action.is_bridge() {
+         let params = action.bridge_params();
+         bridge_event_ui(theme, icons.clone(), &params, ui);
+      }
+
+      if action.is_swap() {
+         let params = action.swap_params();
+         swap_event_ui(theme, icons.clone(), &params, ui);
+      }
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -216,94 +280,173 @@ impl TxConfirmationWindow {
                      );
                   }
 
-                  // Action Name
-                  ui.label(
-                     RichText::new(action.name())
-                        .size(theme.text_sizes.heading)
-                        .strong(),
-                  );
+                  let frame = theme.frame2;
+                  let frame_size = vec2(ui.available_width() * 0.9, 45.0);
 
-                  if action.is_transfer() {
-                     let params = action.transfer_params();
-                     transfer_event_ui(
-                        ctx.clone(),
-                        self.chain,
-                        theme,
-                        icons.clone(),
-                        params,
-                        ui,
-                     );
+                  ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
+
+                  if !action.is_other() {
+                     ui.allocate_ui(frame_size, |ui| {
+                        frame.show(ui, |ui| {
+                           self.show_action(ctx.clone(), theme, icons.clone(), &action, ui);
+                        });
+                     });
                   }
 
-                  if action.is_erc20_transfer() {
-                     let params = action.erc20_transfer_params();
-                     erc20_transfer_event_ui(
-                        ctx.clone(),
-                        self.chain,
-                        theme,
-                        icons.clone(),
-                        params,
-                        ui,
-                     );
-                  }
+                  // Tx Action is unknown
+                  if action.is_other() {
+                     ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
 
-                  if action.is_token_approval() {
-                     let params = action.token_approval_params();
-                     token_approval_event_ui(self.chain, theme, icons.clone(), params, ui);
-                  }
+                     ScrollArea::vertical()
+                        .max_height(self.size.1 / 2.0)
+                        .show(ui, |ui| {
+                           ui.set_width(self.size.0);
 
-                  if action.is_wrap_eth() {
-                     let params = action.wrap_eth_params();
-                     wrap_eth_event_ui(self.chain, theme, icons.clone(), params, ui);
-                  }
+                           // Show all the known events that occured
+                           for erc20_transfer in &analysis.erc20_transfers {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(
+                                       RichText::new("Transfer").size(theme.text_sizes.large),
+                                    );
 
-                  if action.is_unwrap_weth() {
-                     let params = action.unwrap_weth_params();
-                     unwrap_weth_event_ui(self.chain, theme, icons.clone(), params, ui);
-                  }
+                                    erc20_transfer_event_ui(
+                                       ctx.clone(),
+                                       self.chain,
+                                       theme,
+                                       icons.clone(),
+                                       erc20_transfer,
+                                       ui,
+                                    );
+                                 });
+                              });
+                           }
 
-                  if action.is_uniswap_position_op() {
-                     let params = action.uniswap_position_params();
-                     uniswap_position_op_event_ui(theme, icons.clone(), params, ui);
-                  }
+                           for token_approval in &analysis.token_approvals {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(
+                                       RichText::new("Token Approval").size(theme.text_sizes.large),
+                                    );
 
-                  if action.is_bridge() {
-                     let params = action.bridge_params();
-                     bridge_event_ui(theme, icons.clone(), &params, ui);
-                  }
+                                    token_approval_event_ui(
+                                       self.chain,
+                                       theme,
+                                       icons.clone(),
+                                       token_approval,
+                                       ui,
+                                    );
+                                 });
+                              });
+                           }
 
-                  if action.is_swap() {
-                     let params = action.swap_params();
-                     swap_event_ui(theme, icons.clone(), &params, ui);
+                           for wrap_eth in &analysis.eth_wraps {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(
+                                       RichText::new("Wrap ETH").size(theme.text_sizes.large),
+                                    );
+
+                                    wrap_eth_event_ui(
+                                       self.chain,
+                                       theme,
+                                       icons.clone(),
+                                       wrap_eth,
+                                       ui,
+                                    );
+                                 });
+                              });
+                           }
+
+                           for unwrap_weth in &analysis.weth_unwraps {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(
+                                       RichText::new("Unwrap WETH").size(theme.text_sizes.large),
+                                    );
+
+                                    unwrap_weth_event_ui(
+                                       self.chain,
+                                       theme,
+                                       icons.clone(),
+                                       unwrap_weth,
+                                       ui,
+                                    );
+                                 });
+                              });
+                           }
+
+                           for swap in &analysis.swaps {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(RichText::new("Swap").size(theme.text_sizes.large));
+
+                                    swap_event_ui(theme, icons.clone(), swap, ui);
+                                 });
+                              });
+                           }
+
+                           for bridge in &analysis.bridge {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(RichText::new("Bridge").size(theme.text_sizes.large));
+
+                                    bridge_event_ui(theme, icons.clone(), bridge, ui);
+                                 });
+                              });
+                           }
+
+                           for uniswap_position_op in &analysis.positions_ops {
+                              ui.allocate_ui(frame_size, |ui| {
+                                 frame.show(ui, |ui| {
+                                    ui.label(
+                                       RichText::new("Uniswap Position Operation")
+                                          .size(theme.text_sizes.large),
+                                    );
+
+                                    uniswap_position_op_event_ui(
+                                       theme,
+                                       icons.clone(),
+                                       uniswap_position_op,
+                                       ui,
+                                    );
+                                 });
+                              });
+                           }
+                        });
                   }
 
                   ui.add_space(20.0);
 
                   // Show the Chain we interacted with
-                  chain_ui(self.chain, theme, icons.clone(), ui);
+                  ui.allocate_ui(frame_size, |ui| {
+                     frame.show(ui, |ui| {
+                        chain_ui(self.chain, theme, icons.clone(), ui);
 
-                  // Contract interaction
-                  if analysis.contract_interact {
-                     contract_interact(self.chain, analysis.interact_to, theme, ui);
-                  }
+                        // Contract interaction
+                        if analysis.contract_interact {
+                           contract_interact(self.chain, analysis.interact_to, theme, ui);
+                        }
 
-                  // Value to be sent
-                  value(
-                     ctx.clone(),
-                     self.chain,
-                     analysis.value_sent(),
-                     theme,
-                     ui,
-                  );
+                        // Value to be sent
+                        value(
+                           ctx.clone(),
+                           self.chain,
+                           analysis.value_sent(),
+                           theme,
+                           ui,
+                        );
 
-                  // Transaction cost
-                  transaction_cost(
-                     self.chain,
-                     &self.tx_cost,
-                     &self.tx_cost_usd,
-                     theme,
-                     ui,
-                  );
+                        // Transaction cost
+                        transaction_cost(
+                           self.chain,
+                           &self.tx_cost,
+                           &self.tx_cost_usd,
+                           theme,
+                           ui,
+                        );
+                     });
+                  });
 
                   ui.add_space(20.0);
 
@@ -313,47 +456,66 @@ impl TxConfirmationWindow {
                      analysis.sender,
                   );
 
-                  // Ajdust Priority Fee
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = format!("Priority Fee (Gwei)");
-                     ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                  let size = vec2(ui.available_width() * 0.7, 45.0);
+                  ui.allocate_ui(size, |ui| {
+                     frame.show(ui, |ui| {
+                        ui.set_width(size.x);
+                        ui.spacing_mut().item_spacing = vec2(15.0, 10.0);
+
+                        ui.horizontal(|ui| {
+                           let availabled_width = ui.available_width();
+                           let fee_width = ui.available_width() * 0.3;
+                           let gas_width = ui.available_width() * 0.5;
+
+                           // Ajdust Priority Fee
+                           ui.vertical(|ui| {
+                              let text = format!("Priority Fee (Gwei)");
+                              ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                              if self.chain.is_bsc() {
+                                 ui.disable();
+                              }
+
+                              ui.add(
+                                 TextEdit::singleline(&mut self.priority_fee)
+                                    .margin(Margin::same(10))
+                                    .background_color(theme.colors.text_edit_bg)
+                                    .desired_width(fee_width)
+                                    .font(egui::FontId::proportional(
+                                       theme.text_sizes.normal,
+                                    )),
+                              );
+                           });
+
+                           // Take the available space because otherwise the gas limit
+                           // will not be pushed to the far right
+                           ui.add_space(availabled_width - (fee_width + gas_width));
+
+                           // Adjust Gas Limit
+                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                              ui.vertical(|ui| {
+                                 let text = format!("Gas Limit");
+                                 ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+                                 ui.add(
+                                    TextEdit::singleline(&mut self.adjusted_gas_limit)
+                                       .margin(Margin::same(10))
+                                       .background_color(theme.colors.text_edit_bg)
+                                       .desired_width(gas_width)
+                                       .font(egui::FontId::proportional(
+                                          theme.text_sizes.normal,
+                                       )),
+                                 );
+                              });
+                           });
+                        });
+                     });
                   });
 
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     if self.chain.is_bsc() {
-                        ui.disable();
-                     }
-                     ui.set_width(ui.available_width() * 0.2);
-                     ui.add(
-                        TextEdit::singleline(&mut self.priority_fee)
-                           .margin(Margin::same(10))
-                           .background_color(theme.colors.text_edit_bg)
-                           .font(egui::FontId::proportional(
-                              theme.text_sizes.normal,
-                           )),
-                     );
-                  });
+                  ui.add_space(10.0);
 
-                  // Adjust Gas Limit
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     let text = format!("Gas Limit");
-                     ui.label(RichText::new(text).size(theme.text_sizes.normal));
-                  });
-
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     ui.set_width(ui.available_width() * 0.2);
-
-                     ui.add(
-                        TextEdit::singleline(&mut self.adjusted_gas_limit)
-                           .margin(Margin::same(10))
-                           .background_color(theme.colors.text_edit_bg)
-                           .font(egui::FontId::proportional(
-                              theme.text_sizes.normal,
-                           )),
-                     );
-                  });
-
-                  let base_case = self.chain.is_ethereum() && !action.is_other() && action.is_mev_vulnerable();
+                  let base_case =
+                     self.chain.is_ethereum() && !action.is_other() && action.is_mev_vulnerable();
                   let show_mev_protect = base_case || action.is_other();
 
                   if show_mev_protect {
@@ -636,7 +798,7 @@ pub fn transaction_cost(
    ui: &mut Ui,
 ) {
    let native_currency = NativeCurrency::from(chain.id());
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -659,7 +821,7 @@ pub fn transaction_cost(
 }
 
 pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -684,7 +846,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
 
 pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, ui: &mut Ui) {
    let eth = Currency::from(NativeCurrency::from(chain.id()));
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -705,7 +867,7 @@ pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, u
 }
 
 pub fn contract_interact(chain: ChainId, interact_to: Address, theme: &Theme, ui: &mut Ui) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -731,7 +893,7 @@ pub fn contract_interact(chain: ChainId, interact_to: Address, theme: &Theme, ui
 }
 
 pub fn chain_ui(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -842,7 +1004,7 @@ pub fn token_approval_event_ui(
    }
 
    // Spender
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -870,7 +1032,7 @@ fn transfer_event_ui(
    params: &TransferParams,
    ui: &mut Ui,
 ) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
 
    // Currency to Send
    ui.allocate_ui(size, |ui| {
@@ -944,7 +1106,7 @@ fn erc20_transfer_event_ui(
    params: &ERC20TransferParams,
    ui: &mut Ui,
 ) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    // token to Send
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
@@ -1010,7 +1172,7 @@ fn erc20_transfer_event_ui(
 }
 
 fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: &mut Ui) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
 
    // Input currency column
    ui.allocate_ui(size, |ui| {
@@ -1110,7 +1272,7 @@ fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: 
 }
 
 fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut Ui) {
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
 
    // Input currency column
    ui.allocate_ui(size, |ui| {
@@ -1180,7 +1342,6 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             let amount = amount.unwrap();
             let amount_usd = amount_usd.unwrap();
             let currency = &params.output_currency;
-            let icon = icons.currency_icon_x24(&currency);
             let amount_symbol = format!(
                "{} {}",
                amount.format_abbreviated(),
@@ -1189,8 +1350,10 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             let amount_usd = format!("~ ${}", amount_usd.format_abbreviated());
             let text = RichText::new(format!("{} {}", amount_symbol, amount_usd))
                .size(theme.text_sizes.large);
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.add(label);
+            let label = Label::new(text, None);
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.add(label);
+            });
          });
       });
    }
@@ -1206,7 +1369,7 @@ fn wrap_eth_event_ui(
    let weth = Currency::from(ERC20Token::wrapped_native_token(chain.id()));
    let weth_icon = icons.currency_icon(&weth);
 
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          let text = RichText::new(&format!(
@@ -1245,7 +1408,7 @@ fn unwrap_weth_event_ui(
    let eth = NativeCurrency::from(chain.id());
    let eth_icon = icons.native_currency_icon(chain.id());
 
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
    ui.allocate_ui(size, |ui| {
       ui.horizontal(|ui| {
          let text = RichText::new(&format!(
@@ -1291,7 +1454,7 @@ fn uniswap_position_op_event_ui(
    let min_amount0_usd = params.min_amount0_usd.clone().unwrap_or_default();
    let min_amount1_usd = params.min_amount1_usd.clone().unwrap_or_default();
 
-   let size = vec2(ui.available_width() * 0.9, 30.0);
+   let size = vec2(ui.available_width(), 30.0);
 
    // Currency A and Amount & value
    ui.allocate_ui(size, |ui| {

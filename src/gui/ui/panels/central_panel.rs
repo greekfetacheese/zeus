@@ -124,6 +124,34 @@ impl UiTesting {
          ui.spacing_mut().item_spacing.y = 10.0;
          let btn_size = vec2(100.0, 25.0);
 
+         let button = Button::new("Unknown Tx Analysis").min_size(btn_size);
+         if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
+
+            RT.spawn_blocking(move || {
+               let params = TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Unknown".to_string(),
+                  erc20_transfers: vec![params.clone(), params.clone(), params],
+                  gas_used: 160_000,
+                  ..Default::default()
+               };
+
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                     true,
+                  );
+               });
+            });
+         }
+
          let button = Button::new("Swap Tx Analysis").min_size(btn_size);
          if ui.add(button).clicked() {
             let ctx_clone = ctx.clone();
@@ -146,7 +174,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
@@ -171,7 +199,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
@@ -199,7 +227,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
@@ -227,7 +255,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
@@ -255,7 +283,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
@@ -281,7 +309,7 @@ impl UiTesting {
                      ctx_clone.chain(),
                      analysis,
                      "1".to_string(),
-                     true
+                     true,
                   );
                });
             });
