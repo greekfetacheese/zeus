@@ -844,8 +844,9 @@ impl SetPriceRangeUi {
       ui.label(RichText::new(text).size(theme.text_sizes.normal));
       ui.add_space(20.0);
 
-      ui.scope(|ui| {
-         ui.set_width(ui.available_width() * 0.8);
+      let size = vec2(ui.available_width() * 0.9, ui.available_height());
+      let frame = theme.frame2;
+      ui.allocate_ui(size, |ui| {
          currencies_amount_and_value(
             ctx.clone(),
             chain.id(),
@@ -858,6 +859,7 @@ impl SetPriceRangeUi {
             &price1_usd,
             theme,
             icons.clone(),
+            frame,
             ui,
          );
       });

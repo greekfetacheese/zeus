@@ -985,7 +985,7 @@ pub fn token_approval_event_ui(
          false
       };
 
-      let icon = icons.currency_icon_x24(&Currency::from(token.clone()));
+      let icon = icons.currency_icon(&Currency::from(token.clone()));
       let text = if show_usd_value {
          let amount_usd = amount_usd.as_ref().unwrap();
          RichText::new(format!(
@@ -1040,13 +1040,13 @@ fn transfer_event_ui(
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.currency;
             let amount = &params.amount;
-            let icon = icons.currency_icon_x24(&currency);
+            let icon = icons.currency_icon(&currency);
             let text = RichText::new(&format!(
                "{} {} ",
                amount.format_abbreviated(),
                currency.symbol()
             ))
-            .size(theme.text_sizes.normal);
+            .size(theme.text_sizes.large);
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
@@ -1056,7 +1056,7 @@ fn transfer_event_ui(
             let amount = params.amount_usd.clone().unwrap_or_default();
             ui.label(
                RichText::new(&format!("~ ${}", amount.format_abbreviated()))
-                  .size(theme.text_sizes.normal),
+                  .size(theme.text_sizes.large),
             );
          });
       });
@@ -1113,13 +1113,13 @@ fn erc20_transfer_event_ui(
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let token = &params.token;
             let amount = &params.amount;
-            let icon = icons.token_icon_x24(token.address, token.chain_id);
+            let icon = icons.token_icon(token.address, token.chain_id);
             let text = RichText::new(&format!(
                "{} {} ",
                amount.format_abbreviated(),
                token.symbol
             ))
-            .size(theme.text_sizes.normal);
+            .size(theme.text_sizes.large);
             let label = Label::new(text, Some(icon)).image_on_left();
             ui.add(label);
          });
@@ -1129,7 +1129,7 @@ fn erc20_transfer_event_ui(
             let amount = params.amount_usd.clone().unwrap_or_default();
             ui.label(
                RichText::new(&format!("~ ${}", amount.format_abbreviated()))
-                  .size(theme.text_sizes.normal),
+                  .size(theme.text_sizes.large),
             );
          });
       });
@@ -1179,7 +1179,7 @@ fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: 
       ui.horizontal(|ui| {
          let currency = &params.input_currency;
          let amount = &params.amount;
-         let icon = icons.currency_icon_x24(&currency);
+         let icon = icons.currency_icon(&currency);
          let text = RichText::new(&format!(
             "- {} {} ",
             amount.format_abbreviated(),
@@ -1209,7 +1209,7 @@ fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: 
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.output_currency;
             let amount = &params.received;
-            let icon = icons.currency_icon_x24(&currency);
+            let icon = icons.currency_icon(&currency);
             let text = RichText::new(format!(
                "+ {} {}",
                amount.format_abbreviated(),
@@ -1279,7 +1279,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.horizontal(|ui| {
          let currency = &params.input_currency;
          let amount = &params.amount_in;
-         let icon = icons.currency_icon_x24(&currency);
+         let icon = icons.currency_icon(&currency);
          let text = RichText::new(&format!(
             "- {} {} ",
             amount.format_abbreviated(),
@@ -1309,7 +1309,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.output_currency;
             let amount = &params.received;
-            let icon = icons.currency_icon_x24(&currency);
+            let icon = icons.currency_icon(&currency);
             let text = RichText::new(format!(
                "+ {} {}",
                amount.format_abbreviated(),

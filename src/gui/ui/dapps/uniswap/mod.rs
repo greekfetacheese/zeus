@@ -9,7 +9,7 @@ use pool::PoolsUi;
 use swap::SwapUi;
 use view_positions::ViewPositionsUi;
 
-use egui::{Align, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
+use egui::{Align, Frame, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
@@ -330,9 +330,9 @@ pub fn currencies_amount_and_value(
    price1_usd: &NumericValue,
    theme: &Theme,
    icons: Arc<Icons>,
+   frame: Frame,
    ui: &mut Ui,
 ) {
-   let frame = theme.frame1;
 
    ui.vertical(|ui| {
 
@@ -341,8 +341,8 @@ pub fn currencies_amount_and_value(
          ui.horizontal(|ui| {
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token0.symbol()).size(theme.text_sizes.normal);
-                  let icon = icons.currency_icon_x24(&token0);
+                  let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
+                  let icon = icons.currency_icon(&token0);
                   let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
@@ -350,7 +350,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, &token0);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
-                  let text = RichText::new(b_text).size(theme.text_sizes.small);
+                  let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = LabelWithImage::new(text, None);
                   ui.add(label);
                });
@@ -363,7 +363,7 @@ pub fn currencies_amount_and_value(
                   .size(theme.text_sizes.normal);
                ui.label(text);
 
-               ui.add_space(10.0);
+               ui.add_space(5.0);
 
                let text = RichText::new(format!("{}", amount0.format_abbreviated()))
                   .size(theme.text_sizes.normal);
@@ -377,8 +377,8 @@ pub fn currencies_amount_and_value(
          ui.horizontal(|ui| {
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = RichText::new(token1.symbol()).size(theme.text_sizes.normal);
-                  let icon = icons.currency_icon_x24(&token1);
+                  let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
+                  let icon = icons.currency_icon(&token1);
                   let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
@@ -386,7 +386,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, &token1);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
-                  let text = RichText::new(b_text).size(theme.text_sizes.small);
+                  let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = LabelWithImage::new(text, None);
                   ui.add(label);
                });
@@ -399,7 +399,7 @@ pub fn currencies_amount_and_value(
                   .size(theme.text_sizes.normal);
                ui.label(text);
 
-               ui.add_space(10.0);
+               ui.add_space(5.0);
 
                let text = RichText::new(format!("{}", amount1.format_abbreviated()))
                   .size(theme.text_sizes.normal);

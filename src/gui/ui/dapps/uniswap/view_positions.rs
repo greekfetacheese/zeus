@@ -10,9 +10,7 @@ use zeus_eth::{
    alloy_sol_types::SolEvent,
    amm::{
       self, AnyUniswapPool, UniswapPool, UniswapV3Pool,
-      uniswap::v3::{
-         calculate_liquidity_amounts, calculate_liquidity_needed, get_price_from_tick,
-      },
+      uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_price_from_tick},
       uniswap_v3_math,
    },
    currency::{Currency, ERC20Token},
@@ -112,8 +110,9 @@ impl CollectFees {
                let price0_usd = ctx.get_currency_price(pool.currency0());
                let price1_usd = ctx.get_currency_price(pool.currency1());
 
-               ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.8);
+               let size = vec2(ui.available_width() * 0.9, ui.available_height());
+               let frame = theme.frame2;
+               ui.allocate_ui(size, |ui| {
                   currencies_amount_and_value(
                      ctx.clone(),
                      chain.id(),
@@ -126,6 +125,7 @@ impl CollectFees {
                      &price1_usd,
                      theme,
                      icons.clone(),
+                     frame,
                      ui,
                   );
                });
@@ -307,8 +307,9 @@ impl RemoveLiquidity {
                let price0_usd = ctx.get_currency_price(pool.currency0());
                let price1_usd = ctx.get_currency_price(pool.currency1());
 
-               ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.8);
+               let size = vec2(ui.available_width() * 0.9, ui.available_height());
+               let frame = theme.frame2;
+               ui.allocate_ui(size, |ui| {
                   currencies_amount_and_value(
                      ctx.clone(),
                      chain.id(),
@@ -321,6 +322,7 @@ impl RemoveLiquidity {
                      &price1_usd,
                      theme,
                      icons.clone(),
+                     frame,
                      ui,
                   );
                });
@@ -495,17 +497,17 @@ impl AddLiquidity {
                let sqrt_price_lower =
                   uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_lower)
                      .unwrap_or_default();
-                 // tracing::info!("Sqrt price lower {}", sqrt_price_lower);
+               // tracing::info!("Sqrt price lower {}", sqrt_price_lower);
 
                let sqrt_price_upper =
                   uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_upper)
                      .unwrap_or_default();
-                 // tracing::info!("Sqrt price upper {}", sqrt_price_upper);
+               // tracing::info!("Sqrt price upper {}", sqrt_price_upper);
 
                let deposit_amount =
                   NumericValue::parse_to_wei(&self.deposit_amount, token0.decimals());
-                // tracing::info!("Deposit amount {} {}", token0.symbol(), deposit_amount.format_abbreviated());
-                // tracing::info!("Pool SqrtPrice {}", state.sqrt_price);
+               // tracing::info!("Deposit amount {} {}", token0.symbol(), deposit_amount.format_abbreviated());
+               // tracing::info!("Pool SqrtPrice {}", state.sqrt_price);
 
                // Calculate the liquidity based on the desired amount of token0
                let liquidity = calculate_liquidity_needed(
@@ -516,7 +518,7 @@ impl AddLiquidity {
                   true,
                )
                .unwrap_or_default();
-              // tracing::info!("Liquidity {}", liquidity);
+               // tracing::info!("Liquidity {}", liquidity);
 
                let (amount0, amount1) = calculate_liquidity_amounts(
                   state.sqrt_price,
@@ -525,15 +527,16 @@ impl AddLiquidity {
                   liquidity,
                )
                .unwrap_or_default();
-              // tracing::info!("Amount0 {} Amount1 {}", amount0, amount1);
+               // tracing::info!("Amount0 {} Amount1 {}", amount0, amount1);
 
                let amount0_needed = NumericValue::format_wei(amount0, token0.decimals());
                let amount1_needed = NumericValue::format_wei(amount1, token1.decimals());
                let price0_usd = ctx.get_currency_price(&token0);
                let price1_usd = ctx.get_currency_price(&token1);
 
-               ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.8);
+               let size = vec2(ui.available_width() * 0.9, ui.available_height());
+               let frame = theme.frame2;
+               ui.allocate_ui(size, |ui| {
                   currencies_amount_and_value(
                      ctx.clone(),
                      chain.id(),
@@ -546,6 +549,7 @@ impl AddLiquidity {
                      &price1_usd,
                      theme,
                      icons.clone(),
+                     frame,
                      ui,
                   );
                });
