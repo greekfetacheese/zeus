@@ -15,7 +15,7 @@ use zeus_eth::{
    },
    currency::{Currency, ERC20Token},
    types::BlockTime,
-   utils::{NumericValue, address::uniswap_nft_position_manager, get_logs_for},
+   utils::{NumericValue, address_book::uniswap_nft_position_manager, get_logs_for},
 };
 
 use crate::{

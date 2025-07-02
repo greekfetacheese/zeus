@@ -15,7 +15,7 @@ use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
-use utils::{address::permit2_contract, generate_permit2_single_value, parse_typed_data};
+use utils::{address_book::permit2_contract, generate_permit2_single_value, parse_typed_data};
 use wallet::{SecureSigner, alloy_signer::Signer};
 
 use std::collections::HashSet;
@@ -46,7 +46,7 @@ where
    }
 
    let owner = signer.address();
-   let router_addr = utils::address::universal_router_v2(chain_id)?;
+   let router_addr = utils::address_book::universal_router_v2(chain_id)?;
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
    let mut execute_params = SwapExecuteParams::new();

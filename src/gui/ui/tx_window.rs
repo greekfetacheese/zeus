@@ -172,27 +172,62 @@ impl TxConfirmationWindow {
 
       if action.is_token_approval() {
          let params = action.token_approval_params();
-         token_approval_event_ui(self.chain, theme, icons.clone(), params, ui);
+         token_approval_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
       }
 
       if action.is_wrap_eth() {
          let params = action.wrap_eth_params();
-         wrap_eth_event_ui(self.chain, theme, icons.clone(), params, ui);
+         wrap_eth_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
       }
 
       if action.is_unwrap_weth() {
          let params = action.unwrap_weth_params();
-         unwrap_weth_event_ui(self.chain, theme, icons.clone(), params, ui);
+         unwrap_weth_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
       }
 
       if action.is_uniswap_position_op() {
          let params = action.uniswap_position_params();
-         uniswap_position_op_event_ui(theme, icons.clone(), params, ui);
+         uniswap_position_op_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            params,
+            ui,
+         );
       }
 
       if action.is_bridge() {
          let params = action.bridge_params();
-         bridge_event_ui(theme, icons.clone(), &params, ui);
+         bridge_event_ui(
+            ctx.clone(),
+            self.chain,
+            theme,
+            icons.clone(),
+            &params,
+            ui,
+         );
       }
 
       if action.is_swap() {
@@ -330,6 +365,7 @@ impl TxConfirmationWindow {
                                     );
 
                                     token_approval_event_ui(
+                                       ctx.clone(),
                                        self.chain,
                                        theme,
                                        icons.clone(),
@@ -348,6 +384,7 @@ impl TxConfirmationWindow {
                                     );
 
                                     wrap_eth_event_ui(
+                                       ctx.clone(),
                                        self.chain,
                                        theme,
                                        icons.clone(),
@@ -366,6 +403,7 @@ impl TxConfirmationWindow {
                                     );
 
                                     unwrap_weth_event_ui(
+                                       ctx.clone(),
                                        self.chain,
                                        theme,
                                        icons.clone(),
@@ -391,7 +429,14 @@ impl TxConfirmationWindow {
                                  frame.show(ui, |ui| {
                                     ui.label(RichText::new("Bridge").size(theme.text_sizes.large));
 
-                                    bridge_event_ui(theme, icons.clone(), bridge, ui);
+                                    bridge_event_ui(
+                                       ctx.clone(),
+                                       self.chain,
+                                       theme,
+                                       icons.clone(),
+                                       bridge,
+                                       ui,
+                                    );
                                  });
                               });
                            }
@@ -405,6 +450,8 @@ impl TxConfirmationWindow {
                                     );
 
                                     uniswap_position_op_event_ui(
+                                       ctx.clone(),
+                                       self.chain,
                                        theme,
                                        icons.clone(),
                                        uniswap_position_op,
@@ -425,7 +472,13 @@ impl TxConfirmationWindow {
 
                         // Contract interaction
                         if analysis.contract_interact {
-                           contract_interact(self.chain, analysis.interact_to, theme, ui);
+                           contract_interact(
+                              ctx.clone(),
+                              self.chain,
+                              analysis.interact_to,
+                              theme,
+                              ui,
+                           );
                         }
 
                         // Value to be sent
@@ -726,27 +779,62 @@ impl TxWindow {
 
                   if action.is_token_approval() {
                      let params = action.token_approval_params();
-                     token_approval_event_ui(chain, theme, icons.clone(), params, ui);
+                     token_approval_event_ui(
+                        ctx.clone(),
+                        chain,
+                        theme,
+                        icons.clone(),
+                        params,
+                        ui,
+                     );
                   }
 
                   if action.is_wrap_eth() {
                      let params = action.wrap_eth_params();
-                     wrap_eth_event_ui(chain, theme, icons.clone(), params, ui);
+                     wrap_eth_event_ui(
+                        ctx.clone(),
+                        chain,
+                        theme,
+                        icons.clone(),
+                        params,
+                        ui,
+                     );
                   }
 
                   if action.is_unwrap_weth() {
                      let params = action.unwrap_weth_params();
-                     unwrap_weth_event_ui(chain, theme, icons.clone(), params, ui);
+                     unwrap_weth_event_ui(
+                        ctx.clone(),
+                        chain,
+                        theme,
+                        icons.clone(),
+                        params,
+                        ui,
+                     );
                   }
 
                   if action.is_uniswap_position_op() {
                      let params = action.uniswap_position_params();
-                     uniswap_position_op_event_ui(theme, icons.clone(), params, ui);
+                     uniswap_position_op_event_ui(
+                        ctx.clone(),
+                        chain,
+                        theme,
+                        icons.clone(),
+                        params,
+                        ui,
+                     );
                   }
 
                   if action.is_bridge() {
                      let params = action.bridge_params();
-                     bridge_event_ui(theme, icons.clone(), &params, ui);
+                     bridge_event_ui(
+                        ctx.clone(),
+                        chain,
+                        theme,
+                        icons.clone(),
+                        &params,
+                        ui,
+                     );
                   }
 
                   if action.is_swap() {
@@ -759,7 +847,7 @@ impl TxWindow {
 
                   // Contract interaction
                   if tx.contract_interact {
-                     contract_interact(chain, tx.interact_to(), theme, ui);
+                     contract_interact(ctx.clone(), chain, tx.interact_to(), theme, ui);
                   }
 
                   value(
@@ -798,117 +886,116 @@ pub fn transaction_cost(
    ui: &mut Ui,
 ) {
    let native_currency = NativeCurrency::from(chain.id());
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let cost = format!(
-               "Cost {} {}",
-               eth_cost.formatted(),
-               native_currency.symbol
-            );
-            ui.label(RichText::new(cost).size(theme.text_sizes.normal));
-         });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(
-               RichText::new(format!("~ ${}", eth_cost_usd.formatted()))
-                  .size(theme.text_sizes.normal),
-            );
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let cost = format!(
+            "Cost {} {}",
+            eth_cost.formatted(),
+            native_currency.symbol
+         );
+         ui.label(RichText::new(cost).size(theme.text_sizes.normal));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(
+            RichText::new(format!("~ ${}", eth_cost_usd.formatted())).size(theme.text_sizes.normal),
+         );
       });
    });
 }
 
 pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = "Transaction hash";
-            ui.label(RichText::new(text).size(theme.text_sizes.normal));
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = "Transaction hash";
+         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let hash_str = truncate_hash(tx_hash.to_string());
-            let explorer = chain.block_explorer();
-            let link = format!("{}/tx/{}", explorer, tx_hash.to_string());
-            ui.hyperlink_to(
-               RichText::new(hash_str)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let hash_str = truncate_hash(tx_hash.to_string());
+         let explorer = chain.block_explorer();
+         let link = format!("{}/tx/{}", explorer, tx_hash.to_string());
+         ui.hyperlink_to(
+            RichText::new(hash_str)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
 
 pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, ui: &mut Ui) {
    let eth = Currency::from(NativeCurrency::from(chain.id()));
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let value = value.format_abbreviated();
-            let text = format!("Value {} {}", value, eth.symbol());
-            ui.label(RichText::new(text).size(theme.text_sizes.normal));
-         });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
-            ui.label(
-               RichText::new(format!("~ ${}", value_usd.format_abbreviated()))
-                  .size(theme.text_sizes.normal),
-            );
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let value = value.format_abbreviated();
+         let text = format!("Value {} {}", value, eth.symbol());
+         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
+         ui.label(
+            RichText::new(format!("~ ${}", value_usd.format_abbreviated()))
+               .size(theme.text_sizes.normal),
+         );
       });
    });
 }
 
-pub fn contract_interact(chain: ChainId, interact_to: Address, theme: &Theme, ui: &mut Ui) {
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = RichText::new("Contract interaction").size(theme.text_sizes.normal);
-            ui.label(text);
-         });
+pub fn contract_interact(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   interact_to: Address,
+   theme: &Theme,
+   ui: &mut Ui,
+) {
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = RichText::new("Contract interaction").size(theme.text_sizes.normal);
+         ui.label(text);
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let interact_addr = interact_to.to_string();
-            let interact_short = truncate_address(interact_addr.clone());
-            let explorer = chain.block_explorer();
-            let link = format!("{}/address/{}", explorer, interact_addr);
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let interact_short = truncate_address(interact_to.to_string());
+         let interact_to_name = ctx.get_address_name(chain.id(), interact_to);
 
-            ui.hyperlink_to(
-               RichText::new(interact_short)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
+         let interact_to_name = if interact_to_name.is_some() {
+            interact_to_name.unwrap()
+         } else {
+            interact_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!("{}/address/{}", explorer, interact_to.to_string());
+
+         ui.hyperlink_to(
+            RichText::new(interact_to_name)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
 
 pub fn chain_ui(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Chain").size(theme.text_sizes.normal));
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Chain").size(theme.text_sizes.normal));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let icon = icons.chain_icon(chain.id());
-            let label = Label::new(
-               RichText::new(chain.name()).size(theme.text_sizes.normal),
-               Some(icon),
-            )
-            .image_on_left();
-            ui.add(label);
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let icon = icons.chain_icon(chain.id());
+         let label = Label::new(
+            RichText::new(chain.name()).size(theme.text_sizes.normal),
+            Some(icon),
+         )
+         .image_on_left();
+         ui.add(label);
       });
    });
 }
@@ -954,17 +1041,13 @@ pub fn eth_received(
 }
 
 pub fn token_approval_event_ui(
+   ctx: ZeusCtx,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
    params: &TokenApproveParams,
    ui: &mut Ui,
 ) {
-   let spender_addr = params.spender.to_string();
-   let spender_short = truncate_address(spender_addr.clone());
-   let explorer = chain.block_explorer();
-   let link = format!("{}/address/{}", explorer, spender_addr);
-
    let token_details = params
       .token
       .iter()
@@ -1003,23 +1086,67 @@ pub fn token_approval_event_ui(
       ui.add(label);
    }
 
-   // Spender
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let text = RichText::new("Spender").size(theme.text_sizes.normal);
-            ui.label(text);
-         });
+   // Owner
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Owner").size(theme.text_sizes.large));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.hyperlink_to(
-               RichText::new(spender_short)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let owner_address = params.owner;
+         let owner_short = truncate_address(owner_address.to_string());
+         let address_name = ctx.get_address_name(chain.id(), owner_address);
+         let owner = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            owner_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            owner_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(owner)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
+      });
+   });
+
+   // Spender
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = RichText::new("Spender").size(theme.text_sizes.large);
+         ui.label(text);
+      });
+
+      let spender_address = params.spender;
+      let spender_short = truncate_address(spender_address.to_string());
+      let spender_name = ctx.get_address_name(chain.id(), spender_address);
+      let spender = if spender_name.is_some() {
+         spender_name.unwrap()
+      } else {
+         spender_short
+      };
+
+      let explorer = chain.block_explorer();
+      let link = format!(
+         "{}/address/{}",
+         explorer,
+         spender_address.to_string()
+      );
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.hyperlink_to(
+            RichText::new(spender)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
@@ -1072,21 +1199,20 @@ fn transfer_event_ui(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let recipient_address = params.recipient;
             let recipient_short = truncate_address(recipient_address.to_string());
+
+            let address_name = ctx.get_address_name(chain.id(), recipient_address);
+            let recipient = if address_name.is_some() {
+               address_name.unwrap()
+            } else {
+               recipient_short
+            };
+
             let explorer = chain.block_explorer();
             let link = format!(
                "{}/address/{}",
                explorer,
                recipient_address.to_string()
             );
-            let contact = ctx.get_contact_by_address(&recipient_address.to_string());
-            let wallet = ctx.get_wallet_info(recipient_address);
-            let recipient = if contact.is_some() {
-               contact.unwrap().name
-            } else if wallet.is_some() {
-               wallet.unwrap().name
-            } else {
-               recipient_short
-            };
             ui.hyperlink_to(
                RichText::new(recipient)
                   .size(theme.text_sizes.normal)
@@ -1106,227 +1232,306 @@ fn erc20_transfer_event_ui(
    params: &ERC20TransferParams,
    ui: &mut Ui,
 ) {
-   let size = vec2(ui.available_width(), 30.0);
-   // token to Send
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let token = &params.token;
-            let amount = &params.amount;
-            let icon = icons.token_icon(token.address, token.chain_id);
-            let text = RichText::new(&format!(
-               "{} {} ",
-               amount.format_abbreviated(),
-               token.symbol
-            ))
-            .size(theme.text_sizes.large);
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.add(label);
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let token = &params.token;
+         let amount = &params.amount;
+         let icon = icons.token_icon(token.address, token.chain_id);
+         let text = RichText::new(&format!(
+            "{} {} ",
+            amount.format_abbreviated(),
+            token.symbol
+         ))
+         .size(theme.text_sizes.large);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.add(label);
+      });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = params.amount_usd.clone().unwrap_or_default();
-            ui.label(
-               RichText::new(&format!("~ ${}", amount.format_abbreviated()))
-                  .size(theme.text_sizes.large),
-            );
-         });
+      // Value
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let amount = params.amount_usd.clone().unwrap_or_default();
+         ui.label(
+            RichText::new(&format!("~ ${}", amount.format_abbreviated()))
+               .size(theme.text_sizes.large),
+         );
+      });
+   });
+
+   // Sender
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Sender").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let sender_address = params.sender;
+         let sender_short = truncate_address(sender_address.to_string());
+         let address_name = ctx.get_address_name(chain.id(), sender_address);
+         let sender = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            sender_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            sender_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(sender)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 
    // Recipient
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let recipient_address = params.recipient;
-            let recipient_short = truncate_address(recipient_address.to_string());
-            let explorer = chain.block_explorer();
-            let link = format!(
-               "{}/address/{}",
-               explorer,
-               recipient_address.to_string()
-            );
-            let contact = ctx.get_contact_by_address(&recipient_address.to_string());
-            let wallet = ctx.get_wallet_info(recipient_address);
-            let recipient = if contact.is_some() {
-               contact.unwrap().name
-            } else if wallet.is_some() {
-               wallet.unwrap().name
-            } else {
-               recipient_short
-            };
-            ui.hyperlink_to(
-               RichText::new(recipient)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let recipient_address = params.recipient;
+         let recipient_short = truncate_address(recipient_address.to_string());
+
+         let address_name = ctx.get_address_name(chain.id(), recipient_address);
+         let recipient = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            recipient_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            recipient_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(recipient)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
 
-fn bridge_event_ui(theme: &Theme, icons: Arc<Icons>, params: &BridgeParams, ui: &mut Ui) {
-   let size = vec2(ui.available_width(), 30.0);
-
+fn bridge_event_ui(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &BridgeParams,
+   ui: &mut Ui,
+) {
    // Input currency column
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let currency = &params.input_currency;
-         let amount = &params.amount;
-         let icon = icons.currency_icon(&currency);
-         let text = RichText::new(&format!(
-            "- {} {} ",
-            amount.format_abbreviated(),
-            currency.symbol()
-         ))
-         .size(theme.text_sizes.normal)
-         .color(theme.colors.error_color);
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+   ui.horizontal(|ui| {
+      let currency = &params.input_currency;
+      let amount = &params.amount;
+      let icon = icons.currency_icon(&currency);
+      let text = RichText::new(&format!(
+         "- {} {} ",
+         amount.format_abbreviated(),
+         currency.symbol()
+      ))
+      .size(theme.text_sizes.normal)
+      .color(theme.colors.error_color);
+      let label = Label::new(text, Some(icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let value = params.amount_usd.clone().unwrap_or_default();
-            ui.label(
-               RichText::new(&format!("~ ${}", value.format_abbreviated()))
-                  .size(theme.text_sizes.normal),
-            );
-         });
+      // Value
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let value = params.amount_usd.clone().unwrap_or_default();
+         ui.label(
+            RichText::new(&format!("~ ${}", value.format_abbreviated()))
+               .size(theme.text_sizes.normal),
+         );
       });
    });
 
    // Received Currency
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let currency = &params.output_currency;
-            let amount = &params.received;
-            let icon = icons.currency_icon(&currency);
-            let text = RichText::new(format!(
-               "+ {} {}",
-               amount.format_abbreviated(),
-               currency.symbol()
-            ))
-            .size(theme.text_sizes.normal)
-            .color(theme.colors.success_color);
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.add(label);
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let currency = &params.output_currency;
+         let amount = &params.received;
+         let icon = icons.currency_icon(&currency);
+         let text = RichText::new(format!(
+            "+ {} {}",
+            amount.format_abbreviated(),
+            currency.symbol()
+         ))
+         .size(theme.text_sizes.normal)
+         .color(theme.colors.success_color);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.add(label);
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let value = params.received_usd.clone().unwrap_or_default();
-            let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
-               .size(theme.text_sizes.normal);
-            ui.label(text);
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let value = params.received_usd.clone().unwrap_or_default();
+         let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
+            .size(theme.text_sizes.normal);
+         ui.label(text);
+      });
+   });
+
+   // Depositor
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Depositor").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let depositor_address = params.depositor;
+         let depositor_short = truncate_address(depositor_address.to_string());
+
+         let address_name = ctx.get_address_name(chain.id(), depositor_address);
+         let depositor = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            depositor_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            depositor_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(depositor)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
+      });
+   });
+
+   // Recipient
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let recipient_address = params.recipient;
+         let recipient_short = truncate_address(recipient_address.to_string());
+
+         let address_name = ctx.get_address_name(chain.id(), recipient_address);
+         let recipient = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            recipient_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            recipient_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(recipient)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 
    // Origin Chain Column
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Origin Chain").size(theme.text_sizes.normal));
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Origin Chain").size(theme.text_sizes.large));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let chain: ChainId = params.origin_chain.into();
-            let icon = icons.chain_icon(chain.id());
-            let label = Label::new(
-               RichText::new(chain.name()).size(theme.text_sizes.normal),
-               Some(icon),
-            )
-            .image_on_left();
-            ui.add(label);
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let chain: ChainId = params.origin_chain.into();
+         let icon = icons.chain_icon(chain.id());
+         let label = Label::new(
+            RichText::new(chain.name()).size(theme.text_sizes.normal),
+            Some(icon),
+         )
+         .image_on_left();
+         ui.add(label);
       });
    });
 
    // Destination Chain Column
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Destination Chain").size(theme.text_sizes.normal));
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Destination Chain").size(theme.text_sizes.large));
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let chain: ChainId = params.destination_chain.into();
-            let icon = icons.chain_icon(chain.id());
-            let label = Label::new(
-               RichText::new(chain.name()).size(theme.text_sizes.normal),
-               Some(icon),
-            )
-            .image_on_left();
-            ui.add(label);
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let chain: ChainId = params.destination_chain.into();
+         let icon = icons.chain_icon(chain.id());
+         let label = Label::new(
+            RichText::new(chain.name()).size(theme.text_sizes.normal),
+            Some(icon),
+         )
+         .image_on_left();
+         ui.add(label);
       });
    });
 }
 
 fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut Ui) {
-   let size = vec2(ui.available_width(), 30.0);
-
    // Input currency column
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let currency = &params.input_currency;
-         let amount = &params.amount_in;
-         let icon = icons.currency_icon(&currency);
-         let text = RichText::new(&format!(
-            "- {} {} ",
-            amount.format_abbreviated(),
-            currency.symbol()
-         ))
-         .size(theme.text_sizes.large)
-         .color(theme.colors.error_color);
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+   ui.horizontal(|ui| {
+      let currency = &params.input_currency;
+      let amount = &params.amount_in;
+      let icon = icons.currency_icon(&currency);
+      let text = RichText::new(&format!(
+         "- {} {} ",
+         amount.format_abbreviated(),
+         currency.symbol()
+      ))
+      .size(theme.text_sizes.large)
+      .color(theme.colors.error_color);
+      let label = Label::new(text, Some(icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let value = params.amount_in_usd.clone().unwrap_or_default();
-            ui.label(
-               RichText::new(&format!("~ ${}", value.format_abbreviated()))
-                  .size(theme.text_sizes.large),
-            );
-         });
+      // Value
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let value = params.amount_in_usd.clone().unwrap_or_default();
+         ui.label(
+            RichText::new(&format!("~ ${}", value.format_abbreviated()))
+               .size(theme.text_sizes.large),
+         );
       });
    });
 
    // Received Currency
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            let currency = &params.output_currency;
-            let amount = &params.received;
-            let icon = icons.currency_icon(&currency);
-            let text = RichText::new(format!(
-               "+ {} {}",
-               amount.format_abbreviated(),
-               currency.symbol()
-            ))
-            .size(theme.text_sizes.large)
-            .color(theme.colors.success_color);
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.add(label);
-         });
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let currency = &params.output_currency;
+         let amount = &params.received;
+         let icon = icons.currency_icon(&currency);
+         let text = RichText::new(format!(
+            "+ {} {}",
+            amount.format_abbreviated(),
+            currency.symbol()
+         ))
+         .size(theme.text_sizes.large)
+         .color(theme.colors.success_color);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.add(label);
+      });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let value = params.received_usd.clone().unwrap_or_default();
-            let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
-               .size(theme.text_sizes.large);
-            ui.label(text);
-         });
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let value = params.received_usd.clone().unwrap_or_default();
+         let text = RichText::new(format!("~ ${}", value.format_abbreviated()))
+            .size(theme.text_sizes.large);
+         ui.label(text);
       });
    });
 
@@ -1334,32 +1539,31 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
    let amount = params.min_received.clone();
    let amount_usd = params.min_received_usd.clone();
    if amount.is_some() && amount_usd.is_some() {
-      ui.allocate_ui(size, |ui| {
-         ui.horizontal(|ui| {
-            ui.label(RichText::new("Minimum Received").size(theme.text_sizes.large));
-            ui.add_space(15.0);
+      ui.horizontal(|ui| {
+         ui.label(RichText::new("Minimum Received").size(theme.text_sizes.large));
+         ui.add_space(15.0);
 
-            let amount = amount.unwrap();
-            let amount_usd = amount_usd.unwrap();
-            let currency = &params.output_currency;
-            let amount_symbol = format!(
-               "{} {}",
-               amount.format_abbreviated(),
-               currency.symbol()
-            );
-            let amount_usd = format!("~ ${}", amount_usd.format_abbreviated());
-            let text = RichText::new(format!("{} {}", amount_symbol, amount_usd))
-               .size(theme.text_sizes.large);
-            let label = Label::new(text, None);
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.add(label);
-            });
+         let amount = amount.unwrap();
+         let amount_usd = amount_usd.unwrap();
+         let currency = &params.output_currency;
+         let amount_symbol = format!(
+            "{} {}",
+            amount.format_abbreviated(),
+            currency.symbol()
+         );
+         let amount_usd = format!("~ ${}", amount_usd.format_abbreviated());
+         let text =
+            RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.text_sizes.large);
+         let label = Label::new(text, None);
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.add(label);
          });
       });
    }
 }
 
 fn wrap_eth_event_ui(
+   ctx: ZeusCtx,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -1369,36 +1573,66 @@ fn wrap_eth_event_ui(
    let weth = Currency::from(ERC20Token::wrapped_native_token(chain.id()));
    let weth_icon = icons.currency_icon(&weth);
 
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let text = RichText::new(&format!(
-            "+ {} {}",
-            params.weth_received.format_abbreviated(),
-            weth.symbol()
-         ))
-         .size(theme.text_sizes.normal)
-         .color(theme.colors.success_color);
-         let label = Label::new(text, Some(weth_icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+   // Amount received + USD Value
+   ui.horizontal(|ui| {
+      let text = RichText::new(&format!(
+         "+ {} {}",
+         params.weth_received.format_abbreviated(),
+         weth.symbol()
+      ))
+      .size(theme.text_sizes.normal)
+      .color(theme.colors.success_color);
+      let label = Label::new(text, Some(weth_icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // USD Value
-         let weth_received_usd = params.weth_received_usd.clone().unwrap_or_default();
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let text = RichText::new(&format!(
-               "~ ${}",
-               weth_received_usd.format_abbreviated()
-            ))
-            .size(theme.text_sizes.normal);
-            ui.label(text);
-         });
+      // USD Value
+      let weth_received_usd = params.weth_received_usd.clone().unwrap_or_default();
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let text = RichText::new(&format!(
+            "~ ${}",
+            weth_received_usd.format_abbreviated()
+         ))
+         .size(theme.text_sizes.normal);
+         ui.label(text);
+      });
+   });
+
+   // Recipient
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let recipient_address = params.dst;
+         let recipient_short = truncate_address(recipient_address.to_string());
+         let address_name = ctx.get_address_name(chain.id(), recipient_address);
+         let recipient = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            recipient_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            recipient_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(recipient)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
 
 fn unwrap_weth_event_ui(
+   ctx: ZeusCtx,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -1408,36 +1642,64 @@ fn unwrap_weth_event_ui(
    let eth = NativeCurrency::from(chain.id());
    let eth_icon = icons.native_currency_icon(chain.id());
 
-   let size = vec2(ui.available_width(), 30.0);
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let text = RichText::new(&format!(
-            "+ {} {}",
-            params.weth_unwrapped.format_abbreviated(),
-            eth.symbol
-         ))
-         .size(theme.text_sizes.normal)
-         .color(theme.colors.success_color);
-         let label = Label::new(text, Some(eth_icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+   // Amount received + USD Value
+   ui.horizontal(|ui| {
+      let text = RichText::new(&format!(
+         "+ {} {}",
+         params.weth_unwrapped.format_abbreviated(),
+         eth.symbol
+      ))
+      .size(theme.text_sizes.normal)
+      .color(theme.colors.success_color);
+      let label = Label::new(text, Some(eth_icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // USD Value
-         let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let text = RichText::new(&format!(
-               "~ ${}",
-               weth_unwrapped_usd.format_abbreviated()
-            ))
-            .size(theme.text_sizes.normal);
-            ui.label(text);
-         });
+      // USD Value
+      let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let text = RichText::new(&format!(
+            "~ ${}",
+            weth_unwrapped_usd.format_abbreviated()
+         ))
+         .size(theme.text_sizes.normal);
+         ui.label(text);
+      });
+   });
+
+   // Source
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Source").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let src_address = params.src;
+         let src_short = truncate_address(src_address.to_string());
+
+         let address_name = ctx.get_address_name(chain.id(), src_address);
+         let src = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            src_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!("{}/address/{}", explorer, src_address.to_string());
+         ui.hyperlink_to(
+            RichText::new(src)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
       });
    });
 }
 
 fn uniswap_position_op_event_ui(
+   ctx: ZeusCtx,
+   chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
    params: &UniswapPositionParams,
@@ -1454,54 +1716,48 @@ fn uniswap_position_op_event_ui(
    let min_amount0_usd = params.min_amount0_usd.clone().unwrap_or_default();
    let min_amount1_usd = params.min_amount1_usd.clone().unwrap_or_default();
 
-   let size = vec2(ui.available_width(), 30.0);
-
    // Currency A and Amount & value
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency0);
+   ui.horizontal(|ui| {
+      let icon = icons.currency_icon(&currency0);
 
-         let text = format!(
-            "{} {}",
-            amount0.format_abbreviated(),
-            currency0.symbol()
-         );
-         let text = RichText::new(text).size(theme.text_sizes.normal);
+      let text = format!(
+         "{} {}",
+         amount0.format_abbreviated(),
+         currency0.symbol()
+      );
+      let text = RichText::new(text).size(theme.text_sizes.normal);
 
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+      let label = Label::new(text, Some(icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = amount0_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
-         });
+      // Value
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let amount = amount0_usd.format_abbreviated();
+         ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
       });
    });
 
    // Currency B and Amount & value
-   ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency1);
-         let text = format!(
-            "{} {}",
-            amount1.format_abbreviated(),
-            currency1.symbol()
-         );
+   ui.horizontal(|ui| {
+      let icon = icons.currency_icon(&currency1);
+      let text = format!(
+         "{} {}",
+         amount1.format_abbreviated(),
+         currency1.symbol()
+      );
 
-         let text = RichText::new(text).size(theme.text_sizes.normal);
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
-         });
+      let text = RichText::new(text).size(theme.text_sizes.normal);
+      let label = Label::new(text, Some(icon)).image_on_left();
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.add(label);
+      });
 
-         // Value
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let amount = amount1_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
-         });
+      // Value
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let amount = amount1_usd.format_abbreviated();
+         ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
       });
    });
 
@@ -1518,26 +1774,24 @@ fn uniswap_position_op_event_ui(
    // Minimum Amount A and Amount & value
    if min_amount0.is_some() {
       let min_amount0 = min_amount0.unwrap();
-      ui.allocate_ui(size, |ui| {
-         ui.horizontal(|ui| {
-            let icon = icons.currency_icon(&currency0);
-            let text = format!(
-               "{} {}",
-               min_amount0.format_abbreviated(),
-               currency0.symbol()
-            );
-            let text = RichText::new(text).size(theme.text_sizes.normal);
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency0);
+         let text = format!(
+            "{} {}",
+            min_amount0.format_abbreviated(),
+            currency0.symbol()
+         );
+         let text = RichText::new(text).size(theme.text_sizes.normal);
 
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add(label);
-            });
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
 
-            // Value
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let amount = min_amount0_usd.format_abbreviated();
-               ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
-            });
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = min_amount0_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
          });
       });
    }
@@ -1545,26 +1799,88 @@ fn uniswap_position_op_event_ui(
    // Minimum Amount B and Amount & value
    if min_amount1.is_some() {
       let min_amount1 = min_amount1.unwrap();
-      ui.allocate_ui(size, |ui| {
-         ui.horizontal(|ui| {
-            let icon = icons.currency_icon(&currency1);
-            let text = format!(
-               "{} {}",
-               min_amount1.format_abbreviated(),
-               currency1.symbol()
+      ui.horizontal(|ui| {
+         let icon = icons.currency_icon(&currency1);
+         let text = format!(
+            "{} {}",
+            min_amount1.format_abbreviated(),
+            currency1.symbol()
+         );
+
+         let text = RichText::new(text).size(theme.text_sizes.normal);
+         let label = Label::new(text, Some(icon)).image_on_left();
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.add(label);
+         });
+
+         // Value
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let amount = min_amount1_usd.format_abbreviated();
+            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
+         });
+      });
+   }
+
+   // Sender
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Sender").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let sender_address = params.sender;
+         let sender_short = truncate_address(sender_address.to_string());
+         let address_name = ctx.get_address_name(chain.id(), sender_address);
+         let sender = if address_name.is_some() {
+            address_name.unwrap()
+         } else {
+            sender_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!(
+            "{}/address/{}",
+            explorer,
+            sender_address.to_string()
+         );
+         ui.hyperlink_to(
+            RichText::new(sender)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
+      });
+   });
+
+   // Recipient
+   if params.recipient.is_some() {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let recipient_address = params.recipient.clone().unwrap();
+            let recipient_short = truncate_address(recipient_address.to_string());
+            let address_name = ctx.get_address_name(chain.id(), recipient_address);
+            let recipient = if address_name.is_some() {
+               address_name.unwrap()
+            } else {
+               recipient_short
+            };
+
+            let explorer = chain.block_explorer();
+            let link = format!(
+               "{}/address/{}",
+               explorer,
+               recipient_address.to_string()
             );
-
-            let text = RichText::new(text).size(theme.text_sizes.normal);
-            let label = Label::new(text, Some(icon)).image_on_left();
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               ui.add(label);
-            });
-
-            // Value
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let amount = min_amount1_usd.format_abbreviated();
-               ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
-            });
+            ui.hyperlink_to(
+               RichText::new(recipient)
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.hyperlink_color),
+               link,
+            );
          });
       });
    }

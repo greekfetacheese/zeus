@@ -17,20 +17,20 @@ use zeus_eth::{
    amm::{DexKind, uniswap::AnyUniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::NumericValue,
    utils::client::{RpcClient, get_client, retry_layer, throttle_layer},
+   utils::{NumericValue, address_book},
 };
 
 const CLIENT_TIMEOUT: u64 = 10;
 
-pub mod db;
-pub mod providers;
 pub mod balance_manager;
+pub mod db;
 pub mod pool_manager;
+pub mod providers;
 
 pub use balance_manager::BalanceManagerHandle;
+pub use db::{ContactDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use pool_manager::PoolManagerHandle;
-pub use db::{CurrencyDB, Portfolio, ContactDB, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use providers::{Rpc, RpcProviders};
 
 /// Thread-safe handle to the [ZeusContext]
@@ -627,6 +627,46 @@ impl ZeusCtx {
       });
    }
 
+   /// Return the name of this address if its known
+   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
+      let wallet = self.get_wallet_info(address);
+      if wallet.is_some() {
+         return Some(wallet.unwrap().name);
+      }
+
+      let contact = self.get_contact_by_address(&address.to_string());
+      if contact.is_some() {
+         return Some(contact.unwrap().name);
+      }
+
+      let token = self.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
+      if token.is_some() {
+         return Some(token.unwrap().name);
+      }
+
+      let permit2 = address_book::permit2_contract(chain).unwrap();
+      if permit2 == address {
+         return Some("Uniswap Protocol: Permit2".to_string());
+      }
+
+      let v4_pool_manager = address_book::uniswap_v4_pool_manager(chain).unwrap();
+      if v4_pool_manager == address {
+         return Some("Uniswap V4: Pool Manager".to_string());
+      }
+
+      let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
+      if ur_router_v2 == address {
+         return Some("Universal V4: Universal Router V2".to_string());
+      }
+
+      let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
+      if nft_position_manager == address {
+         return Some("Uniswap V3: NFT Position Manager".to_string());
+      }
+
+      None
+   }
+
    pub fn connect_dapp(&self, dapp: String) {
       self.write(|ctx| {
          ctx.connected_dapps.connect_dapp(dapp);
@@ -694,7 +734,6 @@ impl Contact {
       format!("{}...{}", &self.address[..6], &self.address[36..])
    }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct BaseFee {

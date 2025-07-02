@@ -15,7 +15,7 @@ mod tests {
       },
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
-      utils::{NumericValue, address, batch},
+      utils::{NumericValue, address_book, batch},
       wallet::SecureSigner,
    };
 
@@ -129,8 +129,8 @@ mod tests {
       .await
       .unwrap();
 
-      let router = address::universal_router_v2(chain_id).unwrap();
-      let permit2 = address::permit2_contract(chain_id).unwrap();
+      let router = address_book::universal_router_v2(chain_id).unwrap();
+      let permit2 = address_book::permit2_contract(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
 
@@ -260,8 +260,8 @@ mod tests {
       .await
       .unwrap();
 
-      let router = address::universal_router_v2(chain_id).unwrap();
-      let permit2 = address::permit2_contract(chain_id).unwrap();
+      let router = address_book::universal_router_v2(chain_id).unwrap();
+      let permit2 = address_book::permit2_contract(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
 
@@ -386,7 +386,7 @@ mod tests {
       .await
       .unwrap();
 
-      let router = address::universal_router_v2(chain_id).unwrap();
+      let router = address_book::universal_router_v2(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
 
@@ -530,7 +530,7 @@ mod tests {
 
       let fork_db = factory.new_sandbox_fork();
 
-      let router_addr = address::universal_router_v2(chain_id).unwrap();
+      let router_addr = address_book::universal_router_v2(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
 
@@ -669,8 +669,8 @@ mod tests {
 
       let fork_db = factory.new_sandbox_fork();
 
-      let router_addr = address::universal_router_v2(chain_id).unwrap();
-      let permit2 = address::permit2_contract(chain_id).unwrap();
+      let router_addr = address_book::universal_router_v2(chain_id).unwrap();
+      let permit2 = address_book::permit2_contract(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
 
@@ -818,8 +818,8 @@ mod tests {
 
       let fork_db = factory.new_sandbox_fork();
 
-      let router_addr = address::universal_router_v2(chain_id).unwrap();
-      let permit2 = address::permit2_contract(chain_id).unwrap();
+      let router_addr = address_book::universal_router_v2(chain_id).unwrap();
+      let permit2 = address_book::permit2_contract(chain_id).unwrap();
 
       let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
 

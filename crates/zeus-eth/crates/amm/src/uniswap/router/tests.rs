@@ -22,7 +22,7 @@ mod tests {
    };
    use url::Url;
    use utils::generate_permit2_batch_value;
-   use utils::{NumericValue, address::permit2_contract, generate_permit2_single_value, parse_typed_data};
+   use utils::{NumericValue, address_book::permit2_contract, generate_permit2_single_value, parse_typed_data};
    use wallet::{SecureSigner, alloy_signer::Signer};
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -52,8 +52,8 @@ mod tests {
          .give_token(alice.address, usdc.address, usdc_amount.wei2())
          .unwrap();
 
-      let permit2_address = utils::address::permit2_contract(chain_id).unwrap();
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let permit2_address = utils::address_book::permit2_contract(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
 
       let weth_nonce_fut = abi::permit::allowance(
          client.clone(),
@@ -239,7 +239,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), usdc_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       println!("Router address: {:?}", router_addr);
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
@@ -367,7 +367,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -500,7 +500,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -661,7 +661,7 @@ mod tests {
       let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
 
       let permit2_address = permit2_contract(chain_id).unwrap();
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
 
       let data = abi::permit::allowance(
          client.clone(),
@@ -774,7 +774,7 @@ mod tests {
       let amount_out_min = NumericValue::parse_to_wei(&amount_with_slip.to_string(), currency_out.decimals());
       println!("Amount out with slippage: {}", amount_out_min.formatted());
 
-      let router_addr = utils::address::universal_router_v2(1).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(1).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -890,7 +890,7 @@ mod tests {
          uni.symbol()
       );
 
-      let router_addr = utils::address::universal_router_v2(1).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(1).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1000,7 +1000,7 @@ mod tests {
          .give_token(alice.address, weth.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1115,7 +1115,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          weth_uni.clone(),
          amount_in.clone(),
@@ -1277,7 +1277,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1375,7 +1375,7 @@ mod tests {
          .give_token(alice.address, uni.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1487,7 +1487,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1593,7 +1593,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1704,7 +1704,7 @@ mod tests {
          .give_token(alice.address, currency_in.address(), amount_in.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          pool,
          amount_in.clone(),
@@ -1847,7 +1847,7 @@ mod tests {
          .give_token(alice.address, usdc.address(), usdc_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
          usdc_amount_in.clone(),
@@ -2015,7 +2015,7 @@ mod tests {
          .give_token(alice.address, weth.address(), weth_balance.wei2())
          .unwrap();
 
-      let router_addr = utils::address::universal_router_v2(chain_id).unwrap();
+      let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
       let swap_step = SwapStep::new(
          AnyUniswapPool::from_pool(weth_usdc),
          weth_amount_in.clone(),

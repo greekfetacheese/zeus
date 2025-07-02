@@ -84,17 +84,17 @@ impl TransactionAnalysis {
 
       let log_slice = logs.as_slice();
       for log in &logs {
-         if let Ok(params) = WrapETHParams::from_log(ctx.clone(), chain, from, log) {
+         if let Ok(params) = WrapETHParams::from_log(ctx.clone(), chain, log) {
             analysis.eth_wraps.push(params);
             continue;
          }
 
-         if let Ok(params) = UnwrapWETHParams::from_log(ctx.clone(), chain, from, log) {
+         if let Ok(params) = UnwrapWETHParams::from_log(ctx.clone(), chain, log) {
             analysis.weth_unwraps.push(params);
             continue;
          }
 
-         if let Ok(params) = ERC20TransferParams::from_log(ctx.clone(), chain, from, log).await {
+         if let Ok(params) = ERC20TransferParams::from_log(ctx.clone(), chain, log).await {
             analysis.erc20_transfers.push(params);
             continue;
          }

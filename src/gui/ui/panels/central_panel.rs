@@ -129,12 +129,74 @@ impl UiTesting {
             let ctx_clone = ctx.clone();
 
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+               let params = TransactionAction::dummy_erc20_transfer()
+                  .erc20_transfer_params()
+                  .clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
                   decoded_selector: "Unknown".to_string(),
                   erc20_transfers: vec![params.clone(), params.clone(), params],
+                  gas_used: 160_000,
+                  ..Default::default()
+               };
+
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                     true,
+                  );
+               });
+            });
+         }
+
+         let button = Button::new("Wrap ETH Analysis").min_size(btn_size);
+         if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
+
+            RT.spawn_blocking(move || {
+               let params = TransactionAction::dummy_wrap_eth()
+                  .wrap_eth_params()
+                  .clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Deposit".to_string(),
+                  eth_wraps: vec![params],
+                  gas_used: 160_000,
+                  ..Default::default()
+               };
+
+               SHARED_GUI.write(|gui| {
+                  gui.tx_confirmation_window.open(
+                     ctx_clone.clone(),
+                     "".to_string(),
+                     ctx_clone.chain(),
+                     analysis,
+                     "1".to_string(),
+                     true,
+                  );
+               });
+            });
+         }
+
+         let button = Button::new("Unwrap WETH Analysis").min_size(btn_size);
+         if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
+
+            RT.spawn_blocking(move || {
+               let params = TransactionAction::dummy_unwrap_weth()
+                  .unwrap_weth_params()
+                  .clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: true,
+                  decoded_selector: "Withdraw".to_string(),
+                  weth_unwraps: vec![params],
                   gas_used: 160_000,
                   ..Default::default()
                };

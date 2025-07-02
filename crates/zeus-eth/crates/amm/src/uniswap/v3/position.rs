@@ -17,7 +17,7 @@ use abi::uniswap::{
 };
 use currency::ERC20Token;
 use types::BlockTime;
-use utils::{NumericValue, address::uniswap_nft_position_manager, get_logs_for};
+use utils::{NumericValue, address_book::uniswap_nft_position_manager, get_logs_for};
 
 use revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::Bytecode, simulate};
 

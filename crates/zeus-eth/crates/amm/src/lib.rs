@@ -2,7 +2,7 @@ use alloy_primitives::{Address, U256, B256, utils::parse_units};
 use anyhow::bail;
 use currency::{Currency, ERC20Token};
 use types::ChainId;
-use utils::address;
+use utils::address_book;
 
 use serde::{Deserialize, Serialize};
 
@@ -191,10 +191,10 @@ impl DexKind {
 
    /// Get the DexKind from the factory address
    pub fn from_factory(chain: u64, factory: Address) -> Result<Self, anyhow::Error> {
-      let uniswap_v2 = address::uniswap_v2_factory(chain)?;
-      let uniswap_v3 = address::uniswap_v3_factory(chain)?;
-      let pancake_v2 = address::pancakeswap_v2_factory(chain)?;
-      let pancake_v3 = address::pancakeswap_v3_factory(chain)?;
+      let uniswap_v2 = address_book::uniswap_v2_factory(chain)?;
+      let uniswap_v3 = address_book::uniswap_v3_factory(chain)?;
+      let pancake_v2 = address_book::pancakeswap_v2_factory(chain)?;
+      let pancake_v3 = address_book::pancakeswap_v3_factory(chain)?;
 
       if factory == uniswap_v2 {
          Ok(DexKind::UniswapV2)
@@ -212,11 +212,11 @@ impl DexKind {
    /// Return the factory address of the DEX
    pub fn factory(&self, chain: u64) -> Result<Address, anyhow::Error> {
       let addr = match self {
-         DexKind::UniswapV2 => address::uniswap_v2_factory(chain)?,
-         DexKind::UniswapV3 => address::uniswap_v3_factory(chain)?,
+         DexKind::UniswapV2 => address_book::uniswap_v2_factory(chain)?,
+         DexKind::UniswapV3 => address_book::uniswap_v3_factory(chain)?,
          DexKind::UniswapV4 => panic!("Uniswap V4 does not have a factory"),
-         DexKind::PancakeSwapV2 => address::pancakeswap_v2_factory(chain)?,
-         DexKind::PancakeSwapV3 => address::pancakeswap_v3_factory(chain)?,
+         DexKind::PancakeSwapV2 => address_book::pancakeswap_v2_factory(chain)?,
+         DexKind::PancakeSwapV3 => address_book::pancakeswap_v3_factory(chain)?,
       };
 
       Ok(addr)

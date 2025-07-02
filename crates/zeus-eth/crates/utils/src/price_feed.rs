@@ -1,4 +1,4 @@
-use super::address::*;
+use super::address_book::*;
 use alloy_primitives::{Address, U256, utils::format_units};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::sol;
@@ -25,10 +25,10 @@ where
    let chain = ChainId::new(chain_id)?;
 
    let feed = match chain {
-      ChainId::Ethereum(_) => super::address::eth_usd_price_feed(chain_id)?,
-      ChainId::Optimism(_) => super::address::eth_usd_price_feed(chain_id)?,
-      ChainId::Base(_) => super::address::eth_usd_price_feed(chain_id)?,
-      ChainId::Arbitrum(_) => super::address::eth_usd_price_feed(chain_id)?,
+      ChainId::Ethereum(_) => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Optimism(_) => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Base(_) => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Arbitrum(_) => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::BinanceSmartChain(_) => bail!("ETH-USD price feed not available on BSC"),
    };
 
@@ -52,7 +52,7 @@ where
 {
    let block_id = block_id.unwrap_or(BlockId::latest());
 
-   let feed = super::address::bnb_usd_price_feed();
+   let feed = super::address_book::bnb_usd_price_feed();
    let oracle = ChainLinkOracle::new(feed, client);
    let bnb_usd = oracle.latestAnswer().block(block_id).call().await?;
 

@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use anyhow::anyhow;
 use tracing::error;
 use types::ChainId;
-use utils::{address, get_logs_for};
+use utils::{address_book, get_logs_for};
 
 
 /// Sync pools from the last checkpoint
@@ -247,7 +247,7 @@ where
    N: Network,
 {
    let target_addr = if dex.is_v4() {
-      address::uniswap_v4_pool_manager(chain_id)?
+      address_book::uniswap_v4_pool_manager(chain_id)?
    } else {
       dex.factory(chain_id)?
    };

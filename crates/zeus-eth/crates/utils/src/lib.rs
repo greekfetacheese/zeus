@@ -1,4 +1,4 @@
-pub mod address;
+pub mod address_book;
 //pub mod batch_request;
 pub mod batch;
 pub mod block;
@@ -102,7 +102,7 @@ where
    N: Network,
 {
    let mut futures = Vec::new();
-   let permit2_address = address::permit2_contract(chain_id)?;
+   let permit2_address = address_book::permit2_contract(chain_id)?;
 
    for token in &tokens {
       let allowance = permit::allowance(
@@ -307,11 +307,11 @@ pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
 ///
 /// eg. WETH, WBNB, USDC, USDT, DAI are all base tokens.
 pub fn is_base_token(chain: u64, token: Address) -> bool {
-   let weth = address::weth(chain).is_ok_and(|weth| weth == token);
-   let wbnb = address::wbnb(chain).is_ok_and(|wbnb| wbnb == token);
-   let usdc = address::usdc(chain).is_ok_and(|usdc| usdc == token);
-   let usdt = address::usdt(chain).is_ok_and(|usdt| usdt == token);
-   let dai = address::dai(chain).is_ok_and(|dai| dai == token);
+   let weth = address_book::weth(chain).is_ok_and(|weth| weth == token);
+   let wbnb = address_book::wbnb(chain).is_ok_and(|wbnb| wbnb == token);
+   let usdc = address_book::usdc(chain).is_ok_and(|usdc| usdc == token);
+   let usdt = address_book::usdt(chain).is_ok_and(|usdt| usdt == token);
+   let dai = address_book::dai(chain).is_ok_and(|dai| dai == token);
 
    weth || wbnb || usdc || usdt || dai
 }

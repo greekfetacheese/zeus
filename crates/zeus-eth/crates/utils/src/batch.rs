@@ -404,7 +404,7 @@ where
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::address;
+   use crate::address_book;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use url::Url;
@@ -414,8 +414,8 @@ mod tests {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
-      let weth = address::weth(1).unwrap();
-      let usdc = address::usdc(1).unwrap();
+      let weth = address_book::weth(1).unwrap();
+      let usdc = address_book::usdc(1).unwrap();
 
       let owner = Address::ZERO;
 
@@ -433,7 +433,7 @@ mod tests {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
-      let weth = address::weth(1).unwrap();
+      let weth = address_book::weth(1).unwrap();
 
       let weth_info = get_erc20_info(client.clone(), weth).await.unwrap();
 
@@ -469,8 +469,8 @@ mod tests {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
-      let weth = address::weth(1).unwrap();
-      let usdc = address::usdc(1).unwrap();
+      let weth = address_book::weth(1).unwrap();
+      let usdc = address_book::usdc(1).unwrap();
 
       let factory = address!("1F98431c8aD98523631AE4a59f267346ea31F984");
 

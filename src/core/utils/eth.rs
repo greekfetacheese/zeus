@@ -36,7 +36,7 @@ use zeus_eth::{
    types::ChainId,
    utils::{
       NumericValue,
-      address::{permit2_contract, uniswap_nft_position_manager, universal_router_v2},
+      address_book::{permit2_contract, uniswap_nft_position_manager, universal_router_v2},
    },
 };
 
@@ -496,7 +496,7 @@ pub async fn unwrap_weth(
 
    let contract_interact = true;
    let params = UnwrapWETHParams {
-      from,
+      src: from,
       weth_unwrapped: amount,
       weth_unwrapped_usd: Some(eth_received_usd.clone()),
       eth_received,
@@ -633,7 +633,7 @@ pub async fn wrap_eth(
 
    let contract_interact = true;
    let params = WrapETHParams {
-      from,
+      dst: from,
       eth_wrapped: amount,
       eth_wrapped_usd: Some(eth_wrapped_usd),
       weth_received: weth_received,

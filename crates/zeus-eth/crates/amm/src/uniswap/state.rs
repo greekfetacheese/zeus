@@ -293,7 +293,7 @@ where
       return Err(anyhow::anyhow!("Pool is not v4"));
    }
 
-   let state_view = utils::address::uniswap_v4_stateview(pool.chain_id())?;
+   let state_view = utils::address_book::uniswap_v4_stateview(pool.chain_id())?;
    let pool_data = batch::V4Pool {
       pool: pool.pool_id(),
       tickSpacing: pool.fee().tick_spacing(),
@@ -412,7 +412,7 @@ where
    }
 
    tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V4 pools ChainId {}", v4_pool_info.len(), chain_id);
-   let state_view = utils::address::uniswap_v4_stateview(chain_id)?;
+   let state_view = utils::address_book::uniswap_v4_stateview(chain_id)?;
    for pool in v4_pool_info.chunks(batch_size) {
       let client = client.clone();
       let semaphore = semaphore.clone();

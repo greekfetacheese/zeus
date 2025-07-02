@@ -5,7 +5,7 @@ use abi::{
 };
 use types::{ARBITRUM, BASE, BSC, ChainId, ETH, OPTIMISM};
 use utils::{
-   address::{dai, usdc, usdt, wbnb, weth},
+   address_book::{dai, usdc, usdt, wbnb, weth},
    batch,
 };
 

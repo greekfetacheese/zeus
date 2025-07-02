@@ -11,7 +11,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_network::Network,
    currency::{Currency, ERC20Token, NativeCurrency},
-   utils::{address, NumericValue, generate_permit2_batch_value},
+   utils::{address_book, NumericValue, generate_permit2_batch_value},
    abi::permit::{self, Permit2::{PermitBatch, PermitDetails}},
 };
 
@@ -215,7 +215,7 @@ where
    N: Network,
 {
    let mut futures = Vec::new();
-   let permit2_address = address::permit2_contract(chain_id)?;
+   let permit2_address = address_book::permit2_contract(chain_id)?;
 
    for token in &tokens {
       let allowance = permit::allowance(
