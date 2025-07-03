@@ -519,7 +519,7 @@ impl Default for RpcProviders {
 /// Eg. Some free endpoints don't support `eth_getLogs` in the free tier
 ///
 /// Returns `true` if the RPC is archive node
-pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
+pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> {
    let retry = client::retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -607,8 +607,6 @@ pub async fn client_test(rpc: Rpc) -> Result<bool, anyhow::Error> {
 
    // This is actually important, A lot of providers have a very low staticalll gas limit
    // and requests like batch fetching the state for V3 pools can fail
-
-   let ctx = ZeusCtx::new();
    let pool_manager = ctx.pool_manager();
 
    let v3_pools = pool_manager.get_v3_pools_for_chain(rpc.chain_id);
@@ -658,6 +656,7 @@ mod tests {
    #[tokio::test]
    async fn test_ws_providers() {
       let rpc = RpcProviders::default();
+      let ctx = ZeusCtx::new();
 
       let mut tasks = Vec::new();
       for chain in SUPPORTED_CHAINS {
@@ -668,8 +667,9 @@ mod tests {
                continue;
             }
             let rpc_clone = rpc.clone();
+            let ctx_clone = ctx.clone();
             let task = RT.spawn(async move {
-               match client_test(rpc_clone.clone()).await {
+               match client_test(ctx_clone, rpc_clone.clone()).await {
                   Ok(_) => {
                      println!("RPC {} PASSED", rpc_clone.url);
                   }
@@ -690,6 +690,7 @@ mod tests {
    #[tokio::test]
    async fn test_providers() {
       let rpc = RpcProviders::default();
+      let ctx = ZeusCtx::new();
 
       let mut tasks = Vec::new();
       for chain in SUPPORTED_CHAINS {
@@ -697,8 +698,9 @@ mod tests {
 
          for rpc in rpcs {
             let rpc_clone = rpc.clone();
+            let ctx_clone = ctx.clone();
             let task = RT.spawn(async move {
-               match client_test(rpc_clone.clone()).await {
+               match client_test(ctx_clone, rpc_clone.clone()).await {
                   Ok(_) => {
                      println!("RPC {} PASSED", rpc_clone.url);
                   }

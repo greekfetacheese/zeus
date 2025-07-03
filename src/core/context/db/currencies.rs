@@ -18,23 +18,25 @@ const FILE_NAME: &str = "currencies.json";
 pub struct CurrencyDB {
    #[serde(with = "serde_hashmap")]
    pub currencies: HashMap<u64, Arc<Vec<Currency>>>,
+   pub tokens: HashMap<(u64, Address), ERC20Token>,
 }
 
 impl Default for CurrencyDB {
    fn default() -> Self {
-      let mut currencies = CurrencyDB::new();
-      currencies.load_default_currencies().unwrap_or_default();
-      currencies
+      let mut currency_db = CurrencyDB::new();
+      currency_db.load_default_currencies().unwrap_or_default();
+      currency_db.build_map();
+      currency_db
    }
 }
 
 impl CurrencyDB {
-   pub fn new() -> Self {
+   fn new() -> Self {
       Self {
          currencies: HashMap::new(),
+         tokens: HashMap::new(),
       }
    }
-
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
       let dir = data_dir()?.join(FILE_NAME);
       let data = std::fs::read(dir)?;
@@ -49,26 +51,25 @@ impl CurrencyDB {
       Ok(())
    }
 
+   pub fn build_map(&mut self) {
+      for (_, currencies_arc) in &self.currencies {
+         for currency in currencies_arc.iter() {
+            if let Some(token) = currency.erc20() {
+               self
+                  .tokens
+                  .insert((token.chain_id, token.address), token.clone());
+            }
+         }
+      }
+   }
+
    pub fn get_currencies(&self, chain_id: u64) -> Arc<Vec<Currency>> {
       self.currencies.get(&chain_id).cloned().unwrap_or_default()
    }
 
-   /// Get the ERC20Tokens for the given chain
-   pub fn get_erc20_tokens(&self, chain_id: u64) -> Vec<ERC20Token> {
-      let currencies = self.get_currencies(chain_id);
-      let mut tokens = Vec::new();
-      for currency in currencies.iter() {
-         if let Some(token) = currency.erc20() {
-            tokens.push(token.clone());
-         }
-      }
-      tokens
-   }
-
    /// Get an ERC20Token for the given chain and address
    pub fn get_erc20_token(&self, chain_id: u64, address: Address) -> Option<ERC20Token> {
-      let tokens = self.get_erc20_tokens(chain_id);
-      tokens.iter().find(|t| t.address == address).cloned()
+      self.tokens.get(&(chain_id, address)).cloned()
    }
 
    /// Remove any duplicate currencies
@@ -82,12 +83,19 @@ impl CurrencyDB {
    pub fn insert_currency(&mut self, chain_id: u64, currency: Currency) {
       if let Some(currencies_arc) = self.currencies.get_mut(&chain_id) {
          let currencies = Arc::make_mut(currencies_arc);
-         if currencies.iter().any(|c| c == &currency) {
+         if currencies.contains(&currency) {
+            tracing::info!("Currency already in DB: {:?}", currency.address());
             return;
          }
-         currencies.push(currency);
+         currencies.push(currency.clone());
       } else {
-         self.currencies.insert(chain_id, Arc::new(vec![currency]));
+         self
+            .currencies
+            .insert(chain_id, Arc::new(vec![currency.clone()]));
+      }
+      if currency.is_erc20() {
+         let erc20 = currency.to_erc20().into_owned();
+         self.tokens.insert((chain_id, erc20.address), erc20);
       }
    }
 
@@ -95,6 +103,9 @@ impl CurrencyDB {
       if let Some(currencies_arc) = self.currencies.get_mut(&chain_id) {
          let currencies = Arc::make_mut(currencies_arc);
          currencies.retain(|c| c != currency);
+      }
+      if currency.is_erc20() {
+         self.tokens.remove(&(chain_id, currency.address()));
       }
    }
 
@@ -127,9 +138,14 @@ impl CurrencyDB {
          decode_from_slice(TOKEN_DATA, standard())?;
 
       let weth = ERC20Token::weth();
+      let dai = ERC20Token::dai();
       for token in default_tokens {
          let address = Address::from_str(&token.address)?;
          if address == weth.address {
+            continue;
+         }
+
+         if address == dai.address {
             continue;
          }
 
@@ -145,8 +161,11 @@ impl CurrencyDB {
          self.insert_currency(token.chain_id, erc20.into());
       }
 
-      // Fix for WETH on mainnet cause it has WETH as name
+      // Fix for WETH on mainnet cause it has WETH as name instead of Wrapped Ether
       self.insert_currency(ETH, weth.into());
+
+      // Fix for DAI on mainnet cause it has DAI as name instead of Dai Stablecoin
+      self.insert_currency(ETH, dai.into());
 
       Ok(())
    }

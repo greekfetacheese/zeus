@@ -28,14 +28,21 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.tx_confirmation_window
       .show(ctx.clone(), theme, icons.clone(), ui);
+
    gui.tx_window.show(ctx.clone(), theme, icons.clone(), ui);
+
    gui.confirm_window.show(theme, ui);
+
    gui.testing_window.show(theme, icons.clone(), ui);
+
    gui.progress_window.show(theme, ui);
+
    gui.msg_window.show(theme, ui);
+
    gui.loading_window.show(ui);
 
    gui.sign_msg_window.show(theme, icons.clone(), ui);
+   
    gui.ui_testing.show(ctx.clone(), theme, icons.clone(), ui);
 
    if !account_exists {
@@ -57,6 +64,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       contacts_ui,
       ui,
    );
+
    gui.send_crypto.show(
       ctx.clone(),
       icons.clone(),
@@ -66,6 +74,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       contacts_ui,
       ui,
    );
+
    gui.portofolio.show(
       ctx.clone(),
       theme,
@@ -73,6 +82,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       token_selection,
       ui,
    );
+
    gui.uniswap.show(
       ctx.clone(),
       theme,
@@ -80,6 +90,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       token_selection,
       ui,
    );
+
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
@@ -93,12 +104,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    #[cfg(feature = "dev")]
    {
-      let dir = if let Ok(dir) = data_dir() {
-         Some(dir)
-      } else {
-         None
-      };
-      let theme = gui.editor.show(&mut gui.theme, dir, ui);
+      let theme = gui.editor.show(&mut gui.theme, None, ui);
       if let Some(theme) = theme {
          gui.theme = theme;
       }

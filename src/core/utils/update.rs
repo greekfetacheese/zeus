@@ -364,22 +364,22 @@ pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
 }
 
 pub async fn test_rpcs(ctx: ZeusCtx) {
-   let providers = ctx.rpc_providers();
-
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
-      let rpcs = providers.get_all(chain);
+      let ctx_clone = ctx.clone();
+      let rpcs = ctx_clone.rpc_providers().get_all(chain);
 
       for rpc in &rpcs {
          if !rpc.enabled {
             continue;
          }
+
          let rpc = rpc.clone();
-         let ctx = ctx.clone();
+         let ctx_clone = ctx.clone();
          let task = RT.spawn(async move {
-            match client_test(rpc.clone()).await {
+            match client_test(ctx_clone.clone(), rpc.clone()).await {
                Ok(archive) => {
-                  ctx.write(|ctx| {
+                  ctx_clone.write(|ctx| {
                      if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
                         rpc.working = true;
                         rpc.archive_node = archive;
@@ -388,7 +388,7 @@ pub async fn test_rpcs(ctx: ZeusCtx) {
                }
                Err(e) => {
                   tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
-                  ctx.write(|ctx| {
+                  ctx_clone.write(|ctx| {
                      if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
                         rpc.working = false;
                      }

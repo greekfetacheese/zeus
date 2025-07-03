@@ -64,7 +64,7 @@ impl ZeusApp {
       if !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            update::on_startup(ctx_clone).await;
+             update::on_startup(ctx_clone).await;
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {

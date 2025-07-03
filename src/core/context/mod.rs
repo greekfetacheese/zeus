@@ -656,7 +656,7 @@ impl ZeusCtx {
 
       let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
       if ur_router_v2 == address {
-         return Some("Universal V4: Universal Router V2".to_string());
+         return Some("Uniswap V4: Universal Router V2".to_string());
       }
 
       let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();

@@ -32,6 +32,12 @@ pub struct TokenSelectionWindow {
    pub token_fetched: bool,
    /// Currency direction, this only applies if we try to select a token from a SwapUi
    pub currency_direction: InOrOut,
+
+   /// Cached and sorted list of currencies with their balances.
+   processed_currencies: Vec<(Currency, NumericValue)>,
+   /// The last owner address we processed the balances for.
+   last_owner_address: Option<Address>,
+   last_chain_id: Option<u64>,
 }
 
 impl TokenSelectionWindow {
@@ -43,6 +49,9 @@ impl TokenSelectionWindow {
          selected_currency: None,
          token_fetched: false,
          currency_direction: InOrOut::In,
+         processed_currencies: Vec::new(),
+         last_owner_address: None,
+         last_chain_id: None,
       }
    }
 
@@ -60,9 +69,7 @@ impl TokenSelectionWindow {
    }
 
    pub fn reset(&mut self) {
-      self.selected_currency = None;
-      self.token_fetched = false;
-      self.search_query.clear();
+      *self = Self::new();
    }
 
    /// Show This [TokenSelectionWindow]
@@ -76,6 +83,29 @@ impl TokenSelectionWindow {
       currencies: &Vec<Currency>,
       ui: &mut Ui,
    ) {
+      // Re-process the list only if the window was just opened or the owner/chain_id has changed.
+      if self.processed_currencies.is_empty()
+         || self.last_owner_address != Some(owner)
+         || self.last_chain_id != Some(chain_id)
+      {
+         let mut currencies_with_balances: Vec<(Currency, NumericValue)> = currencies
+            .iter()
+            .map(|currency| {
+               let balance = ctx.get_currency_balance(chain_id, owner, currency);
+               (currency.clone(), balance)
+            })
+            .collect();
+
+         currencies_with_balances.sort_by(|a, b| {
+            b.1.f64()
+               .partial_cmp(&a.1.f64())
+               .unwrap_or(std::cmp::Ordering::Equal)
+         });
+
+         self.processed_currencies = currencies_with_balances;
+         self.last_owner_address = Some(owner);
+      }
+
       let mut open = self.open;
       let mut close_window = false;
       Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
@@ -117,32 +147,24 @@ impl TokenSelectionWindow {
 
             ui.add_space(20.0);
 
+            let filtered_list: Vec<_> = self
+               .processed_currencies
+               .iter()
+               .filter(|(currency, _)| self.valid_search(currency, &self.search_query))
+               .collect();
+
+            let num_rows = filtered_list.len();
+            let row_height = 40.0;
+
             ScrollArea::vertical()
                .auto_shrink(Vec2b::new(false, false))
-               .show(ui, |ui| {
+               .show_rows(ui, row_height, num_rows, |ui, row_range| {
                   ui.spacing_mut().item_spacing.y = 10.0;
                   utils::no_border(ui);
                   utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
-                  let mut currencies_with_balances: Vec<(&Currency, NumericValue)> = currencies
-                     .iter()
-                     .map(|currency| {
-                        let balance = ctx.get_currency_balance(chain_id, owner, currency);
-                        (currency, balance)
-                     })
-                     .collect();
-
-                  // sort currenies by the highest balance
-                  currencies_with_balances.sort_by(|a, b| {
-                     b.1.f64() // b's balance
-                        .partial_cmp(&a.1.f64()) // a's balance
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                  });
-
-                  for (currency, balance) in currencies_with_balances {
-                     let valid_search = self.valid_search(currency, &self.search_query);
-
-                     if valid_search {
+                  for row_index in row_range {
+                     if let Some((currency, balance)) = filtered_list.get(row_index) {
                         let name = truncate_symbol_or_name(currency.name(), 20);
                         let symbol = truncate_symbol_or_name(currency.symbol(), 10);
                         let text = format!("{} ({})", name, symbol);
@@ -156,7 +178,7 @@ impl TokenSelectionWindow {
                            ui.set_width(ui_width * 0.9);
 
                            if ui.add(button).clicked() {
-                              self.selected_currency = Some(currency.clone());
+                              self.selected_currency = Some((*currency).clone());
                               self.token_fetched = false;
                               close_window = true;
                            }
@@ -168,25 +190,24 @@ impl TokenSelectionWindow {
                               );
                            });
                         });
-
-                        ui.add_space(5.0);
                      }
                   }
-
-                  ui.vertical_centered(|ui| {
-                     ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                     self.get_token_on_valid_address(
-                        ctx,
-                        currencies,
-                        theme,
-                        chain_id,
-                        owner,
-                        &mut close_window,
-                        ui,
-                     );
-                  });
                });
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               self.get_token_on_valid_address(
+                  ctx,
+                  currencies,
+                  theme,
+                  chain_id,
+                  owner,
+                  &mut close_window,
+                  ui,
+               );
+            });
          });
+
       if close_window {
          open = false;
       }

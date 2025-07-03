@@ -960,13 +960,12 @@ pub fn contract_interact(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let interact_short = truncate_address(interact_to.to_string());
          let interact_to_name = ctx.get_address_name(chain.id(), interact_to);
 
          let interact_to_name = if interact_to_name.is_some() {
             interact_to_name.unwrap()
          } else {
-            interact_short
+            truncate_address(interact_to.to_string())
          };
 
          let explorer = chain.block_explorer();
