@@ -146,6 +146,9 @@ impl TokenSelectionWindow {
             });
 
             ui.add_space(20.0);
+            ui.vertical_centered(|ui| {
+            self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
+            });
 
             let filtered_list: Vec<_> = self
                .processed_currencies
@@ -193,19 +196,6 @@ impl TokenSelectionWindow {
                      }
                   }
                });
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               self.get_token_on_valid_address(
-                  ctx,
-                  currencies,
-                  theme,
-                  chain_id,
-                  owner,
-                  &mut close_window,
-                  ui,
-               );
-            });
          });
 
       if close_window {
@@ -217,7 +207,6 @@ impl TokenSelectionWindow {
    fn get_token_on_valid_address(
       &mut self,
       ctx: ZeusCtx,
-      currencies: &Vec<Currency>,
       theme: &Theme,
       chain: u64,
       owner: Address,
@@ -225,14 +214,16 @@ impl TokenSelectionWindow {
       ui: &mut Ui,
    ) {
       if let Ok(address) = Address::from_str(&self.search_query) {
-         // check if currency already exists
-         if currencies
-            .iter()
-            .any(|c| c.erc20().map_or(false, |t| t.address == address))
-         {
+         let token = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
+         if token.is_some() {
             return;
          }
-         let button = Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
+
+         ui.add_space(20.0);
+         let size = vec2(ui.available_width() * 0.7, 40.0);
+
+         let button =
+            Button::new(RichText::new("Add Token").size(theme.text_sizes.large)).min_size(size);
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {
