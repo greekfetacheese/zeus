@@ -134,6 +134,16 @@ pub fn format_expiry(timestamp: u64) -> String {
    }
 }
 
+pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
+   if string.chars().count() > max_chars {
+      // Take the first `max_chars` characters and collect them into a new String
+      let truncated: String = string.chars().take(max_chars).collect();
+      format!("{}...", truncated)
+   } else {
+      string.to_string()
+   }
+}
+
 pub fn truncate_address(address: String) -> String {
    format!("{}...{}", &address[..6], &address[36..])
 }

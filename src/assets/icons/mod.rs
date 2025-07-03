@@ -11,6 +11,8 @@ use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use zeus_token_list::*;
 
+use bincode::{config::standard, decode_from_slice};
+
 /// Icons used in the GUI
 pub struct Icons {
    pub chain: ChainIcons,
@@ -30,14 +32,15 @@ pub struct TokenIcons {
 
 impl TokenIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
-      let icon_data: Vec<TokenIconData> = serde_json::from_str(TOKEN_ICONS)?;
+
+      let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
+         decode_from_slice(TOKEN_DATA, standard())?;
 
       let mut icons = HashMap::new();
 
       let texture_options = TextureOptions::default();
       for icon in icon_data {
-         let img = load_and_resize_image(&icon.icon_data, 32, 32)?;
-         // let img_x24 = load_and_resize_image(&icon.icon_data, 24, 24)?;
+         let img = load_image(&icon.icon_data)?;
          let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
          icons.insert(
             (Address::from_str(&icon.address)?, icon.chain_id),

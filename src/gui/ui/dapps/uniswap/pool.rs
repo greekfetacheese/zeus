@@ -2,7 +2,7 @@ use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, U
 use egui_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::truncate_symbol_or_name};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::amm::{AnyUniswapPool, UniswapPool};
@@ -165,8 +165,8 @@ impl PoolsUi {
                            let icon0 = icons.currency_icon(&token0);
                            let icon1 = icons.currency_icon(&token1);
 
-                           let token0_symbol = truncate_symbol(token0.symbol(), 10);
-                           let token1_symbol = truncate_symbol(token1.symbol(), 10);
+                           let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
+                           let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);
 
                            let label0 = Label::new(
                               RichText::new(token0_symbol).size(theme.text_sizes.normal),
@@ -260,14 +260,4 @@ fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
    };
 
    false
-}
-
-fn truncate_symbol(symbol: &str, max_chars: usize) -> String {
-   if symbol.chars().count() > max_chars {
-      // Take the first `max_chars` characters and collect them into a new String
-      let truncated: String = symbol.chars().take(max_chars).collect();
-      format!("{}...", truncated)
-   } else {
-      symbol.to_string()
-   }
 }

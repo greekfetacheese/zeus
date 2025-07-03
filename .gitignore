@@ -1,8 +1,11 @@
 /target
 /data
 /logs
-/old
-/crates/zeus-eth_old
 /releases
+/crates/zeus-token-list/ethereum.zip
+/crates/zeus-token-list/base.zip
+/crates/zeus-token-list/optimism.zip
+/crates/zeus-token-list/arbitrum.zip
+/crates/zeus-token-list/binance.zip
 pool_data.json
 scc.exe

@@ -8,9 +8,9 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    types::{ARBITRUM, BASE, BSC, ETH, OPTIMISM},
 };
-use zeus_token_list::{
-   ARBITRUM as ARBITRUM_TOKENS, BASE as BASE_TOKENS, BINANCE_SMART_CHAIN as BSC_TOKENS, ETHEREUM as ETH_TOKENS, OPTIMISM as OP_TOKENS, tokens::UniswapToken,
-};
+use zeus_token_list::{TOKEN_DATA, TokenData};
+
+use bincode::{config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "currencies.json";
 
@@ -99,7 +99,6 @@ impl CurrencyDB {
    }
 
    pub fn load_default_currencies(&mut self) -> Result<(), anyhow::Error> {
-
       // Ethereum
       let eth = NativeCurrency::from(ETH);
       self.insert_currency(ETH, Currency::from(eth));
@@ -107,6 +106,9 @@ impl CurrencyDB {
       // Binance Smart Chain
       let bnb_native = NativeCurrency::from(BSC);
       self.insert_currency(BSC, Currency::from(bnb_native));
+
+      let wbnb = ERC20Token::wrapped_native_token(BSC);
+      self.insert_currency(BSC, Currency::from(wbnb));
 
       // Optimism
       let eth_op = NativeCurrency::from(OPTIMISM);
@@ -121,78 +123,30 @@ impl CurrencyDB {
       self.insert_currency(ARBITRUM, Currency::from(eth_arb));
 
       // Load the default token list
-      let mut default_tokens: Vec<ERC20Token> = Vec::new();
-      let eth_tokens: Vec<UniswapToken> = serde_json::from_str(ETH_TOKENS)?;
-      let op_tokens: Vec<UniswapToken> = serde_json::from_str(OP_TOKENS)?;
-      let base_tokens: Vec<UniswapToken> = serde_json::from_str(BASE_TOKENS)?;
-      let arbitrum_tokens: Vec<UniswapToken> = serde_json::from_str(ARBITRUM_TOKENS)?;
-      let bnb_tokens: Vec<UniswapToken> = serde_json::from_str(BSC_TOKENS)?;
+      let (default_tokens, _bytes_read): (Vec<TokenData>, usize) =
+         decode_from_slice(TOKEN_DATA, standard())?;
 
-      for token in eth_tokens {
-         let erc20 = ERC20Token {
-            address: Address::from_str(&token.address)?,
-            chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            total_supply: U256::ZERO,
-         };
-         default_tokens.push(erc20);
-      }
-
-      for token in op_tokens {
-         let erc20 = ERC20Token {
-            address: Address::from_str(&token.address)?,
-            chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            total_supply: U256::ZERO,
-         };
-         default_tokens.push(erc20);
-      }
-
-      for token in base_tokens {
-         let erc20 = ERC20Token {
-            address: Address::from_str(&token.address)?,
-            chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            total_supply: U256::ZERO,
-         };
-         default_tokens.push(erc20);
-      }
-
-      for token in arbitrum_tokens {
-         let erc20 = ERC20Token {
-            address: Address::from_str(&token.address)?,
-            chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            total_supply: U256::ZERO,
-         };
-         default_tokens.push(erc20);
-      }
-
-      for token in bnb_tokens {
-         let erc20 = ERC20Token {
-            address: Address::from_str(&token.address)?,
-            chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
-            decimals: token.decimals,
-            total_supply: U256::ZERO,
-         };
-         default_tokens.push(erc20);
-      }
-
+      let weth = ERC20Token::weth();
       for token in default_tokens {
-         let chain_id = token.chain_id;
-         let currency = Currency::from(token);
-         self.insert_currency(chain_id, currency);
+         let address = Address::from_str(&token.address)?;
+         if address == weth.address {
+            continue;
+         }
+
+         let erc20 = ERC20Token {
+            address,
+            chain_id: token.chain_id,
+            symbol: token.symbol,
+            name: token.name,
+            decimals: token.decimals,
+            total_supply: U256::ZERO,
+         };
+
+         self.insert_currency(token.chain_id, erc20.into());
       }
+
+      // Fix for WETH on mainnet cause it has WETH as name
+      self.insert_currency(ETH, weth.into());
 
       Ok(())
    }

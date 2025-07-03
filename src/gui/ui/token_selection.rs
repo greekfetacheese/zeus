@@ -7,7 +7,7 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::core::utils::{RT, eth};
+use crate::core::utils::{RT, eth, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use egui_theme::{Theme, utils};
@@ -38,7 +38,7 @@ impl TokenSelectionWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (550.0, 300.0),
+         size: (550.0, 500.0),
          search_query: String::new(),
          selected_currency: None,
          token_fetched: false,
@@ -78,7 +78,7 @@ impl TokenSelectionWindow {
    ) {
       let mut open = self.open;
       let mut close_window = false;
-      Window::new(RichText::new("Select Token").size(18.0))
+      Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -86,7 +86,8 @@ impl TokenSelectionWindow {
          .collapsible(false)
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
             let ui_width = ui.available_width();
 
             ui.vertical_centered(|ui| {
@@ -142,7 +143,9 @@ impl TokenSelectionWindow {
                      let valid_search = self.valid_search(currency, &self.search_query);
 
                      if valid_search {
-                        let text = format!("{} ({})", currency.name(), currency.symbol());
+                        let name = truncate_symbol_or_name(currency.name(), 20);
+                        let symbol = truncate_symbol_or_name(currency.symbol(), 10);
+                        let text = format!("{} ({})", name, symbol);
                         let icon = icons.currency_icon(currency);
                         let button = Button::image_and_text(
                            icon,
@@ -160,7 +163,8 @@ impl TokenSelectionWindow {
 
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                               ui.label(
-                                 RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal),
+                                 RichText::new(balance.format_abbreviated())
+                                    .size(theme.text_sizes.normal),
                               );
                            });
                         });
