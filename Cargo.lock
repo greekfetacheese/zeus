@@ -1574,15 +1574,6 @@ checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
 
 [[package]]
 name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
-name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36eaf5d7b090263e8150820482d5d93cd964a81e4019913c972f4edcc6edb740"
@@ -4468,14 +4459,12 @@ dependencies = [
 [[package]]
 name = "ncrypt-me"
 version = "0.1.0"
-source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#875d7f4e88b7c4556a15c0f4ab8191f6b87da631"
+source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#460b0e6f16b409da78b977ce64e4d793eb69b508"
 dependencies = [
  "argon2",
- "bincode 1.3.3",
+ "bincode",
  "chacha20poly1305",
  "secure-types",
- "serde",
- "serde_json",
  "thiserror 2.0.12",
  "zeroize",
 ]
@@ -9005,7 +8994,7 @@ dependencies = [
  "alloy-signer",
  "alloy-signer-local",
  "anyhow",
- "bincode 2.0.1",
+ "bincode",
  "eframe",
  "egui",
  "egui-theme",
@@ -9049,7 +9038,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "anyhow",
- "bincode 2.0.1",
+ "bincode",
  "image",
  "serde",
  "serde_json",

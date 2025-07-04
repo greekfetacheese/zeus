@@ -37,8 +37,6 @@ ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch =
 
 # Memory
 secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master"}
-# Cause memory to leak every time we encrypt/decrypt
-# mimalloc = { version = "0.1.44", features = ["secure"] }
 
 
 # Tracing
