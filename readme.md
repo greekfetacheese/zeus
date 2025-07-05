@@ -22,9 +22,9 @@ All the data Zeus uses lives in the `data` folder, `account.data` keeps the priv
 | Chain               | Status       |
 |---------------------|--------------|
 | Ethereum            | Supported    |
-| Optimism            | Supported    |
+| Optimism            | Partial      |
 | Binance Smart Chain | Partial      |
-| Base Chain          | Supported    |
+| Base Chain          | Partial      |
 | Arbitrum            | Partial      |
 
 ## Supported Platforms
@@ -32,13 +32,14 @@ All the data Zeus uses lives in the `data` folder, `account.data` keeps the priv
 |----------|--------------|
 | Windows  | Supported    |
 | Linux    | Supported    |
-| MacOS    | Coming Soon  |
+| MacOS    | Not Supported |
 
 ---
 
 ## Features
 
-### Zeus is still in heavy development, but you can still do pretty much almost all of the most basic operations:
+### Zeus is still in early stages, but you can still do pretty much almost all of the most basic operations:
+- **Connect to dapps:** Still WIP, some dapps work well, some don't.
 - **Wallet Management:** Import and manage your wallets.
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
 - **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
@@ -48,12 +49,11 @@ All the data Zeus uses lives in the `data` folder, `account.data` keeps the priv
 - **Transaction Simulations:** Zeus run local EVM simulations using [revm](https://github.com/bluealloy/revm) to verify transactions before you submit them, what you see on the screen is what you will get.
 - **MEV Protect:** For transactions that are vulnerable to MEV by default Zeus uses mev-protect rpc endpoints (ETH mainnet only).
 
- Currently Zeus does not use an indexer, it does not rely on any **Third-Party API** to index your wallet balances etc...
- It has been designed to work with what the Ethereum node JSON-RPC APIs provides, no connection to third-party server or any other bs.
- 
- That also means you need to manually add any tokens to each wallet if you want to see their balances.
+ Zeus has been designed to work with what the Ethereum RPC API provides, it does not rely on any kind of 3rd-party service to work, you simply give it an rpc endpoint and its ready to go.
+
+ Because of that it does not automatically index data like token approvals, balances etc..
+
  By default it uses free public rpc endpoints obtained from [Chainlist.org](https://chainlist.org/).
- 
  You can of course bring your own endpoints and disable the default ones
 
 ---
@@ -75,22 +75,6 @@ While bridging and waiting for the transaction to complete Zeus may return an er
  
  ---
 
-## Roadmap
-| Feature                          | Status          |
-|----------------------------------|-----------------|
-| Cloud backup (Google Drive, etc.)| Planned         |
-| Full Uniswap integration         | Planned         |
-| Cross-chain bridging             | Partial (No BNB)|
-| dApp connectivity                | Planned         |
-
----
-
-## Notes
-Zeus is using [egui](https://github.com/emilk/egui) for its GUI.
-
-While its smooth and fast without complex UI code some parts of the UI are misaligned, this is going to improve over time.
-
----
 
 ## Credits
 Zeus wouldn't be possible without:
