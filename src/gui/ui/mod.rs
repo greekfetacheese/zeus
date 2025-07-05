@@ -7,6 +7,7 @@ pub mod send_crypto;
 pub mod settings;
 pub mod token_selection;
 pub mod tx_window;
+pub mod sign_msg_window;
 pub mod wallet;
 
 pub use auth::{CredentialsForm, LoginUi, RegisterUi};

@@ -17,8 +17,9 @@ use crate::gui::ui::{
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    tx_history::TxHistory,
    sync::SyncPoolsUi,
+   sign_msg_window::SignMsgWindow,
    WalletUi, RegisterUi, LoadingWindow, LoginUi, PortfolioUi, ProgressWindow, SendCryptoUi, SettingsUi,
-   MsgWindow, ConfirmWindow, TxConfirmationWindow, TxWindow, SignMsgWindow, TestingWindow,
+   MsgWindow, ConfirmWindow, TxConfirmationWindow, TxWindow, TestingWindow,
 };
 
 lazy_static! {
@@ -113,7 +114,7 @@ impl GUI {
       let tx_history = ui::tx_history::TxHistory::new();
       let ui_testing = ui::panels::central_panel::UiTesting::new();
       let progress_window = ui::misc::ProgressWindow::new();
-      let sign_msg_window = ui::misc::SignMsgWindow::new();
+      let sign_msg_window = SignMsgWindow::new();
       let sync_pools_ui = ui::misc::sync::SyncPoolsUi::new();
 
       Self {

@@ -4,14 +4,15 @@ use anyhow::anyhow;
 use serde_json::Value;
 use std::str::FromStr;
 use zeus_eth::{
+   abi::permit::Permit2,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
-   utils::NumericValue,
-   abi::permit::Permit2,
+   utils::{NumericValue, address_book},
 };
 
 const PERMIT_SINGLE: &str = "PermitSingle";
 
+#[derive(Debug, Clone)]
 pub enum SignMsgType {
    Permit2(Permit2Details),
    Permit2Batch(Permit2BatchDetails),
@@ -53,6 +54,14 @@ impl SignMsgType {
       }
    }
 
+   pub fn title(&self) -> &str {
+      match self {
+         Self::Permit2(_) => "Permit2 Token Approval",
+         Self::Permit2Batch(_) => "Permit2 Batch Token Approval",
+         Self::Other(_) => "Unknown Message",
+      }
+   }
+
    /// Get the permit2 details if this is a permit2 message
    ///
    /// Panics if this is not a permit2 message
@@ -63,6 +72,9 @@ impl SignMsgType {
       }
    }
 
+   /// Get the permit2 batch details if this is a permit2 batch message
+   ///
+   /// Panics if this is not a permit2 batch message
    pub fn permit2_batch_details(&self) -> &Permit2BatchDetails {
       match self {
          Self::Permit2Batch(details) => details,
@@ -74,7 +86,7 @@ impl SignMsgType {
 #[derive(Debug, Clone)]
 pub struct Permit2BatchDetails {
    pub permit_batch: Permit2::PermitBatch,
-   pub tokens: Vec<ERC20Token>,  
+   pub tokens: Vec<ERC20Token>,
    pub amounts: Vec<NumericValue>,
    pub amounts_usd: Vec<Option<NumericValue>>,
    pub expiration: u64,
@@ -156,6 +168,14 @@ impl Permit2Details {
       let permit2_contract = domain
          .verifying_contract
          .ok_or(anyhow!("Missing verifying contract"))?;
+
+      let actual_permit2_contract = address_book::permit2_contract(chain)?;
+
+      if actual_permit2_contract != permit2_contract {
+         return Err(anyhow!(
+            "The extracted permit2 contract address from the msg does not match with the actual Permit2 contract address"
+         ));
+      }
 
       Ok(Self {
          token,
