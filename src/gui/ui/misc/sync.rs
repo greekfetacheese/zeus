@@ -197,7 +197,7 @@ async fn update_and_cleanup_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    }
 
    let manager = ctx.pool_manager();
-   manager.cleanup_pools();
+   manager.cleanup_v4_pools();
    manager.save_to_dir(&pool_data_dir()?)?;
 
    Ok(())
