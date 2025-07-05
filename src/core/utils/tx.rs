@@ -6,8 +6,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{TransactionReceipt, TransactionRequest},
    types::ChainId,
-   utils::NumericValue,
-   wallet::SecureSigner,
+   utils::{SecureSigner, erase_wallet, NumericValue},
 };
 
 
@@ -92,7 +91,7 @@ where
    let tx = legacy_or_eip1559(params.clone());
    let wallet = params.signer.to_wallet();
    let tx_envelope = tx.clone().build(&wallet).await?;
-   drop(wallet);
+   erase_wallet(wallet);
 
    let time = std::time::Instant::now();
    let receipt = client

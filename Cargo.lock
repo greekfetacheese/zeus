@@ -811,7 +811,6 @@ dependencies = [
  "uniswap_v3_math",
  "url",
  "utils",
- "wallet",
 ]
 
 [[package]]
@@ -7648,10 +7647,14 @@ dependencies = [
  "alloy-provider",
  "alloy-rpc-client",
  "alloy-rpc-types",
+ "alloy-signer",
+ "alloy-signer-local",
  "alloy-sol-types",
  "alloy-transport",
  "anyhow",
  "futures",
+ "memsec",
+ "secure-types",
  "serde",
  "serde_json",
  "tokio",
@@ -7718,20 +7721,6 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
-]
-
-[[package]]
-name = "wallet"
-version = "0.1.0"
-dependencies = [
- "alloy-network",
- "alloy-primitives",
- "alloy-signer",
- "alloy-signer-local",
- "memsec",
- "secure-types",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -9029,7 +9018,6 @@ dependencies = [
  "types",
  "url",
  "utils",
- "wallet",
 ]
 
 [[package]]

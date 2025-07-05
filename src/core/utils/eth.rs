@@ -37,6 +37,7 @@ use zeus_eth::{
    utils::{
       NumericValue,
       address_book::{permit2_contract, uniswap_nft_position_manager, universal_router_v2},
+      erase_signer,
    },
 };
 
@@ -419,11 +420,10 @@ pub async fn sign_message(
    }
 
    let wallet = ctx.current_wallet();
-   let signer = ctx.get_wallet(wallet.address)?.key;
-   let signature = signer
-      .to_signer()
-      .sign_dynamic_typed_data(&typed_data)
-      .await?;
+   let secure_signer = ctx.get_wallet(wallet.address)?.key;
+   let signer = secure_signer.to_signer();
+   let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
+   erase_signer(signer);
 
    Ok(signature)
 }

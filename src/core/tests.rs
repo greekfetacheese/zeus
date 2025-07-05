@@ -15,8 +15,7 @@ mod tests {
       },
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
-      utils::{NumericValue, address_book, batch},
-      wallet::SecureSigner,
+      utils::{SecureSigner, NumericValue, address_book, batch},
    };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]

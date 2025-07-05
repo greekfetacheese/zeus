@@ -22,8 +22,10 @@ mod tests {
    };
    use url::Url;
    use utils::generate_permit2_batch_value;
-   use utils::{NumericValue, address_book::permit2_contract, generate_permit2_single_value, parse_typed_data};
-   use wallet::{SecureSigner, alloy_signer::Signer};
+   use utils::{
+      NumericValue, SecureSigner, address_book::permit2_contract, alloy_signer::Signer, generate_permit2_single_value,
+      parse_typed_data,
+   };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn can_call_permit2_batch() {
@@ -150,7 +152,8 @@ mod tests {
          alice.address,
          permit2_address,
          weth_amount.wei2(),
-      ).unwrap();
+      )
+      .unwrap();
 
       simulate::approve_token(
          &mut evm,
@@ -158,7 +161,8 @@ mod tests {
          alice.address,
          permit2_address,
          usdc_amount.wei2(),
-      ).unwrap();
+      )
+      .unwrap();
 
       let execute_call_data = abi::uniswap::universal_router_v2::encode_execute(commands.into(), inputs);
 

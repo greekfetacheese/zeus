@@ -8,7 +8,6 @@ currency = { path = "../currency" }
 abi = { path = "../abi" }
 utils = { path = "../utils" }
 types = { path = "../types" }
-wallet = {path = "../wallet"}
 revm-utils = { path = "../revm-utils", optional = false}
 
 uniswap_v3_math = { git = "https://github.com/greekfetacheese/uniswap-v3-math.git", branch = "main" }

@@ -2,7 +2,7 @@ use alloy_signer_local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English
 use anyhow::anyhow;
 use secure_types::SecureString;
 use std::str::FromStr;
-use zeus_eth::{alloy_primitives::Address, wallet::SecureSigner};
+use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
 #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WalletInfo {

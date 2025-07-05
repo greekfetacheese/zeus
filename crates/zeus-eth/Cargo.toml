@@ -10,15 +10,9 @@ amm = { path = "crates/amm"}
 currency = { path = "crates/currency"}
 dapps = { path = "crates/dapps"}
 types = { path = "crates/types"}
-utils = { path = "crates/utils" , optional = true}
-wallet = { path = "crates/wallet", optional = true}
-revm-utils = { path = "crates/revm-utils", optional = true}
+utils = { path = "crates/utils"}
+revm-utils = { path = "crates/revm-utils"}
 
-
-[features]
-utils = ["dep:utils"]
-wallet = ["dep:wallet"]
-revm-utils = ["dep:revm-utils"]
 
 [dev-dependencies]
 tokio = "1"

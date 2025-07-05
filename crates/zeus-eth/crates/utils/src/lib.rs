@@ -1,9 +1,9 @@
 pub mod address_book;
-//pub mod batch_request;
 pub mod batch;
 pub mod block;
 pub mod client;
 pub mod price_feed;
+pub mod secure_signer;
 
 use alloy_contract::private::{Network, Provider};
 use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
@@ -28,9 +28,12 @@ use tokio::{
    task::JoinHandle,
 };
 
+pub use secure_signer::{erase_signer, erase_wallet, SecureSigner};
+
 pub use alloy_network;
 pub use alloy_rpc_client;
 pub use alloy_transport;
+pub use alloy_signer;
 
 /// In X days from now in UNIX time
 pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {

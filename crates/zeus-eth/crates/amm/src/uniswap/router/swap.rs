@@ -4,10 +4,7 @@ use abi::{
    permit::*,
    uniswap::{
       encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      universal_router_v2::{
-         IV4Router::*,
-         encode_execute, encode_execute_with_deadline,
-      },
+      universal_router_v2::{IV4Router::*, encode_execute, encode_execute_with_deadline},
    },
 };
 use alloy_contract::private::{Network, Provider};
@@ -15,8 +12,10 @@ use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
-use utils::{address_book::permit2_contract, generate_permit2_single_value, parse_typed_data};
-use wallet::{SecureSigner, alloy_signer::Signer};
+use utils::{
+   SecureSigner, address_book::permit2_contract, alloy_signer::Signer, erase_signer, generate_permit2_single_value,
+   parse_typed_data,
+};
 
 use std::collections::HashSet;
 
@@ -30,7 +29,7 @@ pub async fn encode_swap<P, N>(
    amount_out_min: U256,
    currency_in: Currency2,
    currency_out: Currency2,
-   signer: SecureSigner,
+   secure_signer: SecureSigner,
    recipient: Address,
    deadline: Option<U256>,
 ) -> Result<SwapExecuteParams, anyhow::Error>
@@ -45,7 +44,7 @@ where
       return Err(anyhow!("Only support exact input"));
    }
 
-   let owner = signer.address();
+   let owner = secure_signer.address();
    let router_addr = utils::address_book::universal_router_v2(chain_id)?;
    let mut commands = Vec::new();
    let mut inputs = Vec::new();
@@ -114,10 +113,9 @@ where
          );
          let typed_data = parse_typed_data(value.clone())?;
 
-         let signature = signer
-            .to_signer()
-            .sign_dynamic_typed_data(&typed_data)
-            .await?;
+         let signer = secure_signer.to_signer();
+         let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
+         erase_signer(signer);
 
          let permit_input = encode_permit2_permit_ur_input(
             token_in.address,
