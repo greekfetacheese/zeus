@@ -1,5 +1,3 @@
-// background.js (Simplified)
-
 const SERVER_PORT = 65534;
 const SERVER_URL_STATUS = `http://127.0.0.1:${SERVER_PORT}/status`;
 const SERVER_URL_API = `http://127.0.0.1:${SERVER_PORT}/api`;

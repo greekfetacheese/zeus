@@ -4,6 +4,7 @@ use crate::core::{
    utils::{RT, load_theme_kind, update},
 };
 use crate::gui::{GUI, SHARED_GUI, window::window_frame};
+use crate::server::run_server;
 use eframe::{
    CreationContext,
    egui::{self, Frame},
@@ -65,9 +66,9 @@ impl ZeusApp {
          RT.spawn(async move {
              update::on_startup(ctx_clone).await;
          });
-         let _ctx_clone = ctx.clone();
+         let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            // let _ = run_server(ctx_clone).await;
+            let _ = run_server(ctx_clone).await;
          });
          self.updated_started = true;
       }

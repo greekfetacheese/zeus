@@ -3,7 +3,8 @@ use super::{
    providers::{CLIENT_RPS, COMPUTE_UNITS_PER_SECOND, INITIAL_BACKOFF, MAX_RETRIES},
    utils::pool_data_dir,
 };
-use crate::core::{Account, WalletInfo};
+use crate::core::{Account, WalletInfo, utils::server_port_dir};
+use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
 use std::{
@@ -668,6 +669,8 @@ impl ZeusCtx {
    }
 
    pub fn connect_dapp(&self, dapp: String) {
+      tracing::info!("Connected to dapp: {}", dapp);
+
       self.write(|ctx| {
          ctx.connected_dapps.connect_dapp(dapp);
       });
@@ -677,6 +680,7 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.connected_dapps.disconnect_dapp(dapp);
       });
+      tracing::info!("Disconnected from dapp: {}", dapp);
    }
 
    pub fn remove_dapp(&self, dapp: String) {
@@ -687,6 +691,18 @@ impl ZeusCtx {
 
    pub fn is_dapp_connected(&self, dapp: &str) -> bool {
       self.read(|ctx| ctx.connected_dapps.is_connected(dapp))
+   }
+
+   pub fn server_port(&self) -> u16 {
+      self.read(|ctx| ctx.server_port)
+   }
+
+   pub fn save_server_port(&self) -> Result<(), anyhow::Error> {
+      let port = self.server_port();
+      let dir = server_port_dir()?;
+      let string = serde_json::to_string(&port)?;
+      std::fs::write(dir, string)?;
+      Ok(())
    }
 }
 
@@ -813,6 +829,7 @@ pub struct ZeusContext {
    pub base_fee: HashMap<u64, BaseFee>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
+   pub server_port: u16,
 }
 
 impl ZeusContext {
@@ -915,6 +932,7 @@ impl ZeusContext {
          base_fee: HashMap::new(),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
+         server_port: SERVER_PORT,
       }
    }
 }

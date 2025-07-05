@@ -28,6 +28,7 @@ lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
 }
 
+const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
@@ -46,6 +47,18 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
 pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(THEME_FILE);
    Ok(dir)
+}
+
+pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(SERVER_PORT_FILE);
+   Ok(dir)
+}
+
+pub fn load_server_port() -> Result<u16, anyhow::Error> {
+   let dir = server_port_dir()?;
+   let port_str = std::fs::read_to_string(dir)?;
+   let port = serde_json::from_str(&port_str)?;
+   Ok(port)
 }
 
 pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {

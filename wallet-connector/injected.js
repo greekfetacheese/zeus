@@ -1,3 +1,5 @@
+// injected.js (Corrected)
+
 class EventEmitter {
     constructor() {
         this.listeners = {};
@@ -35,128 +37,84 @@ class EventEmitter {
 
 
 // --- Request Management ---
-// Simple way to handle pending requests and correlate responses
 const pendingRequests = new Map();
 let requestIdCounter = 0;
 
-// Listen for responses relayed from the content script
+// --- Injected Script's own listener for messages from content.js ---
 window.addEventListener("message", (event) => {
     if (event.source !== window || !event.data || event.data.target !== 'injected') {
         return;
     }
     const message = event.data;
-    // console.log('Injected Script: Received message from content:', message);
 
+    // Handle responses to fetch/connection requests
     if (message.type === 'fetch_response' && pendingRequests.has(message.id)) {
         const { resolve, reject } = pendingRequests.get(message.id);
-        pendingRequests.delete(message.id); // Clean up
+        pendingRequests.delete(message.id);
 
         if (message.success) {
             resolve(message.data);
         } else {
-            console.error('Injected Script: Received error response:', message.error);
             reject(new Error(message.error || 'Background fetch failed'));
         }
-    } // ***** Handle State Change Events from Background *****
+    }
+    // Handle state changes pushed from the background script (via content script)
     else if (message.type === 'accountsChanged') {
-        // console.log('Injected Script: Received accountsChanged event:', message.payload);
         const newAccounts = message.payload || [];
-        const currentAccountsJson = JSON.stringify(window.ethereum?._accounts || []);
-        const newAccountsJson = JSON.stringify(newAccounts);
+        if (window.ethereum && window.ethereum.isZeus) {
+            const currentAccountsJson = JSON.stringify(window.ethereum._accounts || []);
+            const newAccountsJson = JSON.stringify(newAccounts);
 
-        console.log('Comparing accounts:', currentAccountsJson, 'vs', newAccountsJson);
-
-
-        // Compare with current state to avoid redundant emits
-        if (currentAccountsJson !== newAccountsJson) {
-            if (window.ethereum) {
+            if (currentAccountsJson !== newAccountsJson) {
+                console.log("Zeus: Received accountsChanged from background. Updating state:", newAccounts);
                 window.ethereum._accounts = newAccounts;
                 const wasConnected = window.ethereum._isConnected;
                 window.ethereum._isConnected = newAccounts.length > 0;
-                window.ethereum.emit('accountsChanged', newAccounts); // Emit from poll
-                console.log("Emitted 'accountsChanged' event (from poll).");
 
-                // Handle disconnect transition
+                window.ethereum.emit('accountsChanged', newAccounts);
+
                 if (wasConnected && !window.ethereum._isConnected) {
-                    console.log("Injected Script: Accounts empty, emitting disconnect.");
-                    // Construct EIP-1193 disconnect error
-                    const error = new Error("Provider disconnected.");
-                    error.code = 4900;
-                    window.ethereum.emit('disconnect', error);
+                    const disconnectError = new Error("Provider disconnected.");
+                    disconnectError.code = 4900;
+                    window.ethereum.emit('disconnect', disconnectError);
                 }
             }
         }
     } else if (message.type === 'chainChanged') {
-        // console.log('Injected Script: Received chainChanged event:', message.payload);
         const newChainId = message.payload || null;
-        const currentChainId = window.ethereum?._chainId;
-
-        console.log('Comparing chainId:', currentChainId, 'vs', newChainId);
-
-        // Compare with current state
-        if (currentChainId !== newChainId) {
-            if (window.ethereum) {
-                window.ethereum._chainId = newChainId; // Update from poll
-                window.ethereum.emit('chainChanged', newChainId); // Emit from poll
-                console.log("Emitted 'chainChanged' event (from poll).");
+        if (window.ethereum && window.ethereum.isZeus) {
+            const currentChainId = window.ethereum._chainId;
+            if (currentChainId !== newChainId) {
+                console.log("Zeus: Received chainChanged from background. Updating state:", newChainId);
+                window.ethereum._chainId = newChainId;
+                window.ethereum.emit('chainChanged', newChainId);
             }
         }
     }
 });
 
 
-
-// Function to replace fetch
 function backgroundFetch(url, options) {
     return new Promise((resolve, reject) => {
         const requestId = requestIdCounter++;
         pendingRequests.set(requestId, { resolve, reject });
-        // console.log(`Injected Script: Sending fetch request ${requestId} for ${url}`);
         window.postMessage(
             {
-                target: 'content',     // Send to content script
-                type: 'fetch_request', // Indicate it's a fetch request
-                id: requestId,         // Unique ID for correlation
-                payload: { url, options } // The original fetch parameters
+                target: 'content',
+                type: 'fetch_request',
+                id: requestId,
+                payload: { url, options }
             },
-            "*" // Target origin (use "*" for simplicity here, or specific origin if needed)
+            "*"
         );
-
-        // Optional: Add a timeout for requests
         setTimeout(() => {
             if (pendingRequests.has(requestId)) {
                 pendingRequests.delete(requestId);
                 reject(new Error(`Request ${requestId} timed out after 30 seconds`));
             }
-        }, 30000); // 30 second timeout
+        }, 30000);
     });
 }
-
-function backgroundConfirmConnection(origin, requestId) {
-    return new Promise((resolve, reject) => {
-        pendingRequests.set(requestId, { resolve, reject });
-        window.postMessage(
-            {
-                target: 'content',
-                type: 'connection_request',
-                id: requestId,
-                payload: { origin } // Send dapp origin
-            },
-            "*"
-        );
-
-        // Timeout for user action (e.g., 5 minutes)
-        setTimeout(() => {
-            if (pendingRequests.has(requestId)) {
-                pendingRequests.delete(requestId);
-                console.warn(`Connection request ${requestId} timed out waiting for user action.`);
-                reject(new Error('Connection request timed out.'));
-            }
-        }, 300000); // 5 minutes timeout
-    });
-}
-
-
 
 
 class ZeusProvider extends EventEmitter {
@@ -170,26 +128,23 @@ class ZeusProvider extends EventEmitter {
         this._announceProvider();
     }
 
-    // EIP-6963: Announce the provider presence
     _announceProvider() {
         const announceEvent = new CustomEvent("eip6963:announceProvider", {
             detail: Object.freeze({
                 info: {
                     uuid: crypto.randomUUID(),
                     name: "Zeus Wallet",
-                    icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='50' font-size='50' text-anchor='middle' dy='.3em'%3E⚡%3C/text%3E%3C/svg%3E", // Basic lightning bolt emoji icon
-                    rdns: "io.github.zeus-wallet" // TODO
+                    icon: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext x='50' y='50' font-size='50' text-anchor='middle' dy='.3em'%3E⚡%3C/text%3E%3C/svg%3E",
+                    rdns: "io.github.zeus-wallet"
                 },
                 provider: this
             })
         });
         window.dispatchEvent(announceEvent);
-        // Listen for requests specifically for this provider
         window.addEventListener("eip6963:requestProvider", (event) => {
             this._announceProvider();
         });
     }
-
 
     async _initializeState() {
         console.log("ZeusProvider initializing...");
@@ -208,11 +163,9 @@ class ZeusProvider extends EventEmitter {
         }
     }
 
-
     isConnected() {
         return this._isConnected;
     }
-
 
     async request({ method, params }) {
         console.log(`Zeus: request received: Method=${method}, Params=`, params);
@@ -241,61 +194,35 @@ class ZeusProvider extends EventEmitter {
 
             const result = response.result;
 
-            // --- Update State and Emit Events ---
-            if (method === 'eth_requestAccounts' || method === 'wallet_getPermissions') {
+            if (method === 'eth_requestAccounts' || method === 'wallet_requestPermissions') {
                 const newAccounts = result || [];
-                const changed = JSON.stringify(this._accounts || []) !== JSON.stringify(newAccounts);
                 const wasConnected = this._isConnected;
-
                 this._accounts = newAccounts;
-                this._isConnected = true;   
+                this._isConnected = newAccounts.length > 0;
 
-                 // Emit events AFTER state is updated
-                 if (!wasConnected) {
-                     if (!this._chainId) {
-                          try {
-                              const chainData = await backgroundFetch('/api', {
-                                   method: "POST", headers: { "Content-Type": "application/json" },
-                                   body: JSON.stringify({ origin: origin, jsonrpc: "2.0", id: "bg_chain", method: 'eth_chainId', params: [] })
-                              });
-                              if (!chainData.error) this._chainId = chainData.result;
-                          } catch(e) { console.error("Failed to get chainId for connect event:", e); }
-                     }
-                      this.emit("connect", { chainId: this._chainId });
-                 }
-                 if (changed) {
-                     this.emit("accountsChanged", this._accounts);
-                 }
-            } else if (method === 'eth_chainId') {
-                 const newChainId = result;
-                 if (this._chainId !== newChainId) {
-                     console.log(`Chain ID updated via request: ${newChainId}`);
-                     this._chainId = newChainId;
-                     this.emit("chainChanged", this._chainId);
-                 }
+                if (!wasConnected && this._isConnected) {
+                    try {
+                        const chainData = await this.request({ method: 'eth_chainId' });
+                        this._chainId = chainData;
+                        this.emit("connect", { chainId: this._chainId });
+                        console.log("Zeus: Emitted 'connect' event.", { chainId: this._chainId });
+                    } catch (e) {
+                        console.error("Zeus: Failed to get chainId for connect event:", e);
+                        this.emit("connect", {});
+                    }
+                }
             }
-            else if (method === 'wallet_switchEthereumChain' && result === null /* EIP-1193 success is null */) {
-                 console.log("wallet_switchEthereumChain successful, polling will update chainId state.");
-            }
-            
+
             return result;
 
         } catch (e) {
             console.error(`ZeusProvider Error during request ${method}:`, e);
-             if (e.code === 4001 || e.code === 4900 || e.code === 4902 || e.code === -32601 || e.code === -32602 || e.code === -32603) {
-                 throw e;
-             }
-             if (e.message.includes('Background fetch failed') || e.message.includes('timed out')) {
-                 this._isConnected = false;
-                 if (this._accounts?.length > 0) this.emit('accountsChanged', []);
-                 this.emit('disconnect', new Error("Connection to Zeus Wallet failed."));
-                 throw new Error("Connection to Zeus Wallet failed. Please ensure Zeus is running and accessible.");
-             }
-             throw e;
+            if (e.message.includes('Background fetch failed') || e.message.includes('timed out')) {
+                this._handleDisconnect("Connection to Zeus Wallet failed.");
+            }
+            throw e;
         }
     }
-
-    // --- Event Handling ---
 
     _handleDisconnect(reason) {
         console.warn(`ZeusProvider disconnected: ${reason}`);
@@ -305,7 +232,7 @@ class ZeusProvider extends EventEmitter {
 
         if (wasConnected) {
             const error = new Error(reason);
-            error.code = 1013;
+            error.code = 1013; // Non-standard but indicates a connection loss
             this.emit("disconnect", error);
             console.log("Emitted 'disconnect' event.");
             this.emit("accountsChanged", []);
@@ -313,7 +240,6 @@ class ZeusProvider extends EventEmitter {
         }
     }
 
-    // Legacy Support
     async enable() {
         return this.request({ method: "eth_requestAccounts" });
     }
@@ -323,7 +249,6 @@ class ZeusProvider extends EventEmitter {
 }
 
 // --- Injection Check ---
-// Prevent multiple injections if script somehow runs twice
 if (!window.ethereum?.isZeus) {
     window.ethereum = new ZeusProvider();
 } else {

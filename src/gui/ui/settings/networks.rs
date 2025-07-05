@@ -6,7 +6,7 @@ use crate::core::{
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,
-   Spinner, TextEdit, Ui, Window, vec2,
+   Slider, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
 use egui_theme::Theme;
@@ -16,6 +16,7 @@ pub struct NetworkSettings {
    pub open: bool,
    pub refreshing: bool,
    pub add_rpc: bool,
+   pub change_server_port: bool,
    pub valid_url: bool,
    pub url_to_add: String,
    pub chain_select: ChainSelect,
@@ -28,6 +29,7 @@ impl NetworkSettings {
          open: false,
          refreshing: false,
          add_rpc: false,
+         change_server_port: false,
          valid_url: false,
          url_to_add: String::new(),
          chain_select: ChainSelect::new("network_settings_chain_select", 1),
@@ -42,13 +44,7 @@ impl NetworkSettings {
          || self.url_to_add.starts_with("wss://")
    }
 
-   pub fn show(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      ui: &mut Ui,
-   ) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       self.add_rpc(ctx.clone(), theme, ui);
 
       let mut open = self.open;
@@ -74,12 +70,17 @@ impl NetworkSettings {
                   self.chain_select.show(0, theme, icons.clone(), ui);
                });
 
+               ui.add_space(30.0);
+
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  if self.refreshing {
-                     ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+
+                  let add_network =
+                     Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
+                  if ui.add(add_network).clicked() {
+                     self.add_rpc = true;
                   }
 
-                  let refresh = Button::new(RichText::new("Refresh").size(theme.text_sizes.normal));
+                  let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
                   if ui.add(refresh).clicked() {
                      self.refreshing = true;
                      let ctx = ctx.clone();
@@ -91,10 +92,8 @@ impl NetworkSettings {
                      });
                   }
 
-                  let add_network =
-                     Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
-                  if ui.add(add_network).clicked() {
-                     self.add_rpc = true;
+                  if self.refreshing {
+                     ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
                   }
                });
             });
@@ -210,6 +209,42 @@ impl NetworkSettings {
             });
          });
       self.open = open;
+   }
+
+   fn _change_server_port(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      let mut open = self.change_server_port;
+      let was_open = open;
+
+      Window::new(RichText::new("Server Port").size(theme.text_sizes.normal))
+         .open(&mut open)
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(150.0);
+            ui.set_height(100.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            ui.vertical_centered(|ui| {
+               ctx.write(|ctx| {
+                  let slider = Slider::new(&mut ctx.server_port, 1000..=65535);
+                  ui.add(slider);
+               });
+            });
+         });
+      if was_open && !open {
+         RT.spawn_blocking(move || match ctx.save_server_port() {
+            Ok(_) => {
+               tracing::info!("Saved server port");
+            }
+            Err(e) => {
+               tracing::error!("Error saving server port: {:?}", e);
+            }
+         });
+      }
+      self.change_server_port = open;
    }
 
    pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
