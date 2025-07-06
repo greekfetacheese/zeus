@@ -11,15 +11,15 @@ use anyhow::bail;
 use anyhow::{Context, anyhow};
 use serde_json::Value;
 use std::future::IntoFuture;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use zeus_eth::abi::uniswap::nft_position::encode_mint;
 use zeus_eth::amm::uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed};
 use zeus_eth::amm::{UniswapV3Pool, uniswap_v3_math};
 use zeus_eth::{
-   abi::{self, protocols::across::*, uniswap::nft_position::INonfungiblePositionManager},
+   abi::{self, uniswap::nft_position::INonfungiblePositionManager},
    alloy_primitives::{Address, Bytes, Signed, TxKind, U256},
    alloy_provider::Provider,
-   alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter, Log, TransactionReceipt},
+   alloy_rpc_types::{BlockId, Log, TransactionReceipt},
    amm::{
       DexKind, UniswapPool,
       uniswap::{
@@ -28,7 +28,7 @@ use zeus_eth::{
       },
    },
    currency::{Currency, ERC20Token},
-   dapps::{Dapp, across::spoke_pool_address},
+   dapps::Dapp,
    revm_utils::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkDB, ForkFactory, Host,
       new_evm, revert_msg, simulate,
@@ -2135,114 +2135,6 @@ pub async fn mint_new_liquidity_position_v3(
    } else {
       tracing::error!("Position Info not added because the position was not found");
    }
-
-   Ok(())
-}
-
-pub async fn across_bridge(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   dest_chain: ChainId,
-   deadline: u32,
-   from: Address,
-   recipient: Address,
-   interact_to: Address,
-   call_data: Bytes,
-   value: U256,
-) -> Result<(), anyhow::Error> {
-   // Across protocol is very fast on filling the orders
-   // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
-   let dest_client = ctx.get_client(dest_chain.id()).await?;
-   let from_block_fut = dest_client.get_block_number().into_future();
-
-   let mev_protect = false;
-   let (_, tx_rich) = send_transaction(
-      ctx,
-      "".to_string(),
-      None,
-      None,
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-   )
-   .await?;
-
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   let step2 = Step {
-      id: "step2",
-      in_progress: true,
-      finished: false,
-      msg: "Waiting for the order to be filled".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1, step2], "Success!".to_string());
-      gui.request_repaint();
-   });
-
-   let mut block_time_ms = dest_chain.block_time();
-   if dest_chain.is_arbitrum() {
-      // give more time so we dont spam the rpc
-      block_time_ms *= 3;
-   }
-
-   let now = std::time::Instant::now();
-   let mut funds_received = false;
-   let from_block = from_block_fut.await?;
-
-   let target = spoke_pool_address(dest_chain.id())?;
-   let filter = Filter::new()
-      .from_block(BlockNumberOrTag::Number(from_block))
-      .address(vec![target])
-      .event(filled_relay_signature());
-
-   // Wait for the order to be filled at the destination chain
-   while now.elapsed().as_secs() < deadline as u64 {
-      let logs = dest_client.get_logs(&filter).await?;
-      for log in logs {
-         if let Ok(decoded) = decode_filled_relay_log(log.data()) {
-            tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
-            if decoded.recipient == recipient {
-               tracing::info!("Funds received");
-               funds_received = true;
-               break;
-            }
-         }
-      }
-
-      if funds_received {
-         break;
-      }
-
-      tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
-   }
-
-   // I dont expect this to happen
-   if !funds_received {
-      let err = format!(
-         "Deadline exceeded\n
-         No funds received on the {} chain\n
-         Your deposit should be refunded shortly",
-         dest_chain.name(),
-      );
-      bail!(err);
-   }
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.finish_last_step();
-      gui.progress_window.set_tx(tx_rich);
-      gui.request_repaint();
-   });
 
    Ok(())
 }

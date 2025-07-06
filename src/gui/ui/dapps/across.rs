@@ -5,23 +5,28 @@ use crate::core::{
 };
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow},
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, Step},
 };
+use anyhow::anyhow;
 use egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, RichText, Spinner,
    TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
 use egui_widgets::Label;
+use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
 use zeus_eth::{
    abi::protocols::across::{DepositV3Args, encode_deposit_v3},
+   abi::protocols::across::{decode_filled_relay_log, filled_relay_signature},
    alloy_primitives::{Address, Bytes, U256},
+   alloy_provider::Provider,
+   alloy_rpc_types::{BlockNumberOrTag, Filter},
    currency::{Currency, NativeCurrency},
    dapps::across::*,
-   types::BSC,
-   utils::NumericValue,
+   types::{BSC, ChainId},
+   utils::{address_book, NumericValue},
 };
 
 /// Cache the results for this many seconds
@@ -395,6 +400,7 @@ impl AcrossBridge {
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
       );
+      
       let now = Instant::now();
 
       // Check cache
@@ -576,8 +582,9 @@ impl AcrossBridge {
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.msg_window.open(
-                  "Failed to get suggested fees, try again later or increase the amount",
-                  String::new(),
+                  "Error",
+                  "Failed to get suggested fees, try again later or increase the amount"
+                     .to_string(),
                );
             });
          });
@@ -628,7 +635,7 @@ impl AcrossBridge {
       };
 
       let call_data = encode_deposit_v3(deposit_args.clone());
-      let transact_to = spoke_pool_address(self.from_chain.chain.id()).unwrap();
+      let transact_to = address_book::across_spoke_pool_v2(self.from_chain.chain.id()).unwrap();
 
       RT.spawn(async move {
          SHARED_GUI.write(|gui| {
@@ -636,7 +643,7 @@ impl AcrossBridge {
             gui.request_repaint();
          });
 
-         match eth::across_bridge(
+         match across_bridge(
             ctx.clone(),
             from_chain,
             to_chain,
@@ -707,4 +714,136 @@ fn request_suggested_fees(
          gui.across_bridge.last_request_time = Some(Instant::now())
       });
    });
+}
+
+async fn across_bridge(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   dest_chain: ChainId,
+   deadline: u32,
+   from: Address,
+   recipient: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+) -> Result<(), anyhow::Error> {
+   // Across protocol is very fast on filling the orders
+   // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
+   let mut from_block = None;
+   if ctx.client_available(dest_chain.id()) {
+      let dest_client = ctx.get_client(dest_chain.id()).await?;
+      let block = dest_client.get_block_number().await;
+      if block.is_ok() {
+         from_block = Some(block.unwrap());
+      }
+   }
+
+   let mev_protect = false;
+   let (_, tx_rich) = eth::send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      None,
+      None,
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   let step2 = Step {
+      id: "step2",
+      in_progress: true,
+      finished: false,
+      msg: "Waiting for the order to be filled".to_string(),
+   };
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window
+         .open_with(vec![step1, step2], "Success!".to_string());
+      gui.request_repaint();
+   });
+
+   wait_for_fill(ctx, dest_chain, recipient, from_block, deadline).await?;
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window.finish_last_step();
+      gui.progress_window.set_tx(tx_rich);
+      gui.request_repaint();
+   });
+
+   Ok(())
+}
+
+async fn wait_for_fill(
+   ctx: ZeusCtx,
+   dest_chain: ChainId,
+   recipient: Address,
+   from_block: Option<u64>,
+   deadline: u32,
+) -> Result<(), anyhow::Error> {
+   if from_block.is_none() {
+      return Ok(());
+   }
+
+   let from_block = from_block.unwrap();
+   let mut block_time_ms = dest_chain.block_time();
+   if dest_chain.is_arbitrum() {
+      // give more time so we dont spam the rpc
+      block_time_ms *= 3;
+   }
+
+   let now = std::time::Instant::now();
+   let mut funds_received = false;
+
+   let target = address_book::across_spoke_pool_v2(dest_chain.id())?;
+   let filter = Filter::new()
+      .from_block(BlockNumberOrTag::Number(from_block))
+      .address(vec![target])
+      .event(filled_relay_signature());
+
+   let dest_client = ctx.get_client(dest_chain.id()).await?;
+
+   // Wait for the order to be filled at the destination chain
+   while now.elapsed().as_secs() < deadline as u64 {
+      let logs = dest_client.get_logs(&filter).await?;
+      for log in logs {
+         if let Ok(decoded) = decode_filled_relay_log(log.data()) {
+            tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);
+            if decoded.recipient == recipient {
+               tracing::info!("Funds received");
+               funds_received = true;
+               break;
+            }
+         }
+      }
+
+      if funds_received {
+         break;
+      }
+
+      tokio::time::sleep(Duration::from_millis(block_time_ms)).await;
+   }
+
+   // I dont expect this to happen
+   if funds_received {
+      Ok(())
+   } else {
+      let err = format!(
+         "Deadline exceeded\n
+         No funds received on the {} chain\n
+         Your deposit should be refunded shortly",
+         dest_chain.name(),
+      );
+      return Err(anyhow!(err));
+   }
 }

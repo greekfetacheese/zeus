@@ -1,8 +1,7 @@
-use alloy_primitives::{Address, U256, address};
+use alloy_primitives::{Address, U256};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use anyhow::bail;
 use types::ChainId;
 
 #[derive(Debug, Default, Clone)]
@@ -130,17 +129,5 @@ pub fn supports_chain(chain_id: u64) -> Result<bool, anyhow::Error> {
       ChainId::Base(_) => Ok(true),
       ChainId::Arbitrum(_) => Ok(true),
       ChainId::BinanceSmartChain(_) => Ok(false),
-   }
-}
-
-/// Return the address of the SpokePool contract on the specified chain
-pub fn spoke_pool_address(chain_id: u64) -> Result<Address, anyhow::Error> {
-   let chain = ChainId::new(chain_id)?;
-   match chain {
-      ChainId::Ethereum(_) => Ok(address!("5c7BCd6E7De5423a257D81B442095A1a6ced35C5")),
-      ChainId::Optimism(_) => Ok(address!("6f26Bf09B1C792e3228e5467807a900A503c0281")),
-      ChainId::Base(_) => Ok(address!("09aea4b2242abC8bb4BB78D537A67a245A7bEC64")),
-      ChainId::Arbitrum(_) => Ok(address!("e35e9842fceaca96570b734083f4a58e8f7c5f2a")),
-      ChainId::BinanceSmartChain(_) => bail!("Across Protocol does not support BSC"),
    }
 }

@@ -665,6 +665,13 @@ impl ZeusCtx {
          return Some("Uniswap V3: NFT Position Manager".to_string());
       }
 
+      let spoke_pool_address = address_book::across_spoke_pool_v2(chain);
+      if spoke_pool_address.is_ok() {
+         if spoke_pool_address.unwrap() == address {
+            return Some("Across Protocol: Spoke Pool V2".to_string());
+         }
+      }
+
       None
    }
 
