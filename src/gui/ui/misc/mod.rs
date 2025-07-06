@@ -880,30 +880,26 @@ impl PortfolioUi {
 
          // Update the pool state that includes these tokens
          let pool_manager = ctx.pool_manager();
-         let mut pools_to_update = Vec::new();
-         for currency in &portfolio.tokens {
-            let pools = pool_manager.get_pools_that_have_currency(&currency);
-            pools_to_update.extend(pools);
+         let dex = DexKind::main_dexes(chain);
+
+         let _ = pool_manager
+            .sync_pools_for_tokens(ctx.clone(), chain, tokens.clone(), dex, false)
+            .await;
+
+         let mut pools = Vec::new();
+
+         for token in tokens {
+            if token.is_weth() || token.is_wbnb() {
+               continue;
+            }
+            
+            let c = token.into();
+            pools.extend(pool_manager.get_pools_that_have_currency(&c));
          }
 
-         if !pools_to_update.is_empty() {
-            let _ = pool_manager
-               .update_state_for_pools(ctx.clone(), chain, pools_to_update)
-               .await;
-         } else {
-            let dex = DexKind::main_dexes(chain);
-            let _ = pool_manager
-               .sync_pools_for_tokens(ctx.clone(), chain, tokens.clone(), dex, false)
-               .await;
-            let mut pools = Vec::new();
-            for token in tokens {
-               let c = token.into();
-               pools.extend(pool_manager.get_pools_that_have_currency(&c));
-            }
-            let _ = pool_manager
-               .update_state_for_pools(ctx.clone(), chain, pools)
-               .await;
-         }
+         let _ = pool_manager
+            .update_state_for_pools(ctx.clone(), chain, pools)
+            .await;
 
          ctx.calculate_portfolio_value(chain, owner);
 

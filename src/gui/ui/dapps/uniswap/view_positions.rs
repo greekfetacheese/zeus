@@ -631,7 +631,7 @@ impl PositionDetails {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (400.0, 200.0),
+         size: (600.0, 300.0),
          position: None,
          pool: None,
       }
@@ -657,7 +657,7 @@ impl PositionDetails {
       let mut open = self.open;
 
       let id = Id::new("view_positions_ui_position_details_window");
-      let title = RichText::new("Position Details").size(theme.text_sizes.large);
+      let title = RichText::new("Position Details").size(theme.text_sizes.heading);
 
       Window::new(title)
          .id(id)
@@ -672,6 +672,8 @@ impl PositionDetails {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
                ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+
+               ui.add_space(20.0);
 
                let position = self.position.as_ref();
                let pool = self.pool.as_ref();
@@ -709,37 +711,98 @@ impl PositionDetails {
 
                let current_price = pool.calculate_price(token0).unwrap_or_default();
 
-               let id = format!("TokenID {}", position.id);
-               let lower_tick = format!("Lower Tick {}", position.tick_lower);
-               let upper_tick = format!("Upper Tick {}", position.tick_upper);
+               let frame = theme.frame2;
+               let size = vec2(ui.available_width() * 0.5, 40.0);
+               let size2 = vec2(ui.available_width() * 0.7, 40.0);
 
-               let min_price_text = format!(
-                  "Min Price {:.6} {} / {}",
-                  min_price,
-                  token1.symbol(),
-                  token0.symbol()
-               );
+               // First row - Token ID, Lower Tick, Upper Tick
+               ui.allocate_ui(size, |ui| {
+                  ui.horizontal(|ui| {
+                     // Token ID
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Token ID").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(position.id.to_string()).size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
 
-               let max_price_text = format!(
-                  "Max Price {:.6} {} / {}",
-                  max_price,
-                  token1.symbol(),
-                  token0.symbol()
-               );
+                     // Lower Tick
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Lower Tick").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(position.tick_lower.to_string())
+                                 .size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
 
-               let current_price_text = format!(
-                  "Current Price {:.6} {} / {}",
-                  current_price,
-                  token1.symbol(),
-                  token0.symbol()
-               );
+                     // Upper Tick
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Upper Tick").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(position.tick_upper.to_string())
+                                 .size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
+                  });
+               });
 
-               ui.label(RichText::new(id).size(theme.text_sizes.normal));
-               ui.label(RichText::new(lower_tick).size(theme.text_sizes.normal));
-               ui.label(RichText::new(upper_tick).size(theme.text_sizes.normal));
-               ui.label(RichText::new(min_price_text).size(theme.text_sizes.normal));
-               ui.label(RichText::new(max_price_text).size(theme.text_sizes.normal));
-               ui.label(RichText::new(current_price_text).size(theme.text_sizes.normal));
+               ui.add_space(20.0);
+
+               // Second row - Min Price, Current Price, Max Price
+               ui.allocate_ui(size2, |ui| {
+                  ui.horizontal(|ui| {
+                     // Min Price
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Min Price").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(format!("{:.6}", min_price))
+                                 .size(theme.text_sizes.normal),
+                           );
+                           ui.label(
+                              RichText::new(format! {"{} / {}", token1.symbol(), token0.symbol()})
+                                 .size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
+
+                     // Current Price
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Current Price").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(format!("{:.6}", current_price))
+                                 .size(theme.text_sizes.normal),
+                           );
+                           ui.label(
+                              RichText::new(format! {"{} / {}", token1.symbol(), token0.symbol()})
+                                 .size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
+
+                     // Max Price
+                     frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                           ui.label(RichText::new("Max Price").size(theme.text_sizes.normal));
+                           ui.label(
+                              RichText::new(format!("{:.6}", max_price))
+                                 .size(theme.text_sizes.normal),
+                           );
+                           ui.label(
+                              RichText::new(format! {"{} / {}", token1.symbol(), token0.symbol()})
+                                 .size(theme.text_sizes.normal),
+                           );
+                        });
+                     });
+                  });
+               });
             });
          });
       self.open = open;
@@ -843,7 +906,7 @@ impl ViewPositionsUi {
                });
             }
 
-            let text = RichText::new("Refresh").size(theme.text_sizes.normal);
+            let text = RichText::new("⟲").size(theme.text_sizes.normal);
             let button = Button::new(text);
             if ui.add(button).clicked() {
                let positions = positions.clone();
