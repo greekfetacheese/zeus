@@ -33,6 +33,10 @@ impl Portfolio {
       self.tokens.push(token);
    }
 
+   pub fn has_token(&self, token: &Currency) -> bool {
+      self.tokens.contains(token)
+   }
+
    pub fn remove_token(&mut self, token: &Currency) {
       self.tokens.retain(|t| t != token);
    }

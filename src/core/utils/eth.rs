@@ -994,13 +994,26 @@ pub async fn swap(
       currency_in.to_erc20().into_owned(),
       currency_out.to_erc20().into_owned(),
    ];
+
    RT.spawn(async move {
       let manager = ctx.balance_manager();
       manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, tokens)
          .await
          .unwrap();
+
+      // Update the portfolio value
+      let mut portfolio = ctx.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&currency_out) {
+         portfolio.add_token(currency_out);
+         ctx.write(|ctx| {
+            ctx.portfolio_db
+               .insert_portfolio(chain.id(), from, portfolio)
+         });
+      }
+      ctx.calculate_portfolio_value(chain.id(), from);
       ctx.save_balance_manager();
+      ctx.save_portfolio_db();
    });
 
    Ok(())

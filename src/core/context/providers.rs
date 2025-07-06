@@ -350,11 +350,16 @@ impl Default for RpcProviders {
       // Chain ID 56: BSC
 
       /*
+      "wss://bsc-rpc.publicnode.com"
+      "wss://0xrpc.io/bnb"
+      "https://bsc.blockrazor.xyz"
+      "https://rpc-bsc.48.club"
+       */
+
+      /*
       Rpc::new("https://bsc-mainnet.public.blastapi.io", 56, true, true),
-      Rpc::new("https://binance.llamarpc.com", 56, true, true),
       Rpc::new("https://bsc-dataseed.bnbchain.org", 56, true, true),
       Rpc::new("https://bsc.drpc.org", 56, true, true),
-                  Rpc::new("https://bsc-pokt.nodies.app", 56, true, true),
        */
 
       rpcs.insert(
@@ -368,21 +373,21 @@ impl Default for RpcProviders {
                not_mev_protect,
             ),
             Rpc::new(
-               "wss://0xrpc.io/bnb",
+               "https://binance.llamarpc.com",
                56,
                true,
                true,
                not_mev_protect,
             ),
             Rpc::new(
-               "https://bsc.blockrazor.xyz",
+               "https://bsc-pokt.nodies.app",
                56,
                true,
                true,
                not_mev_protect,
             ),
             Rpc::new(
-               "https://rpc-bsc.48.club",
+               "https://api.zan.top/bsc-mainnet",
                56,
                true,
                true,
@@ -613,7 +618,6 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
    let mut state_res = None;
 
    if v3_pools.len() >= 10 {
-
       let mut pools_to_update = Vec::new();
       for pool in &v3_pools {
          if pools_to_update.len() >= 10 {

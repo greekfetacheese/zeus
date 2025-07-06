@@ -1,6 +1,8 @@
 use crate::assets::icons::Icons;
+use crate::core::utils::update::test_rpcs;
 use crate::core::{
    ZeusCtx,
+   providers::{Rpc, client_test},
    utils::{RT, update::measure_rpcs},
 };
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
@@ -33,7 +35,7 @@ impl NetworkSettings {
          valid_url: false,
          url_to_add: String::new(),
          chain_select: ChainSelect::new("network_settings_chain_select", 1),
-         size: (500.0, 400.0),
+         size: (550.0, 400.0),
       }
    }
 
@@ -58,7 +60,6 @@ impl NetworkSettings {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let ui_width = ui.available_width();
 
             ui.add_space(25.0);
             let chain = self.chain_select.chain.id();
@@ -73,7 +74,6 @@ impl NetworkSettings {
                ui.add_space(30.0);
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-
                   let add_network =
                      Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
                   if ui.add(add_network).clicked() {
@@ -85,6 +85,7 @@ impl NetworkSettings {
                      self.refreshing = true;
                      let ctx = ctx.clone();
                      RT.spawn(async move {
+                        test_rpcs(ctx.clone()).await;
                         measure_rpcs(ctx.clone()).await;
                         SHARED_GUI.write(|gui| {
                            gui.settings.network.refreshing = false;
@@ -103,108 +104,116 @@ impl NetworkSettings {
 
             ScrollArea::vertical().show(ui, |ui| {
                let column_widths = [
-                  ui_width * 0.4, // Url
-                  ui_width * 0.1, // Enabled (checkbox)
-                  ui_width * 0.1, // Status
-                  ui_width * 0.1, // Archive Node
-                  ui_width * 0.1, // Latency
-                  ui_width * 0.1, // Remove button
+                  ui.available_width() * 0.4, // Url
+                  ui.available_width() * 0.1, // Enabled (checkbox)
+                  ui.available_width() * 0.1, // Status
+                  ui.available_width() * 0.1, // Archive Node
+                  ui.available_width() * 0.1, // Latency
+                  ui.available_width() * 0.1, // Test button
+                  ui.available_width() * 0.1, // Remove button
                ];
 
-               // Center the grid within the scroll area
-               ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
+               Grid::new("rpc_grid").spacing([10.0, 10.0]).show(ui, |ui| {
+                  ui.set_width(column_widths.iter().sum::<f32>());
 
-                  Grid::new("rpc_grid").spacing([10.0, 10.0]).show(ui, |ui| {
-                     ui.set_width(column_widths.iter().sum::<f32>());
+                  // Header
+                  ui.label(RichText::new("Url").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Enabled").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Status").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Archive").size(theme.text_sizes.large));
+                  ui.label(RichText::new("Latency").size(theme.text_sizes.large));
 
-                     // Header
-                     ui.label(RichText::new("Url").size(theme.text_sizes.large));
-                     ui.label(RichText::new("Enabled").size(theme.text_sizes.large));
-                     ui.label(RichText::new("Status").size(theme.text_sizes.large));
-                     ui.label(RichText::new("Archive").size(theme.text_sizes.large));
-                     ui.label(RichText::new("Latency").size(theme.text_sizes.large));
+                  ui.end_row();
 
-                     ui.end_row();
+                  for rpc in rpcs.iter_mut() {
+                     // Url column
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[0]);
+                        ui.add(
+                           TextEdit::singleline(&mut rpc.url)
+                              .font(FontId::proportional(theme.text_sizes.normal))
+                              .min_size(vec2(column_widths[0] * 0.8, 25.0))
+                              .margin(Margin::same(10)),
+                        );
+                     });
 
-                     for rpc in rpcs.iter_mut() {
-                        // Url column
-                        ui.horizontal(|ui| {
-                           ui.set_width(column_widths[0]);
-                           ui.add(
-                              TextEdit::singleline(&mut rpc.url)
-                                 .font(FontId::proportional(theme.text_sizes.normal))
-                                 .min_size(vec2(column_widths[0] * 0.8, 25.0))
-                                 .margin(Margin::same(10)),
-                           );
+                     // Enabled column
+                     let res = ui.horizontal(|ui| {
+                        ui.set_width(column_widths[1]);
+                        ui.checkbox(&mut rpc.enabled, "")
+                     });
+
+                     if res.inner.clicked() {
+                        ctx.write(|ctx| {
+                           let rpc = ctx.providers.rpc_mut(chain, rpc.url.clone());
+                           if let Some(rpc) = rpc {
+                              rpc.enabled = !rpc.enabled;
+                           }
                         });
-
-                        // Enabled column
-                        let res = ui.horizontal(|ui| {
-                           ui.set_width(column_widths[1]);
-                           ui.checkbox(&mut rpc.enabled, "")
+                        let ctx_clone = ctx.clone();
+                        RT.spawn_blocking(move || {
+                           ctx_clone.save_providers();
                         });
+                     }
 
-                        if res.inner.clicked() {
+                     // Status column
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[2]);
+                        let icon = if rpc.working {
+                           icons.green_circle()
+                        } else {
+                           icons.red_circle()
+                        };
+                        ui.add(icon);
+                     });
+
+                     // Archive Node column
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[3]);
+                        let icon = if rpc.archive_node {
+                           icons.green_circle()
+                        } else {
+                           icons.red_circle()
+                        };
+                        ui.add(icon);
+                     });
+
+                     // Latency column
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[4]);
+                        ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
+                     });
+
+                     // Test button column
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[5]);
+                        let button =
+                           Button::new(RichText::new("Test").size(theme.text_sizes.small));
+                        if ui.add(button).clicked() {
+                           let ctx_clone = ctx.clone();
+                           let rpc_clone = rpc.clone();
+                           self.refreshing = true;
+                           test_rpc(ctx_clone, rpc_clone);
+                        }
+                     });
+
+                     // Remove button column
+                     let button = Button::new(RichText::new("Remove").size(theme.text_sizes.small));
+                     ui.horizontal(|ui| {
+                        ui.set_width(column_widths[5]);
+                        if ui.add(button).clicked() {
                            ctx.write(|ctx| {
-                              let rpc = ctx.providers.rpc_mut(chain, rpc.url.clone());
-                              if let Some(rpc) = rpc {
-                                 rpc.enabled = !rpc.enabled;
-                              }
+                              ctx.providers.remove_rpc(chain, rpc.url.clone());
                            });
                            let ctx_clone = ctx.clone();
                            RT.spawn_blocking(move || {
                               ctx_clone.save_providers();
                            });
                         }
+                     });
 
-                        // Status column
-                        ui.horizontal(|ui| {
-                           ui.set_width(column_widths[2]);
-                           let icon = if rpc.working {
-                              icons.green_circle()
-                           } else {
-                              icons.red_circle()
-                           };
-                           ui.add(icon);
-                        });
-
-                        // Archive Node column
-                        ui.horizontal(|ui| {
-                           ui.set_width(column_widths[3]);
-                           let icon = if rpc.archive_node {
-                              icons.green_circle()
-                           } else {
-                              icons.red_circle()
-                           };
-                           ui.add(icon);
-                        });
-
-                        // Latency column
-                        ui.horizontal(|ui| {
-                           ui.set_width(column_widths[4]);
-                           ui.label(RichText::new(rpc.latency_str()).size(theme.text_sizes.normal));
-                        });
-
-                        // Remove button column
-                        let button =
-                           Button::new(RichText::new("Remove").size(theme.text_sizes.small));
-                        ui.horizontal(|ui| {
-                           ui.set_width(column_widths[5]);
-                           if ui.add(button).clicked() {
-                              ctx.write(|ctx| {
-                                 ctx.providers.remove_rpc(chain, rpc.url.clone());
-                              });
-                              let ctx_clone = ctx.clone();
-                              RT.spawn_blocking(move || {
-                                 ctx_clone.save_providers();
-                              });
-                           }
-                        });
-
-                        ui.end_row();
-                     }
-                  });
+                     ui.end_row();
+                  }
                });
             });
          });
@@ -299,4 +308,34 @@ impl NetworkSettings {
          });
       self.add_rpc = open;
    }
+}
+
+fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
+   RT.spawn(async move {
+      match client_test(ctx.clone(), rpc.clone()).await {
+         Ok(archive) => {
+            ctx.write(|ctx| {
+               if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+                  rpc.working = true;
+                  rpc.archive_node = archive;
+               }
+            });
+            SHARED_GUI.write(|gui| {
+               gui.settings.network.refreshing = false;
+            });
+         }
+         Err(e) => {
+            tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
+            ctx.write(|ctx| {
+               if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+                  rpc.working = false;
+               }
+            });
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Network Error", &e.to_string());
+               gui.settings.network.refreshing = false;
+            });
+         }
+      }
+   });
 }
