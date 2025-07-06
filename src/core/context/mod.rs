@@ -480,6 +480,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.portfolio_db.get(chain, owner))
    }
 
+   pub fn has_portfolio(&self, chain: u64, owner: Address) -> bool {
+      self.read(|ctx| ctx.portfolio_db.portfolios.get(&(chain, owner)).is_some())
+   }
+
    /// Get the portfolio value across all chains
    pub fn get_portfolio_value_all_chains(&self, owner: Address) -> NumericValue {
       let mut value = 0.0;
@@ -524,6 +528,7 @@ impl ZeusCtx {
       let eth_price = self.get_currency_price(&Currency::from(ERC20Token::wrapped_native_token(
          chain,
       )));
+      
       let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
       value += eth_value.f64();
 

@@ -18,6 +18,7 @@ const FILE_NAME: &str = "currencies.json";
 pub struct CurrencyDB {
    #[serde(with = "serde_hashmap")]
    pub currencies: HashMap<u64, Arc<Vec<Currency>>>,
+   #[serde(with = "serde_hashmap")]
    pub tokens: HashMap<(u64, Address), ERC20Token>,
 }
 
@@ -168,5 +169,17 @@ impl CurrencyDB {
       self.insert_currency(ETH, dai.into());
 
       Ok(())
+   }
+}
+
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn test_save() {
+      let currency_db = CurrencyDB::default();
+      currency_db.save().unwrap();
    }
 }

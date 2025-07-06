@@ -1,5 +1,10 @@
-use crate::core::{BaseFee, ZeusCtx, context::providers::client_test, utils::*};
+use crate::core::{
+   BaseFee, ZeusCtx,
+   context::{Portfolio, providers::client_test},
+   utils::*,
+};
 use anyhow::{anyhow, bail};
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use zeus_eth::alloy_rpc_types::BlockId;
 use zeus_eth::amm::DexKind;
@@ -71,7 +76,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    token_balance_fut.await;
 
    // Calculate the portfolio value for all chains
-
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
       for chain in SUPPORTED_CHAINS {
@@ -89,7 +93,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    // Update the base fee for all chains
-
    for chain in SUPPORTED_CHAINS {
       let ctx = ctx.clone();
       RT.spawn(async move {
@@ -99,6 +102,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
       });
    }
+
+   let ctx_clone = ctx.clone();
+   RT.spawn_blocking(move || {
+      insert_missing_portfolios(ctx_clone);
+   });
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
@@ -144,7 +152,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let task = RT.spawn(async move {
          match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, sync_v4).await {
             Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing V4 pools: {:?}", e),
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
          }
 
          if sync_v4 {
@@ -183,6 +191,36 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn_blocking(move || {
       ctx.save_all();
    });
+}
+
+fn insert_missing_portfolios(ctx: ZeusCtx) {
+   while !ctx.logged_in() {
+      std::thread::sleep(Duration::from_millis(100));
+   }
+
+   let wallets = ctx.wallets_info();
+   for chain in SUPPORTED_CHAINS {
+      for wallet in &wallets {
+         let has_portfolio = ctx.has_portfolio(chain, wallet.address);
+         let balance = ctx.get_eth_balance(chain, wallet.address);
+         if !balance.is_zero() && !has_portfolio {
+            let portfolio = Portfolio::new(wallet.address, chain);
+            ctx.write(|ctx| {
+               ctx.portfolio_db
+                  .insert_portfolio(chain, wallet.address, portfolio);
+            });
+         }
+      }
+   }
+
+   for chain in SUPPORTED_CHAINS {
+      let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+      for portfolio in &portfolios {
+         ctx.calculate_portfolio_value(chain, portfolio.owner);
+      }
+   }
+   ctx.save_portfolio_db();
+   tracing::info!("Updated portfolio value");
 }
 
 pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
@@ -225,11 +263,13 @@ async fn update_pool_manager(ctx: ZeusCtx) {
 
          let tokens = ctx.get_all_tokens_from_portfolios(chain);
          let mut currencies = Vec::new();
+         let mut inserted = HashSet::new();
          for token in tokens {
-            if token.is_weth() || token.is_wbnb() {
+            if token.is_weth() || token.is_wbnb() || inserted.contains(&token.address) {
                continue;
             }
 
+            inserted.insert(token.address);
             currencies.push(Currency::from(token));
          }
 

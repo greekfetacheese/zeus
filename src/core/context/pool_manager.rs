@@ -13,7 +13,7 @@ use crate::core::ZeusCtx;
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::{
-      DexKind,
+      DexKind, PoolID,
       sync::*,
       uniswap::{
          AnyUniswapPool, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*,
@@ -264,11 +264,18 @@ impl PoolManagerHandle {
       chain: u64,
       currencies: Vec<Currency>,
    ) -> Result<(), anyhow::Error> {
-      tracing::info!(target: "zeus_eth::amm::pool_manager", "Updating pools for {} currencies", currencies.len());
       let mut pools_to_update = Vec::new();
+      let mut inserted = HashSet::new();
       for currency in currencies {
          let pools = self.get_pools_that_have_currency(&currency);
-         pools_to_update.extend(pools);
+         for pool in pools {
+            let id = PoolID::new(pool.chain_id(), pool.address(), pool.pool_id());
+            if inserted.contains(&id) {
+               continue;
+            }
+            inserted.insert(id);
+            pools_to_update.push(pool);
+         }
       }
 
       let concurrency = self.read(|manager| manager.concurrency);
