@@ -35,22 +35,6 @@ impl SyncPoolsUi {
          ui.spacing_mut().item_spacing.y = 10.0;
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         let load_btn = Button::new(RichText::new("Load Pool Data").size(theme.text_sizes.normal));
-         if ui.add(load_btn).clicked() {
-            let manager = ctx.pool_manager();
-            RT.spawn_blocking(move || {
-               match load_pools(manager) {
-                  Ok(_) => {}
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.msg_window
-                           .open("Failed to load pool data", e.to_string());
-                     });
-                     return;
-                  }
-               };
-            });
-         }
 
          let button = Button::new(RichText::new("Sync Pool Data").size(theme.text_sizes.normal));
          let enabled = !self.syncing && !self.updating_state;
@@ -233,12 +217,12 @@ async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    let manager_string = manager
       .to_string()
       .map_err(|e| anyhow::anyhow!("Failed to serialize pool manager: {:?}", e))?;
-   std::fs::write(pool_data_full_dir()?, manager_string)?;
+   std::fs::write(pool_data_dir()?, manager_string)?;
 
    Ok(())
 }
 
-fn load_pools(current_manager: PoolManagerHandle) -> Result<(), anyhow::Error> {
+fn _load_pools(current_manager: PoolManagerHandle) -> Result<(), anyhow::Error> {
    let dir = pool_data_full_dir()?;
    let manager = PoolManagerHandle::from_dir(&dir)?;
 

@@ -4458,7 +4458,7 @@ dependencies = [
 [[package]]
 name = "ncrypt-me"
 version = "0.1.0"
-source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#460b0e6f16b409da78b977ce64e4d793eb69b508"
+source = "git+https://github.com/greekfetacheese/ncrypt-me.git?branch=master#0c7dcad8967b66446f20ab188afeab4c23745403"
 dependencies = [
  "argon2",
  "bincode",

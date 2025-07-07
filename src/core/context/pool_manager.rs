@@ -898,7 +898,11 @@ impl PoolManager {
    }
 
    pub fn cleanup_pools(&mut self) {
-      self.pools.retain(|_, pool| pool.enough_liquidity());
+      self.pools.retain(|_, pool| {
+         pool.enough_liquidity() || pool.currency0().is_base() && pool.currency1().is_base()
+      });
+
+      self.pools.shrink_to_fit();
    }
 
    /// Removes V4 pools that have no liquidity
