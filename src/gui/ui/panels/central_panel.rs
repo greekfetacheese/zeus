@@ -130,6 +130,14 @@ impl UiTesting {
          ui.spacing_mut().item_spacing.y = 10.0;
          let btn_size = vec2(100.0, 25.0);
 
+         if ui.button("Data Syncing").clicked() {
+            ctx.write(|ctx| ctx.data_syncing = !ctx.data_syncing);
+         }
+
+         if ui.button("On Startup Syncing").clicked() {
+            ctx.write(|ctx| ctx.on_startup_syncing = !ctx.on_startup_syncing);
+         }
+
          let button = Button::new("Unknown Tx Analysis 1").min_size(btn_size);
          if ui.add(button).clicked() {
             let ctx_clone = ctx.clone();

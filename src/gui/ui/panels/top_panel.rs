@@ -4,13 +4,14 @@ use crate::gui::{
    GUI, SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use egui::{Align, Grid, Layout, RichText, SelectableLabel, Spinner, Ui, vec2};
+use egui::{Align, Frame, Layout, Margin, RichText, SelectableLabel, Spinner, Ui, vec2};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::currency::{Currency, NativeCurrency};
 
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data, do not close the app yet!";
 const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state, do not close the app yet!";
+const ACCOUNT_SAVE_IN_PROGRESS_MSG: &str = "Saving account in progress, do not close the app yet!";
 
 pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let ctx = gui.ctx.clone();
@@ -18,84 +19,106 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let on_startup_syncing = ctx.read(|ctx| ctx.on_startup_syncing);
    let icons = gui.icons.clone();
    let theme = &gui.theme;
+   let frame = theme.frame2;
 
-   // tracing::info!("On Startup Syncing: {} Data Syncing: {}", on_startup_syncing, data_syncing);
-   if data_syncing && !on_startup_syncing {
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
-         ui.add(Spinner::new().size(20.0));
-      });
-   }
+   Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+      ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-   if on_startup_syncing && !data_syncing {
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(ON_STARTUP_SYNC_MSG).size(theme.text_sizes.normal));
-         ui.add(Spinner::new().size(20.0));
-      });
-   }
+      ui.horizontal(|ui| {
+         ui.vertical(|ui| {
+            ui.horizontal(|ui| {
+               if gui.tx_confirmation_window.is_open() {
+                  ui.disable();
+               }
 
-   // For now no need to call ctx.request_repaint() here
-   // because the spinner does that even when the window is minimized
-   if gui
-      .wallet_ui
-      .export_key_ui
-      .exporter
-      .key_copied_time
-      .is_some()
-   {
-      ui.vertical_centered(|ui| {
-         Grid::new("key_copied_grid")
-            .spacing([0.0, 0.0])
-            .show(ui, |ui| {
-               ui.add(Spinner::new().size(20.0));
-               gui.wallet_ui
-                  .export_key_ui
-                  .exporter
-                  .update(theme, ui.ctx().clone(), ui);
-               ui.end_row();
+               if gui.sign_msg_window.is_open() {
+                  ui.disable();
+               }
+
+               gui.chain_selection
+                  .show(ctx.clone(), theme, icons.clone(), ui);
             });
+
+            ui.horizontal(|ui| {
+               // Disable the wallet selection when we are in the review window
+               // To avoid any mistakes
+               if gui.tx_confirmation_window.is_open() {
+                  ui.disable();
+               }
+
+               if gui.sign_msg_window.is_open() {
+                  ui.disable();
+               }
+
+               gui.wallet_selection
+                  .show(ctx.clone(), theme, icons.clone(), ui);
+            });
+
+            ui.horizontal(|ui| {
+               let wallet = ctx.current_wallet();
+               let address = wallet.address_truncated();
+
+               let address_text = RichText::new(address).size(theme.text_sizes.normal);
+               if ui.add(SelectableLabel::new(false, address_text)).clicked() {
+                  ui.ctx().copy_text(wallet.address_string());
+               }
+            });
+         });
+
+         if data_syncing && !on_startup_syncing {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               frame.show(ui, |ui| {
+                  ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
+                  ui.add_space(10.0);
+                  ui.add(Spinner::new().size(20.0));
+               });
+            });
+         }
+
+         if on_startup_syncing && !data_syncing {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               frame.show(ui, |ui| {
+                  ui.label(RichText::new(ON_STARTUP_SYNC_MSG).size(theme.text_sizes.normal));
+                  ui.add_space(10.0);
+                  ui.add(Spinner::new().size(20.0));
+               });
+            });
+         }
+
+         if ctx.save_account_in_progress() {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               frame.show(ui, |ui| {
+                  ui.label(
+                     RichText::new(ACCOUNT_SAVE_IN_PROGRESS_MSG).size(theme.text_sizes.normal),
+                  );
+                  ui.add_space(10.0);
+                  ui.add(Spinner::new().size(20.0));
+               });
+            });
+         }
+
+         // For now no need to call ctx.request_repaint() here
+         // because the spinner does that even when the window is minimized
+         if gui
+            .wallet_ui
+            .export_key_ui
+            .exporter
+            .key_copied_time
+            .is_some()
+         {
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               frame.show(ui, |ui| {
+                  gui.wallet_ui
+                     .export_key_ui
+                     .exporter
+                     .update(theme, ui.ctx().clone(), ui);
+                  ui.add_space(10.0);
+                  ui.add(Spinner::new().size(20.0));
+               });
+            });
+         }
       });
-   }
-
-   ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-   ui.horizontal(|ui| {
-      if gui.tx_confirmation_window.is_open() {
-         ui.disable();
-      }
-
-      if gui.sign_msg_window.is_open() {
-         ui.disable();
-      }
-
-      gui.chain_selection
-         .show(ctx.clone(), theme, icons.clone(), ui);
-   });
-
-   ui.horizontal(|ui| {
-      // Disable the wallet selection when we are in the review window
-      // To avoid any mistakes
-      if gui.tx_confirmation_window.is_open() {
-         ui.disable();
-      }
-
-      if gui.sign_msg_window.is_open() {
-         ui.disable();
-      }
-
-      gui.wallet_selection
-         .show(ctx.clone(), theme, icons.clone(), ui);
-   });
-
-   ui.horizontal(|ui| {
-      let wallet = ctx.current_wallet();
-      let address = wallet.address_truncated();
-
-      let address_text = RichText::new(address).size(theme.text_sizes.normal);
-      if ui.add(SelectableLabel::new(false, address_text)).clicked() {
-         ui.ctx().copy_text(wallet.address_string());
-      }
    });
 }
 

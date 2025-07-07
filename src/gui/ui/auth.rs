@@ -528,20 +528,10 @@ impl RegisterUi {
                         gui.loading_window.open("Creating account...");
                      });
 
-                     // Encrypt the account
-                     let data = match account.encrypt(Some(Argon2Params::balanced())) {
-                        Ok(data) => data,
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to create account", e.to_string());
-                              gui.loading_window.open = false;
-                           });
-                           return;
-                        }
-                     };
+                     let params = Some(Argon2Params::balanced());
 
-                     // Save the new account encrypted data to the account file
-                     match account.save(None, data) {
+                     // Encrypt the account
+                     match ctx.encrypt_and_save_account(Some(account.clone()), params.clone()) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
                               gui.wallet_selection.wallet_select.wallet =
@@ -562,8 +552,8 @@ impl RegisterUi {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Failed to create account", e.to_string());
                               gui.loading_window.open = false;
-                              gui.open_msg_window("Failed to save account", e.to_string());
                            });
                            return;
                         }

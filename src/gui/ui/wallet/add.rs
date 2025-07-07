@@ -95,11 +95,11 @@ impl ImportWallet {
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
 
          RT.spawn_blocking(move || {
-            let mut account = ctx.get_account();
+            let mut new_account = ctx.get_account();
 
             // Import the wallet
             let new_wallet_address =
-               match account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
+               match new_account.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
                   Ok(address) => address,
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
@@ -114,9 +114,11 @@ impl ImportWallet {
             });
 
             // Encrypt the account
-            let data = match account.encrypt(None) {
-               Ok(data) => {
+            match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
+               Ok(_) => {
                   SHARED_GUI.write(|gui| {
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Wallet imported successfully", "");
                      gui.wallet_ui
                         .add_wallet_ui
                         .import_wallet
@@ -128,7 +130,6 @@ impl ImportWallet {
                         .wallet_name
                         .clear();
                   });
-                  data
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -139,24 +140,7 @@ impl ImportWallet {
                }
             };
 
-            // Save the new account encrypted data to the account file
-            match account.save(None, data) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
-                     gui.open_msg_window("Wallet imported successfully", "");
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to save account", e.to_string());
-                  });
-                  return;
-               }
-            }
-
-            ctx.set_account(account);
+            ctx.set_account(new_account);
 
             // Fetch the balance for the new wallet across all chains and add it to the portfolio db
             RT.spawn(async move {
@@ -168,10 +152,9 @@ impl ImportWallet {
 
                   // Portfolio is created and saved here
                   ctx.calculate_portfolio_value(chain, new_wallet_address);
-
-                  ctx.save_balance_manager();
-                  ctx.save_portfolio_db();
                }
+               ctx.save_balance_manager();
+               ctx.save_portfolio_db();
             });
          });
       }
@@ -328,9 +311,9 @@ impl AddWalletUi {
          let name = self.wallet_name.clone();
 
          RT.spawn_blocking(move || {
-            let mut account = ctx.get_account();
+            let mut new_account = ctx.get_account();
 
-            match account.new_wallet_rng(name) {
+            match new_account.new_wallet_rng(name) {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -345,18 +328,7 @@ impl AddWalletUi {
             });
 
             // Encrypt the account
-            let data = match account.encrypt(None) {
-               Ok(data) => data,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to encrypt account", e.to_string());
-                  });
-                  return;
-               }
-            };
-
-            // Save the new account encrypted data to the account file
-            match account.save(None, data) {
+            match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
@@ -367,13 +339,13 @@ impl AddWalletUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to save account", e.to_string());
+                     gui.open_msg_window("Failed to encrypt account", e.to_string());
                   });
                   return;
                }
             };
 
-            ctx.set_account(account);
+            ctx.set_account(new_account);
          });
       }
       self.generate_wallet = open;

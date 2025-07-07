@@ -1,4 +1,4 @@
-use super::wallet::*;
+use super::{Contact, wallet::*};
 use crate::core::utils::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2Params, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
@@ -18,6 +18,8 @@ pub struct Account {
 
    /// The current selected wallet from the GUI
    pub current_wallet: WalletInfo,
+   #[serde(default)]
+   pub contacts: Vec<Contact>,
 }
 
 impl Default for Account {
@@ -28,6 +30,7 @@ impl Default for Account {
          credentials: Credentials::default(),
          wallets,
          current_wallet: wallet.info.clone(),
+         contacts: Vec::new(),
       }
    }
 }
@@ -145,10 +148,7 @@ impl Account {
    }
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
-      self
-         .wallets
-         .iter()
-         .any(|w| &w.key.address() == &address)
+      self.wallets.iter().any(|w| &w.key.address() == &address)
    }
 
    /// Encrypt this account and return the encrypted data
@@ -196,11 +196,10 @@ impl Account {
 
    /// Load the account from the decrypted data
    pub fn load(&mut self, decrypted_data: SecureBytes) -> Result<(), anyhow::Error> {
-      let account: Account = decrypted_data.slice_scope(|slice| {
-         serde_json::from_slice(slice)
-      })?;
+      let account: Account = decrypted_data.slice_scope(|slice| serde_json::from_slice(slice))?;
       self.wallets = account.wallets;
       self.current_wallet = account.current_wallet;
+      self.contacts = account.contacts;
       Ok(())
    }
 
@@ -255,6 +254,7 @@ mod tests {
          credentials,
          wallets: vec![wallet_1.clone(), wallet_2],
          current_wallet: wallet_1.info.clone(),
+         contacts: Vec::new(),
       };
 
       let dir = PathBuf::from("account_test.data");

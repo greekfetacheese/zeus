@@ -3,10 +3,11 @@ use super::{
    providers::{CLIENT_RPS, COMPUTE_UNITS_PER_SECOND, INITIAL_BACKOFF, MAX_RETRIES},
    utils::pool_data_dir,
 };
-use crate::core::{Account, WalletInfo, utils::server_port_dir};
+use crate::core::{Account, WalletInfo, user::Contact, utils::server_port_dir};
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
+use ncrypt_me::Argon2Params;
 use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
@@ -30,7 +31,7 @@ pub mod pool_manager;
 pub mod providers;
 
 pub use balance_manager::BalanceManagerHandle;
-pub use db::{ContactDB, CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
+pub use db::{CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use pool_manager::PoolManagerHandle;
 pub use providers::{Rpc, RpcProviders};
 
@@ -71,6 +72,52 @@ impl ZeusCtx {
 
    pub fn account_exists(&self) -> bool {
       self.read(|ctx| ctx.account_exists)
+   }
+
+   pub fn encrypt_and_save_account(
+      &self,
+      new_account: Option<Account>,
+      new_params: Option<Argon2Params>,
+   ) -> Result<(), anyhow::Error> {
+      if self.save_account_in_progress() {
+         return Err(anyhow!(
+            "Saving account in progress, try again later"
+         ));
+      }
+
+      self.write(|ctx| ctx.save_account_in_progress = true);
+
+      let account = if new_account.is_some() {
+         new_account.unwrap()
+      } else {
+         self.get_account()
+      };
+
+      let res = account.encrypt(new_params);
+
+      if res.is_err() {
+         self.write(|ctx| ctx.save_account_in_progress = false);
+         return Err(res.err().unwrap());
+      }
+
+      let encrypted_data = res.unwrap();
+      let res = account.save(None, encrypted_data);
+
+      if res.is_err() {
+         self.write(|ctx| ctx.save_account_in_progress = false);
+         return Err(res.err().unwrap());
+      }
+
+      self.write(|ctx| ctx.save_account_in_progress = false);
+      Ok(())
+   }
+
+   pub fn set_save_account_in_progress(&self, save_account_in_progress: bool) {
+      self.write(|ctx| ctx.save_account_in_progress = save_account_in_progress);
+   }
+
+   pub fn save_account_in_progress(&self) -> bool {
+      self.read(|ctx| ctx.save_account_in_progress)
    }
 
    pub fn logged_in(&self) -> bool {
@@ -143,10 +190,57 @@ impl ZeusCtx {
       info
    }
 
+   pub fn contacts(&self) -> Vec<Contact> {
+      self.read(|ctx| ctx.account.contacts.clone())
+   }
+
+   pub fn remove_contact(&self, address: &str) {
+      self.write(|ctx| {
+         ctx.account.contacts.retain(|c| c.address != address);
+      });
+   }
+
+   pub fn contact_name_exists(&self, name: &str) -> bool {
+      self.read(|ctx| ctx.account.contacts.iter().any(|c| c.name == name))
+   }
+
+   pub fn add_contact(&self, contact: Contact) -> Result<(), anyhow::Error> {
+      if contact.name.is_empty() {
+         return Err(anyhow!("Contact name cannot be empty"));
+      }
+
+      if contact.name.len() > Contact::MAX_CHARS {
+         return Err(anyhow!(
+            "Contact name cannot be longer than {} characters",
+            Contact::MAX_CHARS
+         ));
+      }
+
+      let contacts = self.contacts();
+
+      // make sure name and address are unique
+      if contacts.iter().any(|c| c.name == contact.name) {
+         return Err(anyhow!(
+            "Contact with name {} already exists",
+            contact.name
+         ));
+      } else if contacts.iter().any(|c| c.address == contact.address) {
+         return Err(anyhow!(
+            "Contact with address {} already exists",
+            contact.address
+         ));
+      }
+
+      self.write(|ctx| {
+         ctx.account.contacts.push(contact);
+      });
+      Ok(())
+   }
+
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
       self.read(|ctx| {
-         ctx.contact_db
+         ctx.account
             .contacts
             .iter()
             .find(|c| c.address == address)
@@ -394,17 +488,6 @@ impl ZeusCtx {
       })
    }
 
-   pub fn save_contact_db(&self) {
-      self.read(|ctx| match ctx.contact_db.save() {
-         Ok(_) => {
-            tracing::info!("ContactDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving ContactDB: {:?}", e);
-         }
-      })
-   }
-
    pub fn save_providers(&self) {
       self.read(|ctx| match ctx.providers.save_to_file() {
          Ok(_) => {
@@ -427,7 +510,6 @@ impl ZeusCtx {
       self.save_balance_manager();
       self.save_currency_db();
       self.save_portfolio_db();
-      self.save_contact_db();
       self.save_providers();
       self.save_tx_db();
       self.save_v3_positions_db();
@@ -528,7 +610,7 @@ impl ZeusCtx {
       let eth_price = self.get_currency_price(&Currency::from(ERC20Token::wrapped_native_token(
          chain,
       )));
-      
+
       let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
       value += eth_value.f64();
 
@@ -538,10 +620,6 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
-   }
-
-   pub fn contacts(&self) -> Vec<Contact> {
-      self.read(|ctx| ctx.contact_db.contacts.clone())
    }
 
    pub fn get_v3_positions(&self, chain: u64, owner: Address) -> Vec<V3Position> {
@@ -741,28 +819,6 @@ impl ConnectedDapps {
    }
 }
 
-/// Saved contact by the user
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Contact {
-   pub name: String,
-   pub address: String,
-   pub notes: String,
-}
-
-impl Contact {
-   pub fn new(name: String, address: String, notes: String) -> Self {
-      Self {
-         name,
-         address,
-         notes,
-      }
-   }
-
-   pub fn address_short(&self) -> String {
-      format!("{}...{}", &self.address[..6], &self.address[36..])
-   }
-}
-
 #[derive(Debug, Clone)]
 pub struct BaseFee {
    pub current: u64,
@@ -826,12 +882,12 @@ pub struct ZeusContext {
 
    /// Loaded account
    account: Account,
+   pub save_account_in_progress: bool,
 
    pub account_exists: bool,
    pub logged_in: bool,
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
-   pub contact_db: ContactDB,
    pub tx_db: TransactionsDB,
    pub v3_positions_db: V3PositionsDB,
    pub pool_manager: PoolManagerHandle,
@@ -852,14 +908,6 @@ impl ZeusContext {
          providers.reset_latency();
          providers.reset_working();
       }
-
-      let contact_db = match ContactDB::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load contacts, {:?}", e);
-            ContactDB::default()
-         }
-      };
 
       let balance_manager = match BalanceManagerHandle::load_from_file() {
          Ok(db) => db,
@@ -930,11 +978,11 @@ impl ZeusContext {
          providers,
          chain: ChainId::new(1).unwrap(),
          account: Account::default(),
+         save_account_in_progress: false,
          account_exists,
          logged_in: false,
          currency_db,
          portfolio_db,
-         contact_db,
          tx_db,
          v3_positions_db,
          pool_manager,

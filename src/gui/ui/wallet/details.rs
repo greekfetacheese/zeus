@@ -1,5 +1,5 @@
-use crate::core::{WalletInfo, ZeusCtx, utils::RT};
 use crate::assets::icons::Icons;
+use crate::core::{WalletInfo, ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use eframe::egui::{Align2, Button, Frame, Id, Order, RichText, Ui, Vec2, Window, vec2};
 use egui_theme::Theme;
@@ -90,7 +90,13 @@ impl ExportKeyUi {
       self.verify_credentials_ui(ctx, theme, icons, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn verify_credentials_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -185,7 +191,13 @@ impl DeleteWalletUi {
       self.delete_wallet_ui(ctx, theme, ui);
    }
 
-   pub fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn verify_credentials_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -310,15 +322,15 @@ impl DeleteWalletUi {
 
       if clicked {
          open = false;
+         let mut new_account = ctx.get_account();
 
-         let mut account = ctx.clone().get_account();
          RT.spawn_blocking(move || {
-            account.remove_wallet(&wallet);
+            new_account.remove_wallet(&wallet);
 
             // update the current wallet to the first available
-            let wallets = account.wallets();
+            let wallets = new_account.wallets();
             if let Some(wallet_info) = wallets.first().map(|wallet| wallet.info.clone()) {
-               account.set_current_wallet(wallet_info.clone());
+               new_account.set_current_wallet(wallet_info.clone());
 
                SHARED_GUI.write(|gui| {
                   gui.wallet_selection.wallet_select.wallet = wallet_info;
@@ -330,19 +342,7 @@ impl DeleteWalletUi {
             });
 
             // Encrypt the account
-            let data = match account.encrypt(None) {
-               Ok(data) => data,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to encrypt wallet", e.to_string());
-                  });
-                  return;
-               }
-            };
-
-            // Save the new account encrypted data to the account file
-            match account.save(None, data) {
+            match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
@@ -354,13 +354,13 @@ impl DeleteWalletUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to save account", e.to_string());
+                     gui.open_msg_window("Failed to encrypt wallet", e.to_string());
                   });
                   return;
                }
             };
 
-            ctx.set_account(account);
+            ctx.set_account(new_account);
          });
       }
       self.open = open;

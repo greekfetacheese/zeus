@@ -1,9 +1,9 @@
 use crate::assets::icons::Icons;
-use crate::core::{Contact, WalletInfo, ZeusCtx};
+use crate::core::{user::Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Grid, Layout, Margin, Order, RichText,
-   ScrollArea, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
+   Window, vec2,
 };
 use egui_theme::Theme;
 use std::str::FromStr;
@@ -11,12 +11,11 @@ use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 
 pub struct RecipientSelectionWindow {
-   pub open: bool,
-   /// Address in string format
+   open: bool,
    pub recipient: String,
-   pub recipient_name: Option<String>,
-   pub search_query: String,
-   pub size: (f32, f32),
+   recipient_name: Option<String>,
+   search_query: String,
+   size: (f32, f32),
 }
 
 impl RecipientSelectionWindow {
@@ -26,12 +25,24 @@ impl RecipientSelectionWindow {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (450.0, 550.0),
+         size: (500.0, 550.0),
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+   }
+
    pub fn reset(&mut self) {
-      self.recipient.clear();
+      self.recipient = String::new();
       self.recipient_name = None;
       self.search_query.clear();
    }
@@ -54,7 +65,6 @@ impl RecipientSelectionWindow {
    ) {
       let mut open = self.open;
       let mut close_window = false;
-      let frame = Frame::window(ui.style());
 
       contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
@@ -73,73 +83,64 @@ impl RecipientSelectionWindow {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(frame)
+         .frame(Frame::window(ui.style()).inner_margin(Margin::same(10)))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let ui_width = ui.available_width();
             let column_width = ui.available_width() * 0.33;
 
             // Search bar
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
+
                let add_contact =
                   Button::new(RichText::new("Add a contact").size(theme.text_sizes.normal));
+
                if ui.add(add_contact).clicked() {
                   contacts_ui.add_contact.open = true;
                }
 
-               ui.add_space(20.0);
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text("Search contacts or enter an address")
-                     .min_size(vec2(ui_width * 0.80, 25.0))
+                     .min_size(vec2(ui.available_width() * 0.80, 25.0))
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
-               ui.add_space(20.0);
-            });
 
-            let wallets = ctx.wallets_info();
-            let contacts = ctx.contacts();
+               let wallets = ctx.wallets_info();
+               let contacts = ctx.contacts();
 
-            let query = self.search_query.clone();
-            let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
-            let are_valid_wallets =
-               wallets.len() >= 1 && wallets.iter().any(|w| valid_wallet_search(w, &query));
+               let query = self.search_query.clone();
+               let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &query));
+               let are_valid_wallets =
+                  wallets.len() >= 1 && wallets.iter().any(|w| valid_wallet_search(w, &query));
 
-            ScrollArea::vertical()
-               .id_salt("recipient_select_scroll")
-               .max_height(self.size.1)
-               .max_width(ui_width)
-               .show(ui, |ui| {
-                  if are_valid_wallets {
-                     self.account_wallets(
-                        ctx.clone(),
-                        theme,
-                        icons.clone(),
-                        column_width,
-                        &mut close_window,
-                        ui,
-                     );
-                  }
-                  ui.add_space(20.0);
-                  if are_valid_contacts {
-                     self.account_contacts(
-                        ctx.clone(),
-                        theme,
-                        column_width,
-                        &mut close_window,
-                        ui,
-                     );
-                  }
-               });
+               ScrollArea::vertical()
+                  .id_salt("recipient_select_scroll")
+                  .max_height(self.size.1)
+                  .max_width(ui.available_width())
+                  .show(ui, |ui| {
+                     if are_valid_wallets {
+                        self.account_wallets(
+                           ctx.clone(),
+                           theme,
+                           icons.clone(),
+                           column_width,
+                           &mut close_window,
+                           ui,
+                        );
+                     }
 
-            if let Ok(address) = Address::from_str(&self.search_query) {
-               ui.vertical_centered(|ui| {
+                     if are_valid_contacts {
+                        self.account_contacts(ctx.clone(), theme, &mut close_window, ui);
+                     }
+                  });
+
+               if let Ok(address) = Address::from_str(&self.search_query) {
                   ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
-                  ui.add_space(20.0);
 
                   let address_text =
                      RichText::new(address.to_string()).size(theme.text_sizes.normal);
@@ -150,8 +151,8 @@ impl RecipientSelectionWindow {
                      self.recipient_name = None;
                      close_window = true;
                   }
-               });
-            }
+               }
+            });
          });
 
       if close_window {
@@ -205,7 +206,6 @@ impl RecipientSelectionWindow {
 
       ui.vertical_centered(|ui| {
          ui.label(RichText::new("Your Wallets").size(theme.text_sizes.large));
-         ui.add_space(20.0);
       });
 
       ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
@@ -230,7 +230,7 @@ impl RecipientSelectionWindow {
                      ui.scope(|ui| {
                         ui.set_width(column_width * 0.8);
                         if ui.add(Button::new(name)).clicked() {
-                           self.recipient = wallet.address_string();
+                           self.recipient = wallet.address.to_string();
                            self.recipient_name = Some(wallet.name.clone());
                            *close_window = true;
                         }
@@ -270,58 +270,46 @@ impl RecipientSelectionWindow {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
-      column_width: f32,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
       let contacts = ctx.contacts();
 
-      ui.vertical_centered(|ui| {
-         ui.label(RichText::new("Your Contacts").size(theme.text_sizes.large));
-      });
+      ui.label(RichText::new("Your Contacts").size(theme.text_sizes.large));
 
-      ui.spacing_mut().item_spacing = vec2(10.0, 25.0);
+      ui.spacing_mut().item_spacing = vec2(20.0, 25.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      Grid::new("recipient_select_contact_grid")
-         .spacing(vec2(5.0, 10.0))
-         .show(ui, |ui| {
-            for contact in &contacts {
-               let valid_search = valid_contact_search(contact, &self.search_query);
+      for contact in &contacts {
+         let valid_search = valid_contact_search(contact, &self.search_query);
 
-               if valid_search {
-                  // Contact Name
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        let name =
-                           RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
-                        ui.scope(|ui| {
-                           ui.set_width(column_width * 0.8);
-                           if ui.add(Button::new(name)).clicked() {
-                              self.recipient = contact.address.clone();
-                              self.recipient_name = Some(contact.name.clone());
-                              *close_window = true;
-                           }
-                        });
-                     },
-                  );
+         if valid_search {
+            ui.horizontal(|ui| {
+               // Contact Name
+               ui.scope(|ui| {
+                  ui.set_width(ui.available_width() * 0.3);
+                  let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
+                  let button = Button::new(name).truncate();
+                  if ui.add(button).clicked() {
+                     self.recipient = contact.address.to_string();
+                     self.recipient_name = Some(contact.name.clone());
+                     *close_window = true;
+                  }
+               });
 
-                  // Address
-                  ui.with_layout(
-                     Layout::left_to_right(Align::Min).with_main_wrap(true),
-                     |ui| {
-                        ui.set_width(column_width);
-                        ui.label(
-                           RichText::new(contact.address_short()).size(theme.text_sizes.normal),
-                        );
-                     },
-                  );
-                  ui.end_row();
-               }
-            }
-         });
+               // Address
+               let chain = ctx.chain();
+               let explorer = chain.block_explorer();
+               let link = format!("{}/address/{}", explorer, &contact.address);
+               ui.hyperlink_to(
+                  RichText::new(&contact.address_short(10, 10))
+                     .size(theme.text_sizes.normal)
+                     .color(theme.colors.hyperlink_color),
+                  link,
+               );
+            });
+         }
+      }
    }
 }
 

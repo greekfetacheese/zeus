@@ -290,7 +290,6 @@ impl SettingsUi {
                         match account.decrypt(None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
-                                 tracing::info!("Set verified credentials state");
                                  gui.settings.verified_credentials = true;
                                  gui.settings.credentials.erase();
                                  gui.settings.credentials.additional_frame = true;
@@ -325,26 +324,26 @@ impl SettingsUi {
                      Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
                   if ui.add(save).clicked() {
-                     let mut account = ctx.get_account();
-                     account.set_credentials(self.credentials.credentials.clone());
+                     let new_credentials = self.credentials.credentials.clone();
+                     let mut new_account = ctx.get_account();
+                     new_account.set_credentials(new_credentials.clone());
 
                      RT.spawn_blocking(move || {
+
                         SHARED_GUI.write(|gui| {
                            gui.loading_window.open("Encrypting account...");
                         });
-
-                        let data = match account.encrypt(None) {
-                           Ok(data) => {
+                        
+                        match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
+                           Ok(_) => {
                               SHARED_GUI.write(|gui| {
-                                 tracing::info!("Set changed credentials state");
                                  gui.settings.credentials.erase();
+                                 gui.loading_window.open = false;
                                  gui.settings.verified_credentials = false;
                                  gui.settings.credentials.open = false;
                                  gui.settings.credentials.additional_frame = true;
-                                 gui.loading_window.open = false;
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
-                              data
                            }
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
@@ -358,22 +357,7 @@ impl SettingsUi {
                            }
                         };
 
-                        // Save the encrypted data to the account file
-                        match account.save(None, data) {
-                           Ok(_) => {
-                              SHARED_GUI.write(|gui| {
-                                 gui.loading_window.open = false;
-                              });
-                           }
-                           Err(e) => {
-                              SHARED_GUI.write(|gui| {
-                                 gui.loading_window.open = false;
-                                 gui.open_msg_window("Failed to save account", &format!("{}", e));
-                              });
-                           }
-                        }
-
-                        ctx.set_account(account);
+                        ctx.set_account(new_account);
                      });
                   }
                }
@@ -383,8 +367,6 @@ impl SettingsUi {
       // If the window was open in the first place
       if self.credentials.open {
          if !open {
-            // window closed
-            tracing::info!("Close Settings credentials");
             self.credentials.erase();
             self.credentials.open = false;
             self.credentials.additional_frame = true;
@@ -474,8 +456,7 @@ impl EncryptionSettings {
    }
 
    fn save(&self, ctx: ZeusCtx) {
-      let params = self.argon_params.clone();
-      let account = ctx.get_account();
+      let new_params = self.argon_params.clone();
 
       RT.spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
@@ -483,36 +464,24 @@ impl EncryptionSettings {
          });
 
          // Encrypt the account with the new params
-         let data = match account.encrypt(Some(params.clone())) {
-            Ok(data) => data,
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(
-                     "Failed to update encryption settings",
-                     &format!("{}", e),
-                  );
-                  gui.loading_window.open = false;
-               });
-               return;
-            }
-         };
-
-         // Save the encrypted data to the account file
-         match account.save(None, data) {
+         match ctx.encrypt_and_save_account(None, Some(new_params.clone())) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
                   gui.open_msg_window("Encryption settings have been updated", "");
                   gui.settings.encryption.open = false;
-                  gui.settings.encryption.argon_params = params;
-                  gui.loading_window.open = false;
+                  gui.settings.encryption.argon_params = new_params;
                });
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;
-                  gui.open_msg_window("Failed to save account", &format!("{}", e));
+                  gui.open_msg_window(
+                     "Failed to update encryption settings",
+                     &format!("{}", e),
+                  );
                });
+               return;
             }
          };
       });

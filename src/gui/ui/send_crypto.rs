@@ -131,7 +131,7 @@ impl SendCryptoUi {
                         .font(FontId::proportional(theme.text_sizes.large)),
                   );
                   if res.clicked() {
-                     recipient_selection.open = true;
+                     recipient_selection.open();
                   }
                });
 
@@ -154,7 +154,6 @@ impl SendCryptoUi {
                      );
                   }
                }
-
 
                // Token Selection
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -263,7 +262,19 @@ impl SendCryptoUi {
                let enabled = self.valid_inputs(ctx.clone(), owner, &recipient);
                ui.vertical_centered(|ui| {
                   if ui.add_enabled(enabled, send).clicked() {
-                     self.send_transaction(ctx, recipient);
+                     match self.send_transaction(ctx, recipient) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           RT.spawn_blocking(move || {
+                              SHARED_GUI.write(|gui| {
+                                 gui.open_msg_window(
+                                    "Error while sending transaction",
+                                    e.to_string(),
+                                 );
+                              });
+                           });
+                        }
+                     }
                   }
                });
             });
@@ -414,11 +425,11 @@ impl SendCryptoUi {
       balance.wei2() >= amount.wei2()
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
+   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
       let chain = ctx.chain();
       let from = ctx.current_wallet().address;
       let currency = self.currency.clone();
-      let recipient_address = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+      let recipient_address = Address::from_str(&recipient)?;
 
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let (call_data, interact_to) = if currency.is_native() {
@@ -463,5 +474,6 @@ impl SendCryptoUi {
             }
          }
       });
+      Ok(())
    }
 }

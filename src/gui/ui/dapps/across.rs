@@ -26,7 +26,7 @@ use zeus_eth::{
    currency::{Currency, NativeCurrency},
    dapps::across::*,
    types::{BSC, ChainId},
-   utils::{address_book, NumericValue},
+   utils::{NumericValue, address_book},
 };
 
 /// Cache the results for this many seconds
@@ -249,7 +249,7 @@ impl AcrossBridge {
                   );
 
                   if res.clicked() {
-                     recipient_selection.open = true;
+                     recipient_selection.open();
                   }
                });
 
@@ -336,7 +336,19 @@ impl AcrossBridge {
                let enabled = self.valid_inputs(ctx.clone(), depositor, &recipient);
                ui.vertical_centered(|ui| {
                   if ui.add_enabled(enabled, bridge).clicked() {
-                     self.send_transaction(ctx, recipient);
+                     match self.send_transaction(ctx, recipient) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           RT.spawn_blocking(move || {
+                              SHARED_GUI.write(|gui| {
+                                 gui.open_msg_window(
+                                    "Error while sending transaction",
+                                    e.to_string(),
+                                 );
+                              });
+                           });
+                        }
+                     }
                   }
                });
             });
@@ -400,7 +412,7 @@ impl AcrossBridge {
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
       );
-      
+
       let now = Instant::now();
 
       // Check cache
@@ -569,7 +581,7 @@ impl AcrossBridge {
       estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei2())
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
+   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
       let cache = self
          .api_res_cache
          .get(&(
@@ -579,16 +591,9 @@ impl AcrossBridge {
          .cloned();
 
       if cache.is_none() {
-         RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
-               gui.msg_window.open(
-                  "Error",
-                  "Failed to get suggested fees, try again later or increase the amount"
-                     .to_string(),
-               );
-            });
-         });
-         return;
+         return Err(anyhow!(
+            "Failed to get suggested fees, try again later or increase the amount"
+         ));
       }
 
       let from_chain = self.from_chain.chain.clone();
@@ -603,7 +608,7 @@ impl AcrossBridge {
       let current_wallet = ctx.current_wallet();
       let signer = ctx.get_wallet(current_wallet.address).unwrap().key;
       let depositor = signer.address();
-      let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+      let recipient = Address::from_str(&recipient)?;
 
       let cache = cache.unwrap();
       let relayer = cache.res.suggested_fees.exclusive_relayer;
@@ -669,6 +674,7 @@ impl AcrossBridge {
             }
          }
       });
+      Ok(())
    }
 }
 

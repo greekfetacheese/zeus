@@ -1,9 +1,9 @@
 use crate::assets::icons::Icons;
-use crate::core::{Contact, ZeusCtx, utils::RT};
+use crate::core::{ZeusCtx, user::Contact, utils::RT};
 use crate::gui::SHARED_GUI;
 use egui::{
-   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, Order, RichText, ScrollArea,
-   TextEdit, Ui, Window, vec2,
+   Align2, Button, FontId, Frame, Grid, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window,
+   vec2,
 };
 use egui_theme::Theme;
 use std::str::FromStr;
@@ -84,11 +84,11 @@ impl AddContact {
                   ))
                   .clicked()
                {
-                  let contact = self.contact.clone();
+                  let new_contact = self.contact.clone();
 
                   RT.spawn_blocking(move || {
                      // make sure the address is valid
-                     let _ = match Address::from_str(&contact.address) {
+                     let _ = match Address::from_str(&new_contact.address) {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -101,32 +101,39 @@ impl AddContact {
                         }
                      };
 
-                     let mut ok: (bool, String) = (false, String::new());
-                     ctx.write(|ctx| match ctx.contact_db.add_contact(contact) {
+                     match ctx.add_contact(new_contact.clone()) {
                         Ok(_) => {
-                           ok = (true, String::new());
+                           SHARED_GUI.write(|gui| {
+                              gui.settings.contacts_ui.add_contact.open = false;
+                              gui.settings.contacts_ui.add_contact.contact_added = true;
+                              if reset_on_success {
+                                 gui.settings.contacts_ui.add_contact.reset();
+                              }
+                           });
                         }
                         Err(e) => {
-                           ok = (false, format!("{}", e));
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Failed to add contact", e.to_string());
+                           });
+                           return;
                         }
-                     });
-
-                     if ok.0 {
-                        SHARED_GUI.write(|gui| {
-                           gui.settings.contacts_ui.add_contact.open = false;
-                           gui.settings.contacts_ui.add_contact.contact_added = true;
-                           if reset_on_success {
-                              gui.settings.contacts_ui.add_contact.reset();
-                           }
-                        });
-                     } else {
-                        SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Failed to add contact", ok.1);
-                        });
-                        return;
                      }
 
-                     ctx.save_contact_db();
+                     // On failure the contact is removed
+                     match ctx.encrypt_and_save_account(None, None) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              let error = format!(
+                                 "Changes didn't take effect, encountered error: {}",
+                                 e
+                              );
+                              gui.open_msg_window("Error while saving account data", error);
+                           });
+                           ctx.remove_contact(&new_contact.address);
+                           return;
+                        }
+                     }
                   });
                }
             });
@@ -172,25 +179,42 @@ impl DeleteContact {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               let contact = self.contact_to_delete.clone();
+               let contact_to_delete = self.contact_to_delete.clone();
                ui.label(
                   RichText::new("Are you sure you want to delete this contact?")
                      .size(theme.text_sizes.large),
                );
-               ui.label(RichText::new(&contact.name).size(theme.text_sizes.normal));
-               ui.label(RichText::new(&contact.address).size(theme.text_sizes.normal));
+               ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.normal));
+               ui.label(
+                  RichText::new(&contact_to_delete.address.to_string())
+                     .size(theme.text_sizes.normal),
+               );
 
                let res_delete = ui.add(Button::new(
                   RichText::new("Delete").size(theme.text_sizes.normal),
                ));
 
                if res_delete.clicked() {
-                  ctx.write(|ctx| {
-                     ctx.contact_db.remove_contact(contact.address);
-                  });
+                  ctx.remove_contact(&contact_to_delete.address);
+
                   RT.spawn_blocking(move || {
-                     ctx.save_contact_db();
+                     // On failure the contact is added again
+                     match ctx.encrypt_and_save_account(None, None) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              let error = format!(
+                                 "Changes didn't take effect, encountered error: {}",
+                                 e
+                              );
+                              gui.open_msg_window("Error while saving account data", error);
+                           });
+                           let _ = ctx.add_contact(contact_to_delete);
+                           return;
+                        }
+                     }
                   });
+
                   should_close = true;
                   self.contact_to_delete = Contact::default();
                }
@@ -293,14 +317,43 @@ impl EditContact {
                         gui.settings.contacts_ui.edit_contact.open = false;
                      });
 
-                     ctx.write(|ctx| {
-                        let new_contact = ctx.contact_db.contact_mut(&old_contact);
+                     ctx.write_account(|account| {
+                        let new_contact = account
+                           .contacts
+                           .iter_mut()
+                           .find(|c| c.address == old_contact.address);
                         if let Some(new_contact) = new_contact {
                            new_contact.name = edited_contact.name.clone();
                            new_contact.address = edited_contact.address.clone();
                         }
                      });
-                     ctx.save_contact_db();
+
+                     // On failure the contact changes are reverted
+                     match ctx.encrypt_and_save_account(None, None) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              let error = format!(
+                                 "Changes didn't take effect, encountered error: {}",
+                                 e
+                              );
+                              gui.open_msg_window("Error while saving account data", error);
+                           });
+
+                           ctx.write_account(|account| {
+                              let new_contact = account
+                                 .contacts
+                                 .iter_mut()
+                                 .find(|c| c.address == edited_contact.address);
+                              if let Some(new_contact) = new_contact {
+                                 new_contact.name = old_contact.name.clone();
+                                 new_contact.address = old_contact.address.clone();
+                              }
+                           });
+
+                           return;
+                        }
+                     }
                   });
                }
             });
@@ -327,7 +380,7 @@ impl ContactsUi {
          add_contact: AddContact::new(),
          delete_contact: DeleteContact::new(),
          edit_contact: EditContact::new(),
-         size: (450.0, 350.0),
+         size: (500.0, 350.0),
       }
    }
 
@@ -354,7 +407,7 @@ impl ContactsUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(Frame::window(ui.style()).inner_margin(Margin::same(10)))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -375,79 +428,74 @@ impl ContactsUi {
                   self.add_contact.open = true;
                }
 
+               ui.add_space(30.0);
+
                if contacts.is_empty() {
                   ui.label(RichText::new("No contacts found").size(theme.text_sizes.large));
                } else {
-                  ScrollArea::vertical().show(ui, |ui| {
-                     ui.set_width(self.size.0);
-                     ui.vertical_centered(|ui| {
-                        for contact in &contacts {
-                           Frame::group(ui.style()).inner_margin(8.0).show(ui, |ui| {
-                              ui.set_width(300.0); // Slightly wider for better balance
-                              self.contact(theme, contact, ui);
+                  ScrollArea::vertical()
+                     .max_height(self.size.1)
+                     .show(ui, |ui| {
+                        ui.set_width(self.size.0);
+                        let ui_width = ui.available_width();
+
+                        Grid::new("contact_ui_grid")
+                           .spacing(vec2(20.0, 20.0))
+                           .show(ui, |ui| {
+                              for contact in &contacts {
+                                 // Name
+                                 let name =
+                                    RichText::new(&contact.name).size(theme.text_sizes.normal);
+                                 let button = Button::new(name).truncate();
+                                 ui.scope(|ui| {
+                                    ui.set_width(ui_width * 0.3);
+                                    ui.add(button);
+                                 });
+
+                                 // Address
+                                 let chain = ctx.chain();
+                                 let explorer = chain.block_explorer();
+                                 let link = format!("{}/address/{}", explorer, &contact.address);
+                                 ui.scope(|ui| {
+                                    ui.set_width(ui_width * 0.4);
+                                    ui.hyperlink_to(
+                                       RichText::new(&contact.address_short(10, 10))
+                                          .size(theme.text_sizes.normal)
+                                          .color(theme.colors.hyperlink_color),
+                                       link,
+                                    );
+                                 });
+
+                                 ui.scope(|ui| {
+                                    ui.set_width(ui_width * 0.3);
+                                    if ui
+                                       .add(Button::new(
+                                          RichText::new("Delete").size(theme.text_sizes.small),
+                                       ))
+                                       .clicked()
+                                    {
+                                       self.delete_contact.open = true;
+                                       self.delete_contact.contact_to_delete = contact.clone();
+                                    }
+
+                                    if ui
+                                       .add(Button::new(
+                                          RichText::new("Edit").size(theme.text_sizes.small),
+                                       ))
+                                       .clicked()
+                                    {
+                                       self.edit_contact.open = true;
+                                       self.edit_contact.contact_to_edit = contact.clone();
+                                       self.edit_contact.old_contact = contact.clone();
+                                    }
+                                 });
+                                 ui.end_row();
+                              }
                            });
-                        }
                      });
-                  });
                }
             });
          });
       self.open = open;
-   }
-
-   /// Show a contact
-   fn contact(&mut self, theme: &Theme, contact: &Contact, ui: &mut Ui) {
-      ui.horizontal(|ui| {
-         // Contact info column (name + address)
-         ui.vertical(|ui| {
-            ui.set_max_width(200.0);
-
-            // Name
-            let name_label =
-               Label::new(RichText::new(&contact.name).size(theme.text_sizes.normal)).wrap();
-            ui.add(name_label);
-
-            // Address
-            let address = contact.address_short();
-            if ui
-               .selectable_label(
-                  false,
-                  RichText::new(&address).size(theme.text_sizes.normal),
-               )
-               .clicked()
-            {
-               ui.ctx().copy_text(contact.address.clone());
-            }
-         });
-
-         ui.add_space(ui.available_width() - 80.0);
-
-         // Buttons column
-         ui.vertical(|ui| {
-            ui.set_min_width(80.0);
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               if ui
-                  .add(Button::new(
-                     RichText::new("Delete").size(theme.text_sizes.small),
-                  ))
-                  .clicked()
-               {
-                  self.delete_contact.open = true;
-                  self.delete_contact.contact_to_delete = contact.clone();
-               }
-
-               if ui
-                  .add(Button::new(
-                     RichText::new("Edit").size(theme.text_sizes.small),
-                  ))
-                  .clicked()
-               {
-                  self.edit_contact.open = true;
-                  self.edit_contact.contact_to_edit = contact.clone();
-                  self.edit_contact.old_contact = contact.clone();
-               }
-            });
-         });
-      });
    }
 }
