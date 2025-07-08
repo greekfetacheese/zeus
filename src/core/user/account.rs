@@ -160,16 +160,21 @@ impl Account {
             return Err(anyhow!("Wallet key is erased"));
          }
       }
+
       let account_data = serde_json::to_vec(self)?;
+      let secure_account_data = SecureBytes::from_vec(account_data)?;
+
       let argon_params = match new_params {
          Some(params) => params,
          None => self.encrypted_info()?.argon2_params,
       };
+
       let encrypted_data = encrypt_data(
          argon_params,
-         account_data,
+         secure_account_data,
          self.credentials.clone(),
       )?;
+
       Ok(encrypted_data)
    }
 
@@ -189,8 +194,10 @@ impl Account {
          Some(dir) => dir,
          None => Account::dir()?,
       };
+
       let encrypted_data = std::fs::read(dir)?;
       let decrypted_data = decrypt_data(encrypted_data, self.credentials.clone())?;
+      
       Ok(decrypted_data)
    }
 
