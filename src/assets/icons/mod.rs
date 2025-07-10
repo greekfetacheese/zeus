@@ -21,6 +21,22 @@ pub struct Icons {
    pub misc: MiscIcons,
 }
 
+impl Default for Icons {
+   fn default() -> Self {
+      let egui_ctx = Context::default();
+      let chain_icons = ChainIcons::new(&egui_ctx).unwrap();
+      let currency_icons = CurrencyIcons::new(&egui_ctx).unwrap();
+      let misc_icons = MiscIcons::new(&egui_ctx).unwrap();
+
+      Self {
+         chain: chain_icons,
+         currency: currency_icons,
+         tokens: TokenIcons::default(),
+         misc: misc_icons,
+      }
+   }
+}
+
 pub struct TokenIcons {
    pub icon_x32: HashMap<(Address, u64), TextureHandle>,
    // pub icon_x24: HashMap<(Address, u64), TextureHandle>,
@@ -30,9 +46,25 @@ pub struct TokenIcons {
    pub bep20_x32: TextureHandle,
 }
 
+impl Default for TokenIcons {
+   fn default() -> Self {
+      let ctx = Context::default();
+      let texture_options = TextureOptions::default();
+      let erc20 = load_image(include_bytes!("currency/resized/erc20.png")).unwrap();
+      let bep20 = load_image(include_bytes!("currency/resized/bep20.png")).unwrap();
+      let erc20 = ctx.load_texture("erc20", erc20, texture_options);
+      let bep20 = ctx.load_texture("bep20", bep20, texture_options);
+
+      Self {
+         icon_x32: HashMap::new(),
+         erc20_x32: erc20,
+         bep20_x32: bep20,
+      }
+   }
+}
+
 impl TokenIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
-
       let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
          decode_from_slice(TOKEN_DATA, standard())?;
 
@@ -78,17 +110,17 @@ impl ChainIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let texture_options = TextureOptions::default();
 
-      let eth_x24 = load_and_resize_image(include_bytes!("chain/ethereum.png"), 24, 24)?;
-      let bsc_x24 = load_and_resize_image(include_bytes!("chain/bsc.png"), 24, 24)?;
-      let op_x24 = load_and_resize_image(include_bytes!("chain/op.png"), 24, 24)?;
-      let base_x24 = load_and_resize_image(include_bytes!("chain/base.png"), 24, 24)?;
-      let arbitrum_x24 = load_and_resize_image(include_bytes!("chain/arbitrum.png"), 24, 24)?;
+      let eth_x24 = load_image(include_bytes!("chain/x24/ethereum.png"))?;
+      let bsc_x24 = load_image(include_bytes!("chain/x24/bsc.png"))?;
+      let op_x24 = load_image(include_bytes!("chain/x24/op.png"))?;
+      let base_x24 = load_image(include_bytes!("chain/x24/base.png"))?;
+      let arbitrum_x24 = load_image(include_bytes!("chain/x24/arbitrum.png"))?;
 
-      let eth_x16 = load_and_resize_image(include_bytes!("chain/ethereum.png"), 16, 16)?;
-      let bsc_x16 = load_and_resize_image(include_bytes!("chain/bsc.png"), 16, 16)?;
-      let op_x16 = load_and_resize_image(include_bytes!("chain/op.png"), 16, 16)?;
-      let base_x16 = load_and_resize_image(include_bytes!("chain/base.png"), 16, 16)?;
-      let arbitrum_x16 = load_and_resize_image(include_bytes!("chain/arbitrum.png"), 16, 16)?;
+      let eth_x16 = load_image(include_bytes!("chain/x16/ethereum.png"))?;
+      let bsc_x16 = load_image(include_bytes!("chain/x16/bsc.png"))?;
+      let op_x16 = load_image(include_bytes!("chain/x16/op.png"))?;
+      let base_x16 = load_image(include_bytes!("chain/x16/base.png"))?;
+      let arbitrum_x16 = load_image(include_bytes!("chain/x16/arbitrum.png"))?;
 
       Ok(Self {
          eth_x24: ctx.load_texture("eth", eth_x24, texture_options),
@@ -160,13 +192,16 @@ impl MiscIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let texture_options = TextureOptions::default();
 
-      let red_circle = load_and_resize_image(include_bytes!("misc/red-circle.png"), 16, 16)?;
-      let green_circle = load_and_resize_image(include_bytes!("misc/green-circle.png"), 16, 16)?;
-      let swap = load_and_resize_image(include_bytes!("misc/swap.png"), 24, 24)?;
-      let view = load_and_resize_image(include_bytes!("misc/view.png"), 24, 24)?;
-      let view_light = load_and_resize_image(include_bytes!("misc/view-light.png"), 24, 24)?;
-      let hide = load_and_resize_image(include_bytes!("misc/hide.png"), 24, 24)?;
-      let hide_light = load_and_resize_image(include_bytes!("misc/hide-light.png"), 24, 24)?;
+      let red_circle = load_image(include_bytes!("misc/x16/red-circle.png"))?;
+      let green_circle = load_image(include_bytes!("misc/x16/green-circle.png"))?;
+
+      let swap = load_image(include_bytes!("misc/x24/swap.png"))?;
+
+      let view = load_image(include_bytes!("misc/x24/view.png"))?;
+      let view_light = load_image(include_bytes!("misc/x24/view-light.png"))?;
+
+      let hide = load_image(include_bytes!("misc/x24/hide.png"))?;
+      let hide_light = load_image(include_bytes!("misc/x24/hide-light.png"))?;
 
       Ok(Self {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),

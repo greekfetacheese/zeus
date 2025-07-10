@@ -12,14 +12,18 @@ use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 use crate::gui::ui::{
-   RecipientSelectionWindow, TokenSelectionWindow,
-   panels::{top_panel::ChainSelection, top_panel::WalletSelection, central_panel::{FPSMetrics, UiTesting}},
+   ConfirmWindow, LoadingWindow, LoginUi, MsgWindow, PortfolioUi, ProgressWindow,
+   RecipientSelectionWindow, RegisterUi, SendCryptoUi, SettingsUi, TestingWindow,
+   TokenSelectionWindow, TxConfirmationWindow, TxWindow, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
-   tx_history::TxHistory,
-   sync::SyncPoolsUi,
+   panels::{
+      central_panel::{FPSMetrics, UiTesting},
+      top_panel::ChainSelection,
+      top_panel::WalletSelection,
+   },
    sign_msg_window::SignMsgWindow,
-   WalletUi, RegisterUi, LoadingWindow, LoginUi, PortfolioUi, ProgressWindow, SendCryptoUi, SettingsUi,
-   MsgWindow, ConfirmWindow, TxConfirmationWindow, TxWindow, TestingWindow,
+   sync::SyncPoolsUi,
+   tx_history::TxHistory,
 };
 
 lazy_static! {
@@ -62,11 +66,11 @@ impl Default for SharedGUI {
 pub struct GUI {
    pub egui_ctx: Context,
    pub ctx: ZeusCtx,
+   pub icons: Arc<Icons>,
    pub theme: Theme,
    pub chain_selection: ChainSelection,
    pub wallet_selection: WalletSelection,
    pub editor: ThemeEditor,
-   pub icons: Arc<Icons>,
    pub uniswap: UniswapUi,
    pub across_bridge: AcrossBridge,
    pub token_selection: TokenSelectionWindow,
@@ -95,7 +99,7 @@ pub struct GUI {
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
       let ctx = ZeusCtx::new();
-      
+
       let token_selection = ui::TokenSelectionWindow::new();
       let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
@@ -106,9 +110,9 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::misc::ConfirmWindow::new();
-     // let tx_confirm_window = ui::TxConfirmWindow::new();
+      // let tx_confirm_window = ui::TxConfirmWindow::new();
       let tx_confirmation_window = TxConfirmationWindow::new();
-       let tx_window = TxWindow::new();
+      let tx_window = TxWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new(ctx.clone());
       let tx_history = ui::tx_history::TxHistory::new();
@@ -182,7 +186,7 @@ impl GUI {
 
 impl Default for GUI {
    fn default() -> Self {
-      let icons = Arc::new(Icons::new(&Context::default()).unwrap());
+      let icons = Arc::new(Icons::default());
       GUI::new(
          icons,
          Theme::new(ThemeKind::Nord),

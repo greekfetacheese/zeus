@@ -20,6 +20,7 @@ pub struct ZeusApp {
 
 impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
+      let time = std::time::Instant::now();
       let egui_ctx = cc.egui_ctx.clone();
 
       let theme_kind = if let Ok(kind) = load_theme_kind() {
@@ -35,21 +36,24 @@ impl ZeusApp {
       let icons = Icons::new(&cc.egui_ctx).unwrap();
       let icons = Arc::new(icons);
 
-      let gui = GUI::new(icons.clone(), theme.clone(), egui_ctx);
-
       // Update the shared GUI with the current GUI state
 
       SHARED_GUI.write(|shared_gui| {
-         shared_gui.icons = gui.icons.clone();
-         shared_gui.theme = gui.theme.clone();
-         shared_gui.egui_ctx = gui.egui_ctx.clone();
-         shared_gui.ctx = gui.ctx.clone();
+         shared_gui.icons = icons.clone();
+         shared_gui.theme = theme.clone();
+         shared_gui.egui_ctx = egui_ctx;
       });
 
+      let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
+
+      tracing::info!(
+         "ZeusApp loaded in {}ms",
+         time.elapsed().as_millis()
+      );
       Self {
          set_style_on_startup: true,
          updated_started: false,
-         ctx: gui.ctx.clone(),
+         ctx,
       }
    }
 
@@ -64,7 +68,7 @@ impl ZeusApp {
       if !self.updated_started {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-             update::on_startup(ctx_clone).await;
+            update::on_startup(ctx_clone).await;
          });
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
