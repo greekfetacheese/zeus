@@ -12,8 +12,6 @@ pub struct Contact {
 }
 
 impl Contact {
-   pub const MAX_CHARS: usize = 20;
-
    pub fn new(name: String, address: String) -> Self {
       Self { name, address }
    }

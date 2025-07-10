@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{user::Contact, WalletInfo, ZeusCtx};
+use crate::core::{WalletInfo, ZeusCtx, user::Contact};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
@@ -132,6 +132,7 @@ impl RecipientSelectionWindow {
                            &mut close_window,
                            ui,
                         );
+                        ui.add_space(20.0);
                      }
 
                      if are_valid_contacts {
@@ -140,6 +141,12 @@ impl RecipientSelectionWindow {
                   });
 
                if let Ok(address) = Address::from_str(&self.search_query) {
+                  if ctx.wallet_exists(address)
+                     || ctx.get_contact_by_address(&address.to_string()).is_some()
+                  {
+                     return;
+                  }
+
                   ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
 
                   let address_text =
@@ -277,36 +284,38 @@ impl RecipientSelectionWindow {
 
       ui.label(RichText::new("Your Contacts").size(theme.text_sizes.large));
 
-      ui.spacing_mut().item_spacing = vec2(20.0, 25.0);
+      ui.spacing_mut().item_spacing = vec2(5.0, 25.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, &self.search_query);
 
          if valid_search {
-            ui.horizontal(|ui| {
-               // Contact Name
-               ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.3);
-                  let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
-                  let button = Button::new(name).truncate();
-                  if ui.add(button).clicked() {
-                     self.recipient = contact.address.to_string();
-                     self.recipient_name = Some(contact.name.clone());
-                     *close_window = true;
-                  }
-               });
+            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+               ui.horizontal(|ui| {
+                  // Contact Name
+                  ui.scope(|ui| {
+                     ui.set_width(ui.available_width() * 0.25);
+                     let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
+                     let button = Button::new(name).truncate();
+                     if ui.add(button).clicked() {
+                        self.recipient = contact.address.to_string();
+                        self.recipient_name = Some(contact.name.clone());
+                        *close_window = true;
+                     }
+                  });
 
-               // Address
-               let chain = ctx.chain();
-               let explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", explorer, &contact.address);
-               ui.hyperlink_to(
-                  RichText::new(&contact.address_short(10, 10))
-                     .size(theme.text_sizes.normal)
-                     .color(theme.colors.hyperlink_color),
-                  link,
-               );
+                  // Address
+                  let chain = ctx.chain();
+                  let explorer = chain.block_explorer();
+                  let link = format!("{}/address/{}", explorer, &contact.address);
+                  ui.hyperlink_to(
+                     RichText::new(&contact.address)
+                        .size(theme.text_sizes.small)
+                        .color(theme.colors.hyperlink_color),
+                     link,
+                  );
+               });
             });
          }
       }

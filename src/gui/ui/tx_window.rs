@@ -60,7 +60,7 @@ impl TxConfirmationWindow {
          adjusted_gas_limit: String::new(),
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
-         size: (500.0, 400.0),
+         size: (550.0, 400.0),
       }
    }
 
@@ -177,7 +177,7 @@ impl TxConfirmationWindow {
                   }
 
                   let frame = theme.frame2;
-                  let frame_size = vec2(ui.available_width() * 0.9, 45.0);
+                  let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
 
@@ -953,13 +953,12 @@ fn transfer_event_ui(
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let recipient_address = params.recipient;
-            let recipient_short = truncate_address(recipient_address.to_string());
 
             let address_name = ctx.get_address_name(chain.id(), recipient_address);
             let recipient = if address_name.is_some() {
                address_name.unwrap()
             } else {
-               recipient_short
+               recipient_address.to_string()
             };
 
             let explorer = chain.block_explorer();
@@ -1051,13 +1050,12 @@ fn erc20_transfer_event_ui(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let recipient_address = params.recipient;
-         let recipient_short = truncate_address(recipient_address.to_string());
 
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
          let recipient = if address_name.is_some() {
             address_name.unwrap()
          } else {
-            recipient_short
+            recipient_address.to_string()
          };
 
          let explorer = chain.block_explorer();
@@ -1176,13 +1174,12 @@ fn bridge_event_ui(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let recipient_address = params.recipient;
-         let recipient_short = truncate_address(recipient_address.to_string());
 
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
          let recipient = if address_name.is_some() {
             address_name.unwrap()
          } else {
-            recipient_short
+            recipient_address.to_string()
          };
 
          let explorer = chain.block_explorer();
@@ -1362,12 +1359,11 @@ fn wrap_eth_event_ui(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let recipient_address = params.dst;
-         let recipient_short = truncate_address(recipient_address.to_string());
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
          let recipient = if address_name.is_some() {
             address_name.unwrap()
          } else {
-            recipient_short
+            recipient_address.to_string()
          };
 
          let explorer = chain.block_explorer();
@@ -1616,12 +1612,11 @@ fn uniswap_position_op_event_ui(
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let recipient_address = params.recipient.clone().unwrap();
-            let recipient_short = truncate_address(recipient_address.to_string());
             let address_name = ctx.get_address_name(chain.id(), recipient_address);
             let recipient = if address_name.is_some() {
                address_name.unwrap()
             } else {
-               recipient_short
+               recipient_address.to_string()
             };
 
             let explorer = chain.block_explorer();

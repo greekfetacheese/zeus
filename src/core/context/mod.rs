@@ -209,13 +209,6 @@ impl ZeusCtx {
          return Err(anyhow!("Contact name cannot be empty"));
       }
 
-      if contact.name.len() > Contact::MAX_CHARS {
-         return Err(anyhow!(
-            "Contact name cannot be longer than {} characters",
-            Contact::MAX_CHARS
-         ));
-      }
-
       let contacts = self.contacts();
 
       // make sure name and address are unique
