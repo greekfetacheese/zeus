@@ -18,6 +18,14 @@ pub use v2::pool::UniswapV2Pool;
 pub use v3::pool::{FEE_TIERS, UniswapV3Pool};
 pub use v4::{FeeAmount, pool::UniswapV4Pool};
 
+#[derive(Debug, Clone)]
+pub struct SwapResult {
+   pub amount_in: NumericValue,
+   pub amount_out: NumericValue,
+   pub ideal_amount_out: NumericValue,
+   pub price_impact: f64,
+}
+
 pub trait UniswapPool {
    fn chain_id(&self) -> u64;
 
@@ -74,7 +82,6 @@ pub trait UniswapPool {
    /// Quote Currency Pool Balance
    fn quote_balance(&self) -> NumericValue;
 
-
    /// Computes the virtual reserves of the pool
    fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error>;
 
@@ -110,6 +117,13 @@ pub trait UniswapPool {
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error>;
 
    fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error>;
+
+   fn simulate_swap_result(
+      &self,
+      currency_in: &Currency,
+      currency_out: &Currency,
+      amount_in: NumericValue,
+   ) -> Result<SwapResult, anyhow::Error>;
 
    /// Quote token USD price but we need to know the usd price of base token
    fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error>;
@@ -173,7 +187,7 @@ impl AnyUniswapPool {
          };
          AnyUniswapPool::V2(p)
       } else if pool.dex_kind().is_v3() {
-         let (amount0 , amount1) = pool.pool_balances();
+         let (amount0, amount1) = pool.pool_balances();
          let p = UniswapV3Pool {
             chain_id: pool.chain_id(),
             address: pool.address(),
@@ -187,7 +201,7 @@ impl AnyUniswapPool {
          };
          AnyUniswapPool::V3(p)
       } else if pool.dex_kind().is_v4() {
-         let (amount0 , amount1) = pool.pool_balances();
+         let (amount0, amount1) = pool.pool_balances();
          let p = UniswapV4Pool {
             chain_id: pool.chain_id(),
             fee: pool.fee(),
@@ -485,6 +499,19 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.simulate_swap_mut(currency_in, amount_in),
          AnyUniswapPool::V3(pool) => pool.simulate_swap_mut(currency_in, amount_in),
          AnyUniswapPool::V4(pool) => pool.simulate_swap_mut(currency_in, amount_in),
+      }
+   }
+
+   fn simulate_swap_result(
+      &self,
+      currency_in: &Currency,
+      currency_out: &Currency,
+      amount_in: NumericValue,
+   ) -> Result<SwapResult, anyhow::Error> {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.simulate_swap_result(currency_in, currency_out, amount_in),
+         AnyUniswapPool::V3(pool) => pool.simulate_swap_result(currency_in, currency_out, amount_in),
+         AnyUniswapPool::V4(pool) => pool.simulate_swap_result(currency_in, currency_out, amount_in),
       }
    }
 

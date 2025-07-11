@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
    use crate::core::{BaseFee, ZeusCtx};
+   use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
    use zeus_eth::{
       alloy_primitives::{TxKind, U256},
@@ -9,13 +10,13 @@ mod tests {
       amm::{
          UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
          uniswap::{
-            quoter::get_quote,
+            quoter::{get_quote, get_quote_with_split_routing},
             router::{SwapStep, SwapType, encode_swap},
          },
       },
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
-      utils::{SecureSigner, NumericValue, address_book, batch},
+      utils::{NumericValue, SecureSigner, address_book, batch},
    };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -331,7 +332,10 @@ mod tests {
       let block_id = BlockId::Number(BlockNumberOrTag::Number(block.header.number));
 
       let mut pool = UniswapV4Pool::eth_uni();
-      pool.update_state(client.clone(), Some(block_id)).await.unwrap();
+      pool
+         .update_state(client.clone(), Some(block_id))
+         .await
+         .unwrap();
 
       let eth = pool.base_currency();
       let uni = pool.quote_currency();
@@ -354,7 +358,8 @@ mod tests {
       let alice = DummyAccount::new(AccountType::EOA, amount_in.wei2());
       let signer = SecureSigner::from(alice.key.clone());
 
-      let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
+      let mut factory =
+         ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
       factory.insert_dummy_account(alice.clone());
 
       let fork_db = factory.new_sandbox_fork();
@@ -445,36 +450,39 @@ mod tests {
       let chain_id = 1;
 
       let ctx = ZeusCtx::new();
+      ctx.write(|ctx| ctx.providers.all_working());
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdt());
+
+      let pools = get_relevant_pools(ctx.clone(), true, true, true, &currency_out);
       let pool_manager = ctx.pool_manager();
 
-      let pools = pool_manager.get_pools_for_chain(chain_id);
       pool_manager
          .update_state_for_pools(ctx.clone(), chain_id, pools)
          .await
          .unwrap();
 
-      let pools = pool_manager.get_pools_for_chain(chain_id);
+      let pools = get_relevant_pools(ctx.clone(), true, true, true, &currency_out);
 
-      let currency_in = Currency::from(NativeCurrency::from(chain_id));
-      let currency_out = Currency::from(ERC20Token::dai());
-
-      let amount_in = NumericValue::parse_to_wei("200", currency_in.decimals());
+      let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
       let eth_price = ctx.get_currency_price(&currency_in);
       let currency_out_price = ctx.get_currency_price(&currency_out);
       let base_fee = BaseFee::default();
       let priority_fee = NumericValue::parse_to_gwei("1");
-      let max_hops = 4;
+      let max_hops = 6;
 
-      let quote = get_quote(
+      let quote = get_quote_with_split_routing(
          amount_in.clone(),
          currency_in.clone(),
          currency_out.clone(),
-         pools.clone(),
+         pools,
          eth_price.clone(),
          currency_out_price.clone(),
          base_fee.next,
          priority_fee.wei2(),
          max_hops,
+         10,
       );
 
       let swap_steps = quote.swap_steps;

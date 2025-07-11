@@ -10,7 +10,7 @@ use crate::uniswap::PoolKey;
 use crate::{
    DexKind, minimum_liquidity,
    uniswap::{
-      UniswapPool,
+      SwapResult, UniswapPool,
       state::{State, get_v2_pool_state},
       v4::FeeAmount,
    },
@@ -405,6 +405,30 @@ impl UniswapPool for UniswapV2Pool {
       }
    }
 
+   fn simulate_swap_result(
+      &self,
+      currency_in: &Currency,
+      currency_out: &Currency,
+      amount_in: NumericValue,
+   ) -> Result<SwapResult, anyhow::Error> {
+      let amount_out = self.simulate_swap(currency_in, amount_in.wei2())?;
+      let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
+      let spot_price = self.calculate_price(currency_in)?;
+
+      let fee_fraction = self.fee().fee_percent() as f64 / 100.0;
+      let amount_in_after_fee = amount_in.f64() * (1.0 - fee_fraction);
+      let ideal_amount_out = amount_in_after_fee * spot_price;
+
+      let price_impact = (1.0 - (amount_out.f64() / ideal_amount_out)) * 100.0;
+
+      Ok(SwapResult {
+         amount_in,
+         amount_out,
+         ideal_amount_out: NumericValue::parse_to_wei(&ideal_amount_out.to_string(), currency_out.decimals()),
+         price_impact,
+      })
+   }
+
    fn quote_price(&self, base_usd: f64) -> Result<f64, anyhow::Error> {
       if base_usd == 0.0 {
          return Ok(0.0);
@@ -447,13 +471,11 @@ impl UniswapPool for UniswapV2Pool {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use alloy_primitives::utils::{format_units, parse_units};
-
    use alloy_provider::ProviderBuilder;
    use url::Url;
 
    #[tokio::test]
-   async fn can_swap() {
+   async fn swap_result() {
       let url = Url::parse("https://eth.merkle.io").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
@@ -465,20 +487,20 @@ mod tests {
       let base = pool.base_currency();
       let quote = pool.quote_currency();
 
-      let amount_in = parse_units("1", base.decimals()).unwrap().get_absolute();
-      let amount_out = pool.simulate_swap(base, amount_in).unwrap();
-
-      let amount_in = format_units(amount_in, base.decimals()).unwrap();
-      let amount_out = format_units(amount_out, quote.decimals()).unwrap();
+      let amount_in = NumericValue::parse_to_wei("1", base.decimals());
+      let swap_result = pool.simulate_swap_result(base, quote, amount_in.clone()).unwrap();
 
       println!("=== V2 Swap Test ===");
+      println!("Ideal Output: {:.6} {}", swap_result.ideal_amount_out.formatted(), quote.symbol());
       println!(
          "Swapped {} {} For {} {}",
-         amount_in,
+         amount_in.formatted(),
          base.symbol(),
-         amount_out,
+         swap_result.amount_out.formatted(),
          quote.symbol()
       );
+      
+      println!("With Price Impact: {:.4}%", swap_result.price_impact);
    }
 
    #[tokio::test]

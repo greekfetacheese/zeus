@@ -70,7 +70,9 @@ pub struct UniswapSettingsUi {
    pub swap_on_v2: bool,
    pub swap_on_v3: bool,
    pub swap_on_v4: bool,
+   pub split_routing_enabled: bool,
    pub max_hops: usize,
+   pub max_split_routes: usize,
    pub mev_protect: bool,
    pub slippage: String,
    /// Applies only to [SwapUi]
@@ -87,7 +89,9 @@ impl UniswapSettingsUi {
          swap_on_v2: true,
          swap_on_v3: true,
          swap_on_v4: false,
+         split_routing_enabled: false,
          max_hops: 4,
+         max_split_routes: 5,
          mev_protect: true,
          slippage: "0.5".to_string(),
          simulate_mode: false,
@@ -126,8 +130,7 @@ impl UniswapSettingsUi {
          let slider_size = vec2(ui.available_width() * 0.5, 25.0);
 
                   let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
-                  ui.label(text).on_hover_text("Protect against front-running attacks");
-                  ui.checkbox(&mut self.mev_protect, "");
+                  ui.checkbox(&mut self.mev_protect, text);
 
                   let text = RichText::new("Slippage").size(theme.text_sizes.normal);
                   ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
@@ -143,28 +146,71 @@ impl UniswapSettingsUi {
                if swap_ui_open {
 
                ui.label(RichText::new("Routing").size(theme.text_sizes.large));
+               
+               let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
+               let res = ui.checkbox(&mut self.split_routing_enabled, text);
+               if res.changed() {
+                  let ctx_clone = ctx.clone();
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let settings = &gui.uniswap.settings;
+                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                     });
+                  });
+               }
 
                ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
                ui.allocate_ui(slider_size, |ui| {
                let res = ui.add(Slider::new(&mut self.max_hops, 1..=10));
                if res.changed() {
+                  let ctx_clone = ctx.clone();
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
                         let settings = &gui.uniswap.settings;
-                        gui.uniswap.swap_ui.get_quote(ctx, settings);
+                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                     });
+                  });
+               }
+            });
+
+            ui.label(RichText::new("Max Split Routes").size(theme.text_sizes.normal));
+            ui.allocate_ui(slider_size, |ui| {
+               let res = ui.add(Slider::new(&mut self.max_split_routes, 1..=10));
+               if res.changed() {
+                  let ctx_clone = ctx.clone();
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let settings = &gui.uniswap.settings;
+                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
                      });
                   });
                }
             });
 
                 let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
-                ui.checkbox(&mut self.swap_on_v2, text);
+                let swap_on_v2_before = self.swap_on_v2;
+                let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
 
                 let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
-                ui.checkbox(&mut self.swap_on_v3, text);
+                let swap_on_v3_before = self.swap_on_v3;
+                let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
+
                 
                 let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
-                ui.checkbox(&mut self.swap_on_v4, text);
+                let swap_on_v4_before = self.swap_on_v4;
+                let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
+
+                if v2_res.changed() || v3_res.changed() || v4_res.changed() {
+                   let ctx_clone = ctx.clone();
+                   RT.spawn_blocking(move || {
+                      SHARED_GUI.write(|gui| {
+                        let update_v2 = !swap_on_v2_before;
+                         let update_v3 = !swap_on_v3_before;
+                         let update_v4 = !swap_on_v4_before;
+                         gui.uniswap.swap_ui.update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
+                      });
+                   });
+                }
                
                   let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
                   ui.checkbox(&mut self.simulate_mode, text);

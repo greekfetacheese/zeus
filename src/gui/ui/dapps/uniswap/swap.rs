@@ -383,7 +383,12 @@ impl SwapUi {
       }
 
       if self.should_update_pool_state() {
-         self.update_pool_state(ctx.clone(), settings);
+         self.update_pool_state(
+            ctx.clone(),
+            settings.swap_on_v2,
+            settings.swap_on_v3,
+            settings.swap_on_v4,
+         );
       }
 
       let chain_id = ctx.chain().id();
@@ -421,7 +426,12 @@ impl SwapUi {
 
                let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
-                  self.update_pool_state(ctx.clone(), settings);
+                  self.update_pool_state(
+                     ctx.clone(),
+                     settings.swap_on_v2,
+                     settings.swap_on_v3,
+                     settings.swap_on_v4,
+                  );
                   self.sync_pools(ctx.clone(), settings, true);
                }
 
@@ -758,6 +768,10 @@ impl SwapUi {
          return false;
       }
 
+      self.pool_state_expired()
+   }
+
+   fn pool_state_expired(&self) -> bool {
       let now = Instant::now();
       if let Some(last_updated) = self.last_pool_state_updated {
          let elapsed = now.duration_since(last_updated).as_secs();
@@ -765,11 +779,16 @@ impl SwapUi {
             return false;
          }
       }
-
       true
    }
 
-   fn update_pool_state(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
+   pub fn update_pool_state(
+      &mut self,
+      ctx: ZeusCtx,
+      update_v2: bool,
+      update_v3: bool,
+      update_v4: bool,
+   ) {
       let action = self.action();
       if action.is_wrap() || action.is_unwrap() {
          return;
@@ -777,23 +796,22 @@ impl SwapUi {
 
       let pools = get_relevant_pools(
          ctx.clone(),
-         settings.swap_on_v2,
-         settings.swap_on_v3,
-         settings.swap_on_v4,
+         update_v2,
+         update_v3,
+         update_v4,
          &self.currency_out,
       );
 
       if pools.is_empty() {
          tracing::warn!(
-            "Can't get quote, No pools found for{}-{}",
+            "Can't get quote, No pools found for {}-{}",
             self.currency_in.symbol(),
             self.currency_out.symbol()
          );
-         return;
       }
 
       tracing::info!(
-         "Updating pool state for{}-{}",
+         "Updating pool state for {}-{}",
          self.currency_in.symbol(),
          self.currency_out.symbol()
       );
@@ -876,6 +894,8 @@ impl SwapUi {
       let currency_out_price = ctx.get_currency_price(&currency_out);
 
       let max_hops = settings.max_hops;
+      let split_routing_enabled = settings.split_routing_enabled;
+      let max_split_routes = settings.max_split_routes;
       let swap_on_v2 = settings.swap_on_v2;
       let swap_on_v3 = settings.swap_on_v3;
       let swap_on_v4 = settings.swap_on_v4;
@@ -889,17 +909,32 @@ impl SwapUi {
             &currency_out,
          );
 
-         let quote = get_quote(
-            amount_in.clone(),
-            currency_in.clone(),
-            currency_out.clone(),
-            pools,
-            eth_price,
-            currency_out_price,
-            base_fee,
-            priority_fee.wei2(),
-            max_hops,
-         );
+         let quote = if split_routing_enabled {
+            get_quote_with_split_routing(
+               amount_in.clone(),
+               currency_in.clone(),
+               currency_out.clone(),
+               pools,
+               eth_price,
+               currency_out_price,
+               base_fee,
+               priority_fee.wei2(),
+               max_hops,
+               max_split_routes,
+            )
+         } else {
+            get_quote(
+               amount_in.clone(),
+               currency_in.clone(),
+               currency_out.clone(),
+               pools,
+               eth_price,
+               currency_out_price,
+               base_fee,
+               priority_fee.wei2(),
+               max_hops,
+            )
+         };
 
          tracing::info!(
             "Quote for {} {} -> {}",
@@ -907,9 +942,12 @@ impl SwapUi {
             currency_in.symbol(),
             currency_out.symbol()
          );
+
          let swap_steps = quote.swap_steps.clone();
          let amount_out = quote.amount_out.clone();
+
          tracing::info!("Swap Steps Length: {}", swap_steps.len());
+
          for swap in &swap_steps {
             tracing::info!(
                "Swap Step: {} {} -> {} {} {} ({})",
@@ -922,13 +960,12 @@ impl SwapUi {
             );
          }
 
-         let quote_clone = quote.clone();
          SHARED_GUI.write(|gui| {
             if !quote.amount_out.is_zero() {
                gui.uniswap.swap_ui.amount_out = amount_out.flatten();
 
                gui.uniswap.swap_ui.getting_quote = false;
-               gui.uniswap.swap_ui.quote = quote_clone;
+               gui.uniswap.swap_ui.quote = quote;
             } else {
                gui.uniswap.swap_ui.quote = Quote::default();
                gui.uniswap.swap_ui.amount_out = String::new();
@@ -991,14 +1028,7 @@ impl SwapUi {
                gui.request_repaint();
             });
 
-            match eth::wrap_eth(
-               ctx.clone(),
-               from,
-               chain,
-               amount_in.clone(),
-            )
-            .await
-            {
+            match eth::wrap_eth(ctx.clone(), from, chain, amount_in.clone()).await {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -1014,7 +1044,7 @@ impl SwapUi {
          return;
       }
 
-         if action.is_unwrap() {
+      if action.is_unwrap() {
          let amount_in = self.amount_in.clone();
          let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
          RT.spawn(async move {
@@ -1023,14 +1053,7 @@ impl SwapUi {
                gui.request_repaint();
             });
 
-            match eth::unwrap_weth(
-               ctx.clone(),
-               from,
-               chain,
-               amount_in.clone(),
-            )
-            .await
-            {
+            match eth::unwrap_weth(ctx.clone(), from, chain, amount_in.clone()).await {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -1093,7 +1116,7 @@ impl SwapUi {
 }
 
 /// Which pools to update the state for
-fn get_relevant_pools(
+pub fn get_relevant_pools(
    ctx: ZeusCtx,
    swap_on_v2: bool,
    swap_on_v3: bool,

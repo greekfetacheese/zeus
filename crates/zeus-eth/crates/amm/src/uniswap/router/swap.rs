@@ -136,6 +136,10 @@ where
 
    let intermediate_inputs: HashSet<Currency2> = swap_steps.iter().map(|s| s.currency_in.clone()).collect();
 
+   // Amount of token out taken by the TAKE_ALL command in v4 swaps
+   // We substract it at the end if needed to calculate the final expected output we get back
+   let mut amount_taken = U256::ZERO;
+
    for swap in &swap_steps {
       /*
       eprintln!("|=== Swap Step ===|");
@@ -148,7 +152,7 @@ where
          swap.pool.dex_kind().to_str(),
          swap.pool.fee().fee_percent()
       );
-      */
+       */
 
       // A step uses initial funds if its input is the main currency OR its WETH equivalent.
       let uses_initial_funds = swap.currency_in == currency_in || swap.currency_in == weth_currency;
@@ -200,6 +204,8 @@ where
 
       // V4 logic can use the original `swap.currency_in` as it handles native ETH directly.
       if swap.pool.dex_kind().is_uniswap_v4() {
+         amount_taken += swap.amount_out.wei2();
+
          let input = encode_v4_commands(
             &swap.pool,
             swap_type,
@@ -224,15 +230,16 @@ where
 
    if !dex_kind.is_v4() {
       // Handle ETH wrapping and final output
+      let expected_amount_out = amount_out_min - amount_taken;
       if currency_out.is_native() {
-         let data = abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
+         let data = abi::uniswap::encode_unwrap_weth(recipient, expected_amount_out);
          commands.push(Commands::UNWRAP_WETH as u8);
          inputs.push(data);
       } else {
          let sweep_params = Sweep {
             token: currency_out.address(),
             recipient,
-            amountMin: amount_out_min,
+            amountMin: expected_amount_out,
          };
          let data = sweep_params.abi_encode_params().into();
          commands.push(Commands::SWEEP as u8);
