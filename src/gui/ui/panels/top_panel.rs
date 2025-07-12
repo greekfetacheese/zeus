@@ -4,7 +4,7 @@ use crate::gui::{
    GUI, SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use egui::{Align, Frame, Layout, Margin, RichText, SelectableLabel, Spinner, Ui, vec2};
+use egui::{vec2, Align, Button, Frame, Layout, Margin, RichText, Spinner, Ui};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::currency::{Currency, NativeCurrency};
@@ -60,7 +60,8 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
                let address = wallet.address_truncated();
 
                let address_text = RichText::new(address).size(theme.text_sizes.normal);
-               if ui.add(SelectableLabel::new(false, address_text)).clicked() {
+               let button = Button::selectable(false, address_text);
+               if ui.add(button).clicked() {
                   ui.ctx().copy_text(wallet.address_string());
                }
             });

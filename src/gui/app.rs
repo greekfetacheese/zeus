@@ -125,6 +125,7 @@ impl eframe::App for ZeusApp {
          let bg_frame = Frame::new().fill(bg_color);
 
          window_frame(ctx, "Zeus", bg_frame.clone(), |ui| {
+            #[cfg(feature = "dev")]
             egui_theme::utils::apply_theme_changes(&gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel

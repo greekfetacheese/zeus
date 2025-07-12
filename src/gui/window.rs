@@ -82,7 +82,8 @@ fn title_bar_ui(ui: &mut egui::Ui, title_bar_rect: eframe::epaint::Rect, title: 
    let ui_builder = UiBuilder::default()
       .max_rect(title_bar_rect)
       .style(ui.ctx().style().clone());
-   ui.allocate_new_ui(ui_builder, |ui| {
+   
+   ui.scope_builder(ui_builder, |ui| {
       ui.with_layout(
          egui::Layout::right_to_left(egui::Align::Center),
          |ui| {

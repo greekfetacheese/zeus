@@ -137,9 +137,12 @@ impl WalletUi {
 
                // Search bar
                ui.add_space(8.0);
+
+               let hint = RichText::new("Search...").color(theme.colors.text_secondary);
+               
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
-                     .hint_text("Search...")
+                     .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .background_color(theme.colors.text_edit_bg)

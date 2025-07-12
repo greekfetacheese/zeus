@@ -3,7 +3,8 @@ use egui::{
    ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense, Shape,
    TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, epaint, output,
    text::{self, LayoutJob},
-   text_selection, vec2,
+   text_selection::{self, CCursorRange},
+   vec2,
 };
 use secure_types::SecureString;
 use std::sync::Arc;
@@ -14,7 +15,7 @@ pub struct SecureTextEditState {
    pub singleline_offset: f32,
    pub last_interaction_time: f64,
    pub ime_enabled: bool,
-   pub ime_cursor_range: text_selection::CursorRange,
+   pub ime_cursor_range: CCursorRange,
 }
 
 impl SecureTextEditState {
@@ -30,18 +31,17 @@ impl SecureTextEditState {
 pub struct SecureTextEditOutput {
    pub response: Response,
    pub state: SecureTextEditState,
-   pub cursor_range: Option<text_selection::CursorRange>,
+   pub cursor_range: Option<CCursorRange>,
 }
 
-
 /// A widget for editing text that is secured by a [`SecureString`].
-/// 
+///
 /// This widget is identical to [`egui::TextEdit`], but it uses a [`SecureString`] instead of a [`std::string::String`].
-/// 
+///
 /// ## Notes
-/// 
+///
 /// - Accessability like screen readers is disabled to avoid multiple unsecure allocations of the entered text.
-/// - If you want to make sure the text you enter doesn't stay in memory in any way you have to set [`Self::password`] to `true`. 
+/// - If you want to make sure the text you enter doesn't stay in memory in any way you have to set [`Self::password`] to `true`.
 /// Otherwise egui will make copies of that text and some of the copied allocations will stay in memory.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct SecureTextEdit<'a> {
@@ -417,9 +417,9 @@ impl<'a> SecureTextEdit<'a> {
          ui.memory_mut(|mem| mem.set_focus_lock_filter(id, self.event_filter));
 
          let default_cursor_range = if self.cursor_at_end {
-            text_selection::CursorRange::one(current_frame_galley.end())
+            CCursorRange::one(current_frame_galley.end())
          } else {
-            text_selection::CursorRange::default()
+            CCursorRange::default()
          };
 
          let (text_changed_by_event, new_cursor_range, _updated_galley_from_events) =
@@ -447,7 +447,7 @@ impl<'a> SecureTextEdit<'a> {
          cursor_range_after_events = Some(new_cursor_range);
 
          if !text_changed_by_event {
-            state.cursor.set_range(Some(new_cursor_range));
+            state.cursor.set_char_range(Some(new_cursor_range));
          }
       }
 
@@ -459,7 +459,7 @@ impl<'a> SecureTextEdit<'a> {
       if self.clip_text && !self.multiline {
          let current_cursor_primary_x =
             match cursor_range_after_events.or_else(|| state.cursor.range(&galley)) {
-               Some(cr) => galley.pos_from_cursor(&cr.primary).min.x,
+               Some(cr) => galley.pos_from_cursor(cr.primary).min.x,
                None => 0.0,
             };
          let visible_width = text_draw_rect.width();
@@ -589,7 +589,14 @@ impl<'a> SecureTextEdit<'a> {
          }
       });
       */
-      response.widget_info(|| WidgetInfo::text_edit(ui.is_enabled(), String::new(), String::new()));
+      response.widget_info(|| {
+         WidgetInfo::text_edit(
+            ui.is_enabled(),
+            String::new(),
+            String::new(),
+            String::new(),
+         )
+      });
 
       SecureTextEditOutput {
          response,
@@ -614,7 +621,7 @@ fn secure_text_edit_events(
    id: Id,
    multiline: bool,
    password: bool,
-   default_cursor_range: text_selection::CursorRange,
+   default_cursor_range: CCursorRange,
    char_limit: usize,
    event_filter: EventFilter,
    return_key: Option<KeyboardShortcut>,
@@ -622,7 +629,7 @@ fn secure_text_edit_events(
    text_color: Color32,
    wrap_width: f32,
    text_align_horizontal: Align,
-) -> (bool, text_selection::CursorRange, Arc<Galley>) {
+) -> (bool, CCursorRange, Arc<Galley>) {
    let os = ui.ctx().os();
    let mut current_galley = initial_galley.clone();
    let mut cursor_range = state
@@ -646,15 +653,15 @@ fn secure_text_edit_events(
          continue;
       }
 
-      let new_ccursor_range_opt: Option<text::CCursorRange> = match event {
+      let new_ccursor_range_opt: Option<CCursorRange> = match event {
          // For now don't allow copy/cut on any text
          Event::Copy => None,
          Event::Cut => None,
          Event::Paste(text_to_paste) => {
             if !text_to_paste.is_empty() {
                let [min, max] = cursor_range.sorted_cursors();
-               let selection_char_len = max.ccursor.index - min.ccursor.index;
-               secure_text.delete_text_char_range(min.ccursor.index..max.ccursor.index);
+               let selection_char_len = max.index - min.index;
+               secure_text.delete_text_char_range(min.index..max.index);
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
@@ -667,7 +674,7 @@ fn secure_text_edit_events(
                   text_to_paste.clone()
                };
 
-               let mut current_ccursor = min.ccursor;
+               let mut current_ccursor = min;
                let chars_inserted =
                   secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_paste);
                current_ccursor.index += chars_inserted;
@@ -680,8 +687,8 @@ fn secure_text_edit_events(
          Event::Text(text_to_insert) => {
             if !text_to_insert.is_empty() && text_to_insert != "\n" && text_to_insert != "\r" {
                let [min, max] = cursor_range.sorted_cursors();
-               let selection_char_len = max.ccursor.index - min.ccursor.index;
-               secure_text.delete_text_char_range(min.ccursor.index..max.ccursor.index);
+               let selection_char_len = max.index - min.index;
+               secure_text.delete_text_char_range(min.index..max.index);
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
@@ -694,7 +701,7 @@ fn secure_text_edit_events(
                   text_to_insert.clone()
                };
 
-               let mut current_ccursor = min.ccursor;
+               let mut current_ccursor = min;
                let chars_inserted =
                   secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_insert);
                current_ccursor.index += chars_inserted;
@@ -715,15 +722,15 @@ fn secure_text_edit_events(
          {
             if multiline {
                let [min, max] = cursor_range.sorted_cursors();
-               let selection_char_len = max.ccursor.index - min.ccursor.index;
-               secure_text.delete_text_char_range(min.ccursor.index..max.ccursor.index);
+               let selection_char_len = max.index - min.index;
+               secure_text.delete_text_char_range(min.index..max.index);
 
                let current_len_after_delete =
                   current_char_len_before_event.saturating_sub(selection_char_len);
                let space_available = char_limit.saturating_sub(current_len_after_delete);
 
                if space_available > 0 {
-                  let mut current_ccursor = min.ccursor;
+                  let mut current_ccursor = min;
                   let chars_inserted =
                      secure_text.insert_text_at_char_idx(current_ccursor.index, "\n");
                   current_ccursor.index += chars_inserted;
@@ -744,17 +751,17 @@ fn secure_text_edit_events(
          } => {
             // Modifiers for word/para delete later
             let [min, max] = cursor_range.sorted_cursors();
-            let mut new_cursor_idx = min.ccursor.index;
-            if min.ccursor == max.ccursor {
+            let mut new_cursor_idx = min.index;
+            if min == max {
                // No selection
-               if min.ccursor.index > 0 {
-                  secure_text.delete_text_char_range(min.ccursor.index - 1..min.ccursor.index);
-                  new_cursor_idx = min.ccursor.index - 1;
+               if min.index > 0 {
+                  secure_text.delete_text_char_range(min.index - 1..min.index);
+                  new_cursor_idx = min.index - 1;
                   text_mutated_this_event = true;
                }
             } else {
                // Selection exists
-               secure_text.delete_text_char_range(min.ccursor.index..max.ccursor.index);
+               secure_text.delete_text_char_range(min.index..max.index);
                // new_cursor_idx is already min.ccursor.index
                text_mutated_this_event = true;
             }
@@ -773,18 +780,18 @@ fn secure_text_edit_events(
          } => {
             // Modifiers for word/para delete later
             let [min, max] = cursor_range.sorted_cursors();
-            if min.ccursor == max.ccursor {
-               if min.ccursor.index < current_char_len_before_event {
+            if min == max {
+               if min.index < current_char_len_before_event {
                   // Before deleting
-                  secure_text.delete_text_char_range(min.ccursor.index..min.ccursor.index + 1);
+                  secure_text.delete_text_char_range(min.index..min.index + 1);
                   text_mutated_this_event = true;
                }
             } else {
-               secure_text.delete_text_char_range(min.ccursor.index..max.ccursor.index);
+               secure_text.delete_text_char_range(min.index..max.index);
                text_mutated_this_event = true;
             }
             if text_mutated_this_event {
-               Some(text::CCursorRange::one(min.ccursor))
+               Some(text::CCursorRange::one(min))
             } else {
                None
             }
@@ -796,7 +803,7 @@ fn secure_text_edit_events(
             ..
          } if multiline && event_filter.tab => {
             let [min, _max] = cursor_range.sorted_cursors();
-            let mut current_ccursor = min.ccursor;
+            let mut current_ccursor = min;
             if modifiers.shift {
             } else {
                let space_available = char_limit.saturating_sub(current_char_len_before_event);
@@ -823,19 +830,18 @@ fn secure_text_edit_events(
                }
                ImeEvent::Preedit(preedit_text) => {
                   let [min_ime, max_ime] = state.ime_cursor_range.sorted_cursors(); // Use IME's original range for delete
-                  secure_text.delete_text_char_range(min_ime.ccursor.index..max_ime.ccursor.index);
-                  let mut c = min_ime.ccursor; // Insert at start of IME original selection
+                  secure_text.delete_text_char_range(min_ime.index..max_ime.index);
+                  let mut c = min_ime; // Insert at start of IME original selection
                   let inserted = secure_text.insert_text_at_char_idx(c.index, preedit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
-                  Some(text::CCursorRange::two(min_ime.ccursor, c))
+                  Some(text::CCursorRange::two(min_ime, c))
                }
                ImeEvent::Commit(commit_text) => {
                   state.ime_enabled = false; // IME done
                   let [min_commit, max_commit] = cursor_range.sorted_cursors();
-                  secure_text
-                     .delete_text_char_range(min_commit.ccursor.index..max_commit.ccursor.index);
-                  let mut c = min_commit.ccursor;
+                  secure_text.delete_text_char_range(min_commit.index..max_commit.index);
+                  let mut c = min_commit;
                   let inserted = secure_text.insert_text_at_char_idx(c.index, commit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
@@ -881,17 +887,12 @@ fn secure_text_edit_events(
          });
       }
 
-      if let Some(new_ccursor_range) = new_ccursor_range_opt {
-         cursor_range = text_selection::CursorRange {
-            primary: current_galley.from_ccursor(new_ccursor_range.primary),
-            secondary: current_galley.from_ccursor(new_ccursor_range.secondary),
-         };
+      if new_ccursor_range_opt.is_some() {
          state.last_interaction_time = ui.input(|i| i.time);
       }
+      // Set the final state.cursor using the most up-to-date cursor_range
+      state.cursor.set_char_range(new_ccursor_range_opt);
    }
-
-   // Set the final state.cursor using the most up-to-date cursor_range
-   state.cursor.set_range(Some(cursor_range));
 
    (
       text_changed_in_total,

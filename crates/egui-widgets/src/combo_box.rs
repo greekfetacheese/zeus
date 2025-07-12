@@ -1,7 +1,7 @@
 use super::Label;
 use egui::{
-   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, PopupCloseBehavior, Rect, Response,
-   ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
+   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, Popup, PopupCloseBehavior, Rect,
+   Response, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
    epaint::{RectShape, Shape, StrokeKind},
    style::WidgetVisuals,
 };
@@ -74,13 +74,13 @@ impl ComboBoxWithImage {
       self,
       ui: &mut Ui,
       menu_contents: impl FnOnce(&mut Ui) -> R,
-   ) -> InnerResponse<Option<R>> {
+   ) -> Option<InnerResponse<R>> {
       let button_id = ui.make_persistent_id(self.id_salt);
       let popup_id = button_id.with("popup");
 
-      let is_popup_open = ui.memory(|m| m.is_popup_open(popup_id));
+      let is_popup_open = Popup::is_id_open(ui.ctx(), popup_id);
 
-      // --- Button Rendering ---
+      // Button Rendering
       let button_response = combo_box_with_image_button(
          ui,
          button_id,
@@ -91,12 +91,12 @@ impl ComboBoxWithImage {
          (self.width, None),
       );
 
-      // --- Interaction ---
+      // Interaction
       if button_response.clicked() {
-         ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+         Popup::toggle_id(ui.ctx(), popup_id);
       }
 
-      // --- Popup Handling ---
+      // Popup Handling
       let popup_default_height = 200.0;
       let popup_current_height = ui.memory(|m| {
          m.area_rect(popup_id)
@@ -108,7 +108,8 @@ impl ComboBoxWithImage {
       let screen_bottom = ui.ctx().screen_rect().bottom();
 
       let space_below = screen_bottom - button_bottom;
-      let above_or_below = if space_below >= popup_current_height
+
+      let _above_or_below = if space_below >= popup_current_height
          || space_below >= ui.spacing().interact_size.y * 4.0
       {
          AboveOrBelow::Below
@@ -119,35 +120,30 @@ impl ComboBoxWithImage {
       let popup_max_h = self
          .popup_max_height
          .unwrap_or_else(|| ui.spacing().combo_height);
+
+      let popup_max_w = self.width.unwrap_or(ui.available_width());
+
       let close_behavior = self
          .close_behavior
          .unwrap_or(PopupCloseBehavior::CloseOnClick);
 
-      let inner = egui::popup::popup_above_or_below_widget(
-         ui,
-         popup_id,
-         &button_response,
-         above_or_below,
-         close_behavior,
-         |ui| {
-            ScrollArea::vertical()
-               .max_height(popup_max_h)
-               .show(ui, |ui| {
-                  ui.set_width(
-                     ui.available_width()
-                        .max(button_response.rect.width() - ui.spacing().button_padding.x * 2.0),
-                  );
-                  ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
-                  menu_contents(ui)
-               })
-               .inner
-         },
-      );
+      let popup = Popup::menu(&button_response).close_behavior(close_behavior);
+      let inner = popup.show(|ui| {
+         ScrollArea::vertical()
+            .max_height(popup_max_h)
+            .max_width(popup_max_w)
+            .show(ui, |ui| {
+               ui.set_width(
+                  ui.available_width()
+                     .max(button_response.rect.width() - ui.spacing().button_padding.x * 2.0),
+               );
+               ui.style_mut().wrap_mode = Some(TextWrapMode::Extend);
+               menu_contents(ui)
+            })
+            .inner
+      });
 
-      InnerResponse {
-         inner,
-         response: button_response,
-      }
+      inner
    }
 }
 
@@ -167,7 +163,7 @@ fn combo_box_with_image_button(
 
    let wrap_mode = wrap_mode_override.unwrap_or_else(|| ui.wrap_mode());
 
-   // --- Size Calculation ---
+   // Size Calculation
    let available_width = ui.available_width();
    let width_for_layout = if let Some(w) = width_override {
       (w - button_padding.x * 2.0 - icon_width - icon_spacing).max(0.0)
@@ -198,10 +194,10 @@ fn combo_box_with_image_button(
       button_size.x = button_size.x.at_least(ui.spacing().combo_width);
    }
 
-   // --- Allocation & Interaction ---
+   // Allocation & Interaction
    let (rect, response) = ui.allocate_exact_size(button_size, Sense::click());
 
-   // --- Painting ---
+   // Painting
    if ui.is_rect_visible(rect) {
       let visuals = if is_popup_open {
          ui.visuals().widgets.open
@@ -271,10 +267,12 @@ fn paint_default_icon(
       rect.center(),
       Vec2::new(rect.width() * 0.7, rect.height() * 0.45),
    );
+
    let points = match above_or_below {
       AboveOrBelow::Above => vec![rect.left_bottom(), rect.right_bottom(), rect.center_top()],
       AboveOrBelow::Below => vec![rect.left_top(), rect.right_top(), rect.center_bottom()],
    };
+
    painter.add(Shape::convex_polygon(
       points,
       visuals.fg_stroke.color,

@@ -164,11 +164,14 @@ impl AcrossBridge {
                   }
                });
 
+               let hint = RichText::new("0")
+                  .color(theme.colors.text_secondary);
+
                ui.add(
                   TextEdit::singleline(&mut self.amount)
-                     .hint_text("0")
-                     .font(FontId::proportional(theme.text_sizes.normal))
-                     .min_size(vec2(ui_width * 0.25, 25.0))
+                     .hint_text(hint)
+                     .font(FontId::proportional(theme.text_sizes.heading))
+                     .min_size(vec2(ui_width * 0.25, 50.0))
                      .background_color(theme.colors.text_edit_bg)
                      .margin(Margin::same(10)),
                );
@@ -239,9 +242,13 @@ impl AcrossBridge {
                });
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let hint = RichText::new("Search contacts or enter an address")
+                     .size(theme.text_sizes.normal)
+                     .color(theme.colors.text_secondary);
+
                   let res = ui.add(
                      TextEdit::singleline(&mut recipient_selection.recipient)
-                        .hint_text("Search contacts or enter an address")
+                        .hint_text(hint)
                         .min_size(vec2(ui_width * 0.5, 25.0))
                         .margin(Margin::same(10))
                         .background_color(theme.colors.text_edit_bg)

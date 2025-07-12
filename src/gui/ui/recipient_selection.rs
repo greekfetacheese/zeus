@@ -102,9 +102,13 @@ impl RecipientSelectionWindow {
                   contacts_ui.add_contact.open = true;
                }
 
+               let hint = RichText::new("Search contacts or enter an address")
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text_secondary);
+
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
-                     .hint_text("Search contacts or enter an address")
+                     .hint_text(hint)
                      .min_size(vec2(ui.available_width() * 0.80, 25.0))
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),

@@ -122,9 +122,12 @@ impl SendCryptoUi {
                   });
 
                ui.horizontal(|ui| {
+                  let hint = RichText::new("Search contacts or enter an address")
+                     .size(theme.text_sizes.normal)
+                     .color(theme.colors.text_secondary);
                   let res = ui.add(
                      TextEdit::singleline(&mut recipient_selection.recipient)
-                        .hint_text("Search contacts or enter an address")
+                        .hint_text(hint)
                         .min_size(vec2(ui.available_width() * 0.85, 25.0))
                         .margin(Margin::same(10))
                         .background_color(theme.colors.text_edit_bg)
@@ -213,12 +216,15 @@ impl SendCryptoUi {
                ui.add_space(5.0);
 
                ui.horizontal(|ui| {
+                  let hint = RichText::new("0")
+                     .color(theme.colors.text_secondary);
+
                   ui.add(
                      TextEdit::singleline(&mut self.amount)
-                        .hint_text("0")
-                        .font(egui::FontId::proportional(theme.text_sizes.large))
+                        .hint_text(hint)
+                        .font(egui::FontId::proportional(theme.text_sizes.heading))
                         .background_color(theme.colors.text_edit_bg)
-                        .min_size(vec2(ui.available_width() * 0.5, 25.0))
+                        .min_size(vec2(ui.available_width() * 0.5, 50.0))
                         .margin(Margin::same(10)),
                   );
                });

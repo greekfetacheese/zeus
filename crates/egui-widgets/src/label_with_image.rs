@@ -101,11 +101,14 @@ impl LabelWithImage {
 
    fn prepare_layout_job(&self, ui: &Ui, wrap_width: f32) -> LayoutJob {
       let wrap_mode = self.wrap_mode.unwrap_or_else(|| ui.wrap_mode());
-      let mut layout_job = self.text.clone().into_layout_job(
+      let layout_job = self.text.clone().into_layout_job(
          ui.style(),
          FontSelection::Default,
          ui.text_valign(),
       );
+      
+      // remove the Arc
+      let mut layout_job: LayoutJob = (*layout_job).clone();
 
       match wrap_mode {
          TextWrapMode::Extend => {

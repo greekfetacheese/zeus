@@ -3,7 +3,7 @@
 use eframe::{
    egui,
    egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, Backends, InstanceDescriptor, MemoryHints, PowerPreference, PresentMode},
+   wgpu::{self, Backends, InstanceDescriptor, MemoryHints, PowerPreference, Trace},
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
@@ -15,7 +15,6 @@ pub mod server;
 
 use core::utils::trace::*;
 use std::panic;
-
 
 fn main() -> eframe::Result {
    panic::set_hook(Box::new(|panic_info| {
@@ -35,7 +34,7 @@ fn main() -> eframe::Result {
 
    let wgpu_setup = WgpuSetup::CreateNew(WgpuSetupCreateNew {
       instance_descriptor: InstanceDescriptor {
-         backends: Backends::VULKAN | Backends::DX12 | Backends::GL,
+         backends: Backends::PRIMARY | Backends::GL,
          ..Default::default()
       },
       power_preference: PowerPreference::HighPerformance,
@@ -54,14 +53,13 @@ fn main() -> eframe::Result {
                ..base_limits
             },
             memory_hints: MemoryHints::MemoryUsage,
+            trace: Trace::Off,
          }
       }),
       ..Default::default()
    });
 
    let wgpu_config = WgpuConfiguration {
-      present_mode: PresentMode::Fifo,
-      desired_maximum_frame_latency: None,
       wgpu_setup,
       ..Default::default()
    };
