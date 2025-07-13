@@ -33,6 +33,15 @@ alloy-signer-local = {version = "1", features = ["mnemonic"]}
 alloy-network = "1"
 alloy-dyn-abi = {version = "1", features = ["eip712"]}
 
+# Wallet
+coins-bip32 = "0.12.0"
+
+# Crypto
+sha3 = "0.10.8"
+argon2 = "0.5.3"
+# Make sure zeroize is enabled
+generic-array = {version = "=1.2.0", features = ["zeroize"]}
+
 # Encryption
 ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
 
