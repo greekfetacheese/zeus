@@ -13,8 +13,6 @@ use std::sync::Arc;
 
 use zeus_eth::utils::NumericValue;
 
-#[cfg(feature = "dev")]
-use crate::core::utils::data_dir;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();

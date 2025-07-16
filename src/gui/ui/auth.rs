@@ -6,7 +6,7 @@ use egui::{Color32, Margin};
 use egui_theme::Theme;
 use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
 use egui_widgets::SecureTextEdit;
-use ncrypt_me::{Argon2Params, Credentials};
+use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;
 
@@ -449,7 +449,7 @@ impl LoginUi {
                   gui.wallet_selection.open = true;
                   gui.chain_selection.open = true;
                   gui.loading_window.open = false;
-                  gui.settings.encryption.argon_params = info.argon2_params.clone();
+                  gui.settings.encryption.argon_params = info.argon2.clone();
                   gui.wallet_selection.wallet_select.wallet = account.current_wallet.clone();
                });
 
@@ -528,7 +528,7 @@ impl RegisterUi {
                         gui.loading_window.open("Creating account...");
                      });
 
-                     let params = Some(Argon2Params::balanced());
+                     let params = Some(Argon2::balanced());
 
                      // Encrypt the account
                      match ctx.encrypt_and_save_account(Some(account.clone()), params.clone()) {

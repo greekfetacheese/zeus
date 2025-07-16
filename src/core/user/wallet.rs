@@ -1,25 +1,16 @@
 use alloy_signer_local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English};
 use anyhow::anyhow;
-use argon2::{
-   Algorithm, Argon2, Params, PasswordHasher, Version,
-   password_hash::{Salt, SaltString},
-};
-use ncrypt_me::{Credentials, erase_output};
-use secure_types::{SecureString, SecureVec, Zeroize};
-use sha3::{Digest, Sha3_256};
+use ncrypt_me::{Argon2, Credentials};
+use secure_types::{SecureString, SecureVec};
+use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
-use zeus_eth::{alloy_primitives::{Address, hex}, utils::SecureSigner};
+use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
 // Argon2 parameters used to derive the seed from the credentials
 
-/// 1GB memory
-pub const M_COST: u32 = 1024_000;
-pub const T_COST: u32 = 8;
-pub const P_COST: u32 = 1;
-pub const HASH_LENGTH: usize = 64;
-
-// For testing only
-const TEST_M_COST: u32 = 16_000;
+pub const M_COST: u32 = 3072_000;
+pub const T_COST: u32 = 16;
+pub const P_COST: u32 = 256;
 
 #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WalletInfo {
@@ -101,63 +92,22 @@ impl Wallet {
    }
 }
 
-
-fn erase_salt(salt: &mut Salt) {
-   unsafe {
-      let ptr: *mut Salt = salt;
-
-      let size = core::mem::size_of::<Salt>();
-      let bytes: &mut [u8] = core::slice::from_raw_parts_mut(ptr as *mut u8, size);
-      bytes.zeroize();
-   }
-}
-
-fn erase_salt_string(salt: &mut SaltString) {
-   unsafe {
-      let ptr: *mut SaltString = salt;
-
-      let size = core::mem::size_of::<SaltString>();
-      let bytes: &mut [u8] = core::slice::from_raw_parts_mut(ptr as *mut u8, size);
-      bytes.zeroize();
-   }
-}
-
 pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::Error> {
    credentials.is_valid()?;
 
-   let mut hasher = Sha3_256::new();
+   let mut hasher = Sha3_512::new();
 
    credentials.username.str_scope(|username| {
       hasher.update(username.as_bytes());
    });
 
-   let mut hash = hasher.finalize();
-   let mut hash_string = hex::encode(hash);
-   let mut salt_string = SaltString::from_b64(hash_string.as_str()).unwrap();
+   let username_hash = hasher.finalize().to_vec();
 
-   hash.zeroize();
-   hash_string.zeroize();
+   let argon2 = Argon2::new(M_COST, T_COST, P_COST);
 
-   let m_cost = if cfg!(test) { TEST_M_COST } else { M_COST };
-   let params = Params::new(m_cost, T_COST, P_COST, Some(HASH_LENGTH)).map_err(|e| anyhow!(e))?;
-   let argon2 = Argon2::new(Algorithm::default(), Version::default(), params);
+   let seed = argon2.hash_password(&credentials.password, username_hash)?;
 
-   let mut password_hash = credentials.password.str_scope(|password| {
-      argon2
-         .hash_password(password.as_bytes(), &salt_string)
-         .expect("Argon2 hash failed")
-   });
-
-
-   let mut seed = password_hash.hash.take().expect("Hash output is empty");
-   let mut salt = password_hash.salt.take().expect("Salt is empty");
-   let secure_vec = SecureVec::from_vec(seed.as_bytes().to_vec())?;
-
-   erase_salt(&mut salt);
-   erase_salt_string(&mut salt_string);
-   erase_output(&mut seed);
-
-   Ok(secure_vec)
+   Ok(seed)
 }
 
 pub struct SecureHDWallet {}
@@ -165,19 +115,7 @@ pub struct SecureHDWallet {}
 #[cfg(test)]
 mod tests {
    use super::*;
-
-   #[test]
-   fn test_erase_salt() {
-      let string = "ishouldbeerased";
-
-      let mut salt_string = SaltString::from_b64(string).unwrap();
-      erase_salt_string(&mut salt_string);
-      assert_eq!(salt_string.as_str().chars().count(), 0);
-
-      let mut salt = Salt::from_b64(string).unwrap();
-      erase_salt(&mut salt);
-      assert_eq!(salt.as_str().chars().count(), 0);
-   }
+   const TEST_M_COST: u32 = 16_000;
 
    #[test]
    fn test_derive_seed_simple() {
@@ -187,7 +125,19 @@ mod tests {
 
       let credentials = Credentials::new(username, password, confirm_password);
 
-      let seed = derive_seed(&credentials).unwrap();
+      let mut hasher = Sha3_512::new();
+
+      credentials.username.str_scope(|username| {
+         hasher.update(username.as_bytes());
+      });
+
+      let username_hash = hasher.finalize().to_vec();
+
+      let argon2 = Argon2::new(TEST_M_COST, T_COST, P_COST);
+
+      let seed = argon2
+         .hash_password(&credentials.password, username_hash)
+         .unwrap();
       assert_eq!(seed.len(), 64);
    }
 }

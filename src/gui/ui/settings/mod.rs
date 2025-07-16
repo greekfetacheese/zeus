@@ -7,7 +7,7 @@ use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
-use ncrypt_me::Argon2Params;
+use ncrypt_me::Argon2;
 use std::collections::HashSet;
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -18,13 +18,19 @@ pub mod networks;
 pub use contacts::ContactsUi;
 pub use networks::NetworkSettings;
 
+const MAX_M_COST: u32 = 8096_000;
+const MAX_T_COST: u32 = 2048;
+const MAX_P_COST: u32 = 512;
+
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
-    You probably want to just increase the Memory cost to a sensible value 256mb - 1024mb as this is the most important parameter for security.";
+    This is the most improtant parameter against GPU/ASIC brute-forcing attacks. 
+    You probably want to just increase the Memory cost to a sensible value 512 - 1024mb or even more if your RAM can afford it";
 
-const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run. Higher values are more secure but slower.";
+const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run over the memory. Higher values are more secure but slower.";
 
-const P_COST_TIP: &str = "You should probably leave this to 1.";
+const P_COST_TIP: &str = "How many parallel lanes (threads) the Argon2 algorithm will use. Normally this number should not be greater than the number of cores on your computer,
+ but you can safely increase it to as much as you want since even if the P_COST exceeds the cores of the computer there is no performance gain/penalty but in a case of a GPU/ASIC attack it will be harder for the attacker to compute the hash";
 
 pub struct ThemeSettings {
    open: bool,
@@ -329,11 +335,10 @@ impl SettingsUi {
                      new_account.set_credentials(new_credentials.clone());
 
                      RT.spawn_blocking(move || {
-
                         SHARED_GUI.write(|gui| {
                            gui.loading_window.open("Encrypting account...");
                         });
-                        
+
                         match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
@@ -378,7 +383,7 @@ impl SettingsUi {
 
 pub struct EncryptionSettings {
    pub open: bool,
-   pub argon_params: Argon2Params,
+   pub argon_params: Argon2,
    pub size: (f32, f32),
 }
 
@@ -386,7 +391,7 @@ impl EncryptionSettings {
    pub fn new() -> Self {
       Self {
          open: false,
-         argon_params: Argon2Params::balanced(),
+         argon_params: Argon2::balanced(),
          size: (450.0, 350.0),
       }
    }
@@ -419,8 +424,8 @@ impl EncryptionSettings {
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(
-                     Slider::new(&mut self.argon_params.m_cost, 64_000..=4096_000)
-                        .custom_formatter(|v, _ctx| format!("{:.0} MB", v / 1000.0)),
+                     Slider::new(&mut self.argon_params.m_cost, 64_000..=MAX_M_COST)
+                        .custom_formatter(|v, _ctx| format!("{:.0}", v / 1000.0)),
                   );
                });
 
@@ -430,7 +435,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
                      &mut self.argon_params.t_cost,
-                     5..=200,
+                     5..=MAX_T_COST,
                   ));
                });
 
@@ -438,7 +443,7 @@ impl EncryptionSettings {
                   .on_hover_text(P_COST_TIP);
 
                ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=8));
+                  ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=MAX_P_COST));
                });
 
                ui.add_space(20.0);

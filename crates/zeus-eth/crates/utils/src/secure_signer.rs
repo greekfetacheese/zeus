@@ -22,7 +22,7 @@ impl SecureSigner {
       let mut key = signer.to_bytes();
       let string = key.iter().map(|b| format!("{b:02x}")).collect::<String>();
       key.zeroize();
-      SecureString::from(string)
+      SecureString::from(string.as_str())
    }
 
    /// Securely erase the signer's key from memory

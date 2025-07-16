@@ -7,7 +7,7 @@ use crate::core::{Account, WalletInfo, user::Contact, utils::server_port_dir};
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
-use ncrypt_me::Argon2Params;
+use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,
    sync::{Arc, RwLock},
@@ -77,7 +77,7 @@ impl ZeusCtx {
    pub fn encrypt_and_save_account(
       &self,
       new_account: Option<Account>,
-      new_params: Option<Argon2Params>,
+      new_params: Option<Argon2>,
    ) -> Result<(), anyhow::Error> {
       if self.save_account_in_progress() {
          return Err(anyhow!(

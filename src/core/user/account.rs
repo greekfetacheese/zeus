@@ -1,7 +1,7 @@
 use super::{Contact, wallet::*};
 use crate::core::utils::data_dir;
 use anyhow::anyhow;
-use ncrypt_me::{Argon2Params, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
+use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 use secure_types::{SecureBytes, SecureString};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
@@ -152,7 +152,7 @@ impl Account {
    }
 
    /// Encrypt this account and return the encrypted data
-   pub fn encrypt(&self, new_params: Option<Argon2Params>) -> Result<Vec<u8>, anyhow::Error> {
+   pub fn encrypt(&self, new_params: Option<Argon2>) -> Result<Vec<u8>, anyhow::Error> {
       // ! make sure we dont accidentally erased any of the wallet keys
       // ! this should actually never happen
       for wallet in self.wallets.iter() {
@@ -166,7 +166,7 @@ impl Account {
 
       let argon_params = match new_params {
          Some(params) => params,
-         None => self.encrypted_info()?.argon2_params,
+         None => self.encrypted_info()?.argon2,
       };
 
       let encrypted_data = encrypt_data(
@@ -251,12 +251,12 @@ mod tests {
       let original_key2 = wallet_2.key_string();
 
       let credentials = Credentials::new(
-         SecureString::from("test".to_string()),
-         SecureString::from("password".to_string()),
-         SecureString::from("password".to_string()),
+         SecureString::from("test"),
+         SecureString::from("password"),
+         SecureString::from("password"),
       );
 
-      let argon_params = Argon2Params::very_fast();
+      let argon_params = Argon2::very_fast();
       let mut account = Account {
          credentials,
          wallets: vec![wallet_1.clone(), wallet_2],

@@ -38,15 +38,15 @@ coins-bip32 = "0.12.0"
 
 # Crypto
 sha3 = "0.10.8"
-argon2 = "0.5.3"
+
 # Make sure zeroize is enabled
 generic-array = {version = "=1.2.0", features = ["zeroize"]}
 
 # Encryption
-ncrypt-me = { git = "https://github.com/greekfetacheese/ncrypt-me.git", branch = "master" }
+ncrypt-me = "0.1.0"
 
 # Memory
-secure-types = {git = "https://github.com/greekfetacheese/secure-types.git", branch = "master"}
+secure-types = "0.1.1"
 
 
 # Tracing
