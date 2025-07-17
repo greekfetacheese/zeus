@@ -147,8 +147,14 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
+      let ignore_chains = ctx.pool_manager().ignore_chains();
+      if ignore_chains.contains(&chain) {
+         continue;
+      }
+
       let ctx_clone = ctx.clone();
       let tokens = ERC20Token::base_tokens(chain);
+
       let task = RT.spawn(async move {
          match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, sync_v4).await {
             Ok(_) => {}
