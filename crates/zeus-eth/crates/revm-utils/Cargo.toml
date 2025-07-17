@@ -25,7 +25,6 @@ op-revm = { version = " 7.0.0", features = [
 
 alloy-sol-types = {version = "1", features = ["json"]}
 alloy-primitives = "1.2.0"
-alloy-signer = "1"
 alloy-signer-local = "1"
 
 alloy-rpc-types = "1"
@@ -36,12 +35,7 @@ alloy-transport = "1"
 # Async
 tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
 futures = "0.3.5"
-futures-util = "0.3.30"
 
 # Error handling
 anyhow = "1.0.44"
 thiserror = "1.0.37"
-eyre = "0.6.8"
-
-[dev-dependencies]
-tokio = "1"

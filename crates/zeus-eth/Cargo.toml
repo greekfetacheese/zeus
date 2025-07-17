@@ -8,7 +8,6 @@ edition = "2021"
 abi = { path = "crates/abi"}
 amm = { path = "crates/amm"}
 currency = { path = "crates/currency"}
-dapps = { path = "crates/dapps"}
 types = { path = "crates/types"}
 utils = { path = "crates/utils"}
 revm-utils = { path = "crates/revm-utils"}

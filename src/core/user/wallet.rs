@@ -1,16 +1,10 @@
 use alloy_signer_local::{MnemonicBuilder, PrivateKeySigner, coins_bip39::English};
 use anyhow::anyhow;
-use ncrypt_me::{Argon2, Credentials};
-use secure_types::{SecureString, SecureVec};
-use sha3::{Digest, Sha3_512};
+use secure_types::SecureString;
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
-// Argon2 parameters used to derive the seed from the credentials
 
-pub const M_COST: u32 = 3072_000;
-pub const T_COST: u32 = 16;
-pub const P_COST: u32 = 256;
 
 #[derive(Clone, Default, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WalletInfo {
@@ -92,6 +86,17 @@ impl Wallet {
    }
 }
 
+
+
+
+/*
+// Argon2 parameters used to derive the seed from the credentials
+
+pub const M_COST: u32 = 3072_000;
+pub const T_COST: u32 = 16;
+pub const P_COST: u32 = 256;
+
+use sha3::{Digest, Sha3_512};
 pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::Error> {
    credentials.is_valid()?;
 
@@ -141,3 +146,4 @@ mod tests {
       assert_eq!(seed.len(), 64);
    }
 }
+ */

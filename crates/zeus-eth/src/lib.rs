@@ -1,7 +1,6 @@
 pub use abi;
 pub use amm;
 pub use currency;
-pub use dapps;
 pub use revm_utils;
 pub use types;
 pub use utils;

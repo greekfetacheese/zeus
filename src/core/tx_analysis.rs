@@ -1,10 +1,9 @@
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, Dapp};
 use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
    currency::{Currency, NativeCurrency},
-   dapps::Dapp,
    utils::NumericValue,
 };
 

@@ -11,6 +11,24 @@ pub use user::{Account, wallet::*};
 pub use transaction::*;
 pub use tx_analysis::TransactionAnalysis;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Dapp {
+   Across,
+   Uniswap,
+}
+
+impl Dapp {
+   pub fn is_across(&self) -> bool {
+      matches!(self, Self::Across)
+   }
+
+   pub fn is_uniswap(&self) -> bool {
+      matches!(self, Self::Uniswap)
+   }
+}
+
+
+
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
    use std::collections::HashMap;

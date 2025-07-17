@@ -1,4 +1,4 @@
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, Dapp};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
@@ -9,7 +9,6 @@ use zeus_eth::{
       uniswap::{AnyUniswapPool, UniswapPool},
    },
    currency::{Currency, ERC20Token, NativeCurrency},
-   dapps::Dapp,
    utils::NumericValue,
 };
 

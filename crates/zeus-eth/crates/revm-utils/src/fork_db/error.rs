@@ -17,15 +17,15 @@ pub enum DatabaseError {
    #[error("{0}")]
    Message(String),
    #[error("Failed to get account for {0:?}: {0:?}")]
-   GetAccount(revm::primitives::Address, Arc<eyre::Error>),
+   GetAccount(revm::primitives::Address, Arc<anyhow::Error>),
    #[error("Failed to get storage for {0:?} at {1:?}: {2:?}")]
    GetStorage(
       revm::primitives::Address,
       revm::primitives::U256,
-      Arc<eyre::Error>,
+      Arc<anyhow::Error>,
    ),
    #[error("Failed to get block hash for {0}: {1:?}")]
-   GetBlockHash(revm::primitives::U256, Arc<eyre::Error>),
+   GetBlockHash(revm::primitives::U256, Arc<anyhow::Error>),
    #[error("Backend Request Error")]
    BackendFetchRequestError,
    #[error("Channel recv error")]

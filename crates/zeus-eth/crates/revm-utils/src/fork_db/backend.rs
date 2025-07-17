@@ -9,7 +9,7 @@ use revm::database::InMemoryDB;
 use revm::primitives::KECCAK_EMPTY;
 use revm::state::{AccountInfo, Bytecode};
 
-use eyre::Result;
+use anyhow::Result;
 use futures::{
    Future, FutureExt, Stream,
    channel::mpsc::Receiver,
@@ -271,7 +271,7 @@ where
                      let (balance, nonce, code) = match resp {
                         Ok(res) => res,
                         Err(err) => {
-                           let err = Arc::new(eyre::Error::new(err));
+                           let err = Arc::new(anyhow::Error::new(err));
                            if let Some(listeners) = pin.account_requests.remove(&addr) {
                               listeners.into_iter().for_each(|l| {
                                  let _ = l.send(Err(DatabaseError::GetAccount(addr, Arc::clone(&err))));
@@ -312,7 +312,7 @@ where
                         Ok(value) => value,
                         Err(err) => {
                            // notify all listeners
-                           let err = Arc::new(eyre::Error::new(err));
+                           let err = Arc::new(anyhow::Error::new(err));
                            if let Some(listeners) = pin.storage_requests.remove(&(addr, idx)) {
                               listeners.into_iter().for_each(|l| {
                                  let _ = l.send(Err(DatabaseError::GetStorage(addr, idx, Arc::clone(&err))));
@@ -339,7 +339,7 @@ where
                      let value = match block_hash {
                         Ok(value) => value,
                         Err(err) => {
-                           let err = Arc::new(eyre::Error::new(err));
+                           let err = Arc::new(anyhow::Error::new(err));
                            // notify all listeners
                            if let Some(listeners) = pin.block_requests.remove(&number) {
                               listeners.into_iter().for_each(|l| {

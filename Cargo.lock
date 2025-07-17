@@ -2230,18 +2230,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
-name = "dapps"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "anyhow",
- "reqwest",
- "serde",
- "serde_json",
- "types",
-]
-
-[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6113,14 +6101,11 @@ dependencies = [
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
- "alloy-signer",
  "alloy-signer-local",
  "alloy-sol-types",
  "alloy-transport",
  "anyhow",
- "eyre",
  "futures",
- "futures-util",
  "op-revm",
  "revm",
  "thiserror 1.0.69",
@@ -9136,7 +9121,6 @@ dependencies = [
  "alloy-signer-local",
  "anyhow",
  "bincode",
- "coins-bip32",
  "eframe",
  "egui",
  "egui-theme",
@@ -9147,10 +9131,10 @@ dependencies = [
  "image",
  "lazy_static",
  "ncrypt-me",
+ "reqwest",
  "secure-types",
  "serde",
  "serde_json",
- "sha3",
  "tokio",
  "tracing",
  "tracing-appender",
@@ -9168,7 +9152,6 @@ dependencies = [
  "abi",
  "amm",
  "currency",
- "dapps",
  "revm-utils",
  "tokio",
  "types",

@@ -1,6 +1,6 @@
 use super::{RT, tx::TxParams, update};
 use crate::core::{
-   TransactionAnalysis, TransactionRich, ZeusCtx,
+   Dapp, TransactionAnalysis, TransactionRich, ZeusCtx,
    db::V3Position,
    transaction::*,
    utils::{self, estimate_tx_cost, parse_typed_data, sign::SignMsgType, tx},
@@ -28,7 +28,6 @@ use zeus_eth::{
       },
    },
    currency::{Currency, ERC20Token},
-   dapps::Dapp,
    revm_utils::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkDB, ForkFactory, Host,
       new_evm, revert_msg, simulate,

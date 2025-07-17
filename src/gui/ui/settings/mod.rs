@@ -469,6 +469,7 @@ impl EncryptionSettings {
          });
 
          // Encrypt the account with the new params
+        // let time = std::time::Instant::now();
          match ctx.encrypt_and_save_account(None, Some(new_params.clone())) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
@@ -489,6 +490,7 @@ impl EncryptionSettings {
                return;
             }
          };
+        // tracing::info!("Encryption took {} secs", time.elapsed().as_secs_f32());
       });
    }
 }
