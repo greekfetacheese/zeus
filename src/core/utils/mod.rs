@@ -270,7 +270,7 @@ where
       let allowance = allowance?;
 
       let expired = u64::try_from(allowance.expiration)? < current_time;
-      let needs_permit2 = U256::from(allowance.amount) < token.amount.wei2() || expired;
+      let needs_permit2 = U256::from(allowance.amount) < token.amount.wei() || expired;
 
       if needs_permit2 {
          tokens_to_approve.push(token.token.clone());
@@ -278,7 +278,7 @@ where
 
          permit_details.push(PermitDetails {
             token: token.token.address,
-            amount: U160::from(token.amount.wei2()),
+            amount: U160::from(token.amount.wei()),
             expiration: U48::from(expiration),
             nonce: allowance.nonce,
          });

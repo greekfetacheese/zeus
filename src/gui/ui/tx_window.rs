@@ -133,7 +133,7 @@ impl TxConfirmationWindow {
       };
 
       let (cost_in_wei, cost_in_usd) =
-         estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei2());
+         estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei());
       self.tx_cost = cost_in_wei;
       self.tx_cost_usd = cost_in_usd;
    }
@@ -303,7 +303,7 @@ impl TxConfirmationWindow {
 
                   let sufficient_balance = self.sufficient_balance(
                      ctx.clone(),
-                     analysis.value_sent().wei2(),
+                     analysis.value_sent().wei(),
                      analysis.sender,
                   );
 
@@ -428,8 +428,8 @@ impl TxConfirmationWindow {
 
    fn sufficient_balance(&self, ctx: ZeusCtx, eth_spent: U256, sender: Address) -> bool {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
-      let total_cost = eth_spent + self.tx_cost.wei2();
-      balance.wei2() >= total_cost
+      let total_cost = eth_spent + self.tx_cost.wei();
+      balance.wei() >= total_cost
    }
 }
 
@@ -810,7 +810,7 @@ pub fn token_approval_event_ui(
       .zip(params.amount_usd.iter());
 
    for ((token, amount), amount_usd) in token_details {
-      let is_unlimited = amount.wei2() == U256::MAX;
+      let is_unlimited = amount.wei() == U256::MAX;
       let amount = if is_unlimited {
          "Unlimited".to_string()
       } else {

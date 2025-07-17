@@ -650,7 +650,7 @@ impl NumericValue {
    /// The `slippage_percent` is in percentage points, e.g., 1.0 for 1%.
    /// Panics if `self.wei` is `None`.
    pub fn calc_slippage(&mut self, slippage: f64, decimals: u8) {
-      let wei = self.wei2();
+      let wei = self.wei();
       let slippage_bps = (slippage * 100.0) as u64;
       let denominator = 10000u64;
       let factor_num = denominator - slippage_bps;
@@ -713,12 +713,8 @@ impl NumericValue {
       matches!(self.f64, 0.0) || matches!(self.formatted.as_str(), "0")
    }
 
-   pub fn wei(&self) -> Option<U256> {
-      self.wei
-   }
-
    /// Panics if [Self::wei] is None
-   pub fn wei2(&self) -> U256 {
+   pub fn wei(&self) -> U256 {
       self.wei.unwrap()
    }
 
@@ -769,7 +765,7 @@ mod tests {
    #[test]
    fn format_zero() {
       let value = NumericValue::format_wei(U256::ZERO, 18);
-      assert_eq!(value.wei2(), U256::ZERO);
+      assert_eq!(value.wei(), U256::ZERO);
       assert_eq!(value.formatted(), "0");
       assert_eq!(value.f64(), 0.0);
    }
@@ -809,7 +805,7 @@ mod tests {
    fn test_calc_slippage() {
       let mut value = NumericValue::parse_to_wei("1", 18);
       value.calc_slippage(10.0, 18);
-      assert_eq!(value.wei2(), U256::from(900000000000000000u128));
+      assert_eq!(value.wei(), U256::from(900000000000000000u128));
       assert_eq!(value.f64, 0.9);
       assert_eq!(value.formatted, "0.9");
    }
@@ -819,14 +815,14 @@ mod tests {
       // 1 ETH
       let amount = "1";
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
-      assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
+      assert_eq!(value.wei(), U256::from(1000000000000000000u128));
       assert_eq!(value.f64, 1.0);
       assert_eq!(value.formatted, "1");
 
       // 0.001294885 ETH
       let amount = "0.001294885";
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
-      assert_eq!(value.wei().unwrap(), U256::from(1294885000000000u128));
+      assert_eq!(value.wei(), U256::from(1294885000000000u128));
       assert_eq!(value.f64, 0.001294885);
       assert_eq!(value.formatted, "0.001294");
    }
@@ -835,7 +831,7 @@ mod tests {
    fn test_parse_to_wei_low_amount() {
       let amount = "0.000001";
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
-      assert_eq!(value.wei().unwrap(), U256::from(1000000000000u128));
+      assert_eq!(value.wei(), U256::from(1000000000000u128));
       assert_eq!(value.f64, 0.000001);
       assert_eq!(value.formatted, "0.000001");
    }
@@ -844,13 +840,13 @@ mod tests {
    fn test_parse_to_gwei() {
       let amount = "1";
       let value = NumericValue::parse_to_gwei(&amount.to_string());
-      assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+      assert_eq!(value.wei(), U256::from(1000000000u128));
       assert_eq!(value.f64, 1.0);
       assert_eq!(value.formatted, "1");
 
       let amount = "0.000000070";
       let value = NumericValue::parse_to_gwei(&amount.to_string());
-      assert_eq!(value.wei().unwrap(), U256::from(70u128));
+      assert_eq!(value.wei(), U256::from(70u128));
       assert_eq!(value.f64, 0.000000070);
       assert_eq!(value.formatted, "0");
    }
@@ -859,7 +855,7 @@ mod tests {
    fn test_format_to_gwei() {
       let amount = U256::from(1000000000u128);
       let value = NumericValue::format_to_gwei(amount);
-      assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
+      assert_eq!(value.wei(), U256::from(1000000000u128));
       assert_eq!(value.f64, 1.0);
       assert_eq!(value.formatted, "1");
    }

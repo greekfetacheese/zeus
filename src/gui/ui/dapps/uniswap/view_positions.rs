@@ -514,7 +514,7 @@ impl AddLiquidity {
                   state.sqrt_price,
                   sqrt_price_lower,
                   sqrt_price_upper,
-                  deposit_amount.wei2(),
+                  deposit_amount.wei(),
                   true,
                )
                .unwrap_or_default();

@@ -150,7 +150,7 @@ impl UiTesting {
                   decoded_selector: "Unknown".to_string(),
                   erc20_transfers: vec![params.clone(), params.clone(), params],
                   gas_used: 160_000,
-                  value: NumericValue::parse_to_wei("1", 18).wei2(),
+                  value: NumericValue::parse_to_wei("1", 18).wei(),
                   ..Default::default()
                };
 
@@ -185,8 +185,8 @@ impl UiTesting {
                   erc20_transfers: vec![params.clone(), params.clone()],
                   weth_unwraps: vec![unwrap],
                   gas_used: 160_000,
-                  eth_balance_before: NumericValue::default().wei2(),
-                  eth_balance_after: NumericValue::parse_to_wei("1", 18).wei2(),
+                  eth_balance_before: NumericValue::default().wei(),
+                  eth_balance_after: NumericValue::parse_to_wei("1", 18).wei(),
                   ..Default::default()
                };
 
@@ -297,7 +297,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let analysis = TransactionAnalysis {
                   chain: 1,
-                  value: NumericValue::parse_to_wei("1", 18).wei2(),
+                  value: NumericValue::parse_to_wei("1", 18).wei(),
                   contract_interact: false,
                   decoded_selector: "Transfer".to_string(),
                   gas_used: 21_000,

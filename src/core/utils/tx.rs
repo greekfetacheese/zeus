@@ -70,7 +70,7 @@ impl TxParams {
       let cost_in_eth = self.gas_cost();
       let cost = NumericValue::format_wei(cost_in_eth, 18);
 
-      if balance.wei2() < cost.wei2() {
+      if balance.wei() < cost.wei() {
          return Err(anyhow!(
             "Insufficient balance to cover gas fees, need at least {} {} but you have {} {}",
             cost.formatted(),

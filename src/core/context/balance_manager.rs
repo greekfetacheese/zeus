@@ -232,11 +232,11 @@ impl BalanceManagerHandle {
    ) {
       if currency.is_native() {
          let native = currency.native().unwrap();
-         let balance = balance.wei().unwrap_or_default();
+         let balance = balance.wei();
          self.insert_eth_balance(native.chain_id, owner, balance, native);
       } else {
          let token = currency.erc20().unwrap();
-         let balance = balance.wei().unwrap_or_default();
+         let balance = balance.wei();
          self.insert_token_balance(token.chain_id, owner, balance, token);
       }
    }

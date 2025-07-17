@@ -77,7 +77,7 @@ mod tests {
       let uni = pool.quote_currency();
 
       let amount_in = NumericValue::parse_to_wei("50", weth.decimals());
-      let amount_out = pool.simulate_swap(&weth, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&weth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
 
       let mut min_amount_out = amount_out.clone();
@@ -98,7 +98,7 @@ mod tests {
          ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, weth.address(), amount_in.wei2())
+         .give_token(alice.address, weth.address(), amount_in.wei())
          .unwrap();
 
       let fork_db = factory.new_sandbox_fork();
@@ -118,8 +118,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          weth.clone(),
          uni.clone(),
          signer,
@@ -162,7 +162,7 @@ mod tests {
       eprintln!("Gas Used: {}", res.gas_used());
 
       let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      assert!(balance >= min_amount_out.wei2());
+      assert!(balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(balance, uni.decimals());
 
       eprintln!(
@@ -180,13 +180,13 @@ mod tests {
       eprintln!(
          "{} Quote Amount: {}",
          uni.symbol(),
-         amount_out.wei2()
+         amount_out.wei()
       );
 
       eprintln!(
          "{} Got from Swap: {}",
          uni.symbol(),
-         balance.wei2()
+         balance.wei()
       );
    }
 
@@ -208,7 +208,7 @@ mod tests {
       let uni = pool.quote_currency();
 
       let amount_in = NumericValue::parse_to_wei("100000", usdt.decimals());
-      let amount_out = pool.simulate_swap(&usdt, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&usdt, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
 
       let mut min_amount_out = amount_out.clone();
@@ -229,7 +229,7 @@ mod tests {
          ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, usdt.address(), amount_in.wei2())
+         .give_token(alice.address, usdt.address(), amount_in.wei())
          .unwrap();
 
       let fork_db = factory.new_sandbox_fork();
@@ -249,8 +249,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          usdt.clone(),
          uni.clone(),
          signer,
@@ -293,10 +293,10 @@ mod tests {
       eprintln!("Gas Used: {}", res.gas_used());
 
       let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      // assert!(balance >= min_amount_out.wei2());
+      // assert!(balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(balance, uni.decimals());
 
-      // assert_eq!(balance.wei2(), amount_out.wei2());
+      // assert_eq!(balance.wei(), amount_out.wei());
 
       eprintln!(
          "{} Quote Amount: {}",
@@ -313,13 +313,13 @@ mod tests {
       eprintln!(
          "{} Quote Amount: {}",
          uni.symbol(),
-         amount_out.wei2()
+         amount_out.wei()
       );
 
       eprintln!(
          "{} Got from Swap: {}",
          uni.symbol(),
-         balance.wei2()
+         balance.wei()
       );
    }
 
@@ -341,7 +341,7 @@ mod tests {
       let uni = pool.quote_currency();
 
       let amount_in = NumericValue::parse_to_wei("10", eth.decimals());
-      let amount_out = pool.simulate_swap(&eth, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&eth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
 
       let mut min_amount_out = amount_out.clone();
@@ -355,7 +355,7 @@ mod tests {
          uni.symbol()
       );
 
-      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory =
@@ -379,8 +379,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          eth.clone(),
          uni.clone(),
          signer,
@@ -413,10 +413,10 @@ mod tests {
       eprintln!("Gas Used: {}", res.gas_used());
 
       let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      assert!(balance >= min_amount_out.wei2());
+      assert!(balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(balance, uni.decimals());
 
-      // assert_eq!(balance.wei2(), amount_out.wei2());
+      // assert_eq!(balance.wei(), amount_out.wei());
 
       eprintln!(
          "{} Quote Amount: {}",
@@ -433,13 +433,13 @@ mod tests {
       eprintln!(
          "{} Quote Amount: {}",
          uni.symbol(),
-         amount_out.wei2()
+         amount_out.wei()
       );
 
       eprintln!(
          "{} Got from Swap: {}",
          uni.symbol(),
-         balance.wei2()
+         balance.wei()
       );
    }
 
@@ -480,7 +480,7 @@ mod tests {
          eth_price.clone(),
          currency_out_price.clone(),
          base_fee.next,
-         priority_fee.wei2(),
+         priority_fee.wei(),
          max_hops,
          10,
       );
@@ -502,17 +502,17 @@ mod tests {
          eprintln!(
             "Swap Step: {} (Wei: {}) {} -> {} (Wei: {}) {} {} ({})",
             swap.amount_in.format_abbreviated(),
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             swap.currency_in.symbol(),
             swap.amount_out.format_abbreviated(),
-            swap.amount_out.wei2(),
+            swap.amount_out.wei(),
             swap.currency_out.symbol(),
             swap.pool.dex_kind().to_str(),
             swap.pool.fee().fee()
          );
       }
 
-      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let swap_params = encode_swap(
@@ -520,8 +520,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -562,19 +562,19 @@ mod tests {
       let currency_out_balance =
          simulate::erc20_balance(&mut evm, currency_out.address(), alice.address).unwrap();
 
-      assert!(currency_out_balance >= min_amount_out.wei2());
+      assert!(currency_out_balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(currency_out_balance, currency_out.decimals());
 
       eprintln!(
          "{} Quote Amount: {}",
          currency_out.symbol(),
-         amount_out.wei2()
+         amount_out.wei()
       );
 
       eprintln!(
          "{} Got from Swap: {}",
          currency_out.symbol(),
-         balance.wei2()
+         balance.wei()
       );
    }
 
@@ -613,7 +613,7 @@ mod tests {
          eth_price.clone(),
          currency_out_price.clone(),
          base_fee.next,
-         priority_fee.wei2(),
+         priority_fee.wei(),
          max_hops,
       );
 
@@ -634,17 +634,17 @@ mod tests {
          eprintln!(
             "Swap Step: {} (Wei: {}) {} -> {} (Wei: {}) {} {} ({})",
             swap.amount_in.format_abbreviated(),
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             swap.currency_in.symbol(),
             swap.amount_out.format_abbreviated(),
-            swap.amount_out.wei2(),
+            swap.amount_out.wei(),
             swap.currency_out.symbol(),
             swap.pool.dex_kind().to_str(),
             swap.pool.fee().fee()
          );
       }
 
-      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let swap_params = encode_swap(
@@ -652,8 +652,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -670,7 +670,7 @@ mod tests {
          .give_token(
             alice.address,
             currency_in.address(),
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
 
@@ -711,7 +711,7 @@ mod tests {
       let currency_out_balance =
          simulate::erc20_balance(&mut evm, currency_out.address(), alice.address).unwrap();
 
-      assert!(currency_out_balance >= min_amount_out.wei2());
+      assert!(currency_out_balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(currency_out_balance, currency_out.decimals());
 
       eprintln!(
@@ -762,7 +762,7 @@ mod tests {
          eth_price.clone(),
          currency_out_price.clone(),
          base_fee.next,
-         priority_fee.wei2(),
+         priority_fee.wei(),
          max_hops,
       );
 
@@ -783,17 +783,17 @@ mod tests {
          eprintln!(
             "Swap Step: {} (Wei: {}) {} -> {} (Wei: {}) {} {} ({})",
             swap.amount_in.format_abbreviated(),
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             swap.currency_in.symbol(),
             swap.amount_out.format_abbreviated(),
-            swap.amount_out.wei2(),
+            swap.amount_out.wei(),
             swap.currency_out.symbol(),
             swap.pool.dex_kind().to_str(),
             swap.pool.fee().fee()
          );
       }
 
-      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let swap_params = encode_swap(
@@ -801,8 +801,8 @@ mod tests {
          chain_id,
          swap_steps,
          SwapType::ExactInput,
-         amount_in.wei2(),
-         min_amount_out.wei2(),
+         amount_in.wei(),
+         min_amount_out.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -819,7 +819,7 @@ mod tests {
          .give_token(
             alice.address,
             currency_in.address(),
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
 
@@ -860,7 +860,7 @@ mod tests {
       let state = evm.balance(alice.address).unwrap();
       let balance = state.data;
 
-      assert!(balance >= min_amount_out.wei2());
+      assert!(balance >= min_amount_out.wei());
       let balance = NumericValue::format_wei(balance, currency_out.decimals());
 
       eprintln!(

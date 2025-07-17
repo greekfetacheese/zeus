@@ -310,7 +310,7 @@ fn _permit2_batch_approval_ui(
    // Tokens
    for ((token, amount), _amount_usd) in token_details {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let amount = if amount.wei2() == U256::MAX {
+         let amount = if amount.wei() == U256::MAX {
             "Unlimited".to_string()
          } else {
             amount.format_abbreviated()

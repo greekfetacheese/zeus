@@ -366,7 +366,7 @@ impl AcrossBridge {
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
       let balance = ctx.get_eth_balance(self.from_chain.chain.id(), depositor);
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
-      balance.wei2() >= amount.wei2()
+      balance.wei() >= amount.wei()
    }
 
    /// Max amount = Balance - cost
@@ -376,11 +376,11 @@ impl AcrossBridge {
       let balance = ctx.get_eth_balance(chain.id(), owner);
       let (cost_wei, _) = self.cost(ctx.clone());
 
-      if balance.wei2() < cost_wei.wei2() {
+      if balance.wei() < cost_wei.wei() {
          return NumericValue::default();
       }
 
-      let max = balance.wei2() - cost_wei.wei2();
+      let max = balance.wei() - cost_wei.wei();
       NumericValue::format_wei(max, self.currency.decimals)
    }
 
@@ -523,7 +523,7 @@ impl AcrossBridge {
          to_chain.id(),
          input_token.address,
          output_token.address,
-         amount.wei().unwrap(),
+         amount.wei(),
       );
       tracing::info!("Requested suggested fees");
    }
@@ -548,8 +548,7 @@ impl AcrossBridge {
    fn minimum_amount(&self) -> NumericValue {
       let scale = U256::from(10).pow(U256::from(self.currency.decimals));
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals)
-         .wei()
-         .unwrap();
+         .wei();
       let cache = self.api_res_cache.get(&(
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
@@ -586,7 +585,7 @@ impl AcrossBridge {
       let gas_used: u64 = 70_000;
       let fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
 
-      estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei2())
+      estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei())
    }
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
@@ -637,8 +636,8 @@ impl AcrossBridge {
          recipient,
          input_token: input_token.address,
          output_token: output_token.address,
-         input_amount: input_amount.wei2(),
-         output_amount: output_amount.wei2(),
+         input_amount: input_amount.wei(),
+         output_amount: output_amount.wei(),
          destination_chain_id: to_chain.id(),
          exclusive_relayer: relayer,
          quote_timestamp: timestamp,
@@ -665,7 +664,7 @@ impl AcrossBridge {
             recipient,
             transact_to,
             call_data,
-            input_amount.wei2(),
+            input_amount.wei(),
          )
          .await
          {

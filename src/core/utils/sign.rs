@@ -189,7 +189,7 @@ impl Permit2Details {
    }
 
    pub fn amount(&self) -> String {
-      if self.amount.wei2() == U256::MAX {
+      if self.amount.wei() == U256::MAX {
          return "Unlimited".to_string();
       } else {
          return self.amount.format_abbreviated();

@@ -48,10 +48,10 @@ mod tests {
       let usdc_amount = NumericValue::parse_to_wei("10000", usdc.decimals);
 
       factory
-         .give_token(alice.address, weth.address, weth_amount.wei2())
+         .give_token(alice.address, weth.address, weth_amount.wei())
          .unwrap();
       factory
-         .give_token(alice.address, usdc.address, usdc_amount.wei2())
+         .give_token(alice.address, usdc.address, usdc_amount.wei())
          .unwrap();
 
       let permit2_address = utils::address_book::permit2_contract(chain_id).unwrap();
@@ -85,14 +85,14 @@ mod tests {
 
       let permit_detail_a = abi::permit::Permit2::PermitDetails {
          token: weth.address,
-         amount: U160::from(weth_amount.wei2()),
+         amount: U160::from(weth_amount.wei()),
          expiration,
          nonce: weth_allowance.nonce,
       };
 
       let permit_detail_b = abi::permit::Permit2::PermitDetails {
          token: usdc.address,
-         amount: U160::from(usdc_amount.wei2()),
+         amount: U160::from(usdc_amount.wei()),
          expiration,
          nonce: usdc_allowance.nonce,
       };
@@ -131,7 +131,7 @@ mod tests {
       let input = abi::uniswap::Permit2TransferFrom {
          token: weth.address,
          recipient: router_addr,
-         amount: U160::from(weth_amount.wei2()),
+         amount: U160::from(weth_amount.wei()),
       };
       inputs.push(input.abi_encode_params().into());
 
@@ -139,7 +139,7 @@ mod tests {
       let input = abi::uniswap::Permit2TransferFrom {
          token: usdc.address,
          recipient: router_addr,
-         amount: U160::from(usdc_amount.wei2()),
+         amount: U160::from(usdc_amount.wei()),
       };
       inputs.push(input.abi_encode_params().into());
 
@@ -151,7 +151,7 @@ mod tests {
          weth.address,
          alice.address,
          permit2_address,
-         weth_amount.wei2(),
+         weth_amount.wei(),
       )
       .unwrap();
 
@@ -160,7 +160,7 @@ mod tests {
          usdc.address,
          alice.address,
          permit2_address,
-         usdc_amount.wei2(),
+         usdc_amount.wei(),
       )
       .unwrap();
 
@@ -205,7 +205,7 @@ mod tests {
 
       let usdc_amount_in = NumericValue::parse_to_wei("1800", usdc.decimals());
       let weth_amount_out = weth_usdc
-         .simulate_swap(&usdc, usdc_amount_in.wei2())
+         .simulate_swap(&usdc, usdc_amount_in.wei())
          .unwrap();
       let mut weth_amount_out = NumericValue::format_wei(weth_amount_out, weth.decimals());
       weth_amount_out.calc_slippage(0.5, weth.decimals());
@@ -219,7 +219,7 @@ mod tests {
       );
 
       let uni_amount_out = weth_uni
-         .simulate_swap(&weth, weth_amount_out.wei2())
+         .simulate_swap(&weth, weth_amount_out.wei())
          .unwrap();
       let mut uni_amount_out = NumericValue::format_wei(uni_amount_out, uni.decimals());
       uni_amount_out.calc_slippage(0.5, uni.decimals());
@@ -240,7 +240,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, usdc.address(), usdc_balance.wei2())
+         .give_token(alice.address, usdc.address(), usdc_balance.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -267,8 +267,8 @@ mod tests {
          chain_id,
          vec![swap_step, swap_step2],
          SwapType::ExactInput,
-         usdc_amount_in.wei2(),
-         uni_amount_out.wei2(),
+         usdc_amount_in.wei(),
+         uni_amount_out.wei(),
          usdc.clone(),
          uni.clone(),
          signer,
@@ -285,7 +285,7 @@ mod tests {
       let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
 
       let balance = simulate::erc20_balance(&mut evm, usdc.address(), alice.address).unwrap();
-      assert!(balance == usdc_balance.wei2());
+      assert!(balance == usdc_balance.wei());
       println!("Alice USDC Balance: {}", usdc_balance.formatted());
 
       let permit2 = permit2_contract(chain_id).unwrap();
@@ -298,7 +298,7 @@ mod tests {
             usdc.address(),
             alice.address,
             permit2,
-            usdc_amount_in.wei2(),
+            usdc_amount_in.wei(),
          )
          .unwrap();
       }
@@ -341,7 +341,7 @@ mod tests {
       let currency_out = Currency::from(ERC20Token::usdc_base());
 
       let amount_in = NumericValue::parse_to_wei("1", currency_in.decimals());
-      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -368,7 +368,7 @@ mod tests {
       // give Alice 10 WETH
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, currency_in.address(), weth_balance.wei2())
+         .give_token(alice.address, currency_in.address(), weth_balance.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -386,8 +386,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -404,7 +404,7 @@ mod tests {
       let mut evm = new_evm(chain_id.into(), block.as_ref(), fork_db);
 
       let balance = simulate::erc20_balance(&mut evm, currency_in.address(), alice.address).unwrap();
-      assert!(balance == weth_balance.wei2());
+      assert!(balance == weth_balance.wei());
       println!("Alice WETH Balance: {}", weth_balance.formatted());
 
       let permit2 = permit2_contract(chain_id).unwrap();
@@ -418,7 +418,7 @@ mod tests {
             currency_in.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -474,7 +474,7 @@ mod tests {
       let currency_out = Currency::from(ERC20Token::usdc_base());
 
       let amount_in = NumericValue::parse_to_wei("1", currency_in.decimals());
-      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -501,7 +501,7 @@ mod tests {
       // give Alice 10 WETH
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, currency_in.address(), weth_balance.wei2())
+         .give_token(alice.address, currency_in.address(), weth_balance.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -519,8 +519,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -553,7 +553,7 @@ mod tests {
       evm.ctx().cfg.disable_nonce_check = true;
 
       // let balance = simulate::erc20_balance(&mut evm, currency_in.address(), alice.address).unwrap();
-      // assert!(balance == weth_balance.wei2());
+      // assert!(balance == weth_balance.wei());
       // println!("Alice WETH Balance: {}", weth_balance.formatted());
 
       let permit2 = permit2_contract(chain_id).unwrap();
@@ -567,12 +567,12 @@ mod tests {
              currency_in.address(),
              alice.address,
              permit2,
-             amount_in.wei2(),
+             amount_in.wei(),
           )
           .unwrap();
          */
 
-         let data = abi::erc20::encode_approve(permit2, amount_in.wei2());
+         let data = abi::erc20::encode_approve(permit2, amount_in.wei());
          evm.ctx().modify_tx(|tx| {
             tx.base.caller = alice.address;
             tx.base.data = data;
@@ -646,7 +646,7 @@ mod tests {
       let amount_in = NumericValue::parse_to_wei("1", 18);
       let weth = ERC20Token::weth();
 
-      let alice = DummyAccount::new(AccountType::EOA, weth_balance.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, weth_balance.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -681,7 +681,7 @@ mod tests {
          chain_id,
          weth.address,
          router_addr,
-         amount_in.wei2(),
+         amount_in.wei(),
          permit2_address,
          expiration,
          sig_deadline,
@@ -694,7 +694,7 @@ mod tests {
 
       let permit_input = abi::permit::encode_permit2_permit_ur_input(
          weth.address,
-         amount_in.wei2(),
+         amount_in.wei(),
          expiration,
          data.nonce,
          router_addr,
@@ -716,7 +716,7 @@ mod tests {
 
       // make sure alice has enough balance
       let balance = simulate::erc20_balance(&mut evm, weth.address, alice.address).unwrap();
-      assert!(balance == weth_balance.wei2());
+      assert!(balance == weth_balance.wei());
       println!("Alice WETH Balance: {}", weth_balance.formatted());
 
       // simulate the call to the router
@@ -758,18 +758,18 @@ mod tests {
       let currency_out = eth;
 
       // Create Alice with 1 ETH balance
-      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       // give Alice 10k USDC
       factory
-         .give_token(alice.address, currency_in.address(), usdc_balance.wei2())
+         .give_token(alice.address, currency_in.address(), usdc_balance.wei())
          .unwrap();
 
       let amount_in = usdc_balance;
-      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
       println!("Amount out: {}", amount_out.formatted());
 
@@ -793,8 +793,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -820,7 +820,7 @@ mod tests {
             currency_in.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -865,19 +865,19 @@ mod tests {
       let eth_balance = NumericValue::parse_to_wei("1", 18);
       let weth_balance = NumericValue::parse_to_wei("10", 18);
       // Create Alice with 1 ETH balance
-      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       // give Alice 10 WETH
       factory
-         .give_token(alice.address, weth.address(), weth_balance.wei2())
+         .give_token(alice.address, weth.address(), weth_balance.wei())
          .unwrap();
 
       // Get the amount of UNI received for 1 WETH
       let amount_in = NumericValue::parse_to_wei("1", 18);
-      let amount_out = pool.simulate_swap(&weth, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&weth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
       println!("Amount out: {}", amount_out.formatted());
 
@@ -909,8 +909,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          weth.clone(),
          uni.clone(),
          signer.clone(),
@@ -927,7 +927,7 @@ mod tests {
       let mut evm = new_evm(1.into(), block.as_ref(), fork_db);
 
       let balance = simulate::erc20_balance(&mut evm, weth.address(), alice.address).unwrap();
-      assert!(balance == weth_balance.wei2());
+      assert!(balance == weth_balance.wei());
       println!("Alice WETH Balance: {}", weth_balance.formatted());
 
       let permit2 = permit2_contract(chain_id).unwrap();
@@ -940,7 +940,7 @@ mod tests {
             weth.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -983,7 +983,7 @@ mod tests {
       let usdc = Currency::from(ERC20Token::usdc());
 
       let amount_in = NumericValue::parse_to_wei("1", weth.decimals());
-      let amount_out = pool.simulate_swap(&weth, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&weth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, usdc.decimals());
 
       println!(
@@ -1001,7 +1001,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, weth.address(), amount_in.wei2())
+         .give_token(alice.address, weth.address(), amount_in.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1019,8 +1019,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out.wei2(),
+         amount_in.wei(),
+         amount_out.wei(),
          weth.clone(),
          usdc.clone(),
          signer.clone(),
@@ -1045,7 +1045,7 @@ mod tests {
             weth.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -1093,7 +1093,7 @@ mod tests {
       let eth = Currency::from(NativeCurrency::from(chain_id));
 
       let amount_in = NumericValue::parse_to_wei("1", eth.decimals());
-      let amount_out = weth_uni.simulate_swap(&weth, amount_in.wei2()).unwrap();
+      let amount_out = weth_uni.simulate_swap(&weth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -1113,7 +1113,7 @@ mod tests {
 
       let eth_balance = NumericValue::parse_to_wei("10", eth.decimals());
       // Create Alice
-      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -1134,8 +1134,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          eth.clone(),
          uni.clone(),
          signer.clone(),
@@ -1175,7 +1175,7 @@ mod tests {
       println!("Alice UNI Balance: {}", uni_balance.formatted());
 
       // V3 swap
-      let amount_out = weth_usdc.simulate_swap(&weth, amount_in.wei2()).unwrap();
+      let amount_out = weth_usdc.simulate_swap(&weth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, usdc.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -1207,8 +1207,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          eth.clone(),
          usdc.clone(),
          signer.clone(),
@@ -1256,7 +1256,7 @@ mod tests {
       println!("Quote Currency: {}", uni.symbol());
 
       let amount_in = NumericValue::parse_to_wei("1", eth.decimals());
-      let amount_out = pool.simulate_swap(&eth, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&eth, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -1275,7 +1275,7 @@ mod tests {
 
       let eth_balance = NumericValue::parse_to_wei("10", eth.decimals());
       // Create Alice
-      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei2());
+      let alice = DummyAccount::new(AccountType::EOA, eth_balance.wei());
       let signer = SecureSigner::from(alice.key.clone());
 
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
@@ -1295,8 +1295,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          eth.clone(),
          uni.clone(),
          signer.clone(),
@@ -1352,7 +1352,7 @@ mod tests {
       println!("Quote Currency: {}", uni.symbol());
 
       let amount_in = NumericValue::parse_to_wei("500", uni.decimals());
-      let amount_out = pool.simulate_swap(&uni, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&uni, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, eth.decimals());
 
       println!("Amount out: {}", amount_out.formatted());
@@ -1376,7 +1376,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, uni.address(), amount_in.wei2())
+         .give_token(alice.address, uni.address(), amount_in.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1393,8 +1393,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out_min.wei2(),
+         amount_in.wei(),
+         amount_out_min.wei(),
          uni.clone(),
          eth.clone(),
          signer.clone(),
@@ -1419,7 +1419,7 @@ mod tests {
             uni.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -1470,7 +1470,7 @@ mod tests {
       let wbtc = Currency::from(wbtc);
 
       let amount_in = NumericValue::parse_to_wei("5000", usdc.decimals());
-      let amount_out = pool.simulate_swap(&usdc, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&usdc, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, wbtc.decimals());
 
       println!(
@@ -1488,7 +1488,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, usdc.address(), amount_in.wei2())
+         .give_token(alice.address, usdc.address(), amount_in.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1505,8 +1505,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out.wei2(),
+         amount_in.wei(),
+         amount_out.wei(),
          usdc.clone(),
          wbtc.clone(),
          signer.clone(),
@@ -1531,7 +1531,7 @@ mod tests {
             usdc.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -1576,7 +1576,7 @@ mod tests {
       let currency_out = eth;
 
       let amount_in = NumericValue::parse_to_wei("3000", currency_in.decimals());
-      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
 
       println!(
@@ -1594,7 +1594,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, currency_in.address(), amount_in.wei2())
+         .give_token(alice.address, currency_in.address(), amount_in.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1611,8 +1611,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out.wei2(),
+         amount_in.wei(),
+         amount_out.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -1637,7 +1637,7 @@ mod tests {
             currency_in.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -1668,7 +1668,7 @@ mod tests {
          currency_out.symbol(),
          balance.formatted()
       );
-      assert!(balance.wei2() >= amount_out.wei2());
+      assert!(balance.wei() >= amount_out.wei());
    }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -1687,7 +1687,7 @@ mod tests {
       let currency_out = usdc;
 
       let amount_in = NumericValue::parse_to_wei("10000", currency_in.decimals());
-      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei2()).unwrap();
+      let amount_out = pool.simulate_swap(&currency_in, amount_in.wei()).unwrap();
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
 
       println!(
@@ -1705,7 +1705,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, currency_in.address(), amount_in.wei2())
+         .give_token(alice.address, currency_in.address(), amount_in.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1722,8 +1722,8 @@ mod tests {
          chain_id,
          vec![swap_step],
          SwapType::ExactInput,
-         amount_in.wei2(),
-         amount_out.wei2(),
+         amount_in.wei(),
+         amount_out.wei(),
          currency_in.clone(),
          currency_out.clone(),
          signer.clone(),
@@ -1748,7 +1748,7 @@ mod tests {
             currency_in.address(),
             alice.address,
             permit2,
-            amount_in.wei2(),
+            amount_in.wei(),
          )
          .unwrap();
       }
@@ -1805,7 +1805,7 @@ mod tests {
 
       let usdc_amount_in = NumericValue::parse_to_wei("2500", usdc.decimals());
       let weth_amount_out = weth_usdc
-         .simulate_swap(&usdc, usdc_amount_in.wei2())
+         .simulate_swap(&usdc, usdc_amount_in.wei())
          .unwrap();
       let weth_amount_out = NumericValue::format_wei(weth_amount_out, weth.decimals());
 
@@ -1818,7 +1818,7 @@ mod tests {
       );
 
       let uni_amount_out = weth_uni
-         .simulate_swap(&weth, weth_amount_out.wei2())
+         .simulate_swap(&weth, weth_amount_out.wei())
          .unwrap();
       let uni_amount_out = NumericValue::format_wei(uni_amount_out, uni.decimals());
 
@@ -1830,7 +1830,7 @@ mod tests {
          uni.symbol()
       );
 
-      let eth_amount_out = eth_uni.simulate_swap(&uni, uni_amount_out.wei2()).unwrap();
+      let eth_amount_out = eth_uni.simulate_swap(&uni, uni_amount_out.wei()).unwrap();
       let eth_amount_out = NumericValue::format_wei(eth_amount_out, eth.decimals());
 
       println!(
@@ -1848,7 +1848,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, usdc.address(), usdc_balance.wei2())
+         .give_token(alice.address, usdc.address(), usdc_balance.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -1882,8 +1882,8 @@ mod tests {
          chain_id,
          vec![swap_step, swap_step2, swap_step3],
          SwapType::ExactInput,
-         usdc_amount_in.wei2(),
-         eth_amount_out.wei2(),
+         usdc_amount_in.wei(),
+         eth_amount_out.wei(),
          usdc.clone(),
          eth.clone(),
          signer,
@@ -1909,7 +1909,7 @@ mod tests {
             usdc.address(),
             alice.address,
             permit2,
-            usdc_amount_in.wei2(),
+            usdc_amount_in.wei(),
          )
          .unwrap();
       }
@@ -1971,7 +1971,7 @@ mod tests {
 
       let weth_amount_in = NumericValue::parse_to_wei("1", weth.decimals());
       let usdc_amount_out = weth_usdc
-         .simulate_swap(&weth, weth_amount_in.wei2())
+         .simulate_swap(&weth, weth_amount_in.wei())
          .unwrap();
       let usdc_amount_out = NumericValue::format_wei(usdc_amount_out, usdc.decimals());
 
@@ -1984,7 +1984,7 @@ mod tests {
       );
 
       let wbtc_amount_out = usdc_wbtc
-         .simulate_swap(&usdc, usdc_amount_out.wei2())
+         .simulate_swap(&usdc, usdc_amount_out.wei())
          .unwrap();
       let wbtc_amount_out = NumericValue::format_wei(wbtc_amount_out, wbtc.decimals());
 
@@ -1997,7 +1997,7 @@ mod tests {
       );
 
       let weth_amount_out = weth_wbtc
-         .simulate_swap(&wbtc, wbtc_amount_out.wei2())
+         .simulate_swap(&wbtc, wbtc_amount_out.wei())
          .unwrap();
       let weth_amount_out = NumericValue::format_wei(weth_amount_out, weth.decimals());
 
@@ -2016,7 +2016,7 @@ mod tests {
       let mut factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, None);
       factory.insert_dummy_account(alice.clone());
       factory
-         .give_token(alice.address, weth.address(), weth_balance.wei2())
+         .give_token(alice.address, weth.address(), weth_balance.wei())
          .unwrap();
 
       let router_addr = utils::address_book::universal_router_v2(chain_id).unwrap();
@@ -2050,8 +2050,8 @@ mod tests {
          chain_id,
          vec![swap_step, swap_step2, swap_step3],
          SwapType::ExactInput,
-         weth_amount_in.wei2(),
-         weth_amount_out.wei2(),
+         weth_amount_in.wei(),
+         weth_amount_out.wei(),
          weth.clone(),
          weth.clone(),
          signer,
@@ -2077,7 +2077,7 @@ mod tests {
             weth.address(),
             alice.address,
             permit2,
-            weth_amount_in.wei2(),
+            weth_amount_in.wei(),
          )
          .unwrap();
       }

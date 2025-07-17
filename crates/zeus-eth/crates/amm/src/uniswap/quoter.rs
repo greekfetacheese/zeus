@@ -225,7 +225,7 @@ fn evaluate_and_rank_routes(
    paths
       .into_par_iter()
       .filter_map(|path| {
-         let mut current_amount_in = amount_in.wei2();
+         let mut current_amount_in = amount_in.wei();
 
          for i in 0..path.pools.len() {
             let pool = &path.pools[i];
@@ -284,7 +284,7 @@ fn estimate_gas_cost_for_route(
 
 fn build_quote_from_route(route: EvaluatedRoute, currency_in: Currency, currency_out: Currency) -> Quote {
    let mut steps = Vec::new();
-   let mut current_amount_in = route.amount_in.wei2();
+   let mut current_amount_in = route.amount_in.wei();
 
    // Re-simulate the best path one last time to build the final step-by-step structs.
    for i in 0..route.pools.len() {
@@ -392,7 +392,7 @@ pub fn get_quote_with_split_routing(
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter_split", "Found {} candidate routes for split routing.", top_routes.len());
 
    // distribute the input amount across the best routes.
-   let total_amount_in_wei = amount_to_swap.wei2();
+   let total_amount_in_wei = amount_to_swap.wei();
    let chunk_size = total_amount_in_wei / U256::from(SPLIT_ROUTING_ITERATIONS);
 
    // Stores the amount allocated to each route (in wei).
@@ -479,7 +479,7 @@ pub fn get_quote_with_split_routing(
       .collect();
 
    // Aggregate results into the final Quote object.
-   let total_amount_out_wei: U256 = final_split_routes.iter().map(|r| r.amount_out.wei2()).sum();
+   let total_amount_out_wei: U256 = final_split_routes.iter().map(|r| r.amount_out.wei()).sum();
 
    let swap_steps = final_split_routes
       .iter()

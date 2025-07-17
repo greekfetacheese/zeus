@@ -174,7 +174,7 @@ where
       sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
-      deposit_amount.wei2(),
+      deposit_amount.wei(),
       true,
    )?;
 
@@ -227,8 +227,8 @@ where
    )?;
 
    // we give the lp provider just as much to create the position
-   fork_factory.give_token(lp_provider.address, pool.token0().address, amount0.wei2())?;
-   fork_factory.give_token(lp_provider.address, pool.token1().address, amount1.wei2())?;
+   fork_factory.give_token(lp_provider.address, pool.token0().address, amount0.wei())?;
+   fork_factory.give_token(lp_provider.address, pool.token1().address, amount1.wei())?;
 
    let fork_db = fork_factory.new_sandbox_fork();
 
@@ -248,8 +248,8 @@ where
       fee,
       tickLower: lower_tick_i24,
       tickUpper: upper_tick_i24,
-      amount0Desired: amount0.wei2(),
-      amount1Desired: amount1.wei2(),
+      amount0Desired: amount0.wei(),
+      amount1Desired: amount1.wei(),
       amount0Min: U256::ZERO,
       amount1Min: U256::ZERO,
       recipient: lp_provider.address,

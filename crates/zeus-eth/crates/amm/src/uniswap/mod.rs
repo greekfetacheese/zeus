@@ -196,8 +196,8 @@ impl AnyUniswapPool {
             currency1: pool.currency1().clone(),
             dex: pool.dex_kind(),
             state: pool.state().clone(),
-            liquidity_amount0: amount0.wei2(),
-            liquidity_amount1: amount1.wei2(),
+            liquidity_amount0: amount0.wei(),
+            liquidity_amount1: amount1.wei(),
          };
          AnyUniswapPool::V3(p)
       } else if pool.dex_kind().is_v4() {
@@ -212,8 +212,8 @@ impl AnyUniswapPool {
             pool_key: pool.get_pool_key().unwrap(),
             pool_id: pool.pool_id(),
             hooks: Address::ZERO,
-            liquidity_amount0: amount0.wei2(),
-            liquidity_amount1: amount1.wei2(),
+            liquidity_amount0: amount0.wei(),
+            liquidity_amount1: amount1.wei(),
          };
          AnyUniswapPool::V4(p)
       } else {

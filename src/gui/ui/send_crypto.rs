@@ -388,17 +388,17 @@ impl SendCryptoUi {
       };
 
       let fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
-      let (cost_wei, _) = estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei2());
+      let (cost_wei, _) = estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei());
 
       let balance = ctx.get_currency_balance(chain.id(), owner, &currency);
 
       if currency.is_erc20() {
          return balance;
       } else {
-         if balance.wei().unwrap() < cost_wei.wei2() {
+         if balance.wei() < cost_wei.wei() {
             return NumericValue::default();
          }
-         let max = balance.wei().unwrap() - cost_wei.wei2();
+         let max = balance.wei() - cost_wei.wei();
          return NumericValue::format_wei(max, currency.decimals());
       }
    }
@@ -428,7 +428,7 @@ impl SendCryptoUi {
    fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency);
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
-      balance.wei2() >= amount.wei2()
+      balance.wei() >= amount.wei()
    }
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
@@ -443,12 +443,12 @@ impl SendCryptoUi {
       } else {
          let c = currency.clone();
          let token = c.erc20().unwrap();
-         let data = token.encode_transfer(recipient_address, amount.wei2());
+         let data = token.encode_transfer(recipient_address, amount.wei());
          (data, token.address)
       };
 
       let value = if currency.is_native() {
-         amount.wei2()
+         amount.wei()
       } else {
          U256::ZERO
       };

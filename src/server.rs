@@ -398,7 +398,7 @@ fn get_balance(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse,
    let response = JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
-      result: Some(json!(balance.wei().unwrap())),
+      result: Some(json!(balance.wei())),
       error: None,
    };
 

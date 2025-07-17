@@ -121,7 +121,7 @@ pub async fn send_transaction(
          value,
          logs,
          sim_res.gas_used(),
-         balance_before.wei2(),
+         balance_before.wei(),
          balance_after,
       )
       .await?;
@@ -191,7 +191,7 @@ pub async fn send_transaction(
       nonce,
       value,
       chain,
-      priority_fee.wei2(),
+      priority_fee.wei(),
       base_fee.next,
       call_data.clone(),
       gas_used,
@@ -269,7 +269,7 @@ pub async fn send_transaction(
       tx_analysis.value,
       logs,
       receipt.gas_used,
-      balance_before.wei2(),
+      balance_before.wei(),
       balance_after,
    )
    .await?;
@@ -279,7 +279,7 @@ pub async fn send_transaction(
       ctx.clone(),
       chain.id(),
       receipt.gas_used,
-      priority_fee.wei2(),
+      priority_fee.wei(),
    );
 
    let transaction_rich = TransactionRich {
@@ -437,7 +437,7 @@ pub async fn unwrap_weth(
    let block = client.get_block(BlockId::latest()).await?;
    let wrapped = ERC20Token::wrapped_native_token(chain.id());
 
-   let call_data = wrapped.encode_withdraw(amount.wei2());
+   let call_data = wrapped.encode_withdraw(amount.wei());
    let interact_to = wrapped.address;
    let value = U256::ZERO;
 
@@ -510,7 +510,7 @@ pub async fn unwrap_weth(
       value,
       call_data: call_data.clone(),
       gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Withdraw".to_string(),
       weth_unwraps: vec![params],
@@ -576,7 +576,7 @@ pub async fn wrap_eth(
 
    let call_data = wrapped.encode_deposit();
    let interact_to = wrapped.address;
-   let value = amount.wei2();
+   let value = amount.wei();
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
@@ -647,7 +647,7 @@ pub async fn wrap_eth(
       value,
       call_data: call_data.clone(),
       gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Deposit".to_string(),
       eth_wraps: vec![params],
@@ -726,7 +726,7 @@ pub async fn swap(
       chain.id(),
       swap_steps.clone(),
       swap_type,
-      amount_in.wei2(),
+      amount_in.wei(),
       U256::ZERO, // No slippage so the simulation goes through
       currency_in.clone(),
       currency_out.clone(),
@@ -807,7 +807,7 @@ pub async fn swap(
    }
 
    let balance_before = if currency_out.is_native() {
-      ctx.get_eth_balance(chain.id(), from).wei2()
+      ctx.get_eth_balance(chain.id(), from).wei()
    } else {
       currency_out
          .to_erc20()
@@ -842,8 +842,8 @@ pub async fn swap(
       chain.id(),
       swap_steps.clone(),
       swap_type,
-      amount_in.wei2(),
-      amount_out_with_slippage.wei2(),
+      amount_in.wei(),
+      amount_out_with_slippage.wei(),
       currency_in.clone(),
       currency_out.clone(),
       signer,
@@ -886,7 +886,7 @@ pub async fn swap(
       value: execute_params.value,
       call_data: execute_params.call_data.clone(),
       gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Execute".to_string(),
       swaps: vec![swap_params],
@@ -930,7 +930,7 @@ pub async fn swap(
          value,
          call_data: call_data.clone(),
          gas_used: approval_gas_used,
-         eth_balance_before: eth_balance_before.wei2(),
+         eth_balance_before: eth_balance_before.wei(),
          eth_balance_after,
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
@@ -1156,8 +1156,8 @@ pub async fn decrease_liquidity_position_v3(
    let mut decrease_liquidity_params = INonfungiblePositionManager::DecreaseLiquidityParams {
       tokenId: position.id,
       liquidity: liquidity_to_remove,
-      amount0Min: amount0_min_to_remove.wei2(),
-      amount1Min: amount1_min_to_remove.wei2(),
+      amount0Min: amount0_min_to_remove.wei(),
+      amount1Min: amount1_min_to_remove.wei(),
       deadline: U256::from(deadline),
    };
 
@@ -1220,8 +1220,8 @@ pub async fn decrease_liquidity_position_v3(
       pool.currency1(),
    );
 
-   decrease_liquidity_params.amount0Min = minimum_amount0_to_be_removed.wei2();
-   decrease_liquidity_params.amount1Min = minimum_amount1_to_be_removed.wei2();
+   decrease_liquidity_params.amount0Min = minimum_amount0_to_be_removed.wei();
+   decrease_liquidity_params.amount1Min = minimum_amount1_to_be_removed.wei();
 
    let call_data = abi::uniswap::nft_position::encode_decrease_liquidity(decrease_liquidity_params);
 
@@ -1255,7 +1255,7 @@ pub async fn decrease_liquidity_position_v3(
       value,
       call_data: call_data.clone(),
       gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Decrease Liquidity".to_string(),
       positions_ops: vec![position_params],
@@ -1379,7 +1379,7 @@ pub async fn increase_liquidity_position_v3(
       state.sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
-      token0_deposit_amount.wei2(),
+      token0_deposit_amount.wei(),
       true,
    )?;
 
@@ -1404,10 +1404,10 @@ pub async fn increase_liquidity_position_v3(
    let deadline = utils::get_unix_time_in_minutes(1)?;
    let mut increase_liquidity_params = INonfungiblePositionManager::IncreaseLiquidityParams {
       tokenId: position.id,
-      amount0Desired: amount0.wei2(),
-      amount1Desired: amount1.wei2(),
-      amount0Min: amount0_min.wei2(),
-      amount1Min: amount1_min.wei2(),
+      amount0Desired: amount0.wei(),
+      amount1Desired: amount1.wei(),
+      amount0Min: amount0_min.wei(),
+      amount1Min: amount1_min.wei(),
       deadline: U256::from(deadline),
    };
 
@@ -1430,7 +1430,7 @@ pub async fn increase_liquidity_position_v3(
 
    {
       let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
-      if token0_allowance < amount0.wei2() {
+      if token0_allowance < amount0.wei() {
          let res = simulate::approve_token(
             &mut evm,
             pool.token0().address,
@@ -1442,7 +1442,7 @@ pub async fn increase_liquidity_position_v3(
          approve_sim_res_a = Some(res);
       }
 
-      if token1_allowance < amount1.wei2() {
+      if token1_allowance < amount1.wei() {
          let res = simulate::approve_token(
             &mut evm,
             pool.token1().address,
@@ -1486,10 +1486,10 @@ pub async fn increase_liquidity_position_v3(
    min_amount0_minted.calc_slippage(slippage, pool.token0().decimals);
    min_amount1_minted.calc_slippage(slippage, pool.token1().decimals);
 
-   increase_liquidity_params.amount0Desired = amount0_minted.wei2();
-   increase_liquidity_params.amount1Desired = amount1_minted.wei2();
-   increase_liquidity_params.amount0Min = min_amount0_minted.wei2();
-   increase_liquidity_params.amount1Min = min_amount1_minted.wei2();
+   increase_liquidity_params.amount0Desired = amount0_minted.wei();
+   increase_liquidity_params.amount1Desired = amount1_minted.wei();
+   increase_liquidity_params.amount0Min = min_amount0_minted.wei();
+   increase_liquidity_params.amount1Min = min_amount1_minted.wei();
 
    let currency0 = Currency::from(pool.token0().into_owned());
    let currency1 = Currency::from(pool.token1().into_owned());
@@ -1518,7 +1518,7 @@ pub async fn increase_liquidity_position_v3(
    let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
 
    // Handle one-time token approvals for the nft contract if needed
-   if token0_allowance < amount0.wei2() {
+   if token0_allowance < amount0.wei() {
       let sim_res = approve_sim_res_a.unwrap();
 
       let call_data = pool.token0().encode_approve(nft_contract, U256::MAX);
@@ -1543,7 +1543,7 @@ pub async fn increase_liquidity_position_v3(
          value,
          call_data: call_data.clone(),
          gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei2(),
+         eth_balance_before: eth_balance_before.wei(),
          eth_balance_after,
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
@@ -1569,7 +1569,7 @@ pub async fn increase_liquidity_position_v3(
       }
    }
 
-   if token1_allowance < amount1.wei2() {
+   if token1_allowance < amount1.wei() {
       let sim_res = approve_sim_res_b.unwrap();
 
       let call_data = pool.token1().encode_approve(nft_contract, U256::MAX);
@@ -1594,7 +1594,7 @@ pub async fn increase_liquidity_position_v3(
          value,
          call_data: call_data.clone(),
          gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei2(),
+         eth_balance_before: eth_balance_before.wei(),
          eth_balance_after,
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
@@ -1635,7 +1635,7 @@ pub async fn increase_liquidity_position_v3(
       value,
       call_data: call_data.clone(),
       gas_used: increase_liquidity_sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Increase Liquidity".to_string(),
       positions_ops: vec![position_params],
@@ -1761,7 +1761,7 @@ pub async fn mint_new_liquidity_position_v3(
       state.sqrt_price,
       sqrt_price_lower,
       sqrt_price_upper,
-      token0_deposit_amount.wei2(),
+      token0_deposit_amount.wei(),
       true,
    )?;
 
@@ -1798,10 +1798,10 @@ pub async fn mint_new_liquidity_position_v3(
       fee: pool.fee().fee_u24(),
       tickLower: lower_tick,
       tickUpper: upper_tick,
-      amount0Desired: amount0.wei2(),
-      amount1Desired: amount1.wei2(),
-      amount0Min: amount0_min.wei2(),
-      amount1Min: amount1_min.wei2(),
+      amount0Desired: amount0.wei(),
+      amount1Desired: amount1.wei(),
+      amount0Min: amount0_min.wei(),
+      amount1Min: amount1_min.wei(),
       recipient: from, // owner of the position
       deadline: U256::from(deadline),
    };
@@ -1829,7 +1829,7 @@ pub async fn mint_new_liquidity_position_v3(
    {
       let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
 
-      if token0_allowance < amount0.wei2() {
+      if token0_allowance < amount0.wei() {
          let res = simulate::approve_token(
             &mut evm,
             pool.token0().address,
@@ -1841,7 +1841,7 @@ pub async fn mint_new_liquidity_position_v3(
          approve_sim_res_a = Some(res);
       }
 
-      if token1_allowance < amount1.wei2() {
+      if token1_allowance < amount1.wei() {
          let res = simulate::approve_token(
             &mut evm,
             pool.token1().address,
@@ -1906,7 +1906,7 @@ pub async fn mint_new_liquidity_position_v3(
    let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
 
    // Handle one-time token approvals for the nft contract if needed
-   if token0_allowance < amount0.wei2() {
+   if token0_allowance < amount0.wei() {
       let sim_res = approve_sim_res_a.unwrap();
 
       let call_data = pool.token0().encode_approve(nft_contract, U256::MAX);
@@ -1931,7 +1931,7 @@ pub async fn mint_new_liquidity_position_v3(
          value,
          call_data: call_data.clone(),
          gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei2(),
+         eth_balance_before: eth_balance_before.wei(),
          eth_balance_after,
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
@@ -1957,7 +1957,7 @@ pub async fn mint_new_liquidity_position_v3(
       }
    }
 
-   if token1_allowance < amount1.wei2() {
+   if token1_allowance < amount1.wei() {
       let sim_res = approve_sim_res_b.unwrap();
 
       let call_data = pool.token1().encode_approve(nft_contract, U256::MAX);
@@ -1982,7 +1982,7 @@ pub async fn mint_new_liquidity_position_v3(
          value,
          call_data: call_data.clone(),
          gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei2(),
+         eth_balance_before: eth_balance_before.wei(),
          eth_balance_after,
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
@@ -2022,7 +2022,7 @@ pub async fn mint_new_liquidity_position_v3(
       value,
       call_data: mint_call_data.clone(),
       gas_used: mint_sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei2(),
+      eth_balance_before: eth_balance_before.wei(),
       eth_balance_after,
       decoded_selector: "Mint".to_string(),
       positions_ops: vec![position_params],

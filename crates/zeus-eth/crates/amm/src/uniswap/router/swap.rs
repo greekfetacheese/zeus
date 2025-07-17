@@ -61,7 +61,7 @@ where
          .iter()
          // Compare against `weth_currency`, not the native `currency_in`.
          .filter(|s| s.currency_in == weth_currency && !s.pool.dex_kind().is_uniswap_v4())
-         .map(|s| s.amount_in.wei2())
+         .map(|s| s.amount_in.wei())
          .sum();
 
       if amount_to_wrap > U256::ZERO {
@@ -178,7 +178,7 @@ where
          let path = vec![step_currency_in.address(), swap.currency_out.address()];
          let input = encode_v2_swap_exact_in(
             recipient_addr,
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             step_amount_out_min,
             path,
             uses_initial_funds && first_step_uses_permit2,
@@ -192,7 +192,7 @@ where
          let fees = vec![swap.pool.fee().fee_u24()];
          let input = encode_v3_swap_exact_in(
             recipient_addr,
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             step_amount_out_min,
             path,
             fees,
@@ -204,14 +204,14 @@ where
 
       // V4 logic can use the original `swap.currency_in` as it handles native ETH directly.
       if swap.pool.dex_kind().is_uniswap_v4() {
-         amount_taken += swap.amount_out.wei2();
+         amount_taken += swap.amount_out.wei();
 
          let input = encode_v4_commands(
             &swap.pool,
             swap_type,
             &swap.currency_in,
             &swap.currency_out,
-            swap.amount_in.wei2(),
+            swap.amount_in.wei(),
             step_amount_out_min,
             uses_initial_funds,
             is_last_step_of_path,

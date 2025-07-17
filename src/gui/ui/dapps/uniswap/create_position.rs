@@ -495,12 +495,12 @@ impl CreatePositionUi {
 
    fn sufficient_balance_a(&self, ctx: ZeusCtx, owner: Address) -> bool {
       let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency0);
-      balance.wei2() >= self.set_price_range_ui.amount0_needed.wei2()
+      balance.wei() >= self.set_price_range_ui.amount0_needed.wei()
    }
 
    fn sufficient_balance_b(&self, ctx: ZeusCtx, owner: Address) -> bool {
       let balance = ctx.get_currency_balance(ctx.chain().id(), owner, &self.currency1);
-      balance.wei2() >= self.set_price_range_ui.amount1_needed.wei2()
+      balance.wei() >= self.set_price_range_ui.amount1_needed.wei()
    }
 
    pub fn pair_selection(
@@ -818,7 +818,7 @@ impl SetPriceRangeUi {
          state.sqrt_price,
          sqrt_price_lower,
          sqrt_price_upper,
-         deposit_amount.wei2(),
+         deposit_amount.wei(),
          true,
       )
       .unwrap_or_default();

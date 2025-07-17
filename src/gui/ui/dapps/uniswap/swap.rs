@@ -577,7 +577,7 @@ impl SwapUi {
             let amount_in =
                NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
             pool
-               .simulate_swap_mut(&self.currency_in, amount_in.wei2())
+               .simulate_swap_mut(&self.currency_in, amount_in.wei())
                .unwrap_or_default();
             self.simulate_window.set_pool_after(Some(pool.clone()));
 
@@ -652,7 +652,7 @@ impl SwapUi {
       let sender = ctx.current_wallet().address;
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
       let amount = NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
-      balance.wei2() >= amount.wei2()
+      balance.wei() >= amount.wei()
    }
 
    /// Sync pools for the first time for currency out
@@ -862,7 +862,7 @@ impl SwapUi {
             let amount_in =
                NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
             let amount_out = pool
-               .simulate_swap(&self.currency_in, amount_in.wei2())
+               .simulate_swap(&self.currency_in, amount_in.wei())
                .unwrap_or_default();
             let amount = NumericValue::format_wei(amount_out, self.currency_out.decimals());
             self.amount_out = amount.flatten();
@@ -918,7 +918,7 @@ impl SwapUi {
                eth_price,
                currency_out_price,
                base_fee,
-               priority_fee.wei2(),
+               priority_fee.wei(),
                max_hops,
                max_split_routes,
             )
@@ -931,7 +931,7 @@ impl SwapUi {
                eth_price,
                currency_out_price,
                base_fee,
-               priority_fee.wei2(),
+               priority_fee.wei(),
                max_hops,
             )
          };

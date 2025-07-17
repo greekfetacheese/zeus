@@ -465,7 +465,7 @@ impl UniswapPool for UniswapV4Pool {
    fn enough_liquidity(&self) -> bool {
       let threshold = minimum_liquidity(&self.base_currency().to_erc20(), self.dex);
       let balance = self.base_balance();
-      balance.wei2() >= threshold
+      balance.wei() >= threshold
    }
 
    fn base_currency_exists(&self) -> bool {
@@ -602,7 +602,7 @@ impl UniswapPool for UniswapV4Pool {
       currency_out: &Currency,
       amount_in: NumericValue,
    ) -> Result<SwapResult, anyhow::Error> {
-      let amount_out = self.simulate_swap(currency_in, amount_in.wei2())?;
+      let amount_out = self.simulate_swap(currency_in, amount_in.wei())?;
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
       let spot_price = self.calculate_price(currency_in)?;
 
