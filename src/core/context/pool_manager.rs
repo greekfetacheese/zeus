@@ -20,9 +20,11 @@ use zeus_eth::{
       },
    },
    currency::{Currency, ERC20Token},
-   types::BASE,
+   types::{BSC, OPTIMISM, ARBITRUM, BASE},
    utils::{NumericValue, batch, price_feed::get_base_token_price},
 };
+
+const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
 
 // Timeout for pool sync in seconds (10 minutes)
 const POOL_SYNC_TIMEOUT: u64 = 600;
@@ -778,6 +780,9 @@ fn default_sync_v4_pools() -> bool {
 fn default_ignore_chains() -> IgnoreChains {
    let mut chains = HashSet::new();
    chains.insert(BASE);
+   chains.insert(OPTIMISM);
+   chains.insert(BSC);
+   chains.insert(ARBITRUM);
    chains
 }
 
@@ -821,12 +826,13 @@ pub struct PoolManager {
 
 impl Default for PoolManager {
    fn default() -> Self {
+      let manager: PoolManager = serde_json::from_str(POOL_MANAGER_DEFAULT).unwrap();
       Self {
-         pools: HashMap::new(),
-         token_prices: HashMap::new(),
+         pools: manager.pools,
+         token_prices: manager.token_prices,
          pool_last_sync: HashMap::new(),
          v4_pool_last_sync: HashMap::new(),
-         checkpoints: HashMap::new(),
+         checkpoints: manager.checkpoints,
          concurrency: default_concurrency(),
          batch_size_for_updating_pool_state: default_batch_size(),
          batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),

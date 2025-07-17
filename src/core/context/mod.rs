@@ -964,6 +964,8 @@ impl ZeusContext {
             }
          };
          pool_manager = manager;
+      } else {
+         tracing::info!("No pool data found, using default");
       }
 
       let priority_fee = PriorityFee::default();
