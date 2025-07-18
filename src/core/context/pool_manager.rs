@@ -9,7 +9,7 @@ use tokio::{
 };
 use tracing::trace;
 
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, utils::RT};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::{
@@ -20,7 +20,7 @@ use zeus_eth::{
       },
    },
    currency::{Currency, ERC20Token},
-   types::{BSC, OPTIMISM, ARBITRUM, BASE},
+   types::{ARBITRUM, BASE, BSC, OPTIMISM},
    utils::{NumericValue, batch, price_feed::get_base_token_price},
 };
 
@@ -483,7 +483,6 @@ impl PoolManagerHandle {
       Ok(())
    }
 
-   // TODO: Do batch requests
    /// Sync all V2 pools for the given token that are paired with [ERC20Token::base_tokens()]
    pub async fn sync_v2_pools_for_token(
       &self,
@@ -494,12 +493,25 @@ impl PoolManagerHandle {
       let client = ctx.get_client(token.chain_id).await?;
       let chain = token.chain_id;
       let base_tokens = ERC20Token::base_tokens(chain);
-      let mut pools = Vec::new();
+
+      let concurrency = self.concurrency();
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
       for base_token in base_tokens {
          if base_token.address == token.address {
             continue;
          }
+
+         let manager = self.clone();
+         let base_token = base_token.clone();
+         let token = token.clone();
+         let semaphore = semaphore.clone();
+         let dex_kinds = dex_kinds.clone();
+         let client = client.clone();
+
+         let task = RT.spawn(async move {
+            let _permit = semaphore.acquire().await?;
 
          let currency_a: Currency = base_token.clone().into();
          let currency_b: Currency = token.clone().into();
@@ -509,7 +521,7 @@ impl PoolManagerHandle {
                continue;
             }
 
-            if !self.should_sync_pools(
+            if !manager.should_sync_pools(
                token.chain_id,
                *dex,
                token.address,
@@ -518,7 +530,7 @@ impl PoolManagerHandle {
                continue;
             }
 
-            let cached_pool = self.get_pool(
+            let cached_pool = manager.get_pool(
                chain,
                *dex,
                FeeAmount::MEDIUM.fee(),
@@ -547,22 +559,28 @@ impl PoolManagerHandle {
                   pool.token1().symbol,
                   token.chain_id
                );
-               pools.push(pool);
+               manager.add_pool(pool);
             }
 
-            self.add_token_last_sync_time(
+
+            manager.add_token_last_sync_time(
                token.chain_id,
                *dex,
                token.address,
                base_token.address,
             );
          }
+         Ok(())
+      });
+         tasks.push(task);
       }
 
-      for pool in pools {
-         self.add_pool(pool);
+      for task in tasks {
+         match task.await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+         }
       }
-
       Ok(())
    }
 
@@ -577,79 +595,102 @@ impl PoolManagerHandle {
       let chain = token.chain_id;
       let base_tokens = ERC20Token::base_tokens(chain);
 
+      let concurrency = self.concurrency();
+      let semaphore = Arc::new(Semaphore::new(concurrency));
+      let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
       for base_token in &base_tokens {
          if base_token.address == token.address {
             continue;
          }
 
-         for dex in &dex_kinds {
-            if !dex.is_v3() {
-               continue;
-            }
+         let manager = self.clone();
+         let base_token = base_token.clone();
+         let token = token.clone();
+         let semaphore = semaphore.clone();
+         let dex_kinds = dex_kinds.clone();
+         let client = client.clone();
+         let task = RT.spawn(async move {
+            let _permit = semaphore.acquire().await?;
 
-            if !self.should_sync_pools(
-               token.chain_id,
-               *dex,
-               token.address,
-               base_token.address,
-            ) {
-               continue;
-            }
-
-            let currency_a: Currency = base_token.clone().into();
-            let currency_b: Currency = token.clone().into();
-
-            let mut pools_exists = [false; FEE_TIERS.len()];
-            for (i, fee) in FEE_TIERS.iter().enumerate() {
-               let pool = self.get_pool(chain, *dex, *fee, &currency_a, &currency_b);
-               if pool.is_some() {
-                  pools_exists[i] = true;
+            for dex in &dex_kinds {
+               if !dex.is_v3() {
+                  continue;
                }
-            }
 
-            if pools_exists.iter().all(|b| *b == true) {
-               continue;
-            }
-
-            let factory = dex.factory(token.chain_id)?;
-            let pools = batch::get_v3_pools(
-               client.clone(),
-               token.address,
-               base_token.address,
-               factory,
-            )
-            .await?;
-
-            for pool in &pools {
-               if !pool.addr.is_zero() {
-                  let fee: u32 = pool.fee.to_string().parse()?;
-                  let v3_pool = UniswapV3Pool::new(
-                     token.chain_id,
-                     pool.addr,
-                     fee,
-                     token.clone(),
-                     base_token.clone(),
-                     *dex,
-                  );
-
-                  trace!(
-                     target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
-                     dex.to_str(),
-                     v3_pool.address,
-                     v3_pool.token0().symbol,
-                     v3_pool.token1().symbol,
-                     v3_pool.fee.fee()
-                  );
-
-                  self.add_pool(v3_pool);
+               if !manager.should_sync_pools(
+                  token.chain_id,
+                  *dex,
+                  token.address,
+                  base_token.address,
+               ) {
+                  continue;
                }
+
+               let currency_a: Currency = base_token.clone().into();
+               let currency_b: Currency = token.clone().into();
+
+               let mut pools_exists = [false; FEE_TIERS.len()];
+               for (i, fee) in FEE_TIERS.iter().enumerate() {
+                  let pool = manager.get_pool(chain, *dex, *fee, &currency_a, &currency_b);
+                  if pool.is_some() {
+                     pools_exists[i] = true;
+                  }
+               }
+
+               if pools_exists.iter().all(|b| *b == true) {
+                  continue;
+               }
+
+               let factory = dex.factory(token.chain_id)?;
+               let pools = batch::get_v3_pools(
+                  client.clone(),
+                  token.address,
+                  base_token.address,
+                  factory,
+               )
+               .await?;
+
+               for pool in &pools {
+                  if !pool.addr.is_zero() {
+                     let fee = pool.fee.to_string().parse()?;
+                     let v3_pool = UniswapV3Pool::new(
+                        token.chain_id,
+                        pool.addr,
+                        fee,
+                        token.clone(),
+                        base_token.clone(),
+                        *dex,
+                     );
+
+                     trace!(
+                        target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
+                        dex.to_str(),
+                        v3_pool.address,
+                        v3_pool.token0().symbol,
+                        v3_pool.token1().symbol,
+                        v3_pool.fee.fee()
+                     );
+
+                     manager.add_pool(v3_pool);
+                  }
+               }
+               manager.add_token_last_sync_time(
+                  token.chain_id,
+                  *dex,
+                  token.address,
+                  base_token.address,
+               );
             }
-            self.add_token_last_sync_time(
-               token.chain_id,
-               *dex,
-               token.address,
-               base_token.address,
-            );
+            Ok(())
+         });
+         tasks.push(task);
+      }
+
+      for task in tasks {
+         match task.await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
          }
       }
 
@@ -692,7 +733,7 @@ impl PoolManagerHandle {
          let manager = self.clone();
 
          if checkpoint.is_some() {
-            let task = tokio::task::spawn(async move {
+            let task = RT.spawn(async move {
                let checkpoint = checkpoint.unwrap();
                let _permit = semaphore.acquire().await?;
                let synced = sync_from_checkpoints(
@@ -708,7 +749,7 @@ impl PoolManagerHandle {
             });
             tasks.push(task);
          } else {
-            let task = tokio::task::spawn(async move {
+            let task = RT.spawn(async move {
                let config = SyncConfig::new(chain, vec![dex], concurrency, batch_size, None);
                let _permit = semaphore.acquire().await?;
                let synced = sync_pools(client.clone(), config).await?;
@@ -770,7 +811,7 @@ fn default_batch_size_for_syncing_pools() -> usize {
 }
 
 fn default_concurrency() -> usize {
-   1
+   2
 }
 
 fn default_sync_v4_pools() -> bool {
