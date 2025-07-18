@@ -507,7 +507,7 @@ mod tests {
             swap.amount_out.format_abbreviated(),
             swap.amount_out.wei(),
             swap.currency_out.symbol(),
-            swap.pool.dex_kind().to_str(),
+            swap.pool.dex_kind().as_str(),
             swap.pool.fee().fee()
          );
       }
@@ -639,7 +639,7 @@ mod tests {
             swap.amount_out.format_abbreviated(),
             swap.amount_out.wei(),
             swap.currency_out.symbol(),
-            swap.pool.dex_kind().to_str(),
+            swap.pool.dex_kind().as_str(),
             swap.pool.fee().fee()
          );
       }
@@ -788,7 +788,7 @@ mod tests {
             swap.amount_out.format_abbreviated(),
             swap.amount_out.wei(),
             swap.currency_out.symbol(),
-            swap.pool.dex_kind().to_str(),
+            swap.pool.dex_kind().as_str(),
             swap.pool.fee().fee()
          );
       }

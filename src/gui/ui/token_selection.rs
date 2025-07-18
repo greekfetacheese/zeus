@@ -72,6 +72,11 @@ impl TokenSelectionWindow {
       *self = Self::new();
    }
 
+   pub fn clear_processed_currencies(&mut self) {
+      self.processed_currencies.clear();
+      self.processed_currencies.shrink_to_fit();
+   }
+
    /// Show This [TokenSelectionWindow]
    pub fn show(
       &mut self,
@@ -96,11 +101,8 @@ impl TokenSelectionWindow {
             })
             .collect();
 
-         currencies_with_balances.sort_by(|a, b| {
-            b.1.f64()
-               .partial_cmp(&a.1.f64())
-               .unwrap_or(std::cmp::Ordering::Equal)
-         });
+         currencies_with_balances
+            .sort_by(|a, b| b.1.f64().partial_cmp(&a.1.f64()).unwrap_or(std::cmp::Ordering::Equal));
 
          self.processed_currencies = currencies_with_balances;
          self.last_owner_address = Some(owner);
@@ -147,7 +149,7 @@ impl TokenSelectionWindow {
 
             ui.add_space(20.0);
             ui.vertical_centered(|ui| {
-            self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
+               self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
             });
 
             let filtered_list: Vec<_> = self
@@ -159,9 +161,11 @@ impl TokenSelectionWindow {
             let num_rows = filtered_list.len();
             let row_height = 40.0;
 
-            ScrollArea::vertical()
-               .auto_shrink(Vec2b::new(false, false))
-               .show_rows(ui, row_height, num_rows, |ui, row_range| {
+            ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
+               ui,
+               row_height,
+               num_rows,
+               |ui, row_range| {
                   ui.spacing_mut().item_spacing.y = 10.0;
                   utils::no_border(ui);
                   utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
@@ -195,13 +199,17 @@ impl TokenSelectionWindow {
                         });
                      }
                   }
-               });
+               },
+            );
          });
 
       if close_window {
          open = false;
       }
       self.open = open;
+      if !open {
+         self.clear_processed_currencies();
+      }
    }
 
    fn get_token_on_valid_address(

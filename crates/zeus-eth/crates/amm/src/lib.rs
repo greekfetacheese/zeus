@@ -1,4 +1,4 @@
-use alloy_primitives::{Address, U256, B256, utils::parse_units};
+use alloy_primitives::{Address, B256, U256, utils::parse_units};
 use anyhow::bail;
 use currency::{Currency, ERC20Token};
 use types::ChainId;
@@ -28,7 +28,11 @@ pub struct PoolID {
 
 impl PoolID {
    pub fn new(chain_id: u64, address: Address, pool_id: B256) -> Self {
-      Self { chain_id, address, pool_id }
+      Self {
+         chain_id,
+         address,
+         pool_id,
+      }
    }
 }
 
@@ -46,7 +50,7 @@ pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
 }
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
-/// 
+///
 /// for V4 we set a threshold 10-11x higher than other protocols since we cannot just query the token balances
 /// of the pool and we rely on the `compute_virtual_reserves` to give an idea of the liquidity
 // TODO: This should be based on a USD value
@@ -80,60 +84,6 @@ pub fn minimum_liquidity(token: &ERC20Token, dex: DexKind) -> U256 {
    } else {
       stable_amount
    }
-}
-
-/// Get all the possible v2 pairs for the given token based on:
-///
-/// - The token's chain id
-/// - The [DexKind]
-/// - A vec of base tokens for liquidity
-pub fn get_possible_v2_pairs(dex_kind: DexKind, token: ERC20Token, base_tokens: Vec<ERC20Token>) -> Vec<UniswapV2Pool> {
-   // create a vec of v2 pools but without populating with real data just the pairs
-   let mut pools = Vec::new();
-   for base_token in base_tokens {
-      if token.address == base_token.address {
-         continue;
-      }
-
-      let pool = UniswapV2Pool::new(
-         token.chain_id,
-         Address::ZERO,
-         token.clone(),
-         base_token.clone(),
-         dex_kind,
-      );
-      pools.push(pool);
-   }
-   pools
-}
-
-/// Get all the possible v3 pairs for the given token based on:
-///
-/// - The token's chain id
-/// - The [DexKind]
-/// - A vec of base tokens for liquidity
-/// - The fee tiers
-pub fn get_possible_v3_pairs(dex_kind: DexKind, token: ERC20Token, base_tokens: Vec<ERC20Token>) -> Vec<UniswapV3Pool> {
-   // create a vec of v3 pools but without populating with real data just the pairs
-   let mut pools = Vec::new();
-   for base_token in base_tokens {
-      if token.address == base_token.address {
-         continue;
-      }
-
-      for fee in FEE_TIERS {
-         let pool = UniswapV3Pool::new(
-            token.chain_id,
-            Address::ZERO,
-            fee,
-            token.clone(),
-            base_token.clone(),
-            dex_kind,
-         );
-         pools.push(pool);
-      }
-   }
-   pools
 }
 
 /// Enum to define in which DEX a pool belongs to
@@ -190,6 +140,16 @@ impl DexKind {
             DexKind::PancakeSwapV3,
          ],
       }
+   }
+
+   pub fn as_vec() -> Vec<DexKind> {
+      vec![
+         DexKind::UniswapV2,
+         DexKind::UniswapV3,
+         DexKind::UniswapV4,
+         DexKind::PancakeSwapV2,
+         DexKind::PancakeSwapV3,
+      ]
    }
 
    /// Get the DexKind from the factory address
@@ -283,13 +243,13 @@ impl DexKind {
       matches!(self, DexKind::PancakeSwapV3)
    }
 
-   pub fn to_str(&self) -> &'static str {
+   pub fn as_str(&self) -> &'static str {
       match self {
-         DexKind::UniswapV2 => "UniswapV2",
-         DexKind::UniswapV3 => "UniswapV3",
-         DexKind::UniswapV4 => "UniswapV4",
-         DexKind::PancakeSwapV2 => "PancakeSwapV2",
-         DexKind::PancakeSwapV3 => "PancakeSwapV3",
+         DexKind::UniswapV2 => "Uniswap V2",
+         DexKind::UniswapV3 => "Uniswap V3",
+         DexKind::UniswapV4 => "Uniswap V4",
+         DexKind::PancakeSwapV2 => "PancakeSwap V2",
+         DexKind::PancakeSwapV3 => "PancakeSwap V3",
       }
    }
 }
@@ -358,37 +318,5 @@ fn pancakeswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Erro
       ChainId::BinanceSmartChain(_) => Ok(26956207),
       ChainId::Base(_) => Ok(2912007),
       ChainId::Arbitrum(_) => Ok(101028949),
-   }
-}
-
-mod tests {
-   #[allow(unused_imports)]
-   use super::*;
-
-   #[test]
-   fn test_get_possible_v2_pairs() {
-      let usdc = ERC20Token::usdc();
-
-      let base_tokens = ERC20Token::base_tokens(1);
-      let pools = get_possible_v2_pairs(DexKind::UniswapV2, usdc.clone(), base_tokens.clone());
-      for pool in pools {
-         println!("{}/{}", pool.token0().symbol, pool.token1().symbol);
-      }
-   }
-
-   #[test]
-   fn test_get_possible_v3_pairs() {
-      let usdc = ERC20Token::usdc();
-
-      let base_tokens = ERC20Token::base_tokens(1);
-      let pools = get_possible_v3_pairs(DexKind::UniswapV3, usdc.clone(), base_tokens.clone());
-      for pool in pools {
-         println!(
-            "{}/{} - Fee: {}",
-            pool.token0().symbol,
-            pool.token1().symbol,
-            pool.fee.fee()
-         );
-      }
    }
 }

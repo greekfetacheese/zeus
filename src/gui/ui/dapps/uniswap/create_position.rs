@@ -12,14 +12,14 @@ use crate::core::{
    ZeusCtx,
    utils::{RT, eth},
 };
-use crate::gui::ui::dapps::uniswap::{ProtocolVersion, currencies_amount_and_value};
+use crate::gui::ui::dapps::uniswap::currencies_amount_and_value;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::Address,
    amm::{
-      AnyUniswapPool, UniswapPool, UniswapV3Pool,
+      AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool,
       uniswap::v3::{
          calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price,
          position::{PositionResult, SimPositionConfig, simulate_position},
@@ -46,7 +46,7 @@ pub struct CreatePositionUi {
    pub size: (f32, f32),
    pub currency0: Currency,
    pub currency1: Currency,
-   pub protocol_version: ProtocolVersion,
+   pub protocol: DexKind,
    pub selected_pool: Option<AnyUniswapPool>,
    pub set_price_range_ui: SetPriceRangeUi,
    pub syncing_pools: bool,
@@ -73,7 +73,7 @@ impl CreatePositionUi {
          size: (600.0, 700.0),
          currency0: native,
          currency1: usdc,
-         protocol_version: ProtocolVersion::V3,
+         protocol: DexKind::UniswapV3,
          selected_pool: None,
          set_price_range_ui: SetPriceRangeUi::new(),
          syncing_pools: false,
@@ -116,20 +116,21 @@ impl CreatePositionUi {
       self.currency1 = currency1;
    }
 
-   fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
-      let mut current_version = self.protocol_version;
-      let versions = vec![ProtocolVersion::V3];
+   // Only V3 for now
+   fn select_version(&mut self, _chain: u64, theme: &Theme, ui: &mut Ui) {
+      let mut current_protocol = self.protocol;
+      let protocol_kinds = vec![DexKind::UniswapV3];
 
-      let selected_text = RichText::new(current_version.to_str()).size(theme.text_sizes.normal);
+      let selected_text = RichText::new(current_protocol.as_str()).size(theme.text_sizes.normal);
 
       ComboBox::from_id_salt("protocol_version")
          .selected_text(selected_text)
          .show_ui(ui, |ui| {
-            for version in versions {
-               let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
-               ui.selectable_value(&mut current_version, version, text);
+            for protocol in protocol_kinds {
+               let text = RichText::new(protocol.as_str()).size(theme.text_sizes.normal);
+               ui.selectable_value(&mut current_protocol, protocol, text);
             }
-            self.protocol_version = current_version;
+            self.protocol = current_protocol;
          });
    }
 
@@ -157,9 +158,7 @@ impl CreatePositionUi {
                ui,
             );
 
-            self
-               .set_price_range_ui
-               .show(ctx.clone(), theme, icons.clone(), ui);
+            self.set_price_range_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
             ui.add_space(20.0);
 
@@ -178,8 +177,6 @@ impl CreatePositionUi {
       self.sim_window(ctx.clone(), theme, ui);
    }
 
-   // TODO: For some reason the results are not correct
-   // TODO: The amounts earned are way too low, but when run alone in a test the results makes more sense
    fn sim_window(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.sim_window_open;
 
@@ -516,7 +513,7 @@ impl CreatePositionUi {
       let currencies = ctx.get_currencies(chain_id);
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         self.select_version(theme, ui);
+         self.select_version(chain_id, theme, ui);
       });
 
       ui.spacing_mut().item_spacing.y = 10.0;
@@ -567,7 +564,7 @@ impl CreatePositionUi {
       let manager = ctx.pool_manager();
       let mut pools = manager.get_pools_from_pair(&self.currency0, &self.currency1);
 
-      if self.protocol_version == ProtocolVersion::V3 {
+      if self.protocol == DexKind::UniswapV3 {
          pools.retain(|p| p.dex_kind().is_v3());
       }
 
@@ -585,44 +582,40 @@ impl CreatePositionUi {
 
       ui.horizontal(|ui| {
          ui.add_space(ui_width * 0.25);
-         Grid::new("fee_tier")
-            .spacing(vec2(15.0, 0.0))
-            .show(ui, |ui| {
-               for pool in pools {
-                  let selected = self.selected_pool.as_ref() == Some(&pool);
-                  let current_pool = self.selected_pool.as_ref();
+         Grid::new("fee_tier").spacing(vec2(15.0, 0.0)).show(ui, |ui| {
+            for pool in pools {
+               let selected = self.selected_pool.as_ref() == Some(&pool);
+               let current_pool = self.selected_pool.as_ref();
 
-                  let fee = pool.fee().fee_percent();
-                  let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
-                  let mut button = Button::new(text);
+               let fee = pool.fee().fee_percent();
+               let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+               let mut button = Button::new(text);
 
-                  if !selected {
-                     button = button.fill(Color32::TRANSPARENT);
-                  }
-
-                  let same_pair = if current_pool.is_some() {
-                     let current_pool = current_pool.unwrap();
-                     pool.have(current_pool.currency0()) && pool.have(current_pool.currency1())
-                  } else {
-                     false
-                  };
-
-                  if ui.add(button).clicked() {
-                     self.selected_pool = Some(pool.clone());
-                     self.currency0 = pool.currency0().clone();
-                     self.currency1 = pool.currency1().clone();
-
-                     // Only reset the price range if we select a different pair
-                     if !same_pair {
-                        self
-                           .set_price_range_ui
-                           .set_values(Some(pool.clone()), self.protocol_version.clone());
-                     }
-                  }
+               if !selected {
+                  button = button.fill(Color32::TRANSPARENT);
                }
 
-               ui.end_row();
-            });
+               let same_pair = if current_pool.is_some() {
+                  let current_pool = current_pool.unwrap();
+                  pool.have(current_pool.currency0()) && pool.have(current_pool.currency1())
+               } else {
+                  false
+               };
+
+               if ui.add(button).clicked() {
+                  self.selected_pool = Some(pool.clone());
+                  self.currency0 = pool.currency0().clone();
+                  self.currency1 = pool.currency1().clone();
+
+                  // Only reset the price range if we select a different pair
+                  if !same_pair {
+                     self.set_price_range_ui.set_values(Some(pool.clone()), self.protocol);
+                  }
+               }
+            }
+
+            ui.end_row();
+         });
       });
 
       ui.add_space(20.0);
@@ -672,7 +665,7 @@ impl CreatePositionUi {
 
 pub struct SetPriceRangeUi {
    pub size: (f32, f32),
-   pub protocol_version: ProtocolVersion,
+   pub protocol: DexKind,
    pub selected_pool: Option<AnyUniswapPool>,
    /// Deposit amount in Token0
    pub deposit_amount: String,
@@ -696,7 +689,7 @@ impl SetPriceRangeUi {
    pub fn new() -> Self {
       Self {
          size: (500.0, 500.0),
-         protocol_version: ProtocolVersion::V3,
+         protocol: DexKind::UniswapV3,
          selected_pool: None,
          deposit_amount: String::new(),
          sim_position_config: SimPositionConfig::default(),
@@ -711,9 +704,9 @@ impl SetPriceRangeUi {
       }
    }
 
-   pub fn set_values(&mut self, pool: Option<AnyUniswapPool>, version: ProtocolVersion) {
+   pub fn set_values(&mut self, pool: Option<AnyUniswapPool>, protocol: DexKind) {
       self.selected_pool = pool;
-      self.protocol_version = version;
+      self.protocol = protocol;
       self.set_slider_values();
    }
 
@@ -978,10 +971,7 @@ impl CreatePositionUi {
          });
 
          let pools = manager.get_pools_from_pair(&currency_in, &currency_out);
-         match manager
-            .update_state_for_pools(ctx_clone, chain_id, pools)
-            .await
-         {
+         match manager.update_state_for_pools(ctx_clone, chain_id, pools).await {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
@@ -1044,10 +1034,7 @@ impl CreatePositionUi {
       self.pool_data_syncing = true;
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         match manager
-            .update_state_for_pools(ctx_clone, chain_id, pools)
-            .await
-         {
+         match manager.update_state_for_pools(ctx_clone, chain_id, pools).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.create_position_ui.last_pool_state_updated = Some(Instant::now());

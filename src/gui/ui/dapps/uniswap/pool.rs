@@ -69,15 +69,17 @@ impl PoolsUi {
       let selected_text = RichText::new(selected_text).size(theme.text_sizes.normal);
       let selected_label = Label::new(selected_text, None).sense(Sense::click());
 
-      ComboBox::new("pool_explore_combobox", selected_label).show_ui(ui, |ui| {
-         for version in all_versions {
-            let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
-            let label = Label::new(text, None).sense(Sense::click());
-            if ui.add(label).clicked() {
-               self.version = Some(version);
+      ComboBox::new("pool_explore_combobox", selected_label)
+         .width(200.0)
+         .show_ui(ui, |ui| {
+            for version in all_versions {
+               let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
+               let label = Label::new(text, None).sense(Sense::click());
+               if ui.add(label).clicked() {
+                  self.version = Some(version);
+               }
             }
-         }
-      });
+         });
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -113,122 +115,117 @@ impl PoolsUi {
          ScrollArea::vertical().show(ui, |ui| {
             ui.set_width(ui_width);
 
-            Grid::new("pools_ui")
-               .spacing(vec2(25.0, 15.0))
-               .show(ui, |ui| {
-                  // Header
+            Grid::new("pools_ui").spacing(vec2(25.0, 15.0)).show(ui, |ui| {
+               // Header
 
-                  // Pool
-                  ui.label(RichText::new("Pool").size(theme.text_sizes.large));
+               // Pool
+               ui.label(RichText::new("Pool").size(theme.text_sizes.large));
 
-                  // Protocol
-                  ui.label(RichText::new("Protocol").size(theme.text_sizes.large));
+               // Protocol
+               ui.label(RichText::new("Protocol").size(theme.text_sizes.large));
 
-                  // Fee
-                  ui.label(RichText::new("Fee").size(theme.text_sizes.large));
+               // Fee
+               ui.label(RichText::new("Fee").size(theme.text_sizes.large));
 
-                  ui.label(RichText::new("Has State").size(theme.text_sizes.large));
+               ui.label(RichText::new("Has State").size(theme.text_sizes.large));
 
-                  ui.end_row();
+               ui.end_row();
 
-                  let selected_version = self.version.unwrap_or(Version::All);
-                  let chain = ctx.chain().id();
+               let selected_version = self.version.unwrap_or(Version::All);
+               let chain = ctx.chain().id();
 
-                  manager.read(|manager| {
-                     let pools = manager.pools.iter().filter(|(_, pool)| {
-                        selected_version.is_all() && pool.chain_id() == chain
-                           || selected_version.is_v2()
-                              && pool.dex_kind().is_v2()
-                              && pool.chain_id() == chain
-                           || selected_version.is_v3()
-                              && pool.dex_kind().is_v3()
-                              && pool.chain_id() == chain
-                           || selected_version.is_v4()
-                              && pool.dex_kind().is_v4()
-                              && pool.chain_id() == chain
+               manager.read(|manager| {
+                  let pools = manager.pools.iter().filter(|(_, pool)| {
+                     selected_version.is_all() && pool.chain_id() == chain
+                        || selected_version.is_v2()
+                           && pool.dex_kind().is_v2()
+                           && pool.chain_id() == chain
+                        || selected_version.is_v3()
+                           && pool.dex_kind().is_v3()
+                           && pool.chain_id() == chain
+                        || selected_version.is_v4()
+                           && pool.dex_kind().is_v4()
+                           && pool.chain_id() == chain
+                  });
+
+                  for (_key, pool) in pools {
+                     let valid_search = valid_search(&pool, &query);
+                     if !valid_search {
+                        continue;
+                     }
+
+                     // Pool
+                     ui.scope(|ui| {
+                        ui.set_width(column_width);
+                        ui.spacing_mut().item_spacing.x = 5.0;
+
+                        let token0 = pool.currency0();
+                        let token1 = pool.currency1();
+
+                        let icon0 = icons.currency_icon(&token0);
+                        let icon1 = icons.currency_icon(&token1);
+
+                        let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
+                        let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);
+
+                        let label0 = Label::new(
+                           RichText::new(token0_symbol).size(theme.text_sizes.normal),
+                           Some(icon0),
+                        )
+                        .image_on_left();
+
+                        let label1 = Label::new(
+                           RichText::new(token1_symbol).size(theme.text_sizes.normal),
+                           Some(icon1),
+                        );
+
+                        Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
+                           ui.horizontal(|ui| {
+                              ui.add(label0);
+                              ui.add(Label::new(
+                                 RichText::new("/").size(theme.text_sizes.normal),
+                                 None,
+                              ));
+                              ui.add(label1);
+                           });
+                        });
                      });
 
-                     for (_key, pool) in pools {
-                        let valid_search = valid_search(&pool, &query);
-                        if !valid_search {
-                           continue;
-                        }
+                     // Protocol Version
+                     ui.scope(|ui| {
+                        ui.set_width(column_width);
+                        let text = if pool.dex_kind().is_v2() {
+                           RichText::new("V2").size(theme.text_sizes.normal)
+                        } else if pool.dex_kind().is_v3() {
+                           RichText::new("V3").size(theme.text_sizes.normal)
+                        } else {
+                           RichText::new("V4").size(theme.text_sizes.normal)
+                        };
+                        ui.label(text);
+                     });
 
-                        // Pool
-                        ui.scope(|ui| {
-                           ui.set_width(column_width);
-                           ui.spacing_mut().item_spacing.x = 5.0;
+                     // Fee
+                     ui.scope(|ui| {
+                        ui.set_width(column_width);
 
-                           let token0 = pool.currency0();
-                           let token1 = pool.currency1();
+                        let fee = pool.fee().fee_percent();
+                        let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+                        ui.label(text);
+                     });
 
-                           let icon0 = icons.currency_icon(&token0);
-                           let icon1 = icons.currency_icon(&token1);
+                     ui.scope(|ui| {
+                        ui.set_width(column_width);
 
-                           let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
-                           let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);
+                        let has_state = pool.state().is_some();
+                        let text = RichText::new(if has_state { "Yes" } else { "No" })
+                           .size(theme.text_sizes.normal);
+                        ui.label(text);
+                     });
 
-                           let label0 = Label::new(
-                              RichText::new(token0_symbol).size(theme.text_sizes.normal),
-                              Some(icon0),
-                           )
-                           .image_on_left();
-
-                           let label1 = Label::new(
-                              RichText::new(token1_symbol).size(theme.text_sizes.normal),
-                              Some(icon1),
-                           );
-
-                           Frame::new()
-                              .inner_margin(Margin::same(5))
-                              .show(ui, |ui| {
-                                 ui.horizontal(|ui| {
-                                    ui.add(label0);
-                                    ui.add(Label::new(
-                                       RichText::new("/").size(theme.text_sizes.normal),
-                                       None,
-                                    ));
-                                    ui.add(label1);
-                                 });
-                              });
-                        });
-
-                        // Protocol Version
-                        ui.scope(|ui| {
-                           ui.set_width(column_width);
-                           let text = if pool.dex_kind().is_v2() {
-                              RichText::new("V2").size(theme.text_sizes.normal)
-                           } else if pool.dex_kind().is_v3() {
-                              RichText::new("V3").size(theme.text_sizes.normal)
-                           } else {
-                              RichText::new("V4").size(theme.text_sizes.normal)
-                           };
-                           ui.label(text);
-                        });
-
-                        // Fee
-                        ui.scope(|ui| {
-                           ui.set_width(column_width);
-
-                           let fee = pool.fee().fee_percent();
-                           let text =
-                              RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
-                           ui.label(text);
-                        });
-
-                        ui.scope(|ui| {
-                           ui.set_width(column_width);
-
-                           let has_state = pool.state().is_some();
-                           let text = RichText::new(if has_state { "Yes" } else { "No" })
-                              .size(theme.text_sizes.normal);
-                           ui.label(text);
-                        });
-
-                        ui.end_row();
-                     }
-                  });
+                     ui.end_row();
+                  }
                });
+            });
          });
       });
    }

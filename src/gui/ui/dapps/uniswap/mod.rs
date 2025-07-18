@@ -9,7 +9,7 @@ use pool::PoolsUi;
 use swap::SwapUi;
 use view_positions::ViewPositionsUi;
 
-use egui::{Align, Frame, Button, FontId, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
+use egui::{Align, Button, Frame, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
@@ -20,6 +20,10 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use egui_theme::Theme;
 use std::sync::Arc;
+
+const MIN_SLIPPAGE: f64 = 0.1;
+const MAX_SLIPPAGE: f64 = 20.0;
+const DEFAULT_SLIPPAGE: f64 = 0.5;
 
 #[derive(Clone, Default, Copy, Debug, PartialEq)]
 pub enum ProtocolVersion {
@@ -42,7 +46,7 @@ impl ProtocolVersion {
       matches!(self, Self::V4)
    }
 
-   pub fn to_str(&self) -> &'static str {
+   pub fn as_str(&self) -> &'static str {
       match self {
          ProtocolVersion::V2 => "V2",
          ProtocolVersion::V3 => "V3",
@@ -60,7 +64,11 @@ impl ProtocolVersion {
    }
 
    pub fn all() -> Vec<Self> {
-      vec![ProtocolVersion::V2, ProtocolVersion::V3, ProtocolVersion::V4]
+      vec![
+         ProtocolVersion::V2,
+         ProtocolVersion::V3,
+         ProtocolVersion::V4,
+      ]
    }
 }
 
@@ -75,6 +83,7 @@ pub struct UniswapSettingsUi {
    pub max_split_routes: usize,
    pub mev_protect: bool,
    pub slippage: String,
+   slippage_f64: f64,
    /// Applies only to [SwapUi]
    pub simulate_mode: bool,
    /// Days to go back to sync positions
@@ -94,6 +103,7 @@ impl UniswapSettingsUi {
          max_split_routes: 5,
          mev_protect: true,
          slippage: "0.5".to_string(),
+         slippage_f64: 0.5,
          simulate_mode: false,
          days: String::new(),
       }
@@ -123,108 +133,149 @@ impl UniswapSettingsUi {
          return;
       }
 
-      ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
+      Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
+         ui.vertical_centered(|ui| {
+      ui.spacing_mut().item_spacing = vec2(5.0, 0.0);
 
-      // For some fucking reason cargo fmt doesnt work here
-      ui.vertical_centered(|ui| {
-         let slider_size = vec2(ui.available_width() * 0.5, 25.0);
+      let slider_size = vec2(ui.available_width() * 0.6, 25.0);
 
-                  let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
-                  ui.checkbox(&mut self.mev_protect, text);
+      let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
+      ui.checkbox(&mut self.mev_protect, text);
 
-                  let text = RichText::new("Slippage").size(theme.text_sizes.normal);
-                  ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
+      ui.add_space(15.0);
 
-               TextEdit::singleline(&mut self.slippage)
-                  .hint_text("0.5")
-                  .font(FontId::proportional(theme.text_sizes.small))
-                  .desired_width(25.0)
-                  .background_color(theme.colors.text_edit_bg)
-                  .margin(Margin::same(10))
-                  .show(ui);
+      let size = vec2(ui.available_width() * 0.4, 25.0);
+      ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+      let text = RichText::new("Slippage").size(theme.text_sizes.normal);
+      ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
+      if ui.add(Button::new("⟲")).clicked() {
+         self.slippage_f64 = DEFAULT_SLIPPAGE;
+         self.slippage = DEFAULT_SLIPPAGE.to_string();
+      }
+      });
+      });
 
-               if swap_ui_open {
+      ui.add_space(5.0);
 
-               ui.label(RichText::new("Routing").size(theme.text_sizes.large));
-               
-               let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
-               let res = ui.checkbox(&mut self.split_routing_enabled, text);
-               if res.changed() {
-                  let ctx_clone = ctx.clone();
-                  RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
-                        let settings = &gui.uniswap.settings;
-                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
-                     });
+      let slippage = format!("{:.1}", self.slippage_f64);
+      ui.label(RichText::new(slippage).size(theme.text_sizes.normal));
+
+      ui.add_space(5.0);
+
+      ui.allocate_ui(slider_size, |ui| {
+      let res = ui.add(Slider::new(&mut self.slippage_f64, MIN_SLIPPAGE..=MAX_SLIPPAGE).show_value(false));
+      if res.changed() {
+         self.slippage = self.slippage_f64.to_string();
+      }
+   });
+
+      ui.add_space(15.0);
+
+      if swap_ui_open {
+         ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
+         ui.add_space(5.0);
+         ui.label(RichText::new(self.max_hops.to_string()).size(theme.text_sizes.normal));
+
+         ui.add_space(5.0);
+
+         ui.allocate_ui(slider_size, |ui| {
+            let res = ui.add(Slider::new(&mut self.max_hops, 1..=10).show_value(false));
+            if res.changed() {
+               let ctx_clone = ctx.clone();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let settings = &gui.uniswap.settings;
+                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
                   });
-               }
-
-               ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
-               ui.allocate_ui(slider_size, |ui| {
-               let res = ui.add(Slider::new(&mut self.max_hops, 1..=10));
-               if res.changed() {
-                  let ctx_clone = ctx.clone();
-                  RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
-                        let settings = &gui.uniswap.settings;
-                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
-                     });
-                  });
-               }
-            });
-
-            ui.label(RichText::new("Max Split Routes").size(theme.text_sizes.normal));
-            ui.allocate_ui(slider_size, |ui| {
-               let res = ui.add(Slider::new(&mut self.max_split_routes, 1..=10));
-               if res.changed() {
-                  let ctx_clone = ctx.clone();
-                  RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
-                        let settings = &gui.uniswap.settings;
-                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
-                     });
-                  });
-               }
-            });
-
-                let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
-                let swap_on_v2_before = self.swap_on_v2;
-                let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
-
-                let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
-                let swap_on_v3_before = self.swap_on_v3;
-                let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
-
-                
-                let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
-                let swap_on_v4_before = self.swap_on_v4;
-                let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
-
-                if v2_res.changed() || v3_res.changed() || v4_res.changed() {
-                   let ctx_clone = ctx.clone();
-                   RT.spawn_blocking(move || {
-                      SHARED_GUI.write(|gui| {
-                        let update_v2 = !swap_on_v2_before;
-                         let update_v3 = !swap_on_v3_before;
-                         let update_v4 = !swap_on_v4_before;
-                         gui.uniswap.swap_ui.update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
-                      });
-                   });
-                }
-               
-                  let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
-                  ui.checkbox(&mut self.simulate_mode, text);
-               }
-
-               if view_position_open {
-                  let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
-                  ui.label(text);
-                  ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
-               }
+               });
+            }
          });
+
+         ui.add_space(15.0);
+
+         ui.label(RichText::new("Max Split Routes").size(theme.text_sizes.normal));
+         ui.add_space(5.0);
+         ui.label(RichText::new(self.max_split_routes.to_string()).size(theme.text_sizes.normal));
+
+         ui.add_space(5.0);
+
+         ui.allocate_ui(slider_size, |ui| {
+            let res = ui.add(Slider::new(&mut self.max_split_routes, 1..=10).show_value(false));
+            if res.changed() {
+               let ctx_clone = ctx.clone();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let settings = &gui.uniswap.settings;
+                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                  });
+               });
+            }
+         });
+
+         ui.add_space(15.0);
+
+         let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
+         let res = ui.checkbox(&mut self.split_routing_enabled, text);
+         if res.changed() {
+            let ctx_clone = ctx.clone();
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  let settings = &gui.uniswap.settings;
+                  gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+               });
+            });
+         }
+
+         ui.add_space(10.0);
+
+         let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
+         let swap_on_v2_before = self.swap_on_v2;
+         let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
+
+         ui.add_space(10.0);
+
+         let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
+         let swap_on_v3_before = self.swap_on_v3;
+         let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
+
+         ui.add_space(10.0);
+
+         let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
+         let swap_on_v4_before = self.swap_on_v4;
+         let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
+
+         ui.add_space(15.0);
+
+         if v2_res.changed() || v3_res.changed() || v4_res.changed() {
+            let ctx_clone = ctx.clone();
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  let update_v2 = !swap_on_v2_before;
+                  let update_v3 = !swap_on_v3_before;
+                  let update_v4 = !swap_on_v4_before;
+                  gui.uniswap
+                     .swap_ui
+                     .update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
+               });
+            });
+         }
+
+         let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
+         ui.checkbox(&mut self.simulate_mode, text);
+      }
+
+      if view_position_open {
+         let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
+         ui.label(text);
+         ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
+      }
+   });
+});
    }
 }
 
+/// A UI for a dex like Uniswap
 pub struct UniswapUi {
    open: bool,
    pub size: (f32, f32),
@@ -280,55 +331,69 @@ impl UniswapUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         ui.scope(|ui| {
-            ui.set_width(self.size.0);
+         let size = vec2(ui.available_width() * 0.5, 50.0);
 
-            // Header
+         // Header
+         ui.allocate_ui(size, |ui| {
             ui.horizontal(|ui| {
                // Swap - Pool - Position Buttons
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.spacing_mut().item_spacing.x = 10.0;
+               ui.set_width(self.size.0);
+               ui.spacing_mut().item_spacing.x = 10.0;
 
-                  let text = RichText::new("Swap").size(theme.text_sizes.large);
-                  let swap_button = Button::new(text);
-                  if ui.add(swap_button).clicked() {
-                     self.swap_ui.open = true;
-                     self.pools_ui.open = false;
-                     self.create_position_ui.open = false;
-                     self.view_positions_ui.open = false;
+               let text = RichText::new("Swap").size(theme.text_sizes.large);
+               let swap_button = Button::new(text);
+               if ui.add(swap_button).clicked() {
+                  self.swap_ui.open = true;
+                  self.pools_ui.open = false;
+                  self.create_position_ui.open = false;
+                  self.view_positions_ui.open = false;
+               }
+
+               let text = RichText::new("Pools").size(theme.text_sizes.large);
+               let pools_button = Button::new(text);
+               if ui.add(pools_button).clicked() {
+                  self.pools_ui.open = true;
+                  self.swap_ui.open = false;
+                  self.create_position_ui.open = false;
+                  self.view_positions_ui.open = false;
+               }
+
+               let text = RichText::new("Create Position").size(theme.text_sizes.large);
+               let positions_button = Button::new(text);
+               if ui.add(positions_button).clicked() {
+                  self.create_position_ui.open = true;
+                  self.swap_ui.open = false;
+                  self.pools_ui.open = false;
+                  self.view_positions_ui.open = false;
+               }
+
+               let text = RichText::new("View Positions").size(theme.text_sizes.large);
+               let positions_button = Button::new(text);
+               if ui.add(positions_button).clicked() {
+                  self.view_positions_ui.open = true;
+                  self.swap_ui.open = false;
+                  self.pools_ui.open = false;
+                  self.create_position_ui.open = false;
+               }
+
+               let text = RichText::new("⟲").size(theme.text_sizes.large);
+               let refresh_button = Button::new(text);
+               if ui.add(refresh_button).clicked() {
+                  if self.swap_ui.open {
+                     self.swap_ui.refresh(ctx.clone(), &self.settings);
                   }
 
-                  let text = RichText::new("Pools").size(theme.text_sizes.large);
-                  let pools_button = Button::new(text);
-                  if ui.add(pools_button).clicked() {
-                     self.pools_ui.open = true;
-                     self.swap_ui.open = false;
-                     self.create_position_ui.open = false;
-                     self.view_positions_ui.open = false;
+                  if self.view_positions_ui.open {
+                     let owner = ctx.current_wallet().address;
+                     let chain = ctx.chain();
+                     let positions = ctx.get_v3_positions(chain.id(), owner);
+                     if !positions.is_empty() {
+                        self.view_positions_ui.sync_pool_state(ctx.clone(), owner, positions);
+                     }
                   }
-
-                  let text = RichText::new("Create Position").size(theme.text_sizes.large);
-                  let positions_button = Button::new(text);
-                  if ui.add(positions_button).clicked() {
-                     self.create_position_ui.open = true;
-                     self.swap_ui.open = false;
-                     self.pools_ui.open = false;
-                     self.view_positions_ui.open = false;
-                  }
-
-                  let text = RichText::new("View Positions").size(theme.text_sizes.large);
-                  let positions_button = Button::new(text);
-                  if ui.add(positions_button).clicked() {
-                     self.view_positions_ui.open = true;
-                     self.swap_ui.open = false;
-                     self.pools_ui.open = false;
-                     self.create_position_ui.open = false;
-                  }
-               });
+               }
             });
          });
-
-         ui.add_space(40.0);
 
          self.swap_ui.show(
             ctx.clone(),
@@ -361,9 +426,6 @@ impl UniswapUi {
    }
 }
 
-
-
-
 pub fn currencies_amount_and_value(
    ctx: ZeusCtx,
    chain: u64,
@@ -379,9 +441,7 @@ pub fn currencies_amount_and_value(
    frame: Frame,
    ui: &mut Ui,
 ) {
-
    ui.vertical(|ui| {
-
       // Currency 0
       frame.show(ui, |ui| {
          ui.horizontal(|ui| {

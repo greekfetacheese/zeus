@@ -906,13 +906,6 @@ impl ViewPositionsUi {
                });
             }
 
-            let text = RichText::new("⟲").size(theme.text_sizes.normal);
-            let button = Button::new(text);
-            if ui.add(button).clicked() {
-               let positions = positions.clone();
-               self.sync_pool_state(ctx.clone(), owner, positions);
-            }
-
             if self.syncing || self.state_syncing {
                ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
             }
@@ -1109,7 +1102,7 @@ impl ViewPositionsUi {
       true
    }
 
-   fn sync_pool_state(&mut self, ctx: ZeusCtx, owner: Address, mut positions: Vec<V3Position>) {
+   pub fn sync_pool_state(&mut self, ctx: ZeusCtx, owner: Address, mut positions: Vec<V3Position>) {
       let chain_id = ctx.chain().id();
       let nft_contract = uniswap_nft_position_manager(chain_id).unwrap();
       let manager = ctx.pool_manager();

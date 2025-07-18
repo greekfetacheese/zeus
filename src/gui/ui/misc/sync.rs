@@ -124,7 +124,7 @@ impl SyncPoolsUi {
                      });
 
                      ui.horizontal(|ui| {
-                        let dex = format!("Dex: {}", checkpoint.dex.to_str());
+                        let dex = format!("Dex: {}", checkpoint.dex.as_str());
                         ui.label(RichText::new(dex).size(theme.text_sizes.normal));
                      });
 

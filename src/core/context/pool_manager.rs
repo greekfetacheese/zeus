@@ -553,7 +553,7 @@ impl PoolManagerHandle {
             if let Ok(pool) = pool_res {
                trace!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}-{} for Chain Id: {}",
-                  dex.to_str(),
+                  dex.as_str(),
                   pool.address(),
                   pool.token0().symbol,
                   pool.token1().symbol,
@@ -665,7 +665,7 @@ impl PoolManagerHandle {
 
                      trace!(
                         target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
-                        dex.to_str(),
+                        dex.as_str(),
                         v3_pool.address,
                         v3_pool.token0().symbol,
                         v3_pool.token1().symbol,

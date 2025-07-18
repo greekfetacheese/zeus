@@ -27,7 +27,6 @@ use serde::{Deserialize, Serialize};
 
 use anyhow::anyhow;
 use tracing::error;
-use types::ChainId;
 use utils::{address_book, get_logs_for};
 
 
@@ -75,10 +74,6 @@ impl Default for SyncResult {
 impl SyncResult {
    pub fn new(checkpoint: Checkpoint, pools: Vec<AnyUniswapPool>) -> Self {
       Self { checkpoint, pools }
-   }
-
-   pub fn file_name(chain: ChainId, dex: DexKind) -> String {
-      format!("{}-{}", dex.to_str(), chain.name())
    }
 }
 
@@ -272,7 +267,7 @@ where
       target: "zeus_eth::amm::sync",
       "Syncing pools for chain {} DEX: {} from block {}",
       chain_id,
-      dex.to_str(),
+      dex.as_str(),
       from_block
    );
 
@@ -286,7 +281,7 @@ where
    )
    .await?;
 
-   tracing::trace!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.to_str());
+   tracing::trace!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.as_str());
    let semaphore = Arc::new(Semaphore::new(concurrency));
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let pools = Arc::new(Mutex::new(Vec::new()));
@@ -319,7 +314,7 @@ where
 
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
    let checkpoint = Checkpoint::new(chain_id, synced_block, dex);
-   tracing::trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.to_str(), chain_id);
+   tracing::trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.as_str(), chain_id);
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)
 }

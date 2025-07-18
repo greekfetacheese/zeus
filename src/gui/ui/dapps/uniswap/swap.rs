@@ -314,13 +314,13 @@ impl SwapUi {
       let mut current_version = self.protocol_version;
       let versions = ProtocolVersion::all();
 
-      let selected_text = RichText::new(current_version.to_str()).size(theme.text_sizes.normal);
+      let selected_text = RichText::new(current_version.as_str()).size(theme.text_sizes.normal);
 
       ComboBox::from_id_salt("protocol_version")
          .selected_text(selected_text)
          .show_ui(ui, |ui| {
             for version in versions {
-               let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
+               let text = RichText::new(version.as_str()).size(theme.text_sizes.normal);
                ui.selectable_value(&mut current_version, version, text);
             }
             self.protocol_version = current_version;
@@ -367,6 +367,16 @@ impl SwapUi {
             });
       });
       changed
+   }
+
+   pub fn refresh(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
+      self.update_pool_state(
+         ctx.clone(),
+         settings.swap_on_v2,
+         settings.swap_on_v3,
+         settings.swap_on_v4,
+      );
+      self.sync_pools(ctx.clone(), settings, true);
    }
 
    pub fn show(
@@ -419,21 +429,7 @@ impl SwapUi {
                });
             }
 
-            // Force update pool state
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.spacing_mut().item_spacing.x = 10.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-               let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
-               if ui.add(refresh).clicked() {
-                  self.update_pool_state(
-                     ctx.clone(),
-                     settings.swap_on_v2,
-                     settings.swap_on_v3,
-                     settings.swap_on_v4,
-                  );
-                  self.sync_pools(ctx.clone(), settings, true);
-               }
 
                if self.pool_data_syncing || self.syncing_pools {
                   ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
@@ -485,7 +481,6 @@ impl SwapUi {
          );
 
          // Swap Currencies
-         ui.add_space(5.0);
          ui.vertical_centered(|ui| {
             let swap_button = Button::image(icons.swap()).min_size(vec2(40.0, 40.0));
 
@@ -494,7 +489,6 @@ impl SwapUi {
                self.get_quote(ctx.clone(), settings);
             }
          });
-         ui.add_space(5.0);
 
          // Buy
          swap_section(
@@ -955,7 +949,7 @@ impl SwapUi {
                swap.currency_in.symbol(),
                swap.amount_out.format_abbreviated(),
                swap.currency_out.symbol(),
-               swap.pool.dex_kind().to_str(),
+               swap.pool.dex_kind().as_str(),
                swap.pool.fee().fee()
             );
          }
@@ -984,7 +978,7 @@ impl SwapUi {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(
-               RichText::new(format!("{}%", settings.slippage)).size(theme.text_sizes.normal),
+               RichText::new(format!("{:.1}%", settings.slippage_f64)).size(theme.text_sizes.normal),
             );
          });
       });
