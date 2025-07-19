@@ -28,6 +28,7 @@ const CLIENT_TIMEOUT: u64 = 10;
 pub mod balance_manager;
 pub mod db;
 pub mod pool_manager;
+pub mod position_manager;
 pub mod providers;
 
 pub use balance_manager::BalanceManagerHandle;

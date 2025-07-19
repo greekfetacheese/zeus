@@ -343,28 +343,26 @@ impl SwapUi {
       ui.horizontal(|ui| {
          ui.label(RichText::new("Fee Tier").size(theme.text_sizes.normal));
          ui.add_space(10.0);
-         Grid::new("swap_ui_fee_tier_select")
-            .spacing(vec2(15.0, 0.0))
-            .show(ui, |ui| {
-               for pool in pools {
-                  let selected = self.pool.as_ref() == Some(pool);
+         Grid::new("swap_ui_fee_tier_select").spacing(vec2(15.0, 0.0)).show(ui, |ui| {
+            for pool in pools {
+               let selected = self.pool.as_ref() == Some(pool);
 
-                  let fee = pool.fee().fee_percent();
-                  let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
-                  let mut button = Button::new(text);
+               let fee = pool.fee().fee_percent();
+               let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
+               let mut button = Button::new(text);
 
-                  if !selected {
-                     button = button.fill(Color32::TRANSPARENT);
-                  }
-
-                  if ui.add(button).clicked() {
-                     self.pool = Some(pool.clone());
-                     changed = true;
-                  }
+               if !selected {
+                  button = button.fill(Color32::TRANSPARENT);
                }
 
-               ui.end_row();
-            });
+               if ui.add(button).clicked() {
+                  self.pool = Some(pool.clone());
+                  changed = true;
+               }
+            }
+
+            ui.end_row();
+         });
       });
       changed
    }
@@ -416,9 +414,8 @@ impl SwapUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
 
          if simulate_mode {
-            let text = RichText::new("You are on Simulate Mode")
-               .size(theme.text_sizes.large)
-               .strong();
+            let text =
+               RichText::new("You are on Simulate Mode").size(theme.text_sizes.large).strong();
             ui.label(text);
          }
 
@@ -430,7 +427,6 @@ impl SwapUi {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-
                if self.pool_data_syncing || self.syncing_pools {
                   ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
                }
@@ -570,9 +566,7 @@ impl SwapUi {
          if let Some(pool) = &mut self.pool {
             let amount_in =
                NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
-            pool
-               .simulate_swap_mut(&self.currency_in, amount_in.wei())
-               .unwrap_or_default();
+            pool.simulate_swap_mut(&self.currency_in, amount_in.wei()).unwrap_or_default();
             self.simulate_window.set_pool_after(Some(pool.clone()));
 
             self.get_quote(ctx.clone(), settings);
@@ -674,6 +668,7 @@ impl SwapUi {
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
+      let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
       tracing::info!("Token to sync pools for: {}", token_out.symbol);
 
@@ -703,13 +698,11 @@ impl SwapUi {
             swap_on_v2,
             swap_on_v3,
             swap_on_v4,
+            &currency_in,
             &currency_out,
          );
 
-         match manager
-            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
-            .await
-         {
+         match manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
@@ -793,6 +786,7 @@ impl SwapUi {
          update_v2,
          update_v3,
          update_v4,
+         &self.currency_in,
          &self.currency_out,
       );
 
@@ -816,10 +810,7 @@ impl SwapUi {
       self.pool_data_syncing = true;
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         match manager
-            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
-            .await
-         {
+         match manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
@@ -855,9 +846,8 @@ impl SwapUi {
          if let Some(pool) = &self.pool {
             let amount_in =
                NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
-            let amount_out = pool
-               .simulate_swap(&self.currency_in, amount_in.wei())
-               .unwrap_or_default();
+            let amount_out =
+               pool.simulate_swap(&self.currency_in, amount_in.wei()).unwrap_or_default();
             let amount = NumericValue::format_wei(amount_out, self.currency_out.decimals());
             self.amount_out = amount.flatten();
             return;
@@ -900,6 +890,7 @@ impl SwapUi {
             swap_on_v2,
             swap_on_v3,
             swap_on_v4,
+            &currency_in,
             &currency_out,
          );
 
@@ -978,7 +969,8 @@ impl SwapUi {
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.label(
-               RichText::new(format!("{:.1}%", settings.slippage_f64)).size(theme.text_sizes.normal),
+               RichText::new(format!("{:.1}%", settings.slippage_f64))
+                  .size(theme.text_sizes.normal),
             );
          });
       });
@@ -1115,49 +1107,75 @@ pub fn get_relevant_pools(
    swap_on_v2: bool,
    swap_on_v3: bool,
    swap_on_v4: bool,
+   currency_in: &Currency,
    currency_out: &Currency,
 ) -> Vec<AnyUniswapPool> {
    let manager = ctx.pool_manager();
    let all_pools = manager.get_pools_for_chain(currency_out.chain_id());
+   let mut relevant_pools = Vec::new();
    let mut added_pools = HashSet::new();
 
-   let mut good_pools = Vec::new();
+   // Handle ETH/WETH
+   let weth = currency_in.to_weth_currency();
+
+   // If we are swapping between two "safe"
+   // base currencies (e.g., DAI to USDC), we should avoid routing through
+   // a non-base token (e.g., PEPE).
+   let is_base_pair_swap = currency_in.is_base() && currency_out.is_base();
+
+   // If we are swapping from base to a shit token we only include pools
+   // that have currency out
+   let is_base_to_shit_token_swap = currency_in.is_base() && !currency_out.is_base();
+
+   // If we are swapping from a shit token to base we only include pools
+   // that have currency in
+   let is_shit_token_to_base_swap = !currency_in.is_base() && currency_out.is_base();
+
    for pool in all_pools {
-      if !swap_on_v2 && pool.dex_kind().is_v2() {
-         continue;
-      }
-
-      if !swap_on_v3 && pool.dex_kind().is_v3() {
-         continue;
-      }
-
-      if !swap_on_v4 && pool.dex_kind().is_v4() {
+      if (!swap_on_v2 && pool.dex_kind().is_v2())
+         || (!swap_on_v3 && pool.dex_kind().is_v3())
+         || (!swap_on_v4 && pool.dex_kind().is_v4())
+      {
          continue;
       }
 
       let pool_key = (pool.chain_id(), pool.address(), pool.pool_id());
-
       if added_pools.contains(&pool_key) {
          continue;
       }
 
-      // If the output currency is base, we only want to push pools that are paired with base tokens
-      // This is to avoid pools that are paired with shit tokens
-      let should_push = if currency_out.is_base() {
-         pool.have(&currency_out) && pool.currency0().is_base() && pool.currency1().is_base()
-      } else {
-         pool.have(&currency_out)
-      };
+      // A pool is relevant if it contains either our starting or ending currency.
+      let has_currency_in = pool.have(currency_in) || pool.have(&weth);
+      let has_currency_out = pool.have(currency_out) || pool.have(&weth);
 
-      // let base_pool = pool.currency0().is_base() && pool.currency1().is_base();
+      if has_currency_in || has_currency_out {
+         // If the pool is relevant, we decide whether to add it.
+         let mut add_pool = false;
 
-      if should_push {
-         good_pools.push(pool);
-         added_pools.insert(pool_key);
+         if is_base_pair_swap {
+            // For base-to-base swaps, we only consider pools where *both*
+            // tokens are base tokens. This avoids routing through shit tokens.
+            if pool.currency0().is_base() && pool.currency1().is_base() {
+               add_pool = true;
+            }
+         } else if is_base_to_shit_token_swap {
+            if pool.have(&currency_out) {
+               add_pool = true;
+            }
+         } else if is_shit_token_to_base_swap {
+            if pool.have(&currency_in) {
+               add_pool = true;
+            }
+         }
+
+         if add_pool {
+            relevant_pools.push(pool);
+            added_pools.insert(pool_key);
+         }
       }
    }
 
-   good_pools
+   relevant_pools
 }
 
 /// Helper function to draw one section of the swap UI

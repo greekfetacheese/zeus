@@ -5,7 +5,6 @@ use utils::NumericValue;
 use serde_json::Value;
 
 pub mod swap;
-mod tests;
 
 pub use swap::encode_swap;
 

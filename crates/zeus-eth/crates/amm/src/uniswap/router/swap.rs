@@ -13,11 +13,9 @@ use alloy_sol_types::SolValue;
 use anyhow::anyhow;
 use currency::Currency as Currency2;
 use utils::{
-   SecureSigner, address_book::permit2_contract, alloy_signer::Signer, erase_signer, generate_permit2_single_value,
-   parse_typed_data,
+   NumericValue, SecureSigner, address_book::permit2_contract, alloy_signer::Signer, erase_signer,
+   generate_permit2_single_value, parse_typed_data,
 };
-
-use std::collections::HashSet;
 
 /// Encode the calldata for a swap using the universal router
 pub async fn encode_swap<P, N>(
@@ -27,6 +25,7 @@ pub async fn encode_swap<P, N>(
    swap_type: SwapType,
    amount_in: U256,
    amount_out_min: U256,
+   slippage: f64,
    currency_in: Currency2,
    currency_out: Currency2,
    secure_signer: SecureSigner,
@@ -134,14 +133,32 @@ where
       }
    }
 
-   let intermediate_inputs: HashSet<Currency2> = swap_steps.iter().map(|s| s.currency_in.clone()).collect();
-
-   // Amount of token out taken by the TAKE_ALL command in v4 swaps
-   // We substract it at the end if needed to calculate the final expected output we get back
-   let mut amount_taken = U256::ZERO;
+   // Router ETH and WETH balances after the swaps
+   let mut router_eth_balance = U256::ZERO;
+   let mut router_weth_balance = U256::ZERO;
 
    for swap in &swap_steps {
-      /*
+      if swap.currency_in.is_native() {
+         if router_eth_balance >= swap.amount_in.wei() {
+            router_eth_balance -= swap.amount_in.wei();
+         }
+      }
+
+      if swap.currency_in.is_native_wrapped() {
+         if router_weth_balance >= swap.amount_in.wei() {
+            router_weth_balance -= swap.amount_in.wei();
+         }
+      }
+
+      if swap.currency_out.is_native() {
+         router_eth_balance += swap.amount_out.wei();
+      }
+
+      if swap.currency_out.is_native_wrapped() {
+         router_weth_balance += swap.amount_out.wei();
+      }
+
+      /* 
       eprintln!("|=== Swap Step ===|");
       eprintln!(
          "Swap Step: {} {} -> {} {} {} ({})",
@@ -149,15 +166,13 @@ where
          swap.currency_in.symbol(),
          swap.amount_out.format_abbreviated(),
          swap.currency_out.symbol(),
-         swap.pool.dex_kind().to_str(),
+         swap.pool.dex_kind().as_str(),
          swap.pool.fee().fee_percent()
       );
-       */
+      */
 
-      // A step uses initial funds if its input is the main currency OR its WETH equivalent.
-      let uses_initial_funds = swap.currency_in == currency_in || swap.currency_in == weth_currency;
-
-      let is_last_step_of_path = !intermediate_inputs.contains(&swap.currency_out);
+      // A step uses initial funds ONLY if its input is the main currency_in for the entire trade.
+      let uses_initial_funds = swap.currency_in == currency_in;
 
       // All intermediate swaps send funds back to the router.
       // The final output is handled by SWEEP or UNWRAP_WETH at the end.
@@ -204,51 +219,76 @@ where
 
       // V4 logic can use the original `swap.currency_in` as it handles native ETH directly.
       if swap.pool.dex_kind().is_uniswap_v4() {
-         amount_taken += swap.amount_out.wei();
-
-         let input = encode_v4_commands(
+         let input = encode_v4_internal_actions(
             &swap.pool,
             swap_type,
             &swap.currency_in,
             &swap.currency_out,
             swap.amount_in.wei(),
             step_amount_out_min,
+            router_addr,
             uses_initial_funds,
-            is_last_step_of_path,
-            recipient_addr,
          )?;
          commands.push(Commands::V4_SWAP as u8);
          inputs.push(input);
       }
    }
 
-   // get the dex kind of the last pool
-   let dex_kind = swap_steps.last().unwrap().pool.dex_kind();
+   let ur_has_weth_balance = router_weth_balance > U256::ZERO;
+   let ur_has_eth_balance = router_eth_balance > U256::ZERO;
 
-   // If the last pool is V4 skip this part as the
-   // TAKE_ALL command will handle sending the tokens or ETH back to the receipient
+   let mut should_sweep = false;
+   let mut amount_to_sweep = U256::ZERO;
 
-   if !dex_kind.is_v4() {
-      // Handle ETH wrapping and final output
-      let expected_amount_out = amount_out_min - amount_taken;
-      if currency_out.is_native() {
-         let data = abi::uniswap::encode_unwrap_weth(recipient, expected_amount_out);
-         commands.push(Commands::UNWRAP_WETH as u8);
-         inputs.push(data);
+   // Handle native ETH output
+
+   // UR has just WETH, in that case we just unwrap WETH and send it to the recipient
+   if currency_out.is_native() && ur_has_weth_balance && !ur_has_eth_balance {
+      let data = abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
+      commands.push(Commands::UNWRAP_WETH as u8);
+      inputs.push(data);
+   }
+
+   // UR has both WETH and ETH, We need to UNWRAP WETH and then let the SWEEP to send all the ETH
+   if currency_out.is_native() && ur_has_weth_balance && ur_has_eth_balance {
+      let mut weth_amount = NumericValue::format_wei(router_weth_balance, currency_out.decimals());
+      weth_amount.calc_slippage(slippage, currency_out.decimals());
+
+      let data = abi::uniswap::encode_unwrap_weth(router_addr, weth_amount.wei());
+      commands.push(Commands::UNWRAP_WETH as u8);
+      inputs.push(data);
+
+      should_sweep = true;
+      amount_to_sweep = amount_out_min;
+   }
+
+   if currency_out.is_erc20() {
+      should_sweep = true;
+      amount_to_sweep = amount_out_min;
+   }
+
+   if should_sweep {
+      let address_out = if currency_out.is_native() {
+         Address::ZERO
       } else {
-         let sweep_params = Sweep {
-            token: currency_out.address(),
-            recipient,
-            amountMin: expected_amount_out,
-         };
-         let data = sweep_params.abi_encode_params().into();
-         commands.push(Commands::SWEEP as u8);
-         inputs.push(data);
-      }
+         currency_out.address()
+      };
+
+      let sweep_params = Sweep {
+         token: address_out,
+         recipient,
+         amountMin: amount_to_sweep,
+      };
+
+     // eprintln!("Sweep Params: {:?}", sweep_params);
+
+      let data = sweep_params.abi_encode_params().into();
+      commands.push(Commands::SWEEP as u8);
+      inputs.push(data);
    }
 
    let command_bytes = Bytes::from(commands);
-   // eprintln!("Command Bytes: {:?}", command_bytes);
+  // eprintln!("Command Bytes: {:?}", command_bytes);
    tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
    let calldata = if let Some(deadline_val) = deadline {
       encode_execute_with_deadline(command_bytes, inputs, deadline_val)
@@ -260,19 +300,18 @@ where
    Ok(execute_params)
 }
 
-fn encode_v4_commands(
+fn encode_v4_internal_actions(
    pool: &impl UniswapPool,
    swap_type: SwapType,
    currency_in: &Currency2,
    currency_out: &Currency2,
    amount_in: U256,
-   amount_out: U256,
-   is_first_step: bool,
-   _is_last_step: bool,
-   _recipient: Address,
+   amount_out_min: U256,
+   router_addr: Address,
+   uses_initial_funds: bool,
 ) -> Result<Bytes, anyhow::Error> {
-   let mut actions = Vec::new();
-   let mut inputs = Vec::new();
+   let (swap_action, swap_input) =
+      encode_v4_swap_single_command_input(pool, swap_type, currency_in, amount_in, amount_out_min)?;
 
    let address_in = if currency_in.is_native() {
       Address::ZERO
@@ -280,27 +319,15 @@ fn encode_v4_commands(
       currency_in.address()
    };
 
-   let (swap_action, swap_input) =
-      encode_v4_swap_single_command_input(pool, swap_type, currency_in, amount_in, amount_out)?;
-
-   actions.push(swap_action);
-   inputs.push(swap_input);
-
-   let mut payer = false;
-   if is_first_step {
-      payer = true;
-   } // In any other case the token/funds should already be in UR
-
+   // Settle tells the V4 contract how to receive the input tokens
    let settle = SettleParams {
       currency: address_in,
       amount: amount_in,
-      payerIsUser: payer,
+      payerIsUser: uses_initial_funds, // True if funds come from user, false if from UR's balance in V4
    };
 
    let settle_action = Actions::SETTLE(settle);
    let settle_input = settle_action.abi_encode();
-   actions.push(settle_action);
-   inputs.push(settle_input);
 
    let address_out = if currency_out.is_native() {
       Address::ZERO
@@ -308,17 +335,19 @@ fn encode_v4_commands(
       currency_out.address()
    };
 
-   let take_all = TakeAllParams {
+   let take_params = TakeParams {
       currency: address_out,
-      minAmount: amount_out,
+      recipient: router_addr,
+      amount: amount_out_min,
    };
 
-   let take_all_action = Actions::TAKE_ALL(take_all);
-   let take_all_input = take_all_action.abi_encode();
-   actions.push(take_all_action);
-   inputs.push(take_all_input);
+   let take_action = Actions::TAKE(take_params);
+   let take_input = take_action.abi_encode();
 
-   encode_v4_router_command_input(actions, inputs)
+   let v4_actions = vec![settle_action, swap_action, take_action];
+   let v4_action_params = vec![settle_input, swap_input, take_input];
+
+   encode_v4_router_command_input(v4_actions, v4_action_params)
 }
 
 fn encode_v4_swap_single_command_input(

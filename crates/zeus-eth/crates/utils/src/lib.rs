@@ -28,12 +28,12 @@ use tokio::{
    task::JoinHandle,
 };
 
-pub use secure_signer::{erase_signer, erase_wallet, SecureSigner};
+pub use secure_signer::{SecureSigner, erase_signer, erase_wallet};
 
 pub use alloy_network;
 pub use alloy_rpc_client;
-pub use alloy_transport;
 pub use alloy_signer;
+pub use alloy_transport;
 
 /// In X days from now in UNIX time
 pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {
@@ -170,9 +170,6 @@ where
       return Ok(None);
    }
 }
-
-
-
 
 pub fn generate_permit2_single_value(
    chain_id: u64,
@@ -423,41 +420,33 @@ pub fn truncate_address(s: &str, max_len: usize) -> String {
 
 /// Format a very large number into a readable string
 pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zeros: bool) -> String {
-   // Split the number into integer and decimal parts
    let parts: Vec<&str> = amount_str.split('.').collect();
    let integer_part = parts[0];
    let decimal_part = if parts.len() > 1 { parts[1] } else { "0" };
 
-   // Format the integer part with thousands separators
    let formatted_integer = add_thousands_separators(integer_part);
 
-   // Determine the effective number of decimal places
    let effective_decimal_places = if integer_part == "0" {
-      // For small numbers (less than 1), show up to 4 decimal places
       6
    } else {
-      // For larger numbers, use the provided decimal_places
       decimal_places
    };
 
-   // Handle decimal places
    if effective_decimal_places == 0 {
-      formatted_integer // Return only the integer part
+      formatted_integer
    } else {
-      // Truncate or pad the decimal part to the effective length
       let decimal_to_show = if decimal_part.len() < effective_decimal_places {
          format!(
             "{:0<width$}",
             decimal_part,
             width = effective_decimal_places
-         ) // Pad with zeros
+         )
       } else {
-         decimal_part[..effective_decimal_places].to_string() // Truncate to desired length
+         decimal_part[..effective_decimal_places].to_string()
       };
 
       let mut result = format!("{}.{}", formatted_integer, decimal_to_show);
 
-      // Trim trailing zeros if requested
       if trim_trailing_zeros {
          while result.ends_with('0') {
             result.pop();
@@ -470,7 +459,6 @@ pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zero
    }
 }
 
-// Helper function to add thousands separators (assumed from previous context)
 fn add_thousands_separators(number: &str) -> String {
    let mut result = String::new();
    let chars: Vec<char> = number.chars().rev().collect();
@@ -710,7 +698,11 @@ impl NumericValue {
    }
 
    pub fn is_zero(&self) -> bool {
-      matches!(self.f64, 0.0) || matches!(self.formatted.as_str(), "0")
+      if let Some(wei) = self.wei {
+         return wei == U256::ZERO;
+      }
+
+      self.f64 == 0.0 || self.formatted.as_str() == "0"
    }
 
    /// Panics if [Self::wei] is None

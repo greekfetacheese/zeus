@@ -728,6 +728,7 @@ pub async fn swap(
       swap_type,
       amount_in.wei(),
       U256::ZERO, // No slippage so the simulation goes through
+      slippage,
       currency_in.clone(),
       currency_out.clone(),
       signer.clone(),
@@ -844,6 +845,7 @@ pub async fn swap(
       swap_type,
       amount_in.wei(),
       amount_out_with_slippage.wei(),
+      slippage,
       currency_in.clone(),
       currency_out.clone(),
       signer,

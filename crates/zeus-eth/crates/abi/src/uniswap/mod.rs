@@ -118,7 +118,7 @@ sol! {
         // the recipient of the eth
         address recipient;
         // the minimum amount of eth to receive
-        uint256 amount;
+        uint256 amountMin;
     }
 }
 
@@ -128,8 +128,8 @@ pub fn encode_wrap_eth(recipient: Address, amount: U256) -> Bytes {
    data.into()
 }
 
-pub fn encode_unwrap_weth(recipient: Address, amount: U256) -> Bytes {
-   let data = UnwrapWeth { recipient, amount }.abi_encode_params();
+pub fn encode_unwrap_weth(recipient: Address, amount_min: U256) -> Bytes {
+   let data = UnwrapWeth { recipient, amountMin: amount_min }.abi_encode_params();
 
    data.into()
 }
