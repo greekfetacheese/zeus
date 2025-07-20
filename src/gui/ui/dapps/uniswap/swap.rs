@@ -581,11 +581,13 @@ impl SwapUi {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
-      let valid = self.valid_inputs(ctx.clone());
-      let has_routes = self.quote.route.is_some();
+      let valid_inputs = self.valid_inputs(ctx.clone());
+      let has_swap_steps = self.quote.swap_steps.len() > 0;
       let has_balance = self.sufficient_balance(ctx.clone());
       let has_entered_amount = !self.amount_in.is_empty();
       let action = self.action();
+
+      let valid = valid_inputs && has_swap_steps;
 
       let mut button_text = "Swap".to_string();
 
@@ -593,15 +595,15 @@ impl SwapUi {
          button_text = "Enter Amount".to_string();
       }
 
-      if valid && action.is_wrap() {
+      if valid_inputs && action.is_wrap() {
          button_text = format!("Wrap {}", self.currency_in.symbol());
       }
 
-      if valid && action.is_unwrap() {
+      if valid_inputs && action.is_unwrap() {
          button_text = format!("Unwrap {}", self.currency_in.symbol());
       }
 
-      if valid && action.is_swap() && !has_routes {
+      if valid_inputs && action.is_swap() && !has_swap_steps {
          button_text = format!("No Routes Found");
       }
 
