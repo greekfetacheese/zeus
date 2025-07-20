@@ -1131,6 +1131,10 @@ pub fn get_relevant_pools(
    // that have currency in
    let is_shit_token_to_base_swap = !currency_in.is_base() && currency_out.is_base();
 
+   // If we are swapping from a shit token to a shit token we only include pools
+   // that have currency in or currency out
+   let is_shit_token_to_shit_token_swap = !currency_in.is_base() && !currency_out.is_base();
+
    for pool in all_pools {
       if (!swap_on_v2 && pool.dex_kind().is_v2())
          || (!swap_on_v3 && pool.dex_kind().is_v3())
@@ -1149,12 +1153,9 @@ pub fn get_relevant_pools(
       let has_currency_out = pool.have(currency_out) || pool.have(&weth);
 
       if has_currency_in || has_currency_out {
-         // If the pool is relevant, we decide whether to add it.
          let mut add_pool = false;
 
          if is_base_pair_swap {
-            // For base-to-base swaps, we only consider pools where *both*
-            // tokens are base tokens. This avoids routing through shit tokens.
             if pool.currency0().is_base() && pool.currency1().is_base() {
                add_pool = true;
             }
@@ -1164,6 +1165,10 @@ pub fn get_relevant_pools(
             }
          } else if is_shit_token_to_base_swap {
             if pool.have(&currency_in) {
+               add_pool = true;
+            }
+         } else if is_shit_token_to_shit_token_swap {
+            if pool.have(&currency_in) || pool.have(&currency_out) {
                add_pool = true;
             }
          }
