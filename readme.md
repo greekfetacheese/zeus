@@ -11,28 +11,23 @@
 **Make sure you have [Rust](https://www.rust-lang.org/tools/install) installed.**
 
 1. Download the latest release from the [Releases](https://github.com/greekfetacheese/zeus/releases)
-2. Zeus is portable, you just need to extract the folder and run the `zeus-desktop` executable.
+2. Zeus is portable, you just need to extract the folder and run the `zeus` executable.
 
 **Zeus saves and loads its data from the current directory it exists, so if you want to move it move it with the entire folder**
 
 ### Keeping backups
-All the data Zeus uses lives in the `data` folder, `account.data` keeps the private keys of your wallets encrypted with your credentials which you used when you first created that `account`, so its safe to copy it wherever you want.
+All the data Zeus uses lives in the `data` folder, `account.data` keeps the private keys of your wallets encrypted, so its safe to copy it wherever you want.
 
 ## Supported Chains
-| Chain               | Status       |
-|---------------------|--------------|
-| Ethereum            | Supported    |
-| Optimism            | Partial      |
-| Binance Smart Chain | Partial      |
-| Base Chain          | Partial      |
-| Arbitrum            | Partial      |
+- Ethereum Mainnet
+- Optimism
+- Arbitrum
+- Base
+- Binance Smart Chain
 
 ## Supported Platforms
-| Platform | Status       |
-|----------|--------------|
-| Windows  | Supported    |
-| Linux    | Supported    |
-| MacOS    | Not Supported |
+- Windows
+- Linux
 
 ---
 
@@ -59,14 +54,7 @@ All the data Zeus uses lives in the `data` folder, `account.data` keeps the priv
 ---
 
 ## Security
-> **Disclaimer** I'm not aware of any major bugs, but this is still work in progress and **not audited** so use at your own risk.
-
----
-
-## Issues/Bugs
-
-### Bridging Errors
-While bridging and waiting for the transaction to complete Zeus may return an error while trying to see if the order has been filled at the destination chain, this is RPC related and there is not much i can do. Some free RPC's work great some don't. But since the deposit has been confirmed on the origin chain the order should go through normally.
+I'm not aware of any major bugs, but this is still work in progress and **not audited** so use at your own risk.
 
 ---
 
