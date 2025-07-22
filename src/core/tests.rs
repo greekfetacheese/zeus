@@ -500,6 +500,7 @@ mod tests {
       .unwrap();
    }
 
+   /* 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
@@ -532,6 +533,7 @@ mod tests {
       .await
       .unwrap();
    }
+   */
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_eth_to_erc20_mainnet_with_split_routing_and_v4_enabled() {

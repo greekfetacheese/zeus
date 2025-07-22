@@ -41,7 +41,7 @@ pub struct SwapExecuteParams {
    pub call_data: Bytes,
    /// The eth to be sent along with the transaction
    pub value: U256,
-   /// Through Permit2
+   /// Whether we need to approve Permit2 contract to spend the token
    pub token_needs_approval: bool,
    /// The message to be signed
    ///

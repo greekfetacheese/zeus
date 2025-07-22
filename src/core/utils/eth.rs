@@ -205,8 +205,7 @@ pub async fn send_transaction(
       if mev_client_res.is_err() {
          SHARED_GUI.write(|gui| {
             let msg2 = "Continue without MEV protection?";
-            gui.confirm_window
-               .open("Error while connecting to MEV protect RPC");
+            gui.confirm_window.open("Error while connecting to MEV protect RPC");
             gui.confirm_window.set_msg2(msg2);
             gui.request_repaint();
          });
@@ -245,10 +244,7 @@ pub async fn send_transaction(
    let receipt = tx::send_tx(new_client, tx_params).await?;
 
    let logs: Vec<Log> = receipt.logs().to_vec();
-   let logs = logs
-      .iter()
-      .map(|l| l.clone().into_inner())
-      .collect::<Vec<_>>();
+   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
 
    let timestamp = std::time::SystemTime::now()
       .duration_since(std::time::UNIX_EPOCH)
@@ -310,10 +306,7 @@ pub async fn send_transaction(
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
-      manager
-         .update_eth_balance(ctx_clone.clone(), chain.id(), from)
-         .await
-         .unwrap();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
       ctx_clone.save_balance_manager();
    });
 
@@ -321,10 +314,7 @@ pub async fn send_transaction(
    if exists {
       RT.spawn(async move {
          let manager = ctx.balance_manager();
-         manager
-            .update_eth_balance(ctx.clone(), chain.id(), interact_to)
-            .await
-            .unwrap();
+         manager.update_eth_balance(ctx.clone(), chain.id(), interact_to).await.unwrap();
          ctx.save_balance_manager();
       });
    }
@@ -381,11 +371,6 @@ pub async fn sign_message(
    chain: ChainId,
    msg: Value,
 ) -> Result<Signature, anyhow::Error> {
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Loading...");
-      gui.request_repaint();
-   });
-
    let typed_data = parse_typed_data(msg)?;
    let msg_type = SignMsgType::new(ctx.clone(), chain.id(), typed_data.clone()).await;
 
@@ -540,8 +525,7 @@ pub async fn unwrap_weth(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -677,8 +661,7 @@ pub async fn wrap_eth(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -810,10 +793,7 @@ pub async fn swap(
    let balance_before = if currency_out.is_native() {
       ctx.get_eth_balance(chain.id(), from).wei()
    } else {
-      currency_out
-         .to_erc20()
-         .balance_of(client.clone(), from, None)
-         .await?
+      currency_out.to_erc20().balance_of(client.clone(), from, None).await?
    };
 
    // calculate the real amount out
@@ -898,15 +878,13 @@ pub async fn swap(
    SHARED_GUI.reset_loading();
    SHARED_GUI.request_repaint();
 
+   let msg_value = execute_params.message.as_ref();
+
+   if let Some(msg_value) = msg_value {
+      let _ = sign_message(ctx.clone(), "".to_string(), chain, msg_value.clone()).await?;
+   }
+
    if execute_params.token_needs_approval {
-      let msg_value = execute_params.message.clone();
-      if msg_value.is_none() {
-         return Err(anyhow!("Missing message"));
-      }
-
-      let msg_value = msg_value.unwrap();
-      let _ = sign_message(ctx.clone(), "".to_string(), chain, msg_value).await?;
-
       let permit2 = permit2_contract(chain.id())?;
       let token = currency_in.to_erc20();
 
@@ -985,8 +963,7 @@ pub async fn swap(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -1007,10 +984,7 @@ pub async fn swap(
       let mut portfolio = ctx.get_portfolio(chain.id(), from);
       if !portfolio.has_token(&currency_out) {
          portfolio.add_token(currency_out);
-         ctx.write(|ctx| {
-            ctx.portfolio_db
-               .insert_portfolio(chain.id(), from, portfolio)
-         });
+         ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       }
       ctx.calculate_portfolio_value(chain.id(), from);
       ctx.save_balance_manager();
@@ -1071,8 +1045,7 @@ pub async fn collect_fees_position_v3(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -1104,8 +1077,7 @@ pub async fn collect_fees_position_v3(
    position.fee_growth_inside1_last_x128 = updated_position.fee_growth_inside1_last_x128;
 
    ctx.write(|ctx| {
-      ctx.v3_positions_db
-         .insert(chain.id(), position.owner, position);
+      ctx.v3_positions_db.insert(chain.id(), position.owner, position);
    });
 
    ctx.save_v3_positions_db();
@@ -1290,8 +1262,7 @@ pub async fn decrease_liquidity_position_v3(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -1670,8 +1641,7 @@ pub async fn increase_liquidity_position_v3(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -1777,14 +1747,10 @@ pub async fn mint_new_liquidity_position_v3(
    let amount0 = NumericValue::format_wei(final_amount0, pool.currency0().decimals());
    let amount1 = NumericValue::format_wei(final_amount1, pool.currency0().decimals());
 
-   let lower_tick: Signed<24, 1> = lower_tick
-      .to_string()
-      .parse()
-      .context("Failed to parse lower tick")?;
-   let upper_tick: Signed<24, 1> = upper_tick
-      .to_string()
-      .parse()
-      .context("Failed to parse upper tick")?;
+   let lower_tick: Signed<24, 1> =
+      lower_tick.to_string().parse().context("Failed to parse lower tick")?;
+   let upper_tick: Signed<24, 1> =
+      upper_tick.to_string().parse().context("Failed to parse upper tick")?;
 
    let mut amount0_min = amount0.clone();
    let mut amount1_min = amount1.clone();
@@ -2050,10 +2016,7 @@ pub async fn mint_new_liquidity_position_v3(
    }
 
    let logs: Vec<Log> = receipt.logs().to_vec();
-   let log_data = logs
-      .iter()
-      .map(|l| l.clone().into_inner())
-      .collect::<Vec<_>>();
+   let log_data = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
 
    let mut position_info = None;
 
@@ -2081,8 +2044,7 @@ pub async fn mint_new_liquidity_position_v3(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -2113,9 +2075,7 @@ pub async fn mint_new_liquidity_position_v3(
       let amount0 = NumericValue::format_wei(position_info.amount0, pool.currency0().decimals());
       let amount1 = NumericValue::format_wei(position_info.amount1, pool.currency1().decimals());
 
-      let timestamp = std::time::SystemTime::now()
-         .duration_since(std::time::UNIX_EPOCH)?
-         .as_secs();
+      let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
       let v3_position = V3Position {
          chain_id: chain.id(),
@@ -2184,8 +2144,7 @@ pub async fn send_crypto(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });

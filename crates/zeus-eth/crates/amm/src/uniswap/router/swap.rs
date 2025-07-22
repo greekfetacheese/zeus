@@ -83,10 +83,11 @@ where
          token_in.address,
          router_addr,
       );
+
       let allowance_fut = token_in.allowance(client.clone(), owner, permit2_address);
 
       let (data, allowance) = tokio::try_join!(data_fut, allowance_fut)?;
-      let token_needs_permit2_approval = allowance < amount_in;
+      let permit2_contract_need_approval = allowance < amount_in;
 
       let current_time = std::time::SystemTime::now()
          .duration_since(std::time::UNIX_EPOCH)?
@@ -129,7 +130,7 @@ where
          inputs.push(permit_input);
 
          execute_params.set_message(Some(value));
-         execute_params.set_token_needs_approval(token_needs_permit2_approval);
+         execute_params.set_token_needs_approval(permit2_contract_need_approval);
       }
    }
 
@@ -237,8 +238,8 @@ where
    let ur_has_weth_balance = router_weth_balance > U256::ZERO;
    let ur_has_eth_balance = router_eth_balance > U256::ZERO;
 
-   let mut should_sweep = false;
-   let mut amount_to_sweep = U256::ZERO;
+   let mut should_sweep = true;
+   let amount_to_sweep = amount_out_min;
 
    // Handle native ETH output
 
@@ -247,6 +248,8 @@ where
       let data = abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
+
+      should_sweep = false;
    }
 
    // UR has both WETH and ETH, We need to UNWRAP WETH and then let the SWEEP to send all the ETH
@@ -257,14 +260,6 @@ where
       let data = abi::uniswap::encode_unwrap_weth(router_addr, weth_amount.wei());
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
-
-      should_sweep = true;
-      amount_to_sweep = amount_out_min;
-   }
-
-   if currency_out.is_erc20() {
-      should_sweep = true;
-      amount_to_sweep = amount_out_min;
    }
 
    if should_sweep {
