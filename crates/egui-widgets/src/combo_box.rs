@@ -1,7 +1,7 @@
 use super::Label;
 use egui::{
-   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, Popup, PopupCloseBehavior, Rect,
-   Response, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
+   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, Popup, PopupCloseBehavior, PopupKind,
+   Rect, Response, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
    epaint::{RectShape, Shape, StrokeKind},
    style::WidgetVisuals,
 };
@@ -99,9 +99,7 @@ impl ComboBoxWithImage {
       // Popup Handling
       let popup_default_height = 200.0;
       let popup_current_height = ui.memory(|m| {
-         m.area_rect(popup_id)
-            .map(|rect| rect.height())
-            .unwrap_or(popup_default_height)
+         m.area_rect(popup_id).map(|rect| rect.height()).unwrap_or(popup_default_height)
       });
 
       let button_bottom = button_response.rect.bottom();
@@ -117,17 +115,14 @@ impl ComboBoxWithImage {
          AboveOrBelow::Above
       };
 
-      let popup_max_h = self
-         .popup_max_height
-         .unwrap_or_else(|| ui.spacing().combo_height);
-
+      let popup_max_h = self.popup_max_height.unwrap_or_else(|| ui.spacing().combo_height);
       let popup_max_w = self.width.unwrap_or(ui.available_width());
+      let close_behavior = self.close_behavior.unwrap_or(PopupCloseBehavior::CloseOnClick);
 
-      let close_behavior = self
-         .close_behavior
-         .unwrap_or(PopupCloseBehavior::CloseOnClick);
+      let popup = Popup::menu(&button_response)
+         .close_behavior(close_behavior)
+         .kind(PopupKind::Tooltip);
 
-      let popup = Popup::menu(&button_response).close_behavior(close_behavior);
       let inner = popup.show(|ui| {
          ScrollArea::vertical()
             .max_height(popup_max_h)

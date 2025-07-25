@@ -4,7 +4,10 @@ use crate::core::{
    utils::{RT, theme_kind_dir},
 };
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
+use egui::{
+   Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui,
+   Window, vec2,
+};
 use egui_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
@@ -29,8 +32,10 @@ const M_COST_TIP: &str =
 
 const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run over the memory. Higher values are more secure but slower.";
 
-const P_COST_TIP: &str = "How many parallel lanes (threads) the Argon2 algorithm will use. Normally this number should not be greater than the number of cores on your computer,
- but you can safely increase it to as much as you want since even if the P_COST exceeds the cores of the computer there is no performance gain/penalty but in a case of a GPU/ASIC attack it will be harder for the attacker to compute the hash";
+const P_COST_TIP: &str = "How many parallel lanes (threads) the Argon2 algorithm will use.
+ Normally this number should not be greater than the number of cores on your CPU,
+ but you can safely increase it to as much as you want since even if the P_COST exceeds the cores of the CPU
+  there is some performance penalty but in a case of a GPU/ASIC attack it will be even harder for the attacker to compute the hash";
 
 pub struct ThemeSettings {
    open: bool,
@@ -41,12 +46,10 @@ impl ThemeSettings {
    pub fn new() -> Self {
       Self {
          open: false,
-         size: (200.0, 150.0),
+         size: (400.0, 120.0),
       }
    }
 
-   // ! For some reason the contents of the window are not centered
-   // ! But if we minimιze the window app and then brign it up again, the contents are centered
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
@@ -68,24 +71,22 @@ impl ThemeSettings {
 
                let selected_text = RichText::new(theme.kind.to_str()).size(theme.text_sizes.normal);
                let label = Label::new(selected_text, None);
-               ComboBox::new("theme_settings_combobox", label)
-                  .width(ui.available_width())
-                  .show_ui(ui, |ui| {
-                     for kind in ThemeKind::to_vec() {
-                        let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
-                        let label = Label::new(text, None).sense(Sense::click());
+               ComboBox::new("theme_settings_combobox", label).width(200.0).show_ui(ui, |ui| {
+                  for kind in ThemeKind::to_vec() {
+                     let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
+                     let label = Label::new(text, None).sense(Sense::click());
 
-                        if ui.add(label).clicked() {
-                           let new_theme = Theme::new(kind);
-                           ui.ctx().set_style(new_theme.style.clone());
-                           RT.spawn_blocking(move || {
-                              SHARED_GUI.write(|gui| {
-                                 gui.theme = new_theme;
-                              });
+                     if ui.add(label).clicked() {
+                        let new_theme = Theme::new(kind);
+                        ui.ctx().set_style(new_theme.style.clone());
+                        RT.spawn_blocking(move || {
+                           SHARED_GUI.write(|gui| {
+                              gui.theme = new_theme;
                            });
-                        }
+                        });
                      }
-                  });
+                  }
+               });
 
                let text = RichText::new("Save").size(theme.text_sizes.normal);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.7, 35.0));
@@ -443,7 +444,10 @@ impl EncryptionSettings {
                   .on_hover_text(P_COST_TIP);
 
                ui.allocate_ui(slider_size, |ui| {
-                  ui.add(Slider::new(&mut self.argon_params.p_cost, 1..=MAX_P_COST));
+                  ui.add(Slider::new(
+                     &mut self.argon_params.p_cost,
+                     1..=MAX_P_COST,
+                  ));
                });
 
                ui.add_space(20.0);
@@ -469,7 +473,7 @@ impl EncryptionSettings {
          });
 
          // Encrypt the account with the new params
-        // let time = std::time::Instant::now();
+         // let time = std::time::Instant::now();
          match ctx.encrypt_and_save_account(None, Some(new_params.clone())) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
@@ -490,7 +494,7 @@ impl EncryptionSettings {
                return;
             }
          };
-        // tracing::info!("Encryption took {} secs", time.elapsed().as_secs_f32());
+         // tracing::info!("Encryption took {} secs", time.elapsed().as_secs_f32());
       });
    }
 }
@@ -647,12 +651,10 @@ impl PerformanceSettings {
    fn save_settings(&self, ctx: ZeusCtx) {
       let save_balance_manager =
          if self.concurrency_for_syncing_balances != ctx.balance_manager().concurrency() {
-            ctx.balance_manager()
-               .set_concurrency(self.concurrency_for_syncing_balances);
+            ctx.balance_manager().set_concurrency(self.concurrency_for_syncing_balances);
             true
          } else if self.batch_size_for_syncing_balances != ctx.balance_manager().batch_size() {
-            ctx.balance_manager()
-               .set_batch_size(self.batch_size_for_syncing_balances);
+            ctx.balance_manager().set_batch_size(self.batch_size_for_syncing_balances);
             true
          } else {
             false
@@ -660,8 +662,7 @@ impl PerformanceSettings {
 
       let save_pool_manager =
          if self.concurrency_for_syncing_pools != ctx.pool_manager().concurrency() {
-            ctx.pool_manager()
-               .set_concurrency(self.concurrency_for_syncing_pools);
+            ctx.pool_manager().set_concurrency(self.concurrency_for_syncing_pools);
             true
          } else if self.batch_size_for_updating_pools_state
             != ctx.pool_manager().batch_size_for_updating_pools_state()
@@ -676,12 +677,10 @@ impl PerformanceSettings {
                .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
             true
          } else if self.sync_v4_pools_on_startup != ctx.pool_manager().do_we_sync_v4_pools() {
-            ctx.pool_manager()
-               .set_sync_v4_pools(self.sync_v4_pools_on_startup);
+            ctx.pool_manager().set_sync_v4_pools(self.sync_v4_pools_on_startup);
             true
          } else if self.ignore_chains != ctx.pool_manager().ignore_chains() {
-            ctx.pool_manager()
-               .set_ignore_chains(self.ignore_chains.clone());
+            ctx.pool_manager().set_ignore_chains(self.ignore_chains.clone());
             true
          } else {
             false

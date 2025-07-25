@@ -259,7 +259,7 @@ impl NetworkSettings {
    pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.add_rpc;
 
-      Window::new(RichText::new("Add Network").size(theme.text_sizes.normal))
+      Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -274,10 +274,11 @@ impl NetworkSettings {
             ui.vertical_centered(|ui| {
                let ui_width = ui.available_width();
 
+               let hint_text = RichText::new("Enter a url").size(theme.text_sizes.normal);
                ui.add(
                   TextEdit::singleline(&mut self.url_to_add)
-                     .hint_text("Enter a url")
-                     .font(FontId::proportional(theme.text_sizes.small))
+                     .hint_text(hint_text)
+                     .font(FontId::proportional(theme.text_sizes.normal))
                      .min_size(vec2(ui_width * 0.5, 20.0))
                      .margin(Margin::same(10)),
                );
@@ -287,7 +288,7 @@ impl NetworkSettings {
                   ui.label(
                      RichText::new("Invalid URL")
                         .size(theme.text_sizes.small)
-                        .color(Color32::RED),
+                        .color(theme.colors.error_color),
                   );
                }
 
