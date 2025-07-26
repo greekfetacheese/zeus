@@ -87,9 +87,9 @@ impl Currency {
    }
 
    /// Convert this currency to its wrapped native currency
-   /// 
-   /// Shortcut for [Self::to_wrapped_native]
-   pub fn to_weth_currency(&self) -> Currency {
+   ///
+   /// Same as [Self::to_wrapped_native] but returns a [Currency]
+   pub fn to_weth(&self) -> Currency {
       Currency::from(self.to_wrapped_native())
    }
 
@@ -106,11 +106,17 @@ impl Currency {
       }
    }
 
-   /// Get the address of the ERC20 token
+   /// Get the address of this Currency
    ///
-   /// Shortcut for [Self::to_erc20()]
+   /// If it's a `NativeCurrency`, we return [Address::ZERO]
+   ///
+   /// If it's an `ERC20Token`, we return it's address
    pub fn address(&self) -> Address {
-      self.to_erc20().address
+      if self.is_erc20() {
+         self.to_erc20().address
+      } else {
+         Address::ZERO
+      }
    }
 
    /// Get the ERC20 inside

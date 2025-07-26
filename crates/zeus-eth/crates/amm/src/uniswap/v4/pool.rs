@@ -150,17 +150,8 @@ impl UniswapV4Pool {
    }
 
    pub fn sort_currency_address(currency_a: &Currency, currency_b: &Currency) -> (Address, Address) {
-      let address_a = if currency_a.is_native() {
-         Address::ZERO
-      } else {
-         currency_a.address()
-      };
-
-      let address_b = if currency_b.is_native() {
-         Address::ZERO
-      } else {
-         currency_b.address()
-      };
+      let address_a = currency_a.address();
+      let address_b = currency_b.address();
 
       if address_a < address_b {
          (address_a, address_b)

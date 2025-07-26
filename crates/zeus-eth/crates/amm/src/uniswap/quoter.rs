@@ -157,7 +157,7 @@ fn find_all_paths(
 
    // Handle ETH -> WETH equivalence by treating them as the same starting node
    let start_nodes = if start_currency.is_native() {
-      vec![start_currency.clone(), start_currency.to_weth_currency()]
+      vec![start_currency.clone(), start_currency.to_weth()]
    } else {
       vec![start_currency]
    };
@@ -182,7 +182,7 @@ fn find_all_paths(
 
       // Handle ETH/WETH equivalence for the destination
       let is_end_node = if end_currency.is_native() {
-         *last_currency_in_path == end_currency || *last_currency_in_path == end_currency.to_weth_currency()
+         *last_currency_in_path == end_currency || *last_currency_in_path == end_currency.to_weth()
       } else {
          *last_currency_in_path == end_currency
       };

@@ -49,7 +49,7 @@ where
    let mut inputs = Vec::new();
    let mut execute_params = SwapExecuteParams::new();
 
-   let weth_currency = currency_in.to_weth_currency();
+   let weth_currency = currency_in.to_weth();
 
    if currency_in.is_native() {
       // Always set the tx value to the total input amount when dealing with native ETH.
@@ -263,14 +263,8 @@ where
    }
 
    if should_sweep {
-      let address_out = if currency_out.is_native() {
-         Address::ZERO
-      } else {
-         currency_out.address()
-      };
-
       let sweep_params = Sweep {
-         token: address_out,
+         token: currency_out.address(),
          recipient,
          amountMin: amount_to_sweep,
       };
@@ -308,15 +302,9 @@ fn encode_v4_internal_actions(
    let (swap_action, swap_input) =
       encode_v4_swap_single_command_input(pool, swap_type, currency_in, amount_in, amount_out_min)?;
 
-   let address_in = if currency_in.is_native() {
-      Address::ZERO
-   } else {
-      currency_in.address()
-   };
-
    // Settle tells the V4 contract how to receive the input tokens
    let settle = SettleParams {
-      currency: address_in,
+      currency: currency_in.address(),
       amount: amount_in,
       payerIsUser: uses_initial_funds, // True if funds come from user, false if from UR's balance in V4
    };
@@ -324,14 +312,8 @@ fn encode_v4_internal_actions(
    let settle_action = Actions::SETTLE(settle);
    let settle_input = settle_action.abi_encode();
 
-   let address_out = if currency_out.is_native() {
-      Address::ZERO
-   } else {
-      currency_out.address()
-   };
-
    let take_params = TakeParams {
-      currency: address_out,
+      currency: currency_out.address(),
       recipient: router_addr,
       amount: amount_out_min,
    };
