@@ -63,15 +63,13 @@ impl Theme {
    ///
    /// Use [Theme::from_custom()] instead
    pub fn new(kind: ThemeKind) -> Self {
-      let theme = match kind {
+      match kind {
          ThemeKind::Frappe => themes::frappe::theme(),
          ThemeKind::Latte => themes::latte::theme(),
          ThemeKind::TokyoNight => themes::tokyo_night::theme(),
          ThemeKind::Nord => themes::nord::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
-      };
-
-      theme
+      }
    }
 
    /// Load a custom theme from a json file

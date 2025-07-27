@@ -53,7 +53,7 @@ impl CurrencyDB {
    }
 
    pub fn build_map(&mut self) {
-      for (_, currencies_arc) in &self.currencies {
+      for currencies_arc in self.currencies.values() {
          for currency in currencies_arc.iter() {
             if let Some(token) = currency.erc20() {
                self

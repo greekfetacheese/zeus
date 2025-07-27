@@ -236,7 +236,7 @@ impl CreatePositionUi {
                         SHARED_GUI.write(|gui| {
                            gui.msg_window.open(
                               "Invalid Days",
-                              format!("Days must be greater than 0"),
+                              "Days must be greater than 0",
                            );
                            gui.request_repaint();
                         });
@@ -568,7 +568,7 @@ impl CreatePositionUi {
       }
 
       // sort pool by the lowest to highest fee
-      pools.sort_by(|a, b| a.fee().fee().cmp(&b.fee().fee()));
+      pools.sort_by_key(|a| a.fee().fee());
 
       // Fee Tier
       let text = RichText::new("Fee Tier").size(theme.text_sizes.very_large);
@@ -634,7 +634,7 @@ impl CreatePositionUi {
       let direction = token_selection.get_currency_direction();
 
       if let Some(currency) = selected_currency {
-         self.replace_currency(&direction, currency.clone());
+         self.replace_currency(direction, currency.clone());
          token_selection.reset();
 
          // update token balances
@@ -780,9 +780,9 @@ impl SetPriceRangeUi {
 
       // Price is expressed Token0 in terms of Token1
       // Aka how much Token1 per Token0
-      let price = pool.calculate_price(&currency0).unwrap_or(0.0);
-      let price0_usd = ctx.get_currency_price(&currency0);
-      let price1_usd = ctx.get_currency_price(&currency1);
+      let price = pool.calculate_price(currency0).unwrap_or(0.0);
+      let price0_usd = ctx.get_currency_price(currency0);
+      let price1_usd = ctx.get_currency_price(currency1);
 
       let state = pool.state().v3_state();
       if state.is_none() {

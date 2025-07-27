@@ -85,7 +85,7 @@ where
                .build()
                .expect("failed to create fork-backend-thread tokio runtime");
 
-            rt.block_on(async move { handler.await });
+            rt.block_on(handler);
          })
          .expect("failed to spawn backendhandler thread");
 
@@ -99,15 +99,12 @@ where
 
    /// Insert storage into local db
    pub fn insert_account_storage(&mut self, address: Address, slot: U256, value: U256) -> DatabaseResult<()> {
-      if self.initial_db.cache.accounts.get(&address).is_none() {
+      if !self.initial_db.cache.accounts.contains_key(&address) {
          // set basic info as its missing
-         let info = match self.do_get_basic(address) {
-            Ok(i) => i,
-            Err(e) => return Err(e),
-         };
+         let info = self.do_get_basic(address)?;
 
-         if info.is_some() {
-            self.initial_db.insert_account_info(address, info.unwrap());
+         if let Some(info) = info {
+            self.initial_db.insert_account_info(address, info);
          }
       }
       self
@@ -187,7 +184,7 @@ where
          .flat_map(|x| x.iter().copied())
          .collect::<Vec<u8>>();
       let slot_hash = keccak256(&data);
-      let slot: U256 = U256::from_be_bytes(slot_hash.try_into().expect("Slot Hash must be 32 bytes"));
+      let slot: U256 = U256::from_be_bytes(slot_hash.into());
 
       if let Err(e) = self.insert_account_storage(token, slot, amount) {
          return Err(anyhow::anyhow!("Failed to insert account storage: {}", e));

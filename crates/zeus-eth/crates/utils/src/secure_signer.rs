@@ -3,6 +3,7 @@ use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
 use secure_types::{SecureString, SecureVec, Zeroize};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecureSigner {
@@ -20,7 +21,12 @@ impl SecureSigner {
    pub fn key_string(&self) -> SecureString {
       let signer = self.to_signer();
       let mut key = signer.to_bytes();
-      let string = key.iter().map(|b| format!("{b:02x}")).collect::<String>();
+      let string = key
+         .iter()
+         .fold(String::with_capacity(key.len() * 2), |mut s, b| {
+            write!(&mut s, "{b:02x}").unwrap();
+            s
+         });
       key.zeroize();
       SecureString::from(string.as_str())
    }
@@ -39,10 +45,9 @@ impl SecureSigner {
    }
 
    pub fn to_signer(&self) -> PrivateKeySigner {
-      let signer = self
+      self
          .vec
-         .slice_scope(|bytes| PrivateKeySigner::from_slice(bytes).expect("Failed to create signer"));
-      signer
+         .slice_scope(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
    }
 
    pub fn to_wallet(&self) -> EthereumWallet {

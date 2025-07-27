@@ -4,10 +4,7 @@ use crate::core::{
    utils::{RT, theme_kind_dir},
 };
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use egui::{
-   Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui,
-   Window, vec2,
-};
+use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
@@ -116,7 +113,6 @@ impl ThemeSettings {
                            SHARED_GUI.write(|gui| {
                               gui.msg_window.open("Failed to save theme", e.to_string());
                            });
-                           return;
                         }
                      }
                   });
@@ -306,12 +302,8 @@ impl SettingsUi {
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.open = false;
-                                 gui.open_msg_window(
-                                    "Failed to decrypt account",
-                                    &format!("{}", e),
-                                 );
+                                 gui.open_msg_window("Failed to decrypt account", format!("{}", e));
                               });
-                              return;
                            }
                         };
                      });
@@ -356,7 +348,7 @@ impl SettingsUi {
                                  gui.loading_window.open = false;
                                  gui.open_msg_window(
                                     "Failed to update credentials",
-                                    &format!("{}", e),
+                                    format!("{}", e),
                                  );
                               });
                               return;
@@ -371,13 +363,11 @@ impl SettingsUi {
          });
 
       // If the window was open in the first place
-      if self.credentials.open {
-         if !open {
-            self.credentials.erase();
-            self.credentials.open = false;
-            self.credentials.additional_frame = true;
-            self.verified_credentials = false;
-         }
+      if self.credentials.open && !open {
+         self.credentials.erase();
+         self.credentials.open = false;
+         self.credentials.additional_frame = true;
+         self.verified_credentials = false;
       }
    }
 }
@@ -488,10 +478,9 @@ impl EncryptionSettings {
                   gui.loading_window.open = false;
                   gui.open_msg_window(
                      "Failed to update encryption settings",
-                     &format!("{}", e),
+                     format!("{}", e),
                   );
                });
-               return;
             }
          };
          // tracing::info!("Encryption took {} secs", time.elapsed().as_secs_f32());

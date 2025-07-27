@@ -402,7 +402,7 @@ pub fn decode_collect(data: &Bytes) -> Result<(U256, U256), anyhow::Error> {
 
 
 pub fn decode_mint_call(bytes: &Bytes) -> Result<INonfungiblePositionManager::mintReturn, anyhow::Error> {
-   let res = INonfungiblePositionManager::mintCall::abi_decode_returns(&bytes)?;
+   let res = INonfungiblePositionManager::mintCall::abi_decode_returns(bytes)?;
    Ok(res)
 }
 

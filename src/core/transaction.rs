@@ -251,11 +251,7 @@ impl TransactionAction {
 
       if self.is_uniswap_position_op() {
          let params = self.uniswap_position_params();
-         if params.op_is_collect_fees() {
-            return false;
-         } else {
-            return true;
-         }
+         return !params.op_is_collect_fees();
       }
 
       if self.is_other() {
@@ -435,7 +431,7 @@ impl BridgeParams {
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
       let mut decode_log = None;
-      if let Ok(decoded) = across::decode_funds_deposited_log(&log) {
+      if let Ok(decoded) = across::decode_funds_deposited_log(log) {
          decode_log = Some(decoded);
       }
 
@@ -549,7 +545,7 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v2::pool::decode_swap_log(&log) {
+      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v2::pool::decode_swap_log(log) {
          (decoded, log.address)
       } else {
          return Err(anyhow::anyhow!("Log is not a UniswapV2 swap log"));
@@ -636,7 +632,7 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(&log) {
+      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(log) {
          (decoded, log.address)
       } else {
          return Err(anyhow::anyhow!("Log is not a UniswapV3 swap log"));
@@ -730,7 +726,7 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let swap = if let Ok(decoded) = uniswap::v4::decode_swap_log(&log) {
+      let swap = if let Ok(decoded) = uniswap::v4::decode_swap_log(log) {
          decoded
       } else {
          return Err(anyhow::anyhow!("Failed to decode swap log"));
@@ -880,7 +876,7 @@ impl ERC20TransferParams {
       let recipient = transfer_log.to;
 
       Ok(Self {
-         token: token,
+         token,
          amount,
          amount_usd: Some(amount_usd),
          sender,
@@ -902,7 +898,7 @@ impl TokenApproveParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
       let mut decoded = None;
       let mut token_addr = None;
-      if let Ok(decoded_log) = erc20::decode_approve_log(&log) {
+      if let Ok(decoded_log) = erc20::decode_approve_log(log) {
          decoded = Some(decoded_log);
          token_addr = Some(log.address);
       }
@@ -1158,8 +1154,8 @@ impl UniswapPositionParams {
       let collected0 = NumericValue::format_wei(collected0, pool.currency0().decimals());
       let collected1 = NumericValue::format_wei(collected1, pool.currency1().decimals());
 
-      let collected0_usd = ctx.get_currency_value_for_amount(collected0.f64(), &pool.currency0());
-      let collected1_usd = ctx.get_currency_value_for_amount(collected1.f64(), &pool.currency1());
+      let collected0_usd = ctx.get_currency_value_for_amount(collected0.f64(), pool.currency0());
+      let collected1_usd = ctx.get_currency_value_for_amount(collected1.f64(), pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::CollectFees,
@@ -1240,9 +1236,9 @@ impl UniswapPositionParams {
       let amount1_removed = NumericValue::format_wei(burn.amount1, pool.currency1().decimals());
 
       let amount0_usd_to_be_removed =
-         ctx.get_currency_value_for_amount(amount0_removed.f64(), &pool.currency0());
+         ctx.get_currency_value_for_amount(amount0_removed.f64(), pool.currency0());
       let amount1_usd_to_be_removed =
-         ctx.get_currency_value_for_amount(amount1_removed.f64(), &pool.currency1());
+         ctx.get_currency_value_for_amount(amount1_removed.f64(), pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::DecreaseLiquidity,
@@ -1321,8 +1317,8 @@ impl UniswapPositionParams {
       let amount0_minted = NumericValue::format_wei(mint.amount0, pool.currency0().decimals());
       let amount1_minted = NumericValue::format_wei(mint.amount1, pool.currency1().decimals());
 
-      let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &pool.currency0());
-      let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &pool.currency1());
+      let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), pool.currency0());
+      let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), pool.currency1());
 
       Ok(Self {
          position_operation: PositionOperation::AddLiquidity,

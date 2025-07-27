@@ -88,3 +88,10 @@ debug = true
 
 [features]
 dev = []
+
+[lints.clippy]
+new_without_default = "allow"
+too_many_arguments = "allow"
+unnecessary_unwrap = "allow"
+needless_return = "allow"
+needless_borrow = "deny"

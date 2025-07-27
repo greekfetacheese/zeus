@@ -42,6 +42,7 @@ pub struct SecureTextEditOutput {
 ///
 /// - Accessability like screen readers is disabled to avoid multiple unsecure allocations of the entered text.
 /// - If you want to make sure the text you enter doesn't stay in memory in any way you have to set [`Self::password`] to `true`.
+/// 
 /// Otherwise egui will make copies of that text and some of the copied allocations will stay in memory.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct SecureTextEdit<'a> {

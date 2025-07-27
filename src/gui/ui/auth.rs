@@ -555,7 +555,6 @@ impl RegisterUi {
                               gui.open_msg_window("Failed to create account", e.to_string());
                               gui.loading_window.open = false;
                            });
-                           return;
                         }
                      };
                   });

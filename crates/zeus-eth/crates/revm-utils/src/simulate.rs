@@ -38,11 +38,11 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Call Reverted: {}", err));
    }
 
-   let amount = abi::misc::decode_swap(&output)?;
+   let amount = abi::misc::decode_swap(output)?;
    Ok(amount)
 }
 
@@ -60,7 +60,7 @@ where
       .transact(evm.tx.clone())
       .map_err(|e| anyhow!("{:?}", e))?;
    let output = res.result.output().ok_or(anyhow!("Output not found"))?;
-   let balance = abi::erc20::decode_balance_of(&output)?;
+   let balance = abi::erc20::decode_balance_of(output)?;
    Ok(balance)
 }
 
@@ -96,7 +96,7 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Failed to transfer token: {}", err));
    }
 
@@ -128,7 +128,7 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Failed to approve token: {}", err));
    }
 
@@ -148,7 +148,7 @@ where
 {
    let data = abi::uniswap::nft_position::encode_mint(params);
    evm.tx.caller = caller;
-   evm.tx.data = data.into();
+   evm.tx.data = data;
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(contract);
 
@@ -164,12 +164,12 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       eprintln!("Failed to mint position: {} Gas Used: {}", err, res.gas_used());
       return Err(anyhow!("Failed to mint position: {}", err));
    }
 
-   let mint = abi::uniswap::nft_position::decode_mint_call(&output)?;
+   let mint = abi::uniswap::nft_position::decode_mint_call(output)?;
    Ok((res, mint))
 }
 
@@ -210,11 +210,11 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Call Reverted: {}", err));
    }
 
-   let (liquidity, amount0, amount1) = abi::uniswap::nft_position::decode_increase_liquidity_call(&output)?;
+   let (liquidity, amount0, amount1) = abi::uniswap::nft_position::decode_increase_liquidity_call(output)?;
    Ok((res, liquidity, amount0, amount1))
 }
 
@@ -248,11 +248,11 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Call Reverted: {}", err));
    }
 
-   let (amount0, amount1) = abi::uniswap::nft_position::decode_decrease_liquidity_call(&output)?;
+   let (amount0, amount1) = abi::uniswap::nft_position::decode_decrease_liquidity_call(output)?;
    Ok((res, amount0, amount1))
 }
 
@@ -272,7 +272,7 @@ where
 {
    let data = abi::uniswap::nft_position::encode_collect(params);
    evm.tx.caller = caller;
-   evm.tx.data = data.into();
+   evm.tx.data = data;
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(contract);
 
@@ -288,10 +288,10 @@ where
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       return Err(anyhow!("Failed to collect fees: {}", err));
    }
 
-   let (amount0, amount1) = abi::uniswap::nft_position::decode_collect(&output)?;
+   let (amount0, amount1) = abi::uniswap::nft_position::decode_collect(output)?;
    Ok((res, amount0, amount1))
 }

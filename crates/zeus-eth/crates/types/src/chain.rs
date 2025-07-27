@@ -26,9 +26,9 @@ impl Default for ChainId {
    }
 }
 
-impl Into<ChainId> for u64 {
-   fn into(self) -> ChainId {
-      ChainId::new(self).unwrap()
+impl From<u64> for ChainId {
+   fn from(id: u64) -> Self {
+      ChainId::new(id).unwrap()
    }
 }
 

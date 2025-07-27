@@ -87,8 +87,9 @@ impl SyncResult {
 /// 
 /// - `batch_size` The number of pools to sync in a single request
 ///
-/// - `from_block` From which block to start syncing, if None,
-///  it will start from the dex creation block
+/// - `from_block` From which block to start syncing
+/// 
+///  If None it will start from the dex creation block
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
    pub chain_id: u64,
@@ -134,7 +135,7 @@ where
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let results = Arc::new(Mutex::new(Vec::new()));
-   let semaphore = Arc::new(Semaphore::new(concurrency.into()));
+   let semaphore = Arc::new(Semaphore::new(concurrency));
 
    for checkpoint in checkpoints {
       let client = client.clone();
@@ -166,7 +167,7 @@ where
    }
 
    let synced = Arc::try_unwrap(results).unwrap().into_inner();
-   let synced = synced.get(0).unwrap().clone();
+   let synced = synced.first().unwrap().clone();
 
    Ok(synced)
 }
@@ -189,7 +190,7 @@ where
       );
    }
 
-   let semaphore = Arc::new(Semaphore::new(config.concurrency.into()));
+   let semaphore = Arc::new(Semaphore::new(config.concurrency));
    let results = Arc::new(Mutex::new(Vec::new()));
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
@@ -207,7 +208,7 @@ where
             client.clone(),
             config.chain_id,
             dex,
-            config.concurrency.into(),
+            config.concurrency,
             config.batch_size,
             config.from_block,
          )
@@ -257,11 +258,12 @@ where
 
    let synced_block = client.get_block_number().await?;
 
-   let from_block = if from_block.is_none() {
-      dex.creation_block(chain_id)?
+   let from_block = if let Some(block) = from_block {
+      block
    } else {
-      from_block.unwrap()
+      dex.creation_block(chain_id)?
    };
+
 
    tracing::trace!(
       target: "zeus_eth::amm::sync",
@@ -290,7 +292,6 @@ where
       let client = client.clone();
       let pools = pools.clone();
       let semaphore = semaphore.clone();
-      let chain_id = chain_id;
       let logs = log_batch.to_vec();
 
       let task = tokio::spawn(async move {

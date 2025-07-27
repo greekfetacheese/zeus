@@ -333,7 +333,7 @@ fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
                }
             });
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Network Error", &e.to_string());
+               gui.open_msg_window("Network Error", e.to_string());
                gui.settings.network.refreshing = false;
             });
          }

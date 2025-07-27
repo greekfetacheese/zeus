@@ -85,7 +85,7 @@ impl TokenSelectionWindow {
       icons: Arc<Icons>,
       chain_id: u64,
       owner: Address,
-      currencies: &Vec<Currency>,
+      currencies: &[Currency],
       ui: &mut Ui,
    ) {
       // Re-process the list only if the window was just opened or the owner/chain_id has changed.

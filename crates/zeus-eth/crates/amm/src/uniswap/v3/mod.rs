@@ -18,9 +18,7 @@ pub fn get_tick_from_price(price: f64) -> i32 {
 
    let sqrt_price = price.sqrt();
 
-   let tick = (sqrt_price.ln() / (1.0001_f64).sqrt().ln()).round() as i32;
-
-   tick
+   (sqrt_price.ln() / (1.0001_f64).sqrt().ln()).round() as i32
 }
 
 /// Calculates the price from a given tick, adjusting for token decimals.
@@ -152,11 +150,11 @@ pub fn calculate_swap(
 
    // Initialize a mutable state state struct to hold the dynamic simulated state of the pool
    let mut current_state = CurrentState {
-      sqrt_price_x_96: state.sqrt_price.clone(), //Active price on the pool
+      sqrt_price_x_96: state.sqrt_price, //Active price on the pool
       amount_calculated: I256::ZERO,             //Amount of token_out that has been calculated
       amount_specified_remaining: I256::from_raw(amount_in), //Amount of token_in that has not been swapped
-      tick: state.tick.clone(),                  //Current i24 tick of the pool
-      liquidity: state.liquidity.clone(),        //Current available liquidity in the tick range
+      tick: state.tick,                  //Current i24 tick of the pool
+      liquidity: state.liquidity,        //Current available liquidity in the tick range
    };
 
    // Keep track of the fee growth for the token being swapped in

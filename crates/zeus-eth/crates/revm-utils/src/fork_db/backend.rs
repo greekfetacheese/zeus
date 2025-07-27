@@ -283,7 +283,7 @@ where
 
                      // convert it to revm-style types
                      let (code, code_hash) = if !code.is_empty() {
-                        (Some(code.clone()), keccak256(&code).into())
+                        (Some(code.clone()), keccak256(&code))
                      } else {
                         (Some(revm::primitives::Bytes::default()), KECCAK_EMPTY)
                      };

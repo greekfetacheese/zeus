@@ -1,4 +1,4 @@
-use crate::core::{ZeusCtx, Dapp};
+use crate::core::{Dapp, ZeusCtx};
 use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
@@ -78,7 +78,7 @@ impl TransactionAnalysis {
          ..Default::default()
       };
 
-      let decoded_selector = analysis.decode_selector(&selector);
+      let decoded_selector = analysis.decode_selector(selector);
       analysis.decoded_selector = decoded_selector;
 
       let log_slice = logs.as_slice();
@@ -351,7 +351,7 @@ impl TransactionAnalysis {
    }
 
    pub fn is_swap(&self) -> bool {
-      self.swaps.len() >= 1
+      !self.swaps.is_empty()
    }
 
    pub fn value_sent(&self) -> NumericValue {
@@ -361,11 +361,10 @@ impl TransactionAnalysis {
 
    pub fn value_sent_usd(&self, ctx: ZeusCtx) -> NumericValue {
       let native = NativeCurrency::from(self.chain);
-      let value = ctx.get_currency_value_for_amount(
+      ctx.get_currency_value_for_amount(
          self.value_sent().f64(),
          &Currency::from(native.clone()),
-      );
-      value
+      )
    }
 
    pub fn eth_received(&self) -> NumericValue {
@@ -382,8 +381,6 @@ impl TransactionAnalysis {
 
    pub fn eth_received_usd(&self, ctx: ZeusCtx) -> NumericValue {
       let native = NativeCurrency::from(self.chain);
-      let value =
-         ctx.get_currency_value_for_amount(self.eth_received().f64(), &Currency::from(native));
-      value
+      ctx.get_currency_value_for_amount(self.eth_received().f64(), &Currency::from(native))
    }
 }

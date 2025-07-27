@@ -33,12 +33,11 @@ impl TxHistory {
 
    fn wallet_name_or_address(&self, ctx: ZeusCtx, address: Address) -> String {
       let wallet = ctx.get_wallet_info(address);
-      let name = if wallet.is_some() {
-         wallet.unwrap().name
+      if let Some(wallet) = wallet {
+         wallet.name
       } else {
          truncate_address(address.to_string())
-      };
-      name
+      }
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
@@ -68,10 +67,8 @@ impl TxHistory {
 
             // Wallet Filter
             let wallets = ctx.wallets_info();
-            let selected_wallet_name = self
-               .selected_wallet
-               .clone()
-               .map_or("All Wallets".to_string(), |wallet| {
+            let selected_wallet_name =
+               self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
                   wallet.name.clone()
                });
 
@@ -109,9 +106,8 @@ impl TxHistory {
                });
 
             // --- Chain Filter ---
-            let selected_chain_name = self
-               .selected_chain
-               .map_or("All Chains".to_string(), |chain| {
+            let selected_chain_name =
+               self.selected_chain.map_or("All Chains".to_string(), |chain| {
                   chain.name().to_string()
                });
 

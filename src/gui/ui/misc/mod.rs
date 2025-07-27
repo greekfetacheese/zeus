@@ -84,7 +84,7 @@ impl ChainSelect {
                   .sense(Sense::click());
 
                if ui.add(chain_label).clicked() {
-                  self.chain = chain.clone();
+                  self.chain = chain;
                   clicked = true;
                }
             }
@@ -938,7 +938,7 @@ impl PortfolioUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
-         let _ = ctx_clone.save_portfolio_db();
+         ctx_clone.save_portfolio_db();
       });
 
       let token = currency.to_erc20().into_owned();
@@ -1030,7 +1030,7 @@ impl PortfolioUi {
             let chain = ctx.chain().id();
 
             let mut portfolio = ctx.get_portfolio(chain, owner);
-            portfolio.remove_token(&currency);
+            portfolio.remove_token(currency);
             ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
 
             RT.spawn_blocking(move || {

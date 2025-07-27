@@ -62,6 +62,12 @@ pub struct SwapExecuteParams {
    pub message: Option<Value>,
 }
 
+impl Default for SwapExecuteParams {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
 impl SwapExecuteParams {
    pub fn new() -> Self {
       Self {
@@ -265,16 +271,12 @@ where
    let mut router_weth_balance = U256::ZERO;
 
    for swap in &swap_steps {
-      if swap.currency_in.is_native() {
-         if router_eth_balance >= swap.amount_in.wei() {
-            router_eth_balance -= swap.amount_in.wei();
-         }
+      if swap.currency_in.is_native() && router_eth_balance >= swap.amount_in.wei() {
+         router_eth_balance -= swap.amount_in.wei();
       }
 
-      if swap.currency_in.is_native_wrapped() {
-         if router_weth_balance >= swap.amount_in.wei() {
-            router_weth_balance -= swap.amount_in.wei();
-         }
+      if swap.currency_in.is_native_wrapped() && router_weth_balance >= swap.amount_in.wei() {
+         router_weth_balance -= swap.amount_in.wei();
       }
 
       if swap.currency_out.is_native() {

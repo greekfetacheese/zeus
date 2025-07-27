@@ -79,7 +79,7 @@ impl LabelWithImage {
       available_width_for_text: f32,
    ) -> (Arc<egui::Galley>, Vec2) {
       let layout_job = self.prepare_layout_job(ui, available_width_for_text);
-      let galley = ui.fonts(|fonts| fonts.layout_job(layout_job.into()));
+      let galley = ui.fonts(|fonts| fonts.layout_job(layout_job));
 
       let text_size = galley.size();
       let image_size = if let Some(image) = &self.image {

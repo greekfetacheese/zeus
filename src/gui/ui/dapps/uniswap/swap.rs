@@ -446,7 +446,7 @@ impl SwapUi {
             }
 
             // sort pool by the lowest to highest fee
-            pools.sort_by(|a, b| a.fee().fee().cmp(&b.fee().fee()));
+            pools.sort_by_key(|a| a.fee().fee());
 
             let changed = self.select_fee_tier(theme, &pools, ui);
 
@@ -516,7 +516,7 @@ impl SwapUi {
          let should_get_quote = self.should_get_quote(changed_currency, amount_changed);
 
          if let Some(currency) = selected_currency {
-            self.replace_currency(&direction, currency.clone());
+            self.replace_currency(direction, currency.clone());
             token_selection.reset();
          }
 
@@ -542,11 +542,11 @@ impl SwapUi {
       let should_unwrap = self.currency_in.is_native_wrapped() && self.currency_out.is_native();
 
       if should_wrap {
-         return Action::WrapETH;
+         Action::WrapETH
       } else if should_unwrap {
-         return Action::UnwrapWETH;
+         Action::UnwrapWETH
       } else {
-         return Action::Swap;
+         Action::Swap
       }
    }
 
@@ -582,7 +582,7 @@ impl SwapUi {
       ui: &mut Ui,
    ) {
       let valid_inputs = self.valid_inputs(ctx.clone());
-      let has_swap_steps = self.quote.swap_steps.len() > 0;
+      let has_swap_steps = !self.quote.swap_steps.is_empty();
       let has_balance = self.sufficient_balance(ctx.clone());
       let has_entered_amount = !self.amount_in.is_empty();
       let action = self.action();
@@ -604,7 +604,7 @@ impl SwapUi {
       }
 
       if valid_inputs && action.is_swap() && !has_swap_steps {
-         button_text = format!("No Routes Found");
+         button_text = "No Routes Found".to_string();
       }
 
       if !has_balance {
@@ -723,7 +723,7 @@ impl SwapUi {
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                let settings = &gui.uniswap.settings;
-               gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), &settings);
+               gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), settings);
             });
 
             match ctx_clone.save_pool_manager() {
@@ -830,17 +830,13 @@ impl SwapUi {
          // get a new quote
          SHARED_GUI.write(|gui| {
             let settings = &gui.uniswap.settings;
-            gui.uniswap.swap_ui.get_quote(ctx_clone, &settings);
+            gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
          });
       });
    }
 
    fn should_get_quote(&self, changed_currency: bool, changed_amount: bool) -> bool {
-      if changed_amount || changed_currency {
-         return true;
-      } else {
-         return false;
-      }
+      changed_amount || changed_currency
    }
 
    pub fn get_quote(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
@@ -1094,7 +1090,7 @@ impl SwapUi {
                   gui.progress_window.reset();
                   gui.loading_window.reset();
                   gui.tx_confirmation_window.reset();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                  gui.msg_window.open("Transaction Error", e.to_string());
                   gui.request_repaint();
                });
             }
@@ -1162,15 +1158,15 @@ pub fn get_relevant_pools(
                add_pool = true;
             }
          } else if is_base_to_shit_token_swap {
-            if pool.have(&currency_out) {
+            if pool.have(currency_out) {
                add_pool = true;
             }
          } else if is_shit_token_to_base_swap {
-            if pool.have(&currency_in) {
+            if pool.have(currency_in) {
                add_pool = true;
             }
          } else if is_shit_token_to_shit_token_swap {
-            if pool.have(&currency_in) || pool.have(&currency_out) {
+            if pool.have(currency_in) || pool.have(currency_out) {
                add_pool = true;
             }
          }

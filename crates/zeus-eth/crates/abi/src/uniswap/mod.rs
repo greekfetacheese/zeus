@@ -165,7 +165,7 @@ fn encode_v3_path(tokens: Vec<Address>, fees: Vec<U24>) -> Bytes {
 
    let mut path = Vec::new();
    for (i, token) in tokens.iter().enumerate() {
-      path.extend_from_slice(&token.to_vec());
+      path.extend_from_slice(token.as_ref());
       if i < fees.len() {
          let fee = fees[i];
          let fee_bytes: [u8; 3] = fee.to_be_bytes();

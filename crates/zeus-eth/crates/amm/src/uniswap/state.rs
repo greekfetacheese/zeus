@@ -33,7 +33,7 @@ pub fn decode_bitmap(word_pos: i16, bitmap: U256, tick_spacing: i32) -> Vec<i32>
    for i in 0..256 {
       // Check if the i-th bit is set
       if (bitmap >> i) & U256::from(1) != U256::ZERO {
-         let tick_offset = i as i32 * tick_spacing;
+         let tick_offset = i * tick_spacing;
          ticks.push(tick_start + tick_offset);
       }
    }
@@ -272,7 +272,7 @@ where
 
    let pool_data = batch::get_v3_state(client, block, vec![pool2]).await?;
    let data = pool_data
-      .get(0)
+      .first()
       .cloned()
       .ok_or_else(|| anyhow!("Pool data not found"))?;
 
@@ -301,7 +301,7 @@ where
 
    let state = batch::get_v4_pool_state(client.clone(), vec![pool_data], state_view, block).await?;
    let state = state
-      .get(0)
+      .first()
       .cloned()
       .ok_or_else(|| anyhow!("Pool data not found"))?;
 
@@ -335,7 +335,7 @@ where
    tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V2 pools ChainId {}", v2_addresses.len(), chain_id);
    let v2_reserves = Arc::new(Mutex::new(Vec::new()));
    let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-   let semaphore = Arc::new(Semaphore::new(concurrency as usize));
+   let semaphore = Arc::new(Semaphore::new(concurrency));
 
    for chunk in v2_addresses.chunks(batch_size) {
       let client = client.clone();

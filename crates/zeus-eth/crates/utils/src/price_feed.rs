@@ -76,16 +76,14 @@ where
 
    if chain == ChainId::BinanceSmartChain(chain_id) {
       if token == wbnb(chain_id)? {
-         return get_bnb_price(client, block).await;
+         get_bnb_price(client, block).await
       } else {
-         return get_stablecoin_price(client, chain_id, token, block).await;
+         get_stablecoin_price(client, chain_id, token, block).await
       }
+   } else if token == weth(chain_id)? {
+      get_eth_price(client, chain_id, block).await
    } else {
-      if token == weth(chain_id)? {
-         return get_eth_price(client, chain_id, block).await;
-      } else {
-         return get_stablecoin_price(client, chain_id, token, block).await;
-      }
+      get_stablecoin_price(client, chain_id, token, block).await
    }
 }
 

@@ -10,8 +10,8 @@ use utils::{
 };
 
 use serde::{Deserialize, Serialize};
-use std::hash::{Hash, Hasher};
 use std::cmp::Ordering;
+use std::hash::{Hash, Hasher};
 
 /// Represents an ERC20 token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -213,12 +213,9 @@ impl ERC20Token {
    pub fn base_token(chain_id: u64, address: Address) -> Option<ERC20Token> {
       let tokens = ERC20Token::base_tokens(chain_id);
 
-      for token in tokens {
-         if token.address == address && token.chain_id == chain_id {
-            return Some(token);
-         }
-      }
-      None
+      tokens
+         .into_iter()
+         .find(|token| token.address == address && token.chain_id == chain_id)
    }
 
    /// Return a list of base tokens based on the chain id.

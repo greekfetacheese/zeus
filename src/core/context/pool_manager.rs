@@ -714,12 +714,12 @@ impl PoolManagerHandle {
       let client = ctx.get_client(chain).await?;
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_syncing_pools);
-      let semaphore = Arc::new(Semaphore::new(concurrency.into()));
+      let semaphore = Arc::new(Semaphore::new(concurrency));
       let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
       let results = Arc::new(Mutex::new(Vec::new()));
 
-      for dex in &dexes {
-         if !self.should_sync_v4_pools(chain, *dex) {
+      for dex in dexes {
+         if !self.should_sync_v4_pools(chain, dex) {
             trace!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain);
             continue;
          }
@@ -727,7 +727,6 @@ impl PoolManagerHandle {
          let client = client.clone();
          let results = results.clone();
          let semaphore = semaphore.clone();
-         let dex = dex.clone();
 
          let checkpoint = self.read(|manager| manager.get_checkpoint(chain, dex));
          let manager = self.clone();
@@ -995,7 +994,7 @@ impl PoolManager {
    /// Get any pools that includes the given currency
    pub fn get_pools_that_have_currency(&self, currency: &Currency) -> Vec<AnyUniswapPool> {
       let mut pools = Vec::new();
-      for (_, pool) in &self.pools {
+      for pool in self.pools.values() {
          if pool.chain_id() != currency.chain_id() {
             continue;
          }
@@ -1014,7 +1013,7 @@ impl PoolManager {
       currency_b: &Currency,
    ) -> Vec<AnyUniswapPool> {
       let mut pools = Vec::new();
-      for (_, pool) in &self.pools {
+      for pool in self.pools.values() {
          if pool.chain_id() != chain_id {
             continue;
          }
@@ -1202,7 +1201,7 @@ impl PoolManager {
    }
 
    pub fn calculate_prices(&mut self) {
-      for (_, pool) in &self.pools {
+      for pool in self.pools.values() {
          if !pool.enough_liquidity() {
             continue;
          }

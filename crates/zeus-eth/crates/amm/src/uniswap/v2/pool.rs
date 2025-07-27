@@ -341,7 +341,7 @@ impl UniswapPool for UniswapV2Pool {
    }
 
    fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error> {
-      return Err(anyhow!("This method only applies to V4"));
+      Err(anyhow!("This method only applies to V4"))
    }
 
    async fn update_state<P, N>(&mut self, client: P, block: Option<BlockId>) -> Result<(), anyhow::Error>

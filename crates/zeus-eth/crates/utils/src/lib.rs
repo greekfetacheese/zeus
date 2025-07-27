@@ -162,12 +162,12 @@ where
          sig_deadline,
       );
 
-      return Ok(Some(Permit2ApprovalDetails {
+      Ok(Some(Permit2ApprovalDetails {
          permit_batch,
          msg_value,
-      }));
+      }))
    } else {
-      return Ok(None);
+      Ok(None)
    }
 }
 
@@ -483,14 +483,13 @@ pub fn format_price(price: f64) -> String {
 
    // Add commas to integer part
    let mut formatted_integer = String::new();
-   let mut count = 0;
-   for c in integer_part.chars().rev() {
+   for (count, c) in integer_part.chars().rev().enumerate() {
       if count > 0 && count % 3 == 0 {
          formatted_integer.push(',');
       }
       formatted_integer.push(c);
-      count += 1;
    }
+   
    let formatted_integer = formatted_integer.chars().rev().collect::<String>();
 
    let decimal_places = if price >= 1.0 {

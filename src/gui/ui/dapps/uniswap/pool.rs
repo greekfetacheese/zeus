@@ -149,7 +149,7 @@ impl PoolsUi {
                   });
 
                   for (_key, pool) in pools {
-                     let valid_search = valid_search(&pool, &query);
+                     let valid_search = valid_search(pool, query);
                      if !valid_search {
                         continue;
                      }
@@ -162,8 +162,8 @@ impl PoolsUi {
                         let token0 = pool.currency0();
                         let token1 = pool.currency1();
 
-                        let icon0 = icons.currency_icon(&token0);
-                        let icon1 = icons.currency_icon(&token1);
+                        let icon0 = icons.currency_icon(token0);
+                        let icon1 = icons.currency_icon(token1);
 
                         let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
                         let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);

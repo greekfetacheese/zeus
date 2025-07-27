@@ -111,7 +111,7 @@ pub async fn send_transaction(
       let bytecode = bytecode_fut.await?;
       let contract_interact = Some(bytecode.len() > 0);
 
-      let tx_analysis = TransactionAnalysis::new(
+      TransactionAnalysis::new(
          ctx.clone(),
          chain.id(),
          from,
@@ -124,9 +124,7 @@ pub async fn send_transaction(
          balance_before.wei(),
          balance_after,
       )
-      .await?;
-
-      tx_analysis
+      .await?
    };
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
@@ -352,7 +350,7 @@ where
    let gas_used = sim_res.gas_used();
 
    if !sim_res.is_success() {
-      let err = revert_msg(&output);
+      let err = revert_msg(output);
       tracing::error!(
          "Simulation failed: {} \n Gas Used {}",
          err,
@@ -619,7 +617,7 @@ pub async fn wrap_eth(
       dst: from,
       eth_wrapped: amount,
       eth_wrapped_usd: Some(eth_wrapped_usd),
-      weth_received: weth_received,
+      weth_received,
       weth_received_usd: Some(weth_received_usd),
    };
 
@@ -1583,7 +1581,7 @@ pub async fn increase_liquidity_position_v3(
          mev_protect,
          from,
          interact_to,
-         call_data.into(),
+         call_data,
          value,
       )
       .await?;
@@ -1915,7 +1913,7 @@ pub async fn mint_new_liquidity_position_v3(
          mev_protect,
          from,
          interact_to,
-         call_data.into(),
+         call_data,
          value,
       )
       .await?;
@@ -1966,7 +1964,7 @@ pub async fn mint_new_liquidity_position_v3(
          mev_protect,
          from,
          interact_to,
-         call_data.into(),
+         call_data,
          value,
       )
       .await?;

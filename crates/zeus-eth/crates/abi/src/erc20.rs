@@ -143,16 +143,16 @@ pub fn decode_approve_log(log: &LogData) -> Result<IERC20::Approval, anyhow::Err
 }
 
 pub fn decode_transfer_call(bytes: &Bytes) -> Result<(Address, U256), anyhow::Error> {
-   let b = IERC20::transferCall::abi_decode(&bytes)?;
+   let b = IERC20::transferCall::abi_decode(bytes)?;
    Ok((b.recipient, b.amount))
 }
 
 pub fn decode_balance_of(bytes: &Bytes) -> Result<U256, anyhow::Error> {
-   let b = IERC20::balanceOfCall::abi_decode_returns(&bytes)?;
+   let b = IERC20::balanceOfCall::abi_decode_returns(bytes)?;
    Ok(b)
 }
 
 pub fn decode_allowance(bytes: &Bytes) -> Result<U256, anyhow::Error> {
-   let a = IERC20::allowanceCall::abi_decode_returns(&bytes)?;
+   let a = IERC20::allowanceCall::abi_decode_returns(bytes)?;
    Ok(a)
 }

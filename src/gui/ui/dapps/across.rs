@@ -384,7 +384,7 @@ impl AcrossBridge {
       NumericValue::format_wei(max, self.currency.decimals)
    }
 
-   fn valid_recipient(&self, recipient: &String) -> bool {
+   fn valid_recipient(&self, recipient: &str) -> bool {
       let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
       recipient != Address::ZERO
    }
@@ -394,7 +394,7 @@ impl AcrossBridge {
       amount > 0.0
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &String) -> bool {
+   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &str) -> bool {
       self.valid_recipient(recipient)
          && self.valid_amount()
          && self.sufficient_balance(ctx, depositor)
@@ -404,7 +404,7 @@ impl AcrossBridge {
       &mut self,
       ctx: ZeusCtx,
       depositor: Address,
-      recipient: &String,
+      recipient: &str,
    ) -> bool {
       // Don't request if already in progress
       if self.requesting {
@@ -513,8 +513,8 @@ impl AcrossBridge {
          return;
       }
 
-      let from_chain = self.from_chain.chain.clone();
-      let to_chain = self.to_chain.chain.clone();
+      let from_chain = self.from_chain.chain;
+      let to_chain = self.to_chain.chain;
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
@@ -574,7 +574,7 @@ impl AcrossBridge {
          return NumericValue::default();
       }
 
-      return NumericValue::value(amount, price.f64());
+      NumericValue::value(amount, price.f64())
    }
 
    /// Estimated cost of the transaction
@@ -603,8 +603,8 @@ impl AcrossBridge {
          ));
       }
 
-      let from_chain = self.from_chain.chain.clone();
-      let to_chain = self.to_chain.chain.clone();
+      let from_chain = self.from_chain.chain;
+      let to_chain = self.to_chain.chain;
 
       // Despite we are bridging from native to native, we still need to use the wrapped token in the call
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
@@ -676,7 +676,7 @@ impl AcrossBridge {
                SHARED_GUI.write(|gui| {
                   gui.progress_window.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                  gui.msg_window.open("Transaction Error", e.to_string());
                });
             }
          }
@@ -857,7 +857,7 @@ async fn wait_for_fill(
          Your deposit should be refunded shortly",
          dest_chain.name(),
       );
-      return Err(anyhow!(err));
+      Err(anyhow!(err))
    }
 }
 

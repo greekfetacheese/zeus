@@ -115,7 +115,7 @@ where
    let full_block = client.get_block(BlockId::latest()).await?.unwrap();
    let chain_id = client.get_chain_id().await?;
 
-   let latest_block = full_block.clone().header.number.clone();
+   let latest_block = full_block.header.number;
    let fork_block_num = block_time.go_back(chain_id, latest_block)?;
    let fork_block = BlockId::number(fork_block_num);
 
@@ -137,10 +137,10 @@ where
 
    let sequenced_events = decode_events(&logs);
 
-   pool.update_state(client.clone(), Some(fork_block.clone())).await?;
+   pool.update_state(client.clone(), Some(fork_block)).await?;
 
    // get token0 and token1 prices in USD at the fork block
-   let (base_usd, quote_usd) = pool.tokens_price(client.clone(), Some(fork_block.clone())).await?;
+   let (base_usd, quote_usd) = pool.tokens_price(client.clone(), Some(fork_block)).await?;
 
    // make sure we set the prices in the correct order
    let (past_token0_usd, past_token1_usd) = if pool.is_token0(pool.base_token().address) {
@@ -398,7 +398,7 @@ where
                let swap_params = abi::misc::SwapRouter::Params {
                   input_token: token_in.address,
                   output_token: token_out.address,
-                  amount_in: amount_in,
+                  amount_in,
                   pool: pool.address,
                   pool_variant: U256::from(1),
                   fee,
@@ -579,8 +579,8 @@ where
       past_token1_usd,
       token0_usd: latest_token0_usd,
       token1_usd: latest_token1_usd,
-      token0_earned: token0_earned,
-      token1_earned: token1_earned,
+      token0_earned,
+      token1_earned,
       earned0_usd,
       earned1_usd,
       buy_volume,
@@ -593,7 +593,7 @@ where
       failed_swaps,
       failed_burns,
       failed_mints,
-      apr: apr,
+      apr,
    };
 
    Ok(result)

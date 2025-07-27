@@ -531,8 +531,8 @@ impl AddLiquidity {
 
                let amount0_needed = NumericValue::format_wei(amount0, token0.decimals());
                let amount1_needed = NumericValue::format_wei(amount1, token1.decimals());
-               let price0_usd = ctx.get_currency_price(&token0);
-               let price1_usd = ctx.get_currency_price(&token1);
+               let price0_usd = ctx.get_currency_price(token0);
+               let price1_usd = ctx.get_currency_price(token1);
 
                let size = vec2(ui.available_width() * 0.9, ui.available_height());
                let frame = theme.frame2;
@@ -541,8 +541,8 @@ impl AddLiquidity {
                      ctx.clone(),
                      chain.id(),
                      position.owner,
-                     &token0,
-                     &token1,
+                     token0,
+                     token1,
                      &amount0_needed,
                      &amount1_needed,
                      &price0_usd,
@@ -1057,15 +1057,13 @@ impl ViewPositionsUi {
    fn position_value(&self, ctx: ZeusCtx, position: &V3Position) -> NumericValue {
       let value0 = ctx.get_currency_value_for_amount(position.amount0.f64(), &position.token0);
       let value1 = ctx.get_currency_value_for_amount(position.amount1.f64(), &position.token1);
-      let value = NumericValue::from_f64(value0.f64() + value1.f64());
-      value
+      NumericValue::from_f64(value0.f64() + value1.f64())
    }
 
    fn uncollected_fees_value(&self, ctx: ZeusCtx, position: &V3Position) -> NumericValue {
       let value0 = ctx.get_currency_value_for_amount(position.tokens_owed0.f64(), &position.token0);
       let value1 = ctx.get_currency_value_for_amount(position.tokens_owed1.f64(), &position.token1);
-      let value = NumericValue::from_f64(value0.f64() + value1.f64());
-      value
+      NumericValue::from_f64(value0.f64() + value1.f64())
    }
 
    fn is_in_range(&self, ctx: ZeusCtx, position: &V3Position) -> bool {
@@ -1080,9 +1078,9 @@ impl ViewPositionsUi {
          }
          let state = state.unwrap();
          let current_tick = state.tick;
-         return current_tick >= position.tick_lower && current_tick <= position.tick_upper;
+         current_tick >= position.tick_lower && current_tick <= position.tick_upper
       } else {
-         return false;
+         false
       }
    }
 
@@ -1117,8 +1115,8 @@ impl ViewPositionsUi {
          }
 
          let pool = manager.get_v3_pool_from_address(chain_id, position.pool_address);
-         if pool.is_some() {
-            pools.push(pool.unwrap());
+         if let Some(pool) = pool {
+            pools.push(pool);
          }
       }
 
@@ -1390,11 +1388,11 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
 
          let v3_position = V3Position {
             chain_id: chain.id(),
-            owner: owner,
+            owner,
             dex: pool.dex_kind(),
             block: tx.block_number.unwrap_or_default(),
             timestamp,
-            id: id,
+            id,
             nonce: position.nonce,
             operator: position.operator,
             token0: pool.currency0().clone(),

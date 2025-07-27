@@ -189,7 +189,7 @@ impl TxConfirmationWindow {
                               self.chain,
                               theme,
                               icons.clone(),
-                              &action,
+                              action,
                               ui,
                            );
                         });
@@ -210,7 +210,7 @@ impl TxConfirmationWindow {
                               self.chain,
                               theme,
                               icons.clone(),
-                              &analysis,
+                              analysis,
                               frame_size,
                               frame,
                               ui,
@@ -320,7 +320,7 @@ impl TxConfirmationWindow {
 
                            // Ajdust Priority Fee
                            ui.vertical(|ui| {
-                              let text = format!("Priority Fee (Gwei)");
+                              let text = "Priority Fee (Gwei)";
                               ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                               if self.chain.is_bsc() {
@@ -345,7 +345,7 @@ impl TxConfirmationWindow {
                            // Adjust Gas Limit
                            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                               ui.vertical(|ui| {
-                                 let text = format!("Gas Limit");
+                                 let text = "Gas Limit";
                                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                                  ui.add(
@@ -544,7 +544,7 @@ impl TxWindow {
                               chain,
                               theme,
                               icons.clone(),
-                              &action,
+                              action,
                               ui,
                            );
                         });
@@ -669,7 +669,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let hash_str = truncate_hash(tx_hash.to_string());
          let explorer = chain.block_explorer();
-         let link = format!("{}/tx/{}", explorer, tx_hash.to_string());
+         let link = format!("{}/tx/{}", explorer, tx_hash);
          ui.hyperlink_to(
             RichText::new(hash_str)
                .size(theme.text_sizes.normal)
@@ -716,14 +716,14 @@ pub fn contract_interact(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let interact_to_name = ctx.get_address_name(chain.id(), interact_to);
 
-         let interact_to_name = if interact_to_name.is_some() {
-            interact_to_name.unwrap()
+         let interact_to_name = if let Some(interact_to_name_str) = interact_to_name {
+            interact_to_name_str
          } else {
             truncate_address(interact_to.to_string())
          };
 
          let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, interact_to.to_string());
+         let link = format!("{}/address/{}", explorer, interact_to);
 
          ui.hyperlink_to(
             RichText::new(interact_to_name)
@@ -817,11 +817,7 @@ pub fn token_approval_event_ui(
          amount.format_abbreviated()
       };
 
-      let show_usd_value = if !is_unlimited && amount_usd.is_some() {
-         true
-      } else {
-         false
-      };
+      let show_usd_value = !is_unlimited && amount_usd.is_some();
 
       let icon = icons.currency_icon(&Currency::from(token.clone()));
       let text = if show_usd_value {
@@ -851,8 +847,8 @@ pub fn token_approval_event_ui(
          let owner_address = params.owner;
          let owner_short = truncate_address(owner_address.to_string());
          let address_name = ctx.get_address_name(chain.id(), owner_address);
-         let owner = if address_name.is_some() {
-            address_name.unwrap()
+         let owner = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             owner_short
          };
@@ -861,7 +857,7 @@ pub fn token_approval_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            owner_address.to_string()
+            owner_address
          );
          ui.hyperlink_to(
             RichText::new(owner)
@@ -882,8 +878,8 @@ pub fn token_approval_event_ui(
       let spender_address = params.spender;
       let spender_short = truncate_address(spender_address.to_string());
       let spender_name = ctx.get_address_name(chain.id(), spender_address);
-      let spender = if spender_name.is_some() {
-         spender_name.unwrap()
+      let spender = if let Some(spender_name_str) = spender_name {
+         spender_name_str
       } else {
          spender_short
       };
@@ -892,7 +888,7 @@ pub fn token_approval_event_ui(
       let link = format!(
          "{}/address/{}",
          explorer,
-         spender_address.to_string()
+         spender_address
       );
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -922,8 +918,8 @@ fn transfer_event_ui(
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.currency;
             let amount = &params.amount;
-            let icon = icons.currency_icon(&currency);
-            let text = RichText::new(&format!(
+            let icon = icons.currency_icon(currency);
+            let text = RichText::new(format!(
                "{} {} ",
                amount.format_abbreviated(),
                currency.symbol()
@@ -937,7 +933,7 @@ fn transfer_event_ui(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = params.amount_usd.clone().unwrap_or_default();
             ui.label(
-               RichText::new(&format!("~ ${}", amount.format_abbreviated()))
+               RichText::new(format!("~ ${}", amount.format_abbreviated()))
                   .size(theme.text_sizes.large),
             );
          });
@@ -955,8 +951,8 @@ fn transfer_event_ui(
             let recipient_address = params.recipient;
 
             let address_name = ctx.get_address_name(chain.id(), recipient_address);
-            let recipient = if address_name.is_some() {
-               address_name.unwrap()
+            let recipient = if let Some(address_name_str) = address_name {
+               address_name_str
             } else {
                recipient_address.to_string()
             };
@@ -965,7 +961,7 @@ fn transfer_event_ui(
             let link = format!(
                "{}/address/{}",
                explorer,
-               recipient_address.to_string()
+               recipient_address
             );
             ui.hyperlink_to(
                RichText::new(recipient)
@@ -991,7 +987,7 @@ fn erc20_transfer_event_ui(
          let token = &params.token;
          let amount = &params.amount;
          let icon = icons.token_icon(token.address, token.chain_id);
-         let text = RichText::new(&format!(
+         let text = RichText::new(format!(
             "{} {} ",
             amount.format_abbreviated(),
             token.symbol
@@ -1005,7 +1001,7 @@ fn erc20_transfer_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = params.amount_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(&format!("~ ${}", amount.format_abbreviated()))
+            RichText::new(format!("~ ${}", amount.format_abbreviated()))
                .size(theme.text_sizes.large),
          );
       });
@@ -1021,8 +1017,8 @@ fn erc20_transfer_event_ui(
          let sender_address = params.sender;
          let sender_short = truncate_address(sender_address.to_string());
          let address_name = ctx.get_address_name(chain.id(), sender_address);
-         let sender = if address_name.is_some() {
-            address_name.unwrap()
+         let sender = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             sender_short
          };
@@ -1031,7 +1027,7 @@ fn erc20_transfer_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            sender_address.to_string()
+            sender_address
          );
          ui.hyperlink_to(
             RichText::new(sender)
@@ -1052,8 +1048,8 @@ fn erc20_transfer_event_ui(
          let recipient_address = params.recipient;
 
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if address_name.is_some() {
-            address_name.unwrap()
+         let recipient = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             recipient_address.to_string()
          };
@@ -1062,7 +1058,7 @@ fn erc20_transfer_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            recipient_address.to_string()
+            recipient_address
          );
          ui.hyperlink_to(
             RichText::new(recipient)
@@ -1086,8 +1082,8 @@ fn bridge_event_ui(
    ui.horizontal(|ui| {
       let currency = &params.input_currency;
       let amount = &params.amount;
-      let icon = icons.currency_icon(&currency);
-      let text = RichText::new(&format!(
+      let icon = icons.currency_icon(currency);
+      let text = RichText::new(format!(
          "- {} {} ",
          amount.format_abbreviated(),
          currency.symbol()
@@ -1103,7 +1099,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.amount_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(&format!("~ ${}", value.format_abbreviated()))
+            RichText::new(format!("~ ${}", value.format_abbreviated()))
                .size(theme.text_sizes.normal),
          );
       });
@@ -1114,7 +1110,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let currency = &params.output_currency;
          let amount = &params.received;
-         let icon = icons.currency_icon(&currency);
+         let icon = icons.currency_icon(currency);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.format_abbreviated(),
@@ -1145,8 +1141,8 @@ fn bridge_event_ui(
          let depositor_short = truncate_address(depositor_address.to_string());
 
          let address_name = ctx.get_address_name(chain.id(), depositor_address);
-         let depositor = if address_name.is_some() {
-            address_name.unwrap()
+         let depositor = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             depositor_short
          };
@@ -1155,7 +1151,7 @@ fn bridge_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            depositor_address.to_string()
+            depositor_address
          );
          ui.hyperlink_to(
             RichText::new(depositor)
@@ -1176,8 +1172,8 @@ fn bridge_event_ui(
          let recipient_address = params.recipient;
 
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if address_name.is_some() {
-            address_name.unwrap()
+         let recipient = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             recipient_address.to_string()
          };
@@ -1186,7 +1182,7 @@ fn bridge_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            recipient_address.to_string()
+            recipient_address
          );
          ui.hyperlink_to(
             RichText::new(recipient)
@@ -1239,8 +1235,8 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
    ui.horizontal(|ui| {
       let currency = &params.input_currency;
       let amount = &params.amount_in;
-      let icon = icons.currency_icon(&currency);
-      let text = RichText::new(&format!(
+      let icon = icons.currency_icon(currency);
+      let text = RichText::new(format!(
          "- {} {} ",
          amount.format_abbreviated(),
          currency.symbol()
@@ -1256,7 +1252,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.amount_in_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(&format!("~ ${}", value.format_abbreviated()))
+            RichText::new(format!("~ ${}", value.format_abbreviated()))
                .size(theme.text_sizes.large),
          );
       });
@@ -1267,7 +1263,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let currency = &params.output_currency;
          let amount = &params.received;
-         let icon = icons.currency_icon(&currency);
+         let icon = icons.currency_icon(currency);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.format_abbreviated(),
@@ -1327,7 +1323,7 @@ fn wrap_eth_event_ui(
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
-      let text = RichText::new(&format!(
+      let text = RichText::new(format!(
          "+ {} {}",
          params.weth_received.format_abbreviated(),
          weth.symbol()
@@ -1342,7 +1338,7 @@ fn wrap_eth_event_ui(
       // USD Value
       let weth_received_usd = params.weth_received_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let text = RichText::new(&format!(
+         let text = RichText::new(format!(
             "~ ${}",
             weth_received_usd.format_abbreviated()
          ))
@@ -1360,8 +1356,8 @@ fn wrap_eth_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let recipient_address = params.dst;
          let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if address_name.is_some() {
-            address_name.unwrap()
+         let recipient = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             recipient_address.to_string()
          };
@@ -1370,7 +1366,7 @@ fn wrap_eth_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            recipient_address.to_string()
+            recipient_address
          );
          ui.hyperlink_to(
             RichText::new(recipient)
@@ -1395,7 +1391,7 @@ fn unwrap_weth_event_ui(
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
-      let text = RichText::new(&format!(
+      let text = RichText::new(format!(
          "+ {} {}",
          params.weth_unwrapped.format_abbreviated(),
          eth.symbol
@@ -1410,7 +1406,7 @@ fn unwrap_weth_event_ui(
       // USD Value
       let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let text = RichText::new(&format!(
+         let text = RichText::new(format!(
             "~ ${}",
             weth_unwrapped_usd.format_abbreviated()
          ))
@@ -1430,14 +1426,14 @@ fn unwrap_weth_event_ui(
          let src_short = truncate_address(src_address.to_string());
 
          let address_name = ctx.get_address_name(chain.id(), src_address);
-         let src = if address_name.is_some() {
-            address_name.unwrap()
+         let src = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             src_short
          };
 
          let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, src_address.to_string());
+         let link = format!("{}/address/{}", explorer, src_address);
          ui.hyperlink_to(
             RichText::new(src)
                .size(theme.text_sizes.normal)
@@ -1469,7 +1465,7 @@ fn uniswap_position_op_event_ui(
 
    // Currency A and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon(&currency0);
+      let icon = icons.currency_icon(currency0);
 
       let text = format!(
          "{} {}",
@@ -1486,13 +1482,13 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount0_usd.format_abbreviated();
-         ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
       });
    });
 
    // Currency B and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon(&currency1);
+      let icon = icons.currency_icon(currency1);
       let text = format!(
          "{} {}",
          amount1.format_abbreviated(),
@@ -1508,7 +1504,7 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount1_usd.format_abbreviated();
-         ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
       });
    });
 
@@ -1526,7 +1522,7 @@ fn uniswap_position_op_event_ui(
    if min_amount0.is_some() {
       let min_amount0 = min_amount0.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency0);
+         let icon = icons.currency_icon(currency0);
          let text = format!(
             "{} {}",
             min_amount0.format_abbreviated(),
@@ -1542,7 +1538,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount0_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
          });
       });
    }
@@ -1551,7 +1547,7 @@ fn uniswap_position_op_event_ui(
    if min_amount1.is_some() {
       let min_amount1 = min_amount1.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon(&currency1);
+         let icon = icons.currency_icon(currency1);
          let text = format!(
             "{} {}",
             min_amount1.format_abbreviated(),
@@ -1567,7 +1563,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount1_usd.format_abbreviated();
-            ui.label(RichText::new(&format!("~ ${}", amount)).size(theme.text_sizes.normal));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
          });
       });
    }
@@ -1582,8 +1578,8 @@ fn uniswap_position_op_event_ui(
          let sender_address = params.sender;
          let sender_short = truncate_address(sender_address.to_string());
          let address_name = ctx.get_address_name(chain.id(), sender_address);
-         let sender = if address_name.is_some() {
-            address_name.unwrap()
+         let sender = if let Some(address_name_str) = address_name {
+            address_name_str
          } else {
             sender_short
          };
@@ -1592,7 +1588,7 @@ fn uniswap_position_op_event_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            sender_address.to_string()
+            sender_address
          );
          ui.hyperlink_to(
             RichText::new(sender)
@@ -1611,10 +1607,10 @@ fn uniswap_position_op_event_ui(
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let recipient_address = params.recipient.clone().unwrap();
+            let recipient_address = params.recipient.unwrap();
             let address_name = ctx.get_address_name(chain.id(), recipient_address);
-            let recipient = if address_name.is_some() {
-               address_name.unwrap()
+            let recipient = if let Some(address_name_str) = address_name {
+               address_name_str
             } else {
                recipient_address.to_string()
             };
@@ -1623,7 +1619,7 @@ fn uniswap_position_op_event_ui(
             let link = format!(
                "{}/address/{}",
                explorer,
-               recipient_address.to_string()
+               recipient_address
             );
             ui.hyperlink_to(
                RichText::new(recipient)
@@ -1845,13 +1841,13 @@ fn show_action(
          chain,
          theme,
          icons.clone(),
-         &params,
+         params,
          ui,
       );
    }
 
    if action.is_swap() {
       let params = action.swap_params();
-      swap_event_ui(theme, icons.clone(), &params, ui);
+      swap_event_ui(theme, icons.clone(), params, ui);
    }
 }

@@ -313,12 +313,12 @@ async fn connect(
 
    ctx.connect_dapp(origin.clone());
    let current_wallet = ctx.current_wallet().address_string();
-   return Ok(JsonRpcResponse {
+   Ok(JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
       result: Some(json!(vec![current_wallet])),
       error: None,
-   });
+   })
 }
 
 fn chain_id(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
@@ -366,7 +366,7 @@ fn get_balance(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse,
       }
    };
 
-   let address_str = match params_array.get(0) {
+   let address_str = match params_array.first() {
       Some(Value::String(address)) => address,
       _ => {
          return {
@@ -419,7 +419,7 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
       }
    };
 
-   let params_object = match params_array.get(0) {
+   let params_object = match params_array.first() {
       Some(Value::Object(params)) => params,
       _ => {
          return {
@@ -531,7 +531,7 @@ async fn estimate_gas(
       }
    };
 
-   let params_object = match params_array.get(0) {
+   let params_object = match params_array.first() {
       Some(Value::Object(params)) => params,
       _ => {
          return {
@@ -707,7 +707,7 @@ fn switch_ethereum_chain(
       }
    };
 
-   let object = match params_array.get(0) {
+   let object = match params_array.first() {
       Some(Value::Object(params)) => params,
       _ => {
          return {
@@ -800,7 +800,7 @@ async fn eth_send_transaction(
 
    // info!("eth_sendTransaction params: {:?}", params_array);
 
-   let object = match params_array.get(0) {
+   let object = match params_array.first() {
       Some(Value::Object(params)) => params,
       _ => {
          return {
@@ -950,7 +950,7 @@ async fn eth_send_transaction(
    });
 
    let hash = receipt.transaction_hash;
-   let hash_str = format!("0x{}", hash.to_string());
+   let hash_str = format!("0x{}", hash);
 
    let response = JsonRpcResponse::ok(Some(Value::String(hash_str)), payload.id);
    Ok(response)
@@ -992,7 +992,7 @@ async fn handle_request(
    }
 
    // Dapp is CONNECTED
-   let res = match method {
+   match method {
       // Account & Permission Methods
       m if m == RequestMethod::RequestAccounts.as_str() => request_accounts(ctx, payload).await,
       m if m == RequestMethod::EthAccounts.as_str() => request_accounts(ctx, payload).await,
@@ -1032,9 +1032,7 @@ async fn handle_request(
             payload.id,
          ))
       }
-   };
-
-   res
+   }
 }
 
 // Handler for POST /api (JSON-RPC)

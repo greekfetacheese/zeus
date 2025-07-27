@@ -435,7 +435,7 @@ impl ZeusCtx {
    }
 
    pub fn chain(&self) -> ChainId {
-      self.read(|ctx| ctx.chain.clone())
+      self.read(|ctx| ctx.chain)
    }
 
    pub fn save_balance_manager(&self) {
@@ -557,7 +557,7 @@ impl ZeusCtx {
    }
 
    pub fn has_portfolio(&self, chain: u64, owner: Address) -> bool {
-      self.read(|ctx| ctx.portfolio_db.portfolios.get(&(chain, owner)).is_some())
+      self.read(|ctx| ctx.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
    /// Get the portfolio value across all chains
@@ -595,8 +595,8 @@ impl ZeusCtx {
       let mut value = 0.0;
 
       for token in &portfolio.tokens {
-         let price = self.get_currency_price(&token).f64();
-         let balance = self.get_currency_balance(chain, owner, &token).f64();
+         let price = self.get_currency_price(token).f64();
+         let balance = self.get_currency_balance(chain, owner, token).f64();
          value += NumericValue::value(balance, price).f64()
       }
 
@@ -630,7 +630,7 @@ impl ZeusCtx {
          self.get_token_price(&wrapped_token)
       } else {
          let token = currency.erc20().unwrap();
-         self.get_token_price(&token)
+         self.get_token_price(token)
       }
    }
 
@@ -801,7 +801,9 @@ impl ConnectedDapps {
    }
 
    pub fn disconnect_dapp(&mut self, dapp: &str) {
-      self.dapps.get_mut(dapp).map(|b| *b = false);
+      if let Some(b) = self.dapps.get_mut(dapp) {
+         *b = false;
+      }
    }
 
    pub fn remove_dapp(&mut self, dapp: String) {
@@ -809,7 +811,7 @@ impl ConnectedDapps {
    }
 
    pub fn is_connected(&self, dapp: &str) -> bool {
-      self.dapps.get(dapp).map(|b| *b).unwrap_or(false)
+      self.dapps.get(dapp).copied().unwrap_or(false)
    }
 }
 

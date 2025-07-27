@@ -149,7 +149,7 @@ impl ChainSelection {
          let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
          if clicked {
             let ctx_clone = ctx.clone();
-            let new_chain = self.chain_select.chain.clone();
+            let new_chain = self.chain_select.chain;
 
             RT.spawn_blocking(move || {
                ctx_clone.write(|ctx| {

@@ -1,7 +1,7 @@
 use std::sync::mpsc::channel as oneshot_channel;
 
 use futures::channel::mpsc::Sender;
-use revm::primitives::{Address, B256, HashMap, KECCAK_EMPTY, U256};
+use revm::primitives::{Address, B256, HashMap, U256};
 
 use revm::database::InMemoryDB;
 use revm::database_interface::{Database, DatabaseCommit, DatabaseRef};
@@ -66,10 +66,7 @@ impl Database for ForkDB {
          Some(account) => Ok(Some(account.info.clone())),
          None => {
             // basic info is not in db, make rpc call to fetch it
-            let info = match self.do_get_basic(address) {
-               Ok(i) => i,
-               Err(e) => return Err(e),
-            };
+            let info = self.do_get_basic(address)?;
 
             // keep record of fetched acc basic info
             if info.is_some() {
@@ -91,20 +88,14 @@ impl Database for ForkDB {
       }
 
       // get account info
-      let acc_info = match self.do_get_basic(address) {
-         Ok(a) => a,
-         Err(e) => return Err(e),
-      };
+      let acc_info = self.do_get_basic(address)?;
 
       if let Some(a) = acc_info {
          self.db.insert_account_info(address, a);
       }
 
       // make rpc call to fetch storage
-      let storage_val = match self.do_get_storage(address, index) {
-         Ok(i) => i,
-         Err(e) => return Err(e),
-      };
+      let storage_val = self.do_get_storage(address, index)?;
 
       // keep record of fetched storage (can unwrap safely as cacheDB always returns true)
       self
@@ -121,10 +112,7 @@ impl Database for ForkDB {
          Some(hash) => Ok(*hash),
          None => {
             // rpc call to fetch block hash
-            let block_hash = match self.do_get_block_hash(number) {
-               Ok(i) => i,
-               Err(e) => return Err(e),
-            };
+            let block_hash = self.do_get_block_hash(number)?;
 
             // insert fetched block hash into db
             self
@@ -186,9 +174,6 @@ impl DatabaseRef for ForkDB {
    }
 
    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
-      if number > u64::MAX {
-         return Ok(KECCAK_EMPTY);
-      }
       self.do_get_block_hash(number)
    }
 

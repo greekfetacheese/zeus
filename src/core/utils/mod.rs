@@ -300,14 +300,14 @@ where
          sig_deadline,
       );
 
-      return Ok(Some(Permit2BatchApproval {
+      Ok(Some(Permit2BatchApproval {
          permit_batch,
          msg_value,
          tokens: tokens_to_approve,
          amounts: amounts_to_approve,
-      }));
+      }))
    } else {
-      return Ok(None);
+      Ok(None)
    }
 }
 

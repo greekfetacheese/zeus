@@ -373,7 +373,7 @@ impl SendCryptoUi {
             });
          }
 
-         return NumericValue::default();
+         NumericValue::default()
       }
    }
 
@@ -399,17 +399,17 @@ impl SendCryptoUi {
             return NumericValue::default();
          }
          let max = balance.wei() - cost_wei.wei();
-         return NumericValue::format_wei(max, currency.decimals());
+         NumericValue::format_wei(max, currency.decimals())
       }
    }
 
-   fn valid_recipient(&self, recipient: &String) -> bool {
-      let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+   fn valid_recipient(&self, recipient: &str) -> bool {
+      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
       recipient != Address::ZERO
    }
 
-   fn recipient_is_sender(&self, owner: Address, recipient: &String) -> bool {
-      let recipient = Address::from_str(&recipient).unwrap_or(Address::ZERO);
+   fn recipient_is_sender(&self, owner: Address, recipient: &str) -> bool {
+      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
       recipient == owner
    }
 
@@ -418,7 +418,7 @@ impl SendCryptoUi {
       amount > 0.0
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, owner: Address, recipient: &String) -> bool {
+   fn valid_inputs(&self, ctx: ZeusCtx, owner: Address, recipient: &str) -> bool {
       self.valid_recipient(recipient)
          && self.valid_amount()
          && self.sufficient_balance(ctx.clone(), owner)
@@ -475,7 +475,7 @@ impl SendCryptoUi {
                SHARED_GUI.write(|gui| {
                   gui.progress_window.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", &e.to_string());
+                  gui.msg_window.open("Transaction Error", e.to_string());
                });
             }
          }

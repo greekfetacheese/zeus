@@ -148,7 +148,7 @@ impl Account {
    }
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
-      self.wallets.iter().any(|w| &w.key.address() == &address)
+      self.wallets.iter().any(|w| w.key.address() == address)
    }
 
    /// Encrypt this account and return the encrypted data

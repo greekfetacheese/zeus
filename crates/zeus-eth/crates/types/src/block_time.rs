@@ -63,24 +63,15 @@ impl BlockTime {
    }
 
    pub fn is_day(&self) -> bool {
-      match self {
-         BlockTime::Days(_) => true,
-         _ => false,
-      }
+      matches!(self, BlockTime::Days(_))
    }
 
    pub fn is_hour(&self) -> bool {
-      match self {
-         BlockTime::Hours(_) => true,
-         _ => false,
-      }
+      matches!(self, BlockTime::Hours(_))
    }
 
    pub fn is_block(&self) -> bool {
-      match self {
-         BlockTime::Block(_) => true,
-         _ => false,
-      }
+      matches!(self, BlockTime::Block(_))
    }
 }
 

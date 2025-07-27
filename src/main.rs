@@ -84,7 +84,7 @@ fn main() -> eframe::Result {
       Box::new(|cc| {
          egui_extras::install_image_loaders(&cc.egui_ctx);
 
-         let app = ZeusApp::new(&cc);
+         let app = ZeusApp::new(cc);
 
          Ok(Box::new(app))
       }),

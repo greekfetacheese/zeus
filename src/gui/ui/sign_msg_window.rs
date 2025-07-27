@@ -228,7 +228,7 @@ fn permit2_single_approval(
             let link = format!(
                "{}/address/{}",
                explorer,
-               contract_address.to_string()
+               contract_address
             );
             ui.hyperlink_to(
                RichText::new("Uniswap Protocol: Permit2")
@@ -248,8 +248,8 @@ fn permit2_single_approval(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let spender_address = details.spender;
             let spender_name = ctx.get_address_name(chain.id(), spender_address);
-            let spender = if spender_name.is_some() {
-               spender_name.unwrap()
+            let spender = if let Some(spender_name_str) = spender_name {
+               spender_name_str
             } else {
                truncate_address(spender_address.to_string())
             };
@@ -258,7 +258,7 @@ fn permit2_single_approval(
             let link = format!(
                "{}/address/{}",
                explorer,
-               spender_address.to_string()
+               spender_address
             );
             ui.hyperlink_to(
                RichText::new(spender)
@@ -349,8 +349,8 @@ fn _permit2_batch_approval_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let contract_address = details.permit2_contract;
          let name = ctx.get_address_name(chain.id(), contract_address);
-         let contract = if name.is_some() {
-            name.unwrap()
+         let contract = if let Some(name_str) = name {
+            name_str
          } else {
             truncate_address(contract_address.to_string())
          };
@@ -359,7 +359,7 @@ fn _permit2_batch_approval_ui(
          let link = format!(
             "{}/address/{}",
             explorer,
-            contract_address.to_string()
+            contract_address
          );
 
          ui.hyperlink_to(

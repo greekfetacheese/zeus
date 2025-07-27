@@ -20,6 +20,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use egui_theme::Theme;
 use std::sync::Arc;
+use std::str::FromStr;
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -31,6 +32,19 @@ pub enum ProtocolVersion {
    #[default]
    V3,
    V4,
+}
+
+impl FromStr for ProtocolVersion {
+   type Err = anyhow::Error;
+
+   fn from_str(s: &str) -> Result<Self, Self::Err> {
+      match s {
+         "V2" => Ok(Self::V2),
+         "V3" => Ok(Self::V3),
+         "V4" => Ok(Self::V4),
+         _ => Err(anyhow::anyhow!("Invalid protocol version")),
+      }
+   }
 }
 
 impl ProtocolVersion {
@@ -51,15 +65,6 @@ impl ProtocolVersion {
          ProtocolVersion::V2 => "V2",
          ProtocolVersion::V3 => "V3",
          ProtocolVersion::V4 => "V4",
-      }
-   }
-
-   pub fn from_str(s: &str) -> Option<Self> {
-      match s {
-         "V2" => Some(Self::V2),
-         "V3" => Some(Self::V3),
-         "V4" => Some(Self::V4),
-         _ => None,
       }
    }
 
@@ -448,13 +453,13 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(&token0);
+                  let icon = icons.currency_icon(token0);
                   let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let balance = ctx.get_currency_balance(chain, owner, &token0);
+                  let balance = ctx.get_currency_balance(chain, owner, token0);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = LabelWithImage::new(text, None);
@@ -471,7 +476,7 @@ pub fn currencies_amount_and_value(
 
                ui.add_space(5.0);
 
-               let text = RichText::new(format!("{}", amount0.format_abbreviated()))
+               let text = RichText::new(amount0.format_abbreviated())
                   .size(theme.text_sizes.normal);
                ui.label(text);
             });
@@ -484,13 +489,13 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(&token1);
+                  let icon = icons.currency_icon(token1);
                   let label = LabelWithImage::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let balance = ctx.get_currency_balance(chain, owner, &token1);
+                  let balance = ctx.get_currency_balance(chain, owner, token1);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = LabelWithImage::new(text, None);
@@ -507,7 +512,7 @@ pub fn currencies_amount_and_value(
 
                ui.add_space(5.0);
 
-               let text = RichText::new(format!("{}", amount1.format_abbreviated()))
+               let text = RichText::new(amount1.format_abbreviated())
                   .size(theme.text_sizes.normal);
                ui.label(text);
             });

@@ -578,11 +578,11 @@ impl UniswapPool for UniswapV4Pool {
 
       let zero_for_one = self.zero_for_one_v4(currency_in);
       let fee = self.fee.fee();
-      let mut state = self
+      let state = self
          .state_mut()
          .v3_state_mut()
          .ok_or(anyhow::anyhow!("State not initialized"))?;
-      let amount_out = calculate_swap_mut(&mut state, fee, zero_for_one, amount_in)?;
+      let amount_out = calculate_swap_mut(state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
    }

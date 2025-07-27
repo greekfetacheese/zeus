@@ -94,7 +94,7 @@ impl AddContact {
                            SHARED_GUI.write(|gui| {
                               gui.open_msg_window(
                                  "Address is not an Ethereum address",
-                                 &format!("{}", e),
+                                 format!("{}", e),
                               );
                            });
                            return;
@@ -131,7 +131,6 @@ impl AddContact {
                               gui.open_msg_window("Error while saving account data", error);
                            });
                            ctx.remove_contact(&new_contact.address);
-                           return;
                         }
                      }
                   });
@@ -186,7 +185,7 @@ impl DeleteContact {
                );
                ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.normal));
                ui.label(
-                  RichText::new(&contact_to_delete.address.to_string())
+                  RichText::new(contact_to_delete.address.to_string())
                      .size(theme.text_sizes.normal),
                );
 
@@ -209,8 +208,7 @@ impl DeleteContact {
                               );
                               gui.open_msg_window("Error while saving account data", error);
                            });
-                           let _ = ctx.add_contact(contact_to_delete);
-                           return;
+                           let _res = ctx.add_contact(contact_to_delete);
                         }
                      }
                   });
@@ -304,7 +302,7 @@ impl EditContact {
                            SHARED_GUI.write(|gui| {
                               gui.open_msg_window(
                                  "Address is not an Ethereum address",
-                                 &format!("{}", e),
+                                 format!("{}", e),
                               );
                            });
                            return;
@@ -350,8 +348,6 @@ impl EditContact {
                                  new_contact.address = old_contact.address.clone();
                               }
                            });
-
-                           return;
                         }
                      }
                   });
@@ -459,7 +455,7 @@ impl ContactsUi {
                                  ui.scope(|ui| {
                                     ui.set_width(ui_width * 0.4);
                                     ui.hyperlink_to(
-                                       RichText::new(&contact.address_short(10, 10))
+                                       RichText::new(contact.address_short(10, 10))
                                           .size(theme.text_sizes.normal)
                                           .color(theme.colors.hyperlink_color),
                                        link,

@@ -86,7 +86,7 @@ pub fn get_quote(
    priority_fee: U256,
    max_hops: usize,
 ) -> Quote {
-   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(|p| Arc::new(p)).collect();
+   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
    let all_paths = find_all_paths(

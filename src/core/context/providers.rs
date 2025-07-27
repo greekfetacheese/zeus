@@ -141,7 +141,7 @@ impl RpcProviders {
          self
             .rpcs
             .entry(chain_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(new_rpc);
       }
    }
@@ -150,7 +150,7 @@ impl RpcProviders {
       self
          .rpcs
          .entry(chain_id)
-         .or_insert_with(Vec::new)
+         .or_default()
          .retain(|rpc| rpc.url != url);
    }
 
@@ -167,8 +167,8 @@ impl RpcProviders {
       let mut rpcs = self.get_all(chain_id);
       rpcs.sort_by(|a, b| {
          a.latency
-            .unwrap_or(Duration::default())
-            .partial_cmp(&b.latency.unwrap_or(Duration::default()))
+            .unwrap_or_default()
+            .partial_cmp(&b.latency.unwrap_or_default())
             .unwrap_or(std::cmp::Ordering::Equal)
       });
       rpcs
