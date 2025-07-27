@@ -28,7 +28,7 @@ impl SecureSigner {
             s
          });
       key.zeroize();
-      SecureString::from(string.as_str())
+      SecureString::from(string)
    }
 
    /// Securely erase the signer's key from memory
