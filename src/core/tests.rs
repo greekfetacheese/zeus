@@ -11,7 +11,7 @@ mod tests {
          AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
          uniswap::{
             quoter::{get_quote, get_quote_with_split_routing},
-            router::{SwapStep, SwapType, encode_swap},
+            universal_router_v2::{SwapStep, SwapType, encode_swap},
          },
       },
       currency::{Currency, ERC20Token, NativeCurrency},

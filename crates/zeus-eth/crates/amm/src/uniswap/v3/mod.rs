@@ -1,5 +1,4 @@
 pub mod pool;
-pub mod position;
 
 use alloy_primitives::{Address, I256, U256};
 
@@ -11,20 +10,18 @@ use uniswap_v3_math::{full_math::mul_div, sqrt_price_math, tick_math::*};
 
 use anyhow::anyhow;
 
-
 /// Calculate the tick from a given price
 pub fn get_tick_from_price(price: f64) -> i32 {
    if price == 0.0 {
       return 0;
    }
-   
+
    let sqrt_price = price.sqrt();
 
    let tick = (sqrt_price.ln() / (1.0001_f64).sqrt().ln()).round() as i32;
 
    tick
 }
-
 
 /// Calculates the price from a given tick, adjusting for token decimals.
 ///
@@ -40,13 +37,11 @@ pub fn get_tick_from_price(price: f64) -> i32 {
 ///
 /// * `f64` - The calculated price.
 pub fn get_price_from_tick(tick: i32, token0_decimals: u8, token1_decimals: u8) -> f64 {
-    let base_price = 1.0001_f64.powi(tick);
-    let decimal_factor = 10_f64.powi(token0_decimals as i32 - token1_decimals as i32);
-    
-    base_price * decimal_factor
+   let base_price = 1.0001_f64.powi(tick);
+   let decimal_factor = 10_f64.powi(token0_decimals as i32 - token1_decimals as i32);
+
+   base_price * decimal_factor
 }
-
-
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Position {
@@ -438,9 +433,6 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
    }
 }
 
-
-
-
 /// Computes the maximum amount of liquidity received for a given amount of token0, token1, the current
 /// pool prices and the prices at the tick boundaries
 ///
@@ -540,69 +532,66 @@ fn get_liquidity_for_amount1(
    Ok(liquidity)
 }
 
-
-
 /// Calculates the liquidity needed
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `sqrt_ratio_current_x96` - The current price of the pool
 /// * `sqrt_ratio_a_x96` - The sqrt price at the lower tick boundary
 /// * `sqrt_ratio_b_x96` - The sqrt price at the upper tick boundary
 /// * `amount_desired` - The amount of one of the tokens to deposit
 /// * `is_token0` - Is amount_desired for token0?
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `u128` - The liquidity amount
 pub fn calculate_liquidity_needed(
-    sqrt_ratio_current_x96: U256,
-    sqrt_ratio_a_x96: U256,
-    sqrt_ratio_b_x96: U256,
-    amount_desired: U256,
-    is_token0: bool,     
+   sqrt_ratio_current_x96: U256,
+   sqrt_ratio_a_x96: U256,
+   sqrt_ratio_b_x96: U256,
+   amount_desired: U256,
+   is_token0: bool,
 ) -> Result<u128, anyhow::Error> {
    if amount_desired == U256::ZERO {
       return Ok(0);
    }
 
-    if is_token0 {
-        if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
-            // Price is below the range, position is fully in token0
-            get_liquidity_for_amount0(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
-        } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
-            // Price is in the range
-            get_liquidity_for_amount0(sqrt_ratio_current_x96, sqrt_ratio_b_x96, amount_desired)
-        } else {
-            // Price is above the range, position is fully in token1, so no token0 is needed.
-            Ok(0)
-        }
-    } else {
-        if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
-            // Price is below the range, position is fully in token0, so no token1 is needed.
-            Ok(0)
-        } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
-            // Price is in the range
-            get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_current_x96, amount_desired)
-        } else {
-            // Price is above the range, position is fully in token1
-            get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
-        }
-    }
+   if is_token0 {
+      if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
+         // Price is below the range, position is fully in token0
+         get_liquidity_for_amount0(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
+      } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
+         // Price is in the range
+         get_liquidity_for_amount0(sqrt_ratio_current_x96, sqrt_ratio_b_x96, amount_desired)
+      } else {
+         // Price is above the range, position is fully in token1, so no token0 is needed.
+         Ok(0)
+      }
+   } else {
+      if sqrt_ratio_current_x96 <= sqrt_ratio_a_x96 {
+         // Price is below the range, position is fully in token0, so no token1 is needed.
+         Ok(0)
+      } else if sqrt_ratio_current_x96 < sqrt_ratio_b_x96 {
+         // Price is in the range
+         get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_current_x96, amount_desired)
+      } else {
+         // Price is above the range, position is fully in token1
+         get_liquidity_for_amount1(sqrt_ratio_a_x96, sqrt_ratio_b_x96, amount_desired)
+      }
+   }
 }
 
-
 /// Calculate the required amount0 and amount1 for a liquidity amount
-/// 
+///
 /// # Arguments
-/// 
+///
 /// * `sqrt_price_lower` - The lower tick's sqrt ratio
 /// * `sqrt_price_upper` - The upper tick's sqrt ratio
 /// * `liquidity` - The liquidity amount
 /// * `current_pool_sqrt_price` - The current pool's sqrt price
-/// 
+///
 /// # Returns
-/// 
+///
 /// * `(U256, U256)` - The required amount0 and amount1
 pub fn calculate_liquidity_amounts(
    current_pool_sqrt_price: U256,

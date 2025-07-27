@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 pub mod assets;
 pub mod core;
+pub mod utils;
 pub mod gui;
 pub mod server;
 

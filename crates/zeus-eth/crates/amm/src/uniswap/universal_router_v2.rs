@@ -1,21 +1,145 @@
-use super::{Commands, SwapExecuteParams, SwapStep, SwapType, UniswapPool};
+use crate::UniswapPool;
 use crate::uniswap::v4::Actions;
 use abi::{
    permit::*,
    uniswap::{
       encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      universal_router_v2::{IV4Router::*, encode_execute, encode_execute_with_deadline},
+      universal_router_v2::{
+         ExactInputSingleParams, ExactOutputSingleParams,
+         IV4Router::{ActionsParams, SettleParams, Sweep, TakeParams},
+         encode_execute, encode_execute_with_deadline,
+      },
    },
 };
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::SolValue;
 use anyhow::anyhow;
-use currency::Currency as Currency2;
+use currency::Currency;
+use serde_json::Value;
 use utils::{
    NumericValue, SecureSigner, address_book::permit2_contract, alloy_signer::Signer, erase_signer,
    generate_permit2_single_value, parse_typed_data,
 };
+
+// https://docs.uniswap.org/contracts/universal-router/technical-reference
+#[allow(non_camel_case_types)]
+#[derive(Clone, Debug, PartialEq)]
+#[repr(u8)]
+pub enum Commands {
+   V3_SWAP_EXACT_IN = 0x00,
+   V3_SWAP_EXACT_OUT = 0x01,
+   PERMIT2_TRANSFER_FROM = 0x02,
+   PERMIT2_PERMIT_BATCH = 0x03,
+   SWEEP = 0x04,
+   TRANSFER = 0x05,
+   PAY_PORTION = 0x06,
+   V2_SWAP_EXACT_IN = 0x08,
+   V2_SWAP_EXACT_OUT = 0x09,
+   PERMIT2_PERMIT = 0x0a,
+   WRAP_ETH = 0x0b,
+   UNWRAP_WETH = 0x0c,
+   PERMIT2_TRANSFER_FROM_BATCH = 0x0d,
+   BALANCE_CHECK_ERC20 = 0x0e,
+   V4_SWAP = 0x10,
+   V3_POSITION_MANAGER_PERMIT = 0x11,
+   V3_POSITION_MANAGER_CALL = 0x12,
+   V4_INITIALIZE_POOL = 0x13,
+   V4_POSITION_MANAGER_CALL = 0x14,
+   EXECUTE_SUB_PLAN = 0x21,
+}
+
+/// The result of [encode_swap]
+pub struct SwapExecuteParams {
+   pub call_data: Bytes,
+   /// The eth to be sent along with the transaction
+   pub value: U256,
+   /// Whether we need to approve Permit2 contract to spend the token
+   pub token_needs_approval: bool,
+   /// The message to be signed
+   ///
+   /// This is just to show it in a UI, the message if any already signed internally
+   pub message: Option<Value>,
+}
+
+impl SwapExecuteParams {
+   pub fn new() -> Self {
+      Self {
+         call_data: Bytes::default(),
+         value: U256::ZERO,
+         token_needs_approval: false,
+         message: None,
+      }
+   }
+
+   pub fn set_call_data(&mut self, call_data: Bytes) {
+      self.call_data = call_data;
+   }
+
+   pub fn set_value(&mut self, value: U256) {
+      self.value = value;
+   }
+
+   pub fn set_token_needs_approval(&mut self, token_needs_approval: bool) {
+      self.token_needs_approval = token_needs_approval;
+   }
+
+   pub fn set_message(&mut self, message: Option<Value>) {
+      self.message = message;
+   }
+}
+
+/// Represents a single atomic swap step within a potentially larger route.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwapStep<P: UniswapPool> {
+   /// The specific pool used for this swap step.
+   pub pool: P,
+   /// The exact amount of `currency_in` being swapped in this step.
+   pub amount_in: NumericValue,
+   /// The simulated amount of `currency_out` received from this step.
+   pub amount_out: NumericValue,
+   /// The currency being provided to the pool.
+   pub currency_in: Currency,
+   /// The currency being received from the pool.
+   pub currency_out: Currency,
+}
+
+impl<P: UniswapPool> SwapStep<P> {
+   pub fn new(
+      pool: P,
+      amount_in: NumericValue,
+      amount_out: NumericValue,
+      currency_in: Currency,
+      currency_out: Currency,
+   ) -> Self {
+      Self {
+         pool,
+         amount_in,
+         amount_out,
+         currency_in,
+         currency_out,
+      }
+   }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum SwapType {
+   /// Indicates that the swap is based on an exact input amount.
+   ExactInput,
+
+   /// Indicates that the swap is based on an exact output amount.
+   ExactOutput,
+}
+
+impl SwapType {
+   pub fn is_exact_input(&self) -> bool {
+      matches!(self, Self::ExactInput)
+   }
+
+   pub fn is_exact_output(&self) -> bool {
+      matches!(self, Self::ExactOutput)
+   }
+}
 
 /// Encode the calldata for a swap using the universal router
 pub async fn encode_swap<P, N>(
@@ -26,8 +150,8 @@ pub async fn encode_swap<P, N>(
    amount_in: U256,
    amount_out_min: U256,
    slippage: f64,
-   currency_in: Currency2,
-   currency_out: Currency2,
+   currency_in: Currency,
+   currency_out: Currency,
    secure_signer: SecureSigner,
    recipient: Address,
    deadline: Option<U256>,
@@ -111,6 +235,7 @@ where
             sig_deadline,
             data.nonce,
          );
+
          let typed_data = parse_typed_data(value.clone())?;
 
          let signer = secure_signer.to_signer();
@@ -126,6 +251,7 @@ where
             sig_deadline,
             signature,
          );
+
          commands.push(Commands::PERMIT2_PERMIT as u8);
          inputs.push(permit_input);
 
@@ -159,7 +285,7 @@ where
          router_weth_balance += swap.amount_out.wei();
       }
 
-      /* 
+      /*
       eprintln!("|=== Swap Step ===|");
       eprintln!(
          "Swap Step: {} {} -> {} {} {} ({})",
@@ -218,7 +344,6 @@ where
          inputs.push(input);
       }
 
-      // V4 logic can use the original `swap.currency_in` as it handles native ETH directly.
       if swap.pool.dex_kind().is_uniswap_v4() {
          let input = encode_v4_internal_actions(
             &swap.pool,
@@ -269,7 +394,7 @@ where
          amountMin: amount_to_sweep,
       };
 
-     // eprintln!("Sweep Params: {:?}", sweep_params);
+      // eprintln!("Sweep Params: {:?}", sweep_params);
 
       let data = sweep_params.abi_encode_params().into();
       commands.push(Commands::SWEEP as u8);
@@ -277,8 +402,7 @@ where
    }
 
    let command_bytes = Bytes::from(commands);
-  // eprintln!("Command Bytes: {:?}", command_bytes);
-   tracing::info!(target: "zeus_eth::amm::uniswap::router", "Command Bytes: {:?}", command_bytes);
+   // eprintln!("Command Bytes: {:?}", command_bytes);
    let calldata = if let Some(deadline_val) = deadline {
       encode_execute_with_deadline(command_bytes, inputs, deadline_val)
    } else {
@@ -292,8 +416,8 @@ where
 fn encode_v4_internal_actions(
    pool: &impl UniswapPool,
    swap_type: SwapType,
-   currency_in: &Currency2,
-   currency_out: &Currency2,
+   currency_in: &Currency,
+   currency_out: &Currency,
    amount_in: U256,
    amount_out_min: U256,
    router_addr: Address,
@@ -330,7 +454,7 @@ fn encode_v4_internal_actions(
 fn encode_v4_swap_single_command_input(
    pool: &impl UniswapPool,
    swap_type: SwapType,
-   currency_in: &Currency2,
+   currency_in: &Currency,
    amount_in: U256,
    amount_out: U256,
 ) -> Result<(Actions, Bytes), anyhow::Error> {
@@ -342,6 +466,7 @@ fn encode_v4_swap_single_command_input(
          amountOutMinimum: amount_out.try_into()?,
          hookData: Bytes::default(),
       };
+
       let action = Actions::SWAP_EXACT_IN_SINGLE(params);
       let params_bytes = action.abi_encode();
       (action, params_bytes)
@@ -353,6 +478,7 @@ fn encode_v4_swap_single_command_input(
          amountInMaximum: amount_in.try_into()?,
          hookData: Bytes::default(),
       };
+
       let action = Actions::SWAP_EXACT_OUT_SINGLE(params);
       let params_bytes = action.abi_encode();
       (action, params_bytes)
@@ -386,61 +512,3 @@ fn encode_v4_router_command_input(
 
    Ok(params.into())
 }
-
-/*
-/// V4 specific
-pub fn encode_route_to_path(
-   route: &Route<impl UniswapPool>,
-   exact_output: bool,
-) -> Result<Vec<PathKey>, anyhow::Error> {
-   let mut path_keys: Vec<PathKey> = Vec::with_capacity(route.pools.len());
-
-   if exact_output {
-      let mut currency_out = route.currency_out.clone();
-      for pool in route.pools.iter().rev() {
-         let (next_currency, path_key) = get_next_path_key(pool, &currency_out);
-         path_keys.push(path_key);
-         currency_out = next_currency;
-      }
-      path_keys.reverse();
-   } else {
-      let mut currency_in = route.currency_in.clone();
-      for pool in route.pools.iter() {
-         let (next_currency, path_key) = get_next_path_key(pool, &currency_in);
-         path_keys.push(path_key);
-         currency_in = next_currency;
-      }
-   }
-
-   Ok(path_keys)
-}
-
-   */
-
-/*
-/// V4 specific
-pub fn get_next_path_key(pool: &impl UniswapPool, currecy_in: &Currency2) -> (Currency2, PathKey) {
-   let next_currency = if currecy_in == pool.currency0() {
-      pool.currency1().clone()
-   } else {
-      pool.currency0().clone()
-   };
-
-   let intermediate_currency = if next_currency.is_native() {
-      Address::ZERO
-   } else {
-      next_currency.to_erc20().address
-   };
-
-   let path_key = PathKey {
-      intermediateCurrency: intermediate_currency,
-      fee: pool.fee().fee_u24(),
-      tickSpacing: pool.fee().tick_spacing(),
-      hooks: Address::ZERO,
-      hookData: Bytes::default(),
-   };
-
-   (next_currency, path_key)
-}
-
-*/

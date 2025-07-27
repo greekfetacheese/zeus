@@ -819,7 +819,6 @@ dependencies = [
  "anyhow",
  "currency",
  "rayon",
- "revm-utils",
  "serde",
  "serde_json",
  "tokio",

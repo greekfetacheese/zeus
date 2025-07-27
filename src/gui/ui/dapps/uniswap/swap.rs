@@ -10,7 +10,7 @@ use egui::{
 use egui_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
-use zeus_eth::amm::uniswap::{quoter::*, router::SwapType};
+use zeus_eth::amm::uniswap::{quoter::*, universal_router_v2::SwapType};
 use zeus_eth::utils::NumericValue;
 
 use crate::core::utils::{RT, eth};

@@ -23,7 +23,7 @@ use zeus_eth::{
    amm::{
       DexKind, UniswapPool,
       uniswap::{
-         router::{encode_swap, *},
+         universal_router_v2::{encode_swap, *},
          v3::get_tick_from_price,
       },
    },

@@ -14,21 +14,20 @@ use crate::core::{
 };
 use crate::gui::ui::dapps::uniswap::currencies_amount_and_value;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
+use crate::utils::simulate_position::{PositionResult, SimPositionConfig, simulate_position};
 use egui_theme::Theme;
-use std::sync::Arc;
+
 use zeus_eth::{
    alloy_primitives::Address,
    amm::{
       AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool,
-      uniswap::v3::{
-         calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price,
-         position::{PositionResult, SimPositionConfig, simulate_position},
-      },
+      uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price},
       uniswap_v3_math,
    },
    types::BlockTime,
 };
 
+use std::sync::Arc;
 use std::time::Instant;
 
 /// Time in seconds to wait before updating the pool state again

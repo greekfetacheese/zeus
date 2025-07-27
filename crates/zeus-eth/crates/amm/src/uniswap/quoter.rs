@@ -3,7 +3,7 @@ use rayon::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::uniswap::{AnyUniswapPool, UniswapPool, router::SwapStep};
+use crate::uniswap::{AnyUniswapPool, UniswapPool, universal_router_v2::SwapStep};
 use currency::Currency;
 use utils::NumericValue;
 

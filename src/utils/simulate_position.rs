@@ -1,25 +1,23 @@
-use abi::uniswap::v3::pool::{decode_burn_log, decode_collect_log, decode_mint_log, decode_swap_log};
-use alloy_primitives::{Address, Signed, U256};
-
-use alloy_contract::private::{Ethereum, Provider};
-use alloy_rpc_types::{BlockId, Log};
-use alloy_sol_types::SolEvent;
-
 use std::collections::HashMap;
 
-use crate::uniswap::v3::{get_tick_from_price, calculate_liquidity_amounts, calculate_liquidity_needed};
-
-
-use super::{UniswapPool, pool::UniswapV3Pool};
-use abi::uniswap::{
-   nft_position::INonfungiblePositionManager,
-   v3::pool::IUniswapV3Pool,
+use zeus_eth::{
+   abi::uniswap::v3::pool::{
+      IUniswapV3Pool, decode_burn_log, decode_collect_log, decode_mint_log, decode_swap_log,
+   },
+   abi::{self, uniswap::nft_position::INonfungiblePositionManager},
+   alloy_contract::private::{Ethereum, Provider},
+   alloy_primitives::{Address, Signed, U256},
+   alloy_rpc_types::{BlockId, Log},
+   alloy_sol_types::SolEvent,
+   amm::{
+      uniswap::{UniswapPool, UniswapV3Pool, v3::*},
+      uniswap_v3_math,
+   },
+   currency::ERC20Token,
+   revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::Bytecode, simulate},
+   types::BlockTime,
+   utils::{NumericValue, address_book::uniswap_nft_position_manager, get_logs_for},
 };
-use currency::ERC20Token;
-use types::BlockTime;
-use utils::{NumericValue, address_book::uniswap_nft_position_manager, get_logs_for};
-
-use revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::Bytecode, simulate};
 
 use anyhow::Context;
 use tracing::trace;
@@ -99,8 +97,6 @@ pub struct PositionResult {
    pub apr: f64,
 }
 
-
-
 pub async fn simulate_position<P>(
    client: P,
    block_time: BlockTime,
@@ -141,14 +137,10 @@ where
 
    let sequenced_events = decode_events(&logs);
 
-   pool
-      .update_state(client.clone(), Some(fork_block.clone()))
-      .await?;
+   pool.update_state(client.clone(), Some(fork_block.clone())).await?;
 
    // get token0 and token1 prices in USD at the fork block
-   let (base_usd, quote_usd) = pool
-      .tokens_price(client.clone(), Some(fork_block.clone()))
-      .await?;
+   let (base_usd, quote_usd) = pool.tokens_price(client.clone(), Some(fork_block.clone())).await?;
 
    // make sure we set the prices in the correct order
    let (past_token0_usd, past_token1_usd) = if pool.is_token0(pool.base_token().address) {
@@ -178,14 +170,19 @@ where
       true,
    )?;
 
-   let (final_amount0, final_amount1) =
-      calculate_liquidity_amounts(sqrt_price, sqrt_price_lower, sqrt_price_upper, liquidity)?;
+   let (final_amount0, final_amount1) = calculate_liquidity_amounts(
+      sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      liquidity,
+   )?;
 
    let amount0 = NumericValue::format_wei(final_amount0, pool.token0().decimals);
    let amount1 = NumericValue::format_wei(final_amount1, pool.token1().decimals);
 
    // prepare the fork enviroment
-   let mut fork_factory = ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(fork_block));
+   let mut fork_factory =
+      ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(fork_block));
 
    // a simple router to simulate uniswap swaps
    let bytecode = Bytecode::new_raw(abi::misc::SWAP_ROUTER_BYTECODE.parse()?);
@@ -213,13 +210,24 @@ where
    let amount_to_fund_1 = total_supply_1;
 
    // Fund the accounts
-   fork_factory.give_token(swapper.address, pool.token0().address, amount_to_fund_0)?;
-   fork_factory.give_token(swapper.address, pool.token1().address, amount_to_fund_1)?;
+   fork_factory.give_token(
+      swapper.address,
+      pool.token0().address,
+      amount_to_fund_0,
+   )?;
+
+   fork_factory.give_token(
+      swapper.address,
+      pool.token1().address,
+      amount_to_fund_1,
+   )?;
+
    fork_factory.give_token(
       minter_and_burner.address,
       pool.token0().address,
       amount_to_fund_0,
    )?;
+
    fork_factory.give_token(
       minter_and_burner.address,
       pool.token1().address,
@@ -227,20 +235,27 @@ where
    )?;
 
    // we give the lp provider just as much to create the position
-   fork_factory.give_token(lp_provider.address, pool.token0().address, amount0.wei())?;
-   fork_factory.give_token(lp_provider.address, pool.token1().address, amount1.wei())?;
+   fork_factory.give_token(
+      lp_provider.address,
+      pool.token0().address,
+      amount0.wei(),
+   )?;
+
+   fork_factory.give_token(
+      lp_provider.address,
+      pool.token1().address,
+      amount1.wei(),
+   )?;
 
    let fork_db = fork_factory.new_sandbox_fork();
 
    let fee = pool.fee.fee_u24();
-   let lower_tick_i24: Signed<24, 1> = lower_tick
-      .to_string()
-      .parse()
-      .context("Failed to parse tick")?;
-   let upper_tick_i24: Signed<24, 1> = upper_tick
-      .to_string()
-      .parse()
-      .context("Failed to parse tick")?;
+
+   let lower_tick_i24: Signed<24, 1> =
+      lower_tick.to_string().parse().context("Failed to parse tick")?;
+
+   let upper_tick_i24: Signed<24, 1> =
+      upper_tick.to_string().parse().context("Failed to parse tick")?;
 
    let mint_params = INonfungiblePositionManager::MintParams {
       token0: pool.token0().address,
@@ -288,10 +303,12 @@ where
       .iter()
       .filter(|e| matches!(e.event, PoolEvent::Swap(_)))
       .count();
+
    let total_mints = sequenced_events
       .iter()
       .filter(|e| matches!(e.event, PoolEvent::Mint(_)))
       .count();
+    
    let total_burns = sequenced_events
       .iter()
       .filter(|e| matches!(e.event, PoolEvent::Burn(_)))
@@ -345,20 +362,30 @@ where
       amount0 = NumericValue::format_wei(mint_res.amount0, pool.token0().decimals);
       amount1 = NumericValue::format_wei(mint_res.amount1, pool.token1().decimals);
 
-
       // simulate all the swaps that occured
       trace!(target: "zeus_eth::amm::uniswap::v3::position", "Simulating {} swaps", total_swaps);
       for event in sequenced_events {
          match event.event {
             PoolEvent::Swap(swap) => {
                let (amount_in, amount_out, token_in, token_out) = if swap.amount0.is_positive() {
-                  (swap.amount0, swap.amount1, pool.token0(), pool.token1())
+                  (
+                     swap.amount0,
+                     swap.amount1,
+                     pool.token0(),
+                     pool.token1(),
+                  )
                } else {
-                  (swap.amount1, swap.amount0, pool.token1(), pool.token0())
+                  (
+                     swap.amount1,
+                     swap.amount0,
+                     pool.token1(),
+                     pool.token0(),
+                  )
                };
 
                let amount_in: U256 = amount_in.to_string().parse().unwrap();
-               let amount_out: U256 = amount_out.to_string().trim_start_matches('-').parse().unwrap();
+               let amount_out: U256 =
+                  amount_out.to_string().trim_start_matches('-').parse().unwrap();
 
                if token_in.is_base() {
                   // Quote token is bought
@@ -418,7 +445,10 @@ where
                ) {
                   Ok((_res, mint_res)) => {
                      let token_id = mint_res.tokenId;
-                     positions.insert((mint.owner, mint.tickLower, mint.tickUpper), token_id);
+                     positions.insert(
+                        (mint.owner, mint.tickLower, mint.tickUpper),
+                        token_id,
+                     );
                   }
                   Err(e) => {
                      failed_mints += 1;
@@ -434,14 +464,14 @@ where
                if config.skip_simulating_burns {
                   continue;
                }
-               
+
                let position = positions.get(&(burn.owner, burn.tickLower, burn.tickUpper)).cloned();
                if position.is_none() {
-                //  eprintln!("No position found for Burn event with owner: {}", burn.owner);
+                  //  eprintln!("No position found for Burn event with owner: {}", burn.owner);
                   continue;
                }
 
-              // eprintln!("Simulating a Burn event with owner: {}", burn.owner);
+               // eprintln!("Simulating a Burn event with owner: {}", burn.owner);
 
                let position = position.unwrap();
                let params = INonfungiblePositionManager::DecreaseLiquidityParams {
@@ -460,7 +490,7 @@ where
                   true,
                ) {
                   failed_burns += 1;
-                 // eprintln!("Burn event failed with owner: {} reason: {}", burn.owner, e);
+                  // eprintln!("Burn event failed with owner: {} reason: {}", burn.owner, e);
                   trace!("Decrease Liquidity Failed: {:?}", e);
                   continue;
                }
@@ -489,7 +519,6 @@ where
             total_collected1 = amount1_collected;
             active_swaps += 1;
          }
-
       }
    }
 
@@ -517,7 +546,6 @@ where
    let buy_volume_usd = NumericValue::value(buy_volume.f64(), base_usd);
    let sell_volume_usd = NumericValue::value(sell_volume.f64(), quote_usd);
    let total_volume_usd = NumericValue::from_f64(buy_volume_usd.f64() + sell_volume_usd.f64());
-
 
    // calculate the APR of the position
    let total_earned_usd = earned0_usd.f64() + earned1_usd.f64();
@@ -600,9 +628,9 @@ fn decode_events(logs: &Vec<Log>) -> Vec<SequencedEvent> {
       let event = match topic {
          Some(t) if t == swap_event => decode_swap_log(&log.inner.data).ok().map(PoolEvent::Swap),
          Some(t) if t == mint_event => decode_mint_log(&log.inner.data).ok().map(PoolEvent::Mint),
-         Some(t) if t == collect_event => decode_collect_log(&log.inner.data)
-            .ok()
-            .map(PoolEvent::Collect),
+         Some(t) if t == collect_event => {
+            decode_collect_log(&log.inner.data).ok().map(PoolEvent::Collect)
+         }
          Some(t) if t == burn_event => decode_burn_log(&log.inner.data).ok().map(PoolEvent::Burn),
          _ => None,
       };
@@ -621,17 +649,10 @@ fn decode_events(logs: &Vec<Log>) -> Vec<SequencedEvent> {
    sequenced_events
 }
 
-
-
-
-
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::DexKind;
-   use alloy_primitives::address;
-   use alloy_provider::ProviderBuilder;
-   use currency::ERC20Token;
+   use zeus_eth::{alloy_primitives::address, alloy_provider::ProviderBuilder, amm::DexKind};
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {
@@ -646,7 +667,14 @@ mod tests {
       let wst_eth = ERC20Token::new(client.clone(), wst_eth, 1).await.unwrap();
       let amount0_deposit = NumericValue::parse_to_wei("10", wst_eth.decimals);
 
-      let pool = UniswapV3Pool::new(1, pool_address, 100, weth, wst_eth, DexKind::UniswapV3);
+      let pool = UniswapV3Pool::new(
+         1,
+         pool_address,
+         100,
+         weth,
+         wst_eth,
+         DexKind::UniswapV3,
+      );
 
       let skip_simulating_mints = true;
       let skip_simulating_burns = true;
@@ -659,14 +687,10 @@ mod tests {
          skip_simulating_burns,
       };
 
-      let result = simulate_position(client, BlockTime::Days(1), position, pool)
-         .await
-         .unwrap();
+      let result = simulate_position(client, BlockTime::Days(1), position, pool).await.unwrap();
       eprintln!("Result: {:#?}", result);
    }
 }
-
-
 
 /*
 
