@@ -2,13 +2,15 @@ use egui::{Color32, Frame, style::Style};
 
 const PANIC_MSG: &str = "Custom theme not supported, use Theme::from_custom() instead";
 
+pub mod window;
 pub mod editor;
 pub mod themes;
 pub mod utils;
 
 pub use editor::ThemeEditor;
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ThemeKind {
    /// https://catppuccin.com
    Frappe,
@@ -42,12 +44,15 @@ impl ThemeKind {
    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct Theme {
    pub kind: ThemeKind,
    pub style: Style,
    pub colors: ThemeColors,
    pub text_sizes: TextSizes,
+   /// Used for [window::window_frame]
+   pub window_frame: Frame,
    /// Base container frame for major UI sections.
    pub frame1: Frame,
    /// Frame for nested elements, like individual list items.
@@ -63,34 +68,23 @@ impl Theme {
    ///
    /// Use [Theme::from_custom()] instead
    pub fn new(kind: ThemeKind) -> Self {
-      match kind {
+      let theme = match kind {
          ThemeKind::Frappe => themes::frappe::theme(),
          ThemeKind::Latte => themes::latte::theme(),
          ThemeKind::TokyoNight => themes::tokyo_night::theme(),
          ThemeKind::Nord => themes::nord::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
-      }
-   }
+      };
 
-   /// Load a custom theme from a json file
-   pub fn from_custom(path: std::path::PathBuf) -> Result<Self, std::io::Error> {
-      let data = std::fs::read(path)?;
-      let mut theme: Theme = serde_json::from_slice::<Theme>(&data)?;
-      theme.kind = ThemeKind::Custom;
-
-      Ok(theme)
-   }
-
-   /// Serialize the theme to a json string
-   pub fn to_json(&self) -> Result<String, serde_json::Error> {
-      serde_json::to_string(self)
+      theme
    }
 }
 
 /// These colors can be used to override the visuals using [egui::Ui::visuals_mut]
 ///
 /// `border_color` = [egui::Stroke] color
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone)]
 pub struct ThemeColors {
    /// Main Background color for the entire app
    pub bg_color: Color32,
@@ -178,7 +172,8 @@ pub struct ThemeColors {
    pub border_color_open: Color32,
 }
 
-#[derive(Clone, Default, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Default, Debug)]
 pub struct TextSizes {
    pub very_small: f32,
    pub small: f32,
@@ -201,7 +196,8 @@ impl TextSizes {
    }
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug)]
 pub struct FrameVisuals {
    pub bg_on_hover: Color32,
    pub bg_on_click: Color32,
@@ -210,7 +206,8 @@ pub struct FrameVisuals {
 }
 
 /// Visuals for ComboBoxes, Sliders
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone, Debug, Default)]
 pub struct WidgetVisuals {
    pub bg_color_on_idle: Color32,
    pub bg_color_on_hover: Color32,

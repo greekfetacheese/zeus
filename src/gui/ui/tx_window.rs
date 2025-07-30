@@ -532,7 +532,7 @@ impl TxWindow {
                   // Action Name
                   ui.label(
                      RichText::new(action.name())
-                        .size(theme.text_sizes.large)
+                        .size(theme.text_sizes.very_large)
                         .strong(),
                   );
 

@@ -23,7 +23,7 @@ wgpu = "25"
 # Zeus Crates
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-token-list = { path = "crates/zeus-token-list" }
-egui-theme = { path = "crates/egui-theme" }
+egui-theme = { path = "crates/egui-theme", features = ["serde"]}
 
 
 # Alloy

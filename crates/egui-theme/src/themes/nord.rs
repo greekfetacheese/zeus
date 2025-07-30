@@ -36,6 +36,7 @@ pub fn theme() -> Theme {
       style: style(),
       colors: colors(),
       text_sizes: text_sizes(),
+      window_frame: window_frame(),
       frame1: frame1(),
       frame2: frame2(),
       frame1_visuals: frame1_visuals(),
@@ -73,6 +74,15 @@ fn colors() -> ThemeColors {
 
 fn text_sizes() -> TextSizes {
    TextSizes::new(12.0, 14.0, 16.0, 18.0, 20.0, 26.0)
+}
+
+fn window_frame() -> Frame {
+   Frame {
+      corner_radius: CornerRadius::same(6),
+      fill: POLAR_NIGHT_0,
+      stroke: Stroke::new(1.0, POLAR_NIGHT_2),
+      ..Default::default()
+   }
 }
 
 /// Base container frame for major UI sections.
@@ -162,7 +172,7 @@ fn widgets(colors: ThemeColors) -> Widgets {
       expansion: 0.0,
    };
 
-   let mut non_interactive_base = base_visuals;
+   let mut non_interactive_base = base_visuals.clone();
    non_interactive_base.bg_stroke.width = 0.0;
    Widgets {
       noninteractive: non_interactive_base,

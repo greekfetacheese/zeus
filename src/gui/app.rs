@@ -3,13 +3,13 @@ use crate::core::{
    ZeusCtx,
    utils::{RT, load_theme_kind, update},
 };
-use crate::gui::{GUI, SHARED_GUI, window::window_frame};
+use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
-use egui_theme::{Theme, ThemeKind};
+use egui_theme::{Theme, ThemeKind, window::window_frame};
 use std::sync::Arc;
 
 pub struct ZeusApp {
@@ -121,31 +121,33 @@ impl eframe::App for ZeusApp {
       SHARED_GUI.write(|gui| {
          self.on_shutdown(ctx, gui);
 
-         let bg_color = gui.theme.colors.bg_color;
-         let bg_frame = Frame::new().fill(bg_color);
+         let theme = gui.theme.clone();
+         let bg_color = theme.colors.bg_color;
+         let panel_frame = Frame::new().fill(bg_color);
 
-         window_frame(ctx, "Zeus", bg_frame, |ui| {
+         window_frame(ctx, "Zeus", theme, |ui| {
             #[cfg(feature = "dev")]
             egui_theme::utils::apply_theme_changes(&gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
             egui::TopBottomPanel::top("top_panel")
-               .exact_height(150.0)
+               .min_height(150.0)
                .resizable(false)
-               .show_separator_line(true)
-               .frame(bg_frame)
+               .show_separator_line(false)
+               .frame(panel_frame)
                .show_inside(ui, |ui| {
                   if gui.ctx.logged_in() {
                      gui.show_top_panel(ui);
                   }
                });
 
+            
             // Paint the Ui that belongs to the left panel
             egui::SidePanel::left("left_panel")
                .exact_width(150.0)
                .resizable(false)
                .show_separator_line(true)
-               .frame(bg_frame)
+               .frame(panel_frame)
                .show_inside(ui, |ui| {
                   if gui.ctx.logged_in() {
                      gui.show_left_panel(ui);
@@ -158,7 +160,7 @@ impl eframe::App for ZeusApp {
                   .exact_width(150.0)
                   .resizable(false)
                   .show_separator_line(true)
-                  .frame(bg_frame)
+                  .frame(panel_frame)
                   .show_inside(ui, |ui| {
                      if gui.ctx.logged_in() {
                         gui.show_right_panel(ui);
@@ -168,7 +170,7 @@ impl eframe::App for ZeusApp {
 
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default()
-               .frame(bg_frame)
+               .frame(panel_frame)
                .show_inside(ui, |ui| {
                   ui.with_layout(
                      egui::Layout::top_down(egui::Align::Center),
@@ -178,6 +180,7 @@ impl eframe::App for ZeusApp {
                      },
                   );
                });
+            
          });
 
          #[cfg(feature = "dev")]

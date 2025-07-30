@@ -314,7 +314,7 @@ impl RecipientSelectionWindow {
                   let explorer = chain.block_explorer();
                   let link = format!("{}/address/{}", explorer, &contact.address);
                   ui.hyperlink_to(
-                     RichText::new(&contact.address)
+                     RichText::new(&contact.address_short(10, 10))
                         .size(theme.text_sizes.small)
                         .color(theme.colors.hyperlink_color),
                      link,

@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use zeus_eth::utils::NumericValue;
 
-
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
    let logged_in = ctx.logged_in();
@@ -24,8 +23,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
-   gui.tx_confirmation_window
-      .show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_confirmation_window.show(ctx.clone(), theme, icons.clone(), ui);
 
    gui.tx_window.show(ctx.clone(), theme, icons.clone(), ui);
 
@@ -102,7 +100,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    #[cfg(feature = "dev")]
    {
-      let theme = gui.editor.show(&mut gui.theme, None, ui);
+      let theme = gui.editor.show(&mut gui.theme, ui);
       if let Some(theme) = theme {
          gui.theme = theme;
       }
@@ -141,9 +139,8 @@ impl UiTesting {
             let ctx_clone = ctx.clone();
 
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_erc20_transfer()
-                  .erc20_transfer_params()
-                  .clone();
+               let params =
+                  TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -172,12 +169,9 @@ impl UiTesting {
             let ctx_clone = ctx.clone();
 
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_erc20_transfer()
-                  .erc20_transfer_params()
-                  .clone();
-               let unwrap = TransactionAction::dummy_unwrap_weth()
-                  .unwrap_weth_params()
-                  .clone();
+               let params =
+                  TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+               let unwrap = TransactionAction::dummy_unwrap_weth().unwrap_weth_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -208,9 +202,7 @@ impl UiTesting {
             let ctx_clone = ctx.clone();
 
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_wrap_eth()
-                  .wrap_eth_params()
-                  .clone();
+               let params = TransactionAction::dummy_wrap_eth().wrap_eth_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -238,9 +230,7 @@ impl UiTesting {
             let ctx_clone = ctx.clone();
 
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_unwrap_weth()
-                  .unwrap_weth_params()
-                  .clone();
+               let params = TransactionAction::dummy_unwrap_weth().unwrap_weth_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -320,9 +310,8 @@ impl UiTesting {
          if ui.add(button).clicked() {
             let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_erc20_transfer()
-                  .erc20_transfer_params()
-                  .clone();
+               let params =
+                  TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -348,9 +337,8 @@ impl UiTesting {
          if ui.add(button).clicked() {
             let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
-               let params = TransactionAction::dummy_token_approve()
-                  .token_approval_params()
-                  .clone();
+               let params =
+                  TransactionAction::dummy_token_approve().token_approval_params().clone();
                let analysis = TransactionAnalysis {
                   chain: 1,
                   contract_interact: true,
@@ -431,8 +419,7 @@ impl UiTesting {
             RT.spawn_blocking(move || {
                let msg = SignMsgType::dummy_permit2();
                SHARED_GUI.write(|gui| {
-                  gui.sign_msg_window
-                     .open("app.uniswap.org".to_string(), 8453, msg);
+                  gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
                });
             });
          }

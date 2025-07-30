@@ -4,7 +4,7 @@ use crate::gui::{
    GUI, SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use egui::{vec2, Align, Button, Frame, Layout, Margin, RichText, Spinner, Ui};
+use egui::{vec2, Align, Button, Layout, RichText, Spinner, Ui};
 use egui_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::currency::{Currency, NativeCurrency};
@@ -21,7 +21,6 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let theme = &gui.theme;
    let frame = theme.frame2;
 
-   Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
       ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -120,7 +119,6 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
             });
          }
       });
-   });
 }
 
 pub struct ChainSelection {

@@ -44,7 +44,7 @@ impl AddContact {
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let mut open = self.open;
 
-      Window::new(RichText::new("Add new contact").size(theme.text_sizes.large))
+      Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
@@ -161,11 +161,11 @@ impl DeleteContact {
 
       let mut should_close = false;
 
-      Window::new(RichText::new("Delete contact").size(theme.text_sizes.large))
+      Window::new(RichText::new("Delete contact").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
@@ -248,11 +248,11 @@ impl EditContact {
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
-      Window::new(RichText::new("Edit contact").size(theme.text_sizes.large))
+      Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Foreground)
+         .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {

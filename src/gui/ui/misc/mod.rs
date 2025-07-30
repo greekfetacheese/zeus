@@ -593,7 +593,7 @@ impl MsgWindow {
 
       Window::new(title)
          .resizable(false)
-         .order(Order::Tooltip)
+         .order(Order::Debug)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
          .frame(Frame::window(ui.style()))
