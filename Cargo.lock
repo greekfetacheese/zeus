@@ -2805,7 +2805,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4148,7 +4148,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.3",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4478,9 +4478,9 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.1.1"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06dc97873acd4bb6858578b82b93a1135d35af4499e47be532d08daf0a835b26"
+checksum = "4379b01102213a31e65ecde59e5528c3cda55d447edc01a74dbc5a5f48ef90ef"
 dependencies = [
  "argon2-sys",
  "bincode",
@@ -6269,7 +6269,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.9.4",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6455,9 +6455,9 @@ dependencies = [
 
 [[package]]
 name = "secure-types"
-version = "0.1.2"
+version = "0.1.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0138ee3082dd3bab838273e5052c7ec2764ad3992410af1a8b487b1a93f9a51b"
+checksum = "06d2bc3c694f9e0b913f66d5da38057ec0b36aaeb1fedd664ef97f6611a729da"
 dependencies = [
  "libc",
  "memsec",

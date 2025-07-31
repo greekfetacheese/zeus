@@ -1,14 +1,15 @@
 use alloy_network::EthereumWallet;
 use alloy_primitives::Address;
 use alloy_signer_local::PrivateKeySigner;
-use secure_types::{SecureString, SecureVec, Zeroize};
+use secure_types::{SecureArray, SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecureSigner {
    address: Address,
-   vec: SecureVec<u8>,
+   #[serde(alias = "vec")]
+   data: SecureArray<u8, 32>,
 }
 
 impl SecureSigner {
@@ -33,11 +34,13 @@ impl SecureSigner {
 
    /// Securely erase the signer's key from memory
    pub fn erase(&mut self) {
-      self.vec.erase();
+      self.data.erase();
    }
 
    pub fn is_erased(&self) -> bool {
-      self.vec.len() == 0
+      self
+         .data
+         .unlocked_scope(|slice| slice.iter().all(|byte| *byte == 0))
    }
 
    pub fn address(&self) -> Address {
@@ -46,8 +49,8 @@ impl SecureSigner {
 
    pub fn to_signer(&self) -> PrivateKeySigner {
       self
-         .vec
-         .slice_scope(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
+         .data
+         .unlocked_scope(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
    }
 
    pub fn to_wallet(&self) -> EthereumWallet {
@@ -57,13 +60,13 @@ impl SecureSigner {
 
 impl From<PrivateKeySigner> for SecureSigner {
    fn from(value: PrivateKeySigner) -> Self {
-      let bytes = value.to_bytes().to_vec();
-      let secure_vec = SecureVec::from_vec(bytes).unwrap();
       let address = value.address();
-      SecureSigner {
-         address,
-         vec: secure_vec,
-      }
+      let mut key_bytes = value.to_bytes();
+      let data = SecureArray::new(key_bytes.into()).unwrap();
+      key_bytes.zeroize();
+      erase_signer(value);
+
+      SecureSigner { address, data }
    }
 }
 
@@ -119,13 +122,29 @@ mod tests {
    }
 
    #[test]
+   fn test_is_erased() {
+      let signer = PrivateKeySigner::random();
+      let mut secure_signer = SecureSigner::from(signer.clone());
+      assert!(!secure_signer.is_erased());
+      secure_signer.erase();
+      assert!(secure_signer.is_erased());
+   }
+
+   #[test]
    fn test_serde() {
       let signer = PrivateKeySigner::random();
       let secure_signer = SecureSigner::from(signer.clone());
-      let json = serde_json::to_string(&secure_signer).unwrap();
-      let deserialized: SecureSigner = serde_json::from_str(&json).unwrap();
 
-      let signer2 = deserialized.to_signer();
+      let json_string = serde_json::to_string(&secure_signer).unwrap();
+      let json_bytes = serde_json::to_vec(&secure_signer).unwrap();
+
+      let deserialized_string: SecureSigner = serde_json::from_str(&json_string).unwrap();
+      let deserialized_bytes: SecureSigner = serde_json::from_slice(&json_bytes).unwrap();
+
+      let signer2 = deserialized_string.to_signer();
+      let signer3 = deserialized_bytes.to_signer();
+
       assert_eq!(signer.address(), signer2.address());
+      assert_eq!(signer.address(), signer3.address());
    }
 }
