@@ -69,7 +69,7 @@ impl ZeusApp {
          let ctx_clone = ctx.clone();
 
          RT.spawn(async move {
-          // update::test_and_measure_rpcs(ctx_clone).await;
+          update::test_and_measure_rpcs(ctx_clone).await;
          });
 
          let ctx_clone = ctx.clone();
