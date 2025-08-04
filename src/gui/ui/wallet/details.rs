@@ -127,22 +127,19 @@ impl ExportKeyUi {
          });
 
       if clicked {
-         let mut account = ctx.get_account();
-         account.set_credentials(self.credentials_form.credentials.clone());
+         let mut vault = ctx.get_vault();
+         vault.set_credentials(self.credentials_form.credentials.clone());
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Decrypting account...");
+               gui.loading_window.open("Decrypting vault...");
             });
 
-            // Verify the credentials by just decrypting the account
-            match account.decrypt(None) {
+            // Verify the credentials by just decrypting the vault
+            match vault.decrypt(None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      let egui_ctx = gui.egui_ctx.clone();
-                     gui.wallet_ui
-                        .export_key_ui
-                        .exporter
-                        .export_key(ctx.clone(), egui_ctx);
+                     gui.wallet_ui.export_key_ui.exporter.export_key(ctx.clone(), egui_ctx);
                      gui.wallet_ui.export_key_ui.reset();
                      gui.open_msg_window("", VIEW_KEY_MSG);
                      gui.loading_window.open = false;
@@ -228,15 +225,15 @@ impl DeleteWalletUi {
          });
 
       if clicked {
-         let mut account = ctx.get_account();
-         account.set_credentials(self.credentials_form.credentials.clone());
+         let mut vault = ctx.get_vault();
+         vault.set_credentials(self.credentials_form.credentials.clone());
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Decrypting account...");
+               gui.loading_window.open("Decrypting vault...");
             });
 
-            // Verify the credentials by just decrypting the account
-            match account.decrypt(None) {
+            // Verify the credentials by just decrypting the vault
+            match vault.decrypt(None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      // credentials are verified
@@ -300,8 +297,8 @@ impl DeleteWalletUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               ui.label(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
-               ui.label(RichText::new(wallet.address_string()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.name()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
 
                let value = ctx.get_portfolio_value_all_chains(wallet.address);
                ui.label(
@@ -322,27 +319,25 @@ impl DeleteWalletUi {
 
       if clicked {
          open = false;
-         let mut new_account = ctx.get_account();
+         let mut new_vault = ctx.get_vault();
+         let is_current = ctx.is_current_wallet(wallet.address);
 
          RT.spawn_blocking(move || {
-            new_account.remove_wallet(&wallet);
+            new_vault.remove_wallet(wallet.address);
 
-            // update the current wallet to the first available
-            let wallets = new_account.wallets();
-            if let Some(wallet_info) = wallets.first().map(|wallet| wallet.info.clone()) {
-               new_account.set_current_wallet(wallet_info.clone());
-
+            if is_current {
+               let master_wallet = new_vault.get_master_wallet();
                SHARED_GUI.write(|gui| {
-                  gui.wallet_selection.wallet_select.wallet = wallet_info;
+                  gui.wallet_selection.wallet_select.wallet = master_wallet;
                });
             }
 
             SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting account...");
+               gui.loading_window.open("Encrypting vault...");
             });
 
-            // Encrypt the account
-            match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
+            // Encrypt the vault
+            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
@@ -354,13 +349,13 @@ impl DeleteWalletUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.open = false;
-                     gui.open_msg_window("Failed to encrypt wallet", e.to_string());
+                     gui.open_msg_window("Failed to encrypt vault", e.to_string());
                   });
                   return;
                }
             };
 
-            ctx.set_account(new_account);
+            ctx.set_vault(new_vault);
          });
       }
       self.open = open;

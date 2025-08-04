@@ -10,7 +10,7 @@ pub mod tx_window;
 pub mod sign_msg_window;
 pub mod wallet;
 
-pub use auth::{CredentialsForm, LoginUi, RegisterUi};
+pub use auth::{CredentialsForm, UnlockVault, RecoverHDWallet};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
 pub use misc::*;
 pub use recipient_selection::RecipientSelectionWindow;

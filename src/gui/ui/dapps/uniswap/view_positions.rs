@@ -346,7 +346,7 @@ impl RemoveLiquidity {
                if ui.add(button).clicked() {
                   let chain = ctx.chain();
                   let ctx_clone = ctx.clone();
-                  let owner = ctx.current_wallet().address;
+                  let owner = ctx.current_wallet_address();
                   let position = position.clone();
                   let slippage = self.slippage.clone();
 
@@ -573,7 +573,7 @@ impl AddLiquidity {
                if ui.add(button).clicked() {
                   let chain = ctx.chain();
                   let ctx_clone = ctx.clone();
-                  let owner = ctx.current_wallet().address;
+                  let owner = ctx.current_wallet_address();
                   let position = position.clone();
                   let slippage = self.slippage.clone();
 
@@ -866,7 +866,7 @@ impl ViewPositionsUi {
 
       self.collect_fees.show(ctx.clone(), theme, icons, ui);
 
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
       let chain = ctx.chain();
       let positions = ctx.get_v3_positions(chain.id(), owner);
 
@@ -1229,7 +1229,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
 
    let latest_block = client.get_block_number().await?;
 
-   let wallets = ctx.wallets_info();
+   let wallets = ctx.get_all_wallets_info();
    let wallet_addresses = wallets.iter().map(|w| w.address).collect::<Vec<_>>();
 
    let nft_contract = uniswap_nft_position_manager(chain.id())?;

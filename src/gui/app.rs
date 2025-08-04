@@ -67,34 +67,36 @@ impl ZeusApp {
       let ctx = self.ctx.clone();
       if !self.updated_started {
          let ctx_clone = ctx.clone();
+
          RT.spawn(async move {
-            update::on_startup(ctx_clone).await;
+          // update::test_and_measure_rpcs(ctx_clone).await;
          });
+
+         let ctx_clone = ctx.clone();
+         RT.spawn(async move {
+            if ctx_clone.vault_exists() {
+               update::on_startup(ctx_clone).await;
+            }
+         });
+
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
             let _ = run_server(ctx_clone).await;
          });
+
          self.updated_started = true;
       }
    }
 
    fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
       if ctx.input(|i| i.viewport().close_requested()) {
-         let clear_clipboard = gui
-            .wallet_ui
-            .export_key_ui
-            .exporter
-            .key_copied_time
-            .is_some();
+         let clear_clipboard = gui.wallet_ui.export_key_ui.exporter.key_copied_time.is_some();
          if clear_clipboard {
             ctx.copy_text("".to_string());
          }
          let zeus_ctx = gui.ctx.clone();
-         zeus_ctx.write_account(|account| {
-            account.credentials_mut().erase();
-            for wallet in account.wallets_mut() {
-               wallet.key.erase();
-            }
+         zeus_ctx.write_vault(|vault| {
+            vault.erase();
          });
       }
    }
@@ -141,7 +143,6 @@ impl eframe::App for ZeusApp {
                   }
                });
 
-            
             // Paint the Ui that belongs to the left panel
             egui::SidePanel::left("left_panel")
                .exact_width(150.0)
@@ -169,18 +170,15 @@ impl eframe::App for ZeusApp {
             }
 
             // Paint the Ui that belongs to the central panel
-            egui::CentralPanel::default()
-               .frame(panel_frame)
-               .show_inside(ui, |ui| {
-                  ui.with_layout(
-                     egui::Layout::top_down(egui::Align::Center),
-                     |ui| {
-                        ui.set_max_width(900.0);
-                        gui.show_central_panel(ui);
-                     },
-                  );
-               });
-            
+            egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
+               ui.with_layout(
+                  egui::Layout::top_down(egui::Align::Center),
+                  |ui| {
+                     ui.set_max_width(900.0);
+                     gui.show_central_panel(ui);
+                  },
+               );
+            });
          });
 
          #[cfg(feature = "dev")]

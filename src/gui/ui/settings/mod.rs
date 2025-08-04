@@ -245,11 +245,7 @@ impl SettingsUi {
          "Verify Your Credentials"
       };
 
-      let mut open = if self.credentials.additional_frame {
-         true
-      } else {
-         self.credentials.open
-      };
+      let mut open = self.credentials.open;
 
       Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
@@ -260,11 +256,6 @@ impl SettingsUi {
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
-
-            if self.credentials.additional_frame {
-               tracing::info!("Running additional frame");
-               self.credentials.additional_frame = false;
-            }
 
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
@@ -281,8 +272,8 @@ impl SettingsUi {
                      .min_size(size);
 
                   if ui.add(verify).clicked() {
-                     let mut account = ctx.get_account();
-                     account.set_credentials(self.credentials.credentials.clone());
+                     let mut vault = ctx.get_vault();
+                     vault.set_credentials(self.credentials.credentials.clone());
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
@@ -290,12 +281,11 @@ impl SettingsUi {
                         });
 
                         // Verify the credentials by just decrypting the account
-                        match account.decrypt(None) {
+                        match vault.decrypt(None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
                                  gui.settings.verified_credentials = true;
                                  gui.settings.credentials.erase();
-                                 gui.settings.credentials.additional_frame = true;
                                  gui.loading_window.open = false;
                               });
                            }
@@ -324,22 +314,21 @@ impl SettingsUi {
 
                   if ui.add(save).clicked() {
                      let new_credentials = self.credentials.credentials.clone();
-                     let mut new_account = ctx.get_account();
-                     new_account.set_credentials(new_credentials.clone());
+                     let mut new_vault = ctx.get_vault();
+                     new_vault.set_credentials(new_credentials.clone());
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.loading_window.open("Encrypting account...");
+                           gui.loading_window.open("Encrypting vault...");
                         });
 
-                        match ctx.encrypt_and_save_account(Some(new_account.clone()), None) {
+                        match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
                                  gui.settings.credentials.erase();
                                  gui.loading_window.open = false;
                                  gui.settings.verified_credentials = false;
                                  gui.settings.credentials.open = false;
-                                 gui.settings.credentials.additional_frame = true;
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
                            }
@@ -355,7 +344,7 @@ impl SettingsUi {
                            }
                         };
 
-                        ctx.set_account(new_account);
+                        ctx.set_vault(new_vault);
                      });
                   }
                }
@@ -366,7 +355,6 @@ impl SettingsUi {
       if self.credentials.open && !open {
          self.credentials.erase();
          self.credentials.open = false;
-         self.credentials.additional_frame = true;
          self.verified_credentials = false;
       }
    }
@@ -459,12 +447,12 @@ impl EncryptionSettings {
 
       RT.spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Encrypting account...");
+            gui.loading_window.open("Encrypting vault...");
          });
 
-         // Encrypt the account with the new params
+         // Encrypt the vault with the new params
          // let time = std::time::Instant::now();
-         match ctx.encrypt_and_save_account(None, Some(new_params.clone())) {
+         match ctx.encrypt_and_save_vault(None, Some(new_params.clone())) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.open = false;

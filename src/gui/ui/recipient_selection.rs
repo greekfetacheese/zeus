@@ -114,7 +114,7 @@ impl RecipientSelectionWindow {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               let wallets = ctx.wallets_info();
+               let wallets = ctx.get_all_wallets_info();
                let contacts = ctx.contacts();
 
                let query = self.search_query.clone();
@@ -182,7 +182,7 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let mut wallets = ctx.wallets_info();
+      let mut wallets = ctx.get_all_wallets_info();
       let mut portfolios = Vec::new();
       for chain in SUPPORTED_CHAINS {
          for wallet in &wallets {
@@ -212,7 +212,7 @@ impl RecipientSelectionWindow {
             .f64()
             .partial_cmp(&value_a.f64())
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.name().cmp(&b.name()))
       });
 
       ui.vertical_centered(|ui| {
@@ -237,12 +237,12 @@ impl RecipientSelectionWindow {
                   Layout::left_to_right(Align::Min).with_main_wrap(true),
                   |ui| {
                      ui.set_width(column_width);
-                     let name = RichText::new(wallet.name.clone()).size(theme.text_sizes.normal);
+                     let name = RichText::new(wallet.name()).size(theme.text_sizes.normal);
                      ui.scope(|ui| {
                         ui.set_width(column_width * 0.8);
                         if ui.add(Button::new(name)).clicked() {
                            self.recipient = wallet.address.to_string();
-                           self.recipient_name = Some(wallet.name.clone());
+                           self.recipient_name = Some(wallet.name());
                            *close_window = true;
                         }
                      });
@@ -343,6 +343,6 @@ fn valid_wallet_search(wallet: &WalletInfo, query: &str) -> bool {
       return true;
    }
 
-   wallet.name.to_lowercase().contains(&query)
-      || wallet.address_string().to_lowercase().contains(&query)
+   wallet.name().to_lowercase().contains(&query)
+      || wallet.address.to_string().to_lowercase().contains(&query)
 }

@@ -4,7 +4,7 @@ pub use add::AddWalletUi;
 pub use details::{DeleteWalletUi, ExportKeyUi};
 
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx, utils::RT};
+use crate::core::{WalletInfo, ZeusCtx, utils::RT, utils::update};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense,
@@ -51,9 +51,7 @@ impl WalletUi {
 
       self.main_ui(ctx.clone(), theme, icons.clone(), ui);
       self.add_wallet_ui.show(ctx.clone(), theme, ui);
-      self
-         .export_key_ui
-         .show(ctx.clone(), theme, icons.clone(), ui);
+      self.export_key_ui.show(ctx.clone(), theme, icons.clone(), ui);
       self.delete_wallet_ui.show(ctx.clone(), theme, icons, ui);
    }
 
@@ -65,8 +63,8 @@ impl WalletUi {
          return;
       }
 
-      let mut wallets = ctx.wallets_info();
-      let current_wallet = ctx.current_wallet();
+      let mut wallets = ctx.get_all_wallets_info();
+      let current_wallet = ctx.current_wallet_info();
       let mut portfolios = Vec::new();
       for chain in SUPPORTED_CHAINS {
          for wallet in &wallets {
@@ -83,12 +81,8 @@ impl WalletUi {
          let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
 
          // Extract the portfolio value (or use a default if not found)
-         let value_a = portfolio_a
-            .map(|p| p.value.clone())
-            .unwrap_or(NumericValue::default());
-         let value_b = portfolio_b
-            .map(|p| p.value.clone())
-            .unwrap_or(NumericValue::default());
+         let value_a = portfolio_a.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
+         let value_b = portfolio_b.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
 
          // Sort in descending order (highest value first)
          // If values are equal, sort by name as a secondary criterion
@@ -96,7 +90,7 @@ impl WalletUi {
             .f64()
             .partial_cmp(&value_a.f64())
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.name().cmp(&b.name()))
       });
 
       let frame = theme.frame1;
@@ -114,15 +108,39 @@ impl WalletUi {
 
             ui.vertical_centered(|ui| {
                // Add Wallet Button
-                  if ui
-                     .add(Button::new(
-                        RichText::new("Add Wallet").size(theme.text_sizes.normal),
-                     ))
-                     .clicked()
-                  {
-                     self.add_wallet_ui.open = true;
-                     self.add_wallet_ui.main_ui = true;
-                  }
+               if ui
+                  .add(Button::new(
+                     RichText::new("Add Wallet").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  self.add_wallet_ui.open = true;
+                  self.add_wallet_ui.main_ui = true;
+               }
+
+               let enabled = !ctx.wallet_discovery_in_progress();
+               let discover_button =
+                  Button::new(RichText::new("Discover Wallets").size(theme.text_sizes.normal));
+               
+               if ui.add_enabled(enabled, discover_button).clicked() {
+                  let ctx_clone = ctx.clone();
+                  RT.spawn(async move {
+                     match update::wallet_discovery(ctx_clone.clone()).await {
+                        Ok(_) => {
+                           tracing::info!("Wallet discovery finished");
+                           update::on_startup(ctx_clone.clone()).await;
+                        }
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              ctx_clone.write(|ctx| {
+                                 ctx.wallet_discovery_in_progress = false;
+                              });
+                              gui.open_msg_window("Failed to discover wallets", e.to_string());
+                           });
+                        }
+                     }
+                  });
+               }
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
@@ -139,7 +157,7 @@ impl WalletUi {
                ui.add_space(8.0);
 
                let hint = RichText::new("Search...").color(theme.colors.text_secondary);
-               
+
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text(hint)
@@ -156,10 +174,7 @@ impl WalletUi {
 
                   for wallet in wallets.iter().filter(|w| *w != &current_wallet) {
                      if self.search_query.is_empty()
-                        || wallet
-                           .name
-                           .to_lowercase()
-                           .contains(&self.search_query.to_lowercase())
+                        || wallet.name().to_lowercase().contains(&self.search_query.to_lowercase())
                      {
                         self.wallet(
                            ctx.clone(),
@@ -188,9 +203,7 @@ impl WalletUi {
       is_current: bool,
       ui: &mut Ui,
    ) {
-      let mut frame = Frame::group(ui.style())
-         .inner_margin(8.0)
-         .fill(theme.colors.bg_color);
+      let mut frame = Frame::group(ui.style()).inner_margin(8.0).fill(theme.colors.bg_color);
 
       let visuals = if is_current {
          None
@@ -206,27 +219,29 @@ impl WalletUi {
          ui.vertical(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                // Wallet name
-               let name =
-                  Label::new(RichText::new(wallet.name.clone()).size(theme.text_sizes.normal));
+               let name = Label::new(RichText::new(wallet.name()).size(theme.text_sizes.normal));
+
                ui.scope(|ui| {
                   ui.set_width(ui.available_width() * 0.45);
                   ui.add(name);
                });
 
                // Export button
+               let enabled = !wallet.is_master();
                let export_key =
                   Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
-               if ui.add(export_key).clicked() {
+               if ui.add_enabled(enabled, export_key).clicked() {
                   self.export_key_ui.open = true;
                   self.export_key_ui.exporter.wallet = Some(wallet.clone());
                   self.export_key_ui.credentials_form.open = true;
                }
+
                ui.add_space(8.0);
 
                // Delete button
                let delete_wallet =
                   Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
-               if ui.add(delete_wallet).clicked() {
+               if ui.add_enabled(enabled, delete_wallet).clicked() {
                   self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
                   self.delete_wallet_ui.credentials_form.open = true;
                }
@@ -240,7 +255,7 @@ impl WalletUi {
                );
                if res.clicked() {
                   // Copy the address to the clipboard
-                  ui.ctx().copy_text(wallet.address_string());
+                  ui.ctx().copy_text(wallet.address.to_string());
                }
 
                ui.add_space(10.0);
@@ -267,15 +282,17 @@ impl WalletUi {
       });
 
       if res.interact(Sense::click()).clicked() {
-         let wallet_clone = wallet.clone();
-         ctx.write_account(|account| {
-            account.current_wallet = wallet.clone();
-         });
-         RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
-               gui.wallet_selection.wallet_select.wallet = wallet_clone;
+         let new_selected_wallet = ctx.get_wallet(wallet.address);
+         if let Some(new_selected_wallet) = new_selected_wallet {
+            ctx.write(|ctx| {
+               ctx.current_wallet = new_selected_wallet.clone();
             });
-         });
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  gui.wallet_selection.wallet_select.wallet = new_selected_wallet;
+               });
+            });
+         }
       }
    }
 }

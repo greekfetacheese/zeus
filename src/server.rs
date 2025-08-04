@@ -230,11 +230,11 @@ impl JsonRpcError {
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
-   let current_wallet = ctx.current_wallet();
+   let current_wallet = ctx.current_wallet_address();
 
    let res = json!({
     "status": true,
-    "accounts": vec![current_wallet.address_string()],
+    "accounts": vec![current_wallet.to_string()],
     "chainId": chain,
    });
 
@@ -245,10 +245,10 @@ async fn request_accounts(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let wallets = ctx.wallets_info();
+   let wallets = ctx.get_all_wallets_info();
    let accounts = wallets
       .iter()
-      .map(|w| w.address_string())
+      .map(|w| w.address.to_string())
       .collect::<Vec<_>>();
 
    Ok(JsonRpcResponse {
@@ -312,11 +312,11 @@ async fn connect(
    }
 
    ctx.connect_dapp(origin.clone());
-   let current_wallet = ctx.current_wallet().address_string();
+   let current_wallet = ctx.current_wallet_address();
    Ok(JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
-      result: Some(json!(vec![current_wallet])),
+      result: Some(json!(vec![current_wallet.to_string()])),
       error: None,
    })
 }
@@ -473,7 +473,7 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
 
    let chain = ctx.chain().id();
    let client = ctx.get_client(chain).await.unwrap();
-   let from = ctx.current_wallet().address;
+   let from = ctx.current_wallet_address();
 
    let tx = TransactionRequest::default()
       .with_from(from)

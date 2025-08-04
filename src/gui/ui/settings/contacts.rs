@@ -120,7 +120,7 @@ impl AddContact {
                      }
 
                      // On failure the contact is removed
-                     match ctx.encrypt_and_save_account(None, None) {
+                     match ctx.encrypt_and_save_vault(None, None) {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -198,7 +198,7 @@ impl DeleteContact {
 
                   RT.spawn_blocking(move || {
                      // On failure the contact is added again
-                     match ctx.encrypt_and_save_account(None, None) {
+                     match ctx.encrypt_and_save_vault(None, None) {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -315,8 +315,8 @@ impl EditContact {
                         gui.settings.contacts_ui.edit_contact.open = false;
                      });
 
-                     ctx.write_account(|account| {
-                        let new_contact = account
+                     ctx.write_vault(|vault| {
+                        let new_contact = vault
                            .contacts
                            .iter_mut()
                            .find(|c| c.address == old_contact.address);
@@ -327,7 +327,7 @@ impl EditContact {
                      });
 
                      // On failure the contact changes are reverted
-                     match ctx.encrypt_and_save_account(None, None) {
+                     match ctx.encrypt_and_save_vault(None, None) {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -338,8 +338,8 @@ impl EditContact {
                               gui.open_msg_window("Error while saving account data", error);
                            });
 
-                           ctx.write_account(|account| {
-                              let new_contact = account
+                           ctx.write_vault(|vault| {
+                              let new_contact = vault
                                  .contacts
                                  .iter_mut()
                                  .find(|c| c.address == edited_contact.address);

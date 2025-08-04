@@ -1,5 +1,5 @@
-use crate::core::WalletInfo;
 use crate::core::{
+   WalletInfo,
    TransactionRich, ZeusCtx,
    utils::{RT, truncate_address},
 };
@@ -32,9 +32,9 @@ impl TxHistory {
    }
 
    fn wallet_name_or_address(&self, ctx: ZeusCtx, address: Address) -> String {
-      let wallet = ctx.get_wallet_info(address);
-      if let Some(wallet) = wallet {
-         wallet.name
+      let wallet_info = ctx.get_wallet_info_by_address(address);
+      if let Some(info) = wallet_info {
+         info.name()
       } else {
          truncate_address(address.to_string())
       }
@@ -66,10 +66,10 @@ impl TxHistory {
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
             // Wallet Filter
-            let wallets = ctx.wallets_info();
+            let wallets = ctx.get_all_wallets_info();
             let selected_wallet_name =
                self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name.clone()
+                  wallet.name()
                });
 
             ComboBox::from_id_salt("wallet_filter")
@@ -93,7 +93,7 @@ impl TxHistory {
                      if ui
                         .selectable_label(
                            self.selected_wallet == Some(wallet.clone()),
-                           RichText::new(&wallet.name).size(theme.text_sizes.small),
+                           RichText::new(&wallet.name()).size(theme.text_sizes.small),
                         )
                         .clicked()
                      {
@@ -187,9 +187,10 @@ impl TxHistory {
          ui.add_space(10.0);
 
          // --- Transaction Data Fetching and Filtering ---
-         let all_wallets = ctx.wallets_info();
+         let all_wallets = ctx.get_all_wallets_info();
          let filtered_txs: Vec<TransactionRich> = ctx.read(|ctx_read| {
             let mut txs = Vec::new();
+            
             for wallet in &all_wallets {
                if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
                   continue;

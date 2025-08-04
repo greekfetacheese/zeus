@@ -180,7 +180,7 @@ pub async fn send_transaction(
 
    let base_fee = base_fee_fut.await?;
    let nonce = nonce_fut.await?;
-   let signer = ctx.get_wallet(from)?.key;
+   let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
    let gas_used = tx_analysis.gas_used;
 
    let tx_params = TxParams::new(
@@ -401,8 +401,7 @@ pub async fn sign_message(
       return Err(anyhow::anyhow!("You cancelled the transaction"));
    }
 
-   let wallet = ctx.current_wallet();
-   let secure_signer = ctx.get_wallet(wallet.address)?.key;
+   let secure_signer = ctx.get_current_wallet().key;
    let signer = secure_signer.to_signer();
    let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
    erase_signer(signer);
@@ -698,7 +697,7 @@ pub async fn swap(
    let client = ctx.get_client(chain.id()).await?;
    let interact_to = universal_router_v2(chain.id())?;
    let block_fut = client.get_block(BlockId::latest());
-   let signer = ctx.get_wallet(from)?.key;
+   let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
 
    // Simulate the swap to find out the real amount of tokens received in case of a tax or any malicious contract
    let time = std::time::Instant::now();

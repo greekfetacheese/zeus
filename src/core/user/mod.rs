@@ -1,8 +1,8 @@
-pub mod account;
 pub mod wallet;
+pub mod vault;
 
-pub use account::{ACCOUNT_FILE, Account};
-pub use wallet::{Wallet, WalletInfo};
+pub use wallet::{Wallet, WalletInfo, SecureHDWallet};
+pub use vault::Vault;
 
 /// Saved contact by the user
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]

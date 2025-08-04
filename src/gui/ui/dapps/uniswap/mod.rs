@@ -389,7 +389,7 @@ impl UniswapUi {
                   }
 
                   if self.view_positions_ui.open {
-                     let owner = ctx.current_wallet().address;
+                     let owner = ctx.current_wallet_address();
                      let chain = ctx.chain();
                      let positions = ctx.get_v3_positions(chain.id(), owner);
                      if !positions.is_empty() {

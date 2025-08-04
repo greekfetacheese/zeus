@@ -1,0 +1,1 @@
+Code taken from https://github.com/summa-tx/coins

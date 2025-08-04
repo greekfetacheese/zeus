@@ -1,5 +1,6 @@
 pub mod context;
 pub mod user;
+pub mod bip32;
 pub mod utils;
 pub mod transaction;
 pub mod tx_analysis;
@@ -7,7 +8,7 @@ pub mod tx_analysis;
 mod tests;
 
 pub use context::*;
-pub use user::{Account, wallet::*};
+pub use user::wallet::*;
 pub use transaction::*;
 pub use tx_analysis::TransactionAnalysis;
 

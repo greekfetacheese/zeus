@@ -1,9 +1,12 @@
 use super::{
-   Wallet,
    providers::{CLIENT_RPS, COMPUTE_UNITS_PER_SECOND, INITIAL_BACKOFF, MAX_RETRIES},
    utils::pool_data_dir,
 };
-use crate::core::{Account, WalletInfo, user::Contact, utils::server_port_dir};
+use crate::core::{
+   WalletInfo,
+   user::{Contact, Vault, Wallet},
+   utils::server_port_dir,
+};
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
@@ -71,54 +74,58 @@ impl ZeusCtx {
       }
    }
 
-   pub fn account_exists(&self) -> bool {
-      self.read(|ctx| ctx.account_exists)
+   pub fn vault_exists(&self) -> bool {
+      self.read(|ctx| ctx.vault_exists)
    }
 
-   pub fn encrypt_and_save_account(
+   pub fn encrypt_and_save_vault(
       &self,
-      new_account: Option<Account>,
+      new_vault: Option<Vault>,
       new_params: Option<Argon2>,
    ) -> Result<(), anyhow::Error> {
-      if self.save_account_in_progress() {
+      if self.save_vault_in_progress() {
          return Err(anyhow!(
             "Saving account in progress, try again later"
          ));
       }
 
-      self.write(|ctx| ctx.save_account_in_progress = true);
+      self.write(|ctx| ctx.save_vault_in_progress = true);
 
-      let account = if new_account.is_some() {
-         new_account.unwrap()
+      let vault = if new_vault.is_some() {
+         new_vault.unwrap()
       } else {
-         self.get_account()
+         self.get_vault()
       };
 
-      let res = account.encrypt(new_params);
+      let res = vault.encrypt(new_params);
 
       if res.is_err() {
-         self.write(|ctx| ctx.save_account_in_progress = false);
+         self.write(|ctx| ctx.save_vault_in_progress = false);
          return Err(res.err().unwrap());
       }
 
       let encrypted_data = res.unwrap();
-      let res = account.save(None, encrypted_data);
+      let res = vault.save(None, encrypted_data);
 
       if res.is_err() {
-         self.write(|ctx| ctx.save_account_in_progress = false);
+         self.write(|ctx| ctx.save_vault_in_progress = false);
          return Err(res.err().unwrap());
       }
 
-      self.write(|ctx| ctx.save_account_in_progress = false);
+      self.write(|ctx| ctx.save_vault_in_progress = false);
       Ok(())
    }
 
-   pub fn set_save_account_in_progress(&self, save_account_in_progress: bool) {
-      self.write(|ctx| ctx.save_account_in_progress = save_account_in_progress);
+   pub fn set_save_vault_in_progress(&self, save_vault_in_progress: bool) {
+      self.write(|ctx| ctx.save_vault_in_progress = save_vault_in_progress);
    }
 
-   pub fn save_account_in_progress(&self) -> bool {
-      self.read(|ctx| ctx.save_account_in_progress)
+   pub fn save_vault_in_progress(&self) -> bool {
+      self.read(|ctx| ctx.save_vault_in_progress)
+   }
+
+   pub fn wallet_discovery_in_progress(&self) -> bool {
+      self.read(|ctx| ctx.wallet_discovery_in_progress)
    }
 
    pub fn logged_in(&self) -> bool {
@@ -129,51 +136,68 @@ impl ZeusCtx {
       self.read(|ctx| ctx.providers.clone())
    }
 
-   /// Mutable access to the account
-   pub fn write_account<R>(&self, writer: impl FnOnce(&mut Account) -> R) -> R {
-      writer(&mut self.0.write().unwrap().account)
+   /// Mutable access to the vault
+   pub fn write_vault<R>(&self, writer: impl FnOnce(&mut Vault) -> R) -> R {
+      writer(&mut self.0.write().unwrap().vault)
    }
 
-   pub fn set_account(&self, new_account: Account) {
-      self.0.write().unwrap().account = new_account;
+   pub fn set_vault(&self, new_vault: Vault) {
+      self.0.write().unwrap().vault = new_vault;
    }
 
-   pub fn get_account(&self) -> Account {
-      self.read(|ctx| ctx.account.clone())
+   pub fn get_vault(&self) -> Vault {
+      self.read(|ctx| ctx.vault.clone())
+   }
+
+   pub fn get_master_wallet(&self) -> Wallet {
+      self.read(|ctx| ctx.vault.get_master_wallet())
    }
 
    /// Get the wallet with the given address
-   ///
-   /// Should only used if we need the wallet's private key
-   pub fn get_wallet(&self, address: Address) -> Result<Wallet, anyhow::Error> {
+   pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
       self.read(|ctx| {
-         let wallets = ctx.account.wallets();
-         let wallet = wallets
-            .iter()
-            .find(|w| w.info.address == address)
-            .cloned()
-            .ok_or(anyhow!(
-               "Wallet with address {} not found",
-               address
-            ))?;
-         Ok(wallet)
+         for wallet in ctx.vault_ref().all_wallets() {
+            if wallet.address() == address {
+               return Some(wallet.clone());
+            }
+         }
+         None
       })
    }
 
-   pub fn current_wallet(&self) -> WalletInfo {
-      self.read(|ctx| ctx.account.current_wallet.clone())
+   /// Is this wallet selected as the current wallet
+   pub fn is_current_wallet(&self, address: Address) -> bool {
+      self.read(|ctx| ctx.current_wallet.address() == address)
+   }
+
+   pub fn get_current_wallet(&self) -> Wallet {
+      self.read(|ctx| ctx.current_wallet.clone())
+   }
+
+   pub fn current_wallet_info(&self) -> WalletInfo {
+      self.read(|ctx| {
+         ctx.current_wallet.to_wallet_info()
+      })
+   }
+
+   pub fn current_wallet_address(&self) -> Address {
+      self.read(|ctx| ctx.current_wallet.address())
+   }
+
+   pub fn current_wallet_name(&self) -> String {
+      self.read(|ctx| ctx.current_wallet.name_with_id())
    }
 
    pub fn wallet_exists(&self, address: Address) -> bool {
-      self.read(|ctx| ctx.account.wallet_address_exists(address))
+      self.read(|ctx| ctx.vault.wallet_address_exists(address))
    }
 
-   pub fn get_wallet_info(&self, address: Address) -> Option<WalletInfo> {
+   pub fn get_wallet_info_by_address(&self, address: Address) -> Option<WalletInfo> {
       let mut info = None;
       self.read(|ctx| {
-         for wallet in ctx.account.wallets() {
-            if wallet.info.address == address {
-               info = Some(wallet.info.clone());
+         for wallet in ctx.vault_ref().all_wallets() {
+            if wallet.address() == address {
+               info = Some(wallet.to_wallet_info());
                break;
             }
          }
@@ -181,28 +205,28 @@ impl ZeusCtx {
       info
    }
 
-   pub fn wallets_info(&self) -> Vec<WalletInfo> {
+   pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
-         for wallet in ctx.account.wallets() {
-            info.push(wallet.info.clone());
+         for wallet in ctx.vault_ref().all_wallets() {
+            info.push(wallet.to_wallet_info());
          }
       });
       info
    }
 
    pub fn contacts(&self) -> Vec<Contact> {
-      self.read(|ctx| ctx.account.contacts.clone())
+      self.read(|ctx| ctx.vault.contacts.clone())
    }
 
    pub fn remove_contact(&self, address: &str) {
       self.write(|ctx| {
-         ctx.account.contacts.retain(|c| c.address != address);
+         ctx.vault.contacts.retain(|c| c.address != address);
       });
    }
 
    pub fn contact_name_exists(&self, name: &str) -> bool {
-      self.read(|ctx| ctx.account.contacts.iter().any(|c| c.name == name))
+      self.read(|ctx| ctx.vault.contacts.iter().any(|c| c.name == name))
    }
 
    pub fn add_contact(&self, contact: Contact) -> Result<(), anyhow::Error> {
@@ -226,20 +250,14 @@ impl ZeusCtx {
       }
 
       self.write(|ctx| {
-         ctx.account.contacts.push(contact);
+         ctx.vault.contacts.push(contact);
       });
       Ok(())
    }
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
-      self.read(|ctx| {
-         ctx.account
-            .contacts
-            .iter()
-            .find(|c| c.address == address)
-            .cloned()
-      })
+      self.read(|ctx| ctx.vault.contacts.iter().find(|c| c.address == address).cloned())
    }
 
    pub fn client_available(&self, chain: u64) -> bool {
@@ -255,9 +273,7 @@ impl ZeusCtx {
 
    pub fn client_archive_available(&self, chain: u64) -> bool {
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      rpcs
-         .iter()
-         .any(|rpc| rpc.working && rpc.archive_node && rpc.enabled)
+      rpcs.iter().any(|rpc| rpc.working && rpc.archive_node && rpc.enabled)
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -579,11 +595,8 @@ impl ZeusCtx {
       let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
-         let erc_tokens = portfolio
-            .tokens
-            .iter()
-            .map(|c| c.to_erc20().into_owned())
-            .collect::<Vec<_>>();
+         let erc_tokens =
+            portfolio.tokens.iter().map(|c| c.to_erc20().into_owned()).collect::<Vec<_>>();
          tokens.extend(erc_tokens);
       }
       tokens
@@ -678,10 +691,7 @@ impl ZeusCtx {
       currency_a: &Currency,
       currency_b: &Currency,
    ) -> Option<AnyUniswapPool> {
-      self.read(|ctx| {
-         ctx.pool_manager
-            .get_pool(chain, dex, fee, currency_a, currency_b)
-      })
+      self.read(|ctx| ctx.pool_manager.get_pool(chain, dex, fee, currency_a, currency_b))
    }
 
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
@@ -694,8 +704,7 @@ impl ZeusCtx {
 
    pub fn update_base_fee(&self, chain: u64, base_fee: u64, next_base_fee: u64) {
       self.write(|ctx| {
-         ctx.base_fee
-            .insert(chain, BaseFee::new(base_fee, next_base_fee));
+         ctx.base_fee.insert(chain, BaseFee::new(base_fee, next_base_fee));
       });
    }
 
@@ -707,9 +716,9 @@ impl ZeusCtx {
 
    /// Return the name of this address if its known
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      let wallet = self.get_wallet_info(address);
+      let wallet = self.get_wallet_info_by_address(address);
       if wallet.is_some() {
-         return Some(wallet.unwrap().name);
+         return Some(wallet.unwrap().name());
       }
 
       let contact = self.get_contact_by_address(&address.to_string());
@@ -876,11 +885,15 @@ pub struct ZeusContext {
    /// The current selected chain from the GUI
    pub chain: ChainId,
 
-   /// Loaded account
-   account: Account,
-   pub save_account_in_progress: bool,
+   /// The current selected wallet from the GUI
+   pub current_wallet: Wallet,
 
-   pub account_exists: bool,
+   /// Loaded Vault
+   vault: Vault,
+   pub save_vault_in_progress: bool,
+   pub wallet_discovery_in_progress: bool,
+
+   pub vault_exists: bool,
    pub logged_in: bool,
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
@@ -945,7 +958,7 @@ impl ZeusContext {
          }
       };
 
-      let account_exists = Account::exists().is_ok_and(|p| p);
+      let vault_exists = Vault::exists().is_ok_and(|p| p);
 
       let mut pool_manager = PoolManagerHandle::default();
 
@@ -975,9 +988,11 @@ impl ZeusContext {
       Self {
          providers,
          chain: ChainId::new(1).unwrap(),
-         account: Account::default(),
-         save_account_in_progress: false,
-         account_exists,
+         current_wallet: Wallet::new_rng("I should not be here".to_string()),
+         vault: Vault::default(),
+         save_vault_in_progress: false,
+         wallet_discovery_in_progress: false,
+         vault_exists,
          logged_in: false,
          currency_db,
          portfolio_db,
@@ -992,6 +1007,10 @@ impl ZeusContext {
          connected_dapps: ConnectedDapps::default(),
          server_port: SERVER_PORT,
       }
+   }
+
+   pub fn vault_ref(&self) -> &Vault {
+      &self.vault
    }
 }
 

@@ -71,7 +71,7 @@ impl SendCryptoUi {
          return;
       }
 
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
 
       recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
@@ -433,7 +433,7 @@ impl SendCryptoUi {
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
       let chain = ctx.chain();
-      let from = ctx.current_wallet().address;
+      let from = ctx.current_wallet_address();
       let currency = self.currency.clone();
       let recipient_address = Address::from_str(&recipient)?;
 

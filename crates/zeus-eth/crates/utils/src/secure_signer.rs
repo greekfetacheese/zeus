@@ -1,10 +1,12 @@
 use alloy_network::EthereumWallet;
 use alloy_primitives::Address;
+use alloy_signer::k256::ecdsa::{VerifyingKey, SigningKey};
 use alloy_signer_local::PrivateKeySigner;
 use secure_types::{SecureArray, SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
 
+/// Private Key
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecureSigner {
    address: Address,
@@ -53,8 +55,19 @@ impl SecureSigner {
          .unlocked_scope(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
    }
 
+   pub fn to_signing_key(&self) -> SigningKey {
+      self
+         .data
+         .unlocked_scope(|bytes| SigningKey::from_slice(bytes).unwrap())
+   }
+
    pub fn to_wallet(&self) -> EthereumWallet {
       EthereumWallet::from(self.to_signer())
+   }
+
+   pub fn verifying_key(&self) -> VerifyingKey {
+      let key = self.to_signing_key();
+      *key.verifying_key()
    }
 }
 
@@ -67,6 +80,30 @@ impl From<PrivateKeySigner> for SecureSigner {
       erase_signer(value);
 
       SecureSigner { address, data }
+   }
+}
+
+impl From<SigningKey> for SecureSigner {
+   fn from(value: SigningKey) -> Self {
+      let mut bytes = value.to_bytes();
+      let signer = PrivateKeySigner::from_slice(&bytes).unwrap();
+      let address = signer.address();
+
+      let data = SecureArray::new(bytes.into()).unwrap();
+
+      bytes.zeroize();
+      erase_signing_key(value);
+      erase_signer(signer);
+
+      SecureSigner { address, data }
+   }
+}
+
+pub fn erase_signing_key(mut key: SigningKey) {
+   unsafe {
+      let ptr: *mut SigningKey = &mut key;
+      let bytes: &mut [u8] = core::slice::from_raw_parts_mut(ptr as *mut u8, core::mem::size_of::<SigningKey>());
+      bytes.zeroize();
    }
 }
 
@@ -98,6 +135,15 @@ mod tests {
       let secure_signer = SecureSigner::from(signer.clone());
       let signer2 = secure_signer.to_signer();
       assert_eq!(signer.address(), signer2.address());
+   }
+
+   #[test]
+   fn sanity_check() {
+      let signer = PrivateKeySigner::random();
+      let secure_signer = SecureSigner::from(signer.clone());
+      let signing_key = secure_signer.to_signing_key();
+      let secure_signer2 = SecureSigner::from(signing_key);
+      assert_eq!(secure_signer.address(), secure_signer2.address());
    }
 
    #[test]

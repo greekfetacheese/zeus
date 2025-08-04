@@ -97,7 +97,7 @@ impl AcrossBridge {
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
       let from_chain = self.from_chain.chain.id();
-      let depositor = ctx.current_wallet().address;
+      let depositor = ctx.current_wallet_address();
       self.currency = NativeCurrency::from_chain_id(from_chain).unwrap();
 
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
@@ -372,7 +372,7 @@ impl AcrossBridge {
    /// Max amount = Balance - cost
    fn max_amount(&self, ctx: ZeusCtx) -> NumericValue {
       let chain = self.from_chain.chain;
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
       let balance = ctx.get_eth_balance(chain.id(), owner);
       let (cost_wei, _) = self.cost(ctx.clone());
 
@@ -612,8 +612,7 @@ impl AcrossBridge {
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals);
       let output_amount = self.minimum_amount();
 
-      let current_wallet = ctx.current_wallet();
-      let signer = ctx.get_wallet(current_wallet.address).unwrap().key;
+      let signer = ctx.get_current_wallet().key;
       let depositor = signer.address();
       let recipient = Address::from_str(&recipient)?;
 

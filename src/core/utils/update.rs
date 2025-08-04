@@ -25,29 +25,25 @@ const BALANCE_INTERVAL: u64 = 600;
 const PRIORITY_FEE_INTERVAL: u64 = 90;
 const BASE_FEE_INTERVAL: u64 = 180;
 
+pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
+   let time = std::time::Instant::now();
+   test_rpcs(ctx.clone()).await;
+   tracing::info!(
+      "Testing RPCs took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let time = std::time::Instant::now();
+   measure_rpcs(ctx).await;
+   tracing::info!(
+      "Measuring RPCs took {} ms",
+      time.elapsed().as_millis()
+   );
+}
+
 pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.on_startup_syncing = true;
-   });
-
-   let ctx2 = ctx.clone();
-   RT.spawn(async move {
-      let time = std::time::Instant::now();
-      test_rpcs(ctx2).await;
-      tracing::info!(
-         "Testing RPCs took {} ms",
-         time.elapsed().as_millis()
-      );
-   });
-
-   let ctx2 = ctx.clone();
-   RT.spawn(async move {
-      let time = std::time::Instant::now();
-      measure_rpcs(ctx2).await;
-      tracing::info!(
-         "Measuring RPCs took {} ms",
-         time.elapsed().as_millis()
-      );
    });
 
    for chain in SUPPORTED_CHAINS {
@@ -165,10 +161,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
             let manager = ctx_clone.pool_manager();
             let v4_pools = manager.get_v4_pools_for_chain(chain);
 
-            match manager
-               .update_state_for_pools(ctx_clone, chain, v4_pools)
-               .await
-            {
+            match manager.update_state_for_pools(ctx_clone, chain, v4_pools).await {
                Ok(_) => {}
                Err(e) => tracing::error!(
                   "Error updating pool manager for chain {}: {:?}",
@@ -204,7 +197,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
       std::thread::sleep(Duration::from_millis(100));
    }
 
-   let wallets = ctx.wallets_info();
+   let wallets = ctx.get_all_wallets_info();
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
@@ -212,8 +205,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          if !balance.is_zero() && !has_portfolio {
             let portfolio = Portfolio::new(wallet.address, chain);
             ctx.write(|ctx| {
-               ctx.portfolio_db
-                  .insert_portfolio(chain, wallet.address, portfolio);
+               ctx.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
             });
          }
       }
@@ -280,10 +272,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
          }
 
          if currencies.is_empty() {
-            match pool_manager
-               .update_base_token_prices(ctx.clone(), chain)
-               .await
-            {
+            match pool_manager.update_base_token_prices(ctx.clone(), chain).await {
                Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
                Err(e) => tracing::error!(
                   "Error updating base token prices for chain {}: {:?}",
@@ -293,10 +282,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
             }
          }
 
-         match pool_manager
-            .update_for_currencies(ctx, chain, currencies)
-            .await
-         {
+         match pool_manager.update_for_currencies(ctx, chain, currencies).await {
             Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
             Err(e) => tracing::error!(
                "Error updating pool manager for chain {}: {:?}",
@@ -323,12 +309,8 @@ async fn balance_update_interval(ctx: ZeusCtx) {
    loop {
       if time_passed.elapsed().as_secs() > BALANCE_INTERVAL {
          let manager = ctx.balance_manager();
-         manager
-            .update_eth_balance_across_wallets_and_chains(ctx.clone())
-            .await;
-         manager
-            .update_tokens_balance_across_wallets_and_chains(ctx.clone())
-            .await;
+         manager.update_eth_balance_across_wallets_and_chains(ctx.clone()).await;
+         manager.update_tokens_balance_across_wallets_and_chains(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
@@ -584,6 +566,50 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          Err(e) => tracing::error!("Error saving pool data: {:?}", e),
       }
    });
+}
+
+/// We keep a child wallet if the native balance or nonce is greater than 0
+pub async fn wallet_discovery(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+   ctx.write(|ctx| {
+      ctx.wallet_discovery_in_progress = true;
+   });
+
+   let chain = ctx.chain().id();
+   let native_currency = NativeCurrency::from(chain);
+   let client = ctx.get_client(chain).await?;
+
+   let mut vault = ctx.get_vault();
+
+   loop {
+      let address = vault.derive_child_wallet("".to_string())?;
+
+      let balance_fut = client.get_balance(address).into_future();
+      let nonce_fut = client.get_transaction_count(address).into_future();
+
+      let balance = balance_fut.await?;
+      let nonce = nonce_fut.await?;
+
+      if balance.is_zero() && nonce == 0 {
+         vault.remove_wallet(address);
+
+         ctx.write(|ctx| {
+            ctx.wallet_discovery_in_progress = false;
+         });
+         break;
+      }
+
+      ctx.balance_manager()
+         .insert_eth_balance(chain, address, balance, &native_currency);
+
+      let portfolio = Portfolio::new(address, chain);
+      ctx.write(|ctx| {
+         ctx.portfolio_db.insert_portfolio(chain, address, portfolio);
+      });
+   }
+
+   ctx.set_vault(vault);
+
+   Ok(())
 }
 
 #[cfg(test)]

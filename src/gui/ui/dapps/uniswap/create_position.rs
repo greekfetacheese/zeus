@@ -416,7 +416,7 @@ impl CreatePositionUi {
    ) {
       let amount0_needed = &self.set_price_range_ui.amount0_needed;
       let amount1_needed = &self.set_price_range_ui.amount1_needed;
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
 
       let selected_pool = self.set_price_range_ui.selected_pool.is_some();
       let valid_amounts = amount0_needed.f64() > 0.0 && amount1_needed.f64() > 0.0;
@@ -508,7 +508,7 @@ impl CreatePositionUi {
       ui: &mut Ui,
    ) {
       let chain_id = ctx.chain().id();
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
       let currencies = ctx.get_currencies(chain_id);
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -752,7 +752,7 @@ impl SetPriceRangeUi {
       }
 
       let chain = ctx.chain();
-      let owner = ctx.current_wallet().address;
+      let owner = ctx.current_wallet_address();
       let pool = self.selected_pool.clone().unwrap();
       let currency0 = pool.currency0();
       let currency1 = pool.currency1();

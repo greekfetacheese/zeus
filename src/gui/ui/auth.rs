@@ -1,7 +1,11 @@
 use crate::assets::icons::Icons;
-use crate::core::{Account, ZeusCtx, utils::RT};
+use crate::core::user::Vault;
+use crate::core::utils::update;
+use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
-use eframe::egui::{Align, Align2, Button, FontId, Frame, Layout, RichText, Ui, Window, vec2};
+use eframe::egui::{
+   Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
+};
 use egui::{Color32, Margin};
 use egui_theme::Theme;
 use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
@@ -104,40 +108,34 @@ impl VirtualKeyboard {
       ];
 
       ui.add_space(10.0);
-      Frame::group(&theme.style)
-         .fill(theme.colors.secondary_bg_color)
-         .show(ui, |ui| {
-            ui.vertical(|ui| {
-               let is_uppercase = self.shift_active ^ self.caps_lock_active;
-               let layout = if is_uppercase {
-                  &keys_layout_upper
-               } else {
-                  &keys_layout_lower
-               };
+      Frame::group(&theme.style).fill(theme.colors.secondary_bg_color).show(ui, |ui| {
+         ui.vertical(|ui| {
+            let is_uppercase = self.shift_active ^ self.caps_lock_active;
+            let layout = if is_uppercase {
+               &keys_layout_upper
+            } else {
+               &keys_layout_lower
+            };
 
-               for row in layout {
-                  ui.horizontal(|ui| {
-                     for &key in row {
-                        let key_button =
-                           Button::new(RichText::new(key).size(theme.text_sizes.normal))
-                              .min_size(vec2(30.0, 30.0));
-                        if ui.add(key_button).clicked() {
-                           self.handle_key_press(key, target_str);
-                        }
-                     }
-                  });
-               }
-               // Spacebar
+            for row in layout {
                ui.horizontal(|ui| {
-                  if ui
-                     .add(Button::new(" ").min_size(vec2(30.0 * 5.0, 30.0)))
-                     .clicked()
-                  {
-                     target_str.push_str(" ");
+                  for &key in row {
+                     let key_button = Button::new(RichText::new(key).size(theme.text_sizes.normal))
+                        .min_size(vec2(30.0, 30.0));
+                     if ui.add(key_button).clicked() {
+                        self.handle_key_press(key, target_str);
+                     }
                   }
                });
+            }
+            // Spacebar
+            ui.horizontal(|ui| {
+               if ui.add(Button::new(" ").min_size(vec2(30.0 * 5.0, 30.0))).clicked() {
+                  target_str.push_str(" ");
+               }
             });
          });
+      });
    }
 
    fn handle_key_press(&mut self, key: &str, target: &mut SecureString) {
@@ -174,12 +172,6 @@ impl VirtualKeyboard {
 pub struct CredentialsForm {
    pub open: bool,
    pub confrim_password: bool,
-   /// Flag to allow the Ui to run for one more frame
-   ///
-   /// Running an extra frame on a text edit can help clear out any strings left in memory
-   /// in case we dont use the hide option on a field
-   /// But it doesnt always work, maybe i should remove this
-   pub additional_frame: bool,
    pub credentials: Credentials,
    pub hide_username: bool,
    pub hide_password: bool,
@@ -193,7 +185,6 @@ impl CredentialsForm {
       Self {
          open: false,
          confrim_password: false,
-         additional_frame: false,
          credentials: Credentials::new_with_capacity(1024).unwrap(),
          hide_username: false,
          hide_password: true,
@@ -307,38 +298,35 @@ impl CredentialsForm {
          // --- Confirm Password Field ---
          if self.confrim_password {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
-            self
-               .credentials
-               .confirm_password
-               .mut_scope(|confirm_password| {
-                  let text_edit = SecureTextEdit::singleline(confirm_password)
-                     .min_size(text_edit_size)
-                     .margin(Margin::same(10))
-                     .font(FontId::proportional(theme.text_sizes.normal))
-                     .password(self.hide_password);
+            self.credentials.confirm_password.mut_scope(|confirm_password| {
+               let text_edit = SecureTextEdit::singleline(confirm_password)
+                  .min_size(text_edit_size)
+                  .margin(Margin::same(10))
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .password(self.hide_password);
 
-                  ui.allocate_ui(text_edit_size, |ui| {
-                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                        ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+               ui.allocate_ui(text_edit_size, |ui| {
+                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                     ui.spacing_mut().button_padding = vec2(0.0, 0.0);
 
-                        if text_edit.show(ui).response.gained_focus() {
-                           self.virtual_keyboard.open = true;
-                           self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
-                        }
+                     if text_edit.show(ui).response.gained_focus() {
+                        self.virtual_keyboard.open = true;
+                        self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
+                     }
 
-                        let icon = if self.hide_password {
-                           icons.hide_light()
-                        } else {
-                           icons.view_light()
-                        };
+                     let icon = if self.hide_password {
+                        icons.hide_light()
+                     } else {
+                        icons.view_light()
+                     };
 
-                        let hide_view = Button::image(icon);
-                        if ui.add(hide_view).clicked() {
-                           self.hide_password = !self.hide_password;
-                        }
-                     });
+                     let hide_view = Button::image(icon);
+                     if ui.add(hide_view).clicked() {
+                        self.hide_password = !self.hide_password;
+                     }
                   });
                });
+            });
          } else {
             self.credentials.copy_passwd_to_confirm();
          }
@@ -348,12 +336,12 @@ impl CredentialsForm {
    }
 }
 
-pub struct LoginUi {
+pub struct UnlockVault {
    pub credentials_form: CredentialsForm,
    pub size: (f32, f32),
 }
 
-impl LoginUi {
+impl UnlockVault {
    pub fn new() -> Self {
       Self {
          credentials_form: CredentialsForm::new().open(true),
@@ -362,21 +350,16 @@ impl LoginUi {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      let account_exists = ctx.account_exists();
+      let vault_exists = ctx.vault_exists();
       let logged_in = ctx.logged_in();
 
-      let open = self.credentials_form.additional_frame || (account_exists && !logged_in);
+      let open = vault_exists && !logged_in;
 
       if !open {
          return;
       }
 
-      if self.credentials_form.additional_frame {
-         tracing::info!("Running additional frame");
-         self.credentials_form.additional_frame = false;
-      }
-
-      Window::new("Login_ui")
+      Window::new("Unlock_Vault_Ui")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -391,7 +374,7 @@ impl LoginUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Unlock your account").size(theme.text_sizes.heading));
+               ui.label(RichText::new("Unlock your Vault").size(theme.text_sizes.heading));
 
                self.credentials_form.show(theme, icons, ui);
 
@@ -399,9 +382,9 @@ impl LoginUi {
                   .min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(button).clicked() {
-                  let mut account = ctx.get_account();
-                  account.set_credentials(self.credentials_form.credentials.clone());
-                  self.login(ctx.clone(), account);
+                  let mut vault = ctx.get_vault();
+                  vault.set_credentials(self.credentials_form.credentials.clone());
+                  self.unlock_vault(ctx.clone(), vault);
                }
 
                #[cfg(feature = "dev")]
@@ -411,56 +394,57 @@ impl LoginUi {
                      SecureString::from("dev"),
                      SecureString::from("dev"),
                   );
-                  let mut account = ctx.get_account();
-                  account.set_credentials(credentials);
-                  self.login(ctx, account);
+                  let mut vault = ctx.get_vault();
+                  vault.set_credentials(credentials);
+                  self.unlock_vault(ctx, vault);
                }
             });
          });
    }
 
-   fn login(&self, ctx: ZeusCtx, mut account: Account) {
+   fn unlock_vault(&self, ctx: ZeusCtx, mut vault: Vault) {
       RT.spawn_blocking(move || {
          SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Unlocking account...");
+            gui.loading_window.open("Unlocking vault...");
          });
 
          // Decrypt the account
-         let data = match account.decrypt(None) {
+         let data = match vault.decrypt(None) {
             Ok(data) => data,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window("Failed to unlock account", e.to_string());
+                  gui.open_msg_window("Failed to unlock vault", e.to_string());
                   gui.loading_window.open = false;
                });
                return;
             }
          };
 
-         let info = account.encrypted_info().unwrap();
+         let info = vault.encrypted_info().unwrap();
 
-         // Load the account
-         match account.load(data) {
+         // Load the vault
+         match vault.load(data) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.login.credentials_form.erase();
-                  gui.login.credentials_form.additional_frame = true;
+                  gui.unlock_vault_ui.credentials_form.erase();
                   gui.portofolio.open = true;
                   gui.wallet_selection.open = true;
                   gui.chain_selection.open = true;
                   gui.loading_window.open = false;
                   gui.settings.encryption.argon_params = info.argon2.clone();
-                  gui.wallet_selection.wallet_select.wallet = account.current_wallet.clone();
+                  gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
                });
 
                ctx.write(|ctx| {
                   ctx.logged_in = true;
+                  ctx.current_wallet = vault.get_master_wallet();
                });
-               ctx.set_account(account);
+
+               ctx.set_vault(vault);
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window("Failed to load account", e.to_string());
+                  gui.open_msg_window("Failed to load vault", e.to_string());
                   gui.loading_window.open = false;
                });
             }
@@ -469,33 +453,37 @@ impl LoginUi {
    }
 }
 
-pub struct RegisterUi {
+/// Recover an HD wallet from the credentials and create a Vault
+pub struct RecoverHDWallet {
    pub credentials_form: CredentialsForm,
+   wallet_name: String,
+   credentials_input: bool,
+   show_recover_wallet: bool,
+   show_tips: bool,
    pub size: (f32, f32),
 }
 
-impl RegisterUi {
+impl RecoverHDWallet {
    pub fn new() -> Self {
       Self {
          credentials_form: CredentialsForm::new().open(true).confirm_password(true),
+         wallet_name: String::new(),
+         credentials_input: true,
+         show_recover_wallet: false,
+         show_tips: false,
          size: (550.0, 350.0),
       }
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      let account_exists = ctx.account_exists();
-      let open = self.credentials_form.additional_frame || !account_exists;
+      let vault_exists = ctx.vault_exists();
+      let open = !vault_exists;
 
       if !open {
          return;
       }
 
-      if self.credentials_form.additional_frame {
-         tracing::info!("Running additional frame");
-         self.credentials_form.additional_frame = false;
-      }
-
-      Window::new("Register_ui")
+      Window::new("Recover_HD_Wallet_Ui_main")
          .title_bar(false)
          .movable(false)
          .resizable(false)
@@ -508,58 +496,188 @@ impl RegisterUi {
                ui.add_space(10.0);
                ui.spacing_mut().item_spacing.y = 15.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Create a new account").size(theme.text_sizes.heading));
-               ui.add_space(15.0);
-
-               self.credentials_form.show(theme, icons, ui);
-               ui.add_space(15.0);
-
-               let button = Button::new(RichText::new("Create").size(theme.text_sizes.large))
-                  .min_size(vec2(ui_width * 0.25, 25.0));
-
-               if ui.add(button).clicked() {
-                  let mut account = ctx.get_account();
-                  account.set_credentials(self.credentials_form.credentials.clone());
-
-                  RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
-                        gui.loading_window.open("Creating account...");
-                     });
-
-                     let params = Some(Argon2::balanced());
-
-                     // Encrypt the account
-                     match ctx.encrypt_and_save_account(Some(account.clone()), params.clone()) {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.wallet_selection.wallet_select.wallet =
-                                 account.current_wallet.clone();
-                              gui.register.credentials_form.erase();
-                              gui.register.credentials_form.additional_frame = true;
-                              gui.portofolio.open = true;
-                              gui.wallet_selection.open = true;
-                              gui.chain_selection.open = true;
-                              gui.loading_window.open = false;
-                           });
-
-                           ctx.set_account(account);
-                           ctx.write(|ctx| {
-                              ctx.account_exists = true;
-                              ctx.logged_in = true;
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to create account", e.to_string());
-                              gui.loading_window.open = false;
-                           });
-                        }
-                     };
-                  });
-               }
+               self.credentials_input(theme, icons, ui);
+               self.recover_hd_wallet(ctx.clone(), theme, ui);
+               self.show_tips(ctx, theme, ui);
             });
          });
+   }
+
+   fn credentials_input(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.credentials_input {
+         return;
+      }
+
+      let ui_width = ui.available_width();
+
+      ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
+      ui.label(
+         RichText::new("Recover an HD wallet from the credentials")
+            .size(theme.text_sizes.large),
+      );
+
+      // Credentials input
+      self.credentials_form.show(theme, icons, ui);
+
+      let next_button = Button::new(RichText::new("Next").size(theme.text_sizes.large))
+         .min_size(vec2(ui_width * 0.25, 25.0));
+
+      if ui.add(next_button).clicked() {
+         let credentials = self.credentials_form.credentials.clone();
+         RT.spawn_blocking(move || match credentials.is_valid() {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.recover_wallet_ui.credentials_input = false;
+                  gui.recover_wallet_ui.show_recover_wallet = true;
+               });
+            }
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window("Credentials Error", e.to_string());
+               });
+            }
+         });
+      }
+   }
+
+   fn recover_hd_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.show_recover_wallet {
+         return;
+      }
+
+      ui.vertical_centered(|ui| {
+         ui.label(RichText::new("Wallet Name").size(theme.text_sizes.heading));
+
+         TextEdit::singleline(&mut self.wallet_name)
+            .font(FontId::proportional(theme.text_sizes.normal))
+            .margin(Margin::same(10))
+            .min_size(vec2(ui.available_width() * 0.6, 20.0))
+            .show(ui);
+
+         let recover_button = Button::new(RichText::new("Recover").size(theme.text_sizes.large))
+            .min_size(vec2(ui.available_width() * 0.7, 25.0));
+
+         if ui.add(recover_button).clicked() {
+            let mut vault = ctx.get_vault();
+            let name = self.wallet_name.clone();
+            let credentials = self.credentials_form.credentials.clone();
+
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.open("Recovering Wallet... (This may take a couple of minutes)");
+               });
+
+               vault.set_credentials(credentials);
+
+               match vault.recover_hd_wallet(name) {
+                  Ok(_) => {}
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open = false;
+                        gui.open_msg_window("Failed to recover wallet", e.to_string());
+                     });
+                     return;
+                  }
+               };
+
+               let params = if cfg!(feature = "dev") {
+                  Some(Argon2::very_fast())
+               } else {
+                  Some(Argon2::balanced())
+               };
+
+               SHARED_GUI.write(|gui| {
+                  gui.loading_window.open("Encrypting Vault...");
+               });
+
+               // Encrypt the vault
+               match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
+                  Ok(_) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.recover_wallet_ui.show_recover_wallet = false;
+                        gui.recover_wallet_ui.show_tips = true;
+                        gui.recover_wallet_ui.credentials_form.erase();
+
+                        gui.loading_window.open = false;
+                     });
+
+                     ctx.write(|ctx| {
+                        ctx.current_wallet = vault.get_master_wallet();
+                     });
+
+                     ctx.set_vault(vault);
+                  }
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window("Failed to create vault", e.to_string());
+                        gui.loading_window.open = false;
+                     });
+                  }
+               };
+
+               let ctx_clone = ctx.clone();
+               RT.spawn(async move {
+                  match update::wallet_discovery(ctx_clone.clone()).await {
+                     Ok(_) => {
+                        tracing::info!("Wallet discovery finished");
+                        update::on_startup(ctx_clone.clone()).await;
+                     }
+                     Err(e) => {
+                        SHARED_GUI.write(|gui| {
+                           ctx_clone.write(|ctx| {
+                              ctx.wallet_discovery_in_progress = false;
+                           });
+                           gui.open_msg_window("Failed to discover wallets", e.to_string());
+                        });
+                     }
+                  }
+               });
+            });
+         }
+      });
+   }
+
+   fn show_tips(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.show_tips {
+         return;
+      }
+
+      ui.vertical_centered(|ui| {
+
+         let tip1 = "You just created a new Hierarchical Deterministic (HD) wallet";
+         let tip2 = "This wallet can always be recovered with the same credentials, even if you lose your Vault";
+         let tip3 = "A Vault has been created with the credentials you just used for faster access to your wallets and contacts";
+         let tip4 = "If you want to create new wallets, it is recommended to derive them from the HD wallet you just created";
+         let tip5 = "You can import wallets from a seed phrase or a private key, but those can be lost forever if you lose your Vault";
+
+         ui.label(RichText::new(tip1).size(theme.text_sizes.normal));
+         ui.label(RichText::new(tip2).size(theme.text_sizes.normal));
+         ui.label(RichText::new(tip3).size(theme.text_sizes.normal));
+         ui.label(RichText::new(tip4).size(theme.text_sizes.normal));
+         ui.label(RichText::new(tip5).size(theme.text_sizes.normal));
+
+         let ok_button = Button::new(RichText::new("Ok").size(theme.text_sizes.large))
+            .min_size(vec2(ui.available_width() * 0.25, 25.0));
+
+         if ui.add(ok_button).clicked() {
+            let vault = ctx.get_vault();
+            RT.spawn_blocking(move || {
+            SHARED_GUI.write(|gui| {
+               gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
+               gui.recover_wallet_ui.show_tips = false;
+               gui.portofolio.open = true;
+               gui.wallet_selection.open = true;
+               gui.chain_selection.open = true;
+
+               ctx.write(|ctx| {
+                  ctx.vault_exists = true;
+                  ctx.logged_in = true;
+               });
+            });
+         });
+         }
+
+      });
    }
 }
