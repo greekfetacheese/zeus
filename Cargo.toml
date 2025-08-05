@@ -76,7 +76,6 @@ bincode = "2"
 inherits = "release"
 codegen-units = 32
 incremental = true
-panic = "abort"
 strip = true
 # Slightly smaller binary size than level 3
 opt-level = 2

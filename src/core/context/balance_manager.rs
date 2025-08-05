@@ -79,10 +79,7 @@ impl BalanceManagerHandle {
 
          let task = RT.spawn(async move {
             for portfolio in &portfolios {
-               match manager
-                  .update_eth_balance(ctx.clone(), chain, portfolio.owner)
-                  .await
-               {
+               match manager.update_eth_balance(ctx.clone(), chain, portfolio.owner).await {
                   Ok(_) => {}
                   Err(e) => {
                      tracing::error!(
@@ -159,13 +156,11 @@ impl BalanceManagerHandle {
       let client = ctx.get_client(chain).await?;
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
       let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
-      let token_map: HashMap<Address, ERC20Token> = tokens
-         .iter()
-         .map(|token| (token.address, token.clone()))
-         .collect();
+      let token_map: HashMap<Address, ERC20Token> =
+         tokens.iter().map(|token| (token.address, token.clone())).collect();
 
       let mut tasks = Vec::new();
-      let batch_size = self.batch_size();
+      let batch_size = std::cmp::max(1, self.batch_size());
       for chunk in tokens_addr.chunks(batch_size) {
          let client = client.clone();
          let semaphore = semaphore.clone();
@@ -205,22 +200,12 @@ impl BalanceManagerHandle {
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.read(|manager| {
-         manager
-            .eth_balances
-            .get(&(chain, owner))
-            .cloned()
-            .unwrap_or_default()
-      })
+      self.read(|manager| manager.eth_balances.get(&(chain, owner)).cloned().unwrap_or_default())
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
       self.read(|manager| {
-         manager
-            .token_balances
-            .get(&(chain, owner, token))
-            .cloned()
-            .unwrap_or_default()
+         manager.token_balances.get(&(chain, owner, token)).cloned().unwrap_or_default()
       })
    }
 
@@ -263,9 +248,7 @@ impl BalanceManagerHandle {
    ) {
       let balance = NumericValue::currency_balance(balance, token.decimals);
       self.write(|manager| {
-         manager
-            .token_balances
-            .insert((chain, owner, token.address), balance);
+         manager.token_balances.insert((chain, owner, token.address), balance);
       });
    }
 }
@@ -293,4 +276,25 @@ pub struct BalanceManager {
 
    #[serde(default = "default_batch_size")]
    pub batch_size: usize,
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[tokio::test]
+   async fn batch_size() {
+      let ctx = ZeusCtx::new();
+      let chain = 1;
+
+      ctx.write(|ctx| {
+         ctx.providers.all_working();
+      });
+
+      let manager = ctx.balance_manager();
+      let owner = Address::ZERO;
+      let tokens = vec![ERC20Token::weth()];
+
+      manager.update_tokens_balance(ctx.clone(), chain, owner, tokens).await.unwrap();
+   }
 }
