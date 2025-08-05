@@ -24,6 +24,10 @@ impl From<[u8; 4]> for KeyFingerprint {
 }
 
 impl KeyFingerprint {
+   pub fn is_zero(&self) -> bool {
+      self.0.iter().all(|b| *b == 0)
+   }
+   
    /// Determines if the slice represents the same key fingerprint
    pub fn eq_slice(self, other: &[u8]) -> bool {
       self.0 == other

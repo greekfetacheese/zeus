@@ -219,7 +219,7 @@ impl Wallet {
    }
 
    pub fn is_master(&self) -> bool {
-      self.xkey_info.as_ref().map(|info| info.index == 0).unwrap_or(false)
+      self.xkey_info.as_ref().map(|info| info.parent.is_zero()).unwrap_or(false)
    }
 
    pub fn is_hardened(&self) -> bool {
