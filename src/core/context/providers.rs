@@ -28,8 +28,14 @@ pub struct Rpc {
    /// False if the rpc is added by the user
    pub default: bool,
    pub enabled: bool,
+   /// True if the rpc is functional at all
    pub working: bool,
-   pub archive_node: bool,
+   /// True if the rpc is fully functional
+   /// All requests should work perfect
+   /// 
+   /// If false, some things like batch requests may not work
+   pub fully_functional: bool,
+   pub archive: bool,
    pub mev_protect: bool,
    pub latency: Option<Duration>,
 }
@@ -48,7 +54,8 @@ impl Rpc {
          default,
          enabled,
          working: false,
-         archive_node: false,
+         fully_functional: false,
+         archive: false,
          mev_protect,
          latency: None,
       }
@@ -58,8 +65,16 @@ impl Rpc {
       self.url.starts_with("ws")
    }
 
-   pub fn is_archive_node(&self) -> bool {
-      self.archive_node
+   pub fn is_archive(&self) -> bool {
+      self.archive
+   }
+
+   pub fn is_working(&self) -> bool {
+      self.working
+   }
+
+   pub fn is_fully_functional(&self) -> bool {
+      self.fully_functional
    }
 
    pub fn latency_ms(&self) -> u128 {
@@ -138,28 +153,16 @@ impl RpcProviders {
       if rpcs.iter().any(|rpc| rpc.url == url) {
          return;
       } else {
-         self
-            .rpcs
-            .entry(chain_id)
-            .or_default()
-            .push(new_rpc);
+         self.rpcs.entry(chain_id).or_default().push(new_rpc);
       }
    }
 
    pub fn remove_rpc(&mut self, chain_id: u64, url: String) {
-      self
-         .rpcs
-         .entry(chain_id)
-         .or_default()
-         .retain(|rpc| rpc.url != url);
+      self.rpcs.entry(chain_id).or_default().retain(|rpc| rpc.url != url);
    }
 
    pub fn rpc_mut(&mut self, chain_id: u64, url: String) -> Option<&mut Rpc> {
-      self
-         .rpcs
-         .get_mut(&chain_id)?
-         .iter_mut()
-         .find(|rpc| rpc.url == url)
+      self.rpcs.get_mut(&chain_id)?.iter_mut().find(|rpc| rpc.url == url)
    }
 
    /// Get all RPCs for a chain from fastest to slowest
@@ -519,23 +522,38 @@ impl Default for RpcProviders {
    }
 }
 
+pub struct RpcTestResult {
+   pub working: bool,
+   pub fully_functional: bool,
+   pub archive: bool,
+}
+
 /// Try to determine if the given RPC is working
 ///
 /// Eg. Some free endpoints don't support `eth_getLogs` in the free tier
 ///
-/// Returns `true` if the RPC is archive node
-pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> {
+/// Others have a very low staticalll gas limit which cause the batch requests to fail
+///
+/// Returns [`RpcTestResult`]
+pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow::Error> {
    let retry = client::retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
       COMPUTE_UNITS_PER_SECOND,
    );
+
    let throttle = client::throttle_layer(CLIENT_RPS);
    let client = client::get_client(&rpc.url, retry, throttle).await?;
 
    let latest_block = client.get_block_number().await?;
    let block_to_query = latest_block - 100_000;
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
+
+   let mut result = RpcTestResult {
+      working: true,
+      fully_functional: true,
+      archive: true,
+   };
 
    // For MEV protect RPCs just check if its archive or not
    if rpc.mev_protect {
@@ -549,15 +567,19 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
          Ok(old_block) => {
             if old_block.is_some() {
                tracing::debug!("{} is Archive Node", rpc.url);
-               return Ok(true);
+               return Ok(result);
             } else {
                tracing::debug!("{} is NOT Archive Node", rpc.url);
-               return Ok(false);
+               result.archive = false;
+               return Ok(result);
             }
          }
          Err(e) => {
             tracing::debug!("Error getting historical block: {:?}", e);
-            return Ok(false);
+            result.archive = false;
+            result.fully_functional = false;
+            result.working = false;
+            return Ok(result);
          }
       }
    }
@@ -566,7 +588,12 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
    let filter = Filter::new()
       .address(weth.address)
       .from_block(BlockNumberOrTag::Number(latest_block));
-   let _ = client.get_logs(&filter).await?;
+
+   let logs = client.get_logs(&filter).await;
+
+   if logs.is_err() {
+      result.fully_functional = false;
+   }
 
    // request the latest block number 25 times concurrently
    // if the throttle and retry layers are working correctly
@@ -583,7 +610,10 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
    }
 
    for task in tasks {
-      task.await??;
+      let task = task.await;
+      if task.is_err() {
+         result.fully_functional = false;
+      }
    }
 
    // Query an old block to determine if the RPC is archive or not
@@ -610,12 +640,13 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
       }
    };
 
+   result.archive = is_archive;
+
    // This is actually important, A lot of providers have a very low staticalll gas limit
    // and requests like batch fetching the state for V3 pools can fail
    let pool_manager = ctx.pool_manager();
 
    let v3_pools = pool_manager.get_v3_pools_for_chain(rpc.chain_id);
-   let mut state_res = None;
 
    if v3_pools.len() >= 10 {
       let mut pools_to_update = Vec::new();
@@ -632,23 +663,16 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<bool, anyhow::Error> 
       }
 
       let state_data_res = batch::get_v3_state(client, None, pools_to_update).await;
-      state_res = Some(state_data_res);
+      if state_data_res.is_err() {
+         result.fully_functional = false;
+      }
    } else {
       // If we dont have at least 10 pools just skip this check and assume that the RPC is ok
       tracing::info!("Not enough V3 pools for testing {}", rpc.url);
+      return Ok(result);
    }
 
-   if let Some(res) = state_res {
-      match res {
-         Ok(_res) => Ok(is_archive),
-         Err(e) => {
-            tracing::debug!("Error getting V3 pool state: {:?}", e);
-            return Err(anyhow!("Error getting V3 pool state {}", e));
-         }
-      }
-   } else {
-      Ok(is_archive)
-   }
+   Ok(result)
 }
 
 #[cfg(test)]

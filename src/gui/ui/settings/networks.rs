@@ -160,7 +160,10 @@ impl NetworkSettings {
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[2]);
                         let icon = if rpc.working {
-                           icons.green_circle()
+                           match rpc.fully_functional {
+                              true => icons.green_circle(),
+                              false => icons.orange_circle(),
+                           }
                         } else {
                            icons.red_circle()
                         };
@@ -170,7 +173,7 @@ impl NetworkSettings {
                      // Archive Node column
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[3]);
-                        let icon = if rpc.archive_node {
+                        let icon = if rpc.archive {
                            icons.green_circle()
                         } else {
                            icons.red_circle()
@@ -314,11 +317,12 @@ impl NetworkSettings {
 fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
    RT.spawn(async move {
       match client_test(ctx.clone(), rpc.clone()).await {
-         Ok(archive) => {
+         Ok(result) => {
             ctx.write(|ctx| {
                if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-                  rpc.working = true;
-                  rpc.archive_node = archive;
+                  rpc.working = result.working;
+                  rpc.archive = result.archive;
+                  rpc.fully_functional = result.fully_functional;
                }
             });
             SHARED_GUI.write(|gui| {

@@ -406,11 +406,12 @@ pub async fn test_rpcs(ctx: ZeusCtx) {
          let ctx_clone = ctx.clone();
          let task = RT.spawn(async move {
             match client_test(ctx_clone.clone(), rpc.clone()).await {
-               Ok(archive) => {
+               Ok(result) => {
                   ctx_clone.write(|ctx| {
                      if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                        rpc.working = true;
-                        rpc.archive_node = archive;
+                        rpc.working = result.working;
+                        rpc.archive = result.archive;
+                        rpc.fully_functional = result.fully_functional;
                      }
                   });
                }

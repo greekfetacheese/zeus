@@ -181,6 +181,7 @@ impl CurrencyIcons {
 pub struct MiscIcons {
    pub red_circle: TextureHandle,
    pub green_circle: TextureHandle,
+   pub orange_circle: TextureHandle,
    pub swap: TextureHandle,
    pub view: TextureHandle,
    pub view_light: TextureHandle,
@@ -194,6 +195,7 @@ impl MiscIcons {
 
       let red_circle = load_image(include_bytes!("misc/x16/red-circle.png"))?;
       let green_circle = load_image(include_bytes!("misc/x16/green-circle.png"))?;
+      let orange_circle = load_image(include_bytes!("misc/x16/orange-circle.png"))?;
 
       let swap = load_image(include_bytes!("misc/x24/swap.png"))?;
 
@@ -206,6 +208,7 @@ impl MiscIcons {
       Ok(Self {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
          green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
+         orange_circle: ctx.load_texture("orange_circle", orange_circle, texture_options),
          swap: ctx.load_texture("swap", swap, texture_options),
          view: ctx.load_texture("view", view, texture_options),
          hide: ctx.load_texture("hide", hide, texture_options),
@@ -334,6 +337,10 @@ impl Icons {
 
    pub fn green_circle(&self) -> Image<'static> {
       Image::new(&self.misc.green_circle)
+   }
+
+   pub fn orange_circle(&self) -> Image<'static> {
+      Image::new(&self.misc.orange_circle)
    }
 
    pub fn swap(&self) -> Image<'static> {

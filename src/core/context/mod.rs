@@ -175,9 +175,7 @@ impl ZeusCtx {
    }
 
    pub fn current_wallet_info(&self) -> WalletInfo {
-      self.read(|ctx| {
-         ctx.current_wallet.to_wallet_info()
-      })
+      self.read(|ctx| ctx.current_wallet.to_wallet_info())
    }
 
    pub fn current_wallet_address(&self) -> Address {
@@ -273,7 +271,7 @@ impl ZeusCtx {
 
    pub fn client_archive_available(&self, chain: u64) -> bool {
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      rpcs.iter().any(|rpc| rpc.working && rpc.archive_node && rpc.enabled)
+      rpcs.iter().any(|rpc| rpc.working && rpc.archive && rpc.enabled)
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -292,26 +290,19 @@ impl ZeusCtx {
       }
 
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
+      let fully_functional = rpcs
+         .clone()
+         .into_iter()
+         .filter(|rpc| rpc.fully_functional && rpc.enabled)
+         .collect::<Vec<_>>();
 
-      for rpc in &rpcs {
-         if !rpc.working || !rpc.enabled {
-            continue;
-         }
+      let non_fully_functional = rpcs
+         .into_iter()
+         .filter(|rpc| !rpc.fully_functional && rpc.enabled)
+         .collect::<Vec<_>>();
 
-         let (retry, throttle) = if rpc.default {
-            (
-               retry_layer(
-                  MAX_RETRIES,
-                  INITIAL_BACKOFF,
-                  COMPUTE_UNITS_PER_SECOND,
-               ),
-               throttle_layer(CLIENT_RPS),
-            )
-         } else {
-            (retry_layer(10, 300, 1000), throttle_layer(1000))
-         };
-
-         let c = match get_client(&rpc.url, retry, throttle).await {
+      for rpc in &fully_functional {
+         let c = match self.connect_to_rpc(rpc).await {
             Ok(client) => client,
             Err(e) => {
                tracing::error!(
@@ -323,14 +314,53 @@ impl ZeusCtx {
                continue;
             }
          };
+
          client = Some(c);
          break;
       }
+
+      if client.is_none() {
+         for rpc in &non_fully_functional {
+            let c = match self.connect_to_rpc(rpc).await {
+               Ok(client) => client,
+               Err(e) => {
+                  tracing::error!(
+                     "Error connecting to client using {} for chain {}: {:?}",
+                     rpc.url,
+                     chain,
+                     e
+                  );
+                  continue;
+               }
+            };
+
+            client = Some(c);
+            break;
+         }
+      }
+
       if client.is_none() {
          return Err(anyhow!("No clients found for chain {}", chain));
       } else {
          Ok(client.unwrap())
       }
+   }
+
+   async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
+      let (retry, throttle) = if rpc.default {
+         (
+            retry_layer(
+               MAX_RETRIES,
+               INITIAL_BACKOFF,
+               COMPUTE_UNITS_PER_SECOND,
+            ),
+            throttle_layer(CLIENT_RPS),
+         )
+      } else {
+         (retry_layer(10, 300, 1000), throttle_layer(1000))
+      };
+
+      get_client(&rpc.url, retry, throttle).await
    }
 
    pub async fn get_archive_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -351,24 +381,11 @@ impl ZeusCtx {
       let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
 
       for rpc in &rpcs {
-         if !rpc.working || !rpc.enabled || !rpc.archive_node {
+         if !rpc.working || !rpc.enabled || !rpc.archive {
             continue;
          }
 
-         let (retry, throttle) = if rpc.default {
-            (
-               retry_layer(
-                  MAX_RETRIES,
-                  INITIAL_BACKOFF,
-                  COMPUTE_UNITS_PER_SECOND,
-               ),
-               throttle_layer(CLIENT_RPS),
-            )
-         } else {
-            (retry_layer(10, 300, 1000), throttle_layer(1000))
-         };
-
-         let c = match get_client(&rpc.url, retry, throttle).await {
+         let c = match self.connect_to_rpc(rpc).await {
             Ok(client) => client,
             Err(e) => {
                tracing::error!(
@@ -380,6 +397,7 @@ impl ZeusCtx {
                continue;
             }
          };
+
          client = Some(c);
          break;
       }
