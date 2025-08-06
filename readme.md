@@ -15,8 +15,6 @@
 
 **Zeus saves and loads its data from the current directory it exists, so if you want to move it move it with the entire folder**
 
-### Keeping backups
-All the data Zeus uses lives in the `data` folder, `account.data` keeps the private keys of your wallets encrypted, so its safe to copy it wherever you want.
 
 ## Supported Chains
 - Ethereum Mainnet
@@ -29,7 +27,23 @@ All the data Zeus uses lives in the `data` folder, `account.data` keeps the priv
 - Windows
 - Linux
 
+## Minimum System Requirements
+- RAM: 8GB (For wallet recovery)
+
 ---
+
+## How Wallet management work in Zeus
+Zeus uses an hierarchical deterministic wallet which is derived from a username and a password, this operation is very time consuming
+and on most machines it may take 5-10 minutes to complete.
+After the creation of the HD wallet a `vault.data` file is created inside the `data` folder which contains the encrypted wallets and any saved contacts for faster access.
+The `vault.data` file is encrypted with the credentials you provided when creating the wallet, but it can be changed later.
+You can also import a wallet from a private key or a mnemonic phrase, but if you lose the `vault.data` file you will lose access to those wallets.
+
+To create a new wallet it is better to simple derive a new child wallet from the master wallet, this way you can have as much wallets
+you want under the same master wallet which can be recovered from the same username and password even if you lose the `vault.data` file.
+
+---
+
 
 ## Features
 
