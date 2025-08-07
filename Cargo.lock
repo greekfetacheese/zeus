@@ -4478,9 +4478,9 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.1.11"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4379b01102213a31e65ecde59e5528c3cda55d447edc01a74dbc5a5f48ef90ef"
+checksum = "41f0039e189b05ddfd4835855ac3913a1daed92055034e54d361da0d6c77bdd1"
 dependencies = [
  "argon2-sys",
  "bincode",
