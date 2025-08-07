@@ -200,22 +200,20 @@ impl TxConfirmationWindow {
                   if action.is_other() {
                      ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
 
-                     ScrollArea::vertical()
-                        .max_height(self.size.1 / 2.0)
-                        .show(ui, |ui| {
-                           ui.set_width(self.size.0);
+                     ScrollArea::vertical().max_height(self.size.1 / 2.0).show(ui, |ui| {
+                        ui.set_width(self.size.0);
 
-                           show_decoded_events(
-                              ctx.clone(),
-                              self.chain,
-                              theme,
-                              icons.clone(),
-                              analysis,
-                              frame_size,
-                              frame,
-                              ui,
-                           );
-                        });
+                        show_decoded_events(
+                           ctx.clone(),
+                           self.chain,
+                           theme,
+                           icons.clone(),
+                           analysis,
+                           frame_size,
+                           frame,
+                           ui,
+                        );
+                     });
                   }
 
                   ui.add_space(20.0);
@@ -530,11 +528,7 @@ impl TxWindow {
                   let frame = theme.frame2;
 
                   // Action Name
-                  ui.label(
-                     RichText::new(action.name())
-                        .size(theme.text_sizes.very_large)
-                        .strong(),
-                  );
+                  ui.label(RichText::new(action.name()).size(theme.text_sizes.very_large).strong());
 
                   if !action.is_other() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -555,22 +549,20 @@ impl TxWindow {
                   if action.is_other() {
                      ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
 
-                     ScrollArea::vertical()
-                        .max_height(self.size.1 / 2.0)
-                        .show(ui, |ui| {
-                           ui.set_width(self.size.0);
+                     ScrollArea::vertical().max_height(self.size.1 / 2.0).show(ui, |ui| {
+                        ui.set_width(self.size.0);
 
-                           show_decoded_events(
-                              ctx.clone(),
-                              chain,
-                              theme,
-                              icons.clone(),
-                              &tx.analysis,
-                              frame_size,
-                              frame,
-                              ui,
-                           );
-                        });
+                        show_decoded_events(
+                           ctx.clone(),
+                           chain,
+                           theme,
+                           icons.clone(),
+                           &tx.analysis,
+                           frame_size,
+                           frame,
+                           ui,
+                        );
+                     });
                   }
 
                   ui.allocate_ui(frame_size, |ui| {
@@ -784,7 +776,7 @@ pub fn eth_received(
    ui: &mut Ui,
 ) {
    let native = NativeCurrency::from(chain);
-  // let icon = icons.native_currency_icon_x24(chain);
+   // let icon = icons.native_currency_icon_x24(chain);
    let text = format!(
       "{text} {} {} ≈ {}",
       eth_received.format_abbreviated(),
@@ -803,11 +795,7 @@ pub fn token_approval_event_ui(
    params: &TokenApproveParams,
    ui: &mut Ui,
 ) {
-   let token_details = params
-      .token
-      .iter()
-      .zip(params.amount.iter())
-      .zip(params.amount_usd.iter());
+   let token_details = params.token.iter().zip(params.amount.iter()).zip(params.amount_usd.iter());
 
    for ((token, amount), amount_usd) in token_details {
       let is_unlimited = amount.wei() == U256::MAX;
@@ -854,11 +842,7 @@ pub fn token_approval_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            owner_address
-         );
+         let link = format!("{}/address/{}", explorer, owner_address);
          ui.hyperlink_to(
             RichText::new(owner)
                .size(theme.text_sizes.normal)
@@ -885,11 +869,7 @@ pub fn token_approval_event_ui(
       };
 
       let explorer = chain.block_explorer();
-      let link = format!(
-         "{}/address/{}",
-         explorer,
-         spender_address
-      );
+      let link = format!("{}/address/{}", explorer, spender_address);
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          ui.hyperlink_to(
@@ -958,11 +938,7 @@ fn transfer_event_ui(
             };
 
             let explorer = chain.block_explorer();
-            let link = format!(
-               "{}/address/{}",
-               explorer,
-               recipient_address
-            );
+            let link = format!("{}/address/{}", explorer, recipient_address);
             ui.hyperlink_to(
                RichText::new(recipient)
                   .size(theme.text_sizes.normal)
@@ -1024,11 +1000,7 @@ fn erc20_transfer_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            sender_address
-         );
+         let link = format!("{}/address/{}", explorer, sender_address);
          ui.hyperlink_to(
             RichText::new(sender)
                .size(theme.text_sizes.normal)
@@ -1055,11 +1027,7 @@ fn erc20_transfer_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            recipient_address
-         );
+         let link = format!("{}/address/{}", explorer, recipient_address);
          ui.hyperlink_to(
             RichText::new(recipient)
                .size(theme.text_sizes.normal)
@@ -1068,6 +1036,37 @@ fn erc20_transfer_event_ui(
          );
       });
    });
+
+   // Actual amount sent
+   if params.real_amount_sent.is_some() {
+      let real_amount_sent = params.real_amount_sent.as_ref().unwrap();
+      let real_amount_sent_usd = params.real_amount_sent_usd.as_ref().unwrap();
+
+      ui.horizontal(|ui| {
+         let text = "Actual amount sent";
+         ui.label(RichText::new(text).size(theme.text_sizes.large));
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.label(
+               RichText::new(format!(
+                  "~ ${}",
+                  real_amount_sent_usd.format_abbreviated()
+               ))
+               .size(theme.text_sizes.large),
+            );
+
+            let token = &params.token;
+            let text = RichText::new(format!(
+               "{} {} ",
+               real_amount_sent.format_abbreviated(),
+               token.symbol
+            ))
+            .size(theme.text_sizes.large);
+            let label = Label::new(text, None);
+            ui.add(label);
+         });
+      });
+   }
 }
 
 fn bridge_event_ui(
@@ -1148,11 +1147,7 @@ fn bridge_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            depositor_address
-         );
+         let link = format!("{}/address/{}", explorer, depositor_address);
          ui.hyperlink_to(
             RichText::new(depositor)
                .size(theme.text_sizes.normal)
@@ -1179,11 +1174,7 @@ fn bridge_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            recipient_address
-         );
+         let link = format!("{}/address/{}", explorer, recipient_address);
          ui.hyperlink_to(
             RichText::new(recipient)
                .size(theme.text_sizes.normal)
@@ -1363,11 +1354,7 @@ fn wrap_eth_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            recipient_address
-         );
+         let link = format!("{}/address/{}", explorer, recipient_address);
          ui.hyperlink_to(
             RichText::new(recipient)
                .size(theme.text_sizes.normal)
@@ -1585,11 +1572,7 @@ fn uniswap_position_op_event_ui(
          };
 
          let explorer = chain.block_explorer();
-         let link = format!(
-            "{}/address/{}",
-            explorer,
-            sender_address
-         );
+         let link = format!("{}/address/{}", explorer, sender_address);
          ui.hyperlink_to(
             RichText::new(sender)
                .size(theme.text_sizes.normal)
@@ -1616,11 +1599,7 @@ fn uniswap_position_op_event_ui(
             };
 
             let explorer = chain.block_explorer();
-            let link = format!(
-               "{}/address/{}",
-               explorer,
-               recipient_address
-            );
+            let link = format!("{}/address/{}", explorer, recipient_address);
             ui.hyperlink_to(
                RichText::new(recipient)
                   .size(theme.text_sizes.normal)

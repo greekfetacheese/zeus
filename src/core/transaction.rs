@@ -234,8 +234,10 @@ impl TransactionAction {
 
       let params = ERC20TransferParams {
          token: token.clone(),
-         amount,
-         amount_usd: Some(amount_usd),
+         amount: amount.clone(),
+         amount_usd: Some(amount_usd.clone()),
+         real_amount_sent: Some(amount),
+         real_amount_sent_usd: Some(amount_usd),
          sender: Address::ZERO,
          recipient: Address::ZERO,
       };
@@ -829,9 +831,13 @@ impl TransferParams {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ERC20TransferParams {
    pub token: ERC20Token,
+   /// Amount sent
    pub amount: NumericValue,
    /// USD value at the time of the tx
    pub amount_usd: Option<NumericValue>,
+   /// Real amount sent (in case of a transfer tax)
+   pub real_amount_sent: Option<NumericValue>,
+   pub real_amount_sent_usd: Option<NumericValue>,
    pub sender: Address,
    pub recipient: Address,
 }
@@ -879,6 +885,8 @@ impl ERC20TransferParams {
          token,
          amount,
          amount_usd: Some(amount_usd),
+         real_amount_sent: None,
+         real_amount_sent_usd: None,
          sender,
          recipient,
       })

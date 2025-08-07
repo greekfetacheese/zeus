@@ -2173,44 +2173,7 @@ pub async fn mint_new_liquidity_position_v3(
    Ok(())
 }
 
-pub async fn send_crypto(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   from: Address,
-   interact_to: Address,
-   call_data: Bytes,
-   value: U256,
-) -> Result<(), anyhow::Error> {
-   let mev_protect = false;
-   let (_, tx_rich) = send_transaction(
-      ctx.clone(),
-      "".to_string(),
-      None,
-      None,
-      chain,
-      mev_protect,
-      from,
-      interact_to,
-      call_data,
-      value,
-   )
-   .await?;
 
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx(tx_rich);
-      gui.request_repaint();
-   });
-
-   Ok(())
-}
 
 pub async fn sync_pools_for_tokens(
    ctx: ZeusCtx,

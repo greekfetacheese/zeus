@@ -6,9 +6,12 @@ use eframe::egui::{
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::core::{
-   ZeusCtx,
-   utils::{RT, estimate_tx_cost, eth},
+use crate::{
+   core::{
+      ERC20TransferParams, TransactionAnalysis, ZeusCtx,
+      utils::{RT, estimate_tx_cost, eth},
+   },
+   gui::ui::Step,
 };
 
 use crate::assets::icons::Icons;
@@ -20,8 +23,12 @@ use egui_theme::Theme;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
+   alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
    amm::DexKind,
    currency::{Currency, NativeCurrency},
+   revm_utils::{ForkFactory, new_evm, simulate},
+   types::ChainId,
    utils::NumericValue,
 };
 
@@ -431,21 +438,7 @@ impl SendCryptoUi {
       let from = ctx.current_wallet_address();
       let currency = self.currency.clone();
       let recipient_address = Address::from_str(&recipient)?;
-
       let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
-      let (call_data, interact_to) = if currency.is_native() {
-         (Bytes::default(), recipient_address)
-      } else {
-         let token = currency.to_erc20();
-         let data = token.encode_transfer(recipient_address, amount.wei());
-         (data, token.address)
-      };
-
-      let value = if currency.is_native() {
-         amount.wei()
-      } else {
-         U256::ZERO
-      };
 
       RT.spawn(async move {
          SHARED_GUI.write(|gui| {
@@ -453,44 +446,224 @@ impl SendCryptoUi {
             gui.request_repaint();
          });
 
-         match eth::send_crypto(
-            ctx.clone(),
-            chain,
-            from,
-            interact_to,
-            call_data,
-            value,
-         )
-         .await
-         {
-            Ok(_) => {
-               match update_balances(
-                  ctx.clone(),
-                  chain.id(),
-                  currency.clone(),
-                  from,
-                  recipient_address,
-               )
-               .await
-               {
-                  Ok(_) => {}
-                  Err(e) => {
-                     tracing::error!("Error updating balances: {:?}", e);
-                  }
+         if currency.is_native() {
+            match send_eth(
+               ctx.clone(),
+               chain,
+               from,
+               recipient_address,
+               amount,
+               currency,
+            )
+            .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error sending transaction: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.progress_window.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Transaction Error", e.to_string());
+                  });
                }
             }
-            Err(e) => {
-               tracing::error!("Error sending transaction: {:?}", e);
-               SHARED_GUI.write(|gui| {
-                  gui.progress_window.reset();
-                  gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", e.to_string());
-               });
+         } else {
+            match send_token(
+               ctx.clone(),
+               chain,
+               from,
+               recipient_address,
+               currency,
+               amount,
+            )
+            .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error sending transaction: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.progress_window.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Transaction Error", e.to_string());
+                  });
+               }
             }
          }
       });
       Ok(())
    }
+}
+
+async fn send_eth(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   recipient: Address,
+   amount: NumericValue,
+   currency: Currency,
+) -> Result<(), anyhow::Error> {
+   let mev_protect = false;
+   let dapp = "".to_string();
+   let interact_to = recipient;
+   let value = amount.wei();
+   let call_data = Bytes::default();
+
+   let (_, tx_rich) = eth::send_transaction(
+      ctx.clone(),
+      dapp,
+      None,
+      None,
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx(tx_rich);
+      gui.request_repaint();
+   });
+
+   match update_balances(ctx.clone(), chain.id(), currency, from, recipient).await {
+      Ok(_) => {}
+      Err(e) => {
+         tracing::error!("Error updating balances: {:?}", e);
+      }
+   }
+
+   Ok(())
+}
+
+async fn send_token(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   recipient: Address,
+   currency: Currency,
+   amount: NumericValue,
+) -> Result<(), anyhow::Error> {
+   let token = currency.to_erc20().into_owned();
+
+   let mev_protect = false;
+   let dapp = "".to_string();
+   let interact_to = token.address;
+   let value = U256::ZERO;
+   let call_data = token.encode_transfer(recipient, amount.wei());
+
+   let client = ctx.get_client(chain.id()).await?;
+   let block = client.get_block(BlockId::latest()).await?;
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let mut transfer_params = ERC20TransferParams {
+      token: token.clone(),
+      sender: from,
+      recipient,
+      ..Default::default()
+   };
+
+   let recipient_balance_before = token.balance_of(client.clone(), recipient, None).await?;
+
+   let real_amount_sent;
+   let gas_used;
+
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db);
+
+      let res = simulate::transfer_token(
+         &mut evm,
+         token.address,
+         from,
+         recipient,
+         amount.wei(),
+         true,
+      )?;
+
+      let balance_after = simulate::erc20_balance(&mut evm, token.address, recipient)?;
+
+      let real_amount = if balance_after > recipient_balance_before {
+         balance_after - recipient_balance_before
+      } else {
+         U256::ZERO
+      };
+
+      real_amount_sent = real_amount;
+      gas_used = res.gas_used();
+   }
+
+   let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
+   let real_amount_sent = NumericValue::format_wei(real_amount_sent, token.decimals);
+   let real_amount_send_usd = ctx.get_token_value_for_amount(real_amount_sent.f64(), &token);
+
+   transfer_params.amount = amount;
+   transfer_params.amount_usd = Some(amount_usd);
+   transfer_params.real_amount_sent = Some(real_amount_sent);
+   transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+
+   let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
+
+   let tx_analysis = TransactionAnalysis {
+      chain: chain.id(),
+      sender: from,
+      interact_to,
+      contract_interact: true,
+      value,
+      call_data: call_data.clone(),
+      gas_used,
+      eth_balance_before: eth_balance_before.wei(),
+      eth_balance_after: eth_balance_before.wei(),
+      decoded_selector: "ERC20 Transfer".to_string(),
+      erc20_transfers: vec![transfer_params],
+      ..Default::default()
+   };
+
+   let (_, tx_rich) = eth::send_transaction(
+      ctx.clone(),
+      dapp,
+      None,
+      Some(tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   let step1 = Step {
+      id: "step1",
+      in_progress: false,
+      finished: true,
+      msg: "Transaction Sent".to_string(),
+   };
+
+   SHARED_GUI.write(|gui| {
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.set_tx(tx_rich);
+      gui.request_repaint();
+   });
+
+   match update_balances(ctx.clone(), chain.id(), currency, from, recipient).await {
+      Ok(_) => {}
+      Err(e) => {
+         tracing::error!("Error updating balances: {:?}", e);
+      }
+   }
+
+   Ok(())
 }
 
 async fn update_balances(

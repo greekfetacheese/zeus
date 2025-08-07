@@ -72,7 +72,7 @@ pub fn transfer_token<DB>(
    to: Address,
    amount: U256,
    commit: bool,
-) -> Result<(), anyhow::Error>
+) -> Result<ExecutionResult, anyhow::Error>
 where
    DB: Database + DatabaseCommit,
 {
@@ -91,8 +91,6 @@ where
          .result
    };
 
-   println!("Execution result: {:?}", res);
-
    let output = res.output().ok_or(anyhow!("Output not found"))?;
 
    if !res.is_success() {
@@ -100,7 +98,7 @@ where
       return Err(anyhow!("Failed to transfer token: {}", err));
    }
 
-   Ok(())
+   Ok(res)
 }
 
 
