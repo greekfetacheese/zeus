@@ -99,27 +99,23 @@ impl SendCryptoUi {
                let currencies = ctx.get_currencies(chain.id());
 
                // Recipient Input
-               Grid::new("recipient_name")
-                  .spacing(vec2(3.0, 0.0))
-                  .show(ui, |ui| {
-                     ui.label(RichText::new("Recipient  ").size(theme.text_sizes.large));
-                     if !recipient.is_empty() {
-                        if let Some(name) = &recipient_name {
-                           ui.label(
-                              RichText::new(name.clone())
-                                 .size(theme.text_sizes.normal)
-                                 .strong(),
-                           );
-                        } else {
-                           ui.label(
-                              RichText::new("Unknown Address")
-                                 .size(theme.text_sizes.normal)
-                                 .color(Color32::RED),
-                           );
-                        }
+               Grid::new("recipient_name").spacing(vec2(3.0, 0.0)).show(ui, |ui| {
+                  ui.label(RichText::new("Recipient  ").size(theme.text_sizes.large));
+                  if !recipient.is_empty() {
+                     if let Some(name) = &recipient_name {
+                        ui.label(
+                           RichText::new(name.clone()).size(theme.text_sizes.normal).strong(),
+                        );
+                     } else {
+                        ui.label(
+                           RichText::new("Unknown Address")
+                              .size(theme.text_sizes.normal)
+                              .color(Color32::RED),
+                        );
                      }
-                     ui.end_row();
-                  });
+                  }
+                  ui.end_row();
+               });
 
                ui.horizontal(|ui| {
                   let hint = RichText::new("Search contacts or enter an address")
@@ -216,13 +212,14 @@ impl SendCryptoUi {
                ui.add_space(5.0);
 
                ui.horizontal(|ui| {
-                  let hint = RichText::new("0")
-                     .color(theme.colors.text_secondary);
+                  let hint = RichText::new("0").color(theme.colors.text_secondary);
 
                   ui.add(
                      TextEdit::singleline(&mut self.amount)
                         .hint_text(hint)
-                        .font(egui::FontId::proportional(theme.text_sizes.heading))
+                        .font(egui::FontId::proportional(
+                           theme.text_sizes.heading,
+                        ))
                         .background_color(theme.colors.text_edit_bg)
                         .min_size(vec2(ui.available_width() * 0.5, 50.0))
                         .margin(Margin::same(10)),
@@ -302,9 +299,7 @@ impl SendCryptoUi {
       RT.spawn(async move {
          let balance_manager = ctx.balance_manager();
          if currency.is_native() {
-            let _ = balance_manager
-               .update_eth_balance(ctx.clone(), chain, owner)
-               .await;
+            let _ = balance_manager.update_eth_balance(ctx.clone(), chain, owner).await;
          } else {
             let token = currency.to_erc20().into_owned();
             let _ = balance_manager
@@ -441,8 +436,7 @@ impl SendCryptoUi {
       let (call_data, interact_to) = if currency.is_native() {
          (Bytes::default(), recipient_address)
       } else {
-         let c = currency.clone();
-         let token = c.erc20().unwrap();
+         let token = currency.to_erc20();
          let data = token.encode_transfer(recipient_address, amount.wei());
          (data, token.address)
       };
@@ -469,7 +463,22 @@ impl SendCryptoUi {
          )
          .await
          {
-            Ok(_) => {}
+            Ok(_) => {
+               match update_balances(
+                  ctx.clone(),
+                  chain.id(),
+                  currency.clone(),
+                  from,
+                  recipient_address,
+               )
+               .await
+               {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Error updating balances: {:?}", e);
+                  }
+               }
+            }
             Err(e) => {
                tracing::error!("Error sending transaction: {:?}", e);
                SHARED_GUI.write(|gui| {
@@ -482,4 +491,40 @@ impl SendCryptoUi {
       });
       Ok(())
    }
+}
+
+async fn update_balances(
+   ctx: ZeusCtx,
+   chain: u64,
+   currency: Currency,
+   sender: Address,
+   recipient: Address,
+) -> Result<(), anyhow::Error> {
+   let exists = ctx.wallet_exists(recipient);
+   let manager = ctx.balance_manager();
+
+   manager.update_eth_balance(ctx.clone(), chain, sender).await?;
+
+   if currency.is_erc20() {
+      let token = currency.to_erc20().into_owned();
+      manager.update_tokens_balance(ctx.clone(), chain, sender, vec![token]).await?;
+   }
+
+   if exists {
+      if currency.is_native() {
+         manager.update_eth_balance(ctx.clone(), chain, recipient).await?;
+      } else {
+         let token = currency.to_erc20().into_owned();
+         manager
+            .update_tokens_balance(ctx.clone(), chain, recipient, vec![token])
+            .await?;
+      }
+      ctx.calculate_portfolio_value(chain, recipient);
+   }
+
+   ctx.calculate_portfolio_value(chain, sender);
+   ctx.save_balance_manager();
+   ctx.save_portfolio_db();
+
+   Ok(())
 }

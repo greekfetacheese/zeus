@@ -211,35 +211,33 @@ impl AcrossBridge {
 
                // Recipient
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  Grid::new("recipient")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+                  Grid::new("recipient").spacing(vec2(5.0, 0.0)).show(ui, |ui| {
+                     ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
 
-                        if !recipient.is_empty() {
-                           if let Some(name) = &recipient_name {
-                              ui.label(
-                                 RichText::new(name)
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text_secondary),
-                              );
-                           } else {
-                              ui.label(
-                                 RichText::new("Unknown Address")
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.error_color),
-                              );
-                           }
-                           if !self.valid_recipient(&recipient) {
-                              ui.label(
-                                 RichText::new("Invalid Address")
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.error_color),
-                              );
-                           }
+                     if !recipient.is_empty() {
+                        if let Some(name) = &recipient_name {
+                           ui.label(
+                              RichText::new(name)
+                                 .size(theme.text_sizes.normal)
+                                 .color(theme.colors.text_secondary),
+                           );
+                        } else {
+                           ui.label(
+                              RichText::new("Unknown Address")
+                                 .size(theme.text_sizes.normal)
+                                 .color(theme.colors.error_color),
+                           );
                         }
-                        ui.end_row();
-                     });
+                        if !self.valid_recipient(&recipient) {
+                           ui.label(
+                              RichText::new("Invalid Address")
+                                 .size(theme.text_sizes.normal)
+                                 .color(theme.colors.error_color),
+                           );
+                        }
+                     }
+                     ui.end_row();
+                  });
                });
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -265,26 +263,22 @@ impl AcrossBridge {
 
                // From Chain
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  Grid::new("across_bridge_from_chain")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.label(RichText::new("From").size(theme.text_sizes.large));
-                        self.from_chain.show(BSC, theme, icons.clone(), ui);
-                        ui.end_row();
-                     });
+                  Grid::new("across_bridge_from_chain").spacing(vec2(5.0, 0.0)).show(ui, |ui| {
+                     ui.label(RichText::new("From").size(theme.text_sizes.large));
+                     self.from_chain.show(BSC, theme, icons.clone(), ui);
+                     ui.end_row();
+                  });
                });
 
                ui.add_space(10.0);
 
                // To Chain
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  Grid::new("across_bridge_to_chain")
-                     .spacing(vec2(5.0, 0.0))
-                     .show(ui, |ui| {
-                        ui.label(RichText::new("To").size(theme.text_sizes.large));
-                        self.to_chain.show(BSC, theme, icons.clone(), ui);
-                        ui.end_row();
-                     });
+                  Grid::new("across_bridge_to_chain").spacing(vec2(5.0, 0.0)).show(ui, |ui| {
+                     ui.label(RichText::new("To").size(theme.text_sizes.large));
+                     self.to_chain.show(BSC, theme, icons.clone(), ui);
+                     ui.end_row();
+                  });
                });
                ui.add_space(10.0);
 
@@ -497,9 +491,7 @@ impl AcrossBridge {
       self.balance_syncing = true;
       RT.spawn(async move {
          let manager = ctx_clone.balance_manager();
-         let _ = manager
-            .update_eth_balance(ctx_clone.clone(), chain, depositor)
-            .await;
+         let _ = manager.update_eth_balance(ctx_clone.clone(), chain, depositor).await;
          ctx_clone.save_balance_manager();
 
          SHARED_GUI.write(|gui| {
@@ -547,8 +539,7 @@ impl AcrossBridge {
    /// Calculate the minimum amount to receive
    fn minimum_amount(&self) -> NumericValue {
       let scale = U256::from(10).pow(U256::from(self.currency.decimals));
-      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals)
-         .wei();
+      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals).wei();
       let cache = self.api_res_cache.get(&(
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
@@ -765,6 +756,26 @@ async fn across_bridge(
    )
    .await?;
 
+   // update wallet balances
+   let ctx_clone = ctx.clone();
+   let exists = ctx.wallet_exists(interact_to);
+   RT.spawn(async move {
+      let manager = ctx_clone.balance_manager();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+
+      if exists {
+         manager
+            .update_eth_balance(ctx_clone.clone(), chain.id(), interact_to)
+            .await
+            .unwrap();
+         ctx_clone.calculate_portfolio_value(chain.id(), interact_to);
+      }
+
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
+
    let step1 = Step {
       id: "step1",
       in_progress: false,
@@ -780,8 +791,7 @@ async fn across_bridge(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1, step2], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1, step2], "Success!".to_string());
       gui.request_repaint();
    });
 

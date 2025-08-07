@@ -40,7 +40,6 @@ use zeus_eth::{
    },
 };
 
-/// Eth balances for sender and interact_to are updated and the tx summary is added to the ZeusCtx
 pub async fn send_transaction(
    ctx: ZeusCtx,
    dapp: String,
@@ -300,23 +299,6 @@ pub async fn send_transaction(
       ctx_clone.save_tx_db();
    });
 
-   // update wallet balances
-   let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      let manager = ctx_clone.balance_manager();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
-      ctx_clone.save_balance_manager();
-   });
-
-   let exists = ctx.wallet_exists(interact_to);
-   if exists {
-      RT.spawn(async move {
-         let manager = ctx.balance_manager();
-         manager.update_eth_balance(ctx.clone(), chain.id(), interact_to).await.unwrap();
-         ctx.save_balance_manager();
-      });
-   }
-
    if !receipt.status() {
       bail!("Transaction Failed");
    }
@@ -417,10 +399,10 @@ pub async fn unwrap_weth(
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client(chain.id()).await?;
    let block = client.get_block(BlockId::latest()).await?;
-   let wrapped = ERC20Token::wrapped_native_token(chain.id());
+   let weth = ERC20Token::wrapped_native_token(chain.id());
 
-   let call_data = wrapped.encode_withdraw(amount.wei());
-   let interact_to = wrapped.address;
+   let call_data = weth.encode_withdraw(amount.wei());
+   let interact_to = weth.address;
    let value = U256::ZERO;
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
@@ -471,8 +453,8 @@ pub async fn unwrap_weth(
       ));
    }
 
-   let eth_received = NumericValue::format_wei(eth_received.unwrap(), wrapped.decimals);
-   let wrapped_c: Currency = wrapped.into();
+   let eth_received = NumericValue::format_wei(eth_received.unwrap(), weth.decimals);
+   let wrapped_c: Currency = weth.clone().into();
    let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &wrapped_c);
 
    let contract_interact = true;
@@ -531,14 +513,10 @@ pub async fn unwrap_weth(
    RT.spawn(async move {
       let manager = ctx.balance_manager();
       manager
-         .update_tokens_balance(
-            ctx.clone(),
-            chain.id(),
-            from,
-            vec![wrapped_c.to_wrapped_native()],
-         )
+         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth])
          .await
          .unwrap();
+      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
       ctx.save_balance_manager();
    });
 
@@ -553,10 +531,10 @@ pub async fn wrap_eth(
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client(chain.id()).await?;
    let block = client.get_block(BlockId::latest()).await?;
-   let wrapped = ERC20Token::wrapped_native_token(chain.id());
+   let weth = ERC20Token::wrapped_native_token(chain.id());
 
-   let call_data = wrapped.encode_deposit();
-   let interact_to = wrapped.address;
+   let call_data = weth.encode_deposit();
+   let interact_to = weth.address;
    let value = amount.wei();
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
@@ -590,7 +568,7 @@ pub async fn wrap_eth(
 
    let logs = sim_res.clone().into_logs();
 
-   let wrapped: Currency = wrapped.into();
+   let wrapped: Currency = weth.clone().into();
    let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
    let eth_wrapped_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
    let mut weth_received = None;
@@ -667,14 +645,10 @@ pub async fn wrap_eth(
    RT.spawn(async move {
       let manager = ctx.balance_manager();
       manager
-         .update_tokens_balance(
-            ctx.clone(),
-            chain.id(),
-            from,
-            vec![wrapped.to_wrapped_native()],
-         )
+         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth])
          .await
          .unwrap();
+      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
       ctx.save_balance_manager();
    });
 
@@ -878,7 +852,13 @@ pub async fn swap(
    let msg_value = execute_params.message.as_ref();
 
    if let Some(msg_value) = msg_value {
-      let _ = sign_message(ctx.clone(), "".to_string(), chain, msg_value.clone()).await?;
+      let _ = sign_message(
+         ctx.clone(),
+         "".to_string(),
+         chain,
+         msg_value.clone(),
+      )
+      .await?;
    }
 
    if execute_params.token_needs_approval {
@@ -970,12 +950,14 @@ pub async fn swap(
       currency_out.to_erc20().into_owned(),
    ];
 
+   // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
       manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, tokens)
          .await
          .unwrap();
+      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
 
       // Update the portfolio value
       let mut portfolio = ctx.get_portfolio(chain.id(), from);
@@ -1047,21 +1029,6 @@ pub async fn collect_fees_position_v3(
       gui.request_repaint();
    });
 
-   let tokens = vec![
-      token0.to_erc20().into_owned(),
-      token1.to_erc20().into_owned(),
-   ];
-
-   let ctx2 = ctx.clone();
-   RT.spawn(async move {
-      let manager = ctx2.balance_manager();
-      manager
-         .update_tokens_balance(ctx2.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      ctx2.save_balance_manager();
-   });
-
    let updated_position =
       abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
 
@@ -1078,6 +1045,37 @@ pub async fn collect_fees_position_v3(
    });
 
    ctx.save_v3_positions_db();
+
+   let tokens = vec![
+      token0.to_erc20().into_owned(),
+      token1.to_erc20().into_owned(),
+   ];
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      let manager = ctx_clone.balance_manager();
+      manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
+         .await
+         .unwrap();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&token0) {
+         portfolio.add_token(token0);
+      }
+
+      if !portfolio.has_token(&token1) {
+         portfolio.add_token(token1);
+      }
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
 
    Ok(())
 }
@@ -1180,12 +1178,15 @@ pub async fn decrease_liquidity_position_v3(
 
    let amount0_usd_to_be_removed =
       ctx.get_currency_value_for_amount(amount0_removed.f64(), pool.currency0());
+
    let amount1_usd_to_be_removed =
       ctx.get_currency_value_for_amount(amount1_removed.f64(), pool.currency1());
+
    let minimum_amount0_usd_to_be_removed = ctx.get_currency_value_for_amount(
       minimum_amount0_to_be_removed.f64(),
       pool.currency0(),
    );
+
    let minimum_amount1_usd_to_be_removed = ctx.get_currency_value_for_amount(
       minimum_amount1_to_be_removed.f64(),
       pool.currency1(),
@@ -1264,18 +1265,6 @@ pub async fn decrease_liquidity_position_v3(
       gui.request_repaint();
    });
 
-   let tokens = vec![pool.token0().into_owned(), pool.token1().into_owned()];
-
-   let ctx2 = ctx.clone();
-   RT.spawn(async move {
-      let manager = ctx2.balance_manager();
-      manager
-         .update_tokens_balance(ctx2.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      ctx2.save_balance_manager();
-   });
-
    let updated_position =
       abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
 
@@ -1313,6 +1302,39 @@ pub async fn decrease_liquidity_position_v3(
    });
 
    ctx.save_v3_positions_db();
+
+   let currency0 = pool.currency0().clone();
+   let currency1 = pool.currency1().clone();
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      let tokens = vec![
+         currency0.to_erc20().into_owned(),
+         currency1.to_erc20().into_owned(),
+      ];
+      let manager = ctx_clone.balance_manager();
+      manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
+         .await
+         .unwrap();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&currency0) {
+         portfolio.add_token(currency0);
+      }
+
+      if !portfolio.has_token(&currency1) {
+         portfolio.add_token(currency1);
+      }
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
 
    Ok(())
 }
@@ -1466,6 +1488,7 @@ pub async fn increase_liquidity_position_v3(
 
    let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
    let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
+
    let min_amount0_usd = ctx.get_currency_value_for_amount(min_amount0_minted.f64(), &currency0);
    let min_amount1_usd = ctx.get_currency_value_for_amount(min_amount1_minted.f64(), &currency1);
 
@@ -1643,18 +1666,6 @@ pub async fn increase_liquidity_position_v3(
       gui.request_repaint();
    });
 
-   let tokens = vec![pool.token0().into_owned(), pool.token1().into_owned()];
-
-   let ctx2 = ctx.clone();
-   RT.spawn(async move {
-      let manager = ctx2.balance_manager();
-      manager
-         .update_tokens_balance(ctx2.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      ctx2.save_balance_manager();
-   });
-
    let updated_position =
       abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
 
@@ -1689,7 +1700,38 @@ pub async fn increase_liquidity_position_v3(
    ctx.write(|ctx| {
       ctx.v3_positions_db.insert(chain.id(), owner, position);
    });
+
    ctx.save_v3_positions_db();
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      let tokens = vec![
+         currency0.to_erc20().into_owned(),
+         currency1.to_erc20().into_owned(),
+      ];
+      let manager = ctx_clone.balance_manager();
+      manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
+         .await
+         .unwrap();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&currency0) {
+         portfolio.add_token(currency0);
+      }
+
+      if !portfolio.has_token(&currency1) {
+         portfolio.add_token(currency1);
+      }
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
 
    Ok(())
 }
@@ -1849,6 +1891,7 @@ pub async fn mint_new_liquidity_position_v3(
 
    let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
    let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
+
    let min_amount0_usd = ctx.get_currency_value_for_amount(min_amount0_minted.f64(), &currency0);
    let min_amount1_usd = ctx.get_currency_value_for_amount(min_amount1_minted.f64(), &currency1);
 
@@ -2046,16 +2089,36 @@ pub async fn mint_new_liquidity_position_v3(
       gui.request_repaint();
    });
 
-   let tokens = vec![pool.token0().into_owned(), pool.token1().into_owned()];
-
-   let ctx2 = ctx.clone();
+   // update balances
+   let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      let manager = ctx2.balance_manager();
+      let tokens = vec![
+         currency0.to_erc20().into_owned(),
+         currency1.to_erc20().into_owned(),
+      ];
+
+      let manager = ctx_clone.balance_manager();
+
       manager
-         .update_tokens_balance(ctx2.clone(), chain.id(), from, tokens)
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
          .await
          .unwrap();
-      ctx2.save_balance_manager();
+      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&currency0) {
+         portfolio.add_token(currency0);
+      }
+
+      if !portfolio.has_token(&currency1) {
+         portfolio.add_token(currency1);
+      }
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
    });
 
    if position_info.is_some() {
@@ -2120,7 +2183,7 @@ pub async fn send_crypto(
 ) -> Result<(), anyhow::Error> {
    let mev_protect = false;
    let (_, tx_rich) = send_transaction(
-      ctx,
+      ctx.clone(),
       "".to_string(),
       None,
       None,
