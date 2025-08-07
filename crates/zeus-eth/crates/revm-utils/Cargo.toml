@@ -7,7 +7,7 @@ edition = "2021"
 abi = { path = "../abi" }
 types = { path = "../types"}
 
-revm = { version = "26.0.0", features = [
+revm = { version = "28.0.0", features = [
     "std",
     "optional_block_gas_limit",
     "optional_no_base_fee",
@@ -15,7 +15,7 @@ revm = { version = "26.0.0", features = [
     "optional_eip3607",
 ] }
 
-op-revm = { version = " 7.0.0", features = [
+op-revm = { version = " 9.0.0", features = [
     "std",
     "optional_block_gas_limit",
     "optional_no_base_fee",
@@ -24,7 +24,7 @@ op-revm = { version = " 7.0.0", features = [
 ] }
 
 alloy-sol-types = {version = "1", features = ["json"]}
-alloy-primitives = "1.2.0"
+alloy-primitives = "1.3.0"
 alloy-signer-local = "1"
 
 alloy-rpc-types = "1"
@@ -33,9 +33,9 @@ alloy-provider = "1"
 alloy-transport = "1"
 
 # Async
-tokio = {version = "1.43.0", features = ["rt-multi-thread"]}
-futures = "0.3.5"
+tokio = {version = "1", features = ["rt-multi-thread"]}
+futures = "0.3"
 
 # Error handling
-anyhow = "1.0.44"
-thiserror = "1.0.37"
+anyhow = "1"
+thiserror = "2"
