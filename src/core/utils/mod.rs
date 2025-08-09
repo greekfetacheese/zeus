@@ -1,5 +1,4 @@
 use super::ZeusCtx;
-use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use anyhow::anyhow;
 use lazy_static::lazy_static;
 use serde_json::Value;
@@ -7,16 +6,19 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use zeus_eth::{
+   abi::permit::{
+      self,
+      Permit2::{PermitBatch, PermitDetails},
+   },
+   alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData},
+   alloy_network::Network,
    alloy_primitives::{Address, U160, U256, aliases::U48},
    alloy_provider::Provider,
-   alloy_network::Network,
    currency::{Currency, ERC20Token, NativeCurrency},
-   utils::{address_book, NumericValue, generate_permit2_batch_value},
-   abi::permit::{self, Permit2::{PermitBatch, PermitDetails}},
+   utils::{NumericValue, address_book, generate_permit2_batch_value},
 };
 
 use egui_theme::ThemeKind;
-
 
 pub mod eth;
 pub mod sign;
@@ -83,10 +85,8 @@ pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
    let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;
    let types: Eip712Types = serde_json::from_value(json["types"].clone())?;
    let resolver = Resolver::from(&types);
-   let primary_type = json["primaryType"]
-      .as_str()
-      .ok_or(anyhow!("Missing primaryType"))?
-      .to_string();
+   let primary_type =
+      json["primaryType"].as_str().ok_or(anyhow!("Missing primaryType"))?.to_string();
 
    let message = json["message"].clone();
 
@@ -169,26 +169,19 @@ pub fn truncate_hash(hash: String) -> String {
    }
 }
 
-
 /// In X days from now in UNIX time
 pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {
-   let now = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)?
-      .as_secs();
+   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
    Ok(now + 86400 * days)
 }
 
 /// In X minutes from now in UNIX time
 pub fn get_unix_time_in_minutes(minutes: u64) -> Result<u64, anyhow::Error> {
-   let now = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)?
-      .as_secs();
+   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
    Ok(now + 60 * minutes)
 }
-
-
 
 #[derive(Debug, Clone)]
 pub struct Permit2BatchApproval {
@@ -253,14 +246,9 @@ where
 
    let allowances = futures::future::join_all(futures).await;
 
-   let allowances = allowances
-      .into_iter()
-      .zip(tokens.into_iter())
-      .collect::<Vec<_>>();
+   let allowances = allowances.into_iter().zip(tokens.into_iter()).collect::<Vec<_>>();
 
-   let current_time = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)?
-      .as_secs();
+   let current_time = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
 
    let mut permit_details = Vec::new();
 
@@ -311,47 +299,45 @@ where
    }
 }
 
-
-
 pub fn generate_eip2612_permit_msg(
-    token_name: String,
-    token_address: Address,
-    chain_id: u64,
-    owner: Address,
-    spender: Address,
-    value: U256,
-    nonce: U256,
-    deadline: U256,
+   token_name: String,
+   token_address: Address,
+   chain_id: u64,
+   owner: Address,
+   spender: Address,
+   value: U256,
+   nonce: U256,
+   deadline: U256,
 ) -> Value {
-    serde_json::json!({
-      "types": {
-        "EIP712Domain": [
-          {"name": "name", "type": "string"},
-          {"name": "version", "type": "string"},
-          {"name": "chainId", "type": "uint256"},
-          {"name": "verifyingContract", "type": "address"}
-        ],
-        "Permit": [
-          {"name": "owner", "type": "address"},
-          {"name": "spender", "type": "address"},
-          {"name": "value", "type": "uint256"},
-          {"name": "nonce", "type": "uint256"},
-          {"name": "deadline", "type": "uint256"}
-        ]
-      },
-      "primaryType": "Permit",
-      "domain": {
-        "name": token_name,
-        "version": "1",
-        "chainId": chain_id.to_string(),
-        "verifyingContract": token_address.to_string()
-      },
-      "message": {
-        "owner": owner.to_string(),
-        "spender": spender.to_string(),
-        "value": value.to_string(),
-        "nonce": nonce.to_string(),
-        "deadline": deadline.to_string()
-      }
-    })
+   serde_json::json!({
+     "types": {
+       "EIP712Domain": [
+         {"name": "name", "type": "string"},
+         {"name": "version", "type": "string"},
+         {"name": "chainId", "type": "uint256"},
+         {"name": "verifyingContract", "type": "address"}
+       ],
+       "Permit": [
+         {"name": "owner", "type": "address"},
+         {"name": "spender", "type": "address"},
+         {"name": "value", "type": "uint256"},
+         {"name": "nonce", "type": "uint256"},
+         {"name": "deadline", "type": "uint256"}
+       ]
+     },
+     "primaryType": "Permit",
+     "domain": {
+       "name": token_name,
+       "version": "1",
+       "chainId": chain_id.to_string(),
+       "verifyingContract": token_address.to_string()
+     },
+     "message": {
+       "owner": owner.to_string(),
+       "spender": spender.to_string(),
+       "value": value.to_string(),
+       "nonce": nonce.to_string(),
+       "deadline": deadline.to_string()
+     }
+   })
 }

@@ -6,7 +6,7 @@ use crate::core::{
 use crate::gui::{SHARED_GUI, Theme};
 use egui::{Button, Color32, RichText, ScrollArea, Spinner, Ui, vec2};
 use zeus_eth::{
-   amm::DexKind,
+   amm::uniswap::DexKind,
    types::*,
 };
 

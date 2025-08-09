@@ -1,4 +1,4 @@
-use alloy_signer::k256::{
+use zeus_eth::alloy_signer::k256::{
    self,
    ecdsa::{SigningKey, VerifyingKey},
 };

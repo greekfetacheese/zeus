@@ -5,7 +5,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, utils::truncate_symbol_or_name};
 use egui_theme::Theme;
 use std::sync::Arc;
-use zeus_eth::amm::{AnyUniswapPool, UniswapPool};
+use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Version {

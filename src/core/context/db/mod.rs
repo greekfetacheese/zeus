@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
-   amm::{DexKind, FeeAmount},
+   amm::uniswap::{DexKind, FeeAmount},
    currency::Currency,
    utils::NumericValue,
 };

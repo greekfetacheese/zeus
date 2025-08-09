@@ -1,10 +1,10 @@
 use crate::core::ZeusCtx;
-use alloy_dyn_abi::TypedData;
 use anyhow::anyhow;
 use serde_json::Value;
 use std::str::FromStr;
 use zeus_eth::{
    abi::permit::Permit2,
+   alloy_dyn_abi::TypedData,
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    utils::{NumericValue, address_book},
@@ -129,9 +129,8 @@ impl Permit2Details {
       let message = &data.message;
       let domain = &data.domain;
 
-      let token_address = message["details"]["token"]
-         .as_str()
-         .ok_or(anyhow!("Missing token address"))?;
+      let token_address =
+         message["details"]["token"].as_str().ok_or(anyhow!("Missing token address"))?;
       let token_addr = Address::from_str(token_address)?;
 
       let client = ctx.get_client(chain).await?;
@@ -141,33 +140,24 @@ impl Permit2Details {
          token
       } else {
          let token = ERC20Token::new(client.clone(), token_addr, chain).await?;
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, Currency::from(token.clone()))
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };
 
-      let amount = message["details"]["amount"]
-         .as_str()
-         .ok_or(anyhow!("Missing amount"))?;
+      let amount = message["details"]["amount"].as_str().ok_or(anyhow!("Missing amount"))?;
       let amount = U256::from_str(amount)?;
       let amount = NumericValue::format_wei(amount, token.decimals);
       let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
 
-      let expiration = message["details"]["expiration"]
-         .as_str()
-         .ok_or(anyhow!("Missing expiration"))?;
+      let expiration =
+         message["details"]["expiration"].as_str().ok_or(anyhow!("Missing expiration"))?;
       let expiration = u64::from_str(expiration)?;
 
-      let spender_str = message["spender"]
-         .as_str()
-         .ok_or(anyhow!("Missing spender"))?;
+      let spender_str = message["spender"].as_str().ok_or(anyhow!("Missing spender"))?;
       let spender = Address::from_str(spender_str)?;
 
-      let permit2_contract = domain
-         .verifying_contract
-         .ok_or(anyhow!("Missing verifying contract"))?;
+      let permit2_contract =
+         domain.verifying_contract.ok_or(anyhow!("Missing verifying contract"))?;
 
       let actual_permit2_contract = address_book::permit2_contract(chain)?;
 

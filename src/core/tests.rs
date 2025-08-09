@@ -7,12 +7,10 @@ mod tests {
       alloy_primitives::{TxKind, U256},
       alloy_provider::{Provider, ProviderBuilder},
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
-      amm::{
+      amm::uniswap::{
          AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
-         uniswap::{
             quoter::{get_quote, get_quote_with_split_routing},
             universal_router_v2::{SwapStep, SwapType, encode_swap},
-         },
       },
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,

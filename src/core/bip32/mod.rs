@@ -2,7 +2,7 @@ pub mod path;
 pub mod xpriv;
 pub mod primitives;
 
-use alloy_signer::k256::{self, ecdsa};
+use zeus_eth::alloy_signer::k256::{self, ecdsa};
 
 use thiserror::Error;
 

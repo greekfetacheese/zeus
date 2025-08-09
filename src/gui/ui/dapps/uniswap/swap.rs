@@ -16,7 +16,7 @@ use zeus_eth::utils::NumericValue;
 use crate::core::utils::{RT, eth};
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::{AnyUniswapPool, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
 };
 

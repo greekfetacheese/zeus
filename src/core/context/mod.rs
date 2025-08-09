@@ -19,7 +19,7 @@ use std::{
 use tokio::time::sleep;
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::{DexKind, uniswap::AnyUniswapPool},
+   amm::uniswap::{DexKind, AnyUniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::client::{RpcClient, get_client, retry_layer, throttle_layer},
@@ -1036,7 +1036,7 @@ impl ZeusContext {
 mod tests {
    use super::*;
    use zeus_eth::{
-      abi::alloy_provider::Provider,
+      alloy_provider::Provider,
       alloy_primitives::{U256, utils::format_units},
       alloy_rpc_types::BlockId,
       types::SUPPORTED_CHAINS,
@@ -1046,7 +1046,7 @@ mod tests {
    #[should_panic]
    async fn test_must_panic_if_no_mev_protect_client() {
       let ctx = ZeusCtx::new();
-      let _ = ctx.get_mev_protect_client(1).await.unwrap();
+      let _r = ctx.get_mev_protect_client(1).await.unwrap();
    }
 
    #[tokio::test]

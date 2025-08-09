@@ -6,16 +6,14 @@ use crate::core::{
 use anyhow::{anyhow, bail};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
-use zeus_eth::alloy_rpc_types::BlockId;
-use zeus_eth::amm::DexKind;
 use zeus_eth::{
    alloy_primitives::{U256, utils::format_units},
    alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
+   amm::uniswap::DexKind,
    currency::ERC20Token,
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::NumericValue,
-   utils::block::calculate_next_block_base_fee,
-   utils::client,
+   utils::{NumericValue, block::calculate_next_block_base_fee, client},
 };
 
 const MEASURE_RPCS_INTERVAL: u64 = 60;

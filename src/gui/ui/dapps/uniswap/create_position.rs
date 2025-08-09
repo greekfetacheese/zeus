@@ -19,9 +19,9 @@ use egui_theme::Theme;
 
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::{
+   amm::uniswap::{
       AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool,
-      uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price},
+      v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price},
       uniswap_v3_math,
    },
    types::BlockTime,

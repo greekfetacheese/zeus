@@ -25,7 +25,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   amm::DexKind,
+   amm::uniswap::DexKind,
    currency::{Currency, NativeCurrency},
    revm_utils::{ForkFactory, new_evm, simulate},
    types::ChainId,

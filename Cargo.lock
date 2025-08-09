@@ -19,19 +19,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2187590a23ab1e3df8681afdf0987c48504d80291f002fcdb651f0ef5e25169"
 
 [[package]]
-name = "abi"
-version = "0.1.0"
-dependencies = [
- "alloy-contract",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-types",
- "alloy-sol-types",
- "anyhow",
- "serde",
-]
-
-[[package]]
 name = "accesskit"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -803,30 +790,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.104",
-]
-
-[[package]]
-name = "amm"
-version = "0.1.0"
-dependencies = [
- "abi",
- "alloy-contract",
- "alloy-dyn-abi",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-types",
- "alloy-sol-types",
- "anyhow",
- "currency",
- "rayon",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "types",
- "uniswap_v3_math",
- "url",
- "utils",
 ]
 
 [[package]]
@@ -2205,19 +2168,6 @@ dependencies = [
  "generic-array 0.14.7",
  "rand_core 0.6.4",
  "typenum",
-]
-
-[[package]]
-name = "currency"
-version = "0.1.0"
-dependencies = [
- "abi",
- "anyhow",
- "serde",
- "tokio",
- "types",
- "url",
- "utils",
 ]
 
 [[package]]
@@ -6091,27 +6041,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "revm-utils"
-version = "0.1.0"
-dependencies = [
- "abi",
- "alloy-contract",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-types",
- "alloy-signer-local",
- "alloy-sol-types",
- "alloy-transport",
- "anyhow",
- "futures",
- "op-revm",
- "revm",
- "thiserror 2.0.12",
- "tokio",
- "types",
-]
-
-[[package]]
 name = "rfc6979"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7570,13 +7499,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1dccffe3ce07af9386bfd29e80c0ab1a8205a2fc34e4bcd40364df902cfa8f3f"
 
 [[package]]
-name = "types"
-version = "0.1.0"
-dependencies = [
- "anyhow",
-]
-
-[[package]]
 name = "ucd-trie"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7695,35 +7617,6 @@ name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6c140620e7ffbb22c2dee59cafe6084a59b5ffc27a8859a5f0d494b5d52b6be"
-
-[[package]]
-name = "utils"
-version = "0.1.0"
-dependencies = [
- "abi",
- "alloy-contract",
- "alloy-dyn-abi",
- "alloy-network",
- "alloy-primitives",
- "alloy-provider",
- "alloy-rpc-client",
- "alloy-rpc-types",
- "alloy-signer",
- "alloy-signer-local",
- "alloy-sol-types",
- "alloy-transport",
- "anyhow",
- "futures",
- "memsec",
- "rand 0.8.5",
- "secure-types",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "types",
- "url",
-]
 
 [[package]]
 name = "v_frame"
@@ -9122,9 +9015,6 @@ name = "zeus"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
- "alloy-dyn-abi",
- "alloy-network",
- "alloy-signer",
  "alloy-signer-local",
  "anyhow",
  "bincode",
@@ -9162,14 +9052,31 @@ dependencies = [
 name = "zeus-eth"
 version = "0.1.0"
 dependencies = [
- "abi",
- "amm",
- "currency",
- "revm-utils",
+ "alloy-contract",
+ "alloy-dyn-abi",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-rpc-client",
+ "alloy-rpc-types",
+ "alloy-signer",
+ "alloy-signer-local",
+ "alloy-sol-types",
+ "alloy-transport",
+ "anyhow",
+ "futures",
+ "op-revm",
+ "rand 0.8.5",
+ "rayon",
+ "revm",
+ "secure-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
  "tokio",
- "types",
+ "tracing",
+ "uniswap_v3_math",
  "url",
- "utils",
 ]
 
 [[package]]

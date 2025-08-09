@@ -5,7 +5,7 @@ use std::{collections::HashMap, time::Duration};
 use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
-   amm::UniswapPool,
+   amm::uniswap::UniswapPool,
    currency::ERC20Token,
    utils::{batch, client},
 };

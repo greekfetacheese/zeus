@@ -1,13 +1,10 @@
-use crate::core::{ZeusCtx, Dapp};
+use crate::core::{Dapp, ZeusCtx};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, TxHash, U256},
-   amm::{
-      UniswapV2Pool, UniswapV3Pool,
-      uniswap::{AnyUniswapPool, UniswapPool},
-   },
+   amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
@@ -444,15 +441,11 @@ impl BridgeParams {
       let decoded = decode_log.unwrap();
       let dest_chain = u64::from_str(&decoded.destination_chain_id.to_string())?;
 
-      let input_cached = ctx.read(|ctx| {
-         ctx.currency_db
-            .get_erc20_token(origin_chain, decoded.input_token)
-      });
+      let input_cached =
+         ctx.read(|ctx| ctx.currency_db.get_erc20_token(origin_chain, decoded.input_token));
 
-      let output_cached = ctx.read(|ctx| {
-         ctx.currency_db
-            .get_erc20_token(dest_chain, decoded.output_token)
-      });
+      let output_cached =
+         ctx.read(|ctx| ctx.currency_db.get_erc20_token(dest_chain, decoded.output_token));
 
       let input_token = if let Some(token) = input_cached {
          token
@@ -460,8 +453,7 @@ impl BridgeParams {
          let client = ctx.get_client(dest_chain).await?;
          let token = ERC20Token::new(client.clone(), decoded.input_token, dest_chain).await?;
          ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(dest_chain, Currency::from(token.clone()))
+            ctx.currency_db.insert_currency(dest_chain, Currency::from(token.clone()))
          });
          ctx.save_currency_db();
          token
@@ -473,8 +465,7 @@ impl BridgeParams {
          let client = ctx.get_client(dest_chain).await?;
          let token = ERC20Token::new(client.clone(), decoded.output_token, dest_chain).await?;
          ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(dest_chain, Currency::from(token.clone()))
+            ctx.currency_db.insert_currency(dest_chain, Currency::from(token.clone()))
          });
          ctx.save_currency_db();
          token
@@ -554,10 +545,7 @@ impl SwapParams {
       };
 
       let client = ctx.get_client(chain).await?;
-      let cached = ctx.read(|ctx| {
-         ctx.pool_manager
-            .get_v2_pool_from_address(chain, pool_address)
-      });
+      let cached = ctx.read(|ctx| ctx.pool_manager.get_v2_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached {
          pool
@@ -565,14 +553,8 @@ impl SwapParams {
          let pool = UniswapV2Pool::from_address(client.clone(), chain, pool_address).await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency0().clone())
-         });
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency1().clone())
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
          pool
       };
 
@@ -641,10 +623,7 @@ impl SwapParams {
       };
 
       let client = ctx.get_client(chain).await?;
-      let cached = ctx.read(|ctx| {
-         ctx.pool_manager
-            .get_v3_pool_from_address(chain, pool_address)
-      });
+      let cached = ctx.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached {
          pool
@@ -652,14 +631,8 @@ impl SwapParams {
          let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency0().clone())
-         });
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency1().clone())
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
          pool
       };
 
@@ -689,10 +662,7 @@ impl SwapParams {
 
       let amount_in = U256::from_str(&amount_in.to_string())?;
       // remove the - sign
-      let amount_out = amount_out
-         .to_string()
-         .trim_start_matches('-')
-         .parse::<U256>()?;
+      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
 
       let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
       let amount_in_usd =
@@ -758,10 +728,7 @@ impl SwapParams {
 
       let amount_in = U256::from_str(&amount_in.to_string())?;
       // remove the - sign
-      let amount_out = amount_out
-         .to_string()
-         .trim_start_matches('-')
-         .parse::<U256>()?;
+      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
@@ -867,10 +834,7 @@ impl ERC20TransferParams {
          token
       } else {
          let token = ERC20Token::new(client, token_address, chain).await?;
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, Currency::from(token.clone()))
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };
 
@@ -924,10 +888,7 @@ impl TokenApproveParams {
          token
       } else {
          let token = ERC20Token::new(client, token_addr, chain).await?;
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, Currency::from(token.clone()))
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };
 
@@ -1134,10 +1095,8 @@ impl UniswapPositionParams {
       let collect_fees = collect_fees_log.unwrap();
       let recipient = collect_fees.recipient;
       let pool_address = pool_address.unwrap();
-      let cached_pool = ctx.read(|ctx| {
-         ctx.pool_manager
-            .get_v3_pool_from_address(chain, pool_address)
-      });
+      let cached_pool =
+         ctx.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached_pool {
          pool
@@ -1145,14 +1104,8 @@ impl UniswapPositionParams {
          let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency0().clone())
-         });
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency1().clone())
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
          pool
       };
 
@@ -1218,10 +1171,8 @@ impl UniswapPositionParams {
       let burn = burn_log.unwrap();
       let pool_address = pool_address.unwrap();
 
-      let cached_pool = ctx.read(|ctx| {
-         ctx.pool_manager
-            .get_v3_pool_from_address(chain, pool_address)
-      });
+      let cached_pool =
+         ctx.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached_pool {
          pool
@@ -1229,14 +1180,8 @@ impl UniswapPositionParams {
          let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency0().clone())
-         });
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency1().clone())
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
          pool
       };
 
@@ -1300,10 +1245,8 @@ impl UniswapPositionParams {
 
       let mint = mint_log.unwrap();
       let pool_address = pool_address.unwrap();
-      let cached_pool = ctx.read(|ctx| {
-         ctx.pool_manager
-            .get_v3_pool_from_address(chain, pool_address)
-      });
+      let cached_pool =
+         ctx.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached_pool {
          pool
@@ -1311,14 +1254,8 @@ impl UniswapPositionParams {
          let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency0().clone())
-         });
-         ctx.write(|ctx| {
-            ctx.currency_db
-               .insert_currency(chain, pool.currency1().clone())
-         });
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
          pool
       };
 

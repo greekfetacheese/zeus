@@ -6,26 +6,24 @@ use crate::core::{
    utils::{self, estimate_tx_cost, parse_typed_data, sign::SignMsgType, tx},
 };
 use crate::gui::{SHARED_GUI, ui::Step};
-use alloy_signer::{Signature, Signer};
 use anyhow::bail;
 use anyhow::{Context, anyhow};
 use serde_json::Value;
 use std::future::IntoFuture;
 use std::time::Instant;
-use zeus_eth::abi::uniswap::nft_position::encode_mint;
-use zeus_eth::amm::uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed};
-use zeus_eth::amm::{UniswapV3Pool, uniswap_v3_math};
 use zeus_eth::{
-   abi::{self, uniswap::nft_position::INonfungiblePositionManager},
+   abi::{
+      self,
+      uniswap::nft_position::{INonfungiblePositionManager, encode_mint},
+   },
    alloy_primitives::{Address, Bytes, Signed, TxKind, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Log, TransactionReceipt},
-   amm::{
-      DexKind, UniswapPool,
-      uniswap::{
-         universal_router_v2::{encode_swap, *},
-         v3::get_tick_from_price,
-      },
+   alloy_signer::{Signature, Signer},
+   amm::uniswap::{
+      DexKind, UniswapPool, UniswapV3Pool, uniswap_v3_math,
+      universal_router_v2::{encode_swap, *},
+      v3::*,
    },
    currency::{Currency, ERC20Token},
    revm_utils::{
@@ -36,7 +34,7 @@ use zeus_eth::{
    utils::{
       NumericValue,
       address_book::{permit2_contract, uniswap_nft_position_manager, universal_router_v2},
-      erase_signer,
+      secure_signer::erase_signer,
    },
 };
 
@@ -2172,8 +2170,6 @@ pub async fn mint_new_liquidity_position_v3(
 
    Ok(())
 }
-
-
 
 pub async fn sync_pools_for_tokens(
    ctx: ZeusCtx,

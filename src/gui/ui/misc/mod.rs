@@ -3,7 +3,7 @@ use eframe::egui::{
    Sense, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
-use zeus_eth::amm::DexKind;
+use zeus_eth::amm::uniswap::DexKind;
 use zeus_eth::currency::NativeCurrency;
 
 use crate::assets::icons::Icons;

@@ -9,10 +9,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Signed, U256},
    alloy_rpc_types::{BlockId, Log},
    alloy_sol_types::SolEvent,
-   amm::{
-      uniswap::{UniswapPool, UniswapV3Pool, v3::*},
-      uniswap_v3_math,
-   },
+   amm::uniswap::{UniswapPool, UniswapV3Pool, uniswap_v3_math, v3::*},
    currency::ERC20Token,
    revm_utils::{AccountType, DummyAccount, ForkFactory, new_evm, revm::state::Bytecode, simulate},
    types::BlockTime,
@@ -308,7 +305,7 @@ where
       .iter()
       .filter(|e| matches!(e.event, PoolEvent::Mint(_)))
       .count();
-    
+
    let total_burns = sequenced_events
       .iter()
       .filter(|e| matches!(e.event, PoolEvent::Burn(_)))
@@ -652,7 +649,7 @@ fn decode_events(logs: &Vec<Log>) -> Vec<SequencedEvent> {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::{alloy_primitives::address, alloy_provider::ProviderBuilder, amm::DexKind};
+   use zeus_eth::{alloy_primitives::address, alloy_provider::ProviderBuilder, amm::uniswap::DexKind};
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {

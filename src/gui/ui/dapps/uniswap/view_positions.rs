@@ -8,10 +8,10 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::Log,
    alloy_sol_types::SolEvent,
-   amm::{
-      self, AnyUniswapPool, UniswapPool, UniswapV3Pool,
-      uniswap::v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_price_from_tick},
+   amm::uniswap::{
+      AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool, nft_position_manager_creation_block,
       uniswap_v3_math,
+      v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_price_from_tick},
    },
    currency::{Currency, ERC20Token},
    types::BlockTime,
@@ -856,13 +856,9 @@ impl ViewPositionsUi {
 
       self.position_details.show(ctx.clone(), theme, ui);
 
-      self
-         .add_liquidity
-         .show(ctx.clone(), theme, icons.clone(), mev_protect, ui);
+      self.add_liquidity.show(ctx.clone(), theme, icons.clone(), mev_protect, ui);
 
-      self
-         .remove_liquidity
-         .show(ctx.clone(), theme, icons.clone(), mev_protect, ui);
+      self.remove_liquidity.show(ctx.clone(), theme, icons.clone(), mev_protect, ui);
 
       self.collect_fees.show(ctx.clone(), theme, icons, ui);
 
@@ -944,9 +940,7 @@ impl ViewPositionsUi {
                               };
 
                               ui.label(
-                                 RichText::new(text)
-                                    .color(color)
-                                    .size(theme.text_sizes.normal),
+                                 RichText::new(text).color(color).size(theme.text_sizes.normal),
                               );
 
                               let pair = RichText::new(format!(
@@ -1139,10 +1133,7 @@ impl ViewPositionsUi {
             }
          };
 
-         match manager
-            .update_state_for_pools(ctx_clone.clone(), chain_id, pools)
-            .await
-         {
+         match manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.view_positions_ui.state_syncing = false;
@@ -1206,8 +1197,7 @@ impl ViewPositionsUi {
             );
 
             ctx.write(|ctx| {
-               ctx.v3_positions_db
-                  .insert(chain_id, owner, position.clone());
+               ctx.v3_positions_db.insert(chain_id, owner, position.clone());
             });
          }
 
@@ -1233,7 +1223,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
    let wallet_addresses = wallets.iter().map(|w| w.address).collect::<Vec<_>>();
 
    let nft_contract = uniswap_nft_position_manager(chain.id())?;
-   let creation_block = amm::nft_position_manager_creation_block(chain.id())?;
+   let creation_block = nft_position_manager_creation_block(chain.id())?;
 
    let block_time = if days > 0 {
       BlockTime::Days(days)
@@ -1271,14 +1261,11 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
                   tracing::error!("Transaction hash not found for log {:?}", log);
                   continue;
                }
-               token_ids
-                  .entry(*wallet)
-                  .or_default()
-                  .push(TokenIdWithBlock {
-                     id,
-                     timestamp,
-                     hash: hash.unwrap(),
-                  });
+               token_ids.entry(*wallet).or_default().push(TokenIdWithBlock {
+                  id,
+                  timestamp,
+                  hash: hash.unwrap(),
+               });
             }
          }
       }
@@ -1296,11 +1283,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
             abi::uniswap::nft_position::positions(client.clone(), nft_contract, id).await?;
 
          let position_exists = ctx.read(|ctx| {
-            ctx.v3_positions_db
-               .get(chain.id(), owner)
-               .iter()
-               .find(|p| p.id == id)
-               .cloned()
+            ctx.v3_positions_db.get(chain.id(), owner).iter().find(|p| p.id == id).cloned()
          });
 
          if position_exists.is_some() {
@@ -1339,8 +1322,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
          } else {
             let token = ERC20Token::new(client.clone(), position.token0, chain.id()).await?;
             ctx.write(|ctx| {
-               ctx.currency_db
-                  .insert_currency(chain.id(), Currency::from(token.clone()))
+               ctx.currency_db.insert_currency(chain.id(), Currency::from(token.clone()))
             });
             token
          };
@@ -1350,8 +1332,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
          } else {
             let token = ERC20Token::new(client.clone(), position.token1, chain.id()).await?;
             ctx.write(|ctx| {
-               ctx.currency_db
-                  .insert_currency(chain.id(), Currency::from(token.clone()))
+               ctx.currency_db.insert_currency(chain.id(), Currency::from(token.clone()))
             });
             token
          };
@@ -1373,7 +1354,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
          let pool = if let Some(pool) = cached_pool {
             pool
          } else {
-            let dex = amm::DexKind::UniswapV3;
+            let dex = DexKind::UniswapV3;
             UniswapV3Pool::from(
                client.clone(),
                chain.id(),

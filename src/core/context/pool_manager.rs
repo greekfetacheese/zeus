@@ -12,12 +12,9 @@ use tracing::trace;
 use crate::core::{ZeusCtx, utils::RT};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
-   amm::{
-      DexKind, PoolID,
-      sync::*,
-      uniswap::{
-         AnyUniswapPool, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool, UniswapV3Pool, state::*,
-      },
+   amm::uniswap::{
+      AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, PoolID, UniswapPool, UniswapV2Pool,
+      UniswapV3Pool, state::*, sync::*,
    },
    currency::{Currency, ERC20Token},
    types::{ARBITRUM, BASE, BSC, OPTIMISM},
@@ -173,11 +170,7 @@ impl PoolManagerHandle {
       currency0: &Currency,
       currency1: &Currency,
    ) -> Option<AnyUniswapPool> {
-      self.read(|manager| {
-         manager
-            .get_pool(chain_id, dex, fee, currency0, currency1)
-            .cloned()
-      })
+      self.read(|manager| manager.get_pool(chain_id, dex, fee, currency0, currency1).cloned())
    }
 
    pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
@@ -246,9 +239,7 @@ impl PoolManagerHandle {
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self
-         .read(|manager| manager.get_token_price(token))
-         .unwrap_or_default()
+      self.read(|manager| manager.get_token_price(token)).unwrap_or_default()
    }
 
    /// Update the state of the manager for the given chain
@@ -328,10 +319,7 @@ impl PoolManagerHandle {
       chain: u64,
       pools: Vec<impl UniswapPool>,
    ) -> Result<(), anyhow::Error> {
-      let pools = pools
-         .into_iter()
-         .map(|p| AnyUniswapPool::from_pool(p))
-         .collect::<Vec<_>>();
+      let pools = pools.into_iter().map(|p| AnyUniswapPool::from_pool(p)).collect::<Vec<_>>();
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain).await?;
@@ -915,14 +903,8 @@ impl PoolManager {
       token_a: Address,
       token_b: Address,
    ) -> Option<Instant> {
-      let time1 = self
-         .pool_last_sync
-         .get(&(chain, dex, token_a, token_b))
-         .cloned();
-      let time2 = self
-         .pool_last_sync
-         .get(&(chain, dex, token_b, token_a))
-         .cloned();
+      let time1 = self.pool_last_sync.get(&(chain, dex, token_a, token_b)).cloned();
+      let time2 = self.pool_last_sync.get(&(chain, dex, token_b, token_a)).cloned();
       time1.or(time2)
    }
 
@@ -931,10 +913,7 @@ impl PoolManager {
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
-      self
-         .token_prices
-         .get(&(token.chain_id, token.address))
-         .cloned()
+      self.token_prices.get(&(token.chain_id, token.address)).cloned()
    }
 
    pub fn set_token_prices(&mut self, prices: TokenPrices) {
@@ -986,9 +965,7 @@ impl PoolManager {
       currency0: Currency,
       currency1: Currency,
    ) {
-      self
-         .pools
-         .remove(&(chain_id, dex, fee, currency0, currency1));
+      self.pools.remove(&(chain_id, dex, fee, currency0, currency1));
    }
 
    /// Get any pools that includes the given currency
@@ -1028,12 +1005,7 @@ impl PoolManager {
 
    /// Get all pools for the given chain
    pub fn get_pools_for_chain(&self, chain_id: u64) -> Vec<AnyUniswapPool> {
-      self
-         .pools
-         .values()
-         .filter(|p| p.chain_id() == chain_id)
-         .cloned()
-         .collect()
+      self.pools.values().filter(|p| p.chain_id() == chain_id).cloned().collect()
    }
 
    pub fn v2_pools_len(&self, chain: u64) -> usize {
@@ -1215,9 +1187,7 @@ impl PoolManager {
             continue;
          }
 
-         let base_price = self
-            .get_token_price(&base_token.to_erc20())
-            .unwrap_or_default();
+         let base_price = self.get_token_price(&base_token.to_erc20()).unwrap_or_default();
          let quote_price = pool.quote_price(base_price.f64()).unwrap_or_default();
          if quote_price == 0.0 {
             continue;
@@ -1263,10 +1233,8 @@ mod serde_hashmap {
       K: Serialize,
       V: Serialize,
    {
-      let stringified_map: HashMap<String, &V> = map
-         .iter()
-         .map(|(k, v)| (serde_json::to_string(k).unwrap(), v))
-         .collect();
+      let stringified_map: HashMap<String, &V> =
+         map.iter().map(|(k, v)| (serde_json::to_string(k).unwrap(), v)).collect();
       stringified_map.serialize(serializer)
    }
 
@@ -1290,7 +1258,7 @@ mod serde_hashmap {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::amm::UniswapV4Pool;
+   use zeus_eth::amm::uniswap::UniswapV4Pool;
 
    #[test]
    fn serde_works() {
