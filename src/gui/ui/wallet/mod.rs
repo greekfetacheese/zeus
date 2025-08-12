@@ -1,13 +1,11 @@
 pub mod add;
-pub mod details;
 pub use add::AddWalletUi;
-pub use details::{DeleteWalletUi, ExportKeyUi};
 
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx, utils::RT, utils::update};
-use crate::gui::SHARED_GUI;
+use crate::core::{WalletInfo, Wallet, ZeusCtx, utils::RT, utils::update};
+use crate::gui::{ui::CredentialsForm, SHARED_GUI};
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense,
+   Align, Align2, Button, FontId, Order, Id, Frame, Label, Layout, Margin, RichText, ScrollArea, Sense,
    TextEdit, Ui, Vec2, Window, vec2,
 };
 use egui_theme::{Theme, utils::*};
@@ -121,7 +119,7 @@ impl WalletUi {
                let enabled = !ctx.wallet_discovery_in_progress();
                let discover_button =
                   Button::new(RichText::new("Discover Wallets").size(theme.text_sizes.normal));
-               
+
                if ui.add_enabled(enabled, discover_button).clicked() {
                   let ctx_clone = ctx.clone();
                   RT.spawn(async move {
@@ -231,8 +229,9 @@ impl WalletUi {
                let export_key =
                   Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
                if ui.add_enabled(enabled, export_key).clicked() {
+                  let wallet = ctx.get_wallet(wallet.address);
                   self.export_key_ui.open = true;
-                  self.export_key_ui.exporter.wallet = Some(wallet.clone());
+                  self.export_key_ui.set_wallet_to_export(wallet);
                   self.export_key_ui.credentials_form.open = true;
                }
 
@@ -294,5 +293,358 @@ impl WalletUi {
             });
          }
       }
+   }
+}
+
+pub struct ExportKeyUi {
+   pub open: bool,
+   pub credentials_form: CredentialsForm,
+   pub verified_credentials: bool,
+   wallet_to_export: Option<Wallet>,
+   show_key: bool,
+   pub size: (f32, f32),
+   pub anchor: (Align2, Vec2),
+}
+
+impl ExportKeyUi {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         credentials_form: CredentialsForm::new(),
+         verified_credentials: false,
+         wallet_to_export: None,
+         show_key: false,
+         size: (550.0, 350.0),
+         anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
+      }
+   }
+
+   pub fn set_wallet_to_export(&mut self, wallet: Option<Wallet>) {
+      self.wallet_to_export = wallet;
+   }
+
+   pub fn reset(&mut self) {
+      *self = Self::new();
+      tracing::info!("ExportKeyUi resetted");
+   }
+
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
+      self.show_key(theme, ui);
+   }
+
+   fn show_key(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.show_key || !self.verified_credentials {
+         return;
+      }
+
+      let title = RichText::new("Success").size(theme.text_sizes.heading);
+      let mut open = self.open;
+
+      Window::new(title)
+         .open(&mut open)
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(100.0, 150.0));
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               if let Some(wallet) = self.wallet_to_export.as_ref() {
+                  let warning_text = "Make sure to save this key in a safe place!";
+                  ui.label(RichText::new(warning_text).size(theme.text_sizes.large));
+
+                  let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
+                  if ui.add(Button::new(text)).clicked() {
+                     ui.ctx().copy_text(wallet.key_string().str_scope(|key| key.to_string()));
+                  }
+               } else {
+                  ui.label(
+                     RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
+                  );
+               }
+            });
+         });
+
+      self.open = open;
+
+      if !self.open {
+         self.reset();
+      }
+   }
+
+   pub fn verify_credentials_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
+      let mut open = self.credentials_form.open;
+      let mut clicked = false;
+
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
+         .open(&mut open)
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               self.credentials_form.show(theme, icons, ui);
+
+               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
+               if ui.add(button).clicked() {
+                  clicked = true;
+               }
+            });
+         });
+
+      if clicked {
+         let mut vault = ctx.get_vault();
+         vault.set_credentials(self.credentials_form.credentials.clone());
+         RT.spawn_blocking(move || {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Decrypting vault...");
+            });
+
+            // Verify the credentials by just decrypting the vault
+            match vault.decrypt(None) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.wallet_ui.export_key_ui.show_key = true;
+                     gui.wallet_ui.export_key_ui.verified_credentials = true;
+                     gui.wallet_ui.export_key_ui.credentials_form.erase();
+                     gui.wallet_ui.export_key_ui.credentials_form.open = false;
+                     gui.loading_window.open = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to decrypt account", e.to_string());
+                     gui.loading_window.open = false;
+                  });
+               }
+            }
+         });
+      }
+
+      self.credentials_form.open = open;
+      if !self.credentials_form.open {
+         self.credentials_form.erase();
+      }
+   }
+}
+
+pub struct DeleteWalletUi {
+   pub open: bool,
+   pub credentials_form: CredentialsForm,
+   pub verified_credentials: bool,
+   pub wallet_to_delete: Option<WalletInfo>,
+   pub size: (f32, f32),
+   pub anchor: (Align2, Vec2),
+}
+
+impl DeleteWalletUi {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         credentials_form: CredentialsForm::new(),
+         verified_credentials: false,
+         wallet_to_delete: None,
+         size: (550.0, 350.0),
+         anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
+      }
+   }
+
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
+      self.delete_wallet_ui(ctx, theme, ui);
+   }
+
+   pub fn verify_credentials_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
+      let mut open = self.credentials_form.open;
+      let mut clicked = false;
+
+      let id = Id::new("verify_credentials_delete_wallet_ui");
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
+         .id(id)
+         .open(&mut open)
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               self.credentials_form.show(theme, icons, ui);
+
+               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
+               if ui.add(button).clicked() {
+                  clicked = true;
+               }
+            });
+         });
+
+      if clicked {
+         let mut vault = ctx.get_vault();
+         vault.set_credentials(self.credentials_form.credentials.clone());
+         RT.spawn_blocking(move || {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Decrypting vault...");
+            });
+
+            // Verify the credentials by just decrypting the vault
+            match vault.decrypt(None) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     // credentials are verified
+                     gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
+
+                     // close the verify credentials ui
+                     gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
+
+                     // open the delete wallet ui
+                     gui.wallet_ui.delete_wallet_ui.open = true;
+
+                     // erase the credentials form
+                     gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
+                     gui.loading_window.open = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Failed to decrypt account", e.to_string());
+                     gui.loading_window.open = false;
+                  });
+               }
+            }
+         });
+      }
+
+      self.credentials_form.open = open;
+      if !self.credentials_form.open {
+         self.credentials_form.erase();
+      }
+   }
+
+   pub fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.verified_credentials {
+         return;
+      }
+      let mut open = self.open;
+      let mut clicked = false;
+
+      let wallet = self.wallet_to_delete.clone();
+      if wallet.is_none() {
+         return;
+      }
+      let wallet = wallet.unwrap();
+
+      let id = Id::new("delete_wallet_ui_delete_wallet");
+      Window::new(RichText::new("Delete this wallet?").size(theme.text_sizes.large))
+         .id(id)
+         .open(&mut open)
+         .order(Order::Foreground)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(self.anchor.0, self.anchor.1)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               ui.label(RichText::new(wallet.name()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
+
+               let value = ctx.get_portfolio_value_all_chains(wallet.address);
+               ui.label(
+                  RichText::new(format!("Value ${}", value.formatted()))
+                     .size(theme.text_sizes.normal),
+               );
+
+               if ui
+                  .add(Button::new(
+                     RichText::new("Yes").size(theme.text_sizes.normal),
+                  ))
+                  .clicked()
+               {
+                  clicked = true;
+               }
+            });
+         });
+
+      if clicked {
+         open = false;
+         let mut new_vault = ctx.get_vault();
+         let is_current = ctx.is_current_wallet(wallet.address);
+
+         RT.spawn_blocking(move || {
+            new_vault.remove_wallet(wallet.address);
+
+            if is_current {
+               let master_wallet = new_vault.get_master_wallet();
+               SHARED_GUI.write(|gui| {
+                  gui.wallet_selection.wallet_select.wallet = master_wallet;
+               });
+            }
+
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Encrypting vault...");
+            });
+
+            // Encrypt the vault
+            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.open = false;
+                     gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
+                     gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
+                     gui.open_msg_window("Wallet Deleted", "");
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to encrypt vault", e.to_string());
+                  });
+                  return;
+               }
+            };
+
+            ctx.set_vault(new_vault);
+         });
+      }
+      self.open = open;
    }
 }

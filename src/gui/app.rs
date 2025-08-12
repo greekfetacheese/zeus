@@ -90,10 +90,6 @@ impl ZeusApp {
 
    fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
       if ctx.input(|i| i.viewport().close_requested()) {
-         let clear_clipboard = gui.wallet_ui.export_key_ui.exporter.key_copied_time.is_some();
-         if clear_clipboard {
-            ctx.copy_text("".to_string());
-         }
          let zeus_ctx = gui.ctx.clone();
          zeus_ctx.write_vault(|vault| {
             vault.erase();

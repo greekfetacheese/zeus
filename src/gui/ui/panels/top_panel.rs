@@ -105,17 +105,6 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          });
       }
 
-      // For now no need to call ctx.request_repaint() here
-      // because the spinner does that even when the window is minimized
-      if gui.wallet_ui.export_key_ui.exporter.key_copied_time.is_some() {
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            frame.show(ui, |ui| {
-               gui.wallet_ui.export_key_ui.exporter.update(theme, ui.ctx().clone(), ui);
-               ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0));
-            });
-         });
-      }
    });
 }
 
