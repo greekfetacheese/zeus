@@ -10,74 +10,61 @@ const POLLING_INTERVAL_MS = 1000; // Poll every 1 second
 let lastKnownAccounts = null; // Store as JSON string for easy comparison
 let lastKnownChainId = null;
 let isFirstPoll = true; // Flag for initial poll
-
+let lastKnownConnectedOrigins = JSON.stringify([]);
 
 
 async function pollServerStatus() {
-    // console.log("Background: Polling server status..."); // Debug log
     try {
         const response = await fetch(SERVER_URL_STATUS);
-        if (!response.ok) {
-            console.error(`Background: Status poll failed: ${response.status}`);
-            return;
-        }
+        if (!response.ok) return;
         const currentState = await response.json();
-        // console.log("Background: Received status:", currentState); // Debug log
 
-        const currentAccounts = currentState.accounts || []; // Default to empty array
+        const currentAccounts = currentState.accounts || [];
         const currentChainId = currentState.chainId || null;
+        const currentOrigins = (currentState.connectedOrigins || []).slice().sort();
+        const originsJson = JSON.stringify(currentOrigins);
 
-        // --- Check for Changes ---
-        const accountsJson = JSON.stringify(currentAccounts.slice().sort()); // Sort for consistent comparison
-        const chainIdChanged = lastKnownChainId !== null && lastKnownChainId !== currentChainId;
-        const accountsChanged = lastKnownAccounts !== null && lastKnownAccounts !== accountsJson;
+        const accountsJson = JSON.stringify(currentAccounts.slice().sort());
+        const chainIdChanged = lastKnownChainId !== currentChainId;
+        const accountsChanged = lastKnownAccounts !== accountsJson;
+        const originsChanged = lastKnownConnectedOrigins !== originsJson;
 
-        // --- Update Last Known State ---
-        let needsUpdate = false;
-        if (lastKnownChainId !== currentChainId) {
-             lastKnownChainId = currentChainId;
-             needsUpdate = true;
-        }
-         if (lastKnownAccounts !== accountsJson) {
-             lastKnownAccounts = accountsJson;
-             needsUpdate = true;
-         }
+        // Update state
+        lastKnownChainId = currentChainId;
+        lastKnownAccounts = accountsJson;
+        lastKnownConnectedOrigins = originsJson;
 
-        // --- Handle First Poll ---
         if (isFirstPoll) {
-          // console.log("Background: First poll successful. Initial state:", { chainId: lastKnownChainId, accounts: lastKnownAccounts });
             isFirstPoll = false;
             return;
         }
 
-        // --- If Changes Detected, Notify Content Scripts ---
-        if (needsUpdate) {
-             console.log("Background: Change detected. Notifying tabs...");
-             chrome.tabs.query({
-                  // Query for tabs likely running dapps
-                  url: ["http://*/*", "https://*/*"]
-             }, (tabs) => {
-                 if (chrome.runtime.lastError) {
-                     console.error("Background: Error querying tabs:", chrome.runtime.lastError);
-                     return;
-                 }
-                 tabs.forEach(tab => {
-                     if (chainIdChanged) {
-                         console.log(`Background: Sending chainChanged (${currentChainId}) to tab ${tab.id}`);
-                         chrome.tabs.sendMessage(tab.id, { type: 'chainChanged', payload: currentChainId }, response => {
-                             if (chrome.runtime.lastError) { /* Optional: Handle error (e.g., tab closed) */ }
-                         });
-                     }
-                     if (accountsChanged) {
-                          console.log(`Background: Sending accountsChanged (${currentAccounts}) to tab ${tab.id}`);
-                          chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts }, response => {
-                              if (chrome.runtime.lastError) { /* Optional: Handle error */ }
-                          });
-                     }
-                 });
-             });
-        }
+        // Notify only relevant tabs
+        if (chainIdChanged || accountsChanged || originsChanged) {
+            chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
+                tabs.forEach(tab => {
+                    const tabOrigin = new URL(tab.url).origin;
+                    const wasConnected = JSON.parse(lastKnownConnectedOrigins).includes(tabOrigin);
+                    const isConnected = currentOrigins.includes(tabOrigin);
 
+                    if (originsChanged) {
+                        if (!isConnected && wasConnected) {
+                            // Disconnect: Send accountsChanged([])
+                            chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
+                        } else if (isConnected && !wasConnected) {
+                            // New connection: Send accountsChanged(current)
+                            chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
+                        }
+                    }
+
+                    if (isConnected && (chainIdChanged || accountsChanged)) {
+                        // Global changes only to connected tabs
+                        if (chainIdChanged) chrome.tabs.sendMessage(tab.id, { type: 'chainChanged', payload: currentChainId });
+                        if (accountsChanged) chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: currentAccounts });
+                    }
+                });
+            });
+        }
     } catch (error) {
         console.error("Background: Error during status poll:", error);
          if (!isFirstPoll && lastKnownAccounts !== JSON.stringify([])) {

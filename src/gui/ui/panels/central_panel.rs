@@ -88,6 +88,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    );
 
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
+   gui.connected_dapps.show(ctx.clone(), theme, ui);
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.tx_history.show(ctx.clone(), theme, ui);

@@ -1,6 +1,7 @@
+use crate::core::ZeusCtx;
 use crate::gui::GUI;
-use eframe::egui::{Button, Color32, RichText, Ui};
-use egui_theme::utils;
+use eframe::egui::{Align2, Button, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui_theme::{Theme, utils};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    ui.vertical_centered(|ui| {
@@ -100,6 +101,11 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = true;
       }
 
+      let connected_dapps = Button::new(RichText::new("Connected Dapps").size(21.0));
+      if ui.add(connected_dapps).clicked() {
+         gui.connected_dapps.open();
+      }
+
       #[cfg(feature = "dev")]
       if ui
          .add(Button::new(
@@ -111,18 +117,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       }
 
       #[cfg(feature = "dev")]
-      if ui.add(Button::new(RichText::new("FPS Metrics").size(20.0))).clicked() {
-         gui.fps_metrics.open = true;
-      }
-
-      #[cfg(feature = "dev")]
+      if ui
+         .add(Button::new(
+            RichText::new("FPS Metrics").size(20.0),
+         ))
+         .clicked()
       {
-         let test_window = ui.add(Button::new(
-            RichText::new("Test Window").size(20.0),
-         ));
-         if test_window.clicked() {
-            gui.testing_window.open = true;
-         }
+         gui.fps_metrics.open = true;
       }
 
       #[cfg(feature = "dev")]
@@ -161,4 +162,84 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          }
       }
    });
+}
+
+pub struct ConnectedDappsUi {
+   open: bool,
+   pub size: (f32, f32),
+}
+
+impl ConnectedDappsUi {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         size: (300.0, 400.0),
+      }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+   pub fn close(&mut self) {
+      self.open = false;
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      let mut open = self.open;
+
+      let title = RichText::new("Connected Dapps").size(theme.text_sizes.heading);
+      Window::new(title)
+         .open(&mut open)
+         .collapsible(false)
+         .resizable(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 20.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+
+               let dapps = ctx.get_connected_dapps();
+
+               if dapps.is_empty() {
+                  ui.label(RichText::new("No connected dapps").size(theme.text_sizes.normal));
+                  return;
+               }
+
+               let text = RichText::new("Disconnect all").size(theme.text_sizes.normal);
+               if ui.add(Button::new(text)).clicked() {
+                  ctx.disconnect_all_dapps();
+               }
+
+               ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+                  ui.set_width(ui.available_width());
+                  ui.set_height(ui.available_height());
+                  for dapp in dapps {
+                     ui.horizontal(|ui| {
+                        let text = RichText::new(&dapp).size(theme.text_sizes.normal);
+                        ui.label(text);
+
+                        let text = RichText::new("Disconnect").size(theme.text_sizes.normal);
+                        if ui.add(Button::new(text)).clicked() {
+                           ctx.disconnect_dapp(&dapp);
+                        }
+                     });
+                  }
+               });
+            });
+         });
+
+      self.open = open;
+   }
 }

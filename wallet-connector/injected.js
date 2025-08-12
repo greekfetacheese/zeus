@@ -146,22 +146,21 @@ class ZeusProvider extends EventEmitter {
         });
     }
 
-    async _initializeState() {
-        console.log("ZeusProvider initializing...");
-        try {
-            await backgroundFetch('/status', {
-                method: "GET",
-                headers: { "Content-Type": "application/json" },
-            });
-            console.log("Zeus server is running.");
-        } catch (e) {
-            console.error("Error initializing ZeusProvider state (server potentially down):", e);
-            this._isConnected = false;
-        } finally {
-            window.dispatchEvent(new Event("ethereum#initialized"));
-            console.log("Dispatched ethereum#initialized event.");
-        }
+async _initializeState() {
+    console.log("ZeusProvider initializing...");
+    try {
+        this._chainId = await this.request({ method: 'eth_chainId' }); 
+        this._accounts = await this.request({ method: 'eth_accounts' });
+        this._isConnected = this._accounts.length > 0;
+        console.log("Initial state:", { chainId: this._chainId, accounts: this._accounts });
+    } catch (e) {
+        console.error("Error initializing:", e);
+        this._isConnected = false;
+        this._accounts = [];
+    } finally {
+        window.dispatchEvent(new Event("ethereum#initialized"));
     }
+}
 
     isConnected() {
         return this._isConnected;

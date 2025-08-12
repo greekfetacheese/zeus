@@ -779,6 +779,10 @@ impl ZeusCtx {
       None
    }
 
+   pub fn get_connected_dapps(&self) -> Vec<String> {
+      self.read(|ctx| ctx.connected_dapps.connected_dapps())
+   }
+
    pub fn connect_dapp(&self, dapp: String) {
       tracing::info!("Connected to dapp: {}", dapp);
 
@@ -794,10 +798,11 @@ impl ZeusCtx {
       tracing::info!("Disconnected from dapp: {}", dapp);
    }
 
-   pub fn remove_dapp(&self, dapp: String) {
+   pub fn disconnect_all_dapps(&self) {
       self.write(|ctx| {
-         ctx.connected_dapps.remove_dapp(dapp);
+         ctx.connected_dapps.disconnect_all();
       });
+      tracing::info!("Disconnected from all dapps");
    }
 
    pub fn is_dapp_connected(&self, dapp: &str) -> bool {
@@ -819,26 +824,28 @@ impl ZeusCtx {
 
 #[derive(Debug, Clone, Default)]
 pub struct ConnectedDapps {
-   pub dapps: HashMap<String, bool>,
+   pub dapps: Vec<String>,
 }
 
 impl ConnectedDapps {
+   pub fn connected_dapps(&self) -> Vec<String> {
+      self.dapps.clone()
+   }
+
    pub fn connect_dapp(&mut self, dapp: String) {
-      self.dapps.insert(dapp, true);
+      self.dapps.push(dapp);
    }
 
    pub fn disconnect_dapp(&mut self, dapp: &str) {
-      if let Some(b) = self.dapps.get_mut(dapp) {
-         *b = false;
-      }
+      self.dapps.retain(|d| d != dapp);
    }
 
-   pub fn remove_dapp(&mut self, dapp: String) {
-      self.dapps.remove(&dapp);
+   pub fn disconnect_all(&mut self) {
+      self.dapps.clear();
    }
 
    pub fn is_connected(&self, dapp: &str) -> bool {
-      self.dapps.get(dapp).copied().unwrap_or(false)
+      self.dapps.contains(&dapp.to_string())
    }
 }
 

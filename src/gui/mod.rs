@@ -19,6 +19,7 @@ use crate::gui::ui::{
       central_panel::{FPSMetrics, UiTesting},
       top_panel::ChainSelection,
       top_panel::WalletSelection,
+      left_panel::ConnectedDappsUi,
    },
    sign_msg_window::SignMsgWindow,
    sync::SyncPoolsUi,
@@ -93,6 +94,7 @@ pub struct GUI {
    pub sign_msg_window: SignMsgWindow,
    pub sync_pools_ui: SyncPoolsUi,
    pub fps_metrics: FPSMetrics,
+   pub connected_dapps: ConnectedDappsUi
 }
 
 impl GUI {
@@ -119,6 +121,7 @@ impl GUI {
       let progress_window = ui::misc::ProgressWindow::new();
       let sign_msg_window = SignMsgWindow::new();
       let sync_pools_ui = ui::misc::sync::SyncPoolsUi::new();
+      let connected_dapps = ConnectedDappsUi::new();
 
       Self {
          egui_ctx,
@@ -151,6 +154,7 @@ impl GUI {
          sign_msg_window,
          sync_pools_ui,
          fps_metrics: FPSMetrics::new(),
+         connected_dapps
       }
    }
 

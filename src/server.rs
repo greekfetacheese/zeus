@@ -1,6 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::core::utils::eth;
 use crate::gui::{SHARED_GUI, ui::Step};
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::convert::Infallible;
@@ -32,11 +33,12 @@ pub const INTERNAL_ERROR: i32 = -32603;
 /// Type of a request we expect to receive from the extension/dapp
 ///
 /// This includes both EIP-1193 and wallet requests
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestMethod {
    WalletAddEthereumChain,
    WallletSwitchEthereumChain,
    WalletGetPermissions,
+   WalletGetCapabilities,
    WalletRequestPermissions,
    WalletRevokePermissions,
    EthAccounts,
@@ -52,11 +54,34 @@ pub enum RequestMethod {
 }
 
 impl RequestMethod {
+   pub fn from_str(s: &str) -> Result<Self, anyhow::Error> {
+      match s {
+         "wallet_addEthereumChain" => Ok(RequestMethod::WalletAddEthereumChain),
+         "wallet_switchEthereumChain" => Ok(RequestMethod::WallletSwitchEthereumChain),
+         "wallet_getPermissions" => Ok(RequestMethod::WalletGetPermissions),
+         "wallet_getCapabilities" => Ok(RequestMethod::WalletGetCapabilities),
+         "wallet_requestPermissions" => Ok(RequestMethod::WalletRequestPermissions),
+         "wallet_revokePermissions" => Ok(RequestMethod::WalletRevokePermissions),
+         "eth_accounts" => Ok(RequestMethod::EthAccounts),
+         "eth_requestAccounts" => Ok(RequestMethod::RequestAccounts),
+         "eth_sendTransaction" => Ok(RequestMethod::SendTransaction),
+         "eth_blockNumber" => Ok(RequestMethod::BlockNumber),
+         "eth_call" => Ok(RequestMethod::EthCall),
+         "eth_chainId" => Ok(RequestMethod::ChainId),
+         "eth_estimateGas" => Ok(RequestMethod::EstimateGas),
+         "eth_gasPrice" => Ok(RequestMethod::EthGasPrice),
+         "eth_getBalance" => Ok(RequestMethod::GetBalance),
+         "eth_signTypedData_v4" => Ok(RequestMethod::EthSignedTypedDataV4),
+         _ => Err(anyhow!("Invalid Request Method: {:?}", s)),
+      }
+   }
+
    pub fn as_str(&self) -> &'static str {
       match self {
          RequestMethod::WalletAddEthereumChain => "wallet_addEthereumChain",
          RequestMethod::WallletSwitchEthereumChain => "wallet_switchEthereumChain",
          RequestMethod::WalletGetPermissions => "wallet_getPermissions",
+         RequestMethod::WalletGetCapabilities => "wallet_getCapabilities",
          RequestMethod::WalletRequestPermissions => "wallet_requestPermissions",
          RequestMethod::WalletRevokePermissions => "wallet_revokePermissions",
          RequestMethod::EthAccounts => "eth_accounts",
@@ -72,11 +97,26 @@ impl RequestMethod {
       }
    }
 
+   pub fn is_connection_method(&self) -> bool {
+      matches!(
+         self,
+         RequestMethod::RequestAccounts | RequestMethod::WalletRequestPermissions
+      )
+   }
+
+   pub fn is_public(&self) -> bool {
+      matches!(
+         self,
+         RequestMethod::EthGasPrice | RequestMethod::ChainId | RequestMethod::BlockNumber
+      )
+   }
+
    pub fn supported_methods() -> Vec<RequestMethod> {
       vec![
          RequestMethod::WalletAddEthereumChain,
          RequestMethod::WallletSwitchEthereumChain,
          RequestMethod::WalletGetPermissions,
+         RequestMethod::WalletGetCapabilities,
          RequestMethod::WalletRequestPermissions,
          RequestMethod::WalletRevokePermissions,
          RequestMethod::EthAccounts,
@@ -230,12 +270,15 @@ impl JsonRpcError {
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
-   let current_wallet = ctx.current_wallet_address();
+   let wallets = ctx.get_all_wallets_info();
+   let accounts = wallets.iter().map(|w| w.address.to_string()).collect::<Vec<_>>();
+   let connected_origins = ctx.get_connected_dapps();
 
    let res = json!({
-    "status": true,
-    "accounts": vec![current_wallet.to_string()],
-    "chainId": chain,
+       "status": true,
+       "accounts": accounts,
+       "chainId": chain,
+       "connectedOrigins": connected_origins,
    });
 
    Ok(warp::reply::json(&res))
@@ -243,20 +286,65 @@ async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
 
 async fn request_accounts(
    ctx: ZeusCtx,
+   origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let wallets = ctx.get_all_wallets_info();
-   let accounts = wallets
-      .iter()
-      .map(|w| w.address.to_string())
-      .collect::<Vec<_>>();
+   let current_wallet = ctx.current_wallet_address();
+   let connected = ctx.is_dapp_connected(origin);
 
-   Ok(JsonRpcResponse {
-      jsonrpc: "2.0".to_string(),
-      id: payload.id,
-      result: Some(json!(accounts)),
-      error: None,
-   })
+   if connected {
+      Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: Some(json!(vec![current_wallet.to_string()])),
+         error: None,
+      })
+   } else {
+      return Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: Some(json!([])),
+         error: None,
+      });
+   }
+}
+
+async fn get_permissions(
+   ctx: ZeusCtx,
+   origin: &str,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let current_wallet = ctx.current_wallet_address().to_string();
+   let connected = ctx.is_dapp_connected(origin);
+
+   if connected {
+      Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: Some(json!([{
+             "parentCapability": "eth_accounts",
+             "caveats": [{
+                 "type": "restrictReturnedAccounts",
+                 "value": [current_wallet]  // Array of exposed account strings
+             }]
+         }])),
+         error: None,
+      })
+   } else {
+      return Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: Some(json!([])),
+         error: None,
+      });
+   }
+}
+
+async fn get_capabilities(
+   _ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
 }
 
 /// Aka disconnect
@@ -280,22 +368,20 @@ async fn connect(
    ctx: ZeusCtx,
    origin: String,
    payload: JsonRpcRequest,
+   method: RequestMethod, // New param
 ) -> Result<JsonRpcResponse, Infallible> {
-   // open the confirmation window
+   // Existing prompt logic...
    SHARED_GUI.write(|gui| {
       gui.confirm_window.open("Connect to Dapp");
       gui.confirm_window.set_msg2(origin.clone());
    });
 
-   // wait for the user to confirm or reject the connection
    let mut confirmed = None;
    loop {
       tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
       SHARED_GUI.read(|gui| {
          confirmed = gui.confirm_window.confirm;
       });
-
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
             gui.confirm_window.reset();
@@ -307,16 +393,33 @@ async fn connect(
    let confirmed = confirmed.unwrap();
 
    if !confirmed {
-      let res = JsonRpcResponse::error(USER_REJECTED_REQUEST, payload.id);
-      return Ok(res);
+      return Ok(JsonRpcResponse::error(
+         USER_REJECTED_REQUEST,
+         payload.id,
+      ));
    }
 
    ctx.connect_dapp(origin.clone());
-   let current_wallet = ctx.current_wallet_address();
+
+   let current_wallet = ctx.current_wallet_address().to_string();
+
+   // Return based on method
+   let result = match method {
+      RequestMethod::RequestAccounts => Some(json!(vec![current_wallet])),
+      RequestMethod::WalletRequestPermissions => Some(json!([{
+          "parentCapability": "eth_accounts",
+          "caveats": [{
+              "type": "restrictReturnedAccounts",
+              "value": [current_wallet]
+          }]
+      }])),
+      _ => Some(json!([])),
+   };
+
    Ok(JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
-      result: Some(json!(vec![current_wallet.to_string()])),
+      result,
       error: None,
    })
 }
@@ -339,7 +442,14 @@ async fn block_number(
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
    let chain = ctx.chain().id();
-   let client = ctx.get_client(chain).await.unwrap();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
    let block_number = client.get_block_number().await.unwrap_or(0);
 
    let response = JsonRpcResponse {
@@ -472,13 +582,17 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
    };
 
    let chain = ctx.chain().id();
-   let client = ctx.get_client(chain).await.unwrap();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
    let from = ctx.current_wallet_address();
 
-   let tx = TransactionRequest::default()
-      .with_from(from)
-      .with_to(to)
-      .with_input(calldata);
+   let tx = TransactionRequest::default().with_from(from).with_to(to).with_input(calldata);
 
    let output = match client.call(tx).await {
       Ok(output) => output,
@@ -620,7 +734,14 @@ async fn estimate_gas(
    };
 
    let chain = ctx.chain().id();
-   let client = ctx.get_client(chain).await.unwrap();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
    let tx = TransactionRequest::default()
       .with_from(from)
       .with_to(to)
@@ -926,8 +1047,7 @@ async fn eth_send_transaction(
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
             gui.tx_confirmation_window.reset();
-            gui.msg_window
-               .open("Error Sending Transaction", e.to_string());
+            gui.msg_window.open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
          });
          error!("Error sending tx: {:?}", e);
@@ -943,8 +1063,7 @@ async fn eth_send_transaction(
    };
 
    SHARED_GUI.write(|gui| {
-      gui.progress_window
-         .open_with(vec![step1], "Success!".to_string());
+      gui.progress_window.open_with(vec![step1], "Success!".to_string());
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
    });
@@ -961,77 +1080,75 @@ async fn handle_request(
    origin: String,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let method = payload.method.as_str();
+   let method = match RequestMethod::from_str(&payload.method) {
+      Ok(method) => method,
+      Err(e) => {
+         error!("Unsupported method: {:?}", e);
+         return Ok(JsonRpcResponse::error(
+            UNSUPPORTED_METHOD,
+            payload.id,
+         ));
+      }
+   };
+
    info!(
       "Received request '{}' from dapp: {}",
-      method, origin
+      method.as_str(),
+      origin
    );
 
-   // Methods that can be called WITHOUT a prior connection.
-   let is_connection_method = method == RequestMethod::RequestAccounts.as_str()
-      || method == RequestMethod::WalletRequestPermissions.as_str()
-      || method == RequestMethod::EthAccounts.as_str();
-
+   let is_connection_method = method.is_connection_method();
    let dapp_connected = ctx.is_dapp_connected(&origin);
 
-   // If the dapp is not connected, it MUST use a connection method first.
+   if method == RequestMethod::EthAccounts {
+      return request_accounts(ctx, &origin, payload).await;
+   }
+
+   if method == RequestMethod::WalletGetPermissions {
+      return get_permissions(ctx, &origin, payload).await;
+   }
+
    if !dapp_connected {
       if is_connection_method {
          info!(
-            "Dapp not connected. Initiating connection flow for origin: {}",
-            origin
+            "Dapp {} not connected, Requested connection with method {}",
+            origin,
+            method.as_str()
          );
-         return connect(ctx, origin, payload).await;
+         return connect(ctx, origin, payload, method).await; // Pass method to connect
       } else {
          error!(
             "Dapp at origin '{}' is not connected and tried to call method '{}'.",
-            origin, method
+            origin,
+            method.as_str()
          );
          return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id));
       }
    }
 
-   // Dapp is CONNECTED
+   // Dapp is CONNECTED - Handle other methods
    match method {
-      // Account & Permission Methods
-      m if m == RequestMethod::RequestAccounts.as_str() => request_accounts(ctx, payload).await,
-      m if m == RequestMethod::EthAccounts.as_str() => request_accounts(ctx, payload).await,
-
-      // Blockchain State Methods
-      m if m == RequestMethod::ChainId.as_str() => chain_id(ctx, payload),
-      m if m == RequestMethod::BlockNumber.as_str() => block_number(ctx, payload).await,
-      m if m == RequestMethod::GetBalance.as_str() => get_balance(ctx, payload),
-      m if m == RequestMethod::EthCall.as_str() => eth_call(ctx, payload).await,
-      m if m == RequestMethod::EthGasPrice.as_str() => get_gas_price(ctx, payload),
-      m if m == RequestMethod::EstimateGas.as_str() => estimate_gas(ctx, payload).await,
-
-      // Transaction & Signing Methods
-      m if m == RequestMethod::SendTransaction.as_str() => {
-         eth_send_transaction(ctx, origin, payload).await
-      }
-      m if m == RequestMethod::EthSignedTypedDataV4.as_str() => {
-         eth_sign_typed_data_v4(ctx, origin, payload).await
-      }
-
-      // Wallet Management Methods
-      m if m == RequestMethod::WallletSwitchEthereumChain.as_str() => {
-         switch_ethereum_chain(ctx, payload)
-      }
-      m if m == RequestMethod::WalletRevokePermissions.as_str() => {
+      m if m == RequestMethod::BlockNumber => block_number(ctx, payload).await,
+      m if m == RequestMethod::ChainId => chain_id(ctx, payload),
+      m if m == RequestMethod::EthGasPrice => get_gas_price(ctx, payload),
+      m if m == RequestMethod::GetBalance => get_balance(ctx, payload),
+      m if m == RequestMethod::EthCall => eth_call(ctx, payload).await,
+      m if m == RequestMethod::EstimateGas => estimate_gas(ctx, payload).await,
+      m if m == RequestMethod::WalletGetPermissions => get_permissions(ctx, &origin, payload).await,
+      m if m == RequestMethod::WalletGetCapabilities => get_capabilities(ctx, payload).await,
+      m if m == RequestMethod::WalletRevokePermissions => {
          wallet_revoke_permissions(ctx, origin, payload)
       }
-
-      // Unsupported Method
-      _ => {
-         error!(
-            "Method '{}' not supported for a connected dapp.",
-            method
-         );
-         Ok(JsonRpcResponse::error(
-            UNSUPPORTED_METHOD,
-            payload.id,
-         ))
+      m if m == RequestMethod::EthSignedTypedDataV4 => {
+         eth_sign_typed_data_v4(ctx, origin, payload).await
       }
+      m if m == RequestMethod::SendTransaction => eth_send_transaction(ctx, origin, payload).await,
+      m if m == RequestMethod::WallletSwitchEthereumChain => switch_ethereum_chain(ctx, payload),
+
+      _ => Ok(JsonRpcResponse::error(
+         UNSUPPORTED_METHOD,
+         payload.id,
+      )),
    }
 }
 
@@ -1068,10 +1185,7 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
       .and_then(api_handler);
 
    // Combine Routes
-   let routes = status_route
-      .or(api_route)
-      .with(cors)
-      .with(warp::trace::request());
+   let routes = status_route.or(api_route).with(cors).with(warp::trace::request());
 
    let port = ctx.server_port();
    let addr = SocketAddr::from(([127, 0, 0, 1], port));
