@@ -1173,13 +1173,19 @@ impl PoolManager {
    }
 
    pub fn calculate_prices(&mut self) {
+      let mut processed = HashSet::new();
       for pool in self.pools.values() {
+         let quote_token = pool.quote_currency();
+
+         if processed.contains(quote_token) {
+            continue;
+         }
+
          if !pool.enough_liquidity() {
             continue;
          }
 
          let chain = pool.chain_id();
-         let quote_token = pool.quote_currency();
          let base_token = pool.base_currency();
 
          // if both tokens are base tokens, skip
@@ -1196,6 +1202,7 @@ impl PoolManager {
          let key = (chain, quote_token.address());
          let quote_price = NumericValue::currency_price(quote_price);
          self.token_prices.insert(key, quote_price);
+         processed.insert(quote_token.clone());
       }
    }
 

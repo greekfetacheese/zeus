@@ -510,11 +510,16 @@ pub async fn unwrap_weth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      manager
-         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth])
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+      }
+
       ctx.save_balance_manager();
    });
 
@@ -642,11 +647,16 @@ pub async fn wrap_eth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      manager
-         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth])
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+      }
+
       ctx.save_balance_manager();
    });
 
@@ -951,11 +961,19 @@ pub async fn swap(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      manager
-         .update_tokens_balance(ctx.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
 
       // Update the portfolio value
       let mut portfolio = ctx.get_portfolio(chain.id(), from);
@@ -1053,11 +1071,19 @@ pub async fn collect_fees_position_v3(
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
-      manager
-         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
 
       // Update the portfolio value
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
@@ -1312,11 +1338,19 @@ pub async fn decrease_liquidity_position_v3(
          currency1.to_erc20().into_owned(),
       ];
       let manager = ctx_clone.balance_manager();
-      manager
-         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
 
       // Update the portfolio value
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
@@ -1709,11 +1743,20 @@ pub async fn increase_liquidity_position_v3(
          currency1.to_erc20().into_owned(),
       ];
       let manager = ctx_clone.balance_manager();
-      manager
-         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+
+      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
 
       // Update the portfolio value
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
@@ -2097,11 +2140,19 @@ pub async fn mint_new_liquidity_position_v3(
 
       let manager = ctx_clone.balance_manager();
 
-      manager
-         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens)
-         .await
-         .unwrap();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
+      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
 
       // Update the portfolio value
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);

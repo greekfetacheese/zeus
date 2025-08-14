@@ -643,14 +643,19 @@ impl CreatePositionUi {
          let token_b = self.currency1.to_erc20().into_owned();
          RT.spawn(async move {
             let manager = ctx_clone.balance_manager();
-            let _ = manager
+            match manager
                .update_tokens_balance(
                   ctx_clone.clone(),
                   chain_id,
                   owner,
                   vec![token_a, token_b],
                )
-               .await;
+               .await {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Failed to update token balance: {}", e);
+                  }
+               }
             ctx_clone.save_balance_manager();
          });
       }

@@ -861,18 +861,31 @@ impl PortfolioUi {
 
          // Update the eth and token balances
          let balance_manager = ctx.balance_manager();
-         let _ = balance_manager.update_eth_balance(ctx.clone(), chain, owner).await;
-         let _ = balance_manager
+
+         match balance_manager.update_eth_balance(ctx.clone(), chain, owner).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+         }
+
+         match balance_manager
             .update_tokens_balance(ctx.clone(), chain, owner, tokens.clone())
-            .await;
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error updating tokens balance: {:?}", e),
+         }
 
          // Update the pool state that includes these tokens
          let pool_manager = ctx.pool_manager();
          let dex = DexKind::main_dexes(chain);
 
-         let _ = pool_manager
+         match pool_manager
             .sync_pools_for_tokens(ctx.clone(), chain, tokens.clone(), dex, false)
-            .await;
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+         }
 
          let mut pools = Vec::new();
 
@@ -885,7 +898,10 @@ impl PortfolioUi {
             pools.extend(pool_manager.get_pools_that_have_currency(&c));
          }
 
-         let _ = pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await;
+         match pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error updating pool state: {:?}", e),
+         }
 
          ctx.calculate_portfolio_value(chain, owner);
 
@@ -983,9 +999,12 @@ impl PortfolioUi {
          }
 
          let balance_manager = ctx_clone.balance_manager();
-         let _ = balance_manager
+         match balance_manager
             .update_tokens_balance(ctx_clone.clone(), chain_id, owner, vec![token])
-            .await;
+            .await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error updating tokens balance: {:?}", e),
+         }
 
          RT.spawn_blocking(move || {
             ctx_clone.calculate_portfolio_value(chain_id, owner);

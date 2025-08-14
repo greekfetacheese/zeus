@@ -491,7 +491,13 @@ impl AcrossBridge {
       self.balance_syncing = true;
       RT.spawn(async move {
          let manager = ctx_clone.balance_manager();
-         let _ = manager.update_eth_balance(ctx_clone.clone(), chain, depositor).await;
+         match manager.update_eth_balance(ctx_clone.clone(), chain, depositor).await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Failed to update ETH balance: {}", e);
+            }
+         }
+
          ctx_clone.save_balance_manager();
 
          SHARED_GUI.write(|gui| {
@@ -756,22 +762,18 @@ async fn across_bridge(
    )
    .await?;
 
-   // update wallet balances
+   // Update the sender's balance
    let ctx_clone = ctx.clone();
-   let exists = ctx.wallet_exists(interact_to);
    RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
-      manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await.unwrap();
-      ctx_clone.calculate_portfolio_value(chain.id(), from);
-
-      if exists {
-         manager
-            .update_eth_balance(ctx_clone.clone(), chain.id(), interact_to)
-            .await
-            .unwrap();
-         ctx_clone.calculate_portfolio_value(chain.id(), interact_to);
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
       }
 
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
       ctx_clone.save_balance_manager();
       ctx_clone.save_portfolio_db();
    });
@@ -795,12 +797,39 @@ async fn across_bridge(
       gui.request_repaint();
    });
 
-   wait_for_fill(ctx, dest_chain, recipient, from_block, deadline).await?;
+   wait_for_fill(
+      ctx.clone(),
+      dest_chain,
+      recipient,
+      from_block,
+      deadline,
+   )
+   .await?;
 
    SHARED_GUI.write(|gui| {
       gui.progress_window.finish_last_step();
       gui.progress_window.set_tx(tx_rich);
       gui.request_repaint();
+   });
+
+   // update the recipients balance if needed
+   let exists = ctx.wallet_exists(interact_to);
+   RT.spawn(async move {
+      let manager = ctx.balance_manager();
+
+      if exists {
+         match manager.update_eth_balance(ctx.clone(), chain.id(), interact_to).await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Failed to update ETH balance: {}", e);
+            }
+         }
+
+         ctx.calculate_portfolio_value(chain.id(), interact_to);
+      }
+
+      ctx.save_balance_manager();
+      ctx.save_portfolio_db();
    });
 
    Ok(())

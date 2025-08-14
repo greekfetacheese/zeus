@@ -40,7 +40,6 @@ pub struct SendCryptoUi {
    pub recipient_name: Option<String>,
    pub search_query: String,
    pub size: (f32, f32),
-   /// Flag to not spam the rpc when fetching pool data
    pub pool_data_syncing: bool,
    pub syncing_balance: bool,
 }
@@ -306,12 +305,23 @@ impl SendCryptoUi {
       RT.spawn(async move {
          let balance_manager = ctx.balance_manager();
          if currency.is_native() {
-            let _ = balance_manager.update_eth_balance(ctx.clone(), chain, owner).await;
+            match balance_manager.update_eth_balance(ctx.clone(), chain, owner).await {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Failed to update ETH balance: {}", e);
+               }
+            }
          } else {
             let token = currency.to_erc20().into_owned();
-            let _ = balance_manager
+            match balance_manager
                .update_tokens_balance(ctx.clone(), chain, owner, vec![token])
-               .await;
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Failed to update token balance: {}", e);
+               }
+            }
          }
          SHARED_GUI.write(|gui| {
             gui.send_crypto.syncing_balance = false;
@@ -322,10 +332,6 @@ impl SendCryptoUi {
    fn value(&mut self, owner: Address, ctx: ZeusCtx) -> NumericValue {
       let price = ctx.get_currency_price(&self.currency);
       let amount = self.amount.parse().unwrap_or(0.0);
-
-      if amount == 0.0 {
-         return NumericValue::default();
-      }
 
       if price.f64() != 0.0 {
          return NumericValue::value(amount, price.f64());
@@ -352,26 +358,44 @@ impl SendCryptoUi {
                   .sync_pools_for_tokens(ctx.clone(), chain_id, vec![token], dexes, false)
                   .await
                {
-                  Ok(_) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.send_crypto.pool_data_syncing = false;
-                     });
-
-                     let _ = manager.update(ctx.clone(), chain_id).await;
-
-                     RT.spawn_blocking(move || {
-                        ctx.calculate_portfolio_value(chain_id, owner);
-                        let _ = ctx.save_pool_manager();
-                        ctx.save_portfolio_db();
-                     });
-                  }
+                  Ok(_) => {}
                   Err(e) => {
                      tracing::error!("Error getting pools: {:?}", e);
-                     SHARED_GUI.write(|gui| {
-                        gui.send_crypto.pool_data_syncing = false;
-                     });
                   }
                };
+
+               let pools = manager.get_pools_that_have_currency(&currency);
+               match manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Error updating pool state: {:?}", e);
+                  }
+               }
+
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.pool_data_syncing = false;
+               });
+
+               RT.spawn_blocking(move || {
+                  ctx.calculate_portfolio_value(chain_id, owner);
+                  let _res = ctx.save_pool_manager();
+                  ctx.save_portfolio_db();
+               });
+            });
+         } else {
+            self.pool_data_syncing = true;
+            RT.spawn(async move {
+               let manager = ctx.pool_manager();
+               let pools = manager.get_pools_that_have_currency(&currency);
+               match manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Error updating pool state: {:?}", e);
+                  }
+               }
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.pool_data_syncing = false;
+               });
             });
          }
 

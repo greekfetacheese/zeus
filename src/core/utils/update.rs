@@ -269,17 +269,6 @@ async fn update_pool_manager(ctx: ZeusCtx) {
             currencies.push(Currency::from(token));
          }
 
-         if currencies.is_empty() {
-            match pool_manager.update_base_token_prices(ctx.clone(), chain).await {
-               Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
-               Err(e) => tracing::error!(
-                  "Error updating base token prices for chain {}: {:?}",
-                  chain,
-                  e
-               ),
-            }
-         }
-
          match pool_manager.update_for_currencies(ctx, chain, currencies).await {
             Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
             Err(e) => tracing::error!(

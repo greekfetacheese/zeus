@@ -19,12 +19,15 @@ use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use egui_theme::Theme;
-use std::sync::Arc;
 use std::str::FromStr;
+use std::sync::Arc;
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
 const DEFAULT_SLIPPAGE: f64 = 0.5;
+
+const SLIPPAGE_TIP: &str =
+   "Your transaction will revert if the price changes unfavorably by more than this percentage.";
 
 #[derive(Clone, Default, Copy, Debug, PartialEq)]
 pub enum ProtocolVersion {
@@ -140,143 +143,154 @@ impl UniswapSettingsUi {
 
       Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
          ui.vertical_centered(|ui| {
-      ui.spacing_mut().item_spacing = vec2(5.0, 0.0);
+            ui.spacing_mut().item_spacing = vec2(5.0, 0.0);
 
-      let slider_size = vec2(ui.available_width() * 0.6, 25.0);
+            let slider_size = vec2(ui.available_width() * 0.6, 25.0);
 
-      let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
-      ui.checkbox(&mut self.mev_protect, text);
+            let text = RichText::new("MEV Protect").size(theme.text_sizes.normal);
+            ui.checkbox(&mut self.mev_protect, text);
 
-      ui.add_space(15.0);
+            ui.add_space(15.0);
 
-      let size = vec2(ui.available_width() * 0.4, 25.0);
-      ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-      let text = RichText::new("Slippage").size(theme.text_sizes.normal);
-      ui.label(text).on_hover_text("Your transaction will revert if the price changes unfavorably by more than this percentage");
-      if ui.add(Button::new("⟲")).clicked() {
-         self.slippage_f64 = DEFAULT_SLIPPAGE;
-         self.slippage = DEFAULT_SLIPPAGE.to_string();
-      }
-      });
-      });
+            let size = vec2(ui.available_width() * 0.4, 25.0);
 
-      ui.add_space(5.0);
+            ui.allocate_ui(size, |ui| {
+               ui.horizontal(|ui| {
+                  let text = RichText::new("Slippage").size(theme.text_sizes.normal);
+                  ui.label(text).on_hover_text(SLIPPAGE_TIP);
 
-      let slippage = format!("{:.1}", self.slippage_f64);
-      ui.label(RichText::new(slippage).size(theme.text_sizes.normal));
-
-      ui.add_space(5.0);
-
-      ui.allocate_ui(slider_size, |ui| {
-      let res = ui.add(Slider::new(&mut self.slippage_f64, MIN_SLIPPAGE..=MAX_SLIPPAGE).show_value(false));
-      if res.changed() {
-         self.slippage = self.slippage_f64.to_string();
-      }
-   });
-
-      ui.add_space(15.0);
-
-      if swap_ui_open {
-         ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
-         ui.add_space(5.0);
-         ui.label(RichText::new(self.max_hops.to_string()).size(theme.text_sizes.normal));
-
-         ui.add_space(5.0);
-
-         ui.allocate_ui(slider_size, |ui| {
-            let res = ui.add(Slider::new(&mut self.max_hops, 1..=10).show_value(false));
-            if res.changed() {
-               let ctx_clone = ctx.clone();
-               RT.spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     let settings = &gui.uniswap.settings;
-                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
-                  });
-               });
-            }
-         });
-
-         ui.add_space(15.0);
-
-         ui.label(RichText::new("Max Split Routes").size(theme.text_sizes.normal));
-         ui.add_space(5.0);
-         ui.label(RichText::new(self.max_split_routes.to_string()).size(theme.text_sizes.normal));
-
-         ui.add_space(5.0);
-
-         ui.allocate_ui(slider_size, |ui| {
-            let res = ui.add(Slider::new(&mut self.max_split_routes, 1..=10).show_value(false));
-            if res.changed() {
-               let ctx_clone = ctx.clone();
-               RT.spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     let settings = &gui.uniswap.settings;
-                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
-                  });
-               });
-            }
-         });
-
-         ui.add_space(15.0);
-
-         let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
-         let res = ui.checkbox(&mut self.split_routing_enabled, text);
-         if res.changed() {
-            let ctx_clone = ctx.clone();
-            RT.spawn_blocking(move || {
-               SHARED_GUI.write(|gui| {
-                  let settings = &gui.uniswap.settings;
-                  gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                  if ui.add(Button::new("⟲")).clicked() {
+                     self.slippage_f64 = DEFAULT_SLIPPAGE;
+                     self.slippage = DEFAULT_SLIPPAGE.to_string();
+                  }
                });
             });
-         }
 
-         ui.add_space(10.0);
+            ui.add_space(5.0);
 
-         let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
-         let swap_on_v2_before = self.swap_on_v2;
-         let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
+            let slippage = format!("{:.1}", self.slippage_f64);
+            ui.label(RichText::new(slippage).size(theme.text_sizes.normal));
 
-         ui.add_space(10.0);
+            ui.add_space(5.0);
 
-         let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
-         let swap_on_v3_before = self.swap_on_v3;
-         let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
-
-         ui.add_space(10.0);
-
-         let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
-         let swap_on_v4_before = self.swap_on_v4;
-         let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
-
-         ui.add_space(15.0);
-
-         if v2_res.changed() || v3_res.changed() || v4_res.changed() {
-            let ctx_clone = ctx.clone();
-            RT.spawn_blocking(move || {
-               SHARED_GUI.write(|gui| {
-                  let update_v2 = !swap_on_v2_before;
-                  let update_v3 = !swap_on_v3_before;
-                  let update_v4 = !swap_on_v4_before;
-                  gui.uniswap
-                     .swap_ui
-                     .update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
-               });
+            ui.allocate_ui(slider_size, |ui| {
+               let res = ui.add(
+                  Slider::new(
+                     &mut self.slippage_f64,
+                     MIN_SLIPPAGE..=MAX_SLIPPAGE,
+                  )
+                  .show_value(false),
+               );
+               if res.changed() {
+                  self.slippage = self.slippage_f64.to_string();
+               }
             });
-         }
 
-         let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
-         ui.checkbox(&mut self.simulate_mode, text);
-      }
+            ui.add_space(15.0);
 
-      if view_position_open {
-         let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
-         ui.label(text);
-         ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
-      }
-   });
-});
+            if swap_ui_open {
+               ui.label(RichText::new("Max Hops").size(theme.text_sizes.normal));
+               ui.add_space(5.0);
+               ui.label(RichText::new(self.max_hops.to_string()).size(theme.text_sizes.normal));
+
+               ui.add_space(5.0);
+
+               ui.allocate_ui(slider_size, |ui| {
+                  let res = ui.add(Slider::new(&mut self.max_hops, 1..=10).show_value(false));
+                  if res.changed() {
+                     let ctx_clone = ctx.clone();
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           let settings = &gui.uniswap.settings;
+                           gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                        });
+                     });
+                  }
+               });
+
+               ui.add_space(15.0);
+
+               ui.label(RichText::new("Max Split Routes").size(theme.text_sizes.normal));
+               ui.add_space(5.0);
+               ui.label(
+                  RichText::new(self.max_split_routes.to_string()).size(theme.text_sizes.normal),
+               );
+
+               ui.add_space(5.0);
+
+               ui.allocate_ui(slider_size, |ui| {
+                  let res =
+                     ui.add(Slider::new(&mut self.max_split_routes, 1..=10).show_value(false));
+                  if res.changed() {
+                     let ctx_clone = ctx.clone();
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           let settings = &gui.uniswap.settings;
+                           gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                        });
+                     });
+                  }
+               });
+
+               ui.add_space(15.0);
+
+               let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
+               let res = ui.checkbox(&mut self.split_routing_enabled, text);
+               if res.changed() {
+                  let ctx_clone = ctx.clone();
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let settings = &gui.uniswap.settings;
+                        gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                     });
+                  });
+               }
+
+               ui.add_space(10.0);
+
+               let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
+               let swap_on_v2_before = self.swap_on_v2;
+               let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
+
+               ui.add_space(10.0);
+
+               let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
+               let swap_on_v3_before = self.swap_on_v3;
+               let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
+
+               ui.add_space(10.0);
+
+               let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
+               let swap_on_v4_before = self.swap_on_v4;
+               let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
+
+               ui.add_space(15.0);
+
+               if v2_res.changed() || v3_res.changed() || v4_res.changed() {
+                  let ctx_clone = ctx.clone();
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let update_v2 = !swap_on_v2_before;
+                        let update_v3 = !swap_on_v3_before;
+                        let update_v4 = !swap_on_v4_before;
+                        gui.uniswap
+                           .swap_ui
+                           .update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
+                     });
+                  });
+               }
+
+               let text = RichText::new("Simulate Mode").size(theme.text_sizes.normal);
+               ui.checkbox(&mut self.simulate_mode, text);
+            }
+
+            if view_position_open {
+               let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
+               ui.label(text);
+               ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
+            }
+         });
+      });
    }
 }
 
@@ -476,8 +490,7 @@ pub fn currencies_amount_and_value(
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount0.format_abbreviated())
-                  .size(theme.text_sizes.normal);
+               let text = RichText::new(amount0.format_abbreviated()).size(theme.text_sizes.normal);
                ui.label(text);
             });
          });
@@ -512,8 +525,7 @@ pub fn currencies_amount_and_value(
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount1.format_abbreviated())
-                  .size(theme.text_sizes.normal);
+               let text = RichText::new(amount1.format_abbreviated()).size(theme.text_sizes.normal);
                ui.label(text);
             });
          });

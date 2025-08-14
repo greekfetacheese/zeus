@@ -138,7 +138,12 @@ impl ImportWallet {
             RT.spawn(async move {
                let manager = ctx.balance_manager();
                for chain in SUPPORTED_CHAINS {
-                  let _ = manager.update_eth_balance(ctx.clone(), chain, new_wallet_address).await;
+                  match manager.update_eth_balance(ctx.clone(), chain, new_wallet_address).await {
+                     Ok(_) => {}
+                     Err(e) => {
+                        tracing::error!("Failed to update ETH balance: {}", e);
+                     }
+                  }
 
                   // Portfolio is created and saved here
                   ctx.calculate_portfolio_value(chain, new_wallet_address);

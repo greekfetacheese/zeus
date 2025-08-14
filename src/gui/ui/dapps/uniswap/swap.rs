@@ -462,7 +462,7 @@ impl SwapUi {
 
          // TODO: Show the correct usd values if we are in simulate mode
 
-         // Sell
+         // Currency in
          let amount_changed = swap_section(
             ui,
             ctx.clone(),
@@ -486,7 +486,7 @@ impl SwapUi {
             }
          });
 
-         // Buy
+         // Currency out
          swap_section(
             ui,
             ctx.clone(),
@@ -682,13 +682,18 @@ impl SwapUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let _ = eth::sync_pools_for_tokens(
+         match eth::sync_pools_for_tokens(
             ctx_clone.clone(),
             chain_id,
             vec![token_out.clone()],
             false,
          )
-         .await;
+         .await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Failed to sync pools: {}", e);
+            }
+         }
 
          SHARED_GUI.write(|gui| {
             gui.uniswap.swap_ui.syncing_pools = false;

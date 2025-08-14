@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use ncrypt_me::{Argon2, Credentials};
 use rand::RngCore;
 use secure_types::{SecureString, SecureVec, Zeroize};
+use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
@@ -17,7 +18,6 @@ pub const P_COST: u32 = 64;
 const DEV_M_COST: u32 = 16_000;
 const DEV_T_COST: u32 = 3;
 const DEV_P_COST: u32 = 8;
-
 
 /// Helper struct to store info for a wallet (name, address, etc)
 /// Useful to avoid unecessery cloning of the [SecureSigner]
@@ -81,9 +81,7 @@ impl WalletInfo {
    }
 }
 
-
-use sha3::{Digest, Sha3_512};
-
+/// Derive the seed from the given [Credentials]
 pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::Error> {
    credentials.is_valid()?;
 
@@ -249,7 +247,7 @@ pub struct SecureHDWallet {
    pub children: Vec<Wallet>,
 
    /// Keep track of the next child index to derive
-   /// 
+   ///
    /// Note: This is not the same as the [Self::START_INDEX] but just a counter
    /// used internally
    #[serde(default)]
@@ -257,7 +255,6 @@ pub struct SecureHDWallet {
 }
 
 impl SecureHDWallet {
-
    pub const START_INDEX: u32 = BIP32_HARDEN;
 
    pub fn random() -> Self {
@@ -336,7 +333,7 @@ impl SecureHDWallet {
    }
 
    /// Derive a new child wallet using the current path
-   pub fn derive_child(&mut self, name:  String) -> Result<Address, anyhow::Error> {
+   pub fn derive_child(&mut self, name: String) -> Result<Address, anyhow::Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;

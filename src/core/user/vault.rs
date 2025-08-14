@@ -76,10 +76,6 @@ impl Vault {
       self.hd_wallet.clone()
    }
 
-   pub fn mutate(&mut self, f: impl FnOnce(&mut Vault)) {
-      f(self);
-   }
-
    pub fn set_credentials(&mut self, credentials: Credentials) {
       self.credentials = credentials;
    }
@@ -215,7 +211,9 @@ impl Vault {
       // ! this should actually never happen
       for wallet in self.all_wallets() {
          if wallet.is_key_erased() {
-            return Err(anyhow!("Wallet key is erased"));
+            return Err(anyhow!(
+               "At least one Wallet key is erased, this is a bug"
+            ));
          }
       }
 
