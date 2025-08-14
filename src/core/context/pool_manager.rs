@@ -271,6 +271,8 @@ impl PoolManagerHandle {
          }
       }
 
+     // tracing::info!("Updating pool state for chain {} pools {}", chain, pools_to_update.len());
+
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain).await?;

@@ -134,29 +134,31 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
 
-   // Sync v4 pools and base pools
-   ctx.write(|ctx| {
-      ctx.data_syncing = true;
-   });
+   if sync_v4 {
+      ctx.write(|ctx| {
+         ctx.data_syncing = true;
+      });
 
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ignore_chains = ctx.pool_manager().ignore_chains();
-      if ignore_chains.contains(&chain) {
-         continue;
-      }
-
-      let ctx_clone = ctx.clone();
-      let tokens = ERC20Token::base_tokens(chain);
-
-      let task = RT.spawn(async move {
-         match eth::sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, sync_v4).await {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+      let mut tasks = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         let ignore_chains = ctx.pool_manager().ignore_chains();
+         if ignore_chains.contains(&chain) {
+            continue;
          }
 
-         if sync_v4 {
+         tracing::info!("Syncing V4 pools for chain {}", chain);
+
+         let ctx_clone = ctx.clone();
+
+         let task = RT.spawn(async move {
             let manager = ctx_clone.pool_manager();
+            let dex = DexKind::UniswapV4;
+
+            match manager.sync_pools(ctx_clone.clone(), chain, vec![dex]).await {
+               Ok(_) => {}
+               Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+            }
+
             let v4_pools = manager.get_v4_pools_for_chain(chain);
 
             match manager.update_state_for_pools(ctx_clone, chain, v4_pools).await {
@@ -167,16 +169,14 @@ pub async fn on_startup(ctx: ZeusCtx) {
                   e
                ),
             }
-         }
-      });
-      tasks.push(task);
-   }
+         });
+         tasks.push(task);
+      }
 
-   for task in tasks {
-      let _ = task.await;
-   }
+      for task in tasks {
+         let _ = task.await;
+      }
 
-   if sync_v4 {
       let manager = ctx.pool_manager();
       manager.cleanup_v4_pools();
    }
@@ -261,13 +261,19 @@ async fn update_pool_manager(ctx: ZeusCtx) {
          let mut currencies = Vec::new();
          let mut inserted = HashSet::new();
          for token in tokens {
-            if token.is_weth() || token.is_wbnb() || inserted.contains(&token.address) {
+            if token.is_weth()
+               || token.is_wbnb()
+               || token.is_stablecoin()
+               || inserted.contains(&token.address)
+            {
                continue;
             }
 
             inserted.insert(token.address);
             currencies.push(Currency::from(token));
          }
+
+         // tracing::info!("Updating pool manager for chain: {} tokens {}", chain, currencies.len());
 
          match pool_manager.update_for_currencies(ctx, chain, currencies).await {
             Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),

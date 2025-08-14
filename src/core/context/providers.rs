@@ -193,12 +193,12 @@ impl Default for RpcProviders {
       // Chain ID 1: Ethereum
 
       /*
-      Rpc::new("wss://eth.drpc.org", 1, true, true),
-      Rpc::new("https://eth-mainnet.public.blastapi.io", 1, true, true),
-      Rpc::new("https://eth-pokt.nodies.app", 1, true, true),
-      Rpc::new("https://eth.llamarpc.com", 1, true, true),
-      Rpc::new("https://1rpc.io/eth", 1, true, true),
-
+      "wss://eth.drpc.org"
+      "https://eth-mainnet.public.blastapi.io"
+      "https://eth-pokt.nodies.app"
+      "https://eth.llamarpc.com"
+      "https://1rpc.io/eth"
+      "wss://0xrpc.io/eth"
        */
 
       let not_mev_protect = false;
@@ -223,13 +223,6 @@ impl Default for RpcProviders {
             ),
             Rpc::new(
                "wss://mainnet.gateway.tenderly.co",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://0xrpc.io/eth",
                1,
                true,
                true,
@@ -283,9 +276,11 @@ impl Default for RpcProviders {
       // Chain ID 10: Optimism
 
       /*
-      Rpc::new("https://optimism-mainnet.public.blastapi.io", 10, true, true),
-                  Rpc::new("https://1rpc.io/op", 10, true, true),
-                              Rpc::new("https://op-pokt.nodies.app", 10, true, true),
+      "https://optimism-mainnet.public.blastapi.io"
+      "https://1rpc.io/op"
+      "https://op-pokt.nodies.app
+      "wss://0xrpc.io/op"
+      "https://optimism.blockpi.network/v1/rpc/public"
       */
 
       rpcs.insert(
@@ -307,20 +302,6 @@ impl Default for RpcProviders {
             ),
             Rpc::new(
                "wss://optimism-rpc.publicnode.com",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://0xrpc.io/op",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://optimism.blockpi.network/v1/rpc/public",
                10,
                true,
                true,
@@ -357,12 +338,9 @@ impl Default for RpcProviders {
       "wss://0xrpc.io/bnb"
       "https://bsc.blockrazor.xyz"
       "https://rpc-bsc.48.club"
-       */
-
-      /*
-      Rpc::new("https://bsc-mainnet.public.blastapi.io", 56, true, true),
-      Rpc::new("https://bsc-dataseed.bnbchain.org", 56, true, true),
-      Rpc::new("https://bsc.drpc.org", 56, true, true),
+      "https://bsc-mainnet.public.blastapi.io"
+      "https://bsc-dataseed.bnbchain.org"
+      "https://bsc.drpc.org"
        */
 
       rpcs.insert(
@@ -402,22 +380,12 @@ impl Default for RpcProviders {
       // Chain ID 8453: Base
 
       /*
-                  Rpc::new("https://base.llamarpc.com", 8453, true, true),
-      Rpc::new(
-               "https://base.api.onfinality.io/public",
-               8453,
-               true,
-               true,
-            ),
-      Rpc::new("https://base-mainnet.public.blastapi.io", 8453, true, true),
-                  Rpc::new(
-               "https://developer-access-mainnet.base.org",
-               8453,
-               true,
-               true,
-            ),
-            Rpc::new("https://base-pokt.nodies.app", 8453, true, true),
-
+      "https://base.llamarpc.com"
+      "https://base.api.onfinality.io/public"
+      "https://base-mainnet.public.blastapi.io"
+      "https://developer-access-mainnet.base.org"
+      "https://base-pokt.nodies.app"
+      "wss://0xrpc.io/base"
        */
       rpcs.insert(
          8453,
@@ -430,17 +398,10 @@ impl Default for RpcProviders {
                not_mev_protect,
             ),
             Rpc::new(
-               "wss://0xrpc.io/base",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
                "wss://base.gateway.tenderly.co",
                8453,
                true,
-               false,
+               true,
                not_mev_protect,
             ),
             Rpc::new(
@@ -470,16 +431,10 @@ impl Default for RpcProviders {
       // Chain ID 42161: Arbitrum
 
       /*
-        Rpc::new("https://arb-pokt.nodies.app", 42161, true, true),
-        Rpc::new("https://arbitrum-one-rpc.publicnode.com", 42161, true, true),
-        Rpc::new("https://arbitrum-one.public.blastapi.io", 42161, true, true),
-                    Rpc::new(
-              "wss://arbitrum.callstaticrpc.com",
-              42161,
-              true,
-              true,
-           ),
-
+        "https://arb-pokt.nodies.app"
+        "https://arbitrum-one-rpc.publicnode.com"
+        "https://arbitrum-one.public.blastapi.io"
+        "wss://arbitrum.callstaticrpc.com"
       */
       rpcs.insert(
          42161,

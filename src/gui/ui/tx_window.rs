@@ -161,7 +161,7 @@ impl TxConfirmationWindow {
 
                   if self.tx.is_none() {
                      ui.label(
-                        RichText::new("Transaction Analysis not found")
+                        RichText::new("Transaction Analysis not found, this is a bug")
                            .size(theme.text_sizes.large),
                      );
                      return;
@@ -180,6 +180,9 @@ impl TxConfirmationWindow {
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
+
+                  let text = "Simulation Result";
+                  ui.label(RichText::new(text).size(theme.text_sizes.very_large));
 
                   if !action.is_other() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -443,7 +446,7 @@ impl TxWindow {
       Self {
          open: false,
          tx: None,
-         size: (500.0, 550.0),
+         size: (550.0, 400.0),
       }
    }
 
