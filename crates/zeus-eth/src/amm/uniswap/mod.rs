@@ -143,18 +143,18 @@ pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
 ///
-/// for V4 we set a threshold 10-11x higher than other protocols since we cannot just query the token balances
+/// for V4 we set a threshold 10x higher than other protocols since we cannot just query the token balances
 /// of the pool and we rely on the `compute_virtual_reserves` to give an idea of the liquidity
 // TODO: This should be based on a USD value
 pub fn minimum_liquidity(token: &ERC20Token, dex: DexKind) -> U256 {
    let weth_amount = if !dex.is_v4() {
-      parse_units("20", token.decimals).unwrap().get_absolute()
+      parse_units("5", token.decimals).unwrap().get_absolute()
    } else {
       parse_units("200", token.decimals).unwrap().get_absolute()
    };
 
    let wbnb_amount = if !dex.is_v4() {
-      parse_units("200", token.decimals).unwrap().get_absolute()
+      parse_units("25", token.decimals).unwrap().get_absolute()
    } else {
       parse_units("2000", token.decimals).unwrap().get_absolute()
    };

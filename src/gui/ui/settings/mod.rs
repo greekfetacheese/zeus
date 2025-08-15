@@ -124,7 +124,7 @@ impl ThemeSettings {
 
 pub struct SettingsUi {
    pub open: bool,
-   pub performance: PerformanceSettings,
+   pub general: GeneralSettings,
    pub encryption: EncryptionSettings,
    pub network: NetworkSettings,
    pub theme: ThemeSettings,
@@ -138,7 +138,7 @@ impl SettingsUi {
    pub fn new(ctx: ZeusCtx) -> Self {
       Self {
          open: false,
-         performance: PerformanceSettings::new(ctx),
+         general: GeneralSettings::new(ctx),
          encryption: EncryptionSettings::new(),
          network: NetworkSettings::new(),
          theme: ThemeSettings::new(),
@@ -159,7 +159,7 @@ impl SettingsUi {
       self.change_credentials_ui(ctx.clone(), theme, icons.clone(), ui);
       self.network.show(ctx.clone(), theme, icons.clone(), ui);
       self.contacts_ui.show(ctx.clone(), theme, icons, ui);
-      self.performance.show(ctx, theme, ui);
+      self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);
    }
 
@@ -213,12 +213,12 @@ impl SettingsUi {
                   self.network.open = true;
                }
 
-               let performance =
-                  Button::new(RichText::new("Performance Settings").size(theme.text_sizes.large))
+               let general =
+                  Button::new(RichText::new("General Settings").size(theme.text_sizes.large))
                      .corner_radius(5)
                      .min_size(size);
-               if ui.add(performance).clicked() {
-                  self.performance.open = true;
+               if ui.add(general).clicked() {
+                  self.general.open = true;
                }
 
                let theme =
@@ -476,7 +476,7 @@ impl EncryptionSettings {
    }
 }
 
-pub struct PerformanceSettings {
+pub struct GeneralSettings {
    open: bool,
    sync_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
@@ -488,7 +488,7 @@ pub struct PerformanceSettings {
    pub size: (f32, f32),
 }
 
-impl PerformanceSettings {
+impl GeneralSettings {
    pub fn new(ctx: ZeusCtx) -> Self {
       let pool_manager = ctx.pool_manager();
       let balance_manager = ctx.balance_manager();
@@ -520,7 +520,7 @@ impl PerformanceSettings {
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
-      let title = RichText::new("Performance Settings").size(theme.text_sizes.heading);
+      let title = RichText::new("General Settings").size(theme.text_sizes.heading);
       Window::new(title)
          .open(&mut open)
          .resizable(false)
@@ -669,7 +669,7 @@ impl PerformanceSettings {
          }
 
          if save_pool_manager {
-            let _ = ctx.save_pool_manager();
+            let _res = ctx.save_pool_manager();
          }
       });
    }
