@@ -1,9 +1,12 @@
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::{Address, Signature, Bytes, U256, aliases::{U48, U160}};
 use alloy_sol_types::{SolCall, SolValue, sol};
 
-pub use IV4Router::{PoolKey, PathKey, ExactInputParams, ExactInputSingleParams, ExactOutputParams, ExactOutputSingleParams};
+use super::Permit2;
+use super::v4::actions::*;
+pub use IV4Router::{PathKey, PoolKey};
 
 sol! {
+    type Currency is address;
 
     contract UniversalRouter {
         function execute(bytes calldata commands, bytes[] calldata inputs) public payable;
@@ -16,54 +19,6 @@ sol! {
    interface IHooks {}
 
     interface IV4Router {
-
-         type Currency is address;
-         
-
-         #[derive(Debug)]
-         struct Sweep {
-            address token;
-            address recipient;
-            uint256 amountMin;
-         }
-
-        #[derive(Debug, Default, PartialEq, Eq)]
-        /// @notice Parameters for a single-hop exact-input swap
-        struct ExactInputSingleParams {
-            PoolKey poolKey;
-            bool zeroForOne;
-            uint128 amountIn;
-            uint128 amountOutMinimum;
-            bytes hookData;
-        }
-
-        #[derive(Debug, Default, PartialEq, Eq)]
-        /// @notice Parameters for a multi-hop exact-input swap
-        struct ExactInputParams {
-            Currency currencyIn;
-            PathKey[] path;
-            uint128 amountIn;
-            uint128 amountOutMinimum;
-        }
-
-        #[derive(Debug, Default, PartialEq, Eq)]
-        /// @notice Parameters for a single-hop exact-output swap
-        struct ExactOutputSingleParams {
-            PoolKey poolKey;
-            bool zeroForOne;
-            uint128 amountOut;
-            uint128 amountInMaximum;
-            bytes hookData;
-        }
-
-        #[derive(Debug, Default, PartialEq, Eq)]
-        /// @notice Parameters for a multi-hop exact-output swap
-        struct ExactOutputParams {
-            address currencyOut;
-            PathKey[] path;
-            uint128 amountOut;
-            uint128 amountInMaximum;
-        }
 
     #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     struct PoolKey {
@@ -82,153 +37,17 @@ sol! {
         IHooks hooks;
         bytes hookData;
     }
+   }
 
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct IncreaseLiquidityParams {
-        uint256 tokenId;
-        uint256 liquidity;
-        uint128 amount0Max;
-        uint128 amount1Max;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct DecreaseLiquidityParams {
-        uint256 tokenId;
-        uint256 liquidity;
-        uint128 amount0Min;
-        uint128 amount1Min;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct MintPositionParams {
-        PoolKey poolKey;
-        int24 tickLower;
-        int24 tickUpper;
-        uint256 liquidity;
-        uint128 amount0Max;
-        uint128 amount1Max;
-        address owner;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct BurnPositionParams {
-        uint256 tokenId;
-        uint128 amount0Min;
-        uint128 amount1Min;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SwapExactInSingleParams {
-        PoolKey poolKey;
-        bool zeroForOne;
-        uint128 amountIn;
-        uint128 amountOutMinimum;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SwapExactInParams {
-        address currencyIn;
-        PathKey[] path;
-        uint128 amountIn;
-        uint128 amountOutMinimum;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SwapExactOutSingleParams {
-        PoolKey poolKey;
-        bool zeroForOne;
-        uint128 amountOut;
-        uint128 amountInMaximum;
-        bytes hookData;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SwapExactOutParams {
-        address currencyOut;
-        PathKey[] path;
-        uint128 amountOut;
-        uint128 amountInMaximum;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SettleParams {
-        address currency;
-        uint256 amount;
-        bool payerIsUser;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SettleAllParams {
-        address currency;
-        uint256 maxAmount;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SettlePairParams {
-        address currency0;
-        address currency1;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct TakeParams {
-        address currency;
+   struct Permit2TransferFrom {
+        address token;
         address recipient;
-        uint256 amount;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct TakeAllParams {
-        address currency;
-        uint256 minAmount;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct TakePortionParams {
-        address currency;
-        address recipient;
-        uint256 bips;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct TakePairParams {
-        address currency0;
-        address currency1;
-        address recipient;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SettleTakePairParams {
-        address settleCurrency;
-        address takeCurrency;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct CloseCurrencyParams {
-        address currency;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct SweepParams {
-        address currency;
-        address recipient;
-    }
-
-    #[derive(Debug, Default, PartialEq, Eq)]
-    struct ActionsParams {
-        bytes actions;
-        bytes[] params;
-    }
+        uint160 amount;
    }
 }
 
 pub fn execute_call_selector() -> [u8; 4] {
-    UniversalRouter::execute_0Call::SELECTOR
+   UniversalRouter::execute_0Call::SELECTOR
 }
 
 pub fn execute_with_deadline_call_selector() -> [u8; 4] {
@@ -320,4 +139,50 @@ pub fn encode_exact_output(
    .abi_encode_params()
    .into();
    Ok(data)
+}
+
+pub fn encode_permit2_transfer_from(
+   token: Address,
+   recipient: Address,
+   amount: U256,
+) -> Bytes {
+   let data = Permit2TransferFrom {
+      token,
+      recipient,
+      amount: U160::from(amount),
+   }
+   .abi_encode_params()
+   .into();
+   data
+}
+
+pub fn encode_permit2_permit(
+   token: Address,
+   amount: U256,
+   expiration: U256,
+   nonce: U48,
+   spender: Address,
+   sig_deadline: U256,
+   signature: Signature,
+) -> Bytes {
+   let amount = U160::from(amount);
+   let expiration = U48::from(expiration);
+
+   let permit_details = Permit2::PermitDetails {
+      token,
+      amount,
+      expiration,
+      nonce,
+   };
+
+   let permit_single = Permit2::PermitSingle {
+      details: permit_details,
+      spender,
+      sigDeadline: sig_deadline,
+   };
+
+   let sig_bytes = Bytes::from(signature.as_bytes());
+   let encoded_args = (permit_single, sig_bytes).abi_encode_params();
+
+   encoded_args.into()
 }

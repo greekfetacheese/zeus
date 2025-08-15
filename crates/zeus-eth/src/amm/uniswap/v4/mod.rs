@@ -1,7 +1,7 @@
 pub mod pool;
 pub use pool::UniswapV4Pool;
 
-use crate::abi::uniswap::universal_router_v2::IV4Router::*;
+use crate::abi::uniswap::v4::actions::*;
 use alloy_primitives::{Address, Bytes};
 use alloy_sol_types::SolValue;
 

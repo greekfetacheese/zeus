@@ -1,28 +1,26 @@
 use crate::abi::{
-   permit::*,
    uniswap::{
       encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      universal_router_v2::{
-         ExactInputSingleParams, ExactOutputSingleParams,
-         IV4Router::{ActionsParams, SettleParams, Sweep, TakeParams},
-         encode_execute, encode_execute_with_deadline,
-      },
+      universal_router_v2::*,
+      v4::actions::*,
    },
 };
 
 use super::{UniswapPool, v4::Actions};
 
+use crate::currency::Currency;
+use crate::utils::{
+   NumericValue,
+   address_book::permit2_contract,
+   generate_permit2_single_value, parse_typed_data,
+   secure_signer::{SecureSigner, erase_signer},
+};
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, U256};
-use alloy_sol_types::SolValue;
 use alloy_signer::Signer;
+use alloy_sol_types::SolValue;
 use anyhow::anyhow;
-use crate::currency::Currency;
 use serde_json::Value;
-use crate::utils::{
-   NumericValue, secure_signer::{erase_signer, SecureSigner}, address_book::permit2_contract,
-   generate_permit2_single_value, parse_typed_data,
-};
 
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 #[allow(non_camel_case_types)]
@@ -250,7 +248,7 @@ where
          let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
          erase_signer(signer);
 
-         let permit_input = encode_permit2_permit_ur_input(
+         let permit_input = encode_permit2_permit(
             token_in.address,
             amount_in,
             expiration,

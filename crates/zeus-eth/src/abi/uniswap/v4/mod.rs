@@ -1,4 +1,5 @@
 pub mod state_view;
+pub mod actions;
 
 use alloy_sol_types::{sol, SolEvent};
 use alloy_primitives::LogData;
