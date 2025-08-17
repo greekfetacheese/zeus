@@ -1,14 +1,13 @@
 use super::UniswapSettingsUi;
 use crate::core::ZeusCtx;
-use crate::gui::ui::dapps::uniswap::ProtocolVersion;
+use crate::gui::ui::dapps::{amount_field_with_currency_selector, uniswap::ProtocolVersion};
 use crate::gui::ui::*;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{
-   Align, Button, Color32, ComboBox, FontId, Frame, Grid, Id, Layout, Margin, RichText, ScrollArea,
-   Spinner, TextEdit, Ui, Window, vec2,
+   Align, Button, Color32, ComboBox, Frame, Grid, Id, Layout, RichText, ScrollArea, Spinner, Ui,
+   Window, vec2,
 };
-use egui_theme::{Theme, ThemeKind};
-use egui_widgets::Label;
+use egui_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::amm::uniswap::{quoter::*, universal_router_v2::SwapType};
@@ -465,15 +464,21 @@ impl SwapUi {
          // Currency in
          let frame = theme.frame1;
          let mut amount_changed = false;
+         let label = String::from("Sell");
+         let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+         let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          frame.show(ui, |ui| {
             let changed = amount_field_with_currency_selector(
                ctx.clone(),
                theme,
                icons.clone(),
-               InOrOut::In,
+               Some(label),
                &self.currency_in,
                &mut self.amount_in,
-               token_selection,
+               Some(token_selection),
+               Some(InOrOut::In),
+               balance,
+               max_amount,
                ui,
             );
             amount_changed = changed;
@@ -490,15 +495,21 @@ impl SwapUi {
          });
 
          // Currency out
+         let label = String::from("Buy");
+         let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
+         let max_amount = || NumericValue::default();
          frame.show(ui, |ui| {
             amount_field_with_currency_selector(
                ctx.clone(),
                theme,
                icons.clone(),
-               InOrOut::Out,
+               Some(label),
                &self.currency_out,
                &mut self.amount_out,
-               token_selection,
+               Some(token_selection),
+               Some(InOrOut::Out),
+               balance,
+               max_amount,
                ui,
             )
          });
@@ -1197,106 +1208,4 @@ pub fn get_relevant_pools(
    }
 
    relevant_pools
-}
-
-/// Helper function to draw an amount filed with a currency selector button
-///
-/// It draws the amount field, the currency selector button and the balance and max button
-///
-/// Returns if the amount field was changed
-pub fn amount_field_with_currency_selector(
-   ctx: ZeusCtx,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   direction: InOrOut,
-   currency: &Currency,
-   amount: &mut String,
-   token_selection: &mut TokenSelectionWindow,
-   ui: &mut Ui,
-) -> bool {
-   let mut amount_changed = false;
-
-   ui.vertical(|ui| {
-      ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
-      ui.horizontal(|ui| {
-         ui.label(
-            RichText::new(direction.to_string())
-               .size(theme.text_sizes.large)
-               .color(theme.colors.text_secondary),
-         );
-      });
-
-      // Amount input
-      ui.horizontal(|ui| {
-         let amount_input = TextEdit::singleline(amount)
-            .font(FontId::proportional(theme.text_sizes.heading))
-            .hint_text(RichText::new("0").color(theme.colors.text_secondary))
-            .background_color(theme.colors.text_edit_bg)
-            .margin(Margin::same(10))
-            .desired_width(ui.available_width() * 0.6)
-            .min_size(vec2(0.0, 50.0));
-
-         let res = ui.add(amount_input);
-         if res.changed() {
-            amount_changed = true;
-         }
-
-         // Currency Selector Button
-         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let icon = icons.currency_icon(currency);
-            let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
-
-            let button = Button::image_and_text(icon, button_text).min_size(vec2(100.0, 40.0));
-
-            if ui.add(button).clicked() {
-               token_selection.currency_direction = direction;
-               token_selection.open = true;
-            }
-         });
-      });
-
-      // USD Value
-      ui.horizontal(|ui| {
-         let amount = amount.parse().unwrap_or(0.0);
-         let usd_value = ctx.get_currency_value_for_amount(amount, currency);
-         ui.label(
-            RichText::new(format!("${}", usd_value.formatted())).size(theme.text_sizes.normal),
-         );
-      });
-
-      // Balance and Max Button
-      ui.horizontal(|ui| {
-         ui.spacing_mut().button_padding = vec2(10.0, 4.0);
-
-         let wallet_icon = match theme.kind {
-            ThemeKind::Latte => icons.wallet_dark(),
-            _ => icons.wallet_light(),
-         };
-
-         let chain_id = ctx.chain().id();
-         let owner = ctx.current_wallet_address();
-
-         let balance = ctx.get_currency_balance(chain_id, owner, currency);
-         let text = RichText::new(balance.format_abbreviated())
-            .size(theme.text_sizes.normal)
-            .color(theme.colors.text_secondary);
-         let label = Label::new(text, Some(wallet_icon));
-
-         ui.add(label);
-
-         ui.add_space(5.0);
-
-         // Max button
-         let max_text = RichText::new("Max").size(theme.text_sizes.small);
-         let max_button = Button::new(max_text);
-
-         if direction == InOrOut::In {
-            if ui.add(max_button).clicked() {
-               *amount = balance.flatten();
-               amount_changed = true;
-            }
-         }
-      });
-   });
-   amount_changed
 }
