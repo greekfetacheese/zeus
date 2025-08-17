@@ -21,3 +21,4 @@ pub use tx_window::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
 
 pub const GREEN_CHECK: &str = "✅";
+pub const REFRESH: &str = "⟲";

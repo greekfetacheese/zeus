@@ -187,6 +187,8 @@ pub struct MiscIcons {
    pub view_light: TextureHandle,
    pub hide: TextureHandle,
    pub hide_light: TextureHandle,
+   pub wallet_light: TextureHandle,
+   pub wallet_dark: TextureHandle,
 }
 
 impl MiscIcons {
@@ -205,6 +207,9 @@ impl MiscIcons {
       let hide = load_image(include_bytes!("misc/x24/hide.png"))?;
       let hide_light = load_image(include_bytes!("misc/x24/hide-light.png"))?;
 
+      let wallet_light = load_image(include_bytes!("misc/wallet-white.png"))?;
+      let wallet_dark = load_image(include_bytes!("misc/wallet-dark.png"))?;
+
       Ok(Self {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
          green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
@@ -214,6 +219,8 @@ impl MiscIcons {
          hide: ctx.load_texture("hide", hide, texture_options),
          view_light: ctx.load_texture("view_light", view_light, texture_options),
          hide_light: ctx.load_texture("hide_light", hide_light, texture_options),
+         wallet_light: ctx.load_texture("wallet_light", wallet_light, texture_options),
+         wallet_dark: ctx.load_texture("wallet_dark", wallet_dark, texture_options),
       })
    }
 }
@@ -361,6 +368,14 @@ impl Icons {
 
    pub fn hide_light(&self) -> Image<'static> {
       Image::new(&self.misc.hide_light).sense(Sense::click())
+   }
+
+   pub fn wallet_light(&self) -> Image<'static> {
+      Image::new(&self.misc.wallet_light).sense(Sense::click())
+   }
+
+   pub fn wallet_dark(&self) -> Image<'static> {
+      Image::new(&self.misc.wallet_dark).sense(Sense::click())
    }
 }
 

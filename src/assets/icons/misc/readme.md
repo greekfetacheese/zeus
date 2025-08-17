@@ -7,3 +7,4 @@ green-circle.png https://icons8.com/icon/60362/filled-circle
 swap.png https://icons8.com/icon/24864/swap
 view.png https://icons8.com/icon/7877/eye
 hide.png https://icons8.com/icon/34226/hide
+wallet-light.png https://www.flaticon.com/free-icon-font/wallet_7653271

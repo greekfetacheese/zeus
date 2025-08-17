@@ -13,7 +13,9 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
       utils::no_border(ui);
 
-      let home = Button::new(RichText::new("Home").size(21.0));
+      let text_size = gui.theme.text_sizes.very_large;
+
+      let home = Button::new(RichText::new("Home").size(text_size));
       if ui.add(home).clicked() {
          gui.uniswap.close();
          gui.send_crypto.open = false;
@@ -25,7 +27,21 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.portofolio.open = true;
       }
 
-      let swap = Button::new(RichText::new("Swap").size(21.0));
+      let send = Button::new(RichText::new("Send").size(text_size));
+      if ui.add(send).clicked() {
+         gui.send_crypto.open = true;
+         gui.uniswap.close();
+         gui.portofolio.open = false;
+         gui.settings.open = false;
+         gui.wallet_ui.open = false;
+         gui.tx_history.open = false;
+         gui.across_bridge.open = false;
+         gui.sync_pools_ui.open = false;
+         // This is shared, so reset it to avoid any issues
+         gui.recipient_selection.reset();
+      }
+
+      let swap = Button::new(RichText::new("Swap").size(text_size));
       if ui.add(swap).clicked() {
          gui.uniswap.open();
          gui.portofolio.open = false;
@@ -37,21 +53,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.sync_pools_ui.open = false;
       }
 
-      let send = Button::new(RichText::new("Send").size(21.0));
-      if ui.add(send).clicked() {
-         gui.uniswap.close();
-         gui.portofolio.open = false;
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         gui.send_crypto.open = true;
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-      }
-
-      let bridge = Button::new(RichText::new("Bridge").size(21.0));
+      let bridge = Button::new(RichText::new("Bridge").size(text_size));
       if ui.add(bridge).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
@@ -65,7 +67,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.across_bridge.open = true;
       }
 
-      let wallets = Button::new(RichText::new("Wallets").size(21.0));
+      let wallets = Button::new(RichText::new("Wallets").size(text_size));
       if ui.add(wallets).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
@@ -77,7 +79,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.wallet_ui.open = true;
       }
 
-      let tx_history = Button::new(RichText::new("Transactions").size(21.0));
+      let tx_history = Button::new(RichText::new("Transactions").size(text_size));
       if ui.add(tx_history).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
@@ -89,7 +91,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.tx_history.open = true;
       }
 
-      let settings = Button::new(RichText::new("Settings").size(21.0));
+      let settings = Button::new(RichText::new("Settings").size(text_size));
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
@@ -101,7 +103,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.settings.open = true;
       }
 
-      let connected_dapps = Button::new(RichText::new("Connected Dapps").size(21.0));
+      let connected_dapps = Button::new(RichText::new("Connected Dapps").size(text_size));
       if ui.add(connected_dapps).clicked() {
          gui.connected_dapps.open();
       }
@@ -109,7 +111,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       #[cfg(feature = "dev")]
       if ui
          .add(Button::new(
-            RichText::new("Theme Editor").size(20.0),
+            RichText::new("Theme Editor").size(text_size),
          ))
          .clicked()
       {
@@ -119,7 +121,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       #[cfg(feature = "dev")]
       if ui
          .add(Button::new(
-            RichText::new("FPS Metrics").size(20.0),
+            RichText::new("FPS Metrics").size(text_size),
          ))
          .clicked()
       {
@@ -129,7 +131,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       #[cfg(feature = "dev")]
       {
          let sync_pools = ui.add(Button::new(
-            RichText::new("Sync Pools").size(20.0),
+            RichText::new("Sync Pools").size(text_size),
          ));
          if sync_pools.clicked() {
             gui.portofolio.open = false;
@@ -147,7 +149,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       #[cfg(feature = "dev")]
       {
          let ui_testing = ui.add(Button::new(
-            RichText::new("Ui Testing").size(20.0),
+            RichText::new("Ui Testing").size(text_size),
          ));
          if ui_testing.clicked() {
             gui.ui_testing.show = true;
