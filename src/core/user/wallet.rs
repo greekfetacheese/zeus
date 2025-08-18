@@ -12,8 +12,8 @@ use crate::core::bip32::{path::*, primitives::XKeyInfo, xpriv::SecureXPriv};
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
 pub const M_COST: u32 = 8192_000;
-pub const T_COST: u32 = 128;
-pub const P_COST: u32 = 64;
+pub const T_COST: u32 = 256;
+pub const P_COST: u32 = 4;
 
 const DEV_M_COST: u32 = 16_000;
 const DEV_T_COST: u32 = 3;
