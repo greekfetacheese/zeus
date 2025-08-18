@@ -24,11 +24,12 @@ use zeus_eth::{currency::Currency, utils::NumericValue};
 /// - `direction`: Optional direction to set on the token selection if provided.
 /// - `get_balance`: Closure to compute the balance of the owner.
 /// - `get_max_amount`: Closure to compute the max amount as NumericValue (Set to zero if no max button should be shown).
+/// - `get_value`: Closure to compute the value of the currency amount.
 /// - `ui`: Mutable reference to the UI.
 ///
 /// Returns: If the amount field was changed.
 pub fn amount_field_with_currency_selector(
-   ctx: ZeusCtx,
+   _ctx: ZeusCtx,
    theme: &Theme,
    icons: Arc<Icons>,
    label: Option<String>,
@@ -38,6 +39,7 @@ pub fn amount_field_with_currency_selector(
    direction: Option<InOrOut>,
    get_balance: impl FnOnce() -> NumericValue,
    get_max_amount: impl FnOnce() -> NumericValue,
+   get_value: impl FnOnce() -> NumericValue,
    ui: &mut Ui,
 ) -> bool {
    let mut amount_changed = false;
@@ -114,9 +116,9 @@ pub fn amount_field_with_currency_selector(
 
          if ui.add(button).clicked() {
             if let Some(token_selection) = token_selection {
+               token_selection.open = true;
                if let Some(direction) = direction {
                   token_selection.currency_direction = direction;
-                  token_selection.open = true;
                }
             }
          }
@@ -124,10 +126,9 @@ pub fn amount_field_with_currency_selector(
 
       // USD Value
       ui.horizontal(|ui| {
-         let amount = amount.parse().unwrap_or(0.0);
-         let usd_value = ctx.get_currency_value_for_amount(amount, currency);
+         let value = get_value();
          ui.label(
-            RichText::new(format!("${}", usd_value.formatted())).size(theme.text_sizes.normal),
+            RichText::new(format!("${}", value.format_abbreviated())).size(theme.text_sizes.normal),
          );
       });
    });

@@ -467,6 +467,8 @@ impl SwapUi {
          let label = String::from("Sell");
          let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+         let amount = self.amount_in.parse().unwrap_or(0.0);
+         let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
          frame.show(ui, |ui| {
             let changed = amount_field_with_currency_selector(
                ctx.clone(),
@@ -479,6 +481,7 @@ impl SwapUi {
                Some(InOrOut::In),
                balance,
                max_amount,
+               value,
                ui,
             );
             amount_changed = changed;
@@ -498,6 +501,8 @@ impl SwapUi {
          let label = String::from("Buy");
          let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
          let max_amount = || NumericValue::default();
+         let amount = self.amount_out.parse().unwrap_or(0.0);
+         let value = || ctx.get_currency_value_for_amount(amount, &self.currency_out);
          frame.show(ui, |ui| {
             amount_field_with_currency_selector(
                ctx.clone(),
@@ -510,6 +515,7 @@ impl SwapUi {
                Some(InOrOut::Out),
                balance,
                max_amount,
+               value,
                ui,
             )
          });

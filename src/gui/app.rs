@@ -69,13 +69,13 @@ impl ZeusApp {
          let ctx_clone = ctx.clone();
 
          RT.spawn(async move {
-          update::test_and_measure_rpcs(ctx_clone).await;
+             update::test_and_measure_rpcs(ctx_clone).await;
          });
 
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
             if ctx_clone.vault_exists() {
-               update::on_startup(ctx_clone).await;
+                update::on_startup(ctx_clone).await;
             }
          });
 
@@ -167,13 +167,8 @@ impl eframe::App for ZeusApp {
 
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
-               ui.with_layout(
-                  egui::Layout::top_down(egui::Align::Center),
-                  |ui| {
-                     ui.set_max_width(900.0);
-                     gui.show_central_panel(ui);
-                  },
-               );
+               ui.set_max_width(900.0);
+               gui.show_central_panel(ui);
             });
          });
 
