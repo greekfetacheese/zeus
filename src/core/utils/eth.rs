@@ -860,7 +860,7 @@ pub async fn swap(
    let msg_value = execute_params.message.as_ref();
 
    if let Some(msg_value) = msg_value {
-      let _ = sign_message(
+      let _sig = sign_message(
          ctx.clone(),
          "".to_string(),
          chain,
@@ -896,7 +896,7 @@ pub async fn swap(
          call_data: call_data.clone(),
          gas_used: approval_gas_used,
          eth_balance_before: eth_balance_before.wei(),
-         eth_balance_after,
+         eth_balance_after: eth_balance_before.wei(),
          decoded_selector: "Approve".to_string(),
          token_approvals: vec![params],
          ..Default::default()
@@ -908,7 +908,7 @@ pub async fn swap(
          None,
          Some(analysis),
          chain,
-         mev_protect,
+         false, // mev protect not needed for approval
          from,
          interact_to,
          call_data,

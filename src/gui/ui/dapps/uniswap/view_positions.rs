@@ -99,14 +99,7 @@ impl CollectFees {
                }
 
                let pool: UniswapV3Pool = pool.unwrap().try_into().unwrap();
-               let state = pool.state().v3_state();
-               if state.is_none() {
-                  ui.label(
-                     RichText::new("Pool state not initialized").size(theme.text_sizes.very_large),
-                  );
-                  return;
-               }
-
+               
                let price0_usd = ctx.get_currency_price(pool.currency0());
                let price1_usd = ctx.get_currency_price(pool.currency1());
 

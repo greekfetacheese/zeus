@@ -781,7 +781,7 @@ pub fn eth_received(
    let native = NativeCurrency::from(chain);
    // let icon = icons.native_currency_icon_x24(chain);
    let text = format!(
-      "{text} {} {} ≈ {}",
+      "{text} {} {} ≈ ${}",
       eth_received.format_abbreviated(),
       native.symbol,
       eth_received_usd.format_abbreviated()
