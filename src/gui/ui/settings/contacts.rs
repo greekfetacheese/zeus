@@ -2,10 +2,10 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, user::Contact, utils::RT};
 use crate::gui::SHARED_GUI;
 use egui::{
-   Align2, Button, FontId, Frame, Grid, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window,
-   vec2,
+   Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
+use egui_widgets::Label;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
@@ -316,10 +316,8 @@ impl EditContact {
                      });
 
                      ctx.write_vault(|vault| {
-                        let new_contact = vault
-                           .contacts
-                           .iter_mut()
-                           .find(|c| c.address == old_contact.address);
+                        let new_contact =
+                           vault.contacts.iter_mut().find(|c| c.address == old_contact.address);
                         if let Some(new_contact) = new_contact {
                            new_contact.name = edited_contact.name.clone();
                            new_contact.address = edited_contact.address.clone();
@@ -403,7 +401,7 @@ impl ContactsUi {
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()).inner_margin(Margin::same(10)))
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -415,12 +413,9 @@ impl ContactsUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                // Add contact button
-               if ui
-                  .add(Button::new(
-                     RichText::new("Add Contact").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
+               let text = RichText::new("Add Contact").size(theme.text_sizes.normal);
+               let button = Button::new(text);
+               if ui.add(button).clicked() {
                   self.add_contact.open = true;
                }
 
@@ -428,68 +423,56 @@ impl ContactsUi {
 
                if contacts.is_empty() {
                   ui.label(RichText::new("No contacts found").size(theme.text_sizes.large));
-               } else {
-                  ScrollArea::vertical()
-                     .max_height(self.size.1)
-                     .show(ui, |ui| {
-                        ui.set_width(self.size.0);
-                        let ui_width = ui.available_width();
+                  return;
+               }
 
-                        Grid::new("contact_ui_grid")
-                           .spacing(vec2(20.0, 20.0))
-                           .show(ui, |ui| {
-                              for contact in &contacts {
-                                 // Name
-                                 let name =
-                                    RichText::new(&contact.name).size(theme.text_sizes.normal);
-                                 let button = Button::new(name).truncate();
-                                 ui.scope(|ui| {
-                                    ui.set_width(ui_width * 0.3);
-                                    ui.add(button);
-                                 });
+               ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
+                  ui.set_width(self.size.0);
 
-                                 // Address
-                                 let chain = ctx.chain();
-                                 let explorer = chain.block_explorer();
-                                 let link = format!("{}/address/{}", explorer, &contact.address);
-                                 ui.scope(|ui| {
-                                    ui.set_width(ui_width * 0.4);
-                                    ui.hyperlink_to(
-                                       RichText::new(contact.address_short(10, 10))
-                                          .size(theme.text_sizes.normal)
-                                          .color(theme.colors.hyperlink_color),
-                                       link,
-                                    );
-                                 });
+                  let frame = theme.frame2;
+                  for contact in &contacts {
+                     frame.show(ui, |ui| {
+                        ui.set_width(ui.available_width() * 0.7);
 
-                                 ui.scope(|ui| {
-                                    ui.set_width(ui_width * 0.3);
-                                    if ui
-                                       .add(Button::new(
-                                          RichText::new("Delete").size(theme.text_sizes.small),
-                                       ))
-                                       .clicked()
-                                    {
-                                       self.delete_contact.open = true;
-                                       self.delete_contact.contact_to_delete = contact.clone();
-                                    }
+                        // Name
+                        let text = RichText::new(&contact.name).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None).wrap();
+                        ui.add(label);
 
-                                    if ui
-                                       .add(Button::new(
-                                          RichText::new("Edit").size(theme.text_sizes.small),
-                                       ))
-                                       .clicked()
-                                    {
-                                       self.edit_contact.open = true;
-                                       self.edit_contact.contact_to_edit = contact.clone();
-                                       self.edit_contact.old_contact = contact.clone();
-                                    }
-                                 });
-                                 ui.end_row();
+                        // Address
+                        let chain = ctx.chain();
+                        let explorer = chain.block_explorer();
+                        let link = format!("{}/address/{}", explorer, &contact.address);
+                        ui.hyperlink_to(
+                           RichText::new(contact.address_short(10, 10))
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.hyperlink_color),
+                           link,
+                        );
+
+                        let size = vec2(ui.available_width() * 0.30, 40.0);
+                        ui.allocate_ui(size, |ui| {
+                           ui.horizontal(|ui| {
+                              let text = RichText::new("Edit").size(theme.text_sizes.small);
+                              let edit_button = Button::new(text);
+                              if ui.add(edit_button).clicked() {
+                                 self.edit_contact.open = true;
+                                 self.edit_contact.contact_to_edit = contact.clone();
+                                 self.edit_contact.old_contact = contact.clone();
+                              }
+
+                              let text = RichText::new("Delete").size(theme.text_sizes.small);
+                              let delete_button = Button::new(text);
+                              if ui.add(delete_button).clicked() {
+                                 self.delete_contact.open = true;
+                                 self.delete_contact.contact_to_delete = contact.clone();
                               }
                            });
+                        });
                      });
-               }
+                     ui.add_space(10.0);
+                  }
+               });
             });
          });
       self.open = open;

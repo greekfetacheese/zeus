@@ -350,6 +350,13 @@ impl UniswapUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+         if !ctx.chain().is_ethereum() {
+            let text = RichText::new("Swap feature is only available on Ethereum mainnet")
+               .size(theme.text_sizes.large)
+               .color(theme.colors.error_color);
+            ui.label(text);
+         }
+
          let size = vec2(ui.available_width() * 0.5, 50.0);
 
          // Header

@@ -2,8 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx, user::Contact};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
-   Window, vec2,
+   Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
 use egui_theme::Theme;
 use std::str::FromStr;
@@ -89,7 +88,6 @@ impl RecipientSelectionWindow {
             ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-            let column_width = ui.available_width() * 0.33;
 
             // Search bar
             ui.vertical_centered(|ui| {
@@ -128,11 +126,10 @@ impl RecipientSelectionWindow {
                   .max_width(ui.available_width())
                   .show(ui, |ui| {
                      if are_valid_wallets {
-                        self.account_wallets(
+                        self.vault_wallets(
                            ctx.clone(),
                            theme,
                            icons.clone(),
-                           column_width,
                            &mut close_window,
                            ui,
                         );
@@ -140,7 +137,7 @@ impl RecipientSelectionWindow {
                      }
 
                      if are_valid_contacts {
-                        self.account_contacts(ctx.clone(), theme, &mut close_window, ui);
+                        self.vault_contacts(ctx.clone(), theme, &mut close_window, ui);
                      }
                   });
 
@@ -173,12 +170,11 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn account_wallets(
+   fn vault_wallets(
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
-      column_width: f32,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
@@ -199,12 +195,8 @@ impl RecipientSelectionWindow {
          let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
 
          // Extract the portfolio value (or use a default if not found)
-         let value_a = portfolio_a
-            .map(|p| p.value.clone())
-            .unwrap_or(NumericValue::default());
-         let value_b = portfolio_b
-            .map(|p| p.value.clone())
-            .unwrap_or(NumericValue::default());
+         let value_a = portfolio_a.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
+         let value_b = portfolio_b.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
 
          // Sort in descending order (highest value first)
          // If values are equal, sort by name as a secondary criterion
@@ -222,54 +214,61 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+      let frame = theme.frame2;
+      let column0 = ui.available_width() * 0.33;
+      let column1 = ui.available_width() * 0.33;
+      let column2 = ui.available_width() * 0.20;
+
       for wallet in &wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
          let value = ctx.get_portfolio_value_all_chains(wallet.address);
          let chains = ctx.get_chains_that_have_balance(wallet.address);
 
          if valid_search {
-            // Main Row
-            ui.horizontal(|ui| {
-               ui.set_max_width(ui.available_width() * 0.95);
-
-               // Wallet
-               ui.with_layout(
-                  Layout::left_to_right(Align::Min).with_main_wrap(true),
-                  |ui| {
-                     ui.set_width(column_width);
+            frame.show(ui, |ui| {
+               ui.horizontal(|ui| {
+                  ui.horizontal(|ui| {
+                     ui.set_width(column0);
                      let name = RichText::new(wallet.name()).size(theme.text_sizes.normal);
-                     ui.scope(|ui| {
-                        ui.set_width(column_width * 0.8);
-                        if ui.add(Button::new(name)).clicked() {
-                           self.recipient = wallet.address.to_string();
-                           self.recipient_name = Some(wallet.name());
-                           *close_window = true;
-                        }
-                     });
-                  },
-               );
+                     let button = Button::new(name).wrap();
 
-               // Address
-               ui.horizontal(|ui| {
-                  ui.set_width(column_width);
-                  ui.label(RichText::new(wallet.address_truncated()).size(theme.text_sizes.small));
-               });
+                     if ui.add(button).clicked() {
+                        self.recipient = wallet.address.to_string();
+                        self.recipient_name = Some(wallet.name());
+                        *close_window = true;
+                     }
+                  });
 
-               // Value
-               ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-               ui.horizontal(|ui| {
-                  ui.vertical(|ui| {
-                     ui.set_width(column_width);
-                     ui.horizontal(|ui| {
-                        for chain in chains {
-                           let icon = icons.chain_icon_x16(chain);
-                           ui.add(icon);
-                        }
-                     });
-                     ui.label(
-                        RichText::new(format!("${}", value.formatted()))
-                           .size(theme.text_sizes.normal),
+                  // Address
+                  ui.horizontal(|ui| {
+                     ui.set_width(column1);
+                     let chain = ctx.chain();
+                     let explorer = chain.block_explorer();
+                     let link = format!("{}/address/{}", explorer, &wallet.address);
+                     ui.hyperlink_to(
+                        RichText::new(wallet.address_truncated())
+                           .size(theme.text_sizes.normal)
+                           .color(theme.colors.hyperlink_color),
+                        link,
                      );
+                  });
+
+                  // Value
+                  ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
+                  ui.horizontal(|ui| {
+                     ui.set_width(column2);
+                     ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                           for chain in chains {
+                              let icon = icons.chain_icon_x16(chain);
+                              ui.add(icon);
+                           }
+                        });
+                        ui.label(
+                           RichText::new(format!("${}", value.format_abbreviated()))
+                              .size(theme.text_sizes.normal),
+                        );
+                     });
                   });
                });
             });
@@ -277,13 +276,7 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn account_contacts(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      close_window: &mut bool,
-      ui: &mut Ui,
-   ) {
+   fn vault_contacts(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
       let contacts = ctx.contacts();
 
       ui.label(RichText::new("Your Contacts").size(theme.text_sizes.large));
@@ -291,17 +284,22 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().item_spacing = vec2(5.0, 25.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+      let frame = theme.frame2;
+      let column0 = ui.available_width() * 0.33;
+      let column1 = ui.available_width() * 0.33;
+      let column2 = ui.available_width() * 0.20;
+
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, &self.search_query);
 
          if valid_search {
-            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+            frame.show(ui, |ui| {
                ui.horizontal(|ui| {
                   // Contact Name
-                  ui.scope(|ui| {
-                     ui.set_width(ui.available_width() * 0.25);
+                  ui.horizontal(|ui| {
+                     ui.set_width(column0);
                      let name = RichText::new(contact.name.clone()).size(theme.text_sizes.normal);
-                     let button = Button::new(name).truncate();
+                     let button = Button::new(name).wrap();
                      if ui.add(button).clicked() {
                         self.recipient = contact.address.to_string();
                         self.recipient_name = Some(contact.name.clone());
@@ -310,15 +308,23 @@ impl RecipientSelectionWindow {
                   });
 
                   // Address
-                  let chain = ctx.chain();
-                  let explorer = chain.block_explorer();
-                  let link = format!("{}/address/{}", explorer, &contact.address);
-                  ui.hyperlink_to(
-                     RichText::new(&contact.address_short(10, 10))
-                        .size(theme.text_sizes.small)
-                        .color(theme.colors.hyperlink_color),
-                     link,
-                  );
+                  ui.horizontal(|ui| {
+                     ui.set_width(column1);
+                     let chain = ctx.chain();
+                     let explorer = chain.block_explorer();
+                     let link = format!("{}/address/{}", explorer, &contact.address);
+                     ui.hyperlink_to(
+                        RichText::new(&contact.address_short(10, 10))
+                           .size(theme.text_sizes.small)
+                           .color(theme.colors.hyperlink_color),
+                        link,
+                     );
+                  });
+
+                  // Just occupy space
+                  ui.horizontal(|ui| {
+                     ui.set_width(column2);
+                  });
                });
             });
          }

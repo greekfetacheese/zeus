@@ -30,9 +30,7 @@ const M_COST_TIP: &str =
 const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run over the memory. Higher values are more secure but slower.";
 
 const P_COST_TIP: &str = "How many parallel lanes (threads) the Argon2 algorithm will use.
- Normally this number should not be greater than the number of cores on your CPU,
- but you can safely increase it to as much as you want since even if the P_COST exceeds the cores of the CPU
-  there is some performance penalty but in a case of a GPU/ASIC attack it will be even harder for the attacker to compute the hash";
+You should keep this number as low as possible, best value for maximum security is 1";
 
 pub struct ThemeSettings {
    open: bool,

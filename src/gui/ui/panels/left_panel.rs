@@ -18,7 +18,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       let home = Button::new(RichText::new("Home").size(text_size));
       if ui.add(home).clicked() {
          gui.uniswap.close();
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
@@ -29,7 +29,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let send = Button::new(RichText::new("Send").size(text_size));
       if ui.add(send).clicked() {
-         gui.send_crypto.open = true;
+         gui.send_crypto.open();
          gui.uniswap.close();
          gui.portofolio.open = false;
          gui.settings.open = false;
@@ -45,7 +45,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       if ui.add(swap).clicked() {
          gui.uniswap.open();
          gui.portofolio.open = false;
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
@@ -57,7 +57,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       if ui.add(bridge).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
@@ -71,7 +71,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       if ui.add(wallets).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.settings.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
@@ -83,7 +83,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       if ui.add(tx_history).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.settings.open = false;
          gui.wallet_ui.open = false;
          gui.across_bridge.open = false;
@@ -95,7 +95,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       if ui.add(settings).clicked() {
          gui.portofolio.open = false;
          gui.uniswap.close();
-         gui.send_crypto.open = false;
+         gui.send_crypto.close();
          gui.wallet_ui.open = false;
          gui.tx_history.open = false;
          gui.across_bridge.open = false;
@@ -136,7 +136,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          if sync_pools.clicked() {
             gui.portofolio.open = false;
             gui.uniswap.close();
-            gui.send_crypto.open = false;
+            gui.send_crypto.close();
             gui.wallet_ui.open = false;
             gui.tx_history.open = false;
             gui.across_bridge.open = false;
@@ -155,7 +155,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.ui_testing.show = true;
             gui.portofolio.open = false;
             gui.uniswap.close();
-            gui.send_crypto.open = false;
+            gui.send_crypto.close();
             gui.wallet_ui.open = false;
             gui.tx_history.open = false;
             gui.across_bridge.open = false;

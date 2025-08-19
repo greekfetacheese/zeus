@@ -30,7 +30,7 @@ use zeus_eth::{
 };
 
 pub struct SendCryptoUi {
-   pub open: bool,
+   open: bool,
    pub currency: Currency,
    pub amount: String,
    pub recipient: String,
@@ -58,6 +58,30 @@ impl SendCryptoUi {
 
    pub fn set_currency(&mut self, currency: Currency) {
       self.currency = currency;
+   }
+
+   pub fn clear_recipient(&mut self) {
+      self.recipient_name = None;
+      self.recipient = String::new();
+   }
+
+   pub fn clear_amount(&mut self) {
+      self.amount = String::new();
+   }
+
+   pub fn clear_search_query(&mut self) {
+      self.search_query = String::new();
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+      self.clear_recipient();
+      self.clear_amount();
+      self.clear_search_query();
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
    }
 
    pub fn show(
@@ -346,7 +370,11 @@ impl SendCryptoUi {
             )
             .await
             {
-               Ok(_) => {}
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.send_crypto.clear_amount();
+                  });
+               }
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
@@ -367,7 +395,11 @@ impl SendCryptoUi {
             )
             .await
             {
-               Ok(_) => {}
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.send_crypto.clear_amount();
+                  });
+               }
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
