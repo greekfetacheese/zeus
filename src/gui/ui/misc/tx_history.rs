@@ -208,8 +208,8 @@ impl TxHistory {
                   }
                }
             }
-            // Sort all collected transactions by block number (newest first)
-            txs.sort_unstable_by(|a, b| b.block.cmp(&a.block));
+            // Sort all collected transactions by timestamp (newest first)
+            txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
             txs
          });
 
