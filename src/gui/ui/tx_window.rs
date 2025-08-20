@@ -221,10 +221,18 @@ impl TxConfirmationWindow {
 
                   ui.add_space(20.0);
 
-                  // Show the Chain we interacted with
+                  // Tx details
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
                         chain_ui(self.chain, theme, icons.clone(), ui);
+                        address_ui(
+                           ctx.clone(),
+                           self.chain,
+                           "Sender",
+                           analysis.sender,
+                           theme,
+                           ui,
+                        );
 
                         // Contract interaction
                         if analysis.contract_interact {
@@ -634,22 +642,22 @@ pub fn transaction_cost(
    theme: &Theme,
    ui: &mut Ui,
 ) {
-   let native_currency = NativeCurrency::from(chain.id());
+   let eth = NativeCurrency::from(chain.id());
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let cost = format!(
-            "Cost {} {}",
-            eth_cost.formatted(),
-            native_currency.symbol
-         );
-         ui.label(RichText::new(cost).size(theme.text_sizes.normal));
+         ui.label(RichText::new("Cost").size(theme.text_sizes.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(
-            RichText::new(format!("~ ${}", eth_cost_usd.formatted())).size(theme.text_sizes.normal),
+         let cost = eth_cost.format_abbreviated();
+         let text = format!(
+            "{} {} ~ ${:.4}",
+            cost,
+            eth.symbol,
+            eth_cost_usd.format_abbreviated()
          );
+         ui.label(RichText::new(text).size(theme.text_sizes.normal));
       });
    });
 }
@@ -658,7 +666,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let text = "Transaction hash";
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+         ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -680,17 +688,18 @@ pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, u
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let value = value.format_abbreviated();
-         let text = format!("Value {} {}", value, eth.symbol());
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+         ui.label(RichText::new("Value").size(theme.text_sizes.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
-         ui.label(
-            RichText::new(format!("~ ${}", value_usd.format_abbreviated()))
-               .size(theme.text_sizes.normal),
+         let text = format!(
+            "{} {} ~ ${:4}",
+            value.format_abbreviated(),
+            eth.symbol(),
+            value_usd.format_abbreviated()
          );
+         ui.label(RichText::new(text).size(theme.text_sizes.normal));
       });
    });
 }
@@ -704,7 +713,7 @@ pub fn contract_interact(
 ) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Contract interaction").size(theme.text_sizes.normal);
+         let text = RichText::new("Contract interaction").size(theme.text_sizes.large);
          ui.label(text);
       });
 
@@ -730,10 +739,45 @@ pub fn contract_interact(
    });
 }
 
+/// Show the address of the sender or recipient depending on the context
+pub fn address_ui(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   label: &str,
+   address: Address,
+   theme: &Theme,
+   ui: &mut Ui,
+) {
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new(label).size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let address_short = truncate_address(address.to_string());
+         let address_name = ctx.get_address_name(chain.id(), address);
+         let address_name = if let Some(address_name_str) = address_name {
+            address_name_str
+         } else {
+            address_short
+         };
+
+         let explorer = chain.block_explorer();
+         let link = format!("{}/address/{}", explorer, address.to_string());
+         ui.hyperlink_to(
+            RichText::new(address_name)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.hyperlink_color),
+            link,
+         );
+      });
+   });
+}
+
 pub fn chain_ui(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Chain").size(theme.text_sizes.normal));
+         ui.label(RichText::new("Chain").size(theme.text_sizes.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -829,60 +873,24 @@ pub fn token_approval_event_ui(
    }
 
    // Owner
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Owner").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let owner_address = params.owner;
-         let owner_short = truncate_address(owner_address.to_string());
-         let address_name = ctx.get_address_name(chain.id(), owner_address);
-         let owner = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            owner_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, owner_address);
-         ui.hyperlink_to(
-            RichText::new(owner)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Owner",
+      params.owner,
+      theme,
+      ui,
+   );
 
    // Spender
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Spender").size(theme.text_sizes.large);
-         ui.label(text);
-      });
-
-      let spender_address = params.spender;
-      let spender_short = truncate_address(spender_address.to_string());
-      let spender_name = ctx.get_address_name(chain.id(), spender_address);
-      let spender = if let Some(spender_name_str) = spender_name {
-         spender_name_str
-      } else {
-         spender_short
-      };
-
-      let explorer = chain.block_explorer();
-      let link = format!("{}/address/{}", explorer, spender_address);
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.hyperlink_to(
-            RichText::new(spender)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Spender",
+      params.spender,
+      theme,
+      ui,
+   );
 }
 
 fn transfer_event_ui(
@@ -925,31 +933,14 @@ fn transfer_event_ui(
 
    // Recipient
    ui.allocate_ui(size, |ui| {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-         });
-
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let recipient_address = params.recipient;
-
-            let address_name = ctx.get_address_name(chain.id(), recipient_address);
-            let recipient = if let Some(address_name_str) = address_name {
-               address_name_str
-            } else {
-               recipient_address.to_string()
-            };
-
-            let explorer = chain.block_explorer();
-            let link = format!("{}/address/{}", explorer, recipient_address);
-            ui.hyperlink_to(
-               RichText::new(recipient)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
-      });
+      address_ui(
+         ctx.clone(),
+         chain,
+         "Recipient",
+         params.recipient,
+         theme,
+         ui,
+      );
    });
 }
 
@@ -987,63 +978,29 @@ fn erc20_transfer_event_ui(
    });
 
    // Sender
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Sender").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let sender_address = params.sender;
-         let sender_short = truncate_address(sender_address.to_string());
-         let address_name = ctx.get_address_name(chain.id(), sender_address);
-         let sender = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            sender_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, sender_address);
-         ui.hyperlink_to(
-            RichText::new(sender)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Sender",
+      params.sender,
+      theme,
+      ui,
+   );
 
    // Recipient
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let recipient_address = params.recipient;
-
-         let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            recipient_address.to_string()
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, recipient_address);
-         ui.hyperlink_to(
-            RichText::new(recipient)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Recipient",
+      params.recipient,
+      theme,
+      ui,
+   );
 
    // Actual amount sent
    if params.real_amount_sent.is_some() {
       let real_amount_sent = params.real_amount_sent.as_ref().unwrap();
-      let real_amount_sent_usd = params.real_amount_sent_usd.as_ref().unwrap();
+      let real_amount_sent_usd = params.real_amount_sent_usd.clone().unwrap_or_default();
 
       ui.horizontal(|ui| {
          let text = "Actual amount sent";
@@ -1133,59 +1090,24 @@ fn bridge_event_ui(
    });
 
    // Depositor
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Depositor").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let depositor_address = params.depositor;
-         let depositor_short = truncate_address(depositor_address.to_string());
-
-         let address_name = ctx.get_address_name(chain.id(), depositor_address);
-         let depositor = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            depositor_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, depositor_address);
-         ui.hyperlink_to(
-            RichText::new(depositor)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Depositor",
+      params.depositor,
+      theme,
+      ui,
+   );
 
    // Recipient
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let recipient_address = params.recipient;
-
-         let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            recipient_address.to_string()
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, recipient_address);
-         ui.hyperlink_to(
-            RichText::new(recipient)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Recipent",
+      params.recipient,
+      theme,
+      ui,
+   );
 
    // Origin Chain Column
    ui.horizontal(|ui| {
@@ -1342,30 +1264,14 @@ fn wrap_eth_event_ui(
    });
 
    // Recipient
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let recipient_address = params.dst;
-         let address_name = ctx.get_address_name(chain.id(), recipient_address);
-         let recipient = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            recipient_address.to_string()
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, recipient_address);
-         ui.hyperlink_to(
-            RichText::new(recipient)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Recipient",
+      params.dst,
+      theme,
+      ui,
+   );
 }
 
 fn unwrap_weth_event_ui(
@@ -1406,32 +1312,14 @@ fn unwrap_weth_event_ui(
    });
 
    // Source
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Source").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let src_address = params.src;
-         let src_short = truncate_address(src_address.to_string());
-
-         let address_name = ctx.get_address_name(chain.id(), src_address);
-         let src = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            src_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, src_address);
-         ui.hyperlink_to(
-            RichText::new(src)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
+   address_ui(
+      ctx.clone(),
+      chain,
+      "Source",
+      params.src,
+      theme,
+      ui,
+   );
 }
 
 fn uniswap_position_op_event_ui(
@@ -1558,59 +1446,16 @@ fn uniswap_position_op_event_ui(
       });
    }
 
-   // Sender
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Sender").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let sender_address = params.sender;
-         let sender_short = truncate_address(sender_address.to_string());
-         let address_name = ctx.get_address_name(chain.id(), sender_address);
-         let sender = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            sender_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, sender_address);
-         ui.hyperlink_to(
-            RichText::new(sender)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
-
    // Recipient
    if params.recipient.is_some() {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
-         });
-
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let recipient_address = params.recipient.unwrap();
-            let address_name = ctx.get_address_name(chain.id(), recipient_address);
-            let recipient = if let Some(address_name_str) = address_name {
-               address_name_str
-            } else {
-               recipient_address.to_string()
-            };
-
-            let explorer = chain.block_explorer();
-            let link = format!("{}/address/{}", explorer, recipient_address);
-            ui.hyperlink_to(
-               RichText::new(recipient)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.hyperlink_color),
-               link,
-            );
-         });
-      });
+      address_ui(
+         ctx.clone(),
+         chain,
+         "Recipient",
+         params.recipient.unwrap(),
+         theme,
+         ui,
+      );
    }
 }
 
