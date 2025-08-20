@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use tracing::{error, info};
 use warp::Filter;
 
+
 use std::str::FromStr;
 use zeus_eth::{
    alloy_network::TransactionBuilder,
@@ -31,8 +32,6 @@ pub const INVALID_PARAMS: i32 = -32602;
 pub const INTERNAL_ERROR: i32 = -32603;
 
 /// Type of a request we expect to receive from the extension/dapp
-///
-/// This includes both EIP-1193 and wallet requests
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestMethod {
    WalletAddEthereumChain,
@@ -325,7 +324,7 @@ async fn get_permissions(
              "parentCapability": "eth_accounts",
              "caveats": [{
                  "type": "restrictReturnedAccounts",
-                 "value": [current_wallet]  // Array of exposed account strings
+                 "value": [current_wallet]
              }]
          }])),
          error: None,
@@ -370,7 +369,6 @@ async fn connect(
    payload: JsonRpcRequest,
    method: RequestMethod, // New param
 ) -> Result<JsonRpcResponse, Infallible> {
-   // Existing prompt logic...
    SHARED_GUI.write(|gui| {
       gui.confirm_window.open("Connect to Dapp");
       gui.confirm_window.set_msg2(origin.clone());
@@ -403,7 +401,6 @@ async fn connect(
 
    let current_wallet = ctx.current_wallet_address().to_string();
 
-   // Return based on method
    let result = match method {
       RequestMethod::RequestAccounts => Some(json!(vec![current_wallet])),
       RequestMethod::WalletRequestPermissions => Some(json!([{
@@ -441,16 +438,15 @@ async fn block_number(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
+   let block = ctx.get_latest_block().await;
+   let block_number = match block {
+      Ok(Some(block)) => block.number,
+      Ok(None) => 0,
       Err(e) => {
-         error!("Error getting client: {:?}", e);
+         error!("Error getting latest block: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
    };
-
-   let block_number = client.get_block_number().await.unwrap_or(0);
 
    let response = JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
@@ -1069,6 +1065,7 @@ async fn eth_send_transaction(
    });
 
    let hash = receipt.transaction_hash;
+  // let hex_hash = hex::encode(hash);
    let hash_str = format!("0x{}", hash);
 
    let response = JsonRpcResponse::ok(Some(Value::String(hash_str)), payload.id);
@@ -1115,7 +1112,7 @@ async fn handle_request(
             origin,
             method.as_str()
          );
-         return connect(ctx, origin, payload, method).await; // Pass method to connect
+         return connect(ctx, origin, payload, method).await;
       } else {
          error!(
             "Dapp at origin '{}' is not connected and tried to call method '{}'.",
@@ -1166,6 +1163,7 @@ fn with_ctx(ctx: ZeusCtx) -> impl Filter<Extract = (ZeusCtx,), Error = Infallibl
 }
 
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
+
    let cors = warp::cors()
       .allow_any_origin()
       .allow_methods(vec!["GET", "POST", "OPTIONS"])

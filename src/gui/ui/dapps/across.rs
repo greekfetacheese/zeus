@@ -808,7 +808,7 @@ async fn wait_for_fill(
    }
 
    let from_block = from_block.unwrap();
-   let mut block_time_ms = dest_chain.block_time();
+   let mut block_time_ms = dest_chain.block_time_millis();
    if dest_chain.is_arbitrum() {
       // give more time so we dont spam the rpc
       block_time_ms *= 3;

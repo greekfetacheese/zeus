@@ -19,11 +19,15 @@ use std::{
 use tokio::time::sleep;
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::uniswap::{DexKind, AnyUniswapPool},
+   alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
+   amm::uniswap::{AnyUniswapPool, DexKind},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::client::{RpcClient, get_client, retry_layer, throttle_layer},
-   utils::{NumericValue, address_book},
+   utils::{
+      NumericValue, address_book,
+      client::{RpcClient, get_client, retry_layer, throttle_layer},
+   },
 };
 
 const CLIENT_TIMEOUT: u64 = 10;
@@ -625,9 +629,13 @@ impl ZeusCtx {
       let mut portfolio = self.get_portfolio(chain, owner);
       let mut value = 0.0;
 
-      for token in &portfolio.tokens {
-         let price = self.get_currency_price(token).f64();
-         let balance = self.get_currency_balance(chain, owner, token).f64();
+      for currency in &portfolio.tokens {
+         if currency.is_native() {
+            continue;
+         }
+
+         let price = self.get_currency_price(currency).f64();
+         let balance = self.get_currency_balance(chain, owner, currency).f64();
          value += NumericValue::value(balance, price).f64()
       }
 
@@ -809,6 +817,42 @@ impl ZeusCtx {
       self.read(|ctx| ctx.connected_dapps.is_connected(dapp))
    }
 
+   pub async fn get_latest_block(&self) -> Result<Option<Block>, anyhow::Error> {
+      let chain = self.chain();
+      let block_time = chain.block_time_millis();
+      let epoch = std::time::SystemTime::now()
+         .duration_since(std::time::UNIX_EPOCH)
+         .unwrap_or_default()
+         .as_millis();
+
+      let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
+      if let Some(block) = block {
+         // time check
+         let elapsed = if epoch > block.timestamp as u128 {
+            epoch - block.timestamp as u128
+         } else {
+            u128::MAX
+         };
+
+         if elapsed < block_time as u128 {
+            return Ok(Some(block));
+         }
+      }
+
+      let client = self.get_client(chain.id()).await?;
+      let block = client.get_block(BlockId::latest()).await?;
+
+      if let Some(block) = block {
+         let block = Block::new(block.header.number, block.header.timestamp);
+         self.write(|ctx| {
+            ctx.latest_block.insert(chain.id(), block.clone());
+         });
+         return Ok(Some(block));
+      }
+
+      Ok(None)
+   }
+
    pub fn server_port(&self) -> u16 {
       self.read(|ctx| ctx.server_port)
    }
@@ -846,6 +890,18 @@ impl ConnectedDapps {
 
    pub fn is_connected(&self, dapp: &str) -> bool {
       self.dapps.contains(&dapp.to_string())
+   }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Block {
+   pub number: u64,
+   pub timestamp: u64,
+}
+
+impl Block {
+   pub fn new(number: u64, timestamp: u64) -> Self {
+      Self { number, timestamp }
    }
 }
 
@@ -929,6 +985,7 @@ pub struct ZeusContext {
    pub data_syncing: bool,
    pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,
+   pub latest_block: HashMap<u64, Block>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
    pub server_port: u16,
@@ -1028,6 +1085,7 @@ impl ZeusContext {
          data_syncing: false,
          on_startup_syncing: false,
          base_fee: HashMap::new(),
+         latest_block: HashMap::new(),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
          server_port: SERVER_PORT,
@@ -1043,8 +1101,8 @@ impl ZeusContext {
 mod tests {
    use super::*;
    use zeus_eth::{
-      alloy_provider::Provider,
       alloy_primitives::{U256, utils::format_units},
+      alloy_provider::Provider,
       alloy_rpc_types::BlockId,
       types::SUPPORTED_CHAINS,
    };

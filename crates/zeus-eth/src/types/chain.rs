@@ -127,7 +127,7 @@ impl ChainId {
    }
 
    /// Block time in milliseconds
-   pub fn block_time(&self) -> u64 {
+   pub fn block_time_millis(&self) -> u64 {
       match self {
          ChainId::Ethereum(_) => 12000,
          ChainId::Optimism(_) => 2000,
@@ -136,6 +136,11 @@ impl ChainId {
          // Arbitrum doesnt have a fixed block time but lets assume on average its 250ms (based on arbscan)
          ChainId::Arbitrum(_) => 250,
       }
+   }
+
+   /// Block time in seconds
+   pub fn block_time_secs(&self) -> f32 {
+      self.block_time_millis() as f32 / 1000.0
    }
 
    /// Block gas limit
