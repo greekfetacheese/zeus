@@ -127,21 +127,6 @@ class ZeusProvider extends EventEmitter {
         this._chainId = null;
         this._initializeState();
         this._announceProvider();
-
-        // Listen for request and re-announce
-        window.addEventListener("eip6963:requestProvider", () => {
-            console.log('Zeus: Received eip6963:requestProvider event');
-            this._announceProvider();
-        });
-
-        // Re-announce on full load (for late-initializing dApps)
-        window.addEventListener('load', () => {
-            console.log('Zeus: Window loaded, re-announcing provider');
-            this._announceProvider();
-        });
-
-        // One-time delayed re-announce (e.g., after 1s for async dApp init)
-        setTimeout(() => this._announceProvider(), 1000);
     }
 
     _announceProvider() {
