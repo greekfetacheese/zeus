@@ -93,6 +93,7 @@ window.addEventListener("message", (event) => {
     }
 });
 
+const FIVE_MINUTES = 60000 * 5;
 
 function backgroundFetch(url, options) {
     return new Promise((resolve, reject) => {
@@ -112,7 +113,7 @@ function backgroundFetch(url, options) {
                 pendingRequests.delete(requestId);
                 reject(new Error(`Request ${requestId} timed out after 30 seconds`));
             }
-        }, 30000);
+        }, FIVE_MINUTES);
     });
 }
 
@@ -126,6 +127,21 @@ class ZeusProvider extends EventEmitter {
         this._chainId = null;
         this._initializeState();
         this._announceProvider();
+
+        // Listen for request and re-announce
+        window.addEventListener("eip6963:requestProvider", () => {
+            console.log('Zeus: Received eip6963:requestProvider event');
+            this._announceProvider();
+        });
+
+        // Re-announce on full load (for late-initializing dApps)
+        window.addEventListener('load', () => {
+            console.log('Zeus: Window loaded, re-announcing provider');
+            this._announceProvider();
+        });
+
+        // One-time delayed re-announce (e.g., after 1s for async dApp init)
+        setTimeout(() => this._announceProvider(), 1000);
     }
 
     _announceProvider() {
@@ -146,21 +162,21 @@ class ZeusProvider extends EventEmitter {
         });
     }
 
-async _initializeState() {
-    console.log("ZeusProvider initializing...");
-    try {
-        this._chainId = await this.request({ method: 'eth_chainId' }); 
-        this._accounts = await this.request({ method: 'eth_accounts' });
-        this._isConnected = this._accounts.length > 0;
-        console.log("Initial state:", { chainId: this._chainId, accounts: this._accounts });
-    } catch (e) {
-        console.error("Error initializing:", e);
-        this._isConnected = false;
-        this._accounts = [];
-    } finally {
-        window.dispatchEvent(new Event("ethereum#initialized"));
+    async _initializeState() {
+        console.log("ZeusProvider initializing...");
+        try {
+            this._chainId = await this.request({ method: 'eth_chainId' });
+            this._accounts = await this.request({ method: 'eth_accounts' });
+            this._isConnected = this._accounts.length > 0;
+            console.log("Initial state:", { chainId: this._chainId, accounts: this._accounts });
+        } catch (e) {
+            console.error("Error initializing:", e);
+            this._isConnected = false;
+            this._accounts = [];
+        } finally {
+            window.dispatchEvent(new Event("ethereum#initialized"));
+        }
     }
-}
 
     isConnected() {
         return this._isConnected;
@@ -231,7 +247,7 @@ async _initializeState() {
 
         if (wasConnected) {
             const error = new Error(reason);
-            error.code = 1013; // Non-standard but indicates a connection loss
+            error.code = 4900;
             this.emit("disconnect", error);
             console.log("Emitted 'disconnect' event.");
             this.emit("accountsChanged", []);

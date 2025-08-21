@@ -1,16 +1,17 @@
 function injectScript(filePath) {
     try {
-        const container = document.head || document.documentElement;
+        let container = document.head || document.documentElement;
+        if (!container) {
+            // If head isn't ready, wait briefly and retry (for document_start edge cases)
+            setTimeout(() => injectScript(filePath), 0);
+            return;
+        }
         const scriptTag = document.createElement('script');
-        scriptTag.setAttribute('async', 'false'); // Ensure it loads/execs synchronously relative to other scripts if possible
         scriptTag.setAttribute('type', 'text/javascript');
         scriptTag.setAttribute('src', chrome.runtime.getURL(filePath));
-
-        container.insertBefore(scriptTag, container.children[0]); // Inject at the top of head/documentElement
-        // Optionally remove the script tag after it has run - cleaner DOM
-        // scriptTag.onload = () => { scriptTag.remove(); };
+        container.insertBefore(scriptTag, container.firstChild);  // Top of head
+        scriptTag.onload = () => { scriptTag.remove(); };  // Clean up
         console.log(`Injected ${filePath}`);
-
     } catch (error) {
         console.error('Zeus Connector: Error injecting script:', error);
     }

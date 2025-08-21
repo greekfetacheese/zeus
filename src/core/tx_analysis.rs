@@ -282,7 +282,10 @@ impl TransactionAnalysis {
 
       // Single Swap
       if swaps_len == 1 {
+        // tracing::info!("Swap len 1");
          let params = self.swaps[0].clone();
+        // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
+        // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
          return TransactionAction::SwapToken(params);
       }
 
@@ -331,6 +334,10 @@ impl TransactionAnalysis {
                }
             }
          }
+
+        // tracing::info!("Swaps Len {}", swaps_len);
+        // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
+        // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
 
          return TransactionAction::SwapToken(params);
       }

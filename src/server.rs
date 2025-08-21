@@ -1,5 +1,5 @@
 use crate::core::ZeusCtx;
-use crate::core::utils::eth;
+use crate::core::utils::{RT, eth};
 use crate::gui::{SHARED_GUI, ui::Step};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -9,13 +9,13 @@ use std::net::SocketAddr;
 use tracing::{error, info};
 use warp::Filter;
 
-
 use std::str::FromStr;
 use zeus_eth::{
    alloy_network::TransactionBuilder,
-   alloy_primitives::{Address, Bytes, U256, hex},
+   alloy_primitives::{Address, Bytes, TxHash, U256, hex},
    alloy_provider::Provider,
-   alloy_rpc_types::TransactionRequest,
+   alloy_rpc_types::{BlockId, TransactionRequest},
+   currency::ERC20Token,
    types::ChainId,
 };
 
@@ -23,11 +23,13 @@ use zeus_eth::{
 pub const SERVER_PORT: u16 = 65534;
 
 // EIP-1193 Error codes
-pub const USER_REJECTED_REQUEST: i32 = -4001;
-pub const UNAUTHORIZED: i32 = -4100;
-pub const UNSUPPORTED_METHOD: i32 = -4200;
-pub const DISCONNECTED: i32 = -4900;
-pub const CHAIN_DISCONNECTED: i32 = -4901;
+pub const USER_REJECTED_REQUEST: i32 = 4001;
+pub const UNAUTHORIZED: i32 = 4100;
+pub const UNSUPPORTED_METHOD: i32 = 4200;
+pub const DISCONNECTED: i32 = 4900;
+pub const CHAIN_DISCONNECTED: i32 = 4901;
+
+// JSON-RPC Error Codes
 pub const INVALID_PARAMS: i32 = -32602;
 pub const INTERNAL_ERROR: i32 = -32603;
 
@@ -35,16 +37,20 @@ pub const INTERNAL_ERROR: i32 = -32603;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RequestMethod {
    WalletAddEthereumChain,
-   WallletSwitchEthereumChain,
+   WalletSwitchEthereumChain,
    WalletGetPermissions,
    WalletGetCapabilities,
    WalletRequestPermissions,
    WalletRevokePermissions,
+   EthGetTransactionByHash,
+   EthGetTransactionReceipt,
    EthAccounts,
    RequestAccounts,
-   SendTransaction,
+   EthSendTransaction,
    BlockNumber,
    EthCall,
+   EthGetCode,
+   EthGetStorageAt,
    ChainId,
    EstimateGas,
    EthGasPrice,
@@ -56,16 +62,20 @@ impl RequestMethod {
    pub fn from_str(s: &str) -> Result<Self, anyhow::Error> {
       match s {
          "wallet_addEthereumChain" => Ok(RequestMethod::WalletAddEthereumChain),
-         "wallet_switchEthereumChain" => Ok(RequestMethod::WallletSwitchEthereumChain),
+         "wallet_switchEthereumChain" => Ok(RequestMethod::WalletSwitchEthereumChain),
          "wallet_getPermissions" => Ok(RequestMethod::WalletGetPermissions),
          "wallet_getCapabilities" => Ok(RequestMethod::WalletGetCapabilities),
          "wallet_requestPermissions" => Ok(RequestMethod::WalletRequestPermissions),
          "wallet_revokePermissions" => Ok(RequestMethod::WalletRevokePermissions),
+         "eth_getTransactionByHash" => Ok(RequestMethod::EthGetTransactionByHash),
+         "eth_getTransactionReceipt" => Ok(RequestMethod::EthGetTransactionReceipt),
          "eth_accounts" => Ok(RequestMethod::EthAccounts),
          "eth_requestAccounts" => Ok(RequestMethod::RequestAccounts),
-         "eth_sendTransaction" => Ok(RequestMethod::SendTransaction),
+         "eth_sendTransaction" => Ok(RequestMethod::EthSendTransaction),
          "eth_blockNumber" => Ok(RequestMethod::BlockNumber),
          "eth_call" => Ok(RequestMethod::EthCall),
+         "eth_getCode" => Ok(RequestMethod::EthGetCode),
+         "eth_getStorageAt" => Ok(RequestMethod::EthGetStorageAt),
          "eth_chainId" => Ok(RequestMethod::ChainId),
          "eth_estimateGas" => Ok(RequestMethod::EstimateGas),
          "eth_gasPrice" => Ok(RequestMethod::EthGasPrice),
@@ -78,16 +88,20 @@ impl RequestMethod {
    pub fn as_str(&self) -> &'static str {
       match self {
          RequestMethod::WalletAddEthereumChain => "wallet_addEthereumChain",
-         RequestMethod::WallletSwitchEthereumChain => "wallet_switchEthereumChain",
+         RequestMethod::WalletSwitchEthereumChain => "wallet_switchEthereumChain",
          RequestMethod::WalletGetPermissions => "wallet_getPermissions",
          RequestMethod::WalletGetCapabilities => "wallet_getCapabilities",
          RequestMethod::WalletRequestPermissions => "wallet_requestPermissions",
          RequestMethod::WalletRevokePermissions => "wallet_revokePermissions",
+         RequestMethod::EthGetTransactionByHash => "eth_getTransactionByHash",
+         RequestMethod::EthGetTransactionReceipt => "eth_getTransactionReceipt",
          RequestMethod::EthAccounts => "eth_accounts",
          RequestMethod::RequestAccounts => "eth_requestAccounts",
-         RequestMethod::SendTransaction => "eth_sendTransaction",
+         RequestMethod::EthSendTransaction => "eth_sendTransaction",
          RequestMethod::BlockNumber => "eth_blockNumber",
          RequestMethod::EthCall => "eth_call",
+         RequestMethod::EthGetCode => "eth_getCode",
+         RequestMethod::EthGetStorageAt => "eth_getStorageAt",
          RequestMethod::ChainId => "eth_chainId",
          RequestMethod::EstimateGas => "eth_estimateGas",
          RequestMethod::EthGasPrice => "eth_gasPrice",
@@ -103,26 +117,23 @@ impl RequestMethod {
       )
    }
 
-   pub fn is_public(&self) -> bool {
-      matches!(
-         self,
-         RequestMethod::EthGasPrice | RequestMethod::ChainId | RequestMethod::BlockNumber
-      )
-   }
-
    pub fn supported_methods() -> Vec<RequestMethod> {
       vec![
          RequestMethod::WalletAddEthereumChain,
-         RequestMethod::WallletSwitchEthereumChain,
+         RequestMethod::WalletSwitchEthereumChain,
          RequestMethod::WalletGetPermissions,
          RequestMethod::WalletGetCapabilities,
          RequestMethod::WalletRequestPermissions,
          RequestMethod::WalletRevokePermissions,
+         RequestMethod::EthGetTransactionByHash,
+         RequestMethod::EthGetTransactionReceipt,
          RequestMethod::EthAccounts,
          RequestMethod::RequestAccounts,
-         RequestMethod::SendTransaction,
+         RequestMethod::EthSendTransaction,
          RequestMethod::BlockNumber,
          RequestMethod::EthCall,
+         RequestMethod::EthGetCode,
+         RequestMethod::EthGetStorageAt,
          RequestMethod::ChainId,
          RequestMethod::EstimateGas,
          RequestMethod::EthGasPrice,
@@ -269,8 +280,7 @@ impl JsonRpcError {
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
-   let wallets = ctx.get_all_wallets_info();
-   let accounts = wallets.iter().map(|w| w.address.to_string()).collect::<Vec<_>>();
+   let accounts = vec![ctx.current_wallet_address().to_string()];
    let connected_origins = ctx.get_connected_dapps();
 
    let res = json!({
@@ -509,6 +519,390 @@ fn get_balance(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse,
    };
 
    Ok(response)
+}
+
+async fn eth_get_storage_at(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let array = match payload.params {
+      Value::Array(arr) => arr,
+      _ => {
+         error!("Invalid params for eth_getStorageAt: params is not an array");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let (address_str, slot_str, block_str) = if array.len() == 3 {
+      let address_str = match &array[0] {
+         Value::String(s) => s,
+         _ => {
+            error!("Invalid params for eth_getStorageAt: params[0] is not a string");
+            return Ok(JsonRpcResponse {
+               jsonrpc: "2.0".to_string(),
+               id: payload.id,
+               result: None,
+               error: Some(JsonRpcError::invalid_params()),
+            });
+         }
+      };
+
+      let slot_str = match &array[1] {
+         Value::String(s) => s,
+         _ => {
+            error!("Invalid params for eth_getStorageAt: params[1] is not a string");
+            return Ok(JsonRpcResponse {
+               jsonrpc: "2.0".to_string(),
+               id: payload.id,
+               result: None,
+               error: Some(JsonRpcError::invalid_params()),
+            });
+         }
+      };
+
+      let block_str = match &array[2] {
+         Value::String(s) => s,
+         _ => {
+            error!("Invalid params for eth_getStorageAt: params[2] is not a string");
+            return Ok(JsonRpcResponse {
+               jsonrpc: "2.0".to_string(),
+               id: payload.id,
+               result: None,
+               error: Some(JsonRpcError::invalid_params()),
+            });
+         }
+      };
+
+      (address_str, slot_str, block_str)
+   } else {
+      error!("Invalid params for eth_getStorageAt: expected array with 3 elements");
+      return Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: None,
+         error: Some(JsonRpcError::invalid_params()),
+      });
+   };
+
+   let address = match Address::from_str(address_str) {
+      Ok(address) => address,
+      Err(_) => {
+         error!("Invalid params for eth_getStorageAt: String is not a valid ethereum address");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let slot = match U256::from_str(slot_str) {
+      Ok(slot) => slot,
+      Err(_) => {
+         error!("Invalid params for eth_getStorageAt: String is not a valid U256 value");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let block = match BlockId::from_str(block_str) {
+      Ok(block) => block,
+      Err(_) => {
+         error!("Invalid params for eth_getStorageAt: String is not a valid block id");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let chain = ctx.chain().id();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::internal_error()),
+         });
+      }
+   };
+
+   let storage = match client.get_storage_at(address, slot).block_id(block).await {
+      Ok(storage) => storage,
+      Err(e) => {
+         error!("Error getting storage: {:?}", e);
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::internal_error()),
+         });
+      }
+   };
+
+   let bytes = storage.to_be_bytes_vec();
+   let hex = hex::encode(bytes);
+   let res = format!("0x{}", hex);
+
+   let response = JsonRpcResponse {
+      jsonrpc: "2.0".to_string(),
+      id: payload.id,
+      result: Some(Value::String(res)),
+      error: None,
+   };
+
+   Ok(response)
+}
+
+async fn eth_get_code(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let array = match payload.params {
+      Value::Array(arr) => arr,
+      _ => {
+         error!("Invalid params for eth_getCode: params is not an array");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let (address_str, block_str) = if array.len() == 2 {
+      let address_str = match &array[0] {
+         Value::String(s) => s,
+         _ => {
+            error!("Invalid params for eth_getCode: params[0] is not a string");
+            return Ok(JsonRpcResponse {
+               jsonrpc: "2.0".to_string(),
+               id: payload.id,
+               result: None,
+               error: Some(JsonRpcError::invalid_params()),
+            });
+         }
+      };
+
+      let block_str = match &array[1] {
+         Value::String(s) => s,
+         _ => {
+            error!("Invalid params for eth_getCode: params[1] is not a string");
+            return Ok(JsonRpcResponse {
+               jsonrpc: "2.0".to_string(),
+               id: payload.id,
+               result: None,
+               error: Some(JsonRpcError::invalid_params()),
+            });
+         }
+      };
+
+      (address_str, block_str)
+   } else {
+      error!("Invalid params for eth_getCode: expected array with 2 elements");
+      return Ok(JsonRpcResponse {
+         jsonrpc: "2.0".to_string(),
+         id: payload.id,
+         result: None,
+         error: Some(JsonRpcError::invalid_params()),
+      });
+   };
+
+   let address = match Address::from_str(address_str) {
+      Ok(address) => address,
+      Err(_) => {
+         error!("Invalid params for eth_getCode: String is not a valid ethereum address");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let block = match BlockId::from_str(block_str) {
+      Ok(block) => block,
+      Err(_) => {
+         error!("Invalid params for eth_getCode: String is not a valid block id");
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::invalid_params()),
+         });
+      }
+   };
+
+   let chain = ctx.chain().id();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::internal_error()),
+         });
+      }
+   };
+
+   let code = match client.get_code_at(address).block_id(block).await {
+      Ok(code) => code,
+      Err(e) => {
+         error!("Error getting code: {:?}", e);
+         return Ok(JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            id: payload.id,
+            result: None,
+            error: Some(JsonRpcError::internal_error()),
+         });
+      }
+   };
+
+   let result = hex::encode(code);
+
+   let response = JsonRpcResponse {
+      jsonrpc: "2.0".to_string(),
+      id: payload.id,
+      result: Some(Value::String(format!("0x{}", result))),
+      error: None,
+   };
+
+   Ok(response)
+}
+
+async fn eth_get_transaction_by_hash(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let hash = match payload.params {
+      Value::Array(arr) if arr.len() == 1 => {
+         let hash_str = match &arr[0] {
+            Value::String(s) => s,
+            _ => {
+               error!("Invalid params for eth_getTransactionByHash: params[0] is not a string");
+               return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+            }
+         };
+         match TxHash::from_str(hash_str) {
+            Ok(hash) => hash,
+            Err(e) => {
+               error!("Invalid transaction hash: {:?} - {}", hash_str, e);
+               return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+            }
+         }
+      }
+      _ => {
+         error!("Invalid params for eth_getTransactionByHash: expected array with 1 element");
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let chain = ctx.chain().id();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let tx = match client.get_transaction_by_hash(hash).await {
+      Ok(tx_opt) => tx_opt,
+      Err(e) => {
+         error!("Error fetching transaction by hash: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let result = match tx {
+      Some(tx) => match serde_json::to_value(tx) {
+         Ok(val) => Some(val),
+         Err(e) => {
+            error!("Error serializing transaction: {:?}", e);
+            return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+         }
+      },
+      None => Some(Value::Null),
+   };
+
+   Ok(JsonRpcResponse::ok(result, payload.id))
+}
+
+async fn eth_get_transaction_receipt(
+   ctx: ZeusCtx,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   let hash = match payload.params {
+      Value::Array(arr) if arr.len() == 1 => {
+         let hash_str = match &arr[0] {
+            Value::String(s) => s,
+            _ => {
+               error!("Invalid params for eth_getTransactionReceipt: params[0] is not a string");
+               return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+            }
+         };
+         match TxHash::from_str(hash_str) {
+            Ok(hash) => hash,
+            Err(e) => {
+               error!("Invalid transaction hash: {:?} - {}", hash_str, e);
+               return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+            }
+         }
+      }
+      _ => {
+         error!("Invalid params for eth_getTransactionReceipt: expected array with 1 element");
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let chain = ctx.chain().id();
+   let client = match ctx.get_client(chain).await {
+      Ok(client) => client,
+      Err(e) => {
+         error!("Error getting client: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let receipt = match client.get_transaction_receipt(hash).await {
+      Ok(receipt_opt) => receipt_opt,
+      Err(e) => {
+         error!("Error fetching transaction receipt: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let result = match receipt {
+      Some(receipt) => match serde_json::to_value(receipt) {
+         Ok(val) => Some(val),
+         Err(e) => {
+            error!("Error serializing receipt: {:?}", e);
+            return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+         }
+      },
+      None => Some(Value::Null),
+   };
+
+   Ok(JsonRpcResponse::ok(result, payload.id))
 }
 
 async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcResponse, Infallible> {
@@ -981,7 +1375,7 @@ async fn eth_send_transaction(
       }
    };
 
-   let to = match Address::from_str(to_str) {
+   let transact_to = match Address::from_str(to_str) {
       Ok(to) => to,
       Err(_) => {
          return {
@@ -1020,7 +1414,7 @@ async fn eth_send_transaction(
 
    info!("Sending Tx in Chain: {:?}", chain.name());
    info!("From: {:?}", from);
-   info!("To: {:?}", to);
+   info!("Transact to: {:?}", transact_to);
    info!("Value: {:?}", value);
    info!("Data: {:?}", call_data);
 
@@ -1032,7 +1426,7 @@ async fn eth_send_transaction(
       chain,
       true,
       from,
-      to,
+      transact_to,
       call_data,
       value,
    )
@@ -1060,18 +1454,128 @@ async fn eth_send_transaction(
 
    SHARED_GUI.write(|gui| {
       gui.progress_window.open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx(tx_rich);
+      gui.progress_window.set_tx(tx_rich.clone());
       gui.request_repaint();
    });
 
+   // Update balances
+   RT.spawn(async move {
+      let transact_to_exists = ctx.wallet_exists(transact_to);
+      let manager = ctx.balance_manager();
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Error updating ETH balance: {:?}", e);
+         }
+      }
+
+      if transact_to_exists {
+         match manager.update_eth_balance(ctx.clone(), chain.id(), transact_to).await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Error updating ETH balance: {:?}", e);
+            }
+         }
+      }
+
+      // Update token balances if needed
+      let erc20_transfers = &tx_rich.analysis.erc20_transfers;
+      let wrap_eth = &tx_rich.analysis.eth_wraps;
+      let unwrap_eth = &tx_rich.analysis.weth_unwraps;
+
+      for wrap in wrap_eth {
+         let token = ERC20Token::wrapped_native_token(chain.id());
+         let dest = wrap.dst;
+         let dest_exists = ctx.wallet_exists(dest);
+
+         if dest_exists {
+            match manager.update_tokens_balance(ctx.clone(), chain.id(), dest, vec![token]).await {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error updating token balance: {:?}", e);
+               }
+            }
+
+            ctx.calculate_portfolio_value(chain.id(), dest);
+         }
+      }
+
+      for unwrap in unwrap_eth {
+         let token = ERC20Token::wrapped_native_token(chain.id());
+         let src = unwrap.src;
+         let src_exists = ctx.wallet_exists(src);
+
+         if src_exists {
+            match manager.update_tokens_balance(ctx.clone(), chain.id(), src, vec![token]).await {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error updating token balance: {:?}", e);
+               }
+            }
+
+            ctx.calculate_portfolio_value(chain.id(), src);
+         }
+      }
+
+      for transfer in erc20_transfers {
+         let token = transfer.token.clone();
+         let sender = transfer.sender;
+         let recipient = transfer.recipient;
+         let sender_exists = ctx.wallet_exists(sender);
+         let recipient_exists = ctx.wallet_exists(recipient);
+
+         if sender_exists {
+            match manager
+               .update_tokens_balance(
+                  ctx.clone(),
+                  chain.id(),
+                  sender,
+                  vec![token.clone()],
+               )
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error updating token balance: {:?}", e);
+               }
+            }
+
+            ctx.calculate_portfolio_value(chain.id(), sender);
+         }
+
+         if recipient_exists {
+            match manager
+               .update_tokens_balance(ctx.clone(), chain.id(), recipient, vec![token])
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Error updating token balance: {:?}", e);
+               }
+            }
+
+            ctx.calculate_portfolio_value(chain.id(), recipient);
+         }
+
+         if transact_to_exists {
+            ctx.calculate_portfolio_value(chain.id(), transact_to);
+         }
+
+         ctx.save_balance_manager();
+         ctx.save_portfolio_db();
+      }
+   });
+
    let hash = receipt.transaction_hash;
-  // let hex_hash = hex::encode(hash);
-   let hash_str = format!("0x{}", hash);
+   let hex_hash = hex::encode(hash);
+   let hash_str = format!("0x{}", hex_hash);
 
    let response = JsonRpcResponse::ok(Some(Value::String(hash_str)), payload.id);
    Ok(response)
 }
 
+// TODO: Apply rate limit
 async fn handle_request(
    ctx: ZeusCtx,
    origin: String,
@@ -1133,14 +1637,30 @@ async fn handle_request(
       m if m == RequestMethod::EstimateGas => estimate_gas(ctx, payload).await,
       m if m == RequestMethod::WalletGetPermissions => get_permissions(ctx, &origin, payload).await,
       m if m == RequestMethod::WalletGetCapabilities => get_capabilities(ctx, payload).await,
+      m if m == RequestMethod::EthGetCode => eth_get_code(ctx, payload).await,
+      m if m == RequestMethod::EthGetStorageAt => eth_get_storage_at(ctx, payload).await,
+
       m if m == RequestMethod::WalletRevokePermissions => {
          wallet_revoke_permissions(ctx, origin, payload)
       }
+
       m if m == RequestMethod::EthSignedTypedDataV4 => {
          eth_sign_typed_data_v4(ctx, origin, payload).await
       }
-      m if m == RequestMethod::SendTransaction => eth_send_transaction(ctx, origin, payload).await,
-      m if m == RequestMethod::WallletSwitchEthereumChain => switch_ethereum_chain(ctx, payload),
+
+      m if m == RequestMethod::EthSendTransaction => {
+         eth_send_transaction(ctx, origin, payload).await
+      }
+
+      m if m == RequestMethod::WalletSwitchEthereumChain => switch_ethereum_chain(ctx, payload),
+
+      m if m == RequestMethod::EthGetTransactionReceipt => {
+         eth_get_transaction_receipt(ctx, payload).await
+      }
+
+      m if m == RequestMethod::EthGetTransactionByHash => {
+         eth_get_transaction_by_hash(ctx, payload).await
+      }
 
       _ => Ok(JsonRpcResponse::error(
          UNSUPPORTED_METHOD,
@@ -1163,7 +1683,6 @@ fn with_ctx(ctx: ZeusCtx) -> impl Filter<Extract = (ZeusCtx,), Error = Infallibl
 }
 
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
-
    let cors = warp::cors()
       .allow_any_origin()
       .allow_methods(vec!["GET", "POST", "OPTIONS"])

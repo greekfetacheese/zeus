@@ -558,45 +558,28 @@ impl SwapParams {
          pool
       };
 
-      let (amount_in, token_in) = if swap_log.amount0In > swap_log.amount1In {
-         (
-            swap_log.amount0In,
-            pool.currency0().to_erc20().into_owned(),
-         )
+      let (amount_in, currency_in) = if swap_log.amount0In > swap_log.amount1In {
+         (swap_log.amount0In, pool.currency0().clone())
       } else {
-         (
-            swap_log.amount1In,
-            pool.currency1().to_erc20().into_owned(),
-         )
+         (swap_log.amount1In, pool.currency1().clone())
       };
 
-      let (amount_out, token_out) = if swap_log.amount0Out > swap_log.amount1Out {
-         (
-            swap_log.amount0Out,
-            pool.currency0().to_erc20().into_owned(),
-         )
+      let (amount_out, currency_out) = if swap_log.amount0Out > swap_log.amount1Out {
+         (swap_log.amount0Out, pool.currency0().clone())
       } else {
-         (
-            swap_log.amount1Out,
-            pool.currency1().to_erc20().into_owned(),
-         )
+         (swap_log.amount1Out, pool.currency1().clone())
       };
 
-      let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
-      let amount_in_usd =
-         ctx.get_currency_value_for_amount(amount_in.f64(), &Currency::from(token_in.clone()));
-      let amount_out = NumericValue::format_wei(amount_out, token_out.decimals);
-      let amount_out_usd = ctx.get_currency_value_for_amount(
-         amount_out.f64(),
-         &Currency::from(token_out.clone()),
-      );
-      let token_in = Currency::from(token_in);
-      let token_out = Currency::from(token_out);
+      let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
+      let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
+
+      let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
+      let amount_out_usd = ctx.get_currency_value_for_amount(amount_out.f64(), &currency_out);
 
       let params = SwapParams {
          dapp: Dapp::Uniswap,
-         input_currency: token_in,
-         output_currency: token_out,
+         input_currency: currency_in,
+         output_currency: currency_out,
          amount_in,
          amount_in_usd: Some(amount_in_usd),
          received: amount_out,
@@ -616,7 +599,7 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(log) {
+      let (swap, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(log) {
          (decoded, log.address)
       } else {
          return Err(anyhow::anyhow!("Log is not a UniswapV3 swap log"));
@@ -636,27 +619,19 @@ impl SwapParams {
          pool
       };
 
-      let (amount_in, token_in) = if swap_log.amount0.is_positive() {
+      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
          (
-            swap_log.amount0,
-            pool.currency0().to_erc20().into_owned(),
+            swap.amount0,
+            pool.currency0().clone(),
+            swap.amount1,
+            pool.currency1().clone(),
          )
       } else {
          (
-            swap_log.amount1,
-            pool.currency1().to_erc20().into_owned(),
-         )
-      };
-
-      let (amount_out, token_out) = if swap_log.amount1.is_negative() {
-         (
-            swap_log.amount1,
-            pool.currency1().to_erc20().into_owned(),
-         )
-      } else {
-         (
-            swap_log.amount0,
-            pool.currency0().to_erc20().into_owned(),
+            swap.amount1,
+            pool.currency1().clone(),
+            swap.amount0,
+            pool.currency0().clone(),
          )
       };
 
@@ -664,21 +639,16 @@ impl SwapParams {
       // remove the - sign
       let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
 
-      let amount_in = NumericValue::format_wei(amount_in, token_in.decimals);
-      let amount_in_usd =
-         ctx.get_currency_value_for_amount(amount_in.f64(), &Currency::from(token_in.clone()));
-      let amount_out = NumericValue::format_wei(amount_out, token_out.decimals);
-      let amount_out_usd = ctx.get_currency_value_for_amount(
-         amount_out.f64(),
-         &Currency::from(token_out.clone()),
-      );
-      let token_in = Currency::from(token_in);
-      let token_out = Currency::from(token_out);
+      let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
+      let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
+
+      let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
+      let amount_out_usd = ctx.get_currency_value_for_amount(amount_out.f64(), &currency_out);
 
       let params = SwapParams {
          dapp: Dapp::Uniswap,
-         input_currency: token_in,
-         output_currency: token_out,
+         input_currency: currency_in,
+         output_currency: currency_out,
          amount_in,
          amount_in_usd: Some(amount_in_usd),
          received: amount_out,
@@ -714,16 +684,20 @@ impl SwapParams {
          return Err(anyhow::anyhow!("Pool not found"));
       };
 
-      let (amount_in, currency_in) = if swap.amount0.is_positive() {
-         (swap.amount0, pool.currency0().clone())
+      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
+         (
+            swap.amount0,
+            pool.currency0().clone(),
+            swap.amount1,
+            pool.currency1().clone(),
+         )
       } else {
-         (swap.amount1, pool.currency1().clone())
-      };
-
-      let (amount_out, currency_out) = if swap.amount1.is_negative() {
-         (swap.amount1, pool.currency1().clone())
-      } else {
-         (swap.amount0, pool.currency0().clone())
+         (
+            swap.amount1,
+            pool.currency1().clone(),
+            swap.amount0,
+            pool.currency0().clone(),
+         )
       };
 
       let amount_in = U256::from_str(&amount_in.to_string())?;

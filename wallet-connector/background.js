@@ -14,6 +14,9 @@ let lastKnownConnectedOrigins = JSON.stringify([]);
 
 
 async function pollServerStatus() {
+    let retryCount = 0;
+    const maxRetries = 3;
+
     try {
         const response = await fetch(SERVER_URL_STATUS);
         if (!response.ok) return;
@@ -66,15 +69,33 @@ async function pollServerStatus() {
             });
         }
     } catch (error) {
+        if (retryCount < maxRetries) {
+            retryCount++;
+            // Retry poll after delay
+            setTimeout(pollServerStatus, 500);
+            return;
+        }
+
+        lastKnownAccounts = JSON.stringify([]);
+        lastKnownChainId = null;
+        // Notify all tabs of disconnect
+        chrome.tabs.query({ url: ["http://*/*", "https://*/*"] }, (tabs) => {
+            tabs.forEach(tab => {
+                chrome.tabs.sendMessage(tab.id, { type: 'accountsChanged', payload: [] });
+                // Optionally send custom disconnect
+            });
+        });
+        retryCount = 0;
+
         console.error("Background: Error during status poll:", error);
-         if (!isFirstPoll && lastKnownAccounts !== JSON.stringify([])) {
-             // If we were previously connected and poll fails, assume disconnect
-             console.warn("Background: Poll failed, assuming disconnection.");
-             lastKnownAccounts = JSON.stringify([]); // Empty accounts
-             lastKnownChainId = null; // Reset chain ID
-             // TODO: Notify tabs about potential disconnection? (accountsChanged with [])
-         }
-         isFirstPoll = true; // Reset first poll flag on error? Maybe not.
+        if (!isFirstPoll && lastKnownAccounts !== JSON.stringify([])) {
+            // If we were previously connected and poll fails, assume disconnect
+            console.warn("Background: Poll failed, assuming disconnection.");
+            lastKnownAccounts = JSON.stringify([]); // Empty accounts
+            lastKnownChainId = null; // Reset chain ID
+            // TODO: Notify tabs about potential disconnection? (accountsChanged with [])
+        }
+        isFirstPoll = true; // Reset first poll flag on error? Maybe not.
     }
 }
 
@@ -104,10 +125,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             .then(jsonData => {
                 // console.log(`Background: Success fetch for ID ${message.id}. Sending data back.`); // Log success send
                 sendResponse({ success: true, data: jsonData });
-             })
+            })
             .catch(error => {
-                 console.error(`Background: Error fetch for ID ${message.id}:`, error); // Log error send
-                 sendResponse({ success: false, error: error.message || 'Failed to fetch' });
+                console.error(`Background: Error fetch for ID ${message.id}:`, error); // Log error send
+                sendResponse({ success: false, error: error.message || 'Failed to fetch' });
             });
 
         return true;
@@ -129,38 +150,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             body: JSON.stringify({ origin: origin }),
             signal: controller.signal
         })
-        .then(async response => {
-             clearTimeout(timeoutId);
-             if (!response.ok) {
-                 const errorText = await response.text().catch(() => `Server returned status ${response.status}`);
-                 throw new Error(`Connection request failed: ${errorText}`);
-             }
-             return response.json();
-        })
-        .then(serverData => {
-             // ***** FIX: Use message.id for logging *****
-             console.log(`Background: Received connection response from server for ID ${message.id}:`, serverData);
-             if (serverData.status === 'approved') {
-                 console.log(`Background: Sending success response for ID ${message.id}`);
-                 sendResponse({
-                     success: true,
-                     data: { approved: true, accounts: serverData.accounts || [] }
-                 });
-             } else {
-                  console.log(`Background: Sending rejection response for ID ${message.id} (status: ${serverData.status})`);
-                  sendResponse({ success: false, error: 'User rejected the connection request.' });
-             }
-        })
-        .catch(error => {
-            clearTimeout(timeoutId);
-             console.error(`Background: Error during connection request ID ${message.id}:`, error);
-             let errorMessage = 'Connection to Zeus failed or timed out.';
-             if (error.name === 'AbortError') { errorMessage = 'Connection request timed out.'; }
-             else if (error.message) { errorMessage = error.message; }
+            .then(async response => {
+                clearTimeout(timeoutId);
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => `Server returned status ${response.status}`);
+                    throw new Error(`Connection request failed: ${errorText}`);
+                }
+                return response.json();
+            })
+            .then(serverData => {
+                // ***** FIX: Use message.id for logging *****
+                console.log(`Background: Received connection response from server for ID ${message.id}:`, serverData);
+                if (serverData.status === 'approved') {
+                    console.log(`Background: Sending success response for ID ${message.id}`);
+                    sendResponse({
+                        success: true,
+                        data: { approved: true, accounts: serverData.accounts || [] }
+                    });
+                } else {
+                    console.log(`Background: Sending rejection response for ID ${message.id} (status: ${serverData.status})`);
+                    sendResponse({ success: false, error: 'User rejected the connection request.' });
+                }
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                console.error(`Background: Error during connection request ID ${message.id}:`, error);
+                let errorMessage = 'Connection to Zeus failed or timed out.';
+                if (error.name === 'AbortError') { errorMessage = 'Connection request timed out.'; }
+                else if (error.message) { errorMessage = error.message; }
 
-             console.log(`Background: Sending error response for ID ${message.id}`);
-             sendResponse({ success: false, error: errorMessage });
-        });
+                console.log(`Background: Sending error response for ID ${message.id}`);
+                sendResponse({ success: false, error: errorMessage });
+            });
 
         return true;
     }
