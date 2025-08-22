@@ -9,8 +9,8 @@ mod tests {
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
       amm::uniswap::{
          AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
-            quoter::{get_quote, get_quote_with_split_routing},
-            universal_router_v2::{SwapStep, SwapType, encode_swap},
+         quoter::{get_quote, get_quote_with_split_routing},
+         universal_router_v2::{SwapStep, SwapType, encode_swap},
       },
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
@@ -498,7 +498,7 @@ mod tests {
       .unwrap();
    }
 
-   /* 
+   /*
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
@@ -603,6 +603,102 @@ mod tests {
 
       let currency_in = Currency::from(NativeCurrency::from(chain_id));
       let currency_out = Currency::from(ERC20Token::usdt());
+      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_eth_to_erc20_base_chain() {
+      let chain_id = 8453;
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdc_base());
+      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_eth_to_erc20_optimism_chain() {
+      let chain_id = 10;
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdt_optimism());
+      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_eth_to_erc20_arbitrum() {
+      let chain_id = 42161;
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdt_arbitrum());
       let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
 
       let swap_on_v2 = true;

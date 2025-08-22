@@ -20,9 +20,8 @@ use egui_theme::Theme;
 use zeus_eth::{
    alloy_primitives::Address,
    amm::uniswap::{
-      AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool,
+      AnyUniswapPool, DexKind, UniswapPool, UniswapV3Pool, uniswap_v3_math,
       v3::{calculate_liquidity_amounts, calculate_liquidity_needed, get_tick_from_price},
-      uniswap_v3_math,
    },
    types::BlockTime,
 };
@@ -106,11 +105,11 @@ impl CreatePositionUi {
    pub fn default_currency1(&mut self, id: u64) {
       let chain: ChainId = id.into();
       let currency1 = match chain {
-         ChainId::Ethereum(_) => Currency::from(ERC20Token::usdc()),
-         ChainId::Optimism(_) => Currency::from(ERC20Token::usdc_optimism()),
-         ChainId::Arbitrum(_) => Currency::from(ERC20Token::usdc_arbitrum()),
-         ChainId::Base(_) => Currency::from(ERC20Token::usdc_base()),
-         ChainId::BinanceSmartChain(_) => Currency::from(ERC20Token::usdc_bsc()),
+         ChainId::Ethereum => Currency::from(ERC20Token::usdc()),
+         ChainId::Optimism => Currency::from(ERC20Token::usdc_optimism()),
+         ChainId::Arbitrum => Currency::from(ERC20Token::usdc_arbitrum()),
+         ChainId::Base => Currency::from(ERC20Token::usdc_base()),
+         ChainId::BinanceSmartChain => Currency::from(ERC20Token::usdc_bsc()),
       };
       self.currency1 = currency1;
    }
@@ -235,10 +234,7 @@ impl CreatePositionUi {
                   if days == 0 {
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.msg_window.open(
-                              "Invalid Days",
-                              "Days must be greater than 0",
-                           );
+                           gui.msg_window.open("Invalid Days", "Days must be greater than 0");
                            gui.request_repaint();
                         });
                      });
@@ -651,12 +647,13 @@ impl CreatePositionUi {
                   owner,
                   vec![token_a, token_b],
                )
-               .await {
-                  Ok(_) => {}
-                  Err(e) => {
-                     tracing::error!("Failed to update token balance: {}", e);
-                  }
+               .await
+            {
+               Ok(_) => {}
+               Err(e) => {
+                  tracing::error!("Failed to update token balance: {}", e);
                }
+            }
             ctx_clone.save_balance_manager();
          });
       }

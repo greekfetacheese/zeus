@@ -12,17 +12,18 @@ const ERR_MSG: &str =
    "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u64)]
 pub enum ChainId {
-   Ethereum(u64),
-   Optimism(u64),
-   BinanceSmartChain(u64),
-   Base(u64),
-   Arbitrum(u64),
+   Ethereum = 1,
+   Optimism = 10,
+   BinanceSmartChain = 56,
+   Base = 8453,
+   Arbitrum = 42161,
 }
 
 impl Default for ChainId {
    fn default() -> Self {
-      ChainId::Ethereum(1)
+      ChainId::Ethereum
    }
 }
 
@@ -35,52 +36,52 @@ impl From<u64> for ChainId {
 impl ChainId {
    pub fn new(id: u64) -> Result<Self, anyhow::Error> {
       let chain = match id {
-         1 => ChainId::Ethereum(id),
-         10 => ChainId::Optimism(id),
-         56 => ChainId::BinanceSmartChain(id),
-         8453 => ChainId::Base(id),
-         42161 => ChainId::Arbitrum(id),
+         1 => ChainId::Ethereum,
+         10 => ChainId::Optimism,
+         56 => ChainId::BinanceSmartChain,
+         8453 => ChainId::Base,
+         42161 => ChainId::Arbitrum,
          _ => bail!(format!("Unsupported chain id: {}\n{}", id, ERR_MSG)),
       };
       Ok(chain)
    }
 
    pub fn eth() -> Self {
-      ChainId::Ethereum(1)
+      ChainId::Ethereum
    }
 
    pub fn optimism() -> Self {
-      ChainId::Optimism(10)
+      ChainId::Optimism
    }
 
    pub fn bsc() -> Self {
-      ChainId::BinanceSmartChain(56)
+      ChainId::BinanceSmartChain
    }
 
    pub fn base() -> Self {
-      ChainId::Base(8453)
+      ChainId::Base
    }
 
    pub fn arbitrum() -> Self {
-      ChainId::Arbitrum(42161)
+      ChainId::Arbitrum
    }
 
    pub fn is_ethereum(&self) -> bool {
-      matches!(self, ChainId::Ethereum(_))
+      matches!(self, ChainId::Ethereum)
    }
 
    pub fn is_optimism(&self) -> bool {
-      matches!(self, ChainId::Optimism(_))
+      matches!(self, ChainId::Optimism)
    }
 
    pub fn is_base(&self) -> bool {
-      matches!(self, ChainId::Base(_))
+      matches!(self, ChainId::Base)
    }
    pub fn is_arbitrum(&self) -> bool {
-      matches!(self, ChainId::Arbitrum(_))
+      matches!(self, ChainId::Arbitrum)
    }
    pub fn is_bsc(&self) -> bool {
-      matches!(self, ChainId::BinanceSmartChain(_))
+      matches!(self, ChainId::BinanceSmartChain)
    }
 
    /// Return all supported chains
@@ -97,20 +98,20 @@ impl ChainId {
 
    pub fn coin_symbol(&self) -> &str {
       match self {
-         ChainId::BinanceSmartChain(_) => "BNB",
+         ChainId::BinanceSmartChain => "BNB",
          _ => "ETH",
       }
    }
 
    pub fn id(&self) -> u64 {
       match self {
-         ChainId::Ethereum(id) => *id,
-         ChainId::Optimism(id) => *id,
-         ChainId::BinanceSmartChain(id) => *id,
-         ChainId::Base(id) => *id,
-         ChainId::Arbitrum(id) => *id,
+         ChainId::Ethereum => 1,
+         ChainId::Optimism => 10,
+         ChainId::BinanceSmartChain => 56,
+         ChainId::Base => 8453,
+         ChainId::Arbitrum => 42161
       }
-   }
+      }
 
    pub fn id_as_hex(&self) -> String {
       format!("0x{:x}", self.id())
@@ -118,23 +119,23 @@ impl ChainId {
 
    pub fn name(&self) -> &str {
       match self {
-         ChainId::Ethereum(_) => "Ethereum",
-         ChainId::Optimism(_) => "Optimism",
-         ChainId::BinanceSmartChain(_) => "Binance Smart Chain",
-         ChainId::Base(_) => "Base",
-         ChainId::Arbitrum(_) => "Arbitrum",
+         ChainId::Ethereum => "Ethereum",
+         ChainId::Optimism => "Optimism",
+         ChainId::BinanceSmartChain => "Binance Smart Chain",
+         ChainId::Base => "Base",
+         ChainId::Arbitrum => "Arbitrum",
       }
    }
 
    /// Block time in milliseconds
    pub fn block_time_millis(&self) -> u64 {
       match self {
-         ChainId::Ethereum(_) => 12000,
-         ChainId::Optimism(_) => 2000,
-         ChainId::BinanceSmartChain(_) => 3000,
-         ChainId::Base(_) => 2000,
+         ChainId::Ethereum => 12000,
+         ChainId::Optimism => 2000,
+         ChainId::BinanceSmartChain => 3000,
+         ChainId::Base => 2000,
          // Arbitrum doesnt have a fixed block time but lets assume on average its 250ms (based on arbscan)
-         ChainId::Arbitrum(_) => 250,
+         ChainId::Arbitrum => 250,
       }
    }
 
@@ -146,44 +147,44 @@ impl ChainId {
    /// Block gas limit
    pub fn block_gas_limit(&self) -> u64 {
       match self {
-         ChainId::Ethereum(_) => 45_000_000,
-         ChainId::Optimism(_) => 60_000_000,
-         ChainId::BinanceSmartChain(_) => 140_000_000,
-         ChainId::Base(_) => 264_000_000,
-         ChainId::Arbitrum(_) => 32_000_000,
+         ChainId::Ethereum => 45_000_000,
+         ChainId::Optimism => 60_000_000,
+         ChainId::BinanceSmartChain => 140_000_000,
+         ChainId::Base => 264_000_000,
+         ChainId::Arbitrum => 32_000_000,
       }
    }
 
    /// Block Explorer URL
    pub fn block_explorer(&self) -> &str {
       match self {
-         ChainId::Ethereum(_) => "https://etherscan.io",
-         ChainId::Optimism(_) => "https://optimistic.etherscan.io/",
-         ChainId::BinanceSmartChain(_) => "https://bscscan.com",
-         ChainId::Base(_) => "https://basescan.org/",
-         ChainId::Arbitrum(_) => "https://arbiscan.io",
+         ChainId::Ethereum => "https://etherscan.io",
+         ChainId::Optimism => "https://optimistic.etherscan.io/",
+         ChainId::BinanceSmartChain => "https://bscscan.com",
+         ChainId::Base => "https://basescan.org/",
+         ChainId::Arbitrum => "https://arbiscan.io",
       }
    }
 
    /// Minimum gas usage for a transaction
    pub fn min_gas(&self) -> u64 {
       match self {
-         ChainId::Ethereum(_) => 21_000,
-         ChainId::Optimism(_) => 21_000,
-         ChainId::BinanceSmartChain(_) => 21_000,
-         ChainId::Base(_) => 21_000,
-         ChainId::Arbitrum(_) => 97_818,
+         ChainId::Ethereum => 21_000,
+         ChainId::Optimism => 21_000,
+         ChainId::BinanceSmartChain => 21_000,
+         ChainId::Base => 21_000,
+         ChainId::Arbitrum => 97_818,
       }
    }
 
    /// Gas needed for a transfer
    pub fn transfer_gas(&self) -> u64 {
       match self {
-         ChainId::Ethereum(_) => 21_000,
-         ChainId::Optimism(_) => 21_000,
-         ChainId::BinanceSmartChain(_) => 21_000,
-         ChainId::Base(_) => 21_000,
-         ChainId::Arbitrum(_) => 97_818,
+         ChainId::Ethereum => 21_000,
+         ChainId::Optimism => 21_000,
+         ChainId::BinanceSmartChain => 21_000,
+         ChainId::Base => 21_000,
+         ChainId::Arbitrum => 97_818,
       }
    }
 
@@ -192,21 +193,21 @@ impl ChainId {
    /// This is an estimate since the actual gas cost may vary depending on the token
    pub fn erc20_transfer_gas(&self) -> u64 {
       match self {
-         ChainId::Ethereum(_) => 50_000,
-         ChainId::Optimism(_) => 50_000,
-         ChainId::BinanceSmartChain(_) => 50_000,
-         ChainId::Base(_) => 50_000,
-         ChainId::Arbitrum(_) => 97_818,
+         ChainId::Ethereum => 50_000,
+         ChainId::Optimism => 50_000,
+         ChainId::BinanceSmartChain => 50_000,
+         ChainId::Base => 50_000,
+         ChainId::Arbitrum => 97_818,
       }
    }
 
    pub fn uses_priority_fee(&self) -> bool {
       match self {
-         ChainId::Ethereum(_) => true,
-         ChainId::Optimism(_) => true,
-         ChainId::BinanceSmartChain(_) => false,
-         ChainId::Base(_) => true,
-         ChainId::Arbitrum(_) => false,
+         ChainId::Ethereum => true,
+         ChainId::Optimism => true,
+         ChainId::BinanceSmartChain => false,
+         ChainId::Base => true,
+         ChainId::Arbitrum => false,
       }
    }
 }

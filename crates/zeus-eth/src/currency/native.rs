@@ -41,11 +41,11 @@ impl NativeCurrency {
    pub fn from_chain_id(id: u64) -> Result<Self, anyhow::Error> {
       let chain = ChainId::new(id)?;
       match chain {
-         ChainId::Ethereum(_) => Ok(Self::eth()),
-         ChainId::Optimism(_) => Ok(Self::eth_optimism()),
-         ChainId::Base(_) => Ok(Self::eth_base()),
-         ChainId::Arbitrum(_) => Ok(Self::eth_arbitrum()),
-         ChainId::BinanceSmartChain(_) => Ok(Self::bnb()),
+         ChainId::Ethereum => Ok(Self::eth()),
+         ChainId::Optimism => Ok(Self::eth_optimism()),
+         ChainId::Base => Ok(Self::eth_base()),
+         ChainId::Arbitrum => Ok(Self::eth_arbitrum()),
+         ChainId::BinanceSmartChain => Ok(Self::bnb()),
       }
    }
 

@@ -1,25 +1,29 @@
-use alloy_primitives::{Address, B256, U256, aliases::{I24, U24}, utils::parse_units};
-use anyhow::bail;
 use crate::currency::{Currency, ERC20Token};
 use crate::types::ChainId;
 use crate::utils::{NumericValue, address_book};
+use alloy_primitives::{
+   Address, B256, U256,
+   aliases::{I24, U24},
+   utils::parse_units,
+};
+use anyhow::bail;
 
 use alloy_contract::private::{Network, Provider};
 use alloy_rpc_types::BlockId;
 
-use serde::{Deserialize, Serialize};
 use crate::abi::uniswap::universal_router_v2::PoolKey;
+use serde::{Deserialize, Serialize};
 
 pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};
 
+pub mod consts;
+pub mod quoter;
+pub mod state;
+pub mod sync;
+pub mod universal_router_v2;
 pub mod v2;
 pub mod v3;
 pub mod v4;
-pub mod consts;
-pub mod state;
-pub mod sync;
-pub mod quoter;
-pub mod universal_router_v2;
 
 pub use state::State;
 
@@ -195,11 +199,11 @@ impl DexKind {
    pub fn main_dexes(chain: u64) -> Vec<DexKind> {
       let chain = ChainId::new(chain).unwrap();
       match chain {
-         ChainId::Ethereum(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
-         ChainId::BinanceSmartChain(_) => vec![DexKind::PancakeSwapV2, DexKind::PancakeSwapV3],
-         ChainId::Base(_) => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
-         ChainId::Optimism(_) => vec![DexKind::UniswapV3, DexKind::UniswapV4],
-         ChainId::Arbitrum(_) => vec![DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::Ethereum => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::BinanceSmartChain => vec![DexKind::PancakeSwapV2, DexKind::PancakeSwapV3],
+         ChainId::Base => vec![DexKind::UniswapV2, DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::Optimism => vec![DexKind::UniswapV3, DexKind::UniswapV4],
+         ChainId::Arbitrum => vec![DexKind::UniswapV3, DexKind::UniswapV4],
       }
    }
 
@@ -209,24 +213,24 @@ impl DexKind {
    pub fn all(chain: u64) -> Vec<DexKind> {
       let chain = ChainId::new(chain).unwrap();
       match chain {
-         ChainId::Ethereum(_) => vec![
+         ChainId::Ethereum => vec![
             DexKind::UniswapV2,
             DexKind::UniswapV3,
             DexKind::PancakeSwapV2,
             DexKind::PancakeSwapV3,
          ],
-         ChainId::BinanceSmartChain(_) => vec![
+         ChainId::BinanceSmartChain => vec![
             DexKind::PancakeSwapV3,
             DexKind::UniswapV2,
             DexKind::UniswapV3,
          ],
-         ChainId::Base(_) => vec![
+         ChainId::Base => vec![
             DexKind::UniswapV2,
             DexKind::UniswapV3,
             DexKind::PancakeSwapV3,
          ],
-         ChainId::Optimism(_) => vec![DexKind::UniswapV3],
-         ChainId::Arbitrum(_) => vec![
+         ChainId::Optimism => vec![DexKind::UniswapV3],
+         ChainId::Arbitrum => vec![
             DexKind::UniswapV2,
             DexKind::UniswapV3,
             DexKind::PancakeSwapV3,
@@ -346,7 +350,6 @@ impl DexKind {
    }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct SwapResult {
    pub amount_in: NumericValue,
@@ -354,7 +357,6 @@ pub struct SwapResult {
    pub ideal_amount_out: NumericValue,
    pub price_impact: f64,
 }
-
 
 pub trait UniswapPool {
    fn chain_id(&self) -> u64;
@@ -866,70 +868,69 @@ impl UniswapPool for AnyUniswapPool {
    }
 }
 
-
 /// Uniswap V3 NFT Position Manager contract creation block
 pub fn nft_position_manager_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(12369651),
-      ChainId::Optimism(_) => Ok(0), // Genesis
-      ChainId::BinanceSmartChain(_) => Ok(26324045),
-      ChainId::Base(_) => Ok(1371714),
-      ChainId::Arbitrum(_) => Ok(173),
+      ChainId::Ethereum => Ok(12369651),
+      ChainId::Optimism => Ok(0), // Genesis
+      ChainId::BinanceSmartChain => Ok(26324045),
+      ChainId::Base => Ok(1371714),
+      ChainId::Arbitrum => Ok(173),
    }
 }
 
 fn uniswap_v2_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(10000835),
-      ChainId::Optimism(_) => Ok(112197986),
-      ChainId::BinanceSmartChain(_) => Ok(33496018),
-      ChainId::Base(_) => Ok(6601915),
-      ChainId::Arbitrum(_) => Ok(150442611),
+      ChainId::Ethereum => Ok(10000835),
+      ChainId::Optimism => Ok(112197986),
+      ChainId::BinanceSmartChain => Ok(33496018),
+      ChainId::Base => Ok(6601915),
+      ChainId::Arbitrum => Ok(150442611),
    }
 }
 
 fn uniswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(12369621),
-      ChainId::Optimism(_) => Ok(0), // Genesis
-      ChainId::BinanceSmartChain(_) => Ok(26324014),
-      ChainId::Base(_) => Ok(1371680),
-      ChainId::Arbitrum(_) => Ok(165),
+      ChainId::Ethereum => Ok(12369621),
+      ChainId::Optimism => Ok(0), // Genesis
+      ChainId::BinanceSmartChain => Ok(26324014),
+      ChainId::Base => Ok(1371680),
+      ChainId::Arbitrum => Ok(165),
    }
 }
 
 fn uniswap_v4_pool_manager_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(21688329),
-      ChainId::Optimism(_) => Ok(130947675),
-      ChainId::BinanceSmartChain(_) => Ok(45970610),
-      ChainId::Base(_) => Ok(25350988),
-      ChainId::Arbitrum(_) => Ok(297842872),
+      ChainId::Ethereum => Ok(21688329),
+      ChainId::Optimism => Ok(130947675),
+      ChainId::BinanceSmartChain => Ok(45970610),
+      ChainId::Base => Ok(25350988),
+      ChainId::Arbitrum => Ok(297842872),
    }
 }
 
 fn pancakeswap_v2_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(15614590),
-      ChainId::Optimism(_) => bail!("PancakeSwap V2 is not available on Optimism"),
-      ChainId::BinanceSmartChain(_) => Ok(6809737),
-      ChainId::Base(_) => Ok(2910387),
-      ChainId::Arbitrum(_) => Ok(101022992),
+      ChainId::Ethereum => Ok(15614590),
+      ChainId::Optimism => bail!("PancakeSwap V2 is not available on Optimism"),
+      ChainId::BinanceSmartChain => Ok(6809737),
+      ChainId::Base => Ok(2910387),
+      ChainId::Arbitrum => Ok(101022992),
    }
 }
 
 fn pancakeswap_v3_factory_creation_block(chain: u64) -> Result<u64, anyhow::Error> {
    let chain = ChainId::new(chain)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(16950686),
-      ChainId::Optimism(_) => bail!("PancakeSwap V3 is not available on Optimism"),
-      ChainId::BinanceSmartChain(_) => Ok(26956207),
-      ChainId::Base(_) => Ok(2912007),
-      ChainId::Arbitrum(_) => Ok(101028949),
+      ChainId::Ethereum => Ok(16950686),
+      ChainId::Optimism => bail!("PancakeSwap V3 is not available on Optimism"),
+      ChainId::BinanceSmartChain => Ok(26956207),
+      ChainId::Base => Ok(2912007),
+      ChainId::Arbitrum => Ok(101028949),
    }
 }

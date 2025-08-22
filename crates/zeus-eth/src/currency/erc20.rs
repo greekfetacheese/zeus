@@ -201,11 +201,11 @@ impl ERC20Token {
    pub fn wrapped_native_token(chain_id: u64) -> ERC20Token {
       let chain = ChainId::new(chain_id).unwrap();
       match chain {
-         ChainId::Ethereum(_) => ERC20Token::weth(),
-         ChainId::Optimism(_) => ERC20Token::weth_optimism(),
-         ChainId::Base(_) => ERC20Token::weth_base(),
-         ChainId::Arbitrum(_) => ERC20Token::weth_arbitrum(),
-         ChainId::BinanceSmartChain(_) => ERC20Token::wbnb(),
+         ChainId::Ethereum => ERC20Token::weth(),
+         ChainId::Optimism => ERC20Token::weth_optimism(),
+         ChainId::Base => ERC20Token::weth_base(),
+         ChainId::Arbitrum => ERC20Token::weth_arbitrum(),
+         ChainId::BinanceSmartChain => ERC20Token::wbnb(),
       }
    }
 
@@ -219,33 +219,35 @@ impl ERC20Token {
    }
 
    /// Return a list of base tokens based on the chain id.
+   /// 
+   /// If the chain id is invalid, it fallbacks to [ChainId::Ethereum]
    pub fn base_tokens(chain_id: u64) -> Vec<ERC20Token> {
-      let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum(1));
+      let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum);
       match chain {
-         ChainId::Ethereum(_) => vec![
+         ChainId::Ethereum => vec![
             ERC20Token::weth(),
             ERC20Token::usdc(),
             ERC20Token::usdt(),
             ERC20Token::dai(),
          ],
-         ChainId::Optimism(_) => vec![
+         ChainId::Optimism => vec![
             ERC20Token::weth_optimism(),
             ERC20Token::usdc_optimism(),
             ERC20Token::usdt_optimism(),
             ERC20Token::dai_optimism(),
          ],
-         ChainId::Base(_) => vec![
+         ChainId::Base => vec![
             ERC20Token::weth_base(),
             ERC20Token::usdc_base(),
             ERC20Token::dai_base(),
          ],
-         ChainId::Arbitrum(_) => vec![
+         ChainId::Arbitrum => vec![
             ERC20Token::weth_arbitrum(),
             ERC20Token::usdc_arbitrum(),
             ERC20Token::usdt_arbitrum(),
             ERC20Token::dai_arbitrum(),
          ],
-         ChainId::BinanceSmartChain(_) => vec![
+         ChainId::BinanceSmartChain => vec![
             ERC20Token::wbnb(),
             ERC20Token::usdc_bsc(),
             ERC20Token::usdt_bsc(),

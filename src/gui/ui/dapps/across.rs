@@ -980,10 +980,10 @@ pub async fn get_suggested_fees(
 fn _supports_chain(chain_id: u64) -> Result<bool, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
    match chain {
-      ChainId::Ethereum(_) => Ok(true),
-      ChainId::Optimism(_) => Ok(true),
-      ChainId::Base(_) => Ok(true),
-      ChainId::Arbitrum(_) => Ok(true),
-      ChainId::BinanceSmartChain(_) => Ok(false),
+      ChainId::Ethereum => Ok(true),
+      ChainId::Optimism => Ok(true),
+      ChainId::Base => Ok(true),
+      ChainId::Arbitrum => Ok(true),
+      ChainId::BinanceSmartChain => Ok(false),
    }
 }

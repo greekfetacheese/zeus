@@ -1,9 +1,9 @@
 use super::address_book::*;
+use crate::types::ChainId;
 use alloy_primitives::{Address, U256, utils::format_units};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::sol;
 use anyhow::bail;
-use crate::types::ChainId;
 
 use alloy_contract::private::{Network, Provider};
 
@@ -25,11 +25,11 @@ where
    let chain = ChainId::new(chain_id)?;
 
    let feed = match chain {
-      ChainId::Ethereum(_) => super::address_book::eth_usd_price_feed(chain_id)?,
-      ChainId::Optimism(_) => super::address_book::eth_usd_price_feed(chain_id)?,
-      ChainId::Base(_) => super::address_book::eth_usd_price_feed(chain_id)?,
-      ChainId::Arbitrum(_) => super::address_book::eth_usd_price_feed(chain_id)?,
-      ChainId::BinanceSmartChain(_) => bail!("ETH-USD price feed not available on BSC"),
+      ChainId::Ethereum => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Optimism => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Base => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::Arbitrum => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::BinanceSmartChain => bail!("ETH-USD price feed not available on BSC"),
    };
 
    let block_id = block_id.unwrap_or(BlockId::latest());
@@ -74,7 +74,7 @@ where
 {
    let chain = ChainId::new(chain_id)?;
 
-   if chain == ChainId::BinanceSmartChain(chain_id) {
+   if chain == ChainId::BinanceSmartChain {
       if token == wbnb(chain_id)? {
          get_bnb_price(client, block).await
       } else {
