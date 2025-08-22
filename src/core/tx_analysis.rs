@@ -16,7 +16,6 @@ pub struct TransactionAnalysis {
    pub chain: u64,
    /// Who initiated the transaction
    pub sender: Address,
-   /// The address the sender interacted with
    pub interact_to: Address,
    pub contract_interact: bool,
    pub value: U256,
@@ -282,10 +281,10 @@ impl TransactionAnalysis {
 
       // Single Swap
       if swaps_len == 1 {
-        // tracing::info!("Swap len 1");
+         // tracing::info!("Swap len 1");
          let params = self.swaps[0].clone();
-        // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
-        // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
+         // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
+         // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
          return TransactionAction::SwapToken(params);
       }
 
@@ -328,16 +327,15 @@ impl TransactionAnalysis {
                   }
                } else {
                   // Output is native ETH
-                  // For now we are going to trust the swap logs
                   params.received = swap.received.clone();
                   params.received_usd = swap.received_usd.clone();
                }
             }
          }
 
-        // tracing::info!("Swaps Len {}", swaps_len);
-        // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
-        // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
+         // tracing::info!("Swaps Len {}", swaps_len);
+         // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
+         // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
 
          return TransactionAction::SwapToken(params);
       }

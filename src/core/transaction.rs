@@ -538,10 +538,14 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let (swap_log, pool_address) = if let Ok(decoded) = uniswap::v2::pool::decode_swap_log(log) {
-         (decoded, log.address)
-      } else {
-         return Err(anyhow::anyhow!("Log is not a UniswapV2 swap log"));
+      let (swap_log, pool_address) = match uniswap::v2::pool::decode_swap_log(log) {
+         Ok(decoded) => (decoded, log.address),
+         Err(e) => {
+            return Err(anyhow::anyhow!(
+               "Failed to decode V2 swap log {}",
+               e
+            ));
+         }
       };
 
       let client = ctx.get_client(chain).await?;
@@ -599,10 +603,14 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let (swap, pool_address) = if let Ok(decoded) = uniswap::v3::pool::decode_swap_log(log) {
-         (decoded, log.address)
-      } else {
-         return Err(anyhow::anyhow!("Log is not a UniswapV3 swap log"));
+      let (swap, pool_address) = match uniswap::v3::pool::decode_swap_log(log) {
+         Ok(decoded) => (decoded, log.address),
+         Err(e) => {
+            return Err(anyhow::anyhow!(
+               "Failed to decode V3 swap log {}",
+               e
+            ));
+         }
       };
 
       let client = ctx.get_client(chain).await?;
@@ -635,9 +643,8 @@ impl SwapParams {
          )
       };
 
-      let amount_in = U256::from_str(&amount_in.to_string())?;
-      // remove the - sign
-      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_in = amount_in.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_out = U256::from_str(&amount_out.to_string())?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
@@ -668,10 +675,14 @@ impl SwapParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let swap = if let Ok(decoded) = uniswap::v4::decode_swap_log(log) {
-         decoded
-      } else {
-         return Err(anyhow::anyhow!("Failed to decode swap log"));
+      let swap = match uniswap::v4::decode_swap_log(log) {
+         Ok(decoded) => decoded,
+         Err(e) => {
+            return Err(anyhow::anyhow!(
+               "Failed to decode V4 swap log {}",
+               e
+            ));
+         }
       };
 
       let cached = ctx.read(|ctx| ctx.pool_manager.get_v4_pool_from_id(chain, swap.id));
@@ -681,7 +692,7 @@ impl SwapParams {
       let pool = if let Some(pool) = cached {
          pool
       } else {
-         return Err(anyhow::anyhow!("Pool not found"));
+         return Err(anyhow::anyhow!("V4 Pool not found in cache"));
       };
 
       let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
@@ -700,9 +711,8 @@ impl SwapParams {
          )
       };
 
-      let amount_in = U256::from_str(&amount_in.to_string())?;
-      // remove the - sign
-      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_in = amount_in.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_out = U256::from_str(&amount_out.to_string())?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());

@@ -1412,12 +1412,6 @@ async fn eth_send_transaction(
 
    let chain = ctx.chain();
 
-   info!("Sending Tx in Chain: {:?}", chain.name());
-   info!("From: {:?}", from);
-   info!("Transact to: {:?}", transact_to);
-   info!("Value: {:?}", value);
-   info!("Data: {:?}", call_data);
-
    let (receipt, tx_rich) = match eth::send_transaction(
       ctx.clone(),
       origin.clone(),

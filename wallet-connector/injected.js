@@ -1,5 +1,3 @@
-// injected.js (Corrected)
-
 class EventEmitter {
     constructor() {
         this.listeners = {};
