@@ -613,6 +613,8 @@ impl AddLiquidity {
    }
 }
 
+// TODO: Add other DEXes
+
 pub struct PositionDetails {
    open: bool,
    pub size: (f32, f32),

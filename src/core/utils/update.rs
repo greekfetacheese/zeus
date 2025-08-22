@@ -5,7 +5,9 @@ use crate::core::{
 };
 use anyhow::{anyhow, bail};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::Semaphore;
 use zeus_eth::{
    alloy_primitives::{U256, utils::format_units},
    alloy_provider::Provider,
@@ -16,9 +18,9 @@ use zeus_eth::{
    utils::{NumericValue, block::calculate_next_block_base_fee, client},
 };
 
-const MEASURE_RPCS_INTERVAL: u64 = 60;
+const MEASURE_RPCS_INTERVAL: u64 = 120;
 const POOL_MANAGER_INTERVAL: u64 = 600;
-const PORTFOLIO_INTERVAL: u64 = 60;
+const PORTFOLIO_INTERVAL: u64 = 600;
 const BALANCE_INTERVAL: u64 = 600;
 const PRIORITY_FEE_INTERVAL: u64 = 90;
 const BASE_FEE_INTERVAL: u64 = 180;
@@ -389,6 +391,7 @@ pub async fn test_rpcs(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let ctx_clone = ctx.clone();
       let rpcs = ctx_clone.rpc_providers().get_all(chain);
+      let semaphore = Arc::new(Semaphore::new(5));
 
       for rpc in &rpcs {
          if !rpc.enabled {
@@ -397,7 +400,11 @@ pub async fn test_rpcs(ctx: ZeusCtx) {
 
          let rpc = rpc.clone();
          let ctx_clone = ctx.clone();
+         let semaphore = semaphore.clone();
+
          let task = RT.spawn(async move {
+            let _permit = semaphore.acquire().await.unwrap();
+
             match client_test(ctx_clone.clone(), rpc.clone()).await {
                Ok(result) => {
                   ctx_clone.write(|ctx| {
@@ -431,16 +438,22 @@ pub async fn measure_rpcs(ctx: ZeusCtx) {
    let providers = ctx.rpc_providers();
 
    let mut tasks = Vec::new();
+
    for chain in SUPPORTED_CHAINS {
       let rpcs = providers.get_all(chain);
+      let semaphore = Arc::new(Semaphore::new(5));
 
       for rpc in rpcs {
          if !rpc.enabled {
             continue;
          }
+
          let rpc = rpc.clone();
          let ctx = ctx.clone();
+         let semaphore = semaphore.clone();
+
          let task = RT.spawn(async move {
+            let _permit = semaphore.acquire().await.unwrap();
             let retry = client::retry_layer(2, 400, 600);
             let throttle = client::throttle_layer(5);
             let client = match client::get_client(&rpc.url, retry, throttle).await {
@@ -492,13 +505,6 @@ pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
-}
-
-/// eg. WETH/USDT etc..
-/// Also sync v4 pools
-pub async fn sync_basic_pools(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
-   let tokens = ERC20Token::base_tokens(chain);
-   eth::sync_pools_for_tokens(ctx, chain, tokens, false).await
 }
 
 /// If needed re-sync pools for all tokens across all chains
@@ -562,6 +568,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
    });
 }
 
+// ! WIP
 /// We keep a child wallet if the native balance or nonce is greater than 0
 pub async fn wallet_discovery(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    ctx.write(|ctx| {
@@ -604,16 +611,4 @@ pub async fn wallet_discovery(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    ctx.set_vault(vault);
 
    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-   use super::*;
-
-   #[tokio::test]
-   async fn test_basic_pools() {
-      let ctx = ZeusCtx::new();
-      let chain = ChainId::new(1).unwrap();
-      sync_basic_pools(ctx.clone(), chain.id()).await.unwrap();
-   }
 }

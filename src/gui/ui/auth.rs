@@ -552,11 +552,11 @@ impl RecoverHDWallet {
          TextEdit::singleline(&mut self.wallet_name)
             .font(FontId::proportional(theme.text_sizes.normal))
             .margin(Margin::same(10))
-            .min_size(vec2(ui.available_width() * 0.6, 20.0))
+            .min_size(vec2(ui.available_width() * 0.9, 25.0))
             .show(ui);
 
          let recover_button = Button::new(RichText::new("Recover").size(theme.text_sizes.large))
-            .min_size(vec2(ui.available_width() * 0.7, 25.0));
+            .min_size(vec2(ui.available_width() * 0.9, 25.0));
 
          if ui.add(recover_button).clicked() {
             let mut vault = ctx.get_vault();

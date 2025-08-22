@@ -38,7 +38,7 @@ const SIM_TIP: &str =
 
 const SIM_TIP2: &str = "This does not guarantee that the earnings will be the same at the future but you can get a good idea of the potential earnings";
 
-/// Ui to create a position
+/// Ui to create a position on a DEX like Uniswap
 pub struct CreatePositionUi {
    pub open: bool,
    pub pair_selection_open: bool,
@@ -115,7 +115,8 @@ impl CreatePositionUi {
       self.currency1 = currency1;
    }
 
-   // Only V3 for now
+   // TODO: Add other DEXes
+   // Only Uniswap V3 for now
    fn select_version(&mut self, _chain: u64, theme: &Theme, ui: &mut Ui) {
       let mut current_protocol = self.protocol;
       let protocol_kinds = vec![DexKind::UniswapV3];
