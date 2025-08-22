@@ -11,7 +11,7 @@ function injectScript(filePath) {
         scriptTag.setAttribute('src', chrome.runtime.getURL(filePath));
         container.insertBefore(scriptTag, container.firstChild);  // Top of head
         scriptTag.onload = () => { scriptTag.remove(); };  // Clean up
-        console.log(`Injected ${filePath}`);
+       // console.log(`Injected ${filePath}`);
     } catch (error) {
         console.error('Zeus Connector: Error injecting script:', error);
     }
@@ -56,7 +56,7 @@ window.addEventListener("message", (event) => {
 // ***** Listen for messages FROM background script *****
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === 'accountsChanged' || message.type === 'chainChanged') {
-        console.log(`Content Script: Received ${message.type} from background. Relaying to injected script.`);
+       // console.log(`Content Script: Received ${message.type} from background. Relaying to injected script.`);
         window.postMessage({
             target: 'injected',
             type: message.type,

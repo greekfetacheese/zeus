@@ -127,7 +127,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ success: true, data: jsonData });
             })
             .catch(error => {
-                console.error(`Background: Error fetch for ID ${message.id}:`, error); // Log error send
+               // console.error(`Background: Error fetch for ID ${message.id}:`, error); // Log error send
                 sendResponse({ success: false, error: error.message || 'Failed to fetch' });
             });
 
@@ -162,13 +162,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 // ***** FIX: Use message.id for logging *****
                 console.log(`Background: Received connection response from server for ID ${message.id}:`, serverData);
                 if (serverData.status === 'approved') {
-                    console.log(`Background: Sending success response for ID ${message.id}`);
+                   // console.log(`Background: Sending success response for ID ${message.id}`);
                     sendResponse({
                         success: true,
                         data: { approved: true, accounts: serverData.accounts || [] }
                     });
                 } else {
-                    console.log(`Background: Sending rejection response for ID ${message.id} (status: ${serverData.status})`);
+                   // console.log(`Background: Sending rejection response for ID ${message.id} (status: ${serverData.status})`);
                     sendResponse({ success: false, error: 'User rejected the connection request.' });
                 }
             })

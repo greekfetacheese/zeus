@@ -1,18 +1,24 @@
+const MAX_LISTENERS = 20;
+
 class EventEmitter {
     constructor() {
         this.listeners = {};
+        this.maxListeners = MAX_LISTENERS;
     }
 
     on(event, callback) {
         if (!this.listeners[event]) {
             this.listeners[event] = [];
         }
+        if (this.listeners[event].length >= this.maxListeners) {
+            console.warn(`Zeus: Possible memory leak - ${this.listeners[event].length + 1} listeners added for '${event}'. Use setMaxListeners to increase.`);
+        }
         this.listeners[event].push(callback);
-        console.log(`Zeus: Listener added for event: ${event}`);
+       // console.log(`Zeus: Listener added for event: ${event}`);
     }
 
     emit(event, ...args) {
-        console.log(`Emitting event: ${event}`, args);
+       // console.log(`Emitting event: ${event}`, args);
         if (this.listeners[event]) {
             this.listeners[event].forEach(callback => {
                 try {
@@ -22,6 +28,10 @@ class EventEmitter {
                 }
             });
         }
+    }
+
+    setMaxListeners(n) {
+        this.maxListeners = n;
     }
 
     removeAllListeners(event) {
@@ -83,7 +93,7 @@ window.addEventListener("message", (event) => {
         if (window.ethereum && window.ethereum.isZeus) {
             const currentChainId = window.ethereum._chainId;
             if (currentChainId !== newChainId) {
-                console.log("Zeus: Received chainChanged from background. Updating state:", newChainId);
+               // console.log("Zeus: Received chainChanged from background. Updating state:", newChainId);
                 window.ethereum._chainId = newChainId;
                 window.ethereum.emit('chainChanged', newChainId);
             }
@@ -123,6 +133,7 @@ class ZeusProvider extends EventEmitter {
         this._isConnected = false;
         this._accounts = [];
         this._chainId = null;
+        this.setMaxListeners(MAX_LISTENERS);
         this._initializeState();
         this._announceProvider();
     }
@@ -151,7 +162,7 @@ class ZeusProvider extends EventEmitter {
             this._chainId = await this.request({ method: 'eth_chainId' });
             this._accounts = await this.request({ method: 'eth_accounts' });
             this._isConnected = this._accounts.length > 0;
-            console.log("Initial state:", { chainId: this._chainId, accounts: this._accounts });
+           // console.log("Initial state:", { chainId: this._chainId, accounts: this._accounts });
         } catch (e) {
             console.error("Error initializing:", e);
             this._isConnected = false;
@@ -166,7 +177,7 @@ class ZeusProvider extends EventEmitter {
     }
 
     async request({ method, params }) {
-        console.log(`Zeus: request received: Method=${method}, Params=`, params);
+       // console.log(`Zeus: request received: Method=${method}, Params=`, params);
         const origin = window.location.origin;
 
         try {
@@ -183,7 +194,7 @@ class ZeusProvider extends EventEmitter {
             });
 
             if (response.error) {
-                console.error("Zeus API returned error:", response.error);
+               // console.error("Zeus API returned error:", response.error);
                 const error = new Error(response.error.message || "Zeus wallet error");
                 error.code = response.error.code || -32603;
                 error.data = response.error.data;
@@ -203,9 +214,9 @@ class ZeusProvider extends EventEmitter {
                         const chainData = await this.request({ method: 'eth_chainId' });
                         this._chainId = chainData;
                         this.emit("connect", { chainId: this._chainId });
-                        console.log("Zeus: Emitted 'connect' event.", { chainId: this._chainId });
+                       // console.log("Zeus: Emitted 'connect' event.", { chainId: this._chainId });
                     } catch (e) {
-                        console.error("Zeus: Failed to get chainId for connect event:", e);
+                       // console.error("Zeus: Failed to get chainId for connect event:", e);
                         this.emit("connect", {});
                     }
                 }
@@ -232,9 +243,9 @@ class ZeusProvider extends EventEmitter {
             const error = new Error(reason);
             error.code = 4900;
             this.emit("disconnect", error);
-            console.log("Emitted 'disconnect' event.");
+           // console.log("Emitted 'disconnect' event.");
             this.emit("accountsChanged", []);
-            console.log("Emitted 'accountsChanged' event (empty).");
+           // console.log("Emitted 'accountsChanged' event (empty).");
         }
     }
 
