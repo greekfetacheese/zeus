@@ -3,59 +3,36 @@
 use eframe::{
    egui,
    egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, Backends, InstanceDescriptor, MemoryHints, PowerPreference, Trace},
+   wgpu::{self, MemoryHints, Trace},
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
 
 pub mod assets;
 pub mod core;
-pub mod utils;
 pub mod gui;
 pub mod server;
+pub mod utils;
 
 use core::utils::trace::*;
 use std::panic;
 
 fn main() -> eframe::Result {
    panic::set_hook(Box::new(|panic_info| {
-      let message = panic_info
-         .payload()
-         .downcast_ref::<&str>()
-         .map_or("Unknown panic", |s| s);
-      let location = panic_info
-         .location()
-         .map_or("Unknown location".to_string(), |loc| {
-            format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
-         });
+      let message = panic_info.payload().downcast_ref::<&str>().map_or("Unknown panic", |s| s);
+      let location = panic_info.location().map_or("Unknown location".to_string(), |loc| {
+         format!("{}:{}:{}", loc.file(), loc.line(), loc.column())
+      });
       tracing::error!("Panic occurred: '{}' at {}", message, location);
    }));
 
    let _tracing_guard = setup_tracing();
 
    let wgpu_setup = WgpuSetup::CreateNew(WgpuSetupCreateNew {
-      instance_descriptor: InstanceDescriptor {
-         backends: Backends::PRIMARY | Backends::GL,
+      device_descriptor: Arc::new(|_adapter| wgpu::DeviceDescriptor {
+         memory_hints: MemoryHints::MemoryUsage,
+         trace: Trace::Off,
          ..Default::default()
-      },
-      power_preference: PowerPreference::HighPerformance,
-      device_descriptor: Arc::new(|adapter| {
-         let base_limits = if adapter.get_info().backend == wgpu::Backend::Gl {
-            wgpu::Limits::downlevel_webgl2_defaults()
-         } else {
-            wgpu::Limits::default()
-         };
-
-         wgpu::DeviceDescriptor {
-            label: Some("egui wgpu device"),
-            required_features: wgpu::Features::default(),
-            required_limits: wgpu::Limits {
-               max_texture_dimension_2d: 8192,
-               ..base_limits
-            },
-            memory_hints: MemoryHints::MemoryUsage,
-            trace: Trace::Off,
-         }
       }),
       ..Default::default()
    });
