@@ -247,8 +247,10 @@ class ZeusProvider extends EventEmitter {
 }
 
 // --- Injection Check ---
-if (!window.ethereum?.isZeus) {
-    window.ethereum = new ZeusProvider();
+const provider = new ZeusProvider();
+if (!window.ethereum) {
+    window.ethereum = provider;
+    console.log("Zeus: Set as default window.ethereum provider.");
 } else {
-    console.warn("Zeus EIP-1193 Provider already injected. Skipping.");
+    console.warn("Zeus: Existing Ethereum provider detected. Announcing via EIP-6963 only, no overwrite.");
 }
