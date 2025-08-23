@@ -447,8 +447,8 @@ fn encode_v4_internal_actions(
    let take_action = Actions::TAKE(take_params);
    let take_input = take_action.abi_encode();
 
-   let v4_actions = vec![settle_action, swap_action, take_action];
-   let v4_action_params = vec![settle_input, swap_input, take_input];
+   let v4_actions = vec![swap_action, settle_action, take_action];
+   let v4_action_params = vec![swap_input, settle_input, take_input];
 
    encode_v4_router_command_input(v4_actions, v4_action_params)
 }

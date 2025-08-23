@@ -5,8 +5,6 @@ pub mod utils;
 pub mod transaction;
 pub mod tx_analysis;
 
-mod tests;
-
 pub use context::*;
 pub use user::wallet::*;
 pub use transaction::*;

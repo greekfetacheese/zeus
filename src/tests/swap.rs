@@ -3,12 +3,13 @@ mod tests {
    use crate::core::{BaseFee, ZeusCtx};
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
-   use zeus_eth::{
-      alloy_primitives::{TxKind, U256},
+   use zeus_eth::amm::uniswap::{DexKind, FeeAmount};
+use zeus_eth::{
+      alloy_primitives::{TxKind, U256, address},
       alloy_provider::{Provider, ProviderBuilder},
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
       amm::uniswap::{
-         AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
+         AnyUniswapPool, State, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
          quoter::{get_quote, get_quote_with_split_routing},
          universal_router_v2::{SwapStep, SwapType, encode_swap},
       },
@@ -498,7 +499,7 @@ mod tests {
       .unwrap();
    }
 
-   /*
+   /* 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
@@ -636,6 +637,147 @@ mod tests {
       let currency_in = Currency::from(NativeCurrency::from(chain_id));
       let currency_out = Currency::from(ERC20Token::usdc_base());
       let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_eth_to_erc20_base_chain_aerodrome() {
+      let chain_id = 8453;
+
+      let currency_in = Currency::from(NativeCurrency::from(chain_id));
+      let currency_out = Currency::from(ERC20Token::usdc_base());
+      let amount_in = NumericValue::parse_to_wei("10", currency_in.decimals());
+
+      let pool: AnyUniswapPool = UniswapV3Pool {
+         chain_id: chain_id,
+         address: address!("0xb2cc224c1c9feE385f8ad6a55b4d94E92359DC59"),
+         fee: FeeAmount::CUSTOM(425),
+         currency0: ERC20Token::wrapped_native_token(chain_id).into(),
+         currency1: currency_out.clone(),
+         dex: DexKind::UniswapV3,
+         state: State::default(),
+         liquidity_amount0: U256::ZERO,
+         liquidity_amount1: U256::ZERO,
+      }.into();
+      
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         vec![pool],
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_erc20_to_eth_base_chain() {
+      let chain_id = 8453;
+
+      let currency_in = Currency::from(ERC20Token::usdc_base());
+      let currency_out = Currency::from(NativeCurrency::from(chain_id));
+      let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_erc20_to_eth_optimism_chain() {
+      let chain_id = 10;
+
+      let currency_in = Currency::from(ERC20Token::usdc_optimism());
+      let currency_out = Currency::from(NativeCurrency::from(chain_id));
+      let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
+
+      let swap_on_v2 = true;
+      let swap_on_v3 = true;
+      let swap_on_v4 = false;
+      let max_hops = 4;
+      let max_routes = 10;
+      let with_split_routing = false;
+
+      test_swap(
+         chain_id,
+         amount_in,
+         currency_in,
+         currency_out,
+         swap_on_v2,
+         swap_on_v3,
+         swap_on_v4,
+         max_hops,
+         max_routes,
+         with_split_routing,
+         Vec::new(),
+      )
+      .await
+      .unwrap();
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn swap_from_erc20_to_eth_arbitrum_chain() {
+      let chain_id = 42161;
+
+      let currency_in = Currency::from(ERC20Token::usdc_arbitrum());
+      let currency_out = Currency::from(NativeCurrency::from(chain_id));
+      let amount_in = NumericValue::parse_to_wei("1000", currency_in.decimals());
 
       let swap_on_v2 = true;
       let swap_on_v3 = true;
@@ -883,16 +1025,7 @@ mod tests {
       };
 
       let pool_manager = ctx.pool_manager();
-      pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await?;
-
-      let pools = get_relevant_pools(
-         ctx.clone(),
-         swap_on_v2,
-         swap_on_v3,
-         swap_on_v4,
-         &currency_in,
-         &currency_out,
-      );
+      let updated_pools = pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await?;
 
       let eth = Currency::from(NativeCurrency::from(chain));
       let eth_price = ctx.get_currency_price(&eth);
@@ -905,7 +1038,7 @@ mod tests {
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
-            pools,
+            updated_pools,
             eth_price.clone(),
             currency_out_price.clone(),
             base_fee.next,
@@ -918,7 +1051,7 @@ mod tests {
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
-            pools,
+            updated_pools,
             eth_price.clone(),
             currency_out_price.clone(),
             base_fee.next,

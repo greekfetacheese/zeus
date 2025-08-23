@@ -13,6 +13,7 @@ pub mod core;
 pub mod gui;
 pub mod server;
 pub mod utils;
+mod tests;
 
 use core::utils::trace::*;
 use std::panic;

@@ -319,9 +319,8 @@ impl PoolManagerHandle {
       &self,
       ctx: ZeusCtx,
       chain: u64,
-      pools: Vec<impl UniswapPool>,
-   ) -> Result<(), anyhow::Error> {
-      let pools = pools.into_iter().map(|p| AnyUniswapPool::from_pool(p)).collect::<Vec<_>>();
+      pools: Vec<AnyUniswapPool>,
+   ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
       let client = ctx.get_client(chain).await?;
@@ -336,14 +335,14 @@ impl PoolManagerHandle {
       .await?;
 
       self.write(|manager| {
-         for pool in pools {
-            manager.add_pool(pool);
+         for pool in &pools {
+            manager.add_pool(pool.clone());
          }
       });
 
       self.update_base_token_prices(ctx, chain).await?;
       self.calculate_prices();
-      Ok(())
+      Ok(pools)
    }
 
    /// Update the base token prices for the given tokens

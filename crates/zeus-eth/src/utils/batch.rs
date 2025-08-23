@@ -302,7 +302,7 @@ where
 }
 
 /// Get the given ticks for a V3 pool
-/// 
+///
 /// If `block` is `None`, the latest block is used.
 pub async fn get_v3_pool_ticks<P, N>(
    client: P,
@@ -317,14 +317,14 @@ where
    let deployer = TickDataFetchV3::deploy_builder(client, pool).block(block);
    let res = deployer.call_raw().await?;
 
-   let data =
-      <Vec<TickInfo> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
+   let data = <Vec<TickInfo> as SolValue>::abi_decode(&res)
+      .map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
 
    Ok(data)
 }
 
 /// Get the tickBitmaps of a v3 pool for the given word positions
-/// 
+///
 /// If `block` is `None`, the latest block is used.
 pub async fn get_v3_pool_tick_bitmaps<P, N>(
    client: P,
@@ -339,8 +339,8 @@ where
    let deployer = TickBitmapFetchV3::deploy_builder(client, pool).block(block);
    let res = deployer.call_raw().await?;
 
-   let data =
-      <Vec<TickBitMap> as SolValue>::abi_decode(&res).map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
+   let data = <Vec<TickBitMap> as SolValue>::abi_decode(&res)
+      .map_err(|e| anyhow!("Failed to decode V3 pool tick data: {:?}", e))?;
 
    Ok(data)
 }
@@ -405,6 +405,8 @@ where
 mod tests {
    use super::*;
    use crate::utils::address_book;
+   use crate::abi::uniswap::v3::pool::fee;
+   use crate::amm::uniswap::FeeAmount;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
    use url::Url;
@@ -482,5 +484,29 @@ mod tests {
       for pool in pools {
          println!("Pair: {:?}, Fee: {}", pool.addr, pool.fee);
       }
+   }
+
+   #[tokio::test]
+   async fn test_v3_state_base_aerodrome() {
+      let url = Url::parse("https://base-rpc.publicnode.com").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let pool_address = address!("0xb2cc224c1c9fee385f8ad6a55b4d94e92359dc59");
+      let fee = fee(pool_address, client.clone()).await.unwrap();
+
+      let fee = FeeAmount::CUSTOM(fee);
+      let pool = V3Pool {
+         pool: pool_address,
+         token0: address!("0x4200000000000000000000000000000000000006"),
+         token1: address!("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"),
+         tickSpacing: fee.tick_spacing(),
+      };
+
+      let state = get_v3_state(client, None, vec![pool]).await.unwrap();
+
+      assert_eq!(state.len(), 1);
+
+      eprintln!("=== V3 State Test ===");
+      eprintln!("State {:?}", state);
    }
 }

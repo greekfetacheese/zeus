@@ -350,6 +350,9 @@ impl UniswapUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+         // TODO: Add support for other chains
+         // ETH to ERC20 swaps work fine but for some reason ERC20 to ETH swaps don't work
+         // I should probably create my own router for this
          if !ctx.chain().is_ethereum() {
             let text = RichText::new("Swap feature is only available on Ethereum mainnet")
                .size(theme.text_sizes.large)
