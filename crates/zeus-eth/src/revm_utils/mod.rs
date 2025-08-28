@@ -14,7 +14,7 @@ use op_revm::OpSpecId;
 pub use op_revm;
 pub use revm;
 pub use revm::{
-   Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, context_interface::result::ExecutionResult,
+   Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, context_interface::result::{ExecutionResult, Output},
    database::InMemoryDB, interpreter::Host,
 };
 
@@ -53,7 +53,7 @@ where
       SpecId::CANCUN
    };
 
-   // evm.cfg.chain_id = chain;
+   evm.cfg.chain_id = chain.id();
    evm.cfg.spec = spec;
 
    // Disable checks

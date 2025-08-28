@@ -355,18 +355,21 @@ impl UniswapPool for UniswapV2Pool {
          .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
       let token_in = currency_in.to_erc20().address;
+      let fee = self.fee().fee();
 
       if self.currency0.to_erc20().address == token_in {
          Ok(super::get_amount_out(
             amount_in,
             state.reserve0,
             state.reserve1,
+            fee,
          ))
       } else {
          Ok(super::get_amount_out(
             amount_in,
             state.reserve1,
             state.reserve0,
+            fee,
          ))
       }
    }
@@ -379,9 +382,10 @@ impl UniswapPool for UniswapV2Pool {
          .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
       let token_in = currency_in.to_erc20().address;
+      let fee = self.fee().fee();
 
       if self.currency0.to_erc20().address == token_in {
-         let amount_out = super::get_amount_out(amount_in, state.reserve0, state.reserve1);
+         let amount_out = super::get_amount_out(amount_in, state.reserve0, state.reserve1, fee);
 
          state.reserve0 += amount_in;
          state.reserve1 -= amount_out;
@@ -389,7 +393,7 @@ impl UniswapPool for UniswapV2Pool {
 
          Ok(amount_out)
       } else {
-         let amount_out = super::get_amount_out(amount_in, state.reserve1, state.reserve0);
+         let amount_out = super::get_amount_out(amount_in, state.reserve1, state.reserve0, fee);
 
          state.reserve0 -= amount_out;
          state.reserve1 += amount_in;

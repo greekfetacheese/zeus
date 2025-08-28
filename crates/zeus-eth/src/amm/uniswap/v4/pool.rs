@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use crate::amm::uniswap::state::{TickInfo, get_v4_pool_state};
 use crate::amm::uniswap::{
-   DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity, sorts_before,
+   DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity,
    v3::{calculate_price, calculate_swap, calculate_swap_mut},
 };
 
@@ -85,7 +85,7 @@ impl UniswapV4Pool {
       let pool_key = Self::get_pool_key(&currency_a, &currency_b, fee, hooks);
       let pool_id = Self::get_pool_id(&currency_a, &currency_b, fee, hooks);
 
-      let (currency0, currency1) = if sorts_before(&currency_a, &currency_b) {
+      let (currency0, currency1) = if currency_a.address() < currency_b.address() {
          (currency_a, currency_b)
       } else {
          (currency_b, currency_a)

@@ -62,6 +62,7 @@ reqwest = { version = "0.12", features = ["json"] }
 
 
 # Misc
+rayon = "1.10.0"
 anyhow = "1"
 thiserror = "2"
 serde = {version = "1", features = ["derive"]}

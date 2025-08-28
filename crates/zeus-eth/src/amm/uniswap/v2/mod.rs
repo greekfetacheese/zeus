@@ -6,7 +6,6 @@ use crate::currency::Currency;
 
 pub use pool::UniswapV2Pool;
 
-pub const FEE: u32 = 300;
 
 pub fn div_uu(x: U256, y: U256) -> Result<u128, anyhow::Error> {
    if !y.is_zero() {
@@ -90,11 +89,12 @@ pub fn div_uu(x: U256, y: U256) -> Result<u128, anyhow::Error> {
 }
 
 /// Calculates the amount received for a given `amount_in` `reserve_in` and `reserve_out`.
-pub fn get_amount_out(amount_in: U256, reserve_in: U256, reserve_out: U256) -> U256 {
+pub fn get_amount_out(amount_in: U256, reserve_in: U256, reserve_out: U256, fee: u32) -> U256 {
    if amount_in.is_zero() || reserve_in.is_zero() || reserve_out.is_zero() {
       return U256::ZERO;
    }
-   let fee = (10000 - FEE / 10) / 10; //Fee of 300 => (10,000 - 30) / 10  = 997
+
+   let fee = (10000 - fee / 100) / 10; // eg. Fee of 3000 => (10,000 - 30) / 10  = 997
    let amount_in_with_fee = amount_in * U256::from(fee);
    let numerator = amount_in_with_fee * reserve_out;
    let denominator = reserve_in * U256::from(1000) + amount_in_with_fee;

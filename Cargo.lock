@@ -9030,6 +9030,7 @@ dependencies = [
  "lazy_static",
  "ncrypt-me",
  "rand 0.8.5",
+ "rayon",
  "reqwest",
  "ripemd",
  "secure-types",

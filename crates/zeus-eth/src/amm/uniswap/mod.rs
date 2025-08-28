@@ -21,6 +21,7 @@ pub mod quoter;
 pub mod state;
 pub mod sync;
 pub mod universal_router_v2;
+// pub mod zeus_router;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -132,18 +133,6 @@ impl PoolID {
    }
 }
 
-pub fn sorts_before(currency_a: &Currency, currency_b: &Currency) -> bool {
-   if currency_a.is_native() {
-      return true;
-   }
-
-   if currency_b.is_native() {
-      return false;
-   }
-
-   // Both are ERC20 tokens
-   currency_a.address() < currency_b.address()
-}
 
 /// Minimum liquidity we consider to be required for a pool to able to swap
 ///

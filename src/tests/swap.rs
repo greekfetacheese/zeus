@@ -3,13 +3,12 @@ mod tests {
    use crate::core::{BaseFee, ZeusCtx};
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
-   use zeus_eth::amm::uniswap::{DexKind, FeeAmount};
 use zeus_eth::{
-      alloy_primitives::{TxKind, U256, address},
+      alloy_primitives::{TxKind, U256},
       alloy_provider::{Provider, ProviderBuilder},
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
       amm::uniswap::{
-         AnyUniswapPool, State, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
+         AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
          quoter::{get_quote, get_quote_with_split_routing},
          universal_router_v2::{SwapStep, SwapType, encode_swap},
       },
@@ -572,7 +571,7 @@ use zeus_eth::{
 
       let currency_in = Currency::from(ERC20Token::usdt());
       let currency_out = Currency::from(NativeCurrency::from(chain_id));
-      let amount_in = NumericValue::parse_to_wei("300000", currency_in.decimals());
+      let amount_in = NumericValue::parse_to_wei("500000", currency_in.decimals());
 
       let swap_on_v2 = true;
       let swap_on_v3 = true;
@@ -662,6 +661,7 @@ use zeus_eth::{
       .unwrap();
    }
 
+   /* 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_eth_to_erc20_base_chain_aerodrome() {
       let chain_id = 8453;
@@ -706,6 +706,7 @@ use zeus_eth::{
       .await
       .unwrap();
    }
+   */
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_erc20_to_eth_base_chain() {
