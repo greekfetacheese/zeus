@@ -1103,7 +1103,7 @@ fn bridge_event_ui(
    address_ui(
       ctx.clone(),
       chain,
-      "Recipent",
+      "Recipient",
       params.recipient,
       theme,
       ui,
