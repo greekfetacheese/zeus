@@ -1037,15 +1037,31 @@ fn bridge_event_ui(
    params: &BridgeParams,
    ui: &mut Ui,
 ) {
+
+   let origin_chain = params.origin_chain;
+   let destination_chain = params.destination_chain;
+
+   // EOA's always receive native ETH
+   let currency_in = if params.input_currency.is_native_wrapped() {
+      NativeCurrency::from(origin_chain).into()
+   } else {
+      params.input_currency.clone()
+   };
+
+   let currency_out = if params.output_currency.is_native_wrapped() {
+      NativeCurrency::from(destination_chain).into()
+   } else {
+      params.output_currency.clone()
+   };
+
    // Input currency column
    ui.horizontal(|ui| {
-      let currency = &params.input_currency;
       let amount = &params.amount;
-      let icon = icons.currency_icon(currency);
+      let icon = icons.currency_icon(&currency_in);
       let text = RichText::new(format!(
          "- {} {} ",
          amount.format_abbreviated(),
-         currency.symbol()
+         currency_in.symbol()
       ))
       .size(theme.text_sizes.normal)
       .color(theme.colors.error_color);
@@ -1067,13 +1083,12 @@ fn bridge_event_ui(
    // Received Currency
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let currency = &params.output_currency;
          let amount = &params.received;
-         let icon = icons.currency_icon(currency);
+         let icon = icons.currency_icon(&currency_out);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.format_abbreviated(),
-            currency.symbol()
+            currency_out.symbol()
          ))
          .size(theme.text_sizes.normal)
          .color(theme.colors.success_color);
