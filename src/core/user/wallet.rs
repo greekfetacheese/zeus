@@ -116,6 +116,11 @@ pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::E
    let argon2 = Argon2::new(m_cost, t_cost, p_cost);
 
    let seed = argon2.hash_password(&credentials.password, username_hash)?;
+   // Should never happen but if seed is not 64 bytes, return an error
+   // I prefer not to panic here
+   if seed.len() != 64 {
+      return Err(anyhow!("Seed is not 64 bytes long, this is a bug"));
+   }
 
    Ok(seed)
 }

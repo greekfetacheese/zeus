@@ -1,6 +1,5 @@
 use crate::assets::icons::Icons;
 use crate::core::user::Vault;
-use crate::core::utils::update;
 use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
@@ -473,7 +472,7 @@ impl UnlockVault {
 
 /// Recover an HD wallet from the credentials and create a Vault
 pub struct RecoverHDWallet {
-   pub credentials_form: CredentialsForm,
+   credentials_form: CredentialsForm,
    wallet_name: String,
    credentials_input: bool,
    show_recover_wallet: bool,
@@ -631,26 +630,9 @@ impl RecoverHDWallet {
                         gui.open_msg_window("Failed to create vault", e.to_string());
                         gui.loading_window.open = false;
                      });
+                     return;
                   }
                };
-
-               let ctx_clone = ctx.clone();
-               RT.spawn(async move {
-                  match update::wallet_discovery(ctx_clone.clone()).await {
-                     Ok(_) => {
-                        tracing::info!("Wallet discovery finished");
-                        update::on_startup(ctx_clone.clone()).await;
-                     }
-                     Err(e) => {
-                        SHARED_GUI.write(|gui| {
-                           ctx_clone.write(|ctx| {
-                              ctx.wallet_discovery_in_progress = false;
-                           });
-                           gui.open_msg_window("Failed to discover wallets", e.to_string());
-                        });
-                     }
-                  }
-               });
             });
          }
       });

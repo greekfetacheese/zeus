@@ -112,7 +112,6 @@ impl Vault {
    }
 
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
-      self.credentials.is_valid()?;
       let seed = derive_seed(&self.credentials)?;
       let hd_wallet = SecureHDWallet::new_from_seed(name, seed);
       self.hd_wallet = hd_wallet;
