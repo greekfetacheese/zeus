@@ -193,7 +193,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
 }
 
 fn insert_missing_portfolios(ctx: ZeusCtx) {
-   while !ctx.logged_in() {
+   while !ctx.vault_unlocked() {
       std::thread::sleep(Duration::from_millis(100));
    }
 

@@ -82,10 +82,14 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault_exists)
    }
 
+   pub fn vault_unlocked(&self) -> bool {
+      self.read(|ctx| ctx.vault_unlocked)
+   }
+
    /// Encrypt and save the vault
-   /// 
+   ///
    /// If `new_vault` is None, the current vault will be encrypted
-   /// 
+   ///
    /// If `new_params` is None, the current [Argon2] params will be used
    pub fn encrypt_and_save_vault(
       &self,
@@ -135,10 +139,6 @@ impl ZeusCtx {
 
    pub fn wallet_discovery_in_progress(&self) -> bool {
       self.read(|ctx| ctx.wallet_discovery_in_progress)
-   }
-
-   pub fn logged_in(&self) -> bool {
-      self.read(|ctx| ctx.logged_in)
    }
 
    pub fn rpc_providers(&self) -> RpcProviders {
@@ -980,7 +980,7 @@ pub struct ZeusContext {
    pub wallet_discovery_in_progress: bool,
 
    pub vault_exists: bool,
-   pub logged_in: bool,
+   pub vault_unlocked: bool,
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
    pub tx_db: TransactionsDB,
@@ -1080,7 +1080,7 @@ impl ZeusContext {
          save_vault_in_progress: false,
          wallet_discovery_in_progress: false,
          vault_exists,
-         logged_in: false,
+         vault_unlocked: false,
          currency_db,
          portfolio_db,
          tx_db,

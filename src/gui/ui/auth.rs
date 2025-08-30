@@ -7,8 +7,8 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui::{Color32, Margin};
-use egui_theme::Theme;
 use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
+use egui_theme::{Theme, ThemeKind};
 use egui_widgets::SecureTextEdit;
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
@@ -250,9 +250,15 @@ impl CredentialsForm {
                   }
 
                   let icon = if self.hide_username {
-                     icons.hide_light()
+                     match theme.kind {
+                        ThemeKind::Latte => icons.hide(),
+                        _ => icons.hide_light(),
+                     }
                   } else {
-                     icons.view_light()
+                     match theme.kind {
+                        ThemeKind::Latte => icons.view(),
+                        _ => icons.view_light(),
+                     }
                   };
 
                   let hide_view = Button::image(icon);
@@ -282,9 +288,15 @@ impl CredentialsForm {
                   }
 
                   let icon = if self.hide_password {
-                     icons.hide_light()
+                     match theme.kind {
+                        ThemeKind::Latte => icons.hide(),
+                        _ => icons.hide_light(),
+                     }
                   } else {
-                     icons.view_light()
+                     match theme.kind {
+                        ThemeKind::Latte => icons.view(),
+                        _ => icons.view_light(),
+                     }
                   };
 
                   let hide_view = Button::image(icon);
@@ -315,9 +327,15 @@ impl CredentialsForm {
                      }
 
                      let icon = if self.hide_password {
-                        icons.hide_light()
+                        match theme.kind {
+                           ThemeKind::Latte => icons.hide(),
+                           _ => icons.hide_light(),
+                        }
                      } else {
-                        icons.view_light()
+                        match theme.kind {
+                           ThemeKind::Latte => icons.view(),
+                           _ => icons.view_light(),
+                        }
                      };
 
                      let hide_view = Button::image(icon);
@@ -351,9 +369,9 @@ impl UnlockVault {
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let vault_exists = ctx.vault_exists();
-      let logged_in = ctx.logged_in();
+      let vault_unlocked = ctx.vault_unlocked();
 
-      let open = vault_exists && !logged_in;
+      let open = vault_exists && !vault_unlocked;
 
       if !open {
          return;
@@ -408,7 +426,7 @@ impl UnlockVault {
             gui.loading_window.open("Unlocking vault...");
          });
 
-         // Decrypt the account
+         // Decrypt the vault
          let data = match vault.decrypt(None) {
             Ok(data) => data,
             Err(e) => {
@@ -436,7 +454,7 @@ impl UnlockVault {
                });
 
                ctx.write(|ctx| {
-                  ctx.logged_in = true;
+                  ctx.vault_unlocked = true;
                   ctx.current_wallet = vault.get_master_wallet();
                });
 
@@ -513,8 +531,7 @@ impl RecoverHDWallet {
 
       ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
       ui.label(
-         RichText::new("Recover an HD wallet from the credentials")
-            .size(theme.text_sizes.large),
+         RichText::new("Recover an HD wallet from the credentials").size(theme.text_sizes.large),
       );
 
       // Credentials input
@@ -565,7 +582,8 @@ impl RecoverHDWallet {
 
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
-                  gui.loading_window.open("Recovering Wallet... (This may take a couple of minutes)");
+                  gui.loading_window
+                     .open("Recovering Wallet... (This may take a couple of minutes)");
                });
 
                vault.set_credentials(credentials);
@@ -672,7 +690,7 @@ impl RecoverHDWallet {
 
                ctx.write(|ctx| {
                   ctx.vault_exists = true;
-                  ctx.logged_in = true;
+                  ctx.vault_unlocked = true;
                });
             });
          });

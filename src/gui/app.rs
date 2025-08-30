@@ -134,7 +134,7 @@ impl eframe::App for ZeusApp {
                .show_separator_line(false)
                .frame(panel_frame)
                .show_inside(ui, |ui| {
-                  if gui.ctx.logged_in() {
+                  if gui.ctx.vault_unlocked() {
                      gui.show_top_panel(ui);
                   }
                });
@@ -146,7 +146,7 @@ impl eframe::App for ZeusApp {
                .show_separator_line(true)
                .frame(panel_frame)
                .show_inside(ui, |ui| {
-                  if gui.ctx.logged_in() {
+                  if gui.ctx.vault_unlocked() {
                      gui.show_left_panel(ui);
                   }
                });
@@ -159,7 +159,7 @@ impl eframe::App for ZeusApp {
                   .show_separator_line(true)
                   .frame(panel_frame)
                   .show_inside(ui, |ui| {
-                     if gui.ctx.logged_in() {
+                     if gui.ctx.vault_unlocked() {
                         gui.show_right_panel(ui);
                      }
                   });

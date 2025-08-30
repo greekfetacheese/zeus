@@ -15,7 +15,7 @@ use zeus_eth::utils::NumericValue;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
-   let logged_in = ctx.logged_in();
+   let vault_unlocked = ctx.vault_unlocked();
    let vault_exists = ctx.vault_exists();
    let theme = &gui.theme;
    let icons = gui.icons.clone();
@@ -48,7 +48,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.recover_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.unlock_vault_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
-   if vault_exists && !logged_in {
+   if vault_exists && !vault_unlocked {
       gui.portofolio.open = false;
    }
 
