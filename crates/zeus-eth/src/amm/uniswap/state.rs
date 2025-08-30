@@ -1,5 +1,5 @@
 use super::{AnyUniswapPool, UniswapPool};
-use crate::utils::batch::{self, V2PoolReserves, V3Pool, V3PoolData};
+use crate::utils::batch;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, aliases::I24};
 use alloy_rpc_types::BlockId;
@@ -113,8 +113,8 @@ pub struct PoolReserves {
    pub block: u64,
 }
 
-impl From<V2PoolReserves> for PoolReserves {
-   fn from(value: V2PoolReserves) -> Self {
+impl From<batch::V2PoolState::PoolState> for PoolReserves {
+   fn from(value: batch::V2PoolState::PoolState) -> Self {
       let reserve0 = U256::from(value.reserve0);
       let reserve1 = U256::from(value.reserve1);
       Self {
@@ -161,7 +161,7 @@ pub struct TickInfo {
 }
 
 impl V3PoolState {
-   pub fn new(pool_data: V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn new(pool_data: batch::V3PoolState::PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
@@ -193,7 +193,11 @@ impl V3PoolState {
       })
    }
 
-   pub fn v4(pool: &impl UniswapPool, data: batch::V4PoolData, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn v4(
+      pool: &impl UniswapPool,
+      data: batch::V4PoolState::PoolData,
+      _block: Option<BlockId>,
+   ) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
 
@@ -250,7 +254,7 @@ pub async fn get_v3_pool_state<P, N>(
    client: P,
    pool: &impl UniswapPool,
    block: Option<BlockId>,
-) -> Result<(State, V3PoolData), anyhow::Error>
+) -> Result<(State, batch::V3PoolState::PoolData), anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -263,7 +267,7 @@ where
    let tick_spacing = pool.fee().tick_spacing();
    let token0 = pool.currency0().to_erc20().address;
    let token1 = pool.currency1().to_erc20().address;
-   let pool2 = crate::utils::batch::V3Pool {
+   let pool2 = batch::V3PoolState::Pool {
       pool: address,
       token0,
       token1,
@@ -294,7 +298,7 @@ where
    }
 
    let state_view = crate::utils::address_book::uniswap_v4_stateview(pool.chain_id())?;
-   let pool_data = batch::V4Pool {
+   let pool_data = batch::V4PoolState::Pool {
       pool: pool.pool_id(),
       tickSpacing: pool.fee().tick_spacing(),
    };
@@ -364,7 +368,7 @@ where
 
    for pool in &pools {
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
-         v3_pool_info.push(V3Pool {
+         v3_pool_info.push(batch::V3PoolState::Pool {
             pool: pool.address(),
             token0: pool.currency0().address(),
             token1: pool.currency1().address(),
@@ -404,7 +408,7 @@ where
 
    for pool in &pools {
       if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
-         v4_pool_info.push(batch::V4Pool {
+         v4_pool_info.push(batch::V4PoolState::Pool {
             pool: pool.pool_id(),
             tickSpacing: pool.fee().tick_spacing(),
          });

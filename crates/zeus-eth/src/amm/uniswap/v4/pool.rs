@@ -5,9 +5,8 @@ use alloy_primitives::{
 };
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::SolValue;
-use std::collections::HashMap;
 
-use crate::amm::uniswap::state::{TickInfo, get_v4_pool_state};
+use crate::amm::uniswap::state::get_v4_pool_state;
 use crate::amm::uniswap::{
    DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity,
    v3::{calculate_price, calculate_swap, calculate_swap_mut},
@@ -15,11 +14,8 @@ use crate::amm::uniswap::{
 
 use crate::abi::uniswap::universal_router_v2::PoolKey;
 use crate::currency::{Currency, ERC20Token, NativeCurrency};
-use uniswap_v3_math::{
-   sqrt_price_math::Q96,
-   tick_math::{MAX_TICK, MIN_TICK},
-};
-use crate::utils::{NumericValue, batch, price_feed::get_base_token_price};
+use crate::utils::{NumericValue, price_feed::get_base_token_price};
+use uniswap_v3_math::sqrt_price_math::Q96;
 
 use anyhow::bail;
 use core::cmp::Ordering;
@@ -297,76 +293,6 @@ impl UniswapV4Pool {
          DexKind::UniswapV4,
          Address::ZERO,
       )
-   }
-
-   pub fn set_tick_data(&mut self, ticks: HashMap<i32, TickInfo>, tick_bitmap: HashMap<i16, U256>) {
-      let mut state = self.state.v3_state().cloned().unwrap();
-      state.ticks = ticks;
-      state.tick_bitmap = tick_bitmap;
-      self.set_state(State::V3(state));
-   }
-
-   /// Gets all tick data (liquidityGross, liquidityNet) for initialized ticks
-   /// and the corresponding tick bitmaps for a given Uniswap V4 pool.
-   pub async fn get_all_tick_data<P, N>(
-      client: P,
-      pool: impl UniswapPool,
-      state_view: Address,
-      block: Option<BlockId>,
-   ) -> Result<(HashMap<i32, TickInfo>, HashMap<i16, U256>), anyhow::Error>
-   where
-      P: Provider<N> + Clone + Send + Sync + 'static,
-      N: Network,
-   {
-      let mut all_ticks_info: HashMap<i32, TickInfo> = HashMap::new();
-      let mut all_tick_bitmaps: HashMap<i16, U256> = HashMap::new();
-
-      let tick_spacing_i32 = pool.fee().tick_spacing_i32();
-      let tick_spacing_i24 = pool.fee().tick_spacing();
-
-      if tick_spacing_i32 <= 0 {
-         return Err(anyhow::anyhow!("Tick spacing must be positive"));
-      }
-
-      let min_compressed_tick = MIN_TICK / tick_spacing_i32;
-      let max_compressed_tick = MAX_TICK / tick_spacing_i32;
-
-      let min_word_pos = (min_compressed_tick >> 8) as i16;
-      let max_word_pos = (max_compressed_tick >> 8) as i16;
-
-      let result = batch::get_v4_pool_tick_data(
-         client,
-         pool.pool_id(),
-         state_view,
-         min_word_pos,
-         max_word_pos,
-         tick_spacing_i24,
-         block,
-      )
-      .await?;
-
-      let ticks = result.allTicksInfo;
-      let tick_bitmaps = result.populatedBitmapWords;
-      let word_positions = result.correspondingWordPositions;
-
-      for tick in ticks {
-         let actual_tick: i32 = tick.actualTick.try_into()?;
-         all_ticks_info.insert(
-            actual_tick,
-            TickInfo {
-               liquidity_gross: tick.liquidityGross,
-               liquidity_net: tick.liquidityNet,
-               initialized: true,
-               ..Default::default()
-            },
-         );
-      }
-
-      for (i, word) in tick_bitmaps.iter().enumerate() {
-         all_tick_bitmaps.insert(word_positions[i], *word);
-      }
-
-      Ok((all_ticks_info, all_tick_bitmaps))
    }
 }
 

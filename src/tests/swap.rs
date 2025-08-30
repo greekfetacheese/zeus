@@ -37,7 +37,7 @@ use zeus_eth::{
          if pools_to_update.len() >= 10 {
             break;
          }
-         pools_to_update.push(batch::V3Pool {
+         pools_to_update.push(batch::V3PoolState::Pool {
             pool: pool.address(),
             token0: pool.currency0().address(),
             token1: pool.currency1().address(),

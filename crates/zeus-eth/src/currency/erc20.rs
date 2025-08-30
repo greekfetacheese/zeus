@@ -493,7 +493,7 @@ mod tests {
 
    #[tokio::test]
    async fn can_get_erc20() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
       let weth = ERC20Token::weth();
@@ -509,7 +509,7 @@ mod tests {
 
    #[tokio::test]
    async fn can_get_erc20_batch() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
+      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
       let client = ProviderBuilder::new().connect_http(url);
 
       let weth = ERC20Token::weth();
