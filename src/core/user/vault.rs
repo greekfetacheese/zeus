@@ -107,9 +107,14 @@ impl Vault {
       }
    }
 
+   pub fn remove_child(&mut self, address: Address) {
+      self.hd_wallet.children.retain(|w| w.address() != address);
+   }
+
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
       self.credentials.is_valid()?;
-      let hd_wallet = SecureHDWallet::new_from_credentials(name, self.credentials.clone())?;
+      let seed = derive_seed(&self.credentials)?;
+      let hd_wallet = SecureHDWallet::new_from_seed(name, seed);
       self.hd_wallet = hd_wallet;
       Ok(())
    }
@@ -134,6 +139,33 @@ impl Vault {
       }
 
       let address = self.hd_wallet.derive_child(name)?;
+      Ok(address)
+   }
+
+   pub fn derive_child_wallet_at(
+      &mut self,
+      mut name: String,
+      index: u32,
+   ) -> Result<Address, anyhow::Error> {
+      if !name.is_empty() {
+         if self.wallet_name_exists(&name) {
+            return Err(anyhow!(
+               "Wallet with name {} already exists",
+               name
+            ));
+         }
+
+         if name.len() > Self::MAX_CHARS {
+            return Err(anyhow!(
+               "Wallet name cannot be longer than {} characters",
+               Self::MAX_CHARS
+            ));
+         }
+      } else {
+         name = self.generate_wallet_name();
+      }
+
+      let address = self.hd_wallet.derive_child_at(name, index)?;
       Ok(address)
    }
 

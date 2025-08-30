@@ -7,7 +7,7 @@ use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
-use crate::core::bip32::{path::*, primitives::XKeyInfo, xpriv::SecureXPriv};
+use crate::core::bip32::{path::*, primitives::XKeyInfo, xpriv::*};
 
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
@@ -127,6 +127,14 @@ pub struct Wallet {
    pub xkey_info: Option<XKeyInfo>,
 }
 
+impl PartialEq for Wallet {
+   fn eq(&self, other: &Wallet) -> bool {
+      self.key.address() == other.key.address()
+   }
+}
+
+impl Eq for Wallet {}
+
 impl Wallet {
    pub fn new(name: String, key: SecureSigner, xkey_info: Option<XKeyInfo>) -> Self {
       Self {
@@ -201,6 +209,16 @@ impl Wallet {
       })
    }
 
+   pub fn derivation_path_string(&self) -> String {
+      if let Some(info) = self.xkey_info.as_ref() {
+         let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
+         let path = base_path.extended(info.index);
+         return path.derivation_string();
+      } else {
+         return DEFAULT_DERIVATION_PATH.to_string();
+      }
+   }
+
    pub fn address(&self) -> Address {
       self.key.address()
    }
@@ -261,12 +279,12 @@ impl SecureHDWallet {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
 
-      let xpriv = SecureXPriv::root_from_seed(&bytes, None).unwrap();
+      let (signer, key_info) = root_from_seed(&bytes, None).unwrap();
 
       let master_wallet = Wallet {
          name: "Master Wallet".to_string(),
-         key: xpriv.signer,
-         xkey_info: Some(xpriv.xkey_info),
+         key: signer,
+         xkey_info: Some(key_info),
       };
 
       Self {
@@ -283,13 +301,9 @@ impl SecureHDWallet {
       }
    }
 
-   /// Create a new `SecureHDWallet` from the given [Credentials]
-   pub fn new_from_credentials(
-      mut name: String,
-      credentials: Credentials,
-   ) -> Result<Self, anyhow::Error> {
-      let seed = derive_seed(&credentials)?;
-      let xpriv = seed.slice_scope(|slice| SecureXPriv::root_from_seed(slice, None))?;
+   /// Create a new `SecureHDWallet` from a seed
+   pub fn new_from_seed(mut name: String, seed: SecureVec<u8>) -> Self {
+      let (signer, key_info) = seed.slice_scope(|slice| root_from_seed(slice, None).unwrap());
 
       if name.is_empty() {
          name = "Master Wallet".to_string();
@@ -297,25 +311,8 @@ impl SecureHDWallet {
 
       let master_wallet = Wallet {
          name,
-         key: xpriv.signer,
-         xkey_info: Some(xpriv.xkey_info),
-      };
-
-      Ok(Self {
-         master_wallet,
-         children: Vec::new(),
-         next_child_index: 0,
-      })
-   }
-
-   /// Create a new `SecureHDWallet` from a seed
-   pub fn new_from_seed(name: String, seed: SecureVec<u8>) -> Self {
-      let xpriv = seed.slice_scope(|slice| SecureXPriv::root_from_seed(slice, None).unwrap());
-
-      let master_wallet = Wallet {
-         name,
-         key: xpriv.signer,
-         xkey_info: Some(xpriv.xkey_info),
+         key: signer,
+         xkey_info: Some(key_info),
       };
 
       Self {
@@ -338,20 +335,52 @@ impl SecureHDWallet {
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
       let child_path = base_path.extended(self.next_child_index + BIP32_HARDEN);
-      // eprintln!("Child Path: {}", child_path.derivation_string());
 
-      let child = xpriv.derive_path(child_path)?;
+      let child = xpriv.derive_path(child_path.clone())?;
 
       let address = child.signer.address();
       let child_wallet = Wallet {
-         name,
+         name: name.clone(),
          key: child.signer,
          xkey_info: Some(child.xkey_info),
       };
 
-      self.children.push(child_wallet);
-      self.next_child_index += 1;
-      Ok(address)
+      if self.children.contains(&child_wallet) {
+         self.next_child_index += 1;
+         self.derive_child(name)
+      } else {
+         self.children.push(child_wallet);
+         self.next_child_index += 1;
+         Ok(address)
+      }
+   }
+
+   /// Derive a new child wallet using the given name and index
+   ///
+   /// Does not increments the `next_child_index`
+   pub fn derive_child_at(&mut self, name: String, index: u32) -> Result<Address, anyhow::Error> {
+      let xpriv = self.master_to_xpriv();
+
+      let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
+      let child_path = base_path.extended(index);
+
+      let child = xpriv.derive_path(child_path.clone())?;
+
+      let address = child.signer.address();
+      let child_wallet = Wallet {
+         name: name.clone(),
+         key: child.signer,
+         xkey_info: Some(child.xkey_info),
+      };
+
+      if self.children.contains(&child_wallet) {
+         self.next_child_index += 1;
+         self.derive_child(name)
+      } else {
+         self.children.push(child_wallet);
+         self.next_child_index += 1;
+         Ok(address)
+      }
    }
 }
 
@@ -389,13 +418,12 @@ mod tests {
          assert!(!children.is_imported());
          assert!(children.is_hardened());
          assert!(children.is_child());
-         let info = children.xkey_info.as_ref().unwrap();
 
+         let path = children.derivation_path_string();
          eprintln!(
-            "Child {} Depth {} Index {} Address: {}",
+            "Child: {} Path: {} Address: {}",
             i,
-            info.depth,
-            info.index,
+            path,
             children.address()
          );
       }

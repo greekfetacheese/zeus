@@ -82,6 +82,11 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault_exists)
    }
 
+   /// Encrypt and save the vault
+   /// 
+   /// If `new_vault` is None, the current vault will be encrypted
+   /// 
+   /// If `new_params` is None, the current [Argon2] params will be used
    pub fn encrypt_and_save_vault(
       &self,
       new_vault: Option<Vault>,

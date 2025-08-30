@@ -1,11 +1,11 @@
+use hmac::{Hmac, Mac};
+use ripemd::{Digest, Ripemd160};
+use secure_types::Zeroize;
+use sha2::{Sha256, Sha512};
 use zeus_eth::alloy_signer::k256::{
    self,
    ecdsa::{SigningKey, VerifyingKey},
 };
-use hmac::{Hmac, Mac};
-use secure_types::Zeroize;
-use sha2::{Sha256, Sha512};
-use ripemd::{Ripemd160, Digest};
 use zeus_eth::utils::SecureSigner;
 
 use super::{
@@ -38,6 +38,35 @@ fn hmac_and_split(
    Ok((left, chain_code))
 }
 
+/// Instantiate a root node using a custom HMAC key.
+pub fn root_from_seed(
+   data: &[u8],
+   hint: Option<Hint>,
+) -> Result<(SecureSigner, XKeyInfo), Bip32Error> {
+   if data.len() < 16 {
+      return Err(Bip32Error::SeedTooShort);
+   }
+
+   let (key, chain_code) = hmac_and_split(SEED, data)?;
+
+   if bool::from(key.is_zero()) {
+      return Err(Bip32Error::InvalidKey);
+   }
+
+   let signing_key = SigningKey::from(key);
+   let signer = SecureSigner::from(signing_key);
+
+   let key_info = XKeyInfo {
+      depth: 0,
+      index: 0,
+      parent: KeyFingerprint([0u8; 4]),
+      chain_code,
+      hint: hint.unwrap_or(Hint::SegWit),
+   };
+
+   Ok((signer, key_info))
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// A BIP32 eXtended Privkey
 pub struct SecureXPriv {
@@ -62,40 +91,6 @@ impl SecureXPriv {
    /// The fingerprint is the first 4 bytes of the HASH160 of the public key
    pub fn fingerprint(&self) -> KeyFingerprint {
       self.public_key().fingerprint()
-   }
-
-   /// Instantiate a root node using a custom HMAC key.
-   pub fn root_from_seed(
-      data: &[u8],
-      hint: Option<Hint>,
-   ) -> Result<SecureXPriv, Bip32Error> {
-      if data.len() < 16 {
-         return Err(Bip32Error::SeedTooShort);
-      }
-
-      // let parent = KeyFingerprint([0u8; 4]);
-      let (key, chain_code) = hmac_and_split(SEED, data)?;
-
-      if bool::from(key.is_zero()) {
-         // This can only be tested by mocking hmac_and_split
-         return Err(Bip32Error::InvalidKey);
-      }
-
-      let signing_key = SigningKey::from(key);
-      let signer = SecureSigner::from(signing_key);
-
-      let key_info = XKeyInfo {
-         depth: 0,
-         index: 0,
-         parent: KeyFingerprint([0u8; 4]),
-         chain_code,
-         hint: hint.unwrap_or(Hint::SegWit),
-      };
-
-      Ok(SecureXPriv {
-         signer,
-         xkey_info: key_info,
-      })
    }
 
    /// Derive a series of child indices. Allows traversing several levels of the tree at once.
@@ -172,16 +167,14 @@ pub struct XPub {
 }
 
 impl XPub {
+   pub fn fingerprint(&self) -> KeyFingerprint {
+      let compressed_pubkey = self.key.to_sec1_bytes();
 
-pub fn fingerprint(&self) -> KeyFingerprint {
-    let compressed_pubkey = self.key.to_sec1_bytes();
+      let sha256_hash = Sha256::digest(&compressed_pubkey);
+      let ripemd160_hash = Ripemd160::digest(sha256_hash);
 
-    let sha256_hash = Sha256::digest(&compressed_pubkey);
-    let ripemd160_hash = Ripemd160::digest(sha256_hash);
-
-    let mut bytes = [0u8; 4];
-    bytes.copy_from_slice(&ripemd160_hash[..4]);
-    KeyFingerprint(bytes)
-}
-
+      let mut bytes = [0u8; 4];
+      bytes.copy_from_slice(&ripemd160_hash[..4]);
+      KeyFingerprint(bytes)
+   }
 }
