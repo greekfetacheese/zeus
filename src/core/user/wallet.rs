@@ -9,11 +9,13 @@ use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
 use crate::core::bip32::{path::*, primitives::XKeyInfo, xpriv::*};
 
+pub use crate::core::bip32::path::BIP32_HARDEN;
+
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
 pub const M_COST: u32 = 8192_000;
-pub const T_COST: u32 = 256;
-pub const P_COST: u32 = 4;
+pub const T_COST: u32 = 96;
+pub const P_COST: u32 = 1;
 
 const DEV_M_COST: u32 = 16_000;
 const DEV_T_COST: u32 = 3;
@@ -271,14 +273,12 @@ pub struct SecureHDWallet {
 
    /// Keep track of the next child index to derive
    ///
-   /// Note: This is not the same as the [Self::START_INDEX] but just a counter
-   /// used internally
+   /// We do `next_child_index + BIP32_HARDEN`
    #[serde(default)]
    pub next_child_index: u32,
 }
 
 impl SecureHDWallet {
-   pub const START_INDEX: u32 = BIP32_HARDEN;
 
    pub fn random() -> Self {
       let mut bytes = [0u8; 64];
