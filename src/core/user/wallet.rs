@@ -121,7 +121,9 @@ pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::E
    // Should never happen but if seed is not 64 bytes, return an error
    // I prefer not to panic here
    if seed.len() != 64 {
-      return Err(anyhow!("Seed is not 64 bytes long, this is a bug"));
+      return Err(anyhow!(
+         "Seed is not 64 bytes long, this is a bug"
+      ));
    }
 
    Ok(seed)
@@ -279,7 +281,6 @@ pub struct SecureHDWallet {
 }
 
 impl SecureHDWallet {
-
    pub fn random() -> Self {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
@@ -379,11 +380,13 @@ impl SecureHDWallet {
       };
 
       if self.children.contains(&child_wallet) {
-         self.next_child_index += 1;
-         self.derive_child(name)
+         return Err(anyhow!(
+            "Wallet At {} with Address {} already exists",
+            child_path.derivation_string(),
+            address
+         ));
       } else {
          self.children.push(child_wallet);
-         self.next_child_index += 1;
          Ok(address)
       }
    }
