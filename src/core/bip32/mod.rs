@@ -6,6 +6,8 @@ use zeus_eth::alloy_signer::k256::{self, ecdsa};
 
 use thiserror::Error;
 
+pub use path::{DerivationPath, BIP32_HARDEN};
+
 #[derive(Debug, Error)]
 pub enum Bip32Error {
     /// Error bubbled up from the backend

@@ -141,7 +141,7 @@ impl Vault {
       Ok(address)
    }
 
-   pub fn derive_child_wallet_at(
+   pub fn derive_child_wallet_at_mut(
       &mut self,
       mut name: String,
       index: u32,
@@ -164,8 +164,8 @@ impl Vault {
          name = self.generate_wallet_name();
       }
 
-      let address = self.hd_wallet.derive_child_at(name, index)?;
-      Ok(address)
+      let wallet = self.hd_wallet.derive_child_at_mut(name, index)?;
+      Ok(wallet.address())
    }
 
    pub fn new_wallet_rng(&mut self, mut name: String) -> Result<(), anyhow::Error> {

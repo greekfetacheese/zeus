@@ -228,6 +228,24 @@ impl Wallet {
       }
    }
 
+   pub fn derivation_path(&self) -> DerivationPath {
+      if let Some(info) = self.xkey_info.as_ref() {
+         let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
+         let path = base_path.extended(info.index);
+         return path;
+      } else {
+         return DerivationPath::from_str(DEFAULT_DERIVATION_PATH).unwrap();
+      }
+   }
+
+   pub fn index(&self) -> u32 {
+      if let Some(info) = self.xkey_info.as_ref() {
+         return info.index;
+      } else {
+         return 0;
+      }
+   }
+
    pub fn address(&self) -> Address {
       self.key.address()
    }
@@ -307,6 +325,10 @@ impl SecureHDWallet {
       }
    }
 
+   pub fn contains_child(&self, address: Address) -> bool {
+      self.children.iter().find(|c| c.address() == address).is_some()
+   }
+
    /// Create a new `SecureHDWallet` from a seed
    pub fn new_from_seed(mut name: String, seed: SecureVec<u8>) -> Self {
       let (signer, key_info) = seed.slice_scope(|slice| root_from_seed(slice, None).unwrap());
@@ -363,8 +385,8 @@ impl SecureHDWallet {
 
    /// Derive a new child wallet using the given name and index
    ///
-   /// Does not increments the `next_child_index`
-   pub fn derive_child_at(&mut self, name: String, index: u32) -> Result<Address, anyhow::Error> {
+   /// Does not increments the `next_child_index` nor it does save the wallet
+   pub fn derive_child_at(&self, name: String, index: u32) -> Result<Wallet, anyhow::Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
@@ -372,22 +394,41 @@ impl SecureHDWallet {
 
       let child = xpriv.derive_path(child_path.clone())?;
 
-      let address = child.signer.address();
-      let child_wallet = Wallet {
+      let wallet = Wallet {
          name: name.clone(),
          key: child.signer,
          xkey_info: Some(child.xkey_info),
       };
 
-      if self.children.contains(&child_wallet) {
+      Ok(wallet)
+   }
+
+   /// Derive a new child wallet using the given name and index
+   ///
+   /// Does not increments the `next_child_index` but adds the wallet to [Self::children]
+   pub fn derive_child_at_mut(&mut self, name: String, index: u32) -> Result<Wallet, anyhow::Error> {
+      let xpriv = self.master_to_xpriv();
+
+      let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;
+      let child_path = base_path.extended(index);
+
+      let child = xpriv.derive_path(child_path.clone())?;
+
+      let wallet = Wallet {
+         name: name.clone(),
+         key: child.signer,
+         xkey_info: Some(child.xkey_info),
+      };
+
+      if self.children.contains(&wallet) {
          return Err(anyhow!(
             "Wallet At {} with Address {} already exists",
             child_path.derivation_string(),
-            address
+            wallet.address()
          ));
       } else {
-         self.children.push(child_wallet);
-         Ok(address)
+         self.children.push(wallet.clone());
+         Ok(wallet)
       }
    }
 }

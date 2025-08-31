@@ -5,6 +5,7 @@ pub use currencies::CurrencyDB;
 pub use portfolio::{Portfolio, PortfolioDB};
 
 use crate::core::{
+   bip32::{DerivationPath, BIP32_HARDEN},
    serde_hashmap,
    utils::data_dir,
    TransactionRich,
@@ -19,8 +20,8 @@ use zeus_eth::{
 };
 
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
-
 pub const V3_POSITIONS_FILE: &str = "v3_positions.json";
+pub const DISCOVERED_WALLETS_FILE: &str = "discovered_wallets.json";
 
 
 /// Transactions by chain and wallet address
@@ -178,5 +179,79 @@ impl V3PositionsDB {
          .positions
          .get_mut(&(chain, owner))
          .map(|p| p.retain(|p| p != position));
+   }
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredWallet {
+   pub address: Address,
+   pub path: DerivationPath,
+   pub index: u32,
+}
+
+fn default_concurrency() -> usize {
+   2
+}
+
+fn default_batch_size() -> usize {
+   30
+}
+
+
+/// Discovered wallets that derived from a `SecureHDWallet`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiscoveredWallets {
+   #[serde(with = "serde_hashmap")]
+   pub balances: HashMap<(u64, Address), U256>,
+   pub wallets: Vec<DiscoveredWallet>,
+   /// Current index, starting from [BIP32_HARDEN]
+   pub index: u32,
+   /// Number of concurrent requests
+   #[serde(default = "default_concurrency")]
+   pub concurrency: usize,
+   /// Batch size
+   #[serde(default = "default_batch_size")]
+   pub batch_size: usize,
+
+}
+
+impl Default for DiscoveredWallets {
+   fn default() -> Self {
+      Self::new()
+   }
+}
+
+impl DiscoveredWallets {
+   pub fn new() -> Self {
+      Self {
+         balances: HashMap::new(),
+         wallets: Vec::new(),
+         index: BIP32_HARDEN,
+         concurrency: default_concurrency(),
+         batch_size: default_batch_size(),
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = data_dir()?.join(DISCOVERED_WALLETS_FILE);
+      let data = std::fs::read(dir)?;
+      let db = serde_json::from_slice(&data)?;
+      Ok(db)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let db = serde_json::to_string(&self)?;
+      let dir = data_dir()?.join(DISCOVERED_WALLETS_FILE);
+      std::fs::write(dir, db)?;
+      Ok(())
+   }
+
+   pub fn add_wallet(&mut self, address: Address, path: DerivationPath, index: u32) {
+      self.wallets.push(DiscoveredWallet {
+         address,
+         path,
+         index,
+      });
    }
 }

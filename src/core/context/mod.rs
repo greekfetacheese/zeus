@@ -39,7 +39,7 @@ pub mod pool_manager;
 pub mod providers;
 
 pub use balance_manager::BalanceManagerHandle;
-pub use db::{CurrencyDB, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
+pub use db::{CurrencyDB, DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
 pub use pool_manager::PoolManagerHandle;
 pub use providers::{Rpc, RpcProviders};
 
