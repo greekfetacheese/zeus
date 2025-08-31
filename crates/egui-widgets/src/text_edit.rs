@@ -42,7 +42,7 @@ pub struct SecureTextEditOutput {
 ///
 /// - Accessability like screen readers is disabled to avoid multiple unsecure allocations of the entered text.
 /// - If you want to make sure the text you enter doesn't stay in memory in any way you have to set [`Self::password`] to `true`.
-/// 
+///
 /// Otherwise egui will make copies of that text and some of the copied allocations will stay in memory.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct SecureTextEdit<'a> {
@@ -246,9 +246,7 @@ impl<'a> SecureTextEdit<'a> {
    pub fn show(self, ui: &mut Ui) -> SecureTextEditOutput {
       let frame = self.frame;
       let where_to_put_background = ui.painter().add(Shape::Noop);
-      let background_color = self
-         .background_color
-         .unwrap_or(ui.visuals().extreme_bg_color);
+      let background_color = self.background_color.unwrap_or(ui.visuals().extreme_bg_color);
       let is_interactive = self.interactive;
 
       let output = self.show_content(ui);
@@ -300,9 +298,7 @@ impl<'a> SecureTextEdit<'a> {
 
       let row_height = ui.fonts(|f| f.row_height(&font_id));
       let available_width = (ui.available_width() - self.margin.sum().x).at_least(24.0); // Min width
-      let desired_width = self
-         .desired_width
-         .unwrap_or_else(|| ui.spacing().text_edit_width);
+      let desired_width = self.desired_width.unwrap_or_else(|| ui.spacing().text_edit_width);
       let wrap_width = if ui.layout().horizontal_justify() {
          available_width
       } else {
@@ -453,10 +449,7 @@ impl<'a> SecureTextEdit<'a> {
       }
 
       // --- Galley Positioning & Single-line Offset ---
-      let mut galley_pos = self
-         .align
-         .align_size_within_rect(galley.size(), text_draw_rect)
-         .min;
+      let mut galley_pos = self.align.align_size_within_rect(galley.size(), text_draw_rect).min;
       if self.clip_text && !self.multiline {
          let current_cursor_primary_x =
             match cursor_range_after_events.or_else(|| state.cursor.range(&galley)) {
@@ -473,9 +466,7 @@ impl<'a> SecureTextEdit<'a> {
          } else if current_cursor_primary_x > visible_range_end {
             offset_x = current_cursor_primary_x - visible_width;
          }
-         offset_x = offset_x
-            .at_most(galley.size().x - visible_width)
-            .at_least(0.0);
+         offset_x = offset_x.at_most(galley.size().x - visible_width).at_least(0.0);
          state.singleline_offset = offset_x;
          galley_pos.x -= offset_x;
       } else {
@@ -498,10 +489,8 @@ impl<'a> SecureTextEdit<'a> {
                text_draw_rect.width(),
                hint_font_id,
             );
-            let hint_galley_pos = self
-               .align
-               .align_size_within_rect(hint_galley.size(), text_draw_rect)
-               .min;
+            let hint_galley_pos =
+               self.align.align_size_within_rect(hint_galley.size(), text_draw_rect).min;
             ui.painter_at(text_draw_rect)
                .galley(hint_galley_pos, hint_galley, hint_text_color);
          }
@@ -517,8 +506,7 @@ impl<'a> SecureTextEdit<'a> {
                );
             }
          }
-         ui.painter_at(text_draw_rect)
-            .galley(galley_pos, galley_for_paint, text_color);
+         ui.painter_at(text_draw_rect).galley(galley_pos, galley_for_paint, text_color);
 
          // Paint cursor
          if self.interactive && ui.memory(|mem| mem.has_focus(id)) {
@@ -551,10 +539,8 @@ impl<'a> SecureTextEdit<'a> {
                   );
                }
                // IME output
-               let to_global = ui
-                  .ctx()
-                  .layer_transform_to_global(ui.layer_id())
-                  .unwrap_or_default();
+               let to_global =
+                  ui.ctx().layer_transform_to_global(ui.layer_id()).unwrap_or_default();
                ui.ctx().output_mut(|o| {
                   o.ime = Some(output::IMEOutput {
                      rect: to_global * text_draw_rect,
@@ -633,10 +619,7 @@ fn secure_text_edit_events(
 ) -> (bool, CCursorRange, Arc<Galley>) {
    let os = ui.ctx().os();
    let mut current_galley = initial_galley.clone();
-   let mut cursor_range = state
-      .cursor
-      .range(&current_galley)
-      .unwrap_or(default_cursor_range);
+   let mut cursor_range = state.cursor.range(&current_galley).unwrap_or(default_cursor_range);
    let mut text_changed_in_total = false;
 
    let mut events_filtered = ui.input(|i| i.filtered_events(&event_filter));
@@ -667,10 +650,7 @@ fn secure_text_edit_events(
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
                let final_text_to_paste = if text_to_paste.chars().count() > space_available {
-                  text_to_paste
-                     .chars()
-                     .take(space_available)
-                     .collect::<String>()
+                  text_to_paste.chars().take(space_available).collect::<String>()
                } else {
                   text_to_paste.clone()
                };
@@ -694,10 +674,7 @@ fn secure_text_edit_events(
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
                let final_text_to_insert = if text_to_insert.chars().count() > space_available {
-                  text_to_insert
-                     .chars()
-                     .take(space_available)
-                     .collect::<String>()
+                  text_to_insert.chars().take(space_available).collect::<String>()
                } else {
                   text_to_insert.clone()
                };
@@ -888,11 +865,12 @@ fn secure_text_edit_events(
          });
       }
 
-      if new_ccursor_range_opt.is_some() {
-         state.last_interaction_time = ui.input(|i| i.time);
-      }
       // Set the final state.cursor using the most up-to-date cursor_range
       state.cursor.set_char_range(new_ccursor_range_opt);
+      if let Some(new_range) = new_ccursor_range_opt {
+         state.last_interaction_time = ui.input(|i| i.time);
+         cursor_range = new_range;
+      }
    }
 
    (
