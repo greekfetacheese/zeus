@@ -11,10 +11,10 @@ use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 
 pub struct AddContact {
-   pub open: bool,
-   pub contact: Contact,
-   pub contact_added: bool,
-   pub size: (f32, f32),
+   open: bool,
+   contact: Contact,
+   contact_added: bool,
+   size: (f32, f32),
 }
 
 impl AddContact {
@@ -25,6 +25,10 @@ impl AddContact {
          contact_added: false,
          size: (450.0, 350.0),
       }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
    }
 
    pub fn contact_added(&self) -> bool {
@@ -141,10 +145,10 @@ impl AddContact {
    }
 }
 
-pub struct DeleteContact {
-   pub open: bool,
-   pub contact_to_delete: Contact,
-   pub size: (f32, f32),
+struct DeleteContact {
+   open: bool,
+   contact_to_delete: Contact,
+   size: (f32, f32),
 }
 
 impl DeleteContact {
@@ -156,7 +160,7 @@ impl DeleteContact {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       let mut should_close = false;
@@ -228,11 +232,11 @@ impl DeleteContact {
    }
 }
 
-pub struct EditContact {
-   pub open: bool,
-   pub contact_to_edit: Contact,
-   pub old_contact: Contact,
-   pub size: (f32, f32),
+struct EditContact {
+   open: bool,
+   contact_to_edit: Contact,
+   old_contact: Contact,
+   size: (f32, f32),
 }
 
 impl EditContact {
@@ -245,7 +249,7 @@ impl EditContact {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
@@ -358,11 +362,11 @@ impl EditContact {
 }
 
 pub struct ContactsUi {
-   pub open: bool,
-   pub main_ui: bool,
+   open: bool,
+   main_ui: bool,
    pub add_contact: AddContact,
-   pub delete_contact: DeleteContact,
-   pub edit_contact: EditContact,
+   delete_contact: DeleteContact,
+   edit_contact: EditContact,
    pub size: (f32, f32),
 }
 
@@ -378,6 +382,14 @@ impl ContactsUi {
       }
    }
 
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+   }
+
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
@@ -389,7 +401,7 @@ impl ContactsUi {
       self.edit_contact.show(ctx, theme, ui);
    }
 
-   pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }

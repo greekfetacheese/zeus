@@ -50,7 +50,7 @@ pub struct ApiResCache {
 ///
 /// For simplicity currently only bridges Native Currencies (ETH)
 pub struct AcrossBridge {
-   pub open: bool,
+   open: bool,
    pub currency: Currency,
    pub amount: String,
    pub from_chain: ChainSelect,
@@ -79,6 +79,18 @@ impl AcrossBridge {
          api_res_cache: HashMap::new(),
          size: (450.0, 650.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    pub fn set_currency(&mut self, currency: Currency) {

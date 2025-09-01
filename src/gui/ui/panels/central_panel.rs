@@ -42,15 +42,15 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.ui_testing.show(ctx.clone(), theme, icons.clone(), ui);
 
    if !vault_exists {
-      gui.portofolio.open = false;
+      gui.portofolio.close();
+   }
+
+   if vault_exists && !vault_unlocked {
+      gui.portofolio.close();
    }
 
    gui.recover_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.unlock_vault_ui.show(ctx.clone(), theme, icons.clone(), ui);
-
-   if vault_exists && !vault_unlocked {
-      gui.portofolio.open = false;
-   }
 
    gui.across_bridge.show(
       ctx.clone(),

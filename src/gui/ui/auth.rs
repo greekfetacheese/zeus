@@ -431,24 +431,36 @@ impl UnlockVault {
             Err(e) => {
                SHARED_GUI.write(|gui| {
                   gui.open_msg_window("Failed to unlock vault", e.to_string());
-                  gui.loading_window.open = false;
+                  gui.loading_window.reset();
                });
                return;
             }
          };
 
-         let info = vault.encrypted_info().unwrap();
+         let info = match vault.encrypted_info() {
+            Ok(info) => info,
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.open_msg_window(
+                     "Error while reading encrypted info, corrupted vault?",
+                     e.to_string(),
+                  );
+                  gui.loading_window.reset();
+               });
+               return;
+            }
+         };
 
          // Load the vault
          match vault.load(data) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
-                  gui.portofolio.open = true;
+                  gui.portofolio.open();
                   gui.wallet_selection.open = true;
                   gui.chain_selection.open = true;
-                  gui.loading_window.open = false;
-                  gui.settings.encryption.argon_params = info.argon2.clone();
+                  gui.loading_window.reset();
+                  gui.settings.encryption.set_argon2(info.argon2);
                   gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
                });
 
@@ -462,7 +474,7 @@ impl UnlockVault {
             Err(e) => {
                SHARED_GUI.write(|gui| {
                   gui.open_msg_window("Failed to load vault", e.to_string());
-                  gui.loading_window.open = false;
+                  gui.loading_window.reset();
                });
             }
          }
@@ -475,6 +487,7 @@ pub struct RecoverHDWallet {
    credentials_form: CredentialsForm,
    wallet_name: String,
    credentials_input: bool,
+   recover_button_clicked: bool,
    show_recover_wallet: bool,
    show_tips: bool,
    pub size: (f32, f32),
@@ -486,6 +499,7 @@ impl RecoverHDWallet {
          credentials_form: CredentialsForm::new().open(true).confirm_password(true),
          wallet_name: String::new(),
          credentials_input: true,
+         recover_button_clicked: false,
          show_recover_wallet: false,
          show_tips: false,
          size: (550.0, 350.0),
@@ -574,15 +588,17 @@ impl RecoverHDWallet {
          let recover_button = Button::new(RichText::new("Recover").size(theme.text_sizes.large))
             .min_size(vec2(ui.available_width() * 0.9, 25.0));
 
-         if ui.add(recover_button).clicked() {
+         if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
+            self.recover_button_clicked = true;
             let mut vault = ctx.get_vault();
             let name = self.wallet_name.clone();
             let credentials = self.credentials_form.credentials.clone();
 
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
+                  gui.loading_window.new_size((300.0, 150.0));
                   gui.loading_window
-                     .open("Recovering Wallet... (This may take a couple of minutes)");
+                     .open("Recovering Wallet... (This will take a couple of minutes)");
                });
 
                vault.set_credentials(credentials);
@@ -591,7 +607,7 @@ impl RecoverHDWallet {
                   Ok(_) => {}
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.loading_window.open = false;
+                        gui.loading_window.reset();
                         gui.open_msg_window("Failed to recover wallet", e.to_string());
                      });
                      return;
@@ -616,7 +632,7 @@ impl RecoverHDWallet {
                         gui.recover_wallet_ui.show_tips = true;
                         gui.recover_wallet_ui.credentials_form.erase();
 
-                        gui.loading_window.open = false;
+                        gui.loading_window.reset();
                      });
 
                      ctx.write(|ctx| {
@@ -628,7 +644,7 @@ impl RecoverHDWallet {
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
                         gui.open_msg_window("Failed to create vault", e.to_string());
-                        gui.loading_window.open = false;
+                        gui.loading_window.reset();
                      });
                      return;
                   }
@@ -666,7 +682,7 @@ impl RecoverHDWallet {
             SHARED_GUI.write(|gui| {
                gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
                gui.recover_wallet_ui.show_tips = false;
-               gui.portofolio.open = true;
+               gui.portofolio.open();
                gui.wallet_selection.open = true;
                gui.chain_selection.open = true;
 

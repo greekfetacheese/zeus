@@ -242,14 +242,14 @@ impl TokenSelectionWindow {
                let token = match get_erc20_token(ctx, chain, owner, address).await {
                   Ok(token) => {
                      SHARED_GUI.write(|gui| {
-                        gui.loading_window.open = false;
+                        gui.loading_window.reset();
                      });
                      token
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
                         gui.open_msg_window("Failed to fetch token", e.to_string());
-                        gui.loading_window.open = false;
+                        gui.loading_window.reset();
                      });
                      return;
                   }

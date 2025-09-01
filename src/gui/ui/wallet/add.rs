@@ -19,18 +19,17 @@ use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};
 
 #[derive(PartialEq, Eq)]
-pub enum ImportWalletType {
+enum ImportWalletType {
    PrivateKey,
    MnemonicPhrase,
 }
 
 pub struct ImportWallet {
-   pub open: bool,
-   pub import_key_or_phrase: ImportWalletType,
-   pub key_or_phrase: SecureString,
-   pub wallet_name: String,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
+   open: bool,
+   import_key_or_phrase: ImportWalletType,
+   key_or_phrase: SecureString,
+   wallet_name: String,
+   size: (f32, f32),
 }
 
 impl ImportWallet {
@@ -41,11 +40,10 @@ impl ImportWallet {
          key_or_phrase: SecureString::from(""),
          wallet_name: String::new(),
          size: (450.0, 250.0),
-         anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let was_open = self.open;
       let mut is_open = self.open;
       let mut clicked = false;
@@ -129,7 +127,7 @@ impl ImportWallet {
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.open_msg_window("Wallet imported successfully", "");
                      gui.wallet_ui.add_wallet_ui.import_wallet.key_or_phrase.erase();
                      gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
@@ -137,7 +135,7 @@ impl ImportWallet {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt account", e.to_string());
                   });
                   return;
@@ -179,19 +177,21 @@ impl ImportWallet {
 }
 
 pub struct AddWalletUi {
-   pub open: bool,
-   pub main_ui: bool,
-   pub import_wallet: ImportWallet,
-   pub discover_child_wallets_ui: DiscoverChildWallets,
-   pub generate_wallet: bool,
-   pub derive_child_wallet: bool,
-   pub wallet_name: String,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
+   open: bool,
+   main_ui: bool,
+   import_wallet: ImportWallet,
+   discover_child_wallets_ui: DiscoverChildWallets,
+   #[allow(dead_code)]
+   generate_wallet: bool,
+   #[allow(dead_code)]
+   derive_child_wallet: bool,
+   #[allow(dead_code)]
+   wallet_name: String,
+   size: (f32, f32),
 }
 
 impl AddWalletUi {
-   pub fn new(size: (f32, f32), offset: Vec2, align: Align2) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
          main_ui: true,
@@ -200,9 +200,24 @@ impl AddWalletUi {
          generate_wallet: false,
          derive_child_wallet: false,
          wallet_name: String::new(),
-         size,
-         anchor: (align, offset),
+         size: (450.0, 250.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn is_main_ui_open(&self) -> bool {
+      self.main_ui
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn open_main_ui(&mut self) {
+      self.main_ui = true;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -217,7 +232,7 @@ impl AddWalletUi {
       // self.generate_wallet_ui(ctx.clone(), theme, ui);
    }
 
-   pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.main_ui;
       let mut clicked1 = false;
       let mut clicked2 = false;
@@ -384,14 +399,14 @@ impl AddWalletUi {
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                      gui.open_msg_window("Wallet generated successfully", "");
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt vault", e.to_string());
                   });
                   return;
@@ -404,7 +419,7 @@ impl AddWalletUi {
       self.derive_child_wallet = open;
    }
 
-   pub fn _generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn _generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.generate_wallet;
       let mut clicked = false;
       Window::new(RichText::new("Generate Wallet").size(theme.text_sizes.large))
@@ -465,14 +480,14 @@ impl AddWalletUi {
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.wallet_ui.add_wallet_ui.wallet_name.clear();
                      gui.open_msg_window("Wallet generated successfully", "");
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt vault", e.to_string());
                   });
                   return;
@@ -519,19 +534,19 @@ impl DiscoverChildWallets {
       }
    }
 
-   pub fn set_discovered_wallets(&mut self, discovered_wallets: DiscoveredWallets) {
+   fn set_discovered_wallets(&mut self, discovered_wallets: DiscoveredWallets) {
       self.discovered_wallets = discovered_wallets;
    }
 
-   pub fn set_hd_wallet(&mut self, hd_wallet: SecureHDWallet) {
+   fn set_hd_wallet(&mut self, hd_wallet: SecureHDWallet) {
       self.hd_wallet = hd_wallet;
    }
 
-   pub fn set_discovery_wallet(&mut self, discovery_wallet: SecureHDWallet) {
+   fn set_discovery_wallet(&mut self, discovery_wallet: SecureHDWallet) {
       self.discovery_wallet = discovery_wallet;
    }
 
-   pub fn reset(&mut self) {
+   fn reset(&mut self) {
       *self = Self::new();
    }
 

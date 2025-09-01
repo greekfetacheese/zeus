@@ -11,7 +11,7 @@ use zeus_eth::{
 };
 
 pub struct SyncPoolsUi {
-   pub open: bool,
+   open: bool,
    pub syncing: bool,
    pub updating_state: bool,
 }
@@ -23,6 +23,18 @@ impl SyncPoolsUi {
          syncing: false,
          updating_state: false,
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {

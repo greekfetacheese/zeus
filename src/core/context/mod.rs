@@ -30,7 +30,7 @@ use zeus_eth::{
    },
 };
 
-const CLIENT_TIMEOUT: u64 = 10;
+const CLIENT_TIMEOUT: u64 = 30;
 
 pub mod balance_manager;
 pub mod db;

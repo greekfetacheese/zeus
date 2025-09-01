@@ -56,6 +56,21 @@ impl SendCryptoUi {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+      self.clear_recipient();
+      self.clear_amount();
+      self.clear_search_query();
+   }
+
    pub fn set_currency(&mut self, currency: Currency) {
       self.currency = currency;
    }
@@ -71,17 +86,6 @@ impl SendCryptoUi {
 
    pub fn clear_search_query(&mut self) {
       self.search_query = String::new();
-   }
-
-   pub fn close(&mut self) {
-      self.open = false;
-      self.clear_recipient();
-      self.clear_amount();
-      self.clear_search_query();
-   }
-
-   pub fn open(&mut self) {
-      self.open = true;
    }
 
    pub fn show(

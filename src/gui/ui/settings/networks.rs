@@ -15,14 +15,16 @@ use egui_theme::Theme;
 use std::sync::Arc;
 
 pub struct NetworkSettings {
-   pub open: bool,
-   pub refreshing: bool,
-   pub add_rpc: bool,
-   pub change_server_port: bool,
-   pub valid_url: bool,
-   pub url_to_add: String,
-   pub chain_select: ChainSelect,
-   pub size: (f32, f32),
+   open: bool,
+   refreshing: bool,
+   add_rpc: bool,
+   #[allow(dead_code)]
+   change_server_port: bool,
+   #[allow(dead_code)]
+   valid_url: bool,
+   url_to_add: String,
+   chain_select: ChainSelect,
+   size: (f32, f32),
 }
 
 impl NetworkSettings {
@@ -37,6 +39,14 @@ impl NetworkSettings {
          chain_select: ChainSelect::new("network_settings_chain_select", 1),
          size: (550.0, 400.0),
       }
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    fn valid_url(&self) -> bool {

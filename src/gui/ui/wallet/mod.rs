@@ -14,32 +14,38 @@ use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 
 /// Ui to manage the wallets
 pub struct WalletUi {
-   pub open: bool,
-   pub main_ui: bool,
-   pub add_wallet_ui: AddWalletUi,
-   pub search_query: String,
-   pub export_key_ui: ExportKeyUi,
-   pub delete_wallet_ui: DeleteWalletUi,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
+   open: bool,
+   main_ui: bool,
+   add_wallet_ui: AddWalletUi,
+   search_query: String,
+   export_key_ui: ExportKeyUi,
+   delete_wallet_ui: DeleteWalletUi,
+   size: (f32, f32),
 }
 
 impl WalletUi {
    pub fn new() -> Self {
-      let size = (550.0, 650.0);
-      let offset = vec2(0.0, 0.0);
-      let align = Align2::CENTER_CENTER;
-
       Self {
          open: false,
          main_ui: true,
-         add_wallet_ui: AddWalletUi::new((450.0, 250.0), offset, align),
+         add_wallet_ui: AddWalletUi::new(),
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
          delete_wallet_ui: DeleteWalletUi::new(),
-         size,
-         anchor: (align, offset),
+         size: (550.0, 650.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -56,7 +62,7 @@ impl WalletUi {
    /// This is the first Ui we show to the user when this [WalletUi] is open.
    ///
    /// We can see, manage and add new wallets.
-   pub fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
@@ -82,8 +88,7 @@ impl WalletUi {
          let value_a = portfolio_a.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
          let value_b = portfolio_b.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
 
-         // Sort in descending order (highest value first)
-         // If values are equal, sort by name as a secondary criterion
+         // highest value first
          value_b
             .f64()
             .partial_cmp(&value_a.f64())
@@ -96,7 +101,7 @@ impl WalletUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(self.anchor.0, self.anchor.1)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -112,8 +117,8 @@ impl WalletUi {
                   ))
                   .clicked()
                {
-                  self.add_wallet_ui.open = true;
-                  self.add_wallet_ui.main_ui = true;
+                  self.add_wallet_ui.open();
+                  self.add_wallet_ui.open_main_ui();
                }
 
                ui.add_space(10.0);
@@ -273,13 +278,12 @@ impl WalletUi {
 }
 
 pub struct ExportKeyUi {
-   pub open: bool,
-   pub credentials_form: CredentialsForm,
-   pub verified_credentials: bool,
+   open: bool,
+   credentials_form: CredentialsForm,
+   verified_credentials: bool,
    wallet_to_export: Option<Wallet>,
    show_key: bool,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
+   size: (f32, f32),
 }
 
 impl ExportKeyUi {
@@ -291,17 +295,15 @@ impl ExportKeyUi {
          wallet_to_export: None,
          show_key: false,
          size: (550.0, 350.0),
-         anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
-   pub fn set_wallet_to_export(&mut self, wallet: Option<Wallet>) {
+   fn set_wallet_to_export(&mut self, wallet: Option<Wallet>) {
       self.wallet_to_export = wallet;
    }
 
-   pub fn reset(&mut self) {
+   fn reset(&mut self) {
       *self = Self::new();
-      tracing::info!("ExportKeyUi resetted");
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -355,7 +357,7 @@ impl ExportKeyUi {
       }
    }
 
-   pub fn verify_credentials_ui(
+   fn verify_credentials_ui(
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
@@ -401,17 +403,21 @@ impl ExportKeyUi {
             match vault.decrypt(None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
+                     // Allow the user to export the key
                      gui.wallet_ui.export_key_ui.show_key = true;
+                     // Mark the credentials as verified
                      gui.wallet_ui.export_key_ui.verified_credentials = true;
+                     // Erase the credentials form
                      gui.wallet_ui.export_key_ui.credentials_form.erase();
+                     // Close the credentials form
                      gui.wallet_ui.export_key_ui.credentials_form.open = false;
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to decrypt account", e.to_string());
-                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to decrypt vault", e.to_string());
+                     gui.loading_window.reset();
                   });
                }
             }
@@ -426,12 +432,11 @@ impl ExportKeyUi {
 }
 
 pub struct DeleteWalletUi {
-   pub open: bool,
-   pub credentials_form: CredentialsForm,
-   pub verified_credentials: bool,
-   pub wallet_to_delete: Option<WalletInfo>,
-   pub size: (f32, f32),
-   pub anchor: (Align2, Vec2),
+   open: bool,
+   credentials_form: CredentialsForm,
+   verified_credentials: bool,
+   wallet_to_delete: Option<WalletInfo>,
+   size: (f32, f32),
 }
 
 impl DeleteWalletUi {
@@ -442,7 +447,6 @@ impl DeleteWalletUi {
          verified_credentials: false,
          wallet_to_delete: None,
          size: (550.0, 350.0),
-         anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
@@ -451,7 +455,7 @@ impl DeleteWalletUi {
       self.delete_wallet_ui(ctx, theme, ui);
    }
 
-   pub fn verify_credentials_ui(
+   fn verify_credentials_ui(
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
@@ -499,24 +503,21 @@ impl DeleteWalletUi {
             match vault.decrypt(None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     // credentials are verified
+                     // Mark the credentials as verified
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
-
-                     // close the verify credentials ui
+                     // Close the verify credentials ui
                      gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
-
-                     // open the delete wallet ui
+                     // Open the delete wallet ui
                      gui.wallet_ui.delete_wallet_ui.open = true;
-
-                     // erase the credentials form
+                     // Erase the credentials form
                      gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to decrypt account", e.to_string());
-                     gui.loading_window.open = false;
+                     gui.open_msg_window("Failed to decrypt vault", e.to_string());
+                     gui.loading_window.reset();
                   });
                }
             }
@@ -529,7 +530,7 @@ impl DeleteWalletUi {
       }
    }
 
-   pub fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.verified_credentials {
          return;
       }
@@ -549,7 +550,7 @@ impl DeleteWalletUi {
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
-         .anchor(self.anchor.0, self.anchor.1)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
@@ -588,6 +589,7 @@ impl DeleteWalletUi {
          RT.spawn_blocking(move || {
             new_vault.remove_wallet(wallet.address);
 
+            // Set the master wallet as selected to avoid an empty ComboBox
             if is_current {
                let master_wallet = new_vault.get_master_wallet();
                SHARED_GUI.write(|gui| {
@@ -603,7 +605,7 @@ impl DeleteWalletUi {
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                      gui.open_msg_window("Wallet Deleted", "");
@@ -611,7 +613,7 @@ impl DeleteWalletUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open = false;
+                     gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt vault", e.to_string());
                   });
                   return;

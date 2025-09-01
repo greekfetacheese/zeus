@@ -97,7 +97,7 @@ impl RecipientSelectionWindow {
                   Button::new(RichText::new("Add a contact").size(theme.text_sizes.normal));
 
                if ui.add(add_contact).clicked() {
-                  contacts_ui.add_contact.open = true;
+                  contacts_ui.add_contact.open();
                }
 
                let hint = RichText::new("Search contacts or enter an address")

@@ -17,9 +17,9 @@ pub const M_COST: u32 = 8192_000;
 pub const T_COST: u32 = 96;
 pub const P_COST: u32 = 1;
 
-const DEV_M_COST: u32 = 16_000;
-const DEV_T_COST: u32 = 3;
-const DEV_P_COST: u32 = 8;
+const DEV_M_COST: u32 = 256_000;
+const DEV_T_COST: u32 = 16;
+const DEV_P_COST: u32 = 1;
 
 /// Helper struct to store info for a wallet (name, address, etc)
 /// Useful to avoid unecessery cloning of the [SecureSigner]

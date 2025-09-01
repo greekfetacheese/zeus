@@ -18,9 +18,16 @@ pub mod networks;
 pub use contacts::ContactsUi;
 pub use networks::NetworkSettings;
 
-const MAX_M_COST: u32 = 8096_000;
+const MIN_M_COST: u32 = 128_000;
+const MIN_T_COST: u32 = 8;
+const MIN_P_COST: u32 = 1;
+
+const MAX_M_COST: u32 = 8192_000;
 const MAX_T_COST: u32 = 2048;
-const MAX_P_COST: u32 = 512;
+const MAX_P_COST: u32 = 4;
+
+const DEV_M_MIN_COST: u32 = 16_000;
+const DEV_T_MIN_COST: u32 = 3;
 
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
@@ -45,7 +52,7 @@ impl ThemeSettings {
       }
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -121,15 +128,15 @@ impl ThemeSettings {
 }
 
 pub struct SettingsUi {
-   pub open: bool,
-   pub general: GeneralSettings,
+   open: bool,
+   general: GeneralSettings,
    pub encryption: EncryptionSettings,
-   pub network: NetworkSettings,
-   pub theme: ThemeSettings,
+   network: NetworkSettings,
+   theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
-   pub credentials: CredentialsForm,
-   pub verified_credentials: bool,
-   pub size: (f32, f32),
+   credentials_form: CredentialsForm,
+   verified_credentials: bool,
+   size: (f32, f32),
 }
 
 impl SettingsUi {
@@ -141,10 +148,22 @@ impl SettingsUi {
          network: NetworkSettings::new(),
          theme: ThemeSettings::new(),
          contacts_ui: ContactsUi::new(),
-         credentials: CredentialsForm::new(),
+         credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          size: (550.0, 350.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
@@ -162,7 +181,6 @@ impl SettingsUi {
    }
 
    pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      // Transparent window
       Window::new("settings_main_ui")
          .title_bar(false)
          .resizable(false)
@@ -185,7 +203,7 @@ impl SettingsUi {
                .corner_radius(5)
                .min_size(size);
                if ui.add(credentials).clicked() {
-                  self.credentials.open = true;
+                  self.credentials_form.open = true;
                }
 
                let encryption_settings =
@@ -200,7 +218,7 @@ impl SettingsUi {
                   .corner_radius(5)
                   .min_size(size);
                if ui.add(contacts).clicked() {
-                  self.contacts_ui.open = true;
+                  self.contacts_ui.open();
                }
 
                let network =
@@ -208,7 +226,7 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(network).clicked() {
-                  self.network.open = true;
+                  self.network.open();
                }
 
                let general =
@@ -243,7 +261,7 @@ impl SettingsUi {
          "Verify Your Credentials"
       };
 
-      let mut open = self.credentials.open;
+      let mut open = self.credentials_form.open;
 
       Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
@@ -260,8 +278,9 @@ impl SettingsUi {
 
                // Credentials Not Verified
                if !self.verified_credentials {
-                  self.credentials.confrim_password = false;
-                  self.credentials.show(theme, icons.clone(), ui);
+                  self.credentials_form.confrim_password = false;
+                  self.credentials_form.show(theme, icons.clone(), ui);
+
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -271,26 +290,26 @@ impl SettingsUi {
 
                   if ui.add(verify).clicked() {
                      let mut vault = ctx.get_vault();
-                     vault.set_credentials(self.credentials.credentials.clone());
+                     vault.set_credentials(self.credentials_form.credentials.clone());
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.loading_window.open("Decrypting account...");
+                           gui.loading_window.open("Decrypting vault...");
                         });
 
-                        // Verify the credentials by just decrypting the account
+                        // Verify the credentials by just decrypting the vault
                         match vault.decrypt(None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
                                  gui.settings.verified_credentials = true;
-                                 gui.settings.credentials.erase();
-                                 gui.loading_window.open = false;
+                                 gui.settings.credentials_form.erase();
+                                 gui.loading_window.reset();
                               });
                            }
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.loading_window.open = false;
-                                 gui.open_msg_window("Failed to decrypt account", format!("{}", e));
+                                 gui.loading_window.reset();
+                                 gui.open_msg_window("Failed to decrypt vault", format!("{}", e));
                               });
                            }
                         };
@@ -301,8 +320,9 @@ impl SettingsUi {
                // Credentials Verified
                // Allow the user to change the credentials
                if self.verified_credentials {
-                  self.credentials.confrim_password = true;
-                  self.credentials.show(theme, icons, ui);
+                  self.credentials_form.confrim_password = true;
+                  self.credentials_form.show(theme, icons, ui);
+
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -311,7 +331,7 @@ impl SettingsUi {
                      Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
                   if ui.add(save).clicked() {
-                     let new_credentials = self.credentials.credentials.clone();
+                     let new_credentials = self.credentials_form.credentials.clone();
                      let mut new_vault = ctx.get_vault();
                      new_vault.set_credentials(new_credentials.clone());
 
@@ -323,16 +343,17 @@ impl SettingsUi {
                         match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                            Ok(_) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.settings.credentials.erase();
-                                 gui.loading_window.open = false;
+                                 gui.settings.credentials_form.erase();
+                                 gui.loading_window.reset();
                                  gui.settings.verified_credentials = false;
-                                 gui.settings.credentials.open = false;
+                                 gui.settings.credentials_form.open = false;
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
+                              ctx.set_vault(new_vault);
                            }
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.loading_window.open = false;
+                                 gui.loading_window.reset();
                                  gui.open_msg_window(
                                     "Failed to update credentials",
                                     format!("{}", e),
@@ -341,26 +362,24 @@ impl SettingsUi {
                               return;
                            }
                         };
-
-                        ctx.set_vault(new_vault);
                      });
                   }
                }
             });
          });
 
-      // If the window was open in the first place
-      if self.credentials.open && !open {
-         self.credentials.erase();
-         self.credentials.open = false;
+      // If the window was open and now we closed it
+      if self.credentials_form.open && !open {
+         self.credentials_form.erase();
+         self.credentials_form.open = false;
          self.verified_credentials = false;
       }
    }
 }
 
 pub struct EncryptionSettings {
-   pub open: bool,
-   pub argon_params: Argon2,
+   open: bool,
+   argon_params: Argon2,
    pub size: (f32, f32),
 }
 
@@ -373,7 +392,11 @@ impl EncryptionSettings {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn set_argon2(&mut self, argon_params: Argon2) {
+      self.argon_params = argon_params;
+   }
+
+   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -395,13 +418,25 @@ impl EncryptionSettings {
 
             let slider_size = vec2(ui.available_width() * 0.4, 20.0);
 
+            let min_m_cost = if cfg!(feature = "dev") {
+               DEV_M_MIN_COST
+            } else {
+               MIN_M_COST
+            };
+
+            let min_t_cost = if cfg!(feature = "dev") {
+               DEV_T_MIN_COST
+            } else {
+               MIN_T_COST
+            };
+
             ui.vertical_centered(|ui| {
                ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
                   .on_hover_text(M_COST_TIP);
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(
-                     Slider::new(&mut self.argon_params.m_cost, 64_000..=MAX_M_COST)
+                     Slider::new(&mut self.argon_params.m_cost, min_m_cost..=MAX_M_COST)
                         .custom_formatter(|v, _ctx| format!("{:.0}", v / 1000.0)),
                   );
                });
@@ -412,7 +447,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
                      &mut self.argon_params.t_cost,
-                     5..=MAX_T_COST,
+                     min_t_cost..=MAX_T_COST,
                   ));
                });
 
@@ -422,7 +457,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
                      &mut self.argon_params.p_cost,
-                     1..=MAX_P_COST,
+                     MIN_P_COST..=MAX_P_COST,
                   ));
                });
 
@@ -449,11 +484,10 @@ impl EncryptionSettings {
          });
 
          // Encrypt the vault with the new params
-         // let time = std::time::Instant::now();
          match ctx.encrypt_and_save_vault(None, Some(new_params.clone())) {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
+                  gui.loading_window.reset();
                   gui.open_msg_window("Encryption settings have been updated", "");
                   gui.settings.encryption.open = false;
                   gui.settings.encryption.argon_params = new_params;
@@ -461,7 +495,7 @@ impl EncryptionSettings {
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.loading_window.open = false;
+                  gui.loading_window.reset();
                   gui.open_msg_window(
                      "Failed to update encryption settings",
                      format!("{}", e),
@@ -469,7 +503,6 @@ impl EncryptionSettings {
                });
             }
          };
-         // tracing::info!("Encryption took {} secs", time.elapsed().as_secs_f32());
       });
    }
 }
@@ -483,7 +516,7 @@ pub struct GeneralSettings {
    batch_size_for_updating_pools_state: usize,
    batch_size_for_syncing_pools: usize,
    ignore_chains: HashSet<u64>,
-   pub size: (f32, f32),
+   size: (f32, f32),
 }
 
 impl GeneralSettings {

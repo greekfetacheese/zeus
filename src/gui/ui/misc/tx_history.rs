@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 
 pub struct TxHistory {
-   pub open: bool,
+   open: bool,
    pub current_page: usize,
    pub txs_per_page: usize,
    selected_wallet: Option<WalletInfo>,
@@ -29,6 +29,18 @@ impl TxHistory {
          selected_wallet: None,
          selected_chain: None,
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    fn wallet_name_or_address(&self, ctx: ZeusCtx, address: Address) -> String {

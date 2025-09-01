@@ -7,101 +7,178 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    ui.vertical_centered(|ui| {
       ui.add_space(20.0);
       ui.spacing_mut().item_spacing.y = 30.0;
-      ui.visuals_mut().widgets.hovered.expansion = 15.0;
-      ui.visuals_mut().widgets.active.expansion = 15.0;
+      ui.visuals_mut().widgets.hovered.expansion = 10.0;
+      ui.visuals_mut().widgets.active.expansion = 10.0;
 
+      let selected_color = gui.theme.colors.widget_bg_color_open;
       utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
       utils::no_border(ui);
 
       let text_size = gui.theme.text_sizes.very_large;
 
-      let home = Button::new(RichText::new("Home").size(text_size));
-      if ui.add(home).clicked() {
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         gui.portofolio.open = true;
-      }
+      let home = if gui.portofolio.is_open() {
+         Button::new(RichText::new("Home").size(text_size)).fill(selected_color)
+      } else {
+         Button::new(RichText::new("Home").size(text_size))
+      };
 
-      let send = Button::new(RichText::new("Send").size(text_size));
-      if ui.add(send).clicked() {
-         gui.send_crypto.open();
-         gui.uniswap.close();
-         gui.portofolio.open = false;
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-      }
+      ui.scope(|ui| {
+         if gui.portofolio.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
 
-      let swap = Button::new(RichText::new("Swap").size(text_size));
-      if ui.add(swap).clicked() {
-         gui.uniswap.open();
-         gui.portofolio.open = false;
-         gui.send_crypto.close();
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-      }
+         if ui.add(home).clicked() {
+            gui.portofolio.open();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+         }
+      });
 
-      let bridge = Button::new(RichText::new("Bridge").size(text_size));
-      if ui.add(bridge).clicked() {
-         gui.portofolio.open = false;
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         // This is shared, so reset it to avoid any issues
-         gui.recipient_selection.reset();
-         gui.sync_pools_ui.open = false;
-         gui.across_bridge.open = true;
-      }
+      let send = if gui.send_crypto.is_open() {
+         Button::new(RichText::new("Send").size(text_size)).fill(selected_color)
+      } else {
+         Button::new(RichText::new("Send").size(text_size))
+      };
 
-      let wallets = Button::new(RichText::new("Wallets").size(text_size));
-      if ui.add(wallets).clicked() {
-         gui.portofolio.open = false;
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.settings.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         gui.wallet_ui.open = true;
-      }
+      ui.scope(|ui| {
+         if gui.send_crypto.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(send).clicked() {
+            gui.send_crypto.open();
+            gui.uniswap.close();
+            gui.portofolio.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
+         }
+      });
 
-      let tx_history = Button::new(RichText::new("Transactions").size(text_size));
-      if ui.add(tx_history).clicked() {
-         gui.portofolio.open = false;
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.settings.open = false;
-         gui.wallet_ui.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         gui.tx_history.open = true;
-      }
+      let swap = if gui.uniswap.is_open() {
+         Button::new(RichText::new("Swap").size(text_size))
+            .fill(selected_color)
+      } else {
+         Button::new(RichText::new("Swap").size(text_size))
+      };
 
-      let settings = Button::new(RichText::new("Settings").size(text_size));
-      if ui.add(settings).clicked() {
-         gui.portofolio.open = false;
-         gui.uniswap.close();
-         gui.send_crypto.close();
-         gui.wallet_ui.open = false;
-         gui.tx_history.open = false;
-         gui.across_bridge.open = false;
-         gui.sync_pools_ui.open = false;
-         gui.settings.open = true;
-      }
+      ui.scope(|ui| {
+         if gui.uniswap.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(swap).clicked() {
+            gui.uniswap.open();
+            gui.portofolio.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+         }
+      });
+
+      let bridge = if gui.across_bridge.is_open() {
+         Button::new(RichText::new("Bridge").size(text_size))
+            .fill(selected_color)
+      } else {
+         Button::new(RichText::new("Bridge").size(text_size))
+      };
+
+      ui.scope(|ui| {
+         if gui.across_bridge.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(bridge).clicked() {
+            gui.across_bridge.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
+            gui.sync_pools_ui.close();
+         }
+      });
+
+      let wallets = if gui.wallet_ui.is_open() {
+         Button::new(RichText::new("Wallets").size(text_size))
+            .fill(selected_color)
+      } else {
+         Button::new(RichText::new("Wallets").size(text_size))
+      };
+
+      ui.scope(|ui| {
+         if gui.wallet_ui.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(wallets).clicked() {
+            gui.wallet_ui.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+         }
+      });
+
+      let tx_history = if gui.tx_history.is_open() {
+         Button::new(RichText::new("Transactions").size(text_size))
+            .fill(selected_color)
+      } else {
+         Button::new(RichText::new("Transactions").size(text_size))
+      };
+
+      ui.scope(|ui| {
+         if gui.tx_history.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(tx_history).clicked() {
+            gui.tx_history.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+         }
+      });
+
+      let settings = if gui.settings.is_open() {
+         Button::new(RichText::new("Settings").size(text_size))
+            .fill(selected_color)
+      } else {
+         Button::new(RichText::new("Settings").size(text_size))
+      };
+
+      ui.scope(|ui| {
+         if gui.settings.is_open() {
+            ui.visuals_mut().widgets.inactive.expansion = 10.0;
+         }
+         if ui.add(settings).clicked() {
+            gui.settings.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+         }
+      });
 
       let connected_dapps = Button::new(RichText::new("Connected Dapps").size(text_size));
       if ui.add(connected_dapps).clicked() {
@@ -134,15 +211,15 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             RichText::new("Sync Pools").size(text_size),
          ));
          if sync_pools.clicked() {
-            gui.portofolio.open = false;
+            gui.sync_pools_ui.open();
+            gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
-            gui.wallet_ui.open = false;
-            gui.tx_history.open = false;
-            gui.across_bridge.open = false;
-            gui.sync_pools_ui.open = false;
-            gui.settings.open = false;
-            gui.sync_pools_ui.open = true;
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+            gui.settings.close();
          }
       }
 
@@ -153,14 +230,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          ));
          if ui_testing.clicked() {
             gui.ui_testing.show = true;
-            gui.portofolio.open = false;
+            gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
-            gui.wallet_ui.open = false;
-            gui.tx_history.open = false;
-            gui.across_bridge.open = false;
-            gui.sync_pools_ui.open = false;
-            gui.settings.open = false;
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.sync_pools_ui.close();
+            gui.settings.close();
          }
       }
    });

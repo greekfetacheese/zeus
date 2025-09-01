@@ -495,7 +495,7 @@ impl ConfirmWindow {
 
 /// Window to indicate a loading state
 pub struct LoadingWindow {
-   pub open: bool,
+   open: bool,
    pub msg: String,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
@@ -519,6 +519,11 @@ impl LoadingWindow {
    pub fn reset(&mut self) {
       self.open = false;
       self.msg = String::new();
+      self.size = (200.0, 100.0);
+   }
+
+   pub fn new_size(&mut self, size: (f32, f32)) {
+      self.size = size;
    }
 
    pub fn show(&mut self, ui: &mut Ui) {
@@ -612,7 +617,7 @@ impl MsgWindow {
 }
 
 pub struct PortfolioUi {
-   pub open: bool,
+   open: bool,
    pub show_spinner: bool,
 }
 
@@ -622,6 +627,18 @@ impl PortfolioUi {
          open: true,
          show_spinner: false,
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
    }
 
    pub fn show(

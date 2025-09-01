@@ -142,7 +142,7 @@ pub async fn send_transaction(
    // wait for the user to confirm or reject the transaction
    let mut confirmed = None;
    loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
       SHARED_GUI.read(|gui| {
          confirmed = gui.tx_confirmation_window.get_confirmed_or_rejected();
@@ -208,7 +208,7 @@ pub async fn send_transaction(
          // wait for the user to confirm or reject the transaction
          let mut confirmed = None;
          loop {
-            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
             SHARED_GUI.read(|gui| {
                confirmed = gui.confirm_window.get_confirm();
@@ -303,6 +303,7 @@ pub async fn send_transaction(
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
+      gui.request_repaint();
    });
 
    Ok((receipt, transaction_rich))
@@ -361,7 +362,7 @@ pub async fn sign_message(
    // Wait for the user to sign or cancel
    let mut signed = None;
    loop {
-      tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
       SHARED_GUI.read(|gui| {
          signed = gui.sign_msg_window.is_signed();
@@ -378,6 +379,7 @@ pub async fn sign_message(
    let signed = signed.unwrap();
 
    if !signed {
+      SHARED_GUI.request_repaint();
       return Err(anyhow::anyhow!("You cancelled the transaction"));
    }
 
@@ -385,6 +387,8 @@ pub async fn sign_message(
    let signer = secure_signer.to_signer();
    let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
    erase_signer(signer);
+
+   SHARED_GUI.request_repaint();
 
    Ok(signature)
 }
@@ -853,9 +857,6 @@ pub async fn swap(
       swaps: vec![swap_params],
       ..Default::default()
    };
-
-   SHARED_GUI.reset_loading();
-   SHARED_GUI.request_repaint();
 
    let msg_value = execute_params.message.as_ref();
 
