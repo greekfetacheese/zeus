@@ -17,9 +17,9 @@ use crate::currency::{Currency, NativeCurrency, erc20::ERC20Token};
 
 use serde::{Deserialize, Serialize};
 
+use crate::utils::{address_book, get_logs_for};
 use anyhow::anyhow;
 use tracing::error;
-use crate::utils::{address_book, get_logs_for};
 
 /// Sync pools from the last checkpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,9 +78,9 @@ impl SyncResult {
 ///
 /// - `batch_size` The number of pools to sync in a single request
 ///
-/// - `from_block` From which block to start syncing
+/// - `from_block` From which block to start syncing, If None it will start from the dex creation block
 ///
-///  If None it will start from the dex creation block
+/// - `to_block` To which block to sync, If None it will sync to the latest block
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
    pub chain_id: u64,
@@ -88,6 +88,7 @@ pub struct SyncConfig {
    pub concurrency: usize,
    pub batch_size: usize,
    pub from_block: Option<u64>,
+   pub to_block: Option<u64>,
 }
 
 impl SyncConfig {
@@ -97,6 +98,7 @@ impl SyncConfig {
       concurrency: usize,
       batch_size: usize,
       from_block: Option<u64>,
+      to_block: Option<u64>,
    ) -> Self {
       Self {
          chain_id,
@@ -104,16 +106,18 @@ impl SyncConfig {
          concurrency,
          batch_size,
          from_block,
+         to_block,
       }
    }
 }
 
 /// Sync pools from the given checkpoints
-pub async fn sync_from_checkpoints<P, N>(
+pub async fn sync_from_checkpoint<P, N>(
    client: P,
    concurrency: usize,
    batch_size: usize,
-   checkpoints: Vec<Checkpoint>,
+   to_block: Option<u64>,
+   checkpoint: Checkpoint,
 ) -> Result<Vec<SyncResult>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
@@ -121,50 +125,23 @@ where
 {
    let chain = client.get_chain_id().await?;
 
-   for check in &checkpoints {
-      if check.chain_id != chain {
-         return Err(anyhow::anyhow!(
-            "Chain mismatch, At least one of the checkpoints is not for the given chain {}",
-            chain
-         ));
-      }
+   if checkpoint.chain_id != chain {
+      return Err(anyhow::anyhow!(
+         "Chain mismatch, Checkpoint is not for the given chain {}",
+         chain
+      ));
    }
 
-   let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-   let results = Arc::new(Mutex::new(Vec::new()));
-   let semaphore = Arc::new(Semaphore::new(concurrency));
+   let config = SyncConfig::new(
+      checkpoint.chain_id,
+      vec![checkpoint.dex],
+      concurrency,
+      batch_size,
+      Some(checkpoint.block),
+      to_block,
+   );
 
-   for checkpoint in checkpoints {
-      let client = client.clone();
-      let semaphore = semaphore.clone();
-      let results = results.clone();
-
-      let config = SyncConfig::new(
-         checkpoint.chain_id,
-         vec![checkpoint.dex],
-         concurrency,
-         batch_size,
-         Some(checkpoint.block),
-      );
-
-      let task = tokio::spawn(async move {
-         let _permit = semaphore.acquire().await?;
-         let synced = sync_pools(client, config).await?;
-         results.lock().await.push(synced);
-         Ok(())
-      });
-
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      if let Err(e) = task.await? {
-         error!("sync task failed: {}", e);
-      }
-   }
-
-   let synced = Arc::try_unwrap(results).unwrap().into_inner();
-   let synced = synced.first().unwrap().clone();
+   let synced = sync_pools(client, config).await?;
 
    Ok(synced)
 }

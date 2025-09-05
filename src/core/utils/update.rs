@@ -134,19 +134,60 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
+   // Sync Base pools (ETH/USDT etc...)
+   ctx.write(|ctx| {
+      ctx.dex_syncing = true;
+   });
+
+   let mut tasks = Vec::new();
+   for chain in SUPPORTED_CHAINS {
+      let ctx_clone = ctx.clone();
+
+      let task = RT.spawn(async move {
+         let manager = ctx_clone.pool_manager();
+         let dex = DexKind::main_dexes(chain);
+         let tokens = ERC20Token::base_tokens(chain);
+
+         match manager
+            .sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, dex, false)
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+         }
+
+         tracing::info!("Synced base pools for {}", chain);
+
+      });
+      tasks.push(task);
+   }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+
+   ctx.write(|ctx| {
+      ctx.dex_syncing = false;
+   });
+
+
+
+   // Sync V4 pools if needed
    let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
 
    if sync_v4 {
       ctx.write(|ctx| {
-         ctx.data_syncing = true;
+         ctx.dex_syncing = true;
       });
 
       let mut tasks = Vec::new();
       for chain in SUPPORTED_CHAINS {
+         /*
          let ignore_chains = ctx.pool_manager().ignore_chains();
          if ignore_chains.contains(&chain) {
             continue;
          }
+          */
 
          tracing::info!("Syncing V4 pools for chain {}", chain);
 
@@ -156,13 +197,14 @@ pub async fn on_startup(ctx: ZeusCtx) {
             let manager = ctx_clone.pool_manager();
             let dex = DexKind::UniswapV4;
 
-            match manager.sync_pools(ctx_clone.clone(), chain, vec![dex]).await {
+            match manager.sync_pools(ctx_clone.clone(), chain.into(), dex, None).await {
                Ok(_) => {}
                Err(e) => tracing::error!("Error syncing pools: {:?}", e),
             }
 
-            let v4_pools = manager.get_v4_pools_for_chain(chain);
+            // let v4_pools = manager.get_v4_pools_for_chain(chain);
 
+            /*
             match manager.update_state_for_pools(ctx_clone, chain, v4_pools).await {
                Ok(_) => {}
                Err(e) => tracing::error!(
@@ -171,6 +213,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
                   e
                ),
             }
+            */
          });
          tasks.push(task);
       }
@@ -180,11 +223,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
       }
 
       let manager = ctx.pool_manager();
-      manager.cleanup_v4_pools();
+      manager.remove_v4_pools_with_no_base_token();
+      manager.remove_v4_pools_with_high_fee();
+      // manager.remove_v4_pools_with_no_liquidity();
    }
 
    ctx.write(|ctx| {
-      ctx.data_syncing = false;
+      ctx.dex_syncing = false;
    });
 
    RT.spawn_blocking(move || {
@@ -263,11 +308,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
          let mut currencies = Vec::new();
          let mut inserted = HashSet::new();
          for token in tokens {
-            if token.is_weth()
-               || token.is_wbnb()
-               || token.is_stablecoin()
-               || inserted.contains(&token.address)
-            {
+            if token.is_base() || inserted.contains(&token.address) {
                continue;
             }
 
@@ -537,7 +578,18 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             ),
          }
 
-         match pool_manager.update(ctx, chain).await {
+         let tokens = ctx.get_all_tokens_from_portfolios(chain);
+         let mut currencies = Vec::new();
+         let mut inserted = HashSet::new();
+         for token in tokens {
+            if token.is_base() || inserted.contains(&token.address) {
+               continue;
+            }
+            inserted.insert(token.address);
+            currencies.push(Currency::from(token));
+         }
+
+         match pool_manager.update_for_currencies(ctx, chain, currencies).await {
             Ok(_) => {}
             Err(e) => tracing::error!(
                "Error updating price manager for chain {}: {:?}",

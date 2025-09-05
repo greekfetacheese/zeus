@@ -17,10 +17,13 @@ use crate::currency::{Currency, ERC20Token, NativeCurrency};
 use crate::utils::{NumericValue, price_feed::get_base_token_price};
 use uniswap_v3_math::sqrt_price_math::Q96;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use core::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
+
+/// Max fee to avoid overflows, It doesnt make any sense to swap on these pools anyway
+pub const MAX_FEE: f32 = 10.0;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UniswapV4Pool {
@@ -184,6 +187,30 @@ impl UniswapV4Pool {
       };
       let currency_a = Currency::from(uni);
       let currency_b = Currency::from(NativeCurrency::from(1));
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn uni_usdc() -> Self {
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+      let currency_a = Currency::from(uni);
+      let currency_b = Currency::from(ERC20Token::usdc());
       let fee = FeeAmount::MEDIUM;
 
       Self::from(
@@ -466,6 +493,22 @@ impl UniswapPool for UniswapV4Pool {
       // virtual amount of token1
       let amount1 = (liquidity_u256 * sqrt_price_x96) / Q96;
 
+     // let amnt0 = NumericValue::format_wei(amount0, self.currency0().decimals());
+     // let amnt1 = NumericValue::format_wei(amount1, self.currency1().decimals());
+
+      /* 
+      eprintln!(
+         "Pool {} / {} ({}) Virtual Reserves {} {} - {} {}",
+         self.quote_currency().symbol(),
+         self.base_currency().symbol(),
+         self.fee().fee_percent(),
+         self.currency0().symbol(),
+         amnt0.format_abbreviated(),
+         self.currency1().symbol(),
+         amnt1.format_abbreviated()
+      );
+      */
+
       self.liquidity_amount0 = amount0;
       self.liquidity_amount1 = amount1;
 
@@ -484,8 +527,13 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let fee = self.fee.fee_percent();
+      if fee > MAX_FEE {
+         return Err(anyhow!("Pool Fee {} exceeds max fee {}", fee, MAX_FEE));
+      }
+
       if self.hook_impacts_swap() {
-         return Err(anyhow::anyhow!("Unsupported Hook"));
+         return Err(anyhow!("Unsupported Hook"));
       }
 
       let zero_for_one = self.zero_for_one_v4(currency_in);
@@ -493,14 +541,19 @@ impl UniswapPool for UniswapV4Pool {
       let state = self
          .state()
          .v3_state()
-         .ok_or(anyhow::anyhow!("State not initialized"))?;
+         .ok_or(anyhow!("State not initialized"))?;
       let amount_out = calculate_swap(state, fee, zero_for_one, amount_in)?;
       Ok(amount_out)
    }
 
    fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
+      let fee = self.fee.fee_percent();
+      if fee > MAX_FEE {
+         return Err(anyhow!("Pool Fee {} exceeds max fee {}", fee, MAX_FEE));
+      }
+
       if self.hook_impacts_swap() {
-         return Err(anyhow::anyhow!("Unsupported Hook"));
+         return Err(anyhow!("Unsupported Hook"));
       }
 
       let zero_for_one = self.zero_for_one_v4(currency_in);
@@ -508,7 +561,7 @@ impl UniswapPool for UniswapV4Pool {
       let state = self
          .state_mut()
          .v3_state_mut()
-         .ok_or(anyhow::anyhow!("State not initialized"))?;
+         .ok_or(anyhow!("State not initialized"))?;
       let amount_out = calculate_swap_mut(state, fee, zero_for_one, amount_in)?;
 
       Ok(amount_out)
@@ -520,6 +573,15 @@ impl UniswapPool for UniswapV4Pool {
       currency_out: &Currency,
       amount_in: NumericValue,
    ) -> Result<SwapResult, anyhow::Error> {
+      let fee = self.fee.fee_percent();
+      if fee > MAX_FEE {
+         return Err(anyhow::anyhow!(
+            "Pool Fee {} exceeds max fee {}",
+            fee,
+            MAX_FEE
+         ));
+      }
+
       let amount_out = self.simulate_swap(currency_in, amount_in.wei())?;
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());
       let spot_price = self.calculate_price(currency_in)?;
@@ -630,6 +692,21 @@ mod tests {
          quote.symbol()
       );
       println!("With Price Impact: {:.4}%", swap_result.price_impact);
+   }
+
+   #[tokio::test]
+   async fn test_virtual_reserves_uni_usdc() {
+      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let mut pool = UniswapV4Pool::uni_usdc();
+      pool.update_state(client.clone(), None).await.unwrap();
+
+      let usdc_balance = pool.base_balance();
+      let uni_balance = pool.quote_balance();
+
+      println!("USDC Balance: {}", usdc_balance.formatted());
+      println!("UNI Balance: {}", uni_balance.formatted());
    }
 
    #[tokio::test]

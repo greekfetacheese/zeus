@@ -196,7 +196,6 @@ impl V3PoolState {
    pub fn v4(
       pool: &impl UniswapPool,
       data: batch::V4PoolState::PoolData,
-      _block: Option<BlockId>,
    ) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
@@ -309,7 +308,7 @@ where
       .cloned()
       .ok_or_else(|| anyhow!("Pool data not found"))?;
 
-   let pool_state = V3PoolState::v4(pool, state, block)?;
+   let pool_state = V3PoolState::v4(pool, state)?;
 
    Ok(State::v3(pool_state))
 }
@@ -486,7 +485,7 @@ where
       if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
          for data in &v4_pool_data {
             if data.pool == pool.pool_id() {
-               let state = V3PoolState::v4(pool, data.clone(), None)?;
+               let state = V3PoolState::v4(pool, data.clone())?;
                pool.set_state(State::v3(state));
                match pool.compute_virtual_reserves() {
                   Ok(_) => {}

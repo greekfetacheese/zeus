@@ -1,4 +1,4 @@
-use alloy_primitives::Address;
+use alloy_primitives::{Address, FixedBytes};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::{SolValue, sol};
 
@@ -149,6 +149,16 @@ sol! {
     }
 }
 
+
+sol! {
+    #[sol(rpc, bytecode = "6080604052346100a6576102e5803803809161001a826100be565b60803960408160800191126100a657608051906001600160401b0382116100a65780609f830112156100a65781608001516100548161010c565b9261006260405194856100e9565b81845260a0602085019260051b8201019283116100a65760a001905b828210610096578361009060a0610123565b906101f4565b815181526020918201910161007e565b5f80fd5b634e487b7160e01b5f52604160045260245ffd5b6080601f91909101601f19168101906001600160401b038211908210176100e457604052565b6100aa565b601f909101601f19168101906001600160401b038211908210176100e457604052565b6001600160401b0381116100e45760051b60200190565b51906001600160a01b03821682036100a657565b906101418261010c565b61014e60405191826100e9565b828152809261015f601f199161010c565b0190602036910137565b805182101561017d5760209160051b010190565b634e487b7160e01b5f52603260045260245ffd5b908160209103126100a657516001600160801b03811681036100a65790565b6040513d5f823e3d90fd5b60206040818301928281528451809452019201905f5b8181106101de5750505090565b82518452602093840193909201916001016101d1565b80516001600160a01b039092169161020b90610137565b5f5b82518110156102bc578060206102266102469386610169565b516040518094819263fa6793d560e01b8352600483019190602083019252565b0381885afa80156102b7576001925f91610289575b50828060801b031661026e575b0161020d565b6102788185610169565b516102838285610169565b52610268565b6102aa915060203d81116102b0575b6102a281836100e9565b810190610191565b5f61025b565b503d610298565b6101b0565b506040516102e0816102d26020820194856101bb565b03601f1981018352826100e9565b5190f3fe")]
+    contract GetV4Pools {
+
+    constructor(bytes32[] memory pools, address stateView) {}
+    }
+}
+
+
 /// Query the ETH balance for the given addresses
 ///
 /// If `block` is None, the latest block is used
@@ -270,6 +280,27 @@ where
    Ok(data)
 }
 
+/// Verify that the given pool ids are valid
+/// 
+/// Returns the pool ids that are valid
+pub async fn get_v4_pools<P, N>(
+   client: P,
+   pools: Vec<FixedBytes<32>>,
+   state_view: Address,
+) -> Result<Vec<FixedBytes<32>>, anyhow::Error>
+where
+   P: Provider<N> + Clone + 'static,
+   N: Network,
+{
+   let deployer = GetV4Pools::deploy_builder(client, pools, state_view);
+   let res = deployer.call_raw().await?;
+
+   let data = <Vec<FixedBytes<32>> as SolValue>::abi_decode(&res)
+      .map_err(|e| anyhow!("Failed to decode V4 pools: {:?}", e))?;
+
+   Ok(data)
+}
+
 /// Query the state of multiple V3 pools
 ///
 /// If `block` is `None`, the latest block is used.
@@ -318,7 +349,7 @@ where
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::amm::uniswap::{UniswapV3Pool, UniswapV4Pool};
+   use crate::amm::uniswap::{UniswapPool, UniswapV3Pool, UniswapV4Pool};
    use crate::utils::address_book;
    use alloy_primitives::address;
    use alloy_provider::ProviderBuilder;
@@ -403,6 +434,21 @@ mod tests {
       let pools = get_v3_pools(client, weth, usdc, factory).await.unwrap();
 
       assert_eq!(pools.len(), 4);
+   }
+
+   #[tokio::test]
+   async fn test_v4_pools() {
+      let url = Url::parse("https://reth-ethereum.ithaca.xyz/rpc").unwrap();
+      let client = ProviderBuilder::new().connect_http(url);
+
+      let eth_uni = UniswapV4Pool::eth_uni();
+      let usdc_usdt = UniswapV4Pool::usdc_usdt();
+
+      let pools_ids = vec![eth_uni.pool_id(), usdc_usdt.pool_id()];
+      let state_view = address_book::uniswap_v4_stateview(1).unwrap();
+      let pools = get_v4_pools(client, pools_ids, state_view).await.unwrap();
+
+      assert_eq!(pools.len(), 2);
    }
 
    #[tokio::test]

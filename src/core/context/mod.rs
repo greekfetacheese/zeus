@@ -39,7 +39,9 @@ pub mod pool_manager;
 pub mod providers;
 
 pub use balance_manager::BalanceManagerHandle;
-pub use db::{CurrencyDB, DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB};
+pub use db::{
+   CurrencyDB, DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB,
+};
 pub use pool_manager::PoolManagerHandle;
 pub use providers::{Rpc, RpcProviders};
 
@@ -372,7 +374,14 @@ impl ZeusCtx {
       get_client(&rpc.url, retry, throttle).await
    }
 
-   pub async fn get_archive_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
+   /// Get an archive client for the given chain.
+   ///
+   /// If `http` is true, it will use an http endpoint.
+   pub async fn get_archive_client(
+      &self,
+      chain: u64,
+      http: bool,
+   ) -> Result<RpcClient, anyhow::Error> {
       let time_passed = Instant::now();
       let timeout = Duration::from_secs(CLIENT_TIMEOUT);
       let mut client = None;
@@ -391,6 +400,10 @@ impl ZeusCtx {
 
       for rpc in &rpcs {
          if !rpc.working || !rpc.enabled || !rpc.archive {
+            continue;
+         }
+
+         if http && rpc.is_ws() {
             continue;
          }
 
@@ -988,6 +1001,7 @@ pub struct ZeusContext {
    pub pool_manager: PoolManagerHandle,
    pub balance_manager: BalanceManagerHandle,
    pub data_syncing: bool,
+   pub dex_syncing: bool,
    pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,
    pub latest_block: HashMap<u64, Block>,
@@ -1088,6 +1102,7 @@ impl ZeusContext {
          pool_manager,
          balance_manager,
          data_syncing: false,
+         dex_syncing: false,
          on_startup_syncing: false,
          base_fee: HashMap::new(),
          latest_block: HashMap::new(),

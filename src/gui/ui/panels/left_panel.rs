@@ -218,7 +218,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
             gui.settings.close();
          }
       }

@@ -1210,7 +1210,7 @@ struct TokenIdWithBlock {
 // TODO: Ideally need a way to get the block number from the first tx of the EOA
 async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error> {
    let chain = ctx.chain();
-   let client = ctx.get_archive_client(chain.id()).await?;
+   let client = ctx.get_archive_client(chain.id(), false).await?;
 
    let latest_block = client.get_block_number().await?;
 

@@ -133,7 +133,6 @@ impl PoolID {
    }
 }
 
-
 /// Minimum liquidity we consider to be required for a pool to able to swap
 ///
 /// for V4 we set a threshold 10x higher than other protocols since we cannot just query the token balances
@@ -143,31 +142,25 @@ pub fn minimum_liquidity(token: &ERC20Token, dex: DexKind) -> U256 {
    let weth_amount = if !dex.is_v4() {
       parse_units("5", token.decimals).unwrap().get_absolute()
    } else {
-      parse_units("200", token.decimals).unwrap().get_absolute()
+      parse_units("50", token.decimals).unwrap().get_absolute()
    };
 
    let wbnb_amount = if !dex.is_v4() {
       parse_units("25", token.decimals).unwrap().get_absolute()
    } else {
-      parse_units("2000", token.decimals).unwrap().get_absolute()
+      parse_units("200", token.decimals).unwrap().get_absolute()
    };
 
-   let stable_amount = if !dex.is_v4() {
-      parse_units("40_000", token.decimals)
-         .unwrap()
-         .get_absolute()
-   } else {
-      parse_units("4_000_000", token.decimals)
-         .unwrap()
-         .get_absolute()
-   };
+   let stable_amount = parse_units("40_000", token.decimals)
+      .unwrap()
+      .get_absolute();
 
    if token.is_weth() {
       weth_amount
-   } else if token.is_wbnb() {
-      wbnb_amount
-   } else {
+   } else if token.is_stablecoin() {
       stable_amount
+   } else {
+      wbnb_amount
    }
 }
 

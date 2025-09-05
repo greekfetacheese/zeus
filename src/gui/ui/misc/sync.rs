@@ -1,19 +1,26 @@
-use crate::core::{
-   context::ZeusCtx,
-   PoolManagerHandle,
-   utils::{RT, pool_data_dir, pool_data_full_dir},
-};
+use crate::core::{PoolManagerHandle, context::ZeusCtx, utils::RT};
 use crate::gui::{SHARED_GUI, Theme};
 use egui::{Button, Color32, RichText, ScrollArea, Spinner, Ui, vec2};
+use std::{collections::HashMap, path::PathBuf};
 use zeus_eth::{
-   amm::uniswap::DexKind,
+   amm::uniswap::{DexKind, sync::Checkpoint},
    types::*,
 };
+
+
+const POOL_DATA_FILTERED: &str = "pool_data_filtered.json";
+const POOL_DATA_FULL: &str = "pool_data_full.json";
 
 pub struct SyncPoolsUi {
    open: bool,
    pub syncing: bool,
    pub updating_state: bool,
+   pool_manager: Option<PoolManagerHandle>,
+   checkpoints: Vec<Checkpoint>,
+   dropped_file_path: Option<PathBuf>,
+   v2_pools_len: HashMap<u64, usize>,
+   v3_pools: HashMap<u64, usize>,
+   v4_pools: HashMap<u64, usize>,
 }
 
 impl SyncPoolsUi {
@@ -22,6 +29,12 @@ impl SyncPoolsUi {
          open: false,
          syncing: false,
          updating_state: false,
+         pool_manager: None,
+         checkpoints: Vec::new(),
+         dropped_file_path: None,
+         v2_pools_len: HashMap::new(),
+         v3_pools: HashMap::new(),
+         v4_pools: HashMap::new(),
       }
    }
 
@@ -47,14 +60,74 @@ impl SyncPoolsUi {
          ui.spacing_mut().item_spacing.y = 10.0;
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+         // Collect dropped file
+         ui.ctx().input(|i| {
+            if let Some(dropped_file) = i.raw.dropped_files.first() {
+               let path = dropped_file.path.clone();
+               self.dropped_file_path = path.clone();
 
-         let button = Button::new(RichText::new("Sync Pool Data").size(theme.text_sizes.normal));
+               RT.spawn_blocking(move || {
+                  let path = path.unwrap();
+                  let manager = PoolManagerHandle::from_dir(&path).unwrap();
+                  let checkpoints = manager.get_all_checkpoints();
+                  let mut v2_pools_len = HashMap::new();
+                  let mut v3_pools_len = HashMap::new();
+                  let mut v4_pools_len = HashMap::new();
+
+                  for chain in ChainId::supported_chains() {
+                     let v2_pools = manager.v2_pools_len(chain.id());
+                     v2_pools_len.insert(chain.id(), v2_pools);
+
+                     let v3_pools = manager.v3_pools_len(chain.id());
+                     v3_pools_len.insert(chain.id(), v3_pools);
+
+                     let v4_pools = manager.v4_pools_len(chain.id());
+                     v4_pools_len.insert(chain.id(), v4_pools);
+                  }
+
+                  SHARED_GUI.write(|gui| {
+                     gui.sync_pools_ui.pool_manager = Some(manager);
+                     gui.sync_pools_ui.checkpoints = checkpoints;
+                     gui.sync_pools_ui.v2_pools_len = v2_pools_len;
+                     gui.sync_pools_ui.v3_pools = v3_pools_len;
+                     gui.sync_pools_ui.v4_pools = v4_pools_len;
+                  });
+               });
+            }
+         });
+
+         if let Some(path) = &self.dropped_file_path {
+            ui.label(
+               RichText::new(format!("Loaded Manager from: {}", path.display()))
+                  .size(theme.text_sizes.normal),
+            );
+         }
+
+         let text = RichText::new("Load Pool Manager to CTX").size(theme.text_sizes.normal);
+         let button = Button::new(text);
+         if ui.add(button).clicked() {
+            let ctx_clone = ctx.clone();
+            let manager = self.pool_manager.clone();
+            RT.spawn_blocking(move || {
+               if let Some(manager) = manager {
+                  tracing::info!("Loaded pool manager to CTX");
+                  ctx_clone.write(|ctx| {
+                     ctx.pool_manager = manager;
+                  });
+               }
+            });
+         }
+
+         let button = Button::new(RichText::new("Sync V4 Pool Data").size(theme.text_sizes.normal));
          let enabled = !self.syncing && !self.updating_state;
+
          if ui.add_enabled(enabled, button).clicked() {
             self.syncing = true;
             let ctx2 = ctx.clone();
+            let manager = self.pool_manager.clone().unwrap();
+
             RT.spawn(async move {
-               match sync_v4_pools(ctx2.clone()).await {
+               match sync_v4_pools(ctx2.clone(), manager).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
                         gui.sync_pools_ui.syncing = false;
@@ -70,13 +143,14 @@ impl SyncPoolsUi {
             });
          }
 
-         let button =
-            Button::new(RichText::new("Update and Cleanup Pools").size(theme.text_sizes.normal));
+         let button = Button::new(RichText::new("Cleanup Pools").size(theme.text_sizes.normal));
          if ui.add_enabled(enabled, button).clicked() {
             self.updating_state = true;
             let ctx2 = ctx.clone();
+            let manager = self.pool_manager.clone().unwrap();
+
             RT.spawn(async move {
-               match update_and_cleanup_pools(ctx2.clone()).await {
+               match cleanup_pools(ctx2.clone(), manager).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
                         gui.sync_pools_ui.updating_state = false;
@@ -102,10 +176,6 @@ impl SyncPoolsUi {
             ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
          }
 
-         let manager = ctx.pool_manager();
-
-         let checkpoints = manager.get_all_checkpoints();
-
          ui.add_space(30.0);
          ui.horizontal(|ui| {
             ui.add_space(250.0);
@@ -116,18 +186,8 @@ impl SyncPoolsUi {
                ui.set_height(400.0);
 
                ScrollArea::vertical().show(ui, |ui| {
-                  for checkpoint in checkpoints {
-                     let ctx = ctx.clone();
+                  for checkpoint in &self.checkpoints {
                      ui.separator();
-
-                     let button =
-                        Button::new(RichText::new("Delete").size(theme.text_sizes.normal));
-                     if ui.add(button).clicked() {
-                        manager.remove_checkpoint(checkpoint.chain_id, checkpoint.dex);
-                        RT.spawn_blocking(move || {
-                           let _ = ctx.save_pool_manager();
-                        });
-                     }
 
                      ui.horizontal(|ui| {
                         let chain = ChainId::new(checkpoint.chain_id).unwrap();
@@ -146,19 +206,19 @@ impl SyncPoolsUi {
                      });
 
                      ui.horizontal(|ui| {
-                        let pools = manager.v2_pools_len(checkpoint.chain_id);
+                        let pools = self.v2_pools_len.get(&checkpoint.chain_id).unwrap_or(&0);
                         let pools = format!("V2 Pools: {}", pools);
                         ui.label(RichText::new(pools).size(theme.text_sizes.normal));
                      });
 
                      ui.horizontal(|ui| {
-                        let pools = manager.v3_pools_len(checkpoint.chain_id);
+                        let pools = self.v3_pools.get(&checkpoint.chain_id).unwrap_or(&0);
                         let pools = format!("V3 Pools: {}", pools);
                         ui.label(RichText::new(pools).size(theme.text_sizes.normal));
                      });
 
                      ui.horizontal(|ui| {
-                        let pools = manager.v4_pools_len(checkpoint.chain_id);
+                        let pools = self.v4_pools.get(&checkpoint.chain_id).unwrap_or(&0);
                         let pools = format!("V4 Pools: {}", pools);
                         ui.label(RichText::new(pools).size(theme.text_sizes.normal));
                      });
@@ -170,16 +230,26 @@ impl SyncPoolsUi {
    }
 }
 
-async fn update_and_cleanup_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+async fn cleanup_pools(ctx: ZeusCtx, manager: PoolManagerHandle) -> Result<(), anyhow::Error> {
    let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-   for chain in SUPPORTED_CHAINS {
+   let current_dir = std::env::current_dir()?;
+   let pool_data_dir = current_dir.join(POOL_DATA_FILTERED);
+
+   manager.remove_v4_pools_with_no_base_token();
+   manager.remove_v4_pools_with_high_fee();
+
+   for chain in ChainId::supported_chains() {
+      if !chain.is_ethereum() {
+         continue;
+      }
+
       let ctx = ctx.clone();
+      let manager = manager.clone();
+
       let task = RT.spawn(async move {
-         let manager = ctx.pool_manager();
+         manager.update(ctx, chain.id()).await?;
 
-         manager.update(ctx, chain).await?;
-
-         tracing::info!("Pool state is updated for chain {}", chain);
+         tracing::info!("Pool state is updated for chain {}", chain.id());
          Ok(())
       });
       tasks.push(task);
@@ -192,16 +262,23 @@ async fn update_and_cleanup_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       }
    }
 
-   let manager = ctx.pool_manager();
-   manager.cleanup_v4_pools();
-   manager.save_to_dir(&pool_data_dir()?)?;
+   manager.remove_v4_pools_with_no_liquidity();
+
+   manager.save_to_dir(&pool_data_dir)?;
 
    Ok(())
 }
 
-async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+async fn sync_v4_pools(ctx: ZeusCtx, manager: PoolManagerHandle) -> Result<(), anyhow::Error> {
    let dex = DexKind::UniswapV4;
    let mut tasks: Vec<tokio::task::JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
+   let current_dir = std::env::current_dir()?;
+   let pool_data_dir = current_dir.join(POOL_DATA_FULL);
+
+   manager.write(|manager| {
+      manager.ignore_chains.clear();
+   });
 
    for chain in ChainId::supported_chains() {
       if chain.is_bsc() {
@@ -209,12 +286,12 @@ async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
       }
 
       let ctx = ctx.clone();
+      let manager = manager.clone();
+      let dir = Some(pool_data_dir.clone());
       let task = RT.spawn(async move {
-         let manager = ctx.pool_manager();
-
-         manager
-            .sync_pools(ctx.clone(), chain.id(), vec![dex])
-            .await?;
+         tracing::info!("Started syncing pools for chain {}", chain.id());
+         manager.sync_pools(ctx.clone(), chain, dex, dir).await?;
+         tracing::info!("Synced pools for chain {}", chain.id());
 
          Ok(())
       });
@@ -222,33 +299,19 @@ async fn sync_v4_pools(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
    }
 
    for task in tasks {
-      let _ = task.await;
+      match task.await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+      }
    }
 
-   let manager = ctx.pool_manager();
-   let manager_string = manager
-      .to_string()
-      .map_err(|e| anyhow::anyhow!("Failed to serialize pool manager: {:?}", e))?;
-   std::fs::write(pool_data_dir()?, manager_string)?;
+   manager.save_to_dir(&pool_data_dir)?;
 
-   Ok(())
-}
+   SHARED_GUI.write(|gui| {
+      gui.sync_pools_ui.pool_manager = Some(manager.clone());
+   });
 
-fn _load_pools(current_manager: PoolManagerHandle) -> Result<(), anyhow::Error> {
-   let dir = pool_data_full_dir()?;
-   let manager = PoolManagerHandle::from_dir(&dir)?;
+   tracing::info!("Synced V4 pools!");
 
-   let mut all_pools = Vec::new();
-   for chain in ChainId::supported_chains() {
-      let pools = manager.get_pools_for_chain(chain.id());
-      all_pools.extend(pools);
-   }
-
-   let checkpoints = manager.get_all_checkpoints();
-   for checkpoint in checkpoints {
-      current_manager.add_checkpoint(checkpoint.chain_id, checkpoint.dex, checkpoint);
-   }
-
-   current_manager.add_pools(all_pools);
    Ok(())
 }
