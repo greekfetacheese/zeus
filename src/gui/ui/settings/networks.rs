@@ -12,7 +12,8 @@ use eframe::egui::{
 };
 use egui::Frame;
 use egui_theme::Theme;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
+use zeus_eth::{alloy_provider::Provider, utils::client};
 
 pub struct NetworkSettings {
    open: bool,
@@ -206,7 +207,14 @@ impl NetworkSettings {
                            let ctx_clone = ctx.clone();
                            let rpc_clone = rpc.clone();
                            self.refreshing = true;
-                           test_rpc(ctx_clone, rpc_clone);
+                           RT.spawn(async move {
+                              test_rpc(ctx_clone.clone(), rpc_clone.clone()).await;
+                              measure_rpc(ctx_clone, rpc_clone).await;
+
+                              SHARED_GUI.write(|gui| {
+                                 gui.settings.network.refreshing = false;
+                              });
+                           });
                         }
                      });
 
@@ -305,17 +313,16 @@ impl NetworkSettings {
                   );
                }
 
+               if self.refreshing {
+                  ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
+               }
+
                let button = Button::new(RichText::new("Add").size(theme.text_sizes.normal));
                if self.valid_url() {
-                  if ui.add(button).clicked() {
+                  if ui.add_enabled(!self.refreshing, button).clicked() {
+                     self.refreshing = true;
                      let chain = self.chain_select.chain.id();
-                     ctx.write(|ctx| {
-                        ctx.providers.add_user_rpc(chain, self.url_to_add.clone());
-                     });
-                     let ctx_clone = ctx.clone();
-                     RT.spawn_blocking(move || {
-                        ctx_clone.save_providers();
-                     });
+                     validate_rpc(ctx.clone(), chain, self.url_to_add.clone());
                   }
                }
             });
@@ -324,33 +331,127 @@ impl NetworkSettings {
    }
 }
 
-fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
+fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
+   let default = false;
+   let enabled = true;
+   let mev_protect = false;
+   let rpc = Rpc::new(url.clone(), chain, default, enabled, mev_protect);
+
    RT.spawn(async move {
-      match client_test(ctx.clone(), rpc.clone()).await {
-         Ok(result) => {
-            ctx.write(|ctx| {
-               if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-                  rpc.working = result.working;
-                  rpc.archive = result.archive;
-                  rpc.fully_functional = result.fully_functional;
-               }
-            });
-            SHARED_GUI.write(|gui| {
-               gui.settings.network.refreshing = false;
-            });
-         }
+      let client = match ctx.connect_to_rpc(&rpc).await {
+         Ok(client) => client,
          Err(e) => {
-            tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
-            ctx.write(|ctx| {
-               if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-                  rpc.working = false;
-               }
-            });
+            tracing::error!("Error getting client using {} {}", rpc.url, e);
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Network Error", e.to_string());
+               gui.open_msg_window("Failed to connect to RPC", e.to_string());
                gui.settings.network.refreshing = false;
             });
+            return;
          }
+      };
+
+      let rpc_chain = match client.get_chain_id().await {
+         Ok(chain) => chain,
+         Err(e) => {
+            tracing::error!("Error getting chain using {} {}", rpc.url, e);
+            SHARED_GUI.write(|gui| {
+               gui.open_msg_window("Failed to get chain ID", e.to_string());
+               gui.settings.network.refreshing = false;
+            });
+            return;
+         }
+      };
+
+      if rpc_chain != chain {
+         tracing::error!(
+            "Chain mismatch, RPC {} is for chain {}",
+            rpc.url,
+            rpc_chain
+         );
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window(
+               "Chain Mismatch",
+               format!("RPC {} is for chain {}", rpc.url, rpc_chain),
+            );
+            gui.settings.network.refreshing = false;
+         });
+         return;
       }
+
+      ctx.write(|ctx| {
+         ctx.providers.add_user_rpc(chain, url);
+      });
+
+      let ctx_clone = ctx.clone();
+      RT.spawn_blocking(move || {
+         ctx_clone.save_providers();
+      });
+
+      test_rpc(ctx.clone(), rpc.clone()).await;
+      measure_rpc(ctx, rpc).await;
+
+      SHARED_GUI.write(|gui| {
+         gui.open_msg_window("Success!", "RPC added successfully");
+         gui.settings.network.url_to_add.clear();
+         gui.settings.network.add_rpc = false;
+         gui.settings.network.refreshing = false;
+      });
    });
+}
+
+async fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
+   match client_test(ctx.clone(), rpc.clone()).await {
+      Ok(result) => {
+         ctx.write(|ctx| {
+            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+               rpc.working = result.working;
+               rpc.archive = result.archive;
+               rpc.fully_functional = result.fully_functional;
+            }
+         });
+      }
+      Err(e) => {
+         tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
+         ctx.write(|ctx| {
+            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+               rpc.working = false;
+            }
+         });
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window("Network Error", e.to_string());
+         });
+      }
+   }
+}
+
+async fn measure_rpc(ctx: ZeusCtx, rpc: Rpc) {
+   let retry = client::retry_layer(2, 400, 600);
+   let throttle = client::throttle_layer(5);
+   let client = match client::get_client(&rpc.url, retry, throttle).await {
+      Ok(client) => client,
+      Err(e) => {
+         tracing::error!("Error getting client using {} {}", rpc.url, e);
+         return;
+      }
+   };
+
+   let time = Instant::now();
+   match client.get_block_number().await {
+      Ok(_) => {
+         let latency = time.elapsed();
+         ctx.write(|ctx| {
+            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+               rpc.latency = Some(latency);
+            }
+         });
+      }
+      Err(e) => {
+         tracing::error!("Error testing RPC: {} {}", rpc.url, e);
+         ctx.write(|ctx| {
+            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
+               rpc.working = false;
+            }
+         });
+      }
+   }
 }

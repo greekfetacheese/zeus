@@ -357,7 +357,7 @@ impl ZeusCtx {
       }
    }
 
-   async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
+  pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
       let (retry, throttle) = if rpc.default {
          (
             retry_layer(

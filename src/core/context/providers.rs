@@ -1,7 +1,14 @@
-use crate::core::{ZeusCtx, utils::data_dir};
+use crate::core::{
+   ZeusCtx,
+   utils::{RT, data_dir},
+};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::Duration};
+use std::{
+   collections::HashMap,
+   sync::{Arc, Mutex},
+   time::Duration,
+};
 use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
@@ -32,7 +39,7 @@ pub struct Rpc {
    pub working: bool,
    /// True if the rpc is fully functional
    /// All requests should work perfect
-   /// 
+   ///
    /// If false, some things like batch requests may not work
    pub fully_functional: bool,
    pub archive: bool,
@@ -477,6 +484,7 @@ impl Default for RpcProviders {
    }
 }
 
+#[derive(Clone)]
 pub struct RpcTestResult {
    pub working: bool,
    pub fully_functional: bool,
@@ -491,6 +499,7 @@ pub struct RpcTestResult {
 ///
 /// Returns [`RpcTestResult`]
 pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow::Error> {
+   // let time = std::time::Instant::now();
    let retry = client::retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -501,17 +510,30 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow
    let client = client::get_client(&rpc.url, retry, throttle).await?;
 
    let latest_block = client.get_block_number().await?;
-   let block_to_query = latest_block - 100_000;
+   let block_to_query = if latest_block > 100_000 {
+      latest_block - 100_000
+   } else {
+      return Err(anyhow!("Latest block is < 100_000"));
+   };
+
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
 
-   let mut result = RpcTestResult {
+   let result = RpcTestResult {
       working: true,
       fully_functional: true,
       archive: true,
    };
 
+   let result = Arc::new(Mutex::new(result));
+
    // For MEV protect RPCs just check if its archive or not
    if rpc.mev_protect {
+      let mut res = RpcTestResult {
+         working: true,
+         fully_functional: true,
+         archive: true,
+      };
+
       let old_block = client
          .get_block(BlockId::Number(BlockNumberOrTag::Number(
             block_to_query,
@@ -522,110 +544,138 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow
          Ok(old_block) => {
             if old_block.is_some() {
                tracing::debug!("{} is Archive Node", rpc.url);
-               return Ok(result);
+               return Ok(res);
             } else {
                tracing::debug!("{} is NOT Archive Node", rpc.url);
-               result.archive = false;
-               return Ok(result);
+               res.archive = false;
+               return Ok(res);
             }
          }
          Err(e) => {
             tracing::debug!("Error getting historical block: {:?}", e);
-            result.archive = false;
-            result.fully_functional = false;
-            result.working = false;
-            return Ok(result);
+            res.archive = false;
+            res.fully_functional = false;
+            res.working = false;
+            return Ok(res);
          }
       }
    }
+
+   let mut tasks = Vec::new();
 
    // Some providers do require an address to set for the filter
    let filter = Filter::new()
       .address(weth.address)
       .from_block(BlockNumberOrTag::Number(latest_block));
 
-   let logs = client.get_logs(&filter).await;
+   let client_clone = client.clone();
+   let result_clone = result.clone();
+   let task = RT.spawn(async move {
+      let logs = client_clone.get_logs(&filter).await;
+      if logs.is_err() {
+         let mut guard = result_clone.lock().unwrap();
+         guard.fully_functional = false;
+      }
+   });
 
-   if logs.is_err() {
-      result.fully_functional = false;
-   }
+   tasks.push(task);
 
-   // request the latest block number 25 times concurrently
+   // request the latest block number 10 times concurrently
    // if the throttle and retry layers are working correctly
    // this should not fail
    // For some endpoints this actually fails
-   let mut tasks: Vec<tokio::task::JoinHandle<Result<u64, anyhow::Error>>> = Vec::new();
-   for _ in 0..24 {
-      let client = client.clone();
-      let task = tokio::task::spawn(async move {
-         let block = client.get_block_number().await;
-         block.map_err(|e| anyhow!("Error getting block number: {}", e))
+
+   for _ in 0..10 {
+      let client_clone = client.clone();
+      let result = result.clone();
+      let task = RT.spawn(async move {
+         let block = client_clone.get_block_number().await;
+         if block.is_err() {
+            let mut guard = result.lock().unwrap();
+            guard.fully_functional = false;
+         }
       });
       tasks.push(task);
    }
 
-   for task in tasks {
-      let task = task.await;
-      if task.is_err() {
-         result.fully_functional = false;
-      }
-   }
-
    // Query an old block to determine if the RPC is archive or not
-   // Since there is no official api for that this is an educated guess
-   let old_block = client
-      .get_block(BlockId::Number(BlockNumberOrTag::Number(
-         block_to_query,
-      )))
-      .await;
+   // This is an educated guess
+   let client_clone = client.clone();
+   let result_clone = result.clone();
+   let url = rpc.url.clone();
+   let task = RT.spawn(async move {
+      let old_block = client_clone
+         .get_block(BlockId::Number(BlockNumberOrTag::Number(
+            block_to_query,
+         )))
+         .await;
 
-   let is_archive = match old_block {
-      Ok(old_block) => {
-         if old_block.is_some() {
-            tracing::debug!("{} is Archive Node", rpc.url);
-            true
-         } else {
-            tracing::debug!("{} is NOT Archive Node", rpc.url);
+      let is_archive = match old_block {
+         Ok(old_block) => {
+            if old_block.is_some() {
+               tracing::debug!("{} is Archive Node", url);
+               true
+            } else {
+               tracing::debug!("{} is NOT Archive Node", url);
+               false
+            }
+         }
+         Err(e) => {
+            tracing::debug!("Error getting historical block: {:?}", e);
             false
          }
-      }
-      Err(e) => {
-         tracing::debug!("Error getting historical block: {:?}", e);
-         false
-      }
-   };
+      };
 
-   result.archive = is_archive;
+      let mut guard = result_clone.lock().unwrap();
+      guard.archive = is_archive;
+   });
+
+   tasks.push(task);
 
    // This is actually important, A lot of providers have a very low staticalll gas limit
    // and requests like batch fetching the state for V3 pools can fail
    let pool_manager = ctx.pool_manager();
-
    let v3_pools = pool_manager.get_v3_pools_for_chain(rpc.chain_id);
 
-   if v3_pools.len() >= 10 {
-      let mut pools_to_update = Vec::new();
-      for pool in &v3_pools {
-         if pools_to_update.len() >= 10 {
-            break;
+   let client_clone = client.clone();
+   let result_clone = result.clone();
+   let task = RT.spawn(async move {
+      if v3_pools.len() >= 10 {
+         let mut pools_to_update = Vec::new();
+         for pool in &v3_pools {
+            if pools_to_update.len() >= 10 {
+               break;
+            }
+            pools_to_update.push(batch::V3PoolState::Pool {
+               pool: pool.address(),
+               token0: pool.currency0().address(),
+               token1: pool.currency1().address(),
+               tickSpacing: pool.fee().tick_spacing(),
+            });
          }
-         pools_to_update.push(batch::V3PoolState::Pool {
-            pool: pool.address(),
-            token0: pool.currency0().address(),
-            token1: pool.currency1().address(),
-            tickSpacing: pool.fee().tick_spacing(),
-         });
-      }
 
-      let state_data_res = batch::get_v3_state(client, None, pools_to_update).await;
-      if state_data_res.is_err() {
-         result.fully_functional = false;
+         let res = batch::get_v3_state(client_clone, None, pools_to_update).await;
+         if res.is_err() {
+            let mut guard = result_clone.lock().unwrap();
+            guard.fully_functional = false;
+         }
       }
-   } else {
-      // If we dont have at least 10 pools just skip this check and assume that the RPC is ok
-      tracing::info!("Not enough V3 pools for testing {}", rpc.url);
-      return Ok(result);
+   });
+
+   tasks.push(task);
+
+   for task in tasks {
+      let _task = task.await;
    }
+
+   // tracing::info!("Tested RPC {} in {} ms", rpc.url, time.elapsed().as_millis());
+
+   let guard = result.lock().unwrap();
+   let result = RpcTestResult {
+      working: guard.working,
+      archive: guard.archive,
+      fully_functional: guard.fully_functional,
+   };
 
    Ok(result)
 }
