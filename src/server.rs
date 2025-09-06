@@ -1457,7 +1457,7 @@ async fn eth_send_transaction(
       let transact_to_exists = ctx.wallet_exists(transact_to);
       let manager = ctx.balance_manager();
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Error updating ETH balance: {:?}", e);
@@ -1465,7 +1465,7 @@ async fn eth_send_transaction(
       }
 
       if transact_to_exists {
-         match manager.update_eth_balance(ctx.clone(), chain.id(), transact_to).await {
+         match manager.update_eth_balance(ctx.clone(), chain.id(), vec![transact_to]).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Error updating ETH balance: {:?}", e);

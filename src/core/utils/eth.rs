@@ -519,7 +519,7 @@ pub async fn unwrap_weth(
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
@@ -656,7 +656,7 @@ pub async fn wrap_eth(
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
@@ -969,7 +969,7 @@ pub async fn swap(
          }
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -1079,7 +1079,7 @@ pub async fn collect_fees_position_v3(
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -1346,7 +1346,7 @@ pub async fn decrease_liquidity_position_v3(
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -1752,7 +1752,7 @@ pub async fn increase_liquidity_position_v3(
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -2148,7 +2148,7 @@ pub async fn mint_new_liquidity_position_v3(
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), from).await {
+      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from]).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);

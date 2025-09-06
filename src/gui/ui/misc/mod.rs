@@ -879,7 +879,7 @@ impl PortfolioUi {
          // Update the eth and token balances
          let balance_manager = ctx.balance_manager();
 
-         match balance_manager.update_eth_balance(ctx.clone(), chain, owner).await {
+         match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner]).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
          }

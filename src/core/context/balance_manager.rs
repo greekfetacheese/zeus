@@ -8,7 +8,6 @@ use std::sync::{Arc, RwLock};
 use tokio::sync::Semaphore;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
-   alloy_provider::Provider,
    currency::{Currency, ERC20Token, NativeCurrency},
    types::SUPPORTED_CHAINS,
    utils::{NumericValue, batch},
@@ -77,9 +76,12 @@ impl BalanceManagerHandle {
          let manager = self.clone();
          let ctx = ctx.clone();
 
+         let owners = portfolios.iter().map(|p| p.owner).collect::<Vec<_>>();
+         let batch_size = std::cmp::max(1, self.batch_size());
+
          let task = RT.spawn(async move {
-            for portfolio in &portfolios {
-               match manager.update_eth_balance(ctx.clone(), chain, portfolio.owner).await {
+            for chunk in owners.chunks(batch_size) {
+               match manager.update_eth_balance(ctx.clone(), chain, chunk.to_vec()).await {
                   Ok(_) => {}
                   Err(e) => {
                      tracing::error!(
@@ -95,7 +97,7 @@ impl BalanceManagerHandle {
       }
 
       for task in tasks {
-         task.await.unwrap();
+         let _r = task.await;
       }
    }
 
@@ -129,7 +131,7 @@ impl BalanceManagerHandle {
       }
 
       for task in tasks {
-         task.await.unwrap();
+         let _r = task.await;
       }
    }
 
@@ -137,12 +139,18 @@ impl BalanceManagerHandle {
       &self,
       ctx: ZeusCtx,
       chain: u64,
-      owner: Address,
+      owners: Vec<Address>,
    ) -> Result<(), anyhow::Error> {
       let client = ctx.get_client(chain).await?;
-      let balance = client.get_balance(owner).await?;
-      let native = NativeCurrency::from(chain);
-      self.insert_eth_balance(chain, owner, balance, &native);
+      let balances = batch::get_eth_balances(client, None, owners).await?;
+
+      for balance in balances {
+         let owner = balance.owner;
+         let eth_balance = balance.balance;
+         let native = NativeCurrency::from(chain);
+         self.insert_eth_balance(chain, owner, eth_balance, &native);
+      }
+
       Ok(())
    }
 
@@ -283,7 +291,7 @@ mod tests {
    use super::*;
 
    #[tokio::test]
-   async fn batch_size() {
+   async fn test_update_tokens_balance() {
       let ctx = ZeusCtx::new();
       let chain = 1;
 

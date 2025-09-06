@@ -293,7 +293,7 @@ impl SendCryptoUi {
       RT.spawn(async move {
          let balance_manager = ctx.balance_manager();
          if currency.is_native() {
-            match balance_manager.update_eth_balance(ctx.clone(), chain, owner).await {
+            match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner]).await {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Failed to update ETH balance: {}", e);
@@ -685,7 +685,7 @@ async fn update_balances(
    let exists = ctx.wallet_exists(recipient);
    let manager = ctx.balance_manager();
 
-   manager.update_eth_balance(ctx.clone(), chain, sender).await?;
+   manager.update_eth_balance(ctx.clone(), chain, vec![sender]).await?;
 
    if currency.is_erc20() {
       let token = currency.to_erc20().into_owned();
@@ -694,7 +694,7 @@ async fn update_balances(
 
    if exists {
       if currency.is_native() {
-         manager.update_eth_balance(ctx.clone(), chain, recipient).await?;
+         manager.update_eth_balance(ctx.clone(), chain, vec![recipient]).await?;
       } else {
          let token = currency.to_erc20().into_owned();
          manager
