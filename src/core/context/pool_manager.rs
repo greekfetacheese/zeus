@@ -263,7 +263,7 @@ impl PoolManagerHandle {
       for currency in currencies {
          let pools = self.get_pools_that_have_currency(&currency);
          for pool in pools {
-            let id = PoolID::new(pool.chain_id(), pool.address(), pool.pool_id());
+            let id = PoolID::new(pool.chain_id(), pool.address(), pool.id());
             if inserted.contains(&id) {
                continue;
             }
@@ -775,7 +775,7 @@ impl PoolManagerHandle {
                      State::none(),
                      Address::ZERO,
                   );
-                  pool_ids.push(pool.pool_id());
+                  pool_ids.push(pool.id());
                   pools.push(pool);
                }
                   
@@ -790,11 +790,11 @@ impl PoolManagerHandle {
 
                for valid_pool in &valid_pool_ids {
                   for pool in &pools {
-                     if pool.pool_id() == *valid_pool {
+                     if pool.id() == *valid_pool {
                         trace!(
                         target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}/{} - Fee: {}",
                         dex.as_str(),
-                        pool.pool_id(),
+                        pool.id(),
                         pool.currency0().symbol(),
                         pool.currency1().symbol(),
                         pool.fee.fee_percent()
@@ -1315,7 +1315,7 @@ impl PoolManager {
       if let Some(pool) = self
          .pools
          .iter()
-         .find(|(_, p)| p.pool_id() == pool_id && p.chain_id() == chain_id)
+         .find(|(_, p)| p.id() == pool_id && p.chain_id() == chain_id)
       {
          Some(pool.1)
       } else {
@@ -1461,6 +1461,11 @@ mod serde_hashmap {
 mod tests {
    use super::*;
    use zeus_eth::amm::uniswap::UniswapV4Pool;
+
+   #[test]
+   fn test_default_init() {
+      let _manager = PoolManagerHandle::default();
+   }
 
    #[test]
    fn serde_works() {

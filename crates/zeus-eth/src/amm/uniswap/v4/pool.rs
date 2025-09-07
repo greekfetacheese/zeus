@@ -34,8 +34,6 @@ pub struct UniswapV4Pool {
    pub currency1: Currency,
    #[serde(skip)]
    pub state: State,
-   pub pool_key: PoolKey,
-   pub pool_id: B256,
    pub hooks: Address,
    pub liquidity_amount0: U256,
    pub liquidity_amount1: U256,
@@ -43,7 +41,7 @@ pub struct UniswapV4Pool {
 
 impl Ord for UniswapV4Pool {
    fn cmp(&self, other: &Self) -> Ordering {
-      self.pool_id.cmp(&other.pool_id)
+      self.id().cmp(&other.id())
    }
 }
 
@@ -57,7 +55,7 @@ impl Eq for UniswapV4Pool {}
 
 impl PartialEq for UniswapV4Pool {
    fn eq(&self, other: &Self) -> bool {
-      self.pool_id == other.pool_id && self.chain_id == other.chain_id
+      self.id() == other.id() && self.chain_id == other.chain_id
    }
 }
 
@@ -81,9 +79,6 @@ impl UniswapV4Pool {
       state: State,
       hooks: Address,
    ) -> Self {
-      let pool_key = Self::get_pool_key(&currency_a, &currency_b, fee, hooks);
-      let pool_id = Self::get_pool_id(&currency_a, &currency_b, fee, hooks);
-
       let (currency0, currency1) = if currency_a.address() < currency_b.address() {
          (currency_a, currency_b)
       } else {
@@ -97,8 +92,6 @@ impl UniswapV4Pool {
          currency0,
          currency1,
          state,
-         pool_key,
-         pool_id,
          hooks,
          liquidity_amount0: U256::ZERO,
          liquidity_amount1: U256::ZERO,
@@ -122,42 +115,6 @@ impl UniswapV4Pool {
          State::none(),
          hooks,
       )
-   }
-
-   pub fn get_pool_id(currency_a: &Currency, currency_b: &Currency, fee: FeeAmount, hooks: Address) -> B256 {
-      let (currency0_addr, currency1_addr) = Self::sort_currency_address(currency_a, currency_b);
-      keccak256(
-         (
-            currency0_addr,
-            currency1_addr,
-            fee.fee_u24(),
-            fee.tick_spacing(),
-            hooks,
-         )
-            .abi_encode(),
-      )
-   }
-
-   pub fn get_pool_key(currency_a: &Currency, currency_b: &Currency, fee: FeeAmount, hooks: Address) -> PoolKey {
-      let (currency0_addr, currency1_addr) = Self::sort_currency_address(currency_a, currency_b);
-      PoolKey {
-         currency0: currency0_addr,
-         currency1: currency1_addr,
-         fee: fee.fee_u24(),
-         tickSpacing: fee.tick_spacing(),
-         hooks,
-      }
-   }
-
-   pub fn sort_currency_address(currency_a: &Currency, currency_b: &Currency) -> (Address, Address) {
-      let address_a = currency_a.address();
-      let address_b = currency_b.address();
-
-      if address_a < address_b {
-         (address_a, address_b)
-      } else {
-         (address_b, address_a)
-      }
    }
 
    pub fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
@@ -336,8 +293,39 @@ impl UniswapPool for UniswapV4Pool {
       self.fee
    }
 
-   fn pool_id(&self) -> B256 {
-      self.pool_id
+   fn id(&self) -> B256 {
+      let (address0, address1) = if self.currency0().address() < self.currency1().address() {
+         (self.currency0().address(), self.currency1().address())
+      } else {
+         (self.currency1().address(), self.currency0().address())
+      };
+
+      keccak256(
+         (
+            address0,
+            address1,
+            self.fee.fee_u24(),
+            self.fee.tick_spacing(),
+            self.hooks,
+         )
+            .abi_encode(),
+      )
+   }
+
+   fn key(&self) -> PoolKey {
+      let (address0, address1) = if self.currency0().address() < self.currency1().address() {
+         (self.currency0().address(), self.currency1().address())
+      } else {
+         (self.currency1().address(), self.currency0().address())
+      };
+
+      PoolKey {
+         currency0: address0,
+         currency1: address1,
+         fee: self.fee.fee_u24(),
+         tickSpacing: self.fee.tick_spacing(),
+         hooks: self.hooks,
+      }
    }
 
    fn dex_kind(&self) -> DexKind {
@@ -433,10 +421,6 @@ impl UniswapPool for UniswapV4Pool {
       }
    }
 
-   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
-      Ok(self.pool_key.clone())
-   }
-
    fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
       let zero_for_one = self.zero_for_one_v4(currency_in);
       let price = calculate_price(self, zero_for_one)?;
@@ -493,10 +477,10 @@ impl UniswapPool for UniswapV4Pool {
       // virtual amount of token1
       let amount1 = (liquidity_u256 * sqrt_price_x96) / Q96;
 
-     // let amnt0 = NumericValue::format_wei(amount0, self.currency0().decimals());
-     // let amnt1 = NumericValue::format_wei(amount1, self.currency1().decimals());
+      // let amnt0 = NumericValue::format_wei(amount0, self.currency0().decimals());
+      // let amnt1 = NumericValue::format_wei(amount1, self.currency1().decimals());
 
-      /* 
+      /*
       eprintln!(
          "Pool {} / {} ({}) Virtual Reserves {} {} - {} {}",
          self.quote_currency().symbol(),
@@ -658,7 +642,7 @@ mod tests {
    fn correct_pool_creation() {
       let pool1 = UniswapV4Pool::link_usdc();
       let id1 = B256::from_str("0x50ae33c238824aa1937d5d9f1766c487bca39b548f8d957994e8357eeeca3280").unwrap();
-      assert_eq!(pool1.pool_id(), id1);
+      assert_eq!(pool1.id(), id1);
    }
 
    #[tokio::test]

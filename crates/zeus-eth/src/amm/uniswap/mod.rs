@@ -346,10 +346,15 @@ pub trait UniswapPool {
    /// For V4 pools this should return zero
    fn address(&self) -> Address;
 
-   /// This applies only for V4 pools
+   /// Return the pool id
    ///
-   /// For anything else it's always zero
-   fn pool_id(&self) -> B256;
+   /// This applies only for V4 pools
+   fn id(&self) -> B256;
+
+   /// Return the pool key
+   ///
+   /// This applies only for V4 pools
+   fn key(&self) -> PoolKey;
 
    fn fee(&self) -> FeeAmount;
 
@@ -407,11 +412,6 @@ pub trait UniswapPool {
 
    /// Get the quote currency of this pool
    fn quote_currency(&self) -> &Currency;
-
-   /// Get the pool key
-   ///
-   /// This is V4 specific
-   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error>;
 
    /// Calculate the price of currency_in in terms of the other currency in the pool
    fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error>;
@@ -523,9 +523,7 @@ impl AnyUniswapPool {
             currency0: pool.currency0().clone(),
             currency1: pool.currency1().clone(),
             state: pool.state().clone(),
-            pool_key: pool.get_pool_key().unwrap(),
-            pool_id: pool.pool_id(),
-            hooks: Address::ZERO,
+            hooks: pool.hooks(),
             liquidity_amount0: amount0.wei(),
             liquidity_amount1: amount1.wei(),
          };
@@ -580,11 +578,19 @@ impl UniswapPool for AnyUniswapPool {
       }
    }
 
-   fn pool_id(&self) -> B256 {
+   fn id(&self) -> B256 {
       match self {
-         AnyUniswapPool::V4(pool) => pool.pool_id(),
-         AnyUniswapPool::V2(pool) => pool.pool_id(),
-         AnyUniswapPool::V3(pool) => pool.pool_id(),
+         AnyUniswapPool::V4(pool) => pool.id(),
+         AnyUniswapPool::V2(pool) => pool.id(),
+         AnyUniswapPool::V3(pool) => pool.id(),
+      }
+   }
+
+   fn key(&self) -> PoolKey {
+      match self {
+         AnyUniswapPool::V2(pool) => pool.key(),
+         AnyUniswapPool::V3(pool) => pool.key(),
+         AnyUniswapPool::V4(pool) => pool.key(),
       }
    }
 
@@ -737,14 +743,6 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.quote_currency(),
          AnyUniswapPool::V3(pool) => pool.quote_currency(),
          AnyUniswapPool::V4(pool) => pool.quote_currency(),
-      }
-   }
-
-   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.get_pool_key(),
-         AnyUniswapPool::V3(pool) => pool.get_pool_key(),
-         AnyUniswapPool::V4(pool) => pool.get_pool_key(),
       }
    }
 

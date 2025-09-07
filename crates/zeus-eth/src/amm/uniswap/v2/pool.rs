@@ -6,10 +6,10 @@ use alloy_rpc_types::BlockId;
 use core::panic;
 use std::borrow::Cow;
 
-use crate::amm::uniswap::{SwapResult, FeeAmount, State, DexKind, minimum_liquidity, UniswapPool};
 use crate::amm::uniswap::state::get_v2_pool_state;
+use crate::amm::uniswap::{DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity};
 
-use crate::abi::uniswap::{v2, universal_router_v2::PoolKey};
+use crate::abi::uniswap::{universal_router_v2::PoolKey, v2};
 use crate::currency::{Currency, ERC20Token};
 use crate::utils::{NumericValue, price_feed::get_base_token_price};
 
@@ -192,8 +192,12 @@ impl UniswapPool for UniswapV2Pool {
       self.fee
    }
 
-   fn pool_id(&self) -> B256 {
+   fn id(&self) -> B256 {
       B256::ZERO
+   }
+
+   fn key(&self) -> PoolKey {
+      PoolKey::default()
    }
 
    fn dex_kind(&self) -> DexKind {
@@ -281,10 +285,6 @@ impl UniswapPool for UniswapV2Pool {
       } else {
          &self.currency0
       }
-   }
-
-   fn get_pool_key(&self) -> Result<PoolKey, anyhow::Error> {
-      bail!("Pool Key method only applies to V4");
    }
 
    fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
@@ -486,10 +486,16 @@ mod tests {
       let quote = pool.quote_currency();
 
       let amount_in = NumericValue::parse_to_wei("1", base.decimals());
-      let swap_result = pool.simulate_swap_result(base, quote, amount_in.clone()).unwrap();
+      let swap_result = pool
+         .simulate_swap_result(base, quote, amount_in.clone())
+         .unwrap();
 
       println!("=== V2 Swap Test ===");
-      println!("Ideal Output: {:.6} {}", swap_result.ideal_amount_out.formatted(), quote.symbol());
+      println!(
+         "Ideal Output: {:.6} {}",
+         swap_result.ideal_amount_out.formatted(),
+         quote.symbol()
+      );
       println!(
          "Swapped {} {} For {} {}",
          amount_in.formatted(),
@@ -497,7 +503,7 @@ mod tests {
          swap_result.amount_out.formatted(),
          quote.symbol()
       );
-      
+
       println!("With Price Impact: {:.4}%", swap_result.price_impact);
    }
 

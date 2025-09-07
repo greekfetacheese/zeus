@@ -1176,7 +1176,7 @@ pub fn get_relevant_pools(
          continue;
       }
 
-      let pool_key = (pool.chain_id(), pool.address(), pool.pool_id());
+      let pool_key = (pool.chain_id(), pool.address(), pool.id());
       if added_pools.contains(&pool_key) {
          continue;
       }

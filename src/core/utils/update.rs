@@ -157,7 +157,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
 
          tracing::info!("Synced base pools for {}", chain);
-
       });
       tasks.push(task);
    }
@@ -169,8 +168,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.dex_syncing = false;
    });
-
-
 
    // Sync V4 pools if needed
    let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
@@ -226,11 +223,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
       manager.remove_v4_pools_with_no_base_token();
       manager.remove_v4_pools_with_high_fee();
       // manager.remove_v4_pools_with_no_liquidity();
-   }
 
-   ctx.write(|ctx| {
-      ctx.dex_syncing = false;
-   });
+      ctx.write(|ctx| {
+         ctx.dex_syncing = false;
+      });
+   }
 
    RT.spawn_blocking(move || {
       ctx.save_all();

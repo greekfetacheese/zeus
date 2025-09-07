@@ -444,7 +444,7 @@ mod tests {
       let eth_uni = UniswapV4Pool::eth_uni();
       let usdc_usdt = UniswapV4Pool::usdc_usdt();
 
-      let pools_ids = vec![eth_uni.pool_id(), usdc_usdt.pool_id()];
+      let pools_ids = vec![eth_uni.id(), usdc_usdt.id()];
       let state_view = address_book::uniswap_v4_stateview(1).unwrap();
       let pools = get_v4_pools(client, pools_ids, state_view).await.unwrap();
 
@@ -476,7 +476,7 @@ mod tests {
 
     let pool = UniswapV4Pool::eth_usdt();
     let pool_data = V4PoolState::Pool {
-      pool: pool.pool_id,
+      pool: pool.id(),
       tickSpacing: pool.fee.tick_spacing(),
     };
 

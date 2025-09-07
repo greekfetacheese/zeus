@@ -462,7 +462,7 @@ fn encode_v4_swap_single_command_input(
 ) -> Result<(Actions, Bytes), anyhow::Error> {
    let (action, action_params_bytes) = if swap_type.is_exact_input() {
       let params = ExactInputSingleParams {
-         poolKey: pool.get_pool_key()?,
+         poolKey: pool.key(),
          zeroForOne: pool.zero_for_one_v4(currency_in),
          amountIn: amount_in.try_into()?,
          amountOutMinimum: amount_out.try_into()?,
@@ -474,7 +474,7 @@ fn encode_v4_swap_single_command_input(
       (action, params_bytes)
    } else {
       let params = ExactOutputSingleParams {
-         poolKey: pool.get_pool_key()?,
+         poolKey: pool.key(),
          zeroForOne: pool.zero_for_one_v4(currency_in),
          amountOut: amount_out.try_into()?,
          amountInMaximum: amount_in.try_into()?,

@@ -251,7 +251,7 @@ fn valid_search(pool: &AnyUniswapPool, query: &str) -> bool {
          return true;
       }
    } else {
-      if pool.pool_id().to_string().to_lowercase().contains(&query) {
+      if pool.id().to_string().to_lowercase().contains(&query) {
          return true;
       }
    };
