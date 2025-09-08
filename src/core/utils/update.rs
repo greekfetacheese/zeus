@@ -1,6 +1,6 @@
 use crate::core::{
    BaseFee, ZeusCtx,
-   context::{Portfolio, providers::client_test},
+   context::{Portfolio, providers::client_test, price_manager::TOKEN_PRICE_UPDATE_INTERVAL},
    utils::*,
 };
 use anyhow::{anyhow, bail};
@@ -19,7 +19,6 @@ use zeus_eth::{
 };
 
 const MEASURE_RPCS_INTERVAL: u64 = 120;
-const POOL_MANAGER_INTERVAL: u64 = 600;
 const PORTFOLIO_INTERVAL: u64 = 600;
 const BALANCE_INTERVAL: u64 = 600;
 const PRIORITY_FEE_INTERVAL: u64 = 90;
@@ -65,7 +64,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
    if ctx.pools_need_resync() {
       resync_pools(ctx.clone()).await;
    } else {
-      update_pool_manager(ctx.clone()).await;
+      update_token_prices(ctx.clone()).await;
    }
 
    eth_balance_fut.await;
@@ -106,7 +105,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      update_pool_manager_interval(ctx_clone).await;
+      update_token_prices_interval(ctx_clone).await;
    });
 
    let ctx_clone = ctx.clone();
@@ -281,44 +280,53 @@ pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    }
 }
 
-pub async fn update_pool_manager_interval(ctx: ZeusCtx) {
+pub async fn update_token_prices_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
-      if time_passed.elapsed().as_secs() > POOL_MANAGER_INTERVAL {
-         update_pool_manager(ctx.clone()).await;
+      if time_passed.elapsed().as_secs() > TOKEN_PRICE_UPDATE_INTERVAL {
+         update_token_prices(ctx.clone()).await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
 }
 
-/// Update the pool manager state for all chains
-async fn update_pool_manager(ctx: ZeusCtx) {
+/// Update the token prices across all chains
+async fn update_token_prices(ctx: ZeusCtx) {
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
+         let price_manager = ctx.price_manager();
          let pool_manager = ctx.pool_manager();
 
-         let tokens = ctx.get_all_tokens_from_portfolios(chain);
-         let mut currencies = Vec::new();
+         let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
          let mut inserted = HashSet::new();
-         for token in tokens {
+         let mut tokens = Vec::new();
+
+         for token in portfolio_tokens {
             if token.is_base() || inserted.contains(&token.address) {
                continue;
             }
 
             inserted.insert(token.address);
-            currencies.push(Currency::from(token));
+            tokens.push(token);
          }
 
-         // tracing::info!("Updating pool manager for chain: {} tokens {}", chain, currencies.len());
-
-         match pool_manager.update_for_currencies(ctx, chain, currencies).await {
-            Ok(_) => tracing::info!("Updated pool manager for chain: {}", chain),
+         match price_manager.update_base_token_prices(ctx.clone(), chain).await {
+            Ok(_) => tracing::info!("Updated base token prices for chain: {}", chain),
             Err(e) => tracing::error!(
-               "Error updating pool manager for chain {}: {:?}",
+               "Error updating base token prices for chain {}: {:?}",
+               chain,
+               e
+            ),
+         }
+
+         match price_manager.calculate_prices(ctx, chain, pool_manager, tokens).await {
+            Ok(_) => tracing::info!("Updated token prices for chain: {}", chain),
+            Err(e) => tracing::error!(
+               "Error updating token prices for chain {}: {:?}",
                chain,
                e
             ),
@@ -332,7 +340,7 @@ async fn update_pool_manager(ctx: ZeusCtx) {
    }
 
    RT.spawn_blocking(move || {
-      let _ = ctx.save_pool_manager();
+      ctx.save_price_manager();
    });
 }
 
@@ -575,18 +583,22 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             ),
          }
 
-         let tokens = ctx.get_all_tokens_from_portfolios(chain);
+         let portfolio_tokens = ctx.get_all_tokens_from_portfolios(chain);
          let mut currencies = Vec::new();
+         let mut tokens = Vec::new();
          let mut inserted = HashSet::new();
-         for token in tokens {
+
+         for token in &portfolio_tokens {
             if token.is_base() || inserted.contains(&token.address) {
                continue;
             }
+
             inserted.insert(token.address);
-            currencies.push(Currency::from(token));
+            currencies.push(Currency::from(token.clone()));
+            tokens.push(token.clone());
          }
 
-         match pool_manager.update_for_currencies(ctx, chain, currencies).await {
+         match pool_manager.update_for_currencies(ctx.clone(), chain, currencies).await {
             Ok(_) => {}
             Err(e) => tracing::error!(
                "Error updating price manager for chain {}: {:?}",
@@ -609,11 +621,8 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          }
       }
       ctx.save_portfolio_db();
-
-      match ctx.save_pool_manager() {
-         Ok(_) => tracing::info!("Pool data saved"),
-         Err(e) => tracing::error!("Error saving pool data: {:?}", e),
-      }
+      ctx.save_pool_manager();
+      ctx.save_price_manager();
    });
 }
 

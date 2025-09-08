@@ -2,7 +2,6 @@ use super::ZeusCtx;
 use anyhow::anyhow;
 use lazy_static::lazy_static;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use zeus_eth::{
@@ -18,7 +17,6 @@ use zeus_eth::{
    utils::{NumericValue, address_book, generate_permit2_batch_value},
 };
 
-use egui_theme::ThemeKind;
 
 pub mod eth;
 pub mod sign;
@@ -30,56 +28,7 @@ lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
 }
 
-const SERVER_PORT_FILE: &str = "server_port.json";
-const THEME_FILE: &str = "theme.json";
-const POOL_DATA_FULL: &str = "pool_data_full.json";
-const POOL_DATA_FILE: &str = "pool_data.json";
 
-/// Zeus data directory
-pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = std::env::current_dir()?.join("data");
-
-   if !dir.exists() {
-      std::fs::create_dir_all(dir.clone())?;
-   }
-
-   Ok(dir)
-}
-
-pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(THEME_FILE);
-   Ok(dir)
-}
-
-pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(SERVER_PORT_FILE);
-   Ok(dir)
-}
-
-pub fn load_server_port() -> Result<u16, anyhow::Error> {
-   let dir = server_port_dir()?;
-   let port_str = std::fs::read_to_string(dir)?;
-   let port = serde_json::from_str(&port_str)?;
-   Ok(port)
-}
-
-pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
-   let dir = theme_kind_dir()?;
-   let theme_kind_str = std::fs::read_to_string(dir)?;
-   let theme_kind = serde_json::from_str(&theme_kind_str)?;
-   Ok(theme_kind)
-}
-
-/// Pool data directory
-pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(POOL_DATA_FILE);
-   Ok(dir)
-}
-
-pub fn pool_data_full_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(POOL_DATA_FULL);
-   Ok(dir)
-}
 
 pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
    let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;

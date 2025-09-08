@@ -1,6 +1,7 @@
 use crate::core::{
    ZeusCtx, serde_hashmap,
-   utils::{RT, data_dir},
+   utils::RT,
+   context::data_dir,
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -15,7 +16,9 @@ use zeus_eth::{
 
 use serde::{Deserialize, Serialize};
 
-const FILE_NAME: &str = "balances.json";
+const BALANCE_DATA_FILE: &str = "balances.json";
+
+
 
 #[derive(Clone)]
 pub struct BalanceManagerHandle(Arc<RwLock<BalanceManager>>);
@@ -40,7 +43,7 @@ impl BalanceManagerHandle {
    }
 
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(FILE_NAME);
+      let dir = data_dir()?.join(BALANCE_DATA_FILE);
       let data = std::fs::read(dir)?;
       let manager = serde_json::from_slice(&data)?;
       Ok(Self(Arc::new(RwLock::new(manager))))
@@ -48,7 +51,7 @@ impl BalanceManagerHandle {
 
    pub fn save(&self) -> Result<(), anyhow::Error> {
       let db = self.read(|db| serde_json::to_string(db))?;
-      let dir = data_dir()?.join(FILE_NAME);
+      let dir = data_dir()?.join(BALANCE_DATA_FILE);
       std::fs::write(dir, db)?;
       Ok(())
    }

@@ -1,18 +1,16 @@
-use super::{
-   providers::{CLIENT_RPS, COMPUTE_UNITS_PER_SECOND, INITIAL_BACKOFF, MAX_RETRIES},
-   utils::pool_data_dir,
-};
+use super::{price_manager::PriceManagerHandle, providers::*};
 use crate::core::{
    WalletInfo,
    user::{Contact, Vault, Wallet},
-   utils::server_port_dir,
 };
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
+use egui_theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,
+   path::PathBuf,
    sync::{Arc, RwLock},
    time::{Duration, Instant},
 };
@@ -21,7 +19,7 @@ use zeus_eth::{
    alloy_primitives::Address,
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   amm::uniswap::{AnyUniswapPool, DexKind},
+   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{
@@ -30,11 +28,66 @@ use zeus_eth::{
    },
 };
 
+const SERVER_PORT_FILE: &str = "server_port.json";
+const THEME_FILE: &str = "theme.json";
+const POOL_DATA_FULL: &str = "pool_data_full.json";
+const POOL_DATA_FILE: &str = "pool_data.json";
+
+/// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
+pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
+
+/// Zeus data directory
+pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = std::env::current_dir()?.join("data");
+
+   if !dir.exists() {
+      std::fs::create_dir_all(dir.clone())?;
+   }
+
+   Ok(dir)
+}
+
+pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(THEME_FILE);
+   Ok(dir)
+}
+
+pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(SERVER_PORT_FILE);
+   Ok(dir)
+}
+
+pub fn load_server_port() -> Result<u16, anyhow::Error> {
+   let dir = server_port_dir()?;
+   let port_str = std::fs::read_to_string(dir)?;
+   let port = serde_json::from_str(&port_str)?;
+   Ok(port)
+}
+
+pub fn load_theme_kind() -> Result<ThemeKind, anyhow::Error> {
+   let dir = theme_kind_dir()?;
+   let theme_kind_str = std::fs::read_to_string(dir)?;
+   let theme_kind = serde_json::from_str(&theme_kind_str)?;
+   Ok(theme_kind)
+}
+
+/// Pool data directory
+pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(POOL_DATA_FILE);
+   Ok(dir)
+}
+
+pub fn pool_data_full_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(POOL_DATA_FULL);
+   Ok(dir)
+}
+
 const CLIENT_TIMEOUT: u64 = 30;
 
 pub mod balance_manager;
 pub mod db;
 pub mod pool_manager;
+pub mod price_manager;
 // pub mod position_manager;
 pub mod providers;
 
@@ -66,6 +119,10 @@ impl ZeusCtx {
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
       self.read(|ctx| ctx.pool_manager.clone())
+   }
+
+   pub fn price_manager(&self) -> PriceManagerHandle {
+      self.read(|ctx| ctx.price_manager.clone())
    }
 
    pub fn balance_manager(&self) -> BalanceManagerHandle {
@@ -357,7 +414,7 @@ impl ZeusCtx {
       }
    }
 
-  pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
+   pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
       let (retry, throttle) = if rpc.default {
          (
             retry_layer(
@@ -549,11 +606,21 @@ impl ZeusCtx {
       })
    }
 
-   pub fn save_pool_manager(&self) -> Result<(), anyhow::Error> {
-      let data = self.read(|ctx| ctx.pool_manager.to_string())?;
-      let dir = pool_data_dir()?;
-      std::fs::write(dir, data)?;
-      Ok(())
+   pub fn save_pool_manager(&self) {
+      let manager = self.pool_manager();
+      match manager.save_to_file() {
+         Ok(_) => {},
+         Err(e) => tracing::error!("Error saving Pool Manager: {:?}", e),
+      }
+   }
+
+   pub fn save_price_manager(&self) {
+      let manager = self.price_manager();
+      match manager.save_to_file() {
+         Ok(_) => {},
+         Err(e) => tracing::error!("Error saving Price Manager: {:?}", e),
+      }
+      
    }
 
    pub fn save_all(&self) {
@@ -563,14 +630,8 @@ impl ZeusCtx {
       self.save_providers();
       self.save_tx_db();
       self.save_v3_positions_db();
-      match self.save_pool_manager() {
-         Ok(_) => {
-            tracing::info!("Pool Manager saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving Pool Manager: {:?}", e);
-         }
-      }
+      self.save_pool_manager();
+      self.save_price_manager();
    }
 
    pub fn save_tx_db(&self) {
@@ -678,7 +739,7 @@ impl ZeusCtx {
    }
 
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self.read(|ctx| ctx.pool_manager.get_token_price(token))
+      self.read(|ctx| ctx.price_manager.get_token_price(token)).unwrap_or_default()
    }
 
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
@@ -725,6 +786,18 @@ impl ZeusCtx {
          let token = currency.erc20().unwrap();
          self.get_token_balance(chain, owner, token.address)
       }
+   }
+
+   pub fn pool_has_sufficient_liquidity(&self, pool: &AnyUniswapPool) -> Option<bool> {
+      if pool.state().is_none() {
+         return None;
+      }
+
+      let base_balance = pool.base_balance();
+      let base_price = self.get_token_price(&pool.base_currency().to_erc20());
+      let base_value = NumericValue::value(base_balance.f64(), base_price.f64());
+
+      Some(base_value.f64() >= DEFAULT_POOL_MINIMUM_LIQUIDITY)
    }
 
    pub fn get_pool(
@@ -999,6 +1072,7 @@ pub struct ZeusContext {
    pub tx_db: TransactionsDB,
    pub v3_positions_db: V3PositionsDB,
    pub pool_manager: PoolManagerHandle,
+   pub price_manager: PriceManagerHandle,
    pub balance_manager: BalanceManagerHandle,
    pub data_syncing: bool,
    pub dex_syncing: bool,
@@ -1061,29 +1135,21 @@ impl ZeusContext {
 
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
-      let mut pool_manager = PoolManagerHandle::default();
-
-      let pool_dir_exists = match pool_data_dir() {
-         Ok(dir) => dir.exists(),
+      let pool_manager = match PoolManagerHandle::load_from_file() {
+         Ok(manager) => manager,
          Err(e) => {
-            tracing::error!("Failed to read pool data dir, {:?}", e);
-            false
+            tracing::error!("Failed to load pool manager, falling back to default: {:?}", e);
+            PoolManagerHandle::default()
          }
       };
 
-      if pool_dir_exists {
-         let dir = pool_data_dir().unwrap();
-         let manager = match PoolManagerHandle::from_dir(&dir) {
-            Ok(manager) => manager,
-            Err(e) => {
-               tracing::error!("Failed to load pool data, {:?}", e);
-               PoolManagerHandle::default()
-            }
-         };
-         pool_manager = manager;
-      } else {
-         tracing::info!("No pool data found, using default");
-      }
+      let price_manager = match PriceManagerHandle::load_from_file() {
+         Ok(manager) => manager,
+         Err(e) => {
+            tracing::error!("Failed to load price manager, falling back to default: {:?}", e);
+            PriceManagerHandle::new()
+         }
+      };
 
       let priority_fee = PriorityFee::default();
       Self {
@@ -1100,6 +1166,7 @@ impl ZeusContext {
          tx_db,
          v3_positions_db,
          pool_manager,
+         price_manager,
          balance_manager,
          data_syncing: false,
          dex_syncing: false,

@@ -1,7 +1,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
-   utils::{RT, theme_kind_dir},
+   utils::RT,
+   context::theme_kind_dir
 };
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};

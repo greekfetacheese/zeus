@@ -162,6 +162,7 @@ impl SendCryptoUi {
                         balance_fn,
                         max_amount,
                         value,
+                        data_syncing,
                         ui,
                      );
                   });
@@ -475,7 +476,7 @@ fn value(
 
             RT.spawn_blocking(move || {
                ctx.calculate_portfolio_value(chain_id, owner);
-               let _res = ctx.save_pool_manager();
+               ctx.save_pool_manager();
                ctx.save_portfolio_db();
             });
          });

@@ -9,7 +9,7 @@ use tracing::trace;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 use zeus_eth::utils::address_book;
 
-use crate::core::{ZeusCtx, utils::RT};
+use crate::core::{context::pool_data_dir, serde_hashmap, ZeusCtx, utils::RT};
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
@@ -19,7 +19,7 @@ use zeus_eth::{
    },
    currency::{Currency, NativeCurrency, ERC20Token},
    types::*,
-   utils::{NumericValue, batch, price_feed::get_base_token_price},
+   utils::batch,
 };
 
 const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
@@ -28,7 +28,7 @@ const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
 const POOL_SYNC_TIMEOUT: u64 = 600;
 
 /// Thread-safe handle to the [PoolManager]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct PoolManagerHandle(Arc<RwLock<PoolManager>>);
 
 impl Default for PoolManagerHandle {
@@ -77,8 +77,18 @@ impl PoolManagerHandle {
       Ok(())
    }
 
-   pub fn reset_token_prices(&self) {
-      self.write(|manager| manager.token_prices.clear());
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = pool_data_dir()?;
+      let data = std::fs::read(dir)?;
+      let manager = serde_json::from_slice(&data)?;
+      Ok(Self(Arc::new(RwLock::new(manager))))
+   }
+
+   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
+      let data = self.to_string()?;
+      let dir = pool_data_dir()?;
+      std::fs::write(dir, data)?;
+      Ok(())
    }
 
    pub fn concurrency(&self) -> usize {
@@ -239,19 +249,9 @@ impl PoolManagerHandle {
       self.write(|manager| manager.remove_pool(chain_id, dex, fee, currency0, currency1));
    }
 
-   pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self.read(|manager| manager.get_token_price(token)).unwrap_or_default()
-   }
-
-   /// Update the state of the manager for the given chain
-   pub async fn update(&self, ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
-      self.update_pool_state(ctx.clone(), chain).await?;
-      self.update_base_token_prices(ctx.clone(), chain).await?;
-      self.calculate_prices(chain);
-      Ok(())
-   }
-
    /// Update the state of the manager based on the given currencies and chain
+   /// 
+   /// It also updates the token prices
    pub async fn update_for_currencies(
       &self,
       ctx: ZeusCtx,
@@ -260,8 +260,8 @@ impl PoolManagerHandle {
    ) -> Result<(), anyhow::Error> {
       let mut pools_to_update = Vec::new();
       let mut inserted = HashSet::new();
-      for currency in currencies {
-         let pools = self.get_pools_that_have_currency(&currency);
+      for currency in &currencies {
+         let pools = self.get_pools_that_have_currency(currency);
          for pool in pools {
             let id = PoolID::new(pool.chain_id(), pool.address(), pool.id());
             if inserted.contains(&id) {
@@ -271,8 +271,6 @@ impl PoolManagerHandle {
             pools_to_update.push(pool);
          }
       }
-
-      // tracing::info!("Updating pool state for chain {} pools {}", chain, pools_to_update.len());
 
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
@@ -293,12 +291,15 @@ impl PoolManagerHandle {
          }
       });
 
-      self.update_base_token_prices(ctx, chain).await?;
-      self.calculate_prices(chain);
+      let tokens = currencies.iter().map(|c| c.to_erc20().into_owned()).collect();
+      let price_manager = ctx.price_manager();
+      price_manager.calculate_prices(ctx.clone(), chain, self.clone(), tokens).await?;
+
       Ok(())
    }
 
-   async fn update_pool_state(&self, ctx: ZeusCtx, chain_id: u64) -> Result<(), anyhow::Error> {
+   /// Update the state of the manager for the given chain
+   pub async fn update(&self, ctx: ZeusCtx, chain_id: u64) -> Result<(), anyhow::Error> {
       let pools = self.get_pools_for_chain(chain_id);
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
@@ -316,6 +317,9 @@ impl PoolManagerHandle {
    }
 
    /// Update the state for the given pools
+   /// 
+   /// It also updates the token prices, this is not ideal but this function is called 
+   /// from a lot of places and i dont want to forget calling the price manager manually
    pub async fn update_state_for_pools(
       &self,
       ctx: ZeusCtx,
@@ -341,20 +345,40 @@ impl PoolManagerHandle {
          }
       });
 
-      self.update_base_token_prices(ctx, chain).await?;
-      self.calculate_prices(chain);
-      Ok(pools)
-   }
+      // ignore on tests
+      if !cfg!(test) {
+      let mut tokens_to_update = Vec::new();
+      let mut inserted = HashSet::new();
+      for pool in &pools {
 
-   /// Update the base token prices for the given tokens
-   pub async fn update_base_token_prices(
-      &self,
-      ctx: ZeusCtx,
-      chain: u64,
-   ) -> Result<(), anyhow::Error> {
-      let prices = PoolManager::fetch_base_token_prices(ctx, chain).await?;
-      self.write(|manager| manager.set_token_prices(prices));
-      Ok(())
+         if !pool.currency0().is_base() {
+            let token = pool.currency0().to_erc20().into_owned();
+
+            if inserted.contains(&token.address) {
+               continue;
+            }
+
+            inserted.insert(token.address);
+            tokens_to_update.push(token);
+         }
+         
+         if !pool.currency1().is_base() {
+            let token = pool.currency1().to_erc20().into_owned();
+
+            if inserted.contains(&token.address) {
+               continue;
+            }
+
+            inserted.insert(token.address);
+            tokens_to_update.push(token);
+         }
+      }
+
+      let price_manager = ctx.price_manager();
+      price_manager.calculate_prices(ctx.clone(), chain, self.clone(), tokens_to_update).await?;
+}
+
+      Ok(pools)
    }
 
    /// Cleanup pools that do not have sufficient liquidity
@@ -373,10 +397,6 @@ impl PoolManagerHandle {
 
    pub fn remove_v4_pools_with_high_fee(&self) {
       self.write(|manager| manager.remove_v4_pools_with_high_fee())
-   }
-
-   pub fn calculate_prices(&self, chain: u64) {
-      self.write(|manager| manager.calculate_prices(chain))
    }
 
    pub fn add_token_last_sync_time(
@@ -430,7 +450,7 @@ impl PoolManagerHandle {
 
       let last_sync = last_sync.unwrap();
       let timeout = Duration::from_secs(POOL_SYNC_TIMEOUT);
-      let time_passed = now - last_sync;
+      let time_passed = now.duration_since(last_sync);
       time_passed > timeout
    }
 
@@ -443,7 +463,7 @@ impl PoolManagerHandle {
 
       let last_sync = last_sync.unwrap();
       let timeout = Duration::from_secs(POOL_SYNC_TIMEOUT);
-      let time_passed = now - last_sync;
+      let time_passed = now.duration_since(last_sync);
       time_passed > timeout
    }
 
@@ -462,6 +482,10 @@ impl PoolManagerHandle {
       dex_kinds: Vec<DexKind>,
       sync_v4: bool,
    ) -> Result<(), anyhow::Error> {
+      if tokens.is_empty() {
+         return Ok(());
+      }
+      
       for token in tokens {
          self
             .sync_v2_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
@@ -925,11 +949,6 @@ type V4PoolLastSync = HashMap<(u64, DexKind), Instant>;
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
 type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
 
-/// Token Prices
-///
-/// Key: (chain_id, token) -> Value: Price
-type TokenPrices = HashMap<(u64, Address), NumericValue>;
-
 /// Key: (chain_id, dex) -> Value: Checkpoint
 type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 
@@ -966,9 +985,6 @@ pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
    pub pools: Pools,
 
-   #[serde(with = "serde_hashmap")]
-   pub token_prices: TokenPrices,
-
    /// Last time we requested to sync a specific pool
    #[serde(skip)]
    pub pool_last_sync: PoolLastSync,
@@ -1004,7 +1020,6 @@ impl Default for PoolManager {
       let manager: PoolManager = serde_json::from_str(POOL_MANAGER_DEFAULT).unwrap();
       Self {
          pools: manager.pools,
-         token_prices: manager.token_prices,
          pool_last_sync: HashMap::new(),
          v4_pool_last_sync: HashMap::new(),
          checkpoints: manager.checkpoints,
@@ -1057,16 +1072,6 @@ impl PoolManager {
 
    fn get_v4_pool_last_sync_time(&self, chain: u64, dex: DexKind) -> Option<Instant> {
       self.v4_pool_last_sync.get(&(chain, dex)).cloned()
-   }
-
-   pub fn get_token_price(&self, token: &ERC20Token) -> Option<NumericValue> {
-      self.token_prices.get(&(token.chain_id, token.address)).cloned()
-   }
-
-   pub fn set_token_prices(&mut self, prices: TokenPrices) {
-      for (key, price) in prices {
-         self.token_prices.insert(key, price);
-      }
    }
 
    pub fn remove_pools_with_no_liquidity(&mut self) {
@@ -1362,100 +1367,9 @@ impl PoolManager {
          None
       }
    }
-
-   pub fn calculate_prices(&mut self, chain: u64) {
-      let mut processed = HashSet::new();
-      for pool in self.pools.values() {
-         if chain != pool.chain_id() {
-            continue;
-         }
-
-         let quote_token = pool.quote_currency();
-
-         if processed.contains(quote_token) {
-            continue;
-         }
-
-         if !pool.enough_liquidity() {
-            continue;
-         }
-
-         let chain = pool.chain_id();
-         let base_token = pool.base_currency();
-
-         // if both tokens are base tokens, skip
-         if quote_token.is_base() && base_token.is_base() {
-            continue;
-         }
-
-         let base_price = self.get_token_price(&base_token.to_erc20()).unwrap_or_default();
-         let quote_price = pool.quote_price(base_price.f64()).unwrap_or_default();
-         if quote_price == 0.0 {
-            continue;
-         }
-
-         let key = (chain, quote_token.address());
-         let quote_price = NumericValue::currency_price(quote_price);
-         self.token_prices.insert(key, quote_price);
-         processed.insert(quote_token.clone());
-      }
-   }
-
-   async fn fetch_base_token_prices(
-      ctx: ZeusCtx,
-      chain_id: u64,
-   ) -> Result<TokenPrices, anyhow::Error> {
-      let client = ctx.get_client(chain_id).await?;
-      let mut prices = HashMap::new();
-      let tokens = ERC20Token::base_tokens(chain_id);
-      for token in tokens {
-         let price = get_base_token_price(
-            client.clone(),
-            token.chain_id,
-            token.address,
-            None,
-         )
-         .await?;
-         prices.insert(
-            (token.chain_id, token.address),
-            NumericValue::currency_price(price),
-         );
-      }
-      Ok(prices)
-   }
 }
 
-mod serde_hashmap {
-   use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
-   use std::collections::HashMap;
 
-   pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
-   where
-      S: Serializer,
-      K: Serialize,
-      V: Serialize,
-   {
-      let stringified_map: HashMap<String, &V> =
-         map.iter().map(|(k, v)| (serde_json::to_string(k).unwrap(), v)).collect();
-      stringified_map.serialize(serializer)
-   }
-
-   pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
-   where
-      D: Deserializer<'de>,
-      K: DeserializeOwned + std::cmp::Eq + std::hash::Hash,
-      V: DeserializeOwned,
-   {
-      let stringified_map: HashMap<String, V> = HashMap::deserialize(deserializer)?;
-      stringified_map
-         .into_iter()
-         .map(|(k, v)| {
-            let key = serde_json::from_str(&k).map_err(serde::de::Error::custom)?;
-            Ok((key, v))
-         })
-         .collect()
-   }
-}
 
 #[cfg(test)]
 mod tests {

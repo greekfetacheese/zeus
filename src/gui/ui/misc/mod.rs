@@ -907,7 +907,7 @@ impl PortfolioUi {
          let mut pools = Vec::new();
 
          for token in tokens {
-            if token.is_weth() || token.is_wbnb() {
+            if token.is_base() {
                continue;
             }
 
@@ -925,7 +925,8 @@ impl PortfolioUi {
          RT.spawn_blocking(move || {
             ctx.save_portfolio_db();
             ctx.save_balance_manager();
-            let _ = ctx.save_pool_manager();
+            ctx.save_pool_manager();
+            ctx.save_price_manager();
          });
 
          SHARED_GUI.write(|gui| {

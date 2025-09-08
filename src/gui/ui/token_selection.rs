@@ -7,12 +7,13 @@ use std::{str::FromStr, sync::Arc};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::core::utils::{RT, eth, truncate_symbol_or_name};
+use crate::core::utils::{RT, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use egui_theme::{Theme, utils};
 use zeus_eth::{
    alloy_primitives::Address,
+   amm::uniswap::DexKind,
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
@@ -328,13 +329,18 @@ async fn get_erc20_token(
          ctx.data_syncing = true;
       });
 
-      match eth::sync_pools_for_tokens(
-         ctx_clone.clone(),
-         chain,
-         vec![token_clone.clone()],
-         false,
-      )
-      .await
+      let pool_manager = ctx_clone.pool_manager();
+      let dex = DexKind::main_dexes(chain);
+
+      match pool_manager
+         .sync_pools_for_tokens(
+            ctx_clone.clone(),
+            chain,
+            vec![token_clone.clone()],
+            dex,
+            false,
+         )
+         .await
       {
          Ok(_) => {
             tracing::info!("Synced Pools for {}", token_clone.symbol);
@@ -346,7 +352,6 @@ async fn get_erc20_token(
          ),
       }
 
-      let pool_manager = ctx_clone.pool_manager();
       match pool_manager
          .update_for_currencies(ctx_clone.clone(), chain, vec![currency])
          .await
@@ -366,7 +371,10 @@ async fn get_erc20_token(
       RT.spawn_blocking(move || {
          ctx_clone.calculate_portfolio_value(chain, owner);
          ctx_clone.write(|ctx| ctx.data_syncing = false);
-         ctx_clone.save_all();
+         ctx_clone.save_currency_db();
+         ctx_clone.save_portfolio_db();
+         ctx_clone.save_pool_manager();
+         ctx_clone.save_price_manager();
       });
    });
 

@@ -21,7 +21,7 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, Log, TransactionReceipt},
    alloy_signer::{Signature, Signer},
    amm::uniswap::{
-      DexKind, UniswapPool, UniswapV3Pool, uniswap_v3_math,
+      UniswapPool, UniswapV3Pool, uniswap_v3_math,
       universal_router_v2::{encode_swap, *},
       v3::*,
    },
@@ -2219,22 +2219,6 @@ pub async fn mint_new_liquidity_position_v3(
    } else {
       tracing::error!("Position Info not added because the position was not found");
    }
-
-   Ok(())
-}
-
-pub async fn sync_pools_for_tokens(
-   ctx: ZeusCtx,
-   chain: u64,
-   tokens: Vec<ERC20Token>,
-   sync_v4: bool,
-) -> Result<(), anyhow::Error> {
-   let pool_manager = ctx.pool_manager();
-   let dex_kind = DexKind::main_dexes(chain);
-
-   pool_manager
-      .sync_pools_for_tokens(ctx, chain, tokens, dex_kind, sync_v4)
-      .await?;
 
    Ok(())
 }

@@ -15,7 +15,7 @@ use zeus_eth::utils::NumericValue;
 
 use crate::core::utils::{RT, eth};
 use zeus_eth::{
-   amm::uniswap::{AnyUniswapPool, UniswapPool},
+   amm::uniswap::{DexKind, AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
 };
 
@@ -482,6 +482,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
+               false,
                ui,
             );
             amount_changed = changed;
@@ -516,6 +517,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
+               false,
                ui,
             )
          });
@@ -689,16 +691,15 @@ impl SwapUi {
          return;
       }
 
-      let token_in = self.currency_in.to_erc20().into_owned();
+      // WETH -> ETH
+      if self.currency_in.is_native_wrapped() && self.currency_out.is_native() {
+         return;
+      }
+
       let token_out = self.currency_out.to_erc20().into_owned();
-      tracing::info!(
-         "Syncing pools for: {} -> {}",
-         token_in.symbol,
-         token_out.symbol
-      );
 
       let chain_id = ctx.chain().id();
-      let manager = ctx.pool_manager();
+      let pool_manager = ctx.pool_manager();
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
       tracing::info!("Token to sync pools for: {}", token_out.symbol);
@@ -711,10 +712,13 @@ impl SwapUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         match eth::sync_pools_for_tokens(
+         let dex = DexKind::main_dexes(chain_id);
+
+         match pool_manager.sync_pools_for_tokens(
             ctx_clone.clone(),
             chain_id,
             vec![token_out.clone()],
+            dex,
             false,
          )
          .await
@@ -739,7 +743,7 @@ impl SwapUi {
             &currency_out,
          );
 
-         match manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
+         match pool_manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {
@@ -761,14 +765,7 @@ impl SwapUi {
                gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), settings);
             });
 
-            match ctx_clone.save_pool_manager() {
-               Ok(_) => {
-                  tracing::info!("Pool Manager saved");
-               }
-               Err(e) => {
-                  tracing::error!("Error saving pool manager: {:?}", e);
-               }
-            }
+            ctx_clone.save_pool_manager();   
          });
       });
    }
@@ -785,6 +782,11 @@ impl SwapUi {
 
       // WETH -> WETH
       if self.currency_in.is_native_wrapped() && self.currency_out.is_native_wrapped() {
+         return false;
+      }
+
+      // WETH -> ETH
+      if self.currency_in.is_native_wrapped() && self.currency_out.is_native() {
          return false;
       }
 

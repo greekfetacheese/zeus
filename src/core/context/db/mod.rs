@@ -7,7 +7,7 @@ pub use portfolio::{Portfolio, PortfolioDB};
 use crate::core::{
    bip32::{DerivationPath, BIP32_HARDEN},
    serde_hashmap,
-   utils::data_dir,
+   context::data_dir,
    TransactionRich,
 };
 use serde::{Deserialize, Serialize};

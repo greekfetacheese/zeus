@@ -1,7 +1,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
-   utils::{RT, load_theme_kind, update},
+   utils::{RT, update},
+   context::load_theme_kind,
 };
 use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;

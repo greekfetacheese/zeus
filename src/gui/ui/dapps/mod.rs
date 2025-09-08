@@ -5,7 +5,7 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::ui::token_selection::TokenSelectionWindow;
-use egui::{Align, Button, FontId, Layout, Margin, RichText, TextEdit, Ui, vec2};
+use egui::{Align, Button, Color32, FontId, Layout, Margin, RichText, Spinner, TextEdit, Ui, vec2};
 use egui_theme::{Theme, ThemeKind};
 use egui_widgets::Label;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ use zeus_eth::{currency::Currency, utils::NumericValue};
 /// - `get_balance`: Closure to compute the balance of the owner.
 /// - `get_max_amount`: Closure to compute the max amount as NumericValue (Set to zero if no max button should be shown).
 /// - `get_value`: Closure to compute the value of the currency amount.
+/// - `loading`: Indicates a loading state for the UI.
 /// - `ui`: Mutable reference to the UI.
 ///
 /// Returns: If the amount field was changed.
@@ -40,6 +41,7 @@ pub fn amount_field_with_currency_selector(
    get_balance: impl FnOnce() -> NumericValue,
    get_max_amount: impl FnOnce() -> NumericValue,
    get_value: impl FnOnce() -> NumericValue,
+   loading: bool,
    ui: &mut Ui,
 ) -> bool {
    let mut amount_changed = false;
@@ -55,6 +57,10 @@ pub fn amount_field_with_currency_selector(
                   .size(theme.text_sizes.large)
                   .color(theme.colors.text_secondary),
             );
+         }
+
+         if loading {
+            ui.add(Spinner::new().size(13.0).color(Color32::WHITE));
          }
 
          // Balance and Max Button

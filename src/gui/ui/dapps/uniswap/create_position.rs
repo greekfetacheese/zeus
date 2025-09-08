@@ -951,7 +951,6 @@ impl CreatePositionUi {
       );
 
       let chain_id = ctx.chain().id();
-      let manager = ctx.pool_manager();
       let currency_in = self.currency0.clone();
       let currency_out = self.currency1.clone();
 
@@ -959,21 +958,30 @@ impl CreatePositionUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let _ = eth::sync_pools_for_tokens(
+         let pool_manager = ctx_clone.pool_manager();
+         let dex = DexKind::main_dexes(chain_id);
+
+         match pool_manager.sync_pools_for_tokens(
             ctx_clone.clone(),
             chain_id,
             vec![token_in, token_out],
+            dex,
             false,
          )
-         .await;
+         .await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Error syncing pools: {:?}", e);
+            }
+         }
 
          SHARED_GUI.write(|gui| {
             gui.uniswap.create_position_ui.syncing_pools = false;
             gui.uniswap.create_position_ui.pool_data_syncing = true;
          });
 
-         let pools = manager.get_pools_from_pair(&currency_in, &currency_out);
-         match manager.update_state_for_pools(ctx_clone, chain_id, pools).await {
+         let pools = pool_manager.get_pools_from_pair(&currency_in, &currency_out);
+         match pool_manager.update_state_for_pools(ctx_clone, chain_id, pools).await {
             Ok(_) => {
                // tracing::info!("Updated pool state for token: {}", token.symbol);
                SHARED_GUI.write(|gui| {

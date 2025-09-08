@@ -1,6 +1,7 @@
 use crate::core::{
    ZeusCtx,
-   utils::{RT, data_dir},
+   utils::RT,
+   context::data_dir,
 };
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -17,7 +18,7 @@ use zeus_eth::{
    utils::{batch, client},
 };
 
-const PROVIDERS_FILE: &str = "providers.json";
+const PROVIDER_DATA_FILE: &str = "providers.json";
 
 /// Request per second
 pub const CLIENT_RPS: u32 = 10;
@@ -112,7 +113,7 @@ pub struct RpcProviders {
 impl RpcProviders {
    /// Load RPC providers from a file
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(PROVIDERS_FILE);
+      let dir = data_dir()?.join(PROVIDER_DATA_FILE);
       let data = std::fs::read(dir)?;
       let providers = serde_json::from_slice(&data)?;
       Ok(providers)
@@ -121,7 +122,7 @@ impl RpcProviders {
    /// Save RPC providers to a file
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let providers = serde_json::to_vec(&self)?;
-      let dir = data_dir()?.join(PROVIDERS_FILE);
+      let dir = data_dir()?.join(PROVIDER_DATA_FILE);
       std::fs::write(dir, providers)?;
       Ok(())
    }
