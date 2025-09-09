@@ -164,8 +164,8 @@ impl TransactionAction {
       let output_token = Currency::from(ERC20Token::dai());
       let amount_in = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount_in.f64(), 1600.0);
-      let mut min_received = NumericValue::parse_to_wei("1600", 18);
-      min_received.calc_slippage(0.5, 18);
+      let min_received = NumericValue::parse_to_wei("1600", 18);
+      let min_received = min_received.calc_slippage(0.5, 18);
       let min_received_usd = NumericValue::value(min_received.f64(), 1.0);
 
       let params = SwapParams {

@@ -494,16 +494,18 @@ impl NumericValue {
    /// Computes the new amount by applying the given slippage percentage.
    /// The `slippage_percent` is in percentage points, e.g., 1.0 for 1%.
    /// Panics if `self.wei` is `None`.
-   pub fn calc_slippage(&mut self, slippage: f64, decimals: u8) {
+   pub fn calc_slippage(&self, slippage: f64, decimals: u8) -> Self {
       let wei = self.wei();
       let slippage_bps = (slippage * 100.0) as u64;
       let denominator = 10000u64;
       let factor_num = denominator - slippage_bps;
       let wei = (wei * U256::from(factor_num)) / U256::from(denominator);
       let value = NumericValue::format_wei(wei, decimals);
-      self.wei = Some(wei);
-      self.f64 = value.f64();
-      self.formatted = value.formatted;
+      NumericValue {
+         wei: Some(wei),
+         f64: value.f64(),
+         formatted: value.formatted,
+      }
    }
 
    /// Create a new NumericValue to represent a currency balance
@@ -652,11 +654,11 @@ mod tests {
 
    #[test]
    fn test_calc_slippage() {
-      let mut value = NumericValue::parse_to_wei("1", 18);
-      value.calc_slippage(10.0, 18);
-      assert_eq!(value.wei(), U256::from(900000000000000000u128));
-      assert_eq!(value.f64, 0.9);
-      assert_eq!(value.formatted, "0.9");
+      let value = NumericValue::parse_to_wei("1", 18);
+      let value_after_slippage = value.calc_slippage(10.0, 18);
+      assert_eq!(value_after_slippage.wei(), U256::from(900000000000000000u128));
+      assert_eq!(value_after_slippage.f64, 0.9);
+      assert_eq!(value_after_slippage.formatted, "0.9");
    }
 
    #[test]

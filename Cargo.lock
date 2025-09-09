@@ -9015,7 +9015,9 @@ name = "zeus"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-eips",
  "alloy-signer-local",
+ "alloy-sol-types",
  "anyhow",
  "bincode",
  "eframe",
@@ -9023,6 +9025,7 @@ dependencies = [
  "egui-theme",
  "egui-widgets",
  "egui_extras",
+ "either",
  "futures",
  "generic-array 1.2.0",
  "hmac",

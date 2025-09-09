@@ -789,12 +789,11 @@ pub async fn swap(
       ));
    };
 
-   // apply the slippage
-   let mut amount_out_with_slippage = real_amount_out.clone();
-   amount_out_with_slippage.calc_slippage(slippage, currency_out.decimals());
+   // calculate the slippage
+   let amount_out_min = real_amount_out.calc_slippage(slippage, currency_out.decimals());
    tracing::info!(
       "Amount Out with slippage: {} {}",
-      amount_out_with_slippage.formatted(),
+      amount_out_min.formatted(),
       currency_out.symbol()
    );
 
@@ -807,7 +806,7 @@ pub async fn swap(
       swap_steps.clone(),
       swap_type,
       amount_in.wei(),
-      amount_out_with_slippage.wei(),
+      amount_out_min.wei(),
       slippage,
       currency_in.clone(),
       currency_out.clone(),
@@ -823,8 +822,7 @@ pub async fn swap(
 
    let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
    let received_usd = ctx.get_currency_value_for_amount(real_amount_out.f64(), &currency_out);
-   let min_received_usd =
-      ctx.get_currency_value_for_amount(amount_out_with_slippage.f64(), &currency_out);
+   let min_received_usd = ctx.get_currency_value_for_amount(amount_out_min.f64(), &currency_out);
 
    let swap_params = SwapParams {
       dapp: Dapp::Uniswap,
@@ -834,7 +832,7 @@ pub async fn swap(
       amount_in_usd: Some(amount_in_usd),
       received: real_amount_out,
       received_usd: Some(received_usd),
-      min_received: Some(amount_out_with_slippage),
+      min_received: Some(amount_out_min),
       min_received_usd: Some(min_received_usd),
       sender: from,
       recipient: Some(from),
@@ -1135,16 +1133,13 @@ pub async fn decrease_liquidity_position_v3(
       liquidity_to_remove,
    )?;
 
+   let slippage: f64 = slippage.parse().unwrap_or(0.5);
+
    let amount0_to_remove = NumericValue::format_wei(amount0_to_remove, pool.token0().decimals);
    let amount1_to_remove = NumericValue::format_wei(amount1_to_remove, pool.token1().decimals);
 
-   let mut amount0_min_to_remove = amount0_to_remove.clone();
-   let mut amount1_min_to_remove = amount1_to_remove.clone();
-
-   let slippage: f64 = slippage.parse().unwrap_or(0.5);
-
-   amount0_min_to_remove.calc_slippage(slippage, pool.token0().decimals);
-   amount1_min_to_remove.calc_slippage(slippage, pool.token1().decimals);
+   let amount0_min_to_remove = amount0_to_remove.calc_slippage(slippage, pool.token0().decimals);
+   let amount1_min_to_remove = amount1_to_remove.calc_slippage(slippage, pool.token1().decimals);
 
    let deadline = utils::get_unix_time_in_minutes(1)?;
    let mut decrease_liquidity_params = INonfungiblePositionManager::DecreaseLiquidityParams {
@@ -1195,11 +1190,10 @@ pub async fn decrease_liquidity_position_v3(
       };
    }
 
-   let mut minimum_amount0_to_be_removed = amount0_removed.clone();
-   let mut minimum_amount1_to_be_removed = amount1_removed.clone();
-
-   minimum_amount0_to_be_removed.calc_slippage(slippage, pool.token0().decimals);
-   minimum_amount1_to_be_removed.calc_slippage(slippage, pool.token1().decimals);
+   let minimum_amount0_to_be_removed =
+      amount0_removed.calc_slippage(slippage, pool.token0().decimals);
+   let minimum_amount1_to_be_removed =
+      amount0_removed.calc_slippage(slippage, pool.token1().decimals);
 
    let amount0_usd_to_be_removed =
       ctx.get_currency_value_for_amount(amount0_removed.f64(), pool.currency0());
@@ -1415,16 +1409,13 @@ pub async fn increase_liquidity_position_v3(
       liquidity,
    )?;
 
-   let amount0 = NumericValue::format_wei(amount0, pool.currency0().decimals());
-   let amount1 = NumericValue::format_wei(amount1, pool.currency0().decimals());
-
-   let mut amount0_min = amount0.clone();
-   let mut amount1_min = amount1.clone();
-
    let slippage: f64 = slippage.parse().unwrap_or(0.5);
 
-   amount0_min.calc_slippage(slippage, pool.token0().decimals);
-   amount1_min.calc_slippage(slippage, pool.token1().decimals);
+   let amount0 = NumericValue::format_wei(amount0, pool.currency0().decimals());
+   let amount1 = NumericValue::format_wei(amount1, pool.currency1().decimals());
+
+   let amount0_min = amount0.calc_slippage(slippage, pool.currency0().decimals());
+   let amount1_min = amount1.calc_slippage(slippage, pool.currency1().decimals());
 
    let deadline = utils::get_unix_time_in_minutes(1)?;
    let mut increase_liquidity_params = INonfungiblePositionManager::IncreaseLiquidityParams {
@@ -1505,19 +1496,16 @@ pub async fn increase_liquidity_position_v3(
       };
    }
 
-   let mut min_amount0_minted = amount0_minted.clone();
-   let mut min_amount1_minted = amount1_minted.clone();
-
-   min_amount0_minted.calc_slippage(slippage, pool.token0().decimals);
-   min_amount1_minted.calc_slippage(slippage, pool.token1().decimals);
+   let min_amount0_minted = amount0_minted.calc_slippage(slippage, pool.token0().decimals);
+   let min_amount1_minted = amount1_minted.calc_slippage(slippage, pool.token1().decimals);
 
    increase_liquidity_params.amount0Desired = amount0_minted.wei();
    increase_liquidity_params.amount1Desired = amount1_minted.wei();
    increase_liquidity_params.amount0Min = min_amount0_minted.wei();
    increase_liquidity_params.amount1Min = min_amount1_minted.wei();
 
-   let currency0 = Currency::from(pool.token0().into_owned());
-   let currency1 = Currency::from(pool.token1().into_owned());
+   let currency0 = pool.currency0().clone();
+   let currency1 = pool.currency1().clone();
 
    let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
    let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
@@ -1830,15 +1818,14 @@ pub async fn mint_new_liquidity_position_v3(
 
    let lower_tick: Signed<24, 1> =
       lower_tick.to_string().parse().context("Failed to parse lower tick")?;
+
    let upper_tick: Signed<24, 1> =
       upper_tick.to_string().parse().context("Failed to parse upper tick")?;
 
-   let mut amount0_min = amount0.clone();
-   let mut amount1_min = amount1.clone();
-
    let slippage: f64 = slippage.parse().unwrap_or(0.5);
-   amount0_min.calc_slippage(slippage, pool.token0().decimals);
-   amount1_min.calc_slippage(slippage, pool.token1().decimals);
+
+   let amount0_min = amount0.calc_slippage(slippage, pool.token0().decimals);
+   let amount1_min = amount1.calc_slippage(slippage, pool.token1().decimals);
 
    let deadline = utils::get_unix_time_in_minutes(1)?;
    let mint_params = INonfungiblePositionManager::MintParams {
@@ -1922,11 +1909,8 @@ pub async fn mint_new_liquidity_position_v3(
       };
    }
 
-   let mut min_amount0_minted = amount0_minted.clone();
-   let mut min_amount1_minted = amount1_minted.clone();
-
-   min_amount0_minted.calc_slippage(slippage, pool.token0().decimals);
-   min_amount1_minted.calc_slippage(slippage, pool.token1().decimals);
+   let min_amount0_minted = amount0_minted.calc_slippage(slippage, pool.token0().decimals);
+   let min_amount1_minted = amount1_minted.calc_slippage(slippage, pool.token1().decimals);
 
    let currency0 = Currency::from(pool.token0().into_owned());
    let currency1 = Currency::from(pool.token1().into_owned());

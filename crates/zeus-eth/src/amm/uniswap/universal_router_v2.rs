@@ -381,10 +381,10 @@ where
 
    // UR has both WETH and ETH, We need to UNWRAP WETH and then let the SWEEP to send all the ETH
    if currency_out.is_native() && ur_has_weth_balance && ur_has_eth_balance {
-      let mut weth_amount = NumericValue::format_wei(router_weth_balance, currency_out.decimals());
-      weth_amount.calc_slippage(slippage, currency_out.decimals());
+      let weth_amount = NumericValue::format_wei(router_weth_balance, currency_out.decimals());
+      let amount_min = weth_amount.calc_slippage(slippage, currency_out.decimals());
 
-      let data = crate::abi::uniswap::encode_unwrap_weth(router_addr, weth_amount.wei());
+      let data = crate::abi::uniswap::encode_unwrap_weth(router_addr, amount_min.wei());
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
    }

@@ -15,7 +15,7 @@ use zeus_eth::utils::NumericValue;
 
 use crate::core::utils::{RT, eth};
 use zeus_eth::{
-   amm::uniswap::{DexKind, AnyUniswapPool, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
 };
 
@@ -714,14 +714,15 @@ impl SwapUi {
       RT.spawn(async move {
          let dex = DexKind::main_dexes(chain_id);
 
-         match pool_manager.sync_pools_for_tokens(
-            ctx_clone.clone(),
-            chain_id,
-            vec![token_out.clone()],
-            dex,
-            false,
-         )
-         .await
+         match pool_manager
+            .sync_pools_for_tokens(
+               ctx_clone.clone(),
+               chain_id,
+               vec![token_out.clone()],
+               dex,
+               false,
+            )
+            .await
          {
             Ok(_) => {}
             Err(e) => {
@@ -765,7 +766,7 @@ impl SwapUi {
                gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), settings);
             });
 
-            ctx_clone.save_pool_manager();   
+            ctx_clone.save_pool_manager();
          });
       });
    }
@@ -1017,15 +1018,15 @@ impl SwapUi {
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let mut amount_out = self.quote.amount_out.clone();
             let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
-            amount_out.calc_slippage(slippage, self.currency_out.decimals());
+            let amount_out_min =
+               self.quote.amount_out.calc_slippage(slippage, self.currency_out.decimals());
 
             if self.valid_amounts() && self.action().is_swap() {
                ui.label(
                   RichText::new(format!(
                      "{} {}",
-                     amount_out.formatted(),
+                     amount_out_min.formatted(),
                      self.currency_out.symbol()
                   ))
                   .size(theme.text_sizes.normal),

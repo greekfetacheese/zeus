@@ -3,7 +3,7 @@ mod tests {
    use crate::core::{BaseFee, ZeusCtx};
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
-use zeus_eth::{
+   use zeus_eth::{
       alloy_primitives::{TxKind, U256},
       alloy_provider::{Provider, ProviderBuilder},
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
@@ -74,8 +74,7 @@ use zeus_eth::{
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
       let slippage = 0.1;
 
-      let mut min_amount_out = amount_out.clone();
-      min_amount_out.calc_slippage(slippage, uni.decimals());
+      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
 
       eprintln!(
          "Quote {} {} For {} {}",
@@ -202,8 +201,7 @@ use zeus_eth::{
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
       let slippage = 0.1;
 
-      let mut min_amount_out = amount_out.clone();
-      min_amount_out.calc_slippage(slippage, uni.decimals());
+      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
 
       eprintln!(
          "Quote {} {} For {} {}",
@@ -332,8 +330,7 @@ use zeus_eth::{
       let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
       let slippage = 0.1;
 
-      let mut min_amount_out = amount_out.clone();
-      min_amount_out.calc_slippage(slippage, uni.decimals());
+      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
 
       eprintln!(
          "Quote {} {} For {} {}",
@@ -498,7 +495,7 @@ use zeus_eth::{
       .unwrap();
    }
 
-   /* 
+   /*
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_erc20_to_erc20_mainnet() {
       let chain_id = 1;
@@ -661,7 +658,7 @@ use zeus_eth::{
       .unwrap();
    }
 
-   /* 
+   /*
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn swap_from_eth_to_erc20_base_chain_aerodrome() {
       let chain_id = 8453;
@@ -681,7 +678,7 @@ use zeus_eth::{
          liquidity_amount0: U256::ZERO,
          liquidity_amount1: U256::ZERO,
       }.into();
-      
+
 
       let swap_on_v2 = true;
       let swap_on_v3 = true;
@@ -1064,8 +1061,7 @@ use zeus_eth::{
       let slippage = 0.5;
       let swap_steps = quote.swap_steps;
       let amount_out = quote.amount_out;
-      let mut min_amount_out = amount_out.clone();
-      min_amount_out.calc_slippage(slippage, currency_out.decimals());
+      let min_amount_out = amount_out.calc_slippage(slippage, currency_out.decimals());
 
       eprintln!(
          "Quote {} {} For {} {}",

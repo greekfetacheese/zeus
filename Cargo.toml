@@ -30,6 +30,8 @@ egui-theme = { path = "crates/egui-theme", features = ["serde"]}
 # Alloy
 alloy-consensus = "1"
 alloy-signer-local = {version = "1", features = ["mnemonic"]}
+alloy-eips = "1"
+alloy-sol-types = {version = "1", features = ["json"]}
 
 
 # Crypto
@@ -62,6 +64,7 @@ reqwest = { version = "0.12", features = ["json"] }
 
 
 # Misc
+either = "1.15.0"
 rayon = "1.10.0"
 anyhow = "1"
 thiserror = "2"
