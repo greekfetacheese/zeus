@@ -1,4 +1,5 @@
 use alloy_rpc_types::Block;
+use alloy_sol_types::decode_revert_reason;
 use crate::types::ChainId;
 
 use revm::{
@@ -66,17 +67,7 @@ where
 }
 
 pub fn revert_msg(bytes: &Bytes) -> String {
-   if bytes.len() < 4 {
-      return "0x".to_string();
-   }
-   
-   // skip the function selector
-   let error_data = &bytes[4..];
-
-   match String::from_utf8(error_data.to_vec()) {
-      Ok(s) => s,
-      Err(_) => "0x".to_string(),
-   }
+    decode_revert_reason(bytes).unwrap_or_else(|| "Failed to decode revert reason".to_string())
 }
 
 #[cfg(test)]

@@ -49,7 +49,6 @@ sol! {
         bool zeroForOne;
         address hooks;
         bytes hookData;
-        address recipient;
     }
 
     struct WrapETH {

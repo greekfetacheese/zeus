@@ -24,6 +24,7 @@ pub enum Commands {
 
 pub struct ZeusSwapDelegatorParams {
    pub call_data: Bytes,
+   pub commands: Bytes,
    pub value: U256,
 }
 
@@ -37,12 +38,17 @@ impl ZeusSwapDelegatorParams {
    pub fn new() -> Self {
       Self {
          call_data: Bytes::default(),
+         commands: Bytes::default(),
          value: U256::ZERO,
       }
    }
 
    pub fn set_call_data(&mut self, call_data: Bytes) {
       self.call_data = call_data;
+   }
+
+   pub fn set_commands(&mut self, commands: Bytes) {
+      self.commands = commands;
    }
 
    pub fn set_value(&mut self, value: U256) {
@@ -58,7 +64,6 @@ pub async fn encode_swap_delegate(
    slippage: f64,
    currency_in: Currency,
    currency_out: Currency,
-   recipient: Address,
 ) -> Result<ZeusSwapDelegatorParams, anyhow::Error> {
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
@@ -164,7 +169,6 @@ pub async fn encode_swap_delegate(
             zeroForOne: swap.pool.zero_for_one_v4(&swap.currency_in),
             hooks: Address::ZERO,
             hookData: Bytes::default(),
-            recipient: recipient,
          }
          .abi_encode()
          .into();
@@ -194,6 +198,7 @@ pub async fn encode_swap_delegate(
    );
 
    let command_bytes = Bytes::from(commands);
+   execute_params.set_commands(command_bytes.clone());
 
    let calldata = zeus_abi::encode_z_swap(
       command_bytes,
