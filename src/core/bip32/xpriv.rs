@@ -32,8 +32,7 @@ fn hmac_and_split(
 
    result.zeroize();
 
-   let chain_code = ChainCode::from(right);
-   right.zeroize();
+   let chain_code = ChainCode::from_slice_mut(&mut right).map_err(|e| Bip32Error::Custom(e.to_string()))?;
 
    Ok((left, chain_code))
 }
@@ -132,7 +131,7 @@ impl SecureXPriv {
          .xkey_info
          .chain_code
          .data
-         .unlocked_scope(|seed| hmac_and_split(seed, &data).unwrap());
+         .unlock(|seed| hmac_and_split(seed, &data).unwrap());
 
       data.zeroize();
 

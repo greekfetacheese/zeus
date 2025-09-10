@@ -140,7 +140,7 @@ impl VirtualKeyboard {
    fn handle_key_press(&mut self, key: &str, target: &mut SecureString) {
       match key {
          "Backspace" => {
-            target.mut_scope(|s| {
+            target.unlock_mut(|s| {
                let len = s.char_len();
                if len > 0 {
                   s.delete_text_char_range(len - 1..len);
@@ -232,7 +232,7 @@ impl CredentialsForm {
 
          // --- Username Field ---
          ui.label(RichText::new("Username").size(theme.text_sizes.large));
-         self.credentials.username.mut_scope(|username| {
+         self.credentials.username.unlock_mut(|username| {
             let text_edit = SecureTextEdit::singleline(username)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
@@ -270,7 +270,7 @@ impl CredentialsForm {
 
          // --- Password Field ---
          ui.label(RichText::new("Password").size(theme.text_sizes.large));
-         self.credentials.password.mut_scope(|password| {
+         self.credentials.password.unlock_mut(|password| {
             let text_edit = SecureTextEdit::singleline(password)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
@@ -309,7 +309,7 @@ impl CredentialsForm {
          // --- Confirm Password Field ---
          if self.confrim_password {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
-            self.credentials.confirm_password.mut_scope(|confirm_password| {
+            self.credentials.confirm_password.unlock_mut(|confirm_password| {
                let text_edit = SecureTextEdit::singleline(confirm_password)
                   .min_size(text_edit_size)
                   .margin(Margin::same(10))

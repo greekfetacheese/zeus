@@ -10,22 +10,22 @@ path = "../egui-widgets"
 #path = "../zeus-eth"
 
 [dependencies.tokio]
-version = "1.43.0"
+version = "=1.47.1"
 
 [dependencies.url]
-version = "2.0.0"
+version = "=2.5.7"
 
 [dependencies.anyhow]
-version = "1"
+version = "=1.0.99"
 
 [dependencies.secure-types]
-version = "0.1"
+version = "0.2"
 
 [dependencies.egui]
-version = "0.32.0"
+version = "=0.32.0"
 
 [dependencies.eframe]
-version = "0.32.0"
+version = "=0.32.0"
 
 
 [[bin]]

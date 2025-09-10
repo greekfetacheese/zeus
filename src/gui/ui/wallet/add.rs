@@ -82,7 +82,7 @@ impl ImportWallet {
                };
 
                ui.label(RichText::new(text).size(theme.text_sizes.normal));
-               self.key_or_phrase.mut_scope(|imported_key| {
+               self.key_or_phrase.unlock_mut(|imported_key| {
                   let text_edit = SecureTextEdit::singleline(imported_key)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .margin(Margin::same(10))

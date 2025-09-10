@@ -340,7 +340,7 @@ impl ExportKeyUi {
 
                   let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
                   if ui.add(Button::new(text)).clicked() {
-                     ui.ctx().copy_text(wallet.key_string().str_scope(|key| key.to_string()));
+                     ui.ctx().copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
                   }
                } else {
                   ui.label(

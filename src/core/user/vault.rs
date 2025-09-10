@@ -290,7 +290,7 @@ impl Vault {
 
    /// Load the vault from the decrypted data
    pub fn load(&mut self, decrypted_data: SecureBytes) -> Result<(), anyhow::Error> {
-      let vault: Vault = decrypted_data.slice_scope(|slice| serde_json::from_slice(slice))?;
+      let vault: Vault = decrypted_data.unlock_slice(|slice| serde_json::from_slice(slice))?;
       self.hd_wallet = vault.hd_wallet;
       self.imported_wallets = vault.imported_wallets;
       self.contacts = vault.contacts;

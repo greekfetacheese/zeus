@@ -48,7 +48,7 @@ impl eframe::App for App {
 
             if !self.hide_texts {
             ui.label("Secret Text:");
-            self.secret_text.mut_scope(|text| {
+            self.secret_text.unlock_mut(|text| {
                let text_edit = SecureTextEdit::singleline(text)
                   .min_size(egui::vec2(200.0, 30.0))
                   .hint_text("This is a hint");
@@ -58,7 +58,7 @@ impl eframe::App for App {
             ui.separator();
 
             ui.label("Secret Text 2:");
-            self.secret_text2.mut_scope(|text| {
+            self.secret_text2.unlock_mut(|text| {
                let text_edit = SecureTextEdit::singleline(text)
                   .password(true)
                   .min_size(egui::vec2(200.0, 30.0));
@@ -92,10 +92,10 @@ impl eframe::App for App {
             }
 
             if ui.button("Println!").clicked() {
-               self.secret_text.str_scope(|text| {
+               self.secret_text.unlock_str(|text| {
                   println!("{}", text);
                });
-               self.secret_text2.str_scope(|text| {
+               self.secret_text2.unlock_str(|text| {
                   println!("{}", text);
                });
             }

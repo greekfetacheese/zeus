@@ -65,6 +65,9 @@ pub enum Bip32Error {
     /// Attempted to deserialize a very long path
     #[error("Invalid Bip32 Path.")]
     InvalidBip32Path,
+
+    #[error("{0}")]
+    Custom(String),
 }
 
 impl From<ecdsa::Error> for Bip32Error {

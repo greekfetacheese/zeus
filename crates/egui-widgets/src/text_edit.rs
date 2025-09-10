@@ -306,7 +306,7 @@ impl<'a> SecureTextEdit<'a> {
       };
 
       // --- Layout Galley ---
-      let galley: Arc<Galley> = self.text.str_scope(|text_slice| {
+      let galley: Arc<Galley> = self.text.unlock_str(|text_slice| {
          let display_text_cow = if self.password {
             // Generate '●' string based on actual char count
             std::borrow::Cow::<'_, str>::Owned(
@@ -838,7 +838,7 @@ fn secure_text_edit_events(
          text_changed_in_total = true;
 
          // --- Re-layout galley ---
-         current_galley = secure_text.str_scope(|text_slice| {
+         current_galley = secure_text.unlock_str(|text_slice| {
             let display_text_for_layout = if password {
                std::iter::repeat(epaint::text::PASSWORD_REPLACEMENT_CHAR)
                   .take(text_slice.chars().count())

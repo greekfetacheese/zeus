@@ -46,20 +46,21 @@ pub struct ChainCode {
    pub data: SecureArray<u8, 32>,
 }
 
+impl ChainCode {
+   pub fn from_slice_mut(slice: &mut [u8; 32]) -> Result<Self, anyhow::Error> {
+      let data = SecureArray::from_slice_mut(slice)?;
+      Ok(Self { data })
+   }
+}
+
 impl PartialEq for ChainCode {
    fn eq(&self, other: &ChainCode) -> bool {
-      other.data.unlocked_scope(|other_slice| {
-         self.data.unlocked_scope(|self_slice| self_slice == other_slice)
+      other.data.unlock(|other_slice| {
+         self.data.unlock(|self_slice| self_slice == other_slice)
       })
    }
 }
 
-impl From<[u8; 32]> for ChainCode {
-   fn from(v: [u8; 32]) -> Self {
-      let data: SecureArray<u8, 32> = SecureArray::new(v).unwrap();
-      Self { data }
-   }
-}
 
 /// Info associated with an extended key
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

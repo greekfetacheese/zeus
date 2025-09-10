@@ -89,7 +89,7 @@ pub fn derive_seed(credentials: &Credentials) -> Result<SecureVec<u8>, anyhow::E
 
    let mut hasher = Sha3_512::new();
 
-   credentials.username.str_scope(|username| {
+   credentials.username.unlock_str(|username| {
       hasher.update(username.as_bytes());
    });
 
@@ -188,7 +188,7 @@ impl Wallet {
 
    /// Create a new wallet from a given private key
    pub fn new_from_key(name: String, key_str: SecureString) -> Result<Self, anyhow::Error> {
-      let key = key_str.str_scope(|key_str| PrivateKeySigner::from_str(key_str))?;
+      let key = key_str.unlock_str(|key_str| PrivateKeySigner::from_str(key_str))?;
       let key = SecureSigner::from(key);
 
       Ok(Self {
@@ -202,7 +202,7 @@ impl Wallet {
    pub fn new_from_mnemonic(name: String, phrase: SecureString) -> Result<Self, anyhow::Error> {
       // return a custom error to not expose the phrase in case it just has a typo
       // TODO: Erase the MnemonicBuilder
-      let phrase_string = phrase.str_scope(|phrase| phrase.to_string());
+      let phrase_string = phrase.unlock_str(|phrase| phrase.to_string());
       let wallet = MnemonicBuilder::<English>::default()
          .phrase(phrase_string)
          .index(0)?
@@ -331,7 +331,7 @@ impl SecureHDWallet {
 
    /// Create a new `SecureHDWallet` from a seed
    pub fn new_from_seed(mut name: String, seed: SecureVec<u8>) -> Self {
-      let (signer, key_info) = seed.slice_scope(|slice| root_from_seed(slice, None).unwrap());
+      let (signer, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
 
       if name.is_empty() {
          name = "Master Wallet".to_string();
@@ -483,7 +483,7 @@ mod tests {
 
       let mut hasher = Sha3_512::new();
 
-      credentials.username.str_scope(|username| {
+      credentials.username.unlock_str(|username| {
          hasher.update(username.as_bytes());
       });
 

@@ -42,7 +42,7 @@ impl SecureSigner {
    pub fn is_erased(&self) -> bool {
       self
          .data
-         .unlocked_scope(|slice| slice.iter().all(|byte| *byte == 0))
+         .unlock(|slice| slice.iter().all(|byte| *byte == 0))
    }
 
    pub fn address(&self) -> Address {
@@ -52,13 +52,13 @@ impl SecureSigner {
    pub fn to_signer(&self) -> PrivateKeySigner {
       self
          .data
-         .unlocked_scope(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
+         .unlock(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
    }
 
    pub fn to_signing_key(&self) -> SigningKey {
       self
          .data
-         .unlocked_scope(|bytes| SigningKey::from_slice(bytes).unwrap())
+         .unlock(|bytes| SigningKey::from_slice(bytes).unwrap())
    }
 
    pub fn to_wallet(&self) -> EthereumWallet {
@@ -75,7 +75,7 @@ impl From<PrivateKeySigner> for SecureSigner {
    fn from(value: PrivateKeySigner) -> Self {
       let address = value.address();
       let mut key_bytes = value.to_bytes();
-      let data = SecureArray::new(key_bytes.into()).unwrap();
+      let data = SecureArray::from_slice(key_bytes.as_ref()).unwrap();
       key_bytes.zeroize();
       erase_signer(value);
 
@@ -89,7 +89,7 @@ impl From<SigningKey> for SecureSigner {
       let signer = PrivateKeySigner::from_slice(&bytes).unwrap();
       let address = signer.address();
 
-      let data = SecureArray::new(bytes.into()).unwrap();
+      let data = SecureArray::from_slice(bytes.as_ref()).unwrap();
 
       bytes.zeroize();
       erase_signing_key(value);
@@ -152,7 +152,7 @@ mod tests {
       let secure_signer = SecureSigner::from(signer.clone());
       let key_secure_string = secure_signer.key_string();
 
-      key_secure_string.str_scope(|key_string| {
+      key_secure_string.unlock_str(|key_string| {
          let new_signer = PrivateKeySigner::from_str(key_string).unwrap();
          assert_eq!(signer.address(), new_signer.address());
       });
