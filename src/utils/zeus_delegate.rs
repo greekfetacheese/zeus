@@ -64,6 +64,7 @@ pub async fn encode_swap_delegate(
    slippage: f64,
    currency_in: Currency,
    currency_out: Currency,
+   recipient: Address,
 ) -> Result<ZeusSwapDelegatorParams, anyhow::Error> {
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
@@ -169,6 +170,7 @@ pub async fn encode_swap_delegate(
             zeroForOne: swap.pool.zero_for_one_v4(&swap.currency_in),
             hooks: Address::ZERO,
             hookData: Bytes::default(),
+            recipient,
          }
          .abi_encode()
          .into();
@@ -200,11 +202,15 @@ pub async fn encode_swap_delegate(
    let command_bytes = Bytes::from(commands);
    execute_params.set_commands(command_bytes.clone());
 
+   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+   let deadline = now.as_secs() + 60;
+
    let calldata = zeus_abi::encode_z_swap(
       command_bytes,
       inputs,
       currency_out.address(),
       amount_out_min,
+      U256::from(deadline)
    );
 
    execute_params.set_call_data(calldata);

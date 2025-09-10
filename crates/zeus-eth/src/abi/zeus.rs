@@ -1,9 +1,5 @@
-use alloy_primitives::{
-   Address, Bytes, U256,
-};
+use alloy_primitives::{Address, Bytes, U256};
 use alloy_sol_types::{SolCall, sol};
-
-
 
 sol! {
     contract ZeusDelegate {
@@ -29,6 +25,7 @@ sol! {
     bytes[] inputs;
     address currencyOut;
     uint256 amountMin;
+    uint256 deadline;
 }
 
     struct V2V3SwapParams {
@@ -49,6 +46,7 @@ sol! {
         bool zeroForOne;
         address hooks;
         bytes hookData;
+        address recipient;
     }
 
     struct WrapETH {
@@ -66,15 +64,21 @@ sol! {
 
 }
 
-
-pub fn encode_z_swap(commands: Bytes, inputs: Vec<Bytes>, currency_out: Address, amount_min: U256) -> Bytes {
+pub fn encode_z_swap(
+   commands: Bytes,
+   inputs: Vec<Bytes>,
+   currency_out: Address,
+   amount_min: U256,
+   deadline: U256,
+) -> Bytes {
    let data = ZeusDelegate::zSwapCall {
       params: ZeusDelegate::ZParams {
          commands,
          inputs,
          currencyOut: currency_out,
          amountMin: amount_min,
-      }
+         deadline,
+      },
    }
    .abi_encode();
    data.into()
