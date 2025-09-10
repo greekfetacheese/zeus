@@ -116,7 +116,6 @@ mod tests {
          uni.clone(),
          signer,
          alice.address,
-         None,
       )
       .await
       .unwrap();
@@ -243,7 +242,6 @@ mod tests {
          uni.clone(),
          signer,
          alice.address,
-         None,
       )
       .await
       .unwrap();
@@ -371,7 +369,6 @@ mod tests {
          uni.clone(),
          signer,
          alice.address,
-         None,
       )
       .await
       .unwrap();
@@ -1109,7 +1106,6 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          alice.address,
-         None,
       )
       .await?;
 

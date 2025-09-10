@@ -699,7 +699,6 @@ pub async fn swap(
       currency_out.clone(),
       signer.clone(),
       from,
-      None,
    )
    .await?;
 
@@ -812,7 +811,6 @@ pub async fn swap(
       currency_out.clone(),
       signer,
       from,
-      None,
    )
    .await?;
    tracing::info!(

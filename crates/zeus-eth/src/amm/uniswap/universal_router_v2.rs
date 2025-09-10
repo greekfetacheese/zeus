@@ -1,10 +1,4 @@
-use crate::abi::{
-   uniswap::{
-      encode_v2_swap_exact_in, encode_v3_swap_exact_in,
-      universal_router_v2::*,
-      v4::actions::*,
-   },
-};
+use crate::abi::uniswap::{encode_v2_swap_exact_in, encode_v3_swap_exact_in, universal_router_v2::*, v4::actions::*};
 
 use super::{UniswapPool, v4::Actions};
 
@@ -160,7 +154,6 @@ pub async fn encode_swap<P, N>(
    currency_out: Currency,
    secure_signer: SecureSigner,
    recipient: Address,
-   deadline: Option<U256>,
 ) -> Result<SwapExecuteParams, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
@@ -405,12 +398,13 @@ where
 
    let command_bytes = Bytes::from(commands);
    // eprintln!("Command Bytes: {:?}", command_bytes);
-   let calldata = if let Some(deadline_val) = deadline {
-      encode_execute_with_deadline(command_bytes, inputs, deadline_val)
-   } else {
-      encode_execute(command_bytes, inputs)
-   };
-   execute_params.set_call_data(calldata);
+
+   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+   let deadline = now.as_secs() + 60;
+
+   let data = encode_execute_with_deadline(command_bytes, inputs, U256::from(deadline));
+
+   execute_params.set_call_data(data);
 
    Ok(execute_params)
 }
