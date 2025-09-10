@@ -1,10 +1,9 @@
 use alloy_network::EthereumWallet;
-use alloy_primitives::Address;
+use alloy_primitives::{Address, hex};
 use alloy_signer::k256::ecdsa::{VerifyingKey, SigningKey};
 use alloy_signer_local::PrivateKeySigner;
 use secure_types::{SecureArray, SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
 
 /// Private Key
 #[derive(Clone, Serialize, Deserialize)]
@@ -24,12 +23,7 @@ impl SecureSigner {
    pub fn key_string(&self) -> SecureString {
       let signer = self.to_signer();
       let mut key = signer.to_bytes();
-      let string = key
-         .iter()
-         .fold(String::with_capacity(key.len() * 2), |mut s, b| {
-            write!(&mut s, "{b:02x}").unwrap();
-            s
-         });
+      let string = hex::encode(&key);
       key.zeroize();
       SecureString::from(string)
    }
