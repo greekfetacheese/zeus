@@ -787,19 +787,19 @@ async fn across_bridge(
    });
 
    // update the recipients balance if needed
-   let exists = ctx.wallet_exists(interact_to);
+   let exists = ctx.wallet_exists(recipient);
    RT.spawn(async move {
       let manager = ctx.balance_manager();
 
       if exists {
-         match manager.update_eth_balance(ctx.clone(), chain.id(), vec![interact_to]).await {
+         match manager.update_eth_balance(ctx.clone(), chain.id(), vec![recipient]).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to update ETH balance: {}", e);
             }
          }
 
-         ctx.calculate_portfolio_value(chain.id(), interact_to);
+         ctx.calculate_portfolio_value(chain.id(), recipient);
       }
 
       ctx.save_balance_manager();
