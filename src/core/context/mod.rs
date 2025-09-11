@@ -1,7 +1,7 @@
 use super::{price_manager::PriceManagerHandle, providers::*};
 use crate::core::{
    WalletInfo,
-   user::{Contact, Vault, Wallet},
+   user::{Contact, Vault, Wallet}
 };
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
@@ -323,7 +323,8 @@ impl ZeusCtx {
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
-      self.read(|ctx| ctx.vault.contacts.iter().find(|c| c.address == address).cloned())
+      let address = address.to_lowercase();
+      self.read(|ctx| ctx.vault.contacts.iter().find(|c| c.address.to_lowercase() == address).cloned())
    }
 
    pub fn client_available(&self, chain: u64) -> bool {
