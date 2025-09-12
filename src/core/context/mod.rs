@@ -1,7 +1,8 @@
 use super::{price_manager::PriceManagerHandle, providers::*};
 use crate::core::{
    WalletInfo,
-   user::{Contact, Vault, Wallet}
+   user::{Contact, Vault, Wallet},
+   utils::update::test_and_measure_rpcs,
 };
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
@@ -943,6 +944,10 @@ impl ZeusCtx {
       }
 
       Ok(None)
+   }
+
+   pub async fn test_and_measure_rpcs(&self) {
+      test_and_measure_rpcs(self.clone()).await
    }
 
    pub fn server_port(&self) -> u16 {

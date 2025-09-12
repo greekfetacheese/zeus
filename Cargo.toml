@@ -9,6 +9,12 @@ version = "0.1.0"
 edition = "2024"
 default-run = "zeus"
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "zeus"
+path = "src/main.rs"
 
 
 [dependencies]

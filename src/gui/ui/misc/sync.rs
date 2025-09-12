@@ -86,11 +86,11 @@ impl SyncPoolsUi {
                   }
 
                   SHARED_GUI.write(|gui| {
-                     gui.sync_pools_ui.pool_manager = Some(manager);
-                     gui.sync_pools_ui.checkpoints = checkpoints;
-                     gui.sync_pools_ui.v2_pools_len = v2_pools_len;
-                     gui.sync_pools_ui.v3_pools = v3_pools_len;
-                     gui.sync_pools_ui.v4_pools = v4_pools_len;
+                     gui.dev.sync_pools.pool_manager = Some(manager);
+                     gui.dev.sync_pools.checkpoints = checkpoints;
+                     gui.dev.sync_pools.v2_pools_len = v2_pools_len;
+                     gui.dev.sync_pools.v3_pools = v3_pools_len;
+                     gui.dev.sync_pools.v4_pools = v4_pools_len;
                   });
                });
             }
@@ -130,12 +130,12 @@ impl SyncPoolsUi {
                match sync_v4_pools(ctx2.clone(), manager).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
-                        gui.sync_pools_ui.syncing = false;
+                        gui.dev.sync_pools.syncing = false;
                      });
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.sync_pools_ui.syncing = false;
+                        gui.dev.sync_pools.syncing = false;
                      });
                      tracing::error!("Error syncing pools {:?}", e);
                   }
@@ -153,12 +153,12 @@ impl SyncPoolsUi {
                match cleanup_pools(ctx2.clone(), manager).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
-                        gui.sync_pools_ui.updating_state = false;
+                        gui.dev.sync_pools.updating_state = false;
                      });
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.sync_pools_ui.updating_state = false;
+                        gui.dev.sync_pools.updating_state = false;
                      });
                      tracing::error!("Error updating pool state {:?}", e);
                   }
@@ -308,7 +308,7 @@ async fn sync_v4_pools(ctx: ZeusCtx, manager: PoolManagerHandle) -> Result<(), a
    manager.save_to_dir(&pool_data_dir)?;
 
    SHARED_GUI.write(|gui| {
-      gui.sync_pools_ui.pool_manager = Some(manager.clone());
+      gui.dev.sync_pools.pool_manager = Some(manager.clone());
    });
 
    tracing::info!("Synced V4 pools!");

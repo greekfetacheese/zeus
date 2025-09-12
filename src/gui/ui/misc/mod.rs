@@ -17,6 +17,7 @@ use zeus_eth::{alloy_primitives::Address, currency::Currency, types::ChainId};
 
 use super::GREEN_CHECK;
 
+pub mod dev;
 pub mod sync;
 pub mod tx_history;
 

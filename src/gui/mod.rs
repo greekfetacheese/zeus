@@ -16,13 +16,13 @@ use crate::gui::ui::{
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    panels::{
-      central_panel::{FPSMetrics, UiTesting},
+      central_panel::FPSMetrics,
       top_panel::ChainSelection,
       top_panel::WalletSelection,
       left_panel::ConnectedDappsUi,
    },
+   misc::dev::DevUi,
    sign_msg_window::SignMsgWindow,
-   sync::SyncPoolsUi,
    tx_history::TxHistory,
 };
 
@@ -86,15 +86,14 @@ pub struct GUI {
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub testing_window: TestingWindow,
-   pub ui_testing: UiTesting,
    pub progress_window: ProgressWindow,
    pub confirm_window: ConfirmWindow,
    pub tx_confirmation_window: TxConfirmationWindow,
    pub tx_window: TxWindow,
    pub sign_msg_window: SignMsgWindow,
-   pub sync_pools_ui: SyncPoolsUi,
    pub fps_metrics: FPSMetrics,
-   pub connected_dapps: ConnectedDappsUi
+   pub connected_dapps: ConnectedDappsUi,
+   pub dev: DevUi
 }
 
 impl GUI {
@@ -111,16 +110,13 @@ impl GUI {
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::misc::ConfirmWindow::new();
-      // let tx_confirm_window = ui::TxConfirmWindow::new();
       let tx_confirmation_window = TxConfirmationWindow::new();
       let tx_window = TxWindow::new();
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new(ctx.clone());
       let tx_history = ui::tx_history::TxHistory::new();
-      let ui_testing = ui::panels::central_panel::UiTesting::new();
       let progress_window = ui::misc::ProgressWindow::new();
       let sign_msg_window = SignMsgWindow::new();
-      let sync_pools_ui = ui::misc::sync::SyncPoolsUi::new();
       let connected_dapps = ConnectedDappsUi::new();
 
       Self {
@@ -146,15 +142,14 @@ impl GUI {
          tx_history,
          data_inspection: false,
          testing_window: TestingWindow::new(),
-         ui_testing,
          confirm_window,
          tx_confirmation_window,
          tx_window,
          progress_window,
          sign_msg_window,
-         sync_pools_ui,
          fps_metrics: FPSMetrics::new(),
-         connected_dapps
+         connected_dapps,
+         dev: DevUi::new()
       }
    }
 

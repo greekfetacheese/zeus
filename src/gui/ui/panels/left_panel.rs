@@ -35,7 +35,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -57,7 +57,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
          }
@@ -82,7 +82,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -107,7 +107,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.tx_history.close();
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -130,7 +130,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.settings.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -153,7 +153,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.settings.close();
             gui.wallet_ui.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -176,7 +176,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.sync_pools_ui.close();
+            gui.dev.close();
          }
       });
 
@@ -207,35 +207,17 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       #[cfg(feature = "dev")]
       {
-         let sync_pools = ui.add(Button::new(
-            RichText::new("Sync Pools").size(text_size),
+         let dev = ui.add(Button::new(
+            RichText::new("Dev UI").size(text_size),
          ));
-         if sync_pools.clicked() {
-            gui.sync_pools_ui.open();
+         if dev.clicked() {
+            gui.dev.open();
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
             gui.wallet_ui.close();
             gui.tx_history.close();
             gui.across_bridge.close();
-            gui.settings.close();
-         }
-      }
-
-      #[cfg(feature = "dev")]
-      {
-         let ui_testing = ui.add(Button::new(
-            RichText::new("Ui Testing").size(text_size),
-         ));
-         if ui_testing.clicked() {
-            gui.ui_testing.show = true;
-            gui.portofolio.close();
-            gui.uniswap.close();
-            gui.send_crypto.close();
-            gui.wallet_ui.close();
-            gui.tx_history.close();
-            gui.across_bridge.close();
-            gui.sync_pools_ui.close();
             gui.settings.close();
          }
       }
