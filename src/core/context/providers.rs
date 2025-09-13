@@ -11,6 +11,7 @@ use std::{
    time::Duration,
 };
 use zeus_eth::{
+   abi::zeus::ZeusStateView,
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag, Filter},
    amm::uniswap::UniswapPool,
@@ -509,6 +510,7 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow
 
    let throttle = client::throttle_layer(CLIENT_RPS);
    let client = client::get_client(&rpc.url, retry, throttle).await?;
+   let chain = rpc.chain_id;
 
    let latest_block = client.get_block_number().await?;
    let block_to_query = if latest_block > 100_000 {
@@ -647,15 +649,15 @@ pub async fn client_test(ctx: ZeusCtx, rpc: Rpc) -> Result<RpcTestResult, anyhow
             if pools_to_update.len() >= 10 {
                break;
             }
-            pools_to_update.push(batch::V3PoolState::Pool {
-               pool: pool.address(),
-               token0: pool.currency0().address(),
-               token1: pool.currency1().address(),
-               tickSpacing: pool.fee().tick_spacing(),
+            pools_to_update.push(ZeusStateView::V3Pool {
+               addr: pool.address(),
+               tokenA: pool.currency0().address(),
+               tokenB: pool.currency1().address(),
+               fee: pool.fee().fee_u24(),
             });
          }
 
-         let res = batch::get_v3_state(client_clone, None, pools_to_update).await;
+         let res = batch::get_v3_state(client_clone, chain, pools_to_update).await;
          if res.is_err() {
             let mut guard = result_clone.lock().unwrap();
             guard.fully_functional = false;

@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use tokio::{sync::Semaphore, task::JoinHandle};
 use tracing::trace;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
-use zeus_eth::utils::address_book;
 
 use crate::core::{context::pool_data_dir, serde_hashmap, ZeusCtx, utils::RT};
 use zeus_eth::{
@@ -671,9 +670,10 @@ impl PoolManagerHandle {
                let factory = dex.factory(token.chain_id)?;
                let pools = batch::get_v3_pools(
                   client.clone(),
+                  chain,
+                  factory,
                   token.address,
                   base_token.address,
-                  factory,
                )
                .await?;
 
@@ -803,12 +803,10 @@ impl PoolManagerHandle {
                   pools.push(pool);
                }
                   
-
-               let state_view = address_book::uniswap_v4_stateview(chain)?;
-               let valid_pool_ids = batch::get_v4_pools(
+               let valid_pool_ids = batch::validate_v4_pools(
                   client.clone(),
-                  pool_ids,
-                  state_view,
+                  chain,
+                  pool_ids
                )
                .await?;
 

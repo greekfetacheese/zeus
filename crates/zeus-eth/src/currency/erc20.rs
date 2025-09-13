@@ -71,7 +71,7 @@ impl ERC20Token {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let info = batch::get_erc20_info(client, token).await?;
+      let info = batch::get_erc20_info(client, chain_id, token).await?;
 
       Ok(Self {
          chain_id,
@@ -88,7 +88,7 @@ impl ERC20Token {
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
-      let tokens_info = batch::get_erc20_tokens(client, tokens_addr.clone()).await?;
+      let tokens_info = batch::get_erc20_tokens(client, chain, tokens_addr.clone()).await?;
 
       let mut tokens_erc20 = Vec::new();
       for token_addr in tokens_addr {

@@ -145,7 +145,7 @@ impl BalanceManagerHandle {
       owners: Vec<Address>,
    ) -> Result<(), anyhow::Error> {
       let client = ctx.get_client(chain).await?;
-      let balances = batch::get_eth_balances(client, None, owners).await?;
+      let balances = batch::get_eth_balances(client, chain, None, owners).await?;
 
       for balance in balances {
          let owner = balance.owner;
@@ -182,7 +182,7 @@ impl BalanceManagerHandle {
          let task = RT.spawn(async move {
             let _permit = semaphore.acquire().await.unwrap();
             let balances =
-               batch::get_erc20_balances(client.clone(), None, owner, tokens_addr).await;
+               batch::get_erc20_balances(client.clone(), chain, None, owner, tokens_addr).await;
 
             match balances {
                Ok(balances) => {

@@ -4,6 +4,7 @@ mod tests {
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
    use zeus_eth::{
+      abi::zeus::ZeusStateView,
       alloy_primitives::{TxKind, U256},
       alloy_provider::{Provider, ProviderBuilder},
       alloy_rpc_types::{BlockId, BlockNumberOrTag},
@@ -37,15 +38,15 @@ mod tests {
          if pools_to_update.len() >= 10 {
             break;
          }
-         pools_to_update.push(batch::V3PoolState::Pool {
-            pool: pool.address(),
-            token0: pool.currency0().address(),
-            token1: pool.currency1().address(),
-            tickSpacing: pool.fee().tick_spacing(),
+         pools_to_update.push(ZeusStateView::V3Pool {
+            addr: pool.address(),
+            tokenA: pool.currency0().address(),
+            tokenB: pool.currency1().address(),
+            fee: pool.fee().fee_u24(),
          });
       }
 
-      let res = batch::get_v3_state(client, None, pools_to_update).await.unwrap();
+      let res = batch::get_v3_state(client, chain_id, pools_to_update).await.unwrap();
 
       if res.len() < 10 {
          panic!(

@@ -952,7 +952,7 @@ async fn sync_wallets_balance(
       let task = RT.spawn(async move {
          let client = ctx.get_client(chain).await?;
          let _permit = semaphore.acquire().await?;
-         let balances = batch::get_eth_balances(client.clone(), None, addresses).await?;
+         let balances = batch::get_eth_balances(client.clone(), chain, None, addresses).await?;
 
          let mut balance_map = SHARED_GUI.read(|gui| {
             gui.wallet_ui

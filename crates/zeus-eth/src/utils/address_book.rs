@@ -2,6 +2,18 @@ use crate::types::ChainId;
 use alloy_primitives::{Address, address};
 use anyhow::bail;
 
+
+pub fn zeus_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0xa2377ec17cB3dBBFF82A1fFE9D3E29D9ea990f9B")),
+      ChainId::Optimism => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+      ChainId::BinanceSmartChain => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+      ChainId::Base => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+      ChainId::Arbitrum => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+   }
+}
+
 /// https://docs.uniswap.org/contracts/v3/reference/deployments/
 ///
 /// Returns the Permit2 contract address for the given chain id.

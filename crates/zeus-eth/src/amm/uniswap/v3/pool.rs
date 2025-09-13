@@ -370,8 +370,8 @@ impl UniswapPool for UniswapV3Pool {
       N: Network,
    {
       let (state, data) = get_v3_pool_state(client, self, block).await?;
-      self.liquidity_amount0 = data.token0Balance;
-      self.liquidity_amount1 = data.token1Balance;
+      self.liquidity_amount0 = data.tokenABalance;
+      self.liquidity_amount1 = data.tokenBBalance;
       self.set_state(state);
       Ok(())
    }
