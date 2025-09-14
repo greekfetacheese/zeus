@@ -133,41 +133,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
-   // Sync Base pools (ETH/USDT etc...)
-   ctx.write(|ctx| {
-      ctx.dex_syncing = true;
-   });
-
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ctx_clone = ctx.clone();
-
-      let task = RT.spawn(async move {
-         let manager = ctx_clone.pool_manager();
-         let dex = DexKind::main_dexes(chain);
-         let tokens = ERC20Token::base_tokens(chain);
-
-         match manager
-            .sync_pools_for_tokens(ctx_clone.clone(), chain, tokens, dex, false)
-            .await
-         {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
-         }
-
-         tracing::info!("Synced base pools for {}", chain);
-      });
-      tasks.push(task);
-   }
-
-   for task in tasks {
-      let _ = task.await;
-   }
-
-   ctx.write(|ctx| {
-      ctx.dex_syncing = false;
-   });
-
    // Sync V4 pools if needed
    let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
 
