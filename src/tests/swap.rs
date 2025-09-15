@@ -1004,7 +1004,6 @@ mod tests {
       given_pools: Vec<AnyUniswapPool>,
    ) -> Result<(), anyhow::Error> {
       let ctx = ZeusCtx::new();
-      ctx.write(|ctx| ctx.providers.all_working());
 
       let pools = if given_pools.is_empty() {
          let relevant_pools = get_relevant_pools(

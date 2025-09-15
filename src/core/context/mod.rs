@@ -1,6 +1,7 @@
-use super::{price_manager::PriceManagerHandle, providers::*};
+use super::price_manager::PriceManagerHandle;
 use crate::core::{
    WalletInfo,
+   client::Rpc,
    user::{Contact, Vault, Wallet},
    utils::update::test_and_measure_rpcs,
 };
@@ -13,9 +14,8 @@ use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
-   time::{Duration, Instant},
 };
-use tokio::time::sleep;
+
 use zeus_eth::{
    alloy_primitives::Address,
    alloy_provider::Provider,
@@ -23,11 +23,22 @@ use zeus_eth::{
    amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{
-      NumericValue, address_book,
-      client::{RpcClient, get_client, retry_layer, throttle_layer},
-   },
+   utils::{NumericValue, address_book, client::RpcClient},
 };
+
+pub mod balance_manager;
+pub mod client;
+pub mod db;
+pub mod pool_manager;
+pub mod price_manager;
+
+pub use balance_manager::BalanceManagerHandle;
+pub use db::{
+   CurrencyDB, DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB,
+};
+
+pub use client::ZeusClient;
+pub use pool_manager::PoolManagerHandle;
 
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
@@ -82,22 +93,6 @@ pub fn pool_data_full_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(POOL_DATA_FULL);
    Ok(dir)
 }
-
-const CLIENT_TIMEOUT: u64 = 30;
-
-pub mod balance_manager;
-pub mod db;
-pub mod pool_manager;
-pub mod price_manager;
-// pub mod position_manager;
-pub mod providers;
-
-pub use balance_manager::BalanceManagerHandle;
-pub use db::{
-   CurrencyDB, DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB, V3PositionsDB,
-};
-pub use pool_manager::PoolManagerHandle;
-pub use providers::{Rpc, RpcProviders};
 
 /// Thread-safe handle to the [ZeusContext]
 #[derive(Clone)]
@@ -199,10 +194,6 @@ impl ZeusCtx {
 
    pub fn wallet_discovery_in_progress(&self) -> bool {
       self.read(|ctx| ctx.wallet_discovery_in_progress)
-   }
-
-   pub fn rpc_providers(&self) -> RpcProviders {
-      self.read(|ctx| ctx.providers.clone())
    }
 
    /// Mutable access to the vault
@@ -325,112 +316,38 @@ impl ZeusCtx {
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
       let address = address.to_lowercase();
-      self.read(|ctx| ctx.vault.contacts.iter().find(|c| c.address.to_lowercase() == address).cloned())
+      self.read(|ctx| {
+         ctx.vault.contacts.iter().find(|c| c.address.to_lowercase() == address).cloned()
+      })
    }
 
    pub fn client_available(&self, chain: u64) -> bool {
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      rpcs.iter().any(|rpc| rpc.working && rpc.enabled)
+      let z_client = self.get_zeus_client();
+      z_client.rpc_available(chain)
    }
 
-   // * Ignore the enabled flag to avoid mistakes
    pub fn client_mev_protect_available(&self, chain: u64) -> bool {
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      rpcs.iter().any(|rpc| rpc.working && rpc.mev_protect)
+      let z_client = self.get_zeus_client();
+      z_client.mev_protect_available(chain)
    }
 
    pub fn client_archive_available(&self, chain: u64) -> bool {
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      rpcs.iter().any(|rpc| rpc.working && rpc.archive && rpc.enabled)
+      let z_client = self.get_zeus_client();
+      z_client.rpc_archive_available(chain)
+   }
+
+   pub fn get_zeus_client(&self) -> ZeusClient {
+      self.read(|ctx| ctx.client.clone())
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
-      let time_passed = Instant::now();
-      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
-      let mut client = None;
-
-      while !self.client_available(chain) {
-         if time_passed.elapsed() > timeout {
-            return Err(anyhow!(
-               "Failed to get client for chain {} Timeout exceeded",
-               chain
-            ));
-         }
-         sleep(Duration::from_millis(100)).await;
-      }
-
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-      let fully_functional = rpcs
-         .clone()
-         .into_iter()
-         .filter(|rpc| rpc.fully_functional && rpc.enabled)
-         .collect::<Vec<_>>();
-
-      let non_fully_functional = rpcs
-         .into_iter()
-         .filter(|rpc| !rpc.fully_functional && rpc.enabled)
-         .collect::<Vec<_>>();
-
-      for rpc in &fully_functional {
-         let c = match self.connect_to_rpc(rpc).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error connecting to client using {} for chain {}: {:?}",
-                  rpc.url,
-                  chain,
-                  e
-               );
-               continue;
-            }
-         };
-
-         client = Some(c);
-         break;
-      }
-
-      if client.is_none() {
-         for rpc in &non_fully_functional {
-            let c = match self.connect_to_rpc(rpc).await {
-               Ok(client) => client,
-               Err(e) => {
-                  tracing::error!(
-                     "Error connecting to client using {} for chain {}: {:?}",
-                     rpc.url,
-                     chain,
-                     e
-                  );
-                  continue;
-               }
-            };
-
-            client = Some(c);
-            break;
-         }
-      }
-
-      if client.is_none() {
-         return Err(anyhow!("No clients found for chain {}", chain));
-      } else {
-         Ok(client.unwrap())
-      }
+      let z_client = self.get_zeus_client();
+      z_client.get_client(chain).await
    }
 
    pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
-      let (retry, throttle) = if rpc.default {
-         (
-            retry_layer(
-               MAX_RETRIES,
-               INITIAL_BACKOFF,
-               COMPUTE_UNITS_PER_SECOND,
-            ),
-            throttle_layer(CLIENT_RPS),
-         )
-      } else {
-         (retry_layer(10, 300, 1000), throttle_layer(1000))
-      };
-
-      get_client(&rpc.url, retry, throttle).await
+      let z_client = self.get_zeus_client();
+      z_client.connect_to(rpc).await
    }
 
    /// Get an archive client for the given chain.
@@ -441,112 +358,13 @@ impl ZeusCtx {
       chain: u64,
       http: bool,
    ) -> Result<RpcClient, anyhow::Error> {
-      let time_passed = Instant::now();
-      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
-      let mut client = None;
-
-      while !self.client_archive_available(chain) {
-         if time_passed.elapsed() > timeout {
-            return Err(anyhow!(
-               "Failed to get archive client for chain {} Timeout exceeded",
-               chain
-            ));
-         }
-         sleep(Duration::from_millis(100)).await;
-      }
-
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-
-      for rpc in &rpcs {
-         if !rpc.working || !rpc.enabled || !rpc.archive {
-            continue;
-         }
-
-         if http && rpc.is_ws() {
-            continue;
-         }
-
-         let c = match self.connect_to_rpc(rpc).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error connecting to client using {} for chain {}: {:?}",
-                  rpc.url,
-                  chain,
-                  e
-               );
-               continue;
-            }
-         };
-
-         client = Some(c);
-         break;
-      }
-      if client.is_none() {
-         return Err(anyhow!(
-            "No archive clients found for chain {}",
-            chain
-         ));
-      } else {
-         Ok(client.unwrap())
-      }
+      let z_client = self.get_zeus_client();
+      z_client.get_archive_client(chain, http).await
    }
 
    pub async fn get_mev_protect_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
-      let mut client = None;
-
-      if !self.client_mev_protect_available(chain) {
-         return Err(anyhow!(
-            "Failed to get MEV protect client for chain {}",
-            chain
-         ));
-      }
-
-      let rpcs = self.read(|ctx| ctx.providers.get_all_fastest(chain));
-
-      for rpc in &rpcs {
-         if !rpc.mev_protect || !rpc.working {
-            continue;
-         }
-
-         tracing::info!("Using MEV protect RPC: {}", rpc.url);
-
-         let (retry, throttle) = if rpc.default {
-            (
-               retry_layer(
-                  MAX_RETRIES,
-                  INITIAL_BACKOFF,
-                  COMPUTE_UNITS_PER_SECOND,
-               ),
-               throttle_layer(CLIENT_RPS),
-            )
-         } else {
-            (retry_layer(10, 300, 1000), throttle_layer(1000))
-         };
-
-         let c = match get_client(&rpc.url, retry, throttle).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error connecting to client using {} for chain {}: {:?}",
-                  rpc.url,
-                  chain,
-                  e
-               );
-               continue;
-            }
-         };
-         client = Some(c);
-         break;
-      }
-      if client.is_none() {
-         return Err(anyhow!(
-            "No MEV protect clients found for chain {}",
-            chain
-         ));
-      } else {
-         Ok(client.unwrap())
-      }
+      let z_client = self.get_zeus_client();
+      z_client.get_mev_protect_client(chain).await
    }
 
    pub fn chain(&self) -> ChainId {
@@ -556,7 +374,7 @@ impl ZeusCtx {
    pub fn save_balance_manager(&self) {
       self.read(|ctx| match ctx.balance_manager.save() {
          Ok(_) => {
-            tracing::info!("Balance Manager saved");
+            tracing::trace!("Balance Manager saved");
          }
          Err(e) => {
             tracing::error!("Error saving Balance Manager: {:?}", e);
@@ -567,7 +385,7 @@ impl ZeusCtx {
    pub fn save_v3_positions_db(&self) {
       self.read(|ctx| match ctx.v3_positions_db.save() {
          Ok(_) => {
-            tracing::info!("V3PositionsDB saved");
+            tracing::trace!("V3PositionsDB saved");
          }
          Err(e) => {
             tracing::error!("Error saving V3 Positions DB: {:?}", e);
@@ -578,7 +396,7 @@ impl ZeusCtx {
    pub fn save_currency_db(&self) {
       self.read(|ctx| match ctx.currency_db.save() {
          Ok(_) => {
-            tracing::info!("CurrencyDB saved");
+            tracing::trace!("CurrencyDB saved");
          }
          Err(e) => {
             tracing::error!("Error saving CurrencyDB: {:?}", e);
@@ -589,7 +407,7 @@ impl ZeusCtx {
    pub fn save_portfolio_db(&self) {
       self.read(|ctx| match ctx.portfolio_db.save() {
          Ok(_) => {
-            tracing::info!("PortfolioDB saved");
+            tracing::trace!("PortfolioDB saved");
          }
          Err(e) => {
             tracing::error!("Error saving PortfolioDB: {:?}", e);
@@ -597,13 +415,13 @@ impl ZeusCtx {
       })
    }
 
-   pub fn save_providers(&self) {
-      self.read(|ctx| match ctx.providers.save_to_file() {
+   pub fn save_zeus_client(&self) {
+      self.read(|ctx| match ctx.client.save_to_file() {
          Ok(_) => {
-            tracing::info!("Providers saved");
+            tracing::trace!("ZeusClient saved");
          }
          Err(e) => {
-            tracing::error!("Error saving Providers: {:?}", e);
+            tracing::error!("Error saving ZeusClient: {:?}", e);
          }
       })
    }
@@ -611,7 +429,7 @@ impl ZeusCtx {
    pub fn save_pool_manager(&self) {
       let manager = self.pool_manager();
       match manager.save_to_file() {
-         Ok(_) => {},
+         Ok(_) => {}
          Err(e) => tracing::error!("Error saving Pool Manager: {:?}", e),
       }
    }
@@ -619,32 +437,33 @@ impl ZeusCtx {
    pub fn save_price_manager(&self) {
       let manager = self.price_manager();
       match manager.save_to_file() {
-         Ok(_) => {},
+         Ok(_) => {
+            tracing::trace!("Price Manager saved");
+         }
          Err(e) => tracing::error!("Error saving Price Manager: {:?}", e),
       }
-      
+   }
+
+   pub fn save_tx_db(&self) {
+      self.read(|ctx| match ctx.tx_db.save() {
+         Ok(_) => {
+            tracing::trace!("TxDB saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving TxDB: {:?}", e);
+         }
+      })
    }
 
    pub fn save_all(&self) {
       self.save_balance_manager();
       self.save_currency_db();
       self.save_portfolio_db();
-      self.save_providers();
+      self.save_zeus_client();
       self.save_tx_db();
       self.save_v3_positions_db();
       self.save_pool_manager();
       self.save_price_manager();
-   }
-
-   pub fn save_tx_db(&self) {
-      self.read(|ctx| match ctx.tx_db.save() {
-         Ok(_) => {
-            tracing::info!("TxDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving TxDB: {:?}", e);
-         }
-      })
    }
 
    /// Return the chains which the owner has balance in
@@ -1058,7 +877,7 @@ impl Default for PriorityFee {
 }
 
 pub struct ZeusContext {
-   pub providers: RpcProviders,
+   pub client: ZeusClient,
 
    /// The current selected chain from the GUI
    pub chain: ChainId,
@@ -1092,12 +911,13 @@ pub struct ZeusContext {
 
 impl ZeusContext {
    pub fn new() -> Self {
-      let mut providers = RpcProviders::default();
-      if let Ok(loaded_providers) = RpcProviders::load_from_file() {
-         providers.rpcs = loaded_providers.rpcs;
-         providers.reset_latency();
-         providers.reset_working();
-      }
+      let client = match ZeusClient::load_from_file() {
+         Ok(client) => client,
+         Err(e) => {
+            tracing::error!("Error loading client: {:?}", e);
+            ZeusClient::default()
+         }
+      };
 
       let balance_manager = match BalanceManagerHandle::load_from_file() {
          Ok(db) => db,
@@ -1144,7 +964,10 @@ impl ZeusContext {
       let pool_manager = match PoolManagerHandle::load_from_file() {
          Ok(manager) => manager,
          Err(e) => {
-            tracing::error!("Failed to load pool manager, falling back to default: {:?}", e);
+            tracing::error!(
+               "Failed to load pool manager, falling back to default: {:?}",
+               e
+            );
             PoolManagerHandle::default()
          }
       };
@@ -1152,14 +975,17 @@ impl ZeusContext {
       let price_manager = match PriceManagerHandle::load_from_file() {
          Ok(manager) => manager,
          Err(e) => {
-            tracing::error!("Failed to load price manager, falling back to default: {:?}", e);
+            tracing::error!(
+               "Failed to load price manager, falling back to default: {:?}",
+               e
+            );
             PriceManagerHandle::new()
          }
       };
 
       let priority_fee = PriorityFee::default();
       Self {
-         providers,
+         client,
          chain: ChainId::new(1).unwrap(),
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          vault: Vault::default(),
@@ -1210,10 +1036,6 @@ mod tests {
    #[tokio::test]
    async fn test_base_fee() {
       let ctx = ZeusCtx::new();
-
-      ctx.write(|ctx| {
-         ctx.providers.all_working();
-      });
 
       let client = ctx.get_client(1).await.unwrap();
       let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();

@@ -1,13 +1,11 @@
 use crate::core::{
    BaseFee, ZeusCtx,
-   context::{Portfolio, providers::client_test, price_manager::TOKEN_PRICE_UPDATE_INTERVAL},
+   context::{Portfolio, price_manager::TOKEN_PRICE_UPDATE_INTERVAL},
    utils::*,
 };
 use anyhow::{anyhow, bail};
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::Semaphore;
 use zeus_eth::{
    alloy_primitives::{U256, utils::format_units},
    alloy_provider::Provider,
@@ -15,7 +13,7 @@ use zeus_eth::{
    amm::uniswap::DexKind,
    currency::ERC20Token,
    types::{ChainId, SUPPORTED_CHAINS},
-   utils::{NumericValue, block::calculate_next_block_base_fee, client},
+   utils::{NumericValue, block::calculate_next_block_base_fee},
 };
 
 const MEASURE_RPCS_INTERVAL: u64 = 120;
@@ -25,18 +23,48 @@ const PRIORITY_FEE_INTERVAL: u64 = 90;
 const BASE_FEE_INTERVAL: u64 = 180;
 
 pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
-   let time = std::time::Instant::now();
-   test_rpcs(ctx.clone()).await;
-   tracing::info!(
-      "Testing RPCs took {} ms",
-      time.elapsed().as_millis()
-   );
+   let client = ctx.get_zeus_client();
+
+   let mut tasks = Vec::new();
 
    let time = std::time::Instant::now();
-   measure_rpcs(ctx).await;
+   for chain in SUPPORTED_CHAINS {
+      let rpcs = client.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).clone());
+
+      for rpc in &rpcs {
+         let client = client.clone();
+
+         if rpc.should_run_check() {
+            let rpc = rpc.clone();
+            let ctx = ctx.clone();
+
+            let task = RT.spawn(async move {
+               client.run_check_for(ctx, rpc).await;
+            });
+            tasks.push(task);
+         } else {
+            let rpc = rpc.clone();
+            let task = RT.spawn(async move {
+               client.run_latency_check_for(rpc).await;
+            });
+            tasks.push(task);
+         }
+      }
+   }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+
+   client.sort_by_fastest();
+
+   RT.spawn_blocking(move || {
+      ctx.save_zeus_client();
+   });
+
    tracing::info!(
-      "Measuring RPCs took {} ms",
-      time.elapsed().as_millis()
+      "RPC checks took {} secs",
+      time.elapsed().as_secs_f32()
    );
 }
 
@@ -397,121 +425,13 @@ pub async fn update_priority_fee_interval(ctx: ZeusCtx) {
    }
 }
 
-pub async fn test_rpcs(ctx: ZeusCtx) {
-   let mut tasks = Vec::new();
-   for chain in SUPPORTED_CHAINS {
-      let ctx_clone = ctx.clone();
-      let rpcs = ctx_clone.rpc_providers().get_all(chain);
-      let semaphore = Arc::new(Semaphore::new(5));
-
-      for rpc in &rpcs {
-         if !rpc.enabled {
-            continue;
-         }
-
-         let rpc = rpc.clone();
-         let ctx_clone = ctx.clone();
-         let semaphore = semaphore.clone();
-
-         let task = RT.spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
-
-            match client_test(ctx_clone.clone(), rpc.clone()).await {
-               Ok(result) => {
-                  ctx_clone.write(|ctx| {
-                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                        rpc.working = result.working;
-                        rpc.archive = result.archive;
-                        rpc.fully_functional = result.fully_functional;
-                     }
-                  });
-               }
-               Err(e) => {
-                  tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
-                  ctx_clone.write(|ctx| {
-                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                        rpc.working = false;
-                     }
-                  });
-               }
-            }
-         });
-         tasks.push(task);
-      }
-   }
-
-   for task in tasks {
-      let _ = task.await;
-   }
-}
-
-pub async fn measure_rpcs(ctx: ZeusCtx) {
-   let providers = ctx.rpc_providers();
-
-   let mut tasks = Vec::new();
-
-   for chain in SUPPORTED_CHAINS {
-      let rpcs = providers.get_all(chain);
-      let semaphore = Arc::new(Semaphore::new(5));
-
-      for rpc in rpcs {
-         if !rpc.enabled {
-            continue;
-         }
-
-         let rpc = rpc.clone();
-         let ctx = ctx.clone();
-         let semaphore = semaphore.clone();
-
-         let task = RT.spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
-            let retry = client::retry_layer(2, 400, 600);
-            let throttle = client::throttle_layer(5);
-            let client = match client::get_client(&rpc.url, retry, throttle).await {
-               Ok(client) => client,
-               Err(e) => {
-                  tracing::error!("Error getting client using {} {}", rpc.url, e);
-                  return;
-               }
-            };
-
-            let time = Instant::now();
-            match client.get_block_number().await {
-               Ok(_) => {
-                  let latency = time.elapsed();
-                  ctx.write(|ctx| {
-                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                        rpc.latency = Some(latency);
-                     }
-                  });
-               }
-               Err(e) => {
-                  tracing::error!("Error testing RPC: {} {}", rpc.url, e);
-                  ctx.write(|ctx| {
-                     if let Some(rpc) = ctx.providers.rpc_mut(chain, rpc.url.clone()) {
-                        rpc.working = false;
-                     }
-                  });
-               }
-            }
-         });
-         tasks.push(task);
-      }
-   }
-   for task in tasks {
-      match task.await {
-         Ok(_) => {}
-         Err(e) => tracing::error!("Error testing RPC: {:?}", e),
-      }
-   }
-}
-
 pub async fn measure_rpcs_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
       if time_passed.elapsed().as_secs() > MEASURE_RPCS_INTERVAL {
-         measure_rpcs(ctx.clone()).await;
+         let z_client = ctx.get_zeus_client();
+         z_client.run_latency_checks().await;
          time_passed = Instant::now();
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
@@ -589,49 +509,4 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       ctx.save_pool_manager();
       ctx.save_price_manager();
    });
-}
-
-// ! WIP
-/// We keep a child wallet if the native balance or nonce is greater than 0
-pub async fn wallet_discovery(ctx: ZeusCtx) -> Result<(), anyhow::Error> {
-   ctx.write(|ctx| {
-      ctx.wallet_discovery_in_progress = true;
-   });
-
-   let chain = ctx.chain().id();
-   let native_currency = NativeCurrency::from(chain);
-   let client = ctx.get_client(chain).await?;
-
-   let mut vault = ctx.get_vault();
-
-   loop {
-      let address = vault.derive_child_wallet("".to_string())?;
-
-      let balance_fut = client.get_balance(address).into_future();
-      let nonce_fut = client.get_transaction_count(address).into_future();
-
-      let balance = balance_fut.await?;
-      let nonce = nonce_fut.await?;
-
-      if balance.is_zero() && nonce == 0 {
-         vault.remove_wallet(address);
-
-         ctx.write(|ctx| {
-            ctx.wallet_discovery_in_progress = false;
-         });
-         break;
-      }
-
-      ctx.balance_manager()
-         .insert_eth_balance(chain, address, balance, &native_currency);
-
-      let portfolio = Portfolio::new(address, chain);
-      ctx.write(|ctx| {
-         ctx.portfolio_db.insert_portfolio(chain, address, portfolio);
-      });
-   }
-
-   ctx.set_vault(vault);
-
-   Ok(())
 }

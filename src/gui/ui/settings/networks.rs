@@ -1,10 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::utils::update::test_rpcs;
-use crate::core::{
-   ZeusCtx,
-   providers::{Rpc, client_test},
-   utils::{RT, update::measure_rpcs},
-};
+use crate::core::{ZeusCtx, utils::RT, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,
@@ -12,8 +7,8 @@ use eframe::egui::{
 };
 use egui::Frame;
 use egui_theme::Theme;
-use std::{sync::Arc, time::Instant};
-use zeus_eth::{alloy_provider::Provider, utils::client};
+use std::sync::Arc;
+use zeus_eth::alloy_provider::Provider;
 
 pub struct NetworkSettings {
    open: bool,
@@ -74,8 +69,8 @@ impl NetworkSettings {
 
             ui.add_space(25.0);
             let chain = self.chain_select.chain.id();
-            let providers = ctx.rpc_providers();
-            let mut rpcs = providers.get_all_fastest(chain);
+            let z_client = ctx.get_zeus_client();
+            let mut rpcs = z_client.get_rpcs(chain);
 
             ui.horizontal(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -96,8 +91,9 @@ impl NetworkSettings {
                      self.refreshing = true;
                      let ctx = ctx.clone();
                      RT.spawn(async move {
-                        test_rpcs(ctx.clone()).await;
-                        measure_rpcs(ctx.clone()).await;
+                        let z_client = ctx.get_zeus_client();
+                        z_client.run_rpc_checks(ctx.clone()).await;
+                        z_client.sort_by_fastest();
                         SHARED_GUI.write(|gui| {
                            gui.settings.network.refreshing = false;
                         });
@@ -155,23 +151,29 @@ impl NetworkSettings {
                      });
 
                      if res.inner.clicked() {
-                        ctx.write(|ctx| {
-                           let rpc = ctx.providers.rpc_mut(chain, rpc.url.clone());
-                           if let Some(rpc) = rpc {
-                              rpc.enabled = !rpc.enabled;
+                        let z_client = ctx.get_zeus_client();
+                        z_client.write(|z_client| {
+                           let rpcs = z_client.get_mut(&chain);
+                           if let Some(rpcs) = rpcs {
+                              for rpc_mut in rpcs.iter_mut() {
+                                 if rpc_mut.url == rpc.url {
+                                    rpc_mut.enabled = !rpc.enabled;
+                                 }
+                              }
                            }
                         });
+
                         let ctx_clone = ctx.clone();
                         RT.spawn_blocking(move || {
-                           ctx_clone.save_providers();
+                           ctx_clone.save_zeus_client();
                         });
                      }
 
                      // Status column
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[2]);
-                        let icon = if rpc.working {
-                           match rpc.fully_functional {
+                        let icon = if rpc.is_working() {
+                           match rpc.is_fully_functional() {
                               true => icons.green_circle(),
                               false => icons.orange_circle(),
                            }
@@ -184,7 +186,7 @@ impl NetworkSettings {
                      // Archive Node column
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[3]);
-                        let icon = if rpc.archive {
+                        let icon = if rpc.is_archive() {
                            icons.green_circle()
                         } else {
                            icons.red_circle()
@@ -208,8 +210,9 @@ impl NetworkSettings {
                            let rpc_clone = rpc.clone();
                            self.refreshing = true;
                            RT.spawn(async move {
-                              test_rpc(ctx_clone.clone(), rpc_clone.clone()).await;
-                              measure_rpc(ctx_clone, rpc_clone).await;
+                              let z_client = ctx_clone.get_zeus_client();
+                              z_client.run_check_for(ctx_clone, rpc_clone).await;
+                              z_client.sort_by_fastest();
 
                               SHARED_GUI.write(|gui| {
                                  gui.settings.network.refreshing = false;
@@ -223,12 +226,11 @@ impl NetworkSettings {
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[5]);
                         if ui.add(button).clicked() {
-                           ctx.write(|ctx| {
-                              ctx.providers.remove_rpc(chain, rpc.url.clone());
-                           });
+                           let z_client = ctx.get_zeus_client();
+                           z_client.remove_rpc(chain, rpc.url.clone());
                            let ctx_clone = ctx.clone();
                            RT.spawn_blocking(move || {
-                              ctx_clone.save_providers();
+                              ctx_clone.save_zeus_client();
                            });
                         }
                      });
@@ -378,17 +380,14 @@ fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
          return;
       }
 
-      ctx.write(|ctx| {
-         ctx.providers.add_user_rpc(chain, url);
-      });
+      let z_client = ctx.get_zeus_client();
+      z_client.add_rpc(chain, rpc.clone());
+      z_client.run_check_for(ctx.clone(), rpc).await;
 
       let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
-         ctx_clone.save_providers();
+         ctx_clone.save_zeus_client();
       });
-
-      test_rpc(ctx.clone(), rpc.clone()).await;
-      measure_rpc(ctx, rpc).await;
 
       SHARED_GUI.write(|gui| {
          gui.open_msg_window("Success!", "RPC added successfully");
@@ -399,59 +398,3 @@ fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
    });
 }
 
-async fn test_rpc(ctx: ZeusCtx, rpc: Rpc) {
-   match client_test(ctx.clone(), rpc.clone()).await {
-      Ok(result) => {
-         ctx.write(|ctx| {
-            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-               rpc.working = result.working;
-               rpc.archive = result.archive;
-               rpc.fully_functional = result.fully_functional;
-            }
-         });
-      }
-      Err(e) => {
-         tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
-         ctx.write(|ctx| {
-            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-               rpc.working = false;
-            }
-         });
-         SHARED_GUI.write(|gui| {
-            gui.open_msg_window("Network Error", e.to_string());
-         });
-      }
-   }
-}
-
-async fn measure_rpc(ctx: ZeusCtx, rpc: Rpc) {
-   let retry = client::retry_layer(2, 400, 600);
-   let throttle = client::throttle_layer(5);
-   let client = match client::get_client(&rpc.url, retry, throttle).await {
-      Ok(client) => client,
-      Err(e) => {
-         tracing::error!("Error getting client using {} {}", rpc.url, e);
-         return;
-      }
-   };
-
-   let time = Instant::now();
-   match client.get_block_number().await {
-      Ok(_) => {
-         let latency = time.elapsed();
-         ctx.write(|ctx| {
-            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-               rpc.latency = Some(latency);
-            }
-         });
-      }
-      Err(e) => {
-         tracing::error!("Error testing RPC: {} {}", rpc.url, e);
-         ctx.write(|ctx| {
-            if let Some(rpc) = ctx.providers.rpc_mut(rpc.chain_id, rpc.url.clone()) {
-               rpc.working = false;
-            }
-         });
-      }
-   }
-}

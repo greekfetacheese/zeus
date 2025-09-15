@@ -144,8 +144,13 @@ impl BalanceManagerHandle {
       chain: u64,
       owners: Vec<Address>,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
-      let balances = batch::get_eth_balances(client, chain, None, owners).await?;
+      let client = ctx.get_zeus_client();
+      let balances = client.request(chain, |client| {
+         let owners_clone = owners.clone();
+         async move {
+            batch::get_eth_balances(client, chain, None, owners_clone).await
+         }
+      }).await?;
 
       for balance in balances {
          let owner = balance.owner;
@@ -164,7 +169,7 @@ impl BalanceManagerHandle {
       owner: Address,
       tokens: Vec<ERC20Token>,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
+      let client = ctx.get_zeus_client();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
       let tokens_addr = tokens.iter().map(|t| t.address).collect::<Vec<_>>();
       let token_map: HashMap<Address, ERC20Token> =
@@ -181,8 +186,13 @@ impl BalanceManagerHandle {
 
          let task = RT.spawn(async move {
             let _permit = semaphore.acquire().await.unwrap();
-            let balances =
-               batch::get_erc20_balances(client.clone(), chain, None, owner, tokens_addr).await;
+            let balances = client.request(chain, |client| {
+               let tokens_addr_clone = tokens_addr.clone();
+               async move {
+                  batch::get_erc20_balances(client, chain, None, owner, tokens_addr_clone)
+                     .await
+               }
+            }).await;
 
             match balances {
                Ok(balances) => {
@@ -297,10 +307,6 @@ mod tests {
    async fn test_update_tokens_balance() {
       let ctx = ZeusCtx::new();
       let chain = 1;
-
-      ctx.write(|ctx| {
-         ctx.providers.all_working();
-      });
 
       let manager = ctx.balance_manager();
       let owner = Address::ZERO;

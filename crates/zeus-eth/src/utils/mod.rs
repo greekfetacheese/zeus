@@ -181,19 +181,16 @@ pub fn is_base_token(chain: u64, token: Address) -> bool {
 /// - `concurrency` The number of concurrent requests to make to the RPC, set 1 for no concurrency
 pub async fn get_logs_for<P, N>(
    client: P,
-   _chain_id: u64,
    target_address: Vec<Address>,
    events: impl IntoIterator<Item = impl AsRef<[u8]>>,
    from_block: u64,
    concurrency: usize,
+   block_range: u64,
 ) -> Result<Vec<Log>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   // Could do more but every provider has its own limits
-   const BLOCK_RANGE: u64 = 50_000;
-
    let latest_block = client.get_block_number().await?;
 
    tracing::debug!(target: "zeus_eth::utils::lib",
@@ -212,11 +209,11 @@ where
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
-   if latest_block - from_block > BLOCK_RANGE {
+   if latest_block - from_block > block_range {
       let mut start_block = from_block;
 
       while start_block <= latest_block {
-         let end_block = std::cmp::min(start_block + BLOCK_RANGE, latest_block);
+         let end_block = std::cmp::min(start_block + block_range, latest_block);
          let client = client.clone();
          let logs_clone = Arc::clone(&logs);
          let filter_clone = filter.clone();

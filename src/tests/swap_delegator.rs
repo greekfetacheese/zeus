@@ -39,7 +39,6 @@ mod tests {
 
       let chain_id = 1;
       let ctx = ZeusCtx::new();
-      ctx.write(|ctx| ctx.providers.all_working());
 
       let client = ctx.get_client(chain_id).await.unwrap();
       let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
@@ -315,7 +314,6 @@ mod tests {
       given_pools: Vec<AnyUniswapPool>,
    ) -> Result<(), anyhow::Error> {
       let ctx = ZeusCtx::new();
-      ctx.write(|ctx| ctx.providers.all_working());
 
       let pools = if given_pools.is_empty() {
          let relevant_pools = get_relevant_pools(
@@ -578,7 +576,6 @@ mod tests {
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_deploy_delegator() {
       let ctx = ZeusCtx::new();
-      ctx.write(|ctx| ctx.providers.all_working());
 
       let chain = 1;
 

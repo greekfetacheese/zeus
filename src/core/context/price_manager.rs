@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::core::utils::RT;
 use crate::core::{
    PoolManagerHandle, ZeusCtx,
    context::{DEFAULT_POOL_MINIMUM_LIQUIDITY, data_dir},
@@ -14,6 +15,8 @@ use zeus_eth::{
    currency::{Currency, ERC20Token},
    utils::{NumericValue, price_feed::get_base_token_price},
 };
+
+use tokio::task::JoinHandle;
 
 const PRICE_DATA_FILE: &str = "price_data.json";
 
@@ -334,16 +337,15 @@ impl PriceManagerHandle {
 
       let concurrency = pool_manager.concurrency();
       let batch_size = pool_manager.batch_size_for_updating_pools_state();
-      let client = ctx.get_client(chain).await?;
+      let client = ctx.get_zeus_client();
 
-      let pools = batch_update_state(
-         client.clone(),
-         chain,
-         concurrency,
-         batch_size,
-         pools,
-      )
-      .await?;
+      let pools = client.request(chain, |client| {
+         let pools_clone = pools.clone();
+         async move {
+            batch_update_state(client, chain, concurrency, batch_size, pools_clone)
+               .await
+         }
+      }).await?;
 
       pool_manager.write(|manager| {
          for pool in &pools {
@@ -359,14 +361,34 @@ impl PriceManagerHandle {
       ctx: ZeusCtx,
       chain: u64,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
-      let mut new_prices = HashMap::new();
+      let client = ctx.get_zeus_client();
+      let new_prices = Arc::new(Mutex::new(HashMap::new()));
       let tokens = ERC20Token::base_tokens(chain);
 
+      let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
       for token in tokens {
-         let price = get_base_token_price(client.clone(), chain, token.address, None).await?;
-         new_prices.insert((chain, token.address), price);
+         let client = client.clone();
+         let new_prices = new_prices.clone();
+         
+         let task = RT.spawn(async move {
+            let price = client.request(chain, |client| {
+               async move {
+                  get_base_token_price(client, chain, token.address, None).await
+               }
+            }).await?;
+            let mut new_prices = new_prices.lock().unwrap();
+            new_prices.insert((chain, token.address), price);
+            Ok(())
+         });
+         tasks.push(task);
       }
+
+      for task in tasks {
+         let _ = task.await;
+      }
+
+      let new_prices = new_prices.lock().unwrap().clone();
 
       self.write(|manager| {
          for (key, price) in new_prices {
@@ -442,10 +464,6 @@ mod tests {
    async fn test_it_works() {
       let ctx = ZeusCtx::new();
       let chain = 1;
-
-      ctx.write(|ctx| {
-         ctx.providers.all_working();
-      });
 
       let price_manager = PriceManagerHandle::new();
       let pool_manager = ctx.pool_manager();

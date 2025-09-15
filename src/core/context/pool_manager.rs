@@ -273,16 +273,23 @@ impl PoolManagerHandle {
 
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_client(chain).await?;
+      let client = ctx.get_zeus_client();
 
-      let pools = batch_update_state(
-         client.clone(),
-         chain,
-         concurrency,
-         batch_size,
-         pools_to_update,
-      )
+      let pools = client.request(chain, |client| {
+         let pools_clone = pools_to_update.clone();
+         async move {
+            batch_update_state(
+               client.clone(),
+               chain,
+               concurrency,
+               batch_size,
+               pools_clone,
+            )
+            .await
+         }
+      })
       .await?;
+      
 
       self.write(|manager| {
          for pool in pools {
@@ -302,9 +309,16 @@ impl PoolManagerHandle {
       let pools = self.get_pools_for_chain(chain_id);
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_client(chain_id).await?;
+      let client = ctx.get_zeus_client();
 
-      let pools = batch_update_state(client, chain_id, concurrency, batch_size, pools).await?;
+      let pools = client.request(chain_id, |client| {
+         let pools_clone = pools.clone();
+         async move {
+            batch_update_state(client.clone(), chain_id, concurrency, batch_size, pools_clone)
+               .await
+         }
+      })
+      .await?;
 
       self.write(|manager| {
          for pool in pools {
@@ -327,16 +341,17 @@ impl PoolManagerHandle {
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_client(chain).await?;
+      let client = ctx.get_zeus_client();
 
-      let pools = batch_update_state(
-         client.clone(),
-         chain,
-         concurrency,
-         batch_size,
-         pools,
-      )
-      .await?;
+      // TODO: For large number of pools split the requests into multiple batches
+
+      let pools = client.request(chain, |client| {
+         let pools_clone = pools.clone();
+         async move {
+            batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
+               .await
+         }
+      }).await?;
 
       self.write(|manager| {
          for pool in &pools {
@@ -515,7 +530,7 @@ impl PoolManagerHandle {
       token: ERC20Token,
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(token.chain_id).await?;
+      let client = ctx.get_zeus_client();
       let chain = token.chain_id;
       let base_tokens = ERC20Token::base_tokens(chain);
 
@@ -566,14 +581,20 @@ impl PoolManagerHandle {
                continue;
             }
 
-            let pool_res = UniswapV2Pool::from(
-               client.clone(),
-               token.chain_id,
-               token.clone(),
-               base_token.clone(),
-               *dex,
-            )
-            .await;
+            let pool_res = client.request(token.chain_id, |client| {
+               let token_clone = token.clone();
+               let base_token_clone = base_token.clone();
+               async move {
+                  UniswapV2Pool::from(
+                     client,
+                     chain,
+                     token_clone,
+                     base_token_clone,
+                     *dex,
+                  )
+                  .await
+               }
+            }).await;
 
             if let Ok(pool) = pool_res {
                trace!(
@@ -616,7 +637,7 @@ impl PoolManagerHandle {
       token: ERC20Token,
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(token.chain_id).await?;
+      let client = ctx.get_zeus_client();
       let chain = token.chain_id;
       let base_tokens = ERC20Token::base_tokens(chain);
 
@@ -668,14 +689,18 @@ impl PoolManagerHandle {
                }
 
                let factory = dex.factory(token.chain_id)?;
-               let pools = batch::get_v3_pools(
-                  client.clone(),
-                  chain,
-                  factory,
-                  token.address,
-                  base_token.address,
-               )
-               .await?;
+               let pools = client.request(chain, |client| {
+                  async move {
+                     batch::get_v3_pools(
+                        client,
+                        chain,
+                        factory,
+                        token.address,
+                        base_token.address,
+                     )
+                     .await
+                  }
+               }).await?;
 
                for pool in &pools {
                   if !pool.addr.is_zero() {
@@ -733,7 +758,7 @@ impl PoolManagerHandle {
       token: ERC20Token,
       dex_kinds: Vec<DexKind>,
    ) -> Result<(), anyhow::Error> {
-      let client = ctx.get_client(token.chain_id).await?;
+      let client = ctx.get_zeus_client();
       let chain = token.chain_id;
       let base_tokens = ERC20Token::base_tokens(chain);
 
@@ -803,12 +828,12 @@ impl PoolManagerHandle {
                   pools.push(pool);
                }
                   
-               let valid_pool_ids = batch::validate_v4_pools(
-                  client.clone(),
-                  chain,
-                  pool_ids
-               )
-               .await?;
+               let valid_pool_ids = client.request(chain, |client| {
+                  let pool_ids_clone = pool_ids.clone();
+                  async move {
+                     batch::validate_v4_pools(client, chain, pool_ids_clone).await
+                  }
+               }).await?;
 
                for valid_pool in &valid_pool_ids {
                   for pool in &pools {
@@ -901,7 +926,7 @@ impl PoolManagerHandle {
             Some(temp_to),
          );
 
-         let synced = sync_pools(client.clone(), config).await?;
+         let synced = sync_pools(client.clone(), config, 50_000).await?;
          let mut pool_len = 0;
 
          for res in synced {

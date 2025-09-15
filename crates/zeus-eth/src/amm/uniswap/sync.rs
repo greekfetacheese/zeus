@@ -111,45 +111,11 @@ impl SyncConfig {
    }
 }
 
-/// Sync pools from the given checkpoints
-pub async fn sync_from_checkpoint<P, N>(
-   client: P,
-   concurrency: usize,
-   batch_size: usize,
-   to_block: Option<u64>,
-   checkpoint: Checkpoint,
-) -> Result<Vec<SyncResult>, anyhow::Error>
-where
-   P: Provider<N> + Clone + 'static,
-   N: Network,
-{
-   let chain = client.get_chain_id().await?;
-
-   if checkpoint.chain_id != chain {
-      return Err(anyhow::anyhow!(
-         "Chain mismatch, Checkpoint is not for the given chain {}",
-         chain
-      ));
-   }
-
-   let config = SyncConfig::new(
-      checkpoint.chain_id,
-      vec![checkpoint.dex],
-      concurrency,
-      batch_size,
-      Some(checkpoint.block),
-      to_block,
-   );
-
-   let synced = sync_pools(client, config).await?;
-
-   Ok(synced)
-}
 
 /// Sync pools with the given configuration
 ///
 /// See [SyncConfig]
-pub async fn sync_pools<P, N>(client: P, config: SyncConfig) -> Result<Vec<SyncResult>, anyhow::Error>
+pub async fn sync_pools<P, N>(client: P, config: SyncConfig, block_range: u64) -> Result<Vec<SyncResult>, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -185,6 +151,7 @@ where
             config.concurrency,
             config.batch_size,
             config.from_block,
+            block_range,
          )
          .await?;
 
@@ -211,6 +178,7 @@ async fn do_sync_pools<P, N>(
    concurrency: usize,
    batch_size: usize,
    from_block: Option<u64>,
+   block_range: u64,
 ) -> Result<SyncResult, anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
@@ -248,11 +216,11 @@ where
 
    let logs = get_logs_for(
       client.clone(),
-      chain_id,
       vec![target_addr],
       events,
       from_block,
       concurrency,
+      block_range,
    )
    .await?;
 

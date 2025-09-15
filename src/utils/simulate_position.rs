@@ -124,11 +124,11 @@ where
 
    let logs = get_logs_for(
       client.clone(),
-      chain_id,
       vec![pool.address],
       events,
       fork_block_num,
       1,
+      50_000,
    )
    .await?;
 

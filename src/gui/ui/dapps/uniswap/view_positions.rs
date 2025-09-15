@@ -1233,11 +1233,11 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
 
    let logs = get_logs_for(
       client.clone(),
-      chain.id(),
       vec![nft_contract],
       events,
       from_block,
       1,
+      50_000,
    )
    .await?;
 
