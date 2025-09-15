@@ -594,9 +594,9 @@ impl PoolManagerHandle {
                   )
                   .await
                }
-            }).await;
+            }).await?;
 
-            if let Ok(pool) = pool_res {
+            if let Some(pool) = pool_res {
                trace!(
                   target: "zeus_eth::amm::pool_manager", "Got {} pool {} for {}-{} for Chain Id: {}",
                   dex.as_str(),

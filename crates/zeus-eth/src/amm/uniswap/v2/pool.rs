@@ -110,23 +110,25 @@ impl UniswapV2Pool {
    }
 
    /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
+   ///
+   /// Returns `None` if the pair does not exist
    pub async fn from<P, N>(
       client: P,
       chain_id: u64,
       token0: ERC20Token,
       token1: ERC20Token,
       dex: DexKind,
-   ) -> Result<Self, anyhow::Error>
+   ) -> Result<Option<Self>, anyhow::Error>
    where
       P: Provider<N> + Clone + 'static,
       N: Network,
    {
       let factory = dex.factory(chain_id)?;
       let address = v2::factory::get_pair(client, factory, token0.address, token1.address).await?;
-      if address.is_zero() {
-         bail!("Pair not found");
+      match address {
+         addr if addr.is_zero() => Ok(None),
+         addr => Ok(Some(Self::new(chain_id, addr, token0, token1, dex))),
       }
-      Ok(Self::new(chain_id, address, token0, token1, dex))
    }
 
    pub fn token0(&self) -> Cow<ERC20Token> {

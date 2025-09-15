@@ -158,6 +158,9 @@ pub struct Rpc {
    pub latency: Option<Duration>,
    /// Last time in UNIX timestamp we used this RPC
    pub last_used: u64,
+   /// Last time in UNIX timestamp this RPC failed to do a request
+   #[serde(default)]
+   pub last_failure: Option<u64>,
 }
 
 impl Rpc {
@@ -177,6 +180,7 @@ impl Rpc {
          mev_protect,
          latency: None,
          last_used: 0,
+         last_failure: None,
       }
    }
 
@@ -571,14 +575,30 @@ impl ZeusClient {
                if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
                   for rpc_mut in rpcs.iter_mut() {
                      if rpc_mut.url == rpc.url {
+                        rpc_mut.check.working = true;
                         rpc_mut.latency = Some(latency);
+                        break;
                      }
                   }
                }
             });
          }
          Err(e) => {
-            tracing::error!("Error testing RPC: {} {}", rpc.url, e);
+            tracing::error!(
+               "Error latency checking for RPC: {} {}",
+               rpc.url,
+               e
+            );
+            self.write(|rpcs| {
+               if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
+                  for rpc_mut in rpcs.iter_mut() {
+                     if rpc_mut.url == rpc.url {
+                        rpc_mut.check.working = false;
+                        break;
+                     }
+                  }
+               }
+            });
             return;
          }
       }
@@ -620,6 +640,7 @@ impl ZeusClient {
                      if rpc_mut.url == rpc.url {
                         rpc_mut.check = result.clone();
                         rpc_mut.latency = Some(latency);
+                        break;
                      }
                   }
                }
@@ -632,6 +653,7 @@ impl ZeusClient {
                   for rpc_mut in rpcs.iter_mut() {
                      if rpc_mut.url == rpc.url {
                         rpc_mut.check.working = false;
+                        break;
                      }
                   }
                }
@@ -703,14 +725,9 @@ impl ZeusClient {
       });
    }
 
-   /// Get the first available RPC for a chain
-   pub fn get_first_available(&self, chain: u64) -> Option<Rpc> {
-      self.read(|rpcs| rpcs.get(&chain)?.first().cloned())
-   }
-
    /// Is there any available RPC for a chain
    pub fn rpc_available(&self, chain: u64) -> bool {
-      self.get_first_available(chain).is_some()
+      self.get_best_rpc(chain).is_some()
    }
 
    pub fn rpc_archive_available(&self, chain: u64) -> bool {
@@ -736,18 +753,13 @@ impl ZeusClient {
    }
 
    pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
-      let (retry, throttle) = if rpc.is_default() {
-         (
-            retry_layer(
-               MAX_RETRIES,
-               INITIAL_BACKOFF,
-               COMPUTE_UNITS_PER_SECOND,
-            ),
-            throttle_layer(CLIENT_RPS),
-         )
-      } else {
-         (retry_layer(10, 300, 1000), throttle_layer(1000))
-      };
+      let retry = retry_layer(
+         MAX_RETRIES,
+         INITIAL_BACKOFF,
+         COMPUTE_UNITS_PER_SECOND,
+      );
+
+      let throttle = throttle_layer(CLIENT_RPS);
 
       get_client(&rpc.url, retry, throttle).await
    }
@@ -926,6 +938,67 @@ impl ZeusClient {
       }
    }
 
+   fn penalize(&self, chain: u64, rpc: &Rpc) {
+      let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+      self.write(|rpcs| {
+         if let Some(rpcs) = rpcs.get_mut(&chain) {
+            for r in rpcs.iter_mut() {
+               if r.url == rpc.url {
+                  r.last_failure = Some(now_ms);
+                  break;
+               }
+            }
+         }
+      });
+   }
+
+   /// Select the best RPC for the given chain
+   pub fn get_best_rpc(&self, chain: u64) -> Option<Rpc> {
+      let cooldown_ms: u64 = 1000 / CLIENT_RPS as u64;
+      let failure_penalty_max: u128 = 10_000;
+      let failure_decay_secs: u64 = 60;
+
+      self.write(|rpcs| {
+         let mut empty = Vec::new();
+         let rpcs = rpcs.get_mut(&chain).unwrap_or(&mut empty);
+         let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
+         let mut best_idx = None;
+         let mut best_score = u128::MAX;
+         for (idx, rpc) in rpcs.iter_mut().enumerate() {
+            if !rpc.is_enabled() || !rpc.is_working() {
+               continue;
+            }
+
+            let time_since_used = now_ms.saturating_sub(rpc.last_used);
+            let usage_penalty = cooldown_ms.saturating_sub(time_since_used) as u128;
+
+            let mut score = rpc.latency_ms() + usage_penalty;
+            if let Some(lf) = rpc.last_failure {
+               let time_since_fail = now_ms.saturating_sub(lf);
+               if time_since_fail < failure_decay_secs * 1000 {
+                  let remaining = (failure_decay_secs * 1000 - time_since_fail) as u128;
+                  let fail_penalty =
+                     failure_penalty_max * remaining / (failure_decay_secs as u128 * 1000);
+                  score += fail_penalty;
+               } else {
+                  rpc.last_failure = None;
+               }
+            }
+
+            if score < best_score {
+               best_score = score;
+               best_idx = Some(idx);
+            }
+         }
+         let Some(idx) = best_idx else {
+            return None;
+         };
+         rpcs[idx].last_used = now_ms;
+         let rpc = rpcs[idx].clone();
+         Some(rpc)
+      })
+   }
+
    /// Execute a request with automatic RPC selection, retries, and load balancing.
    ///
    /// The closure `f` receives a connected Provider (RpcClient) and returns a future with the result.
@@ -936,52 +1009,27 @@ impl ZeusClient {
       F: Fn(RpcClient) -> Fut,
       Fut: core::future::Future<Output = Result<R, anyhow::Error>>,
    {
-      let cooldown_ms: u64 = 1000 / CLIENT_RPS as u64;
       let mut attempts = 0;
       let start = Instant::now();
 
       while attempts < MAX_RETRIES as usize {
-         // Select best RPC: lowest effective latency (real + usage penalty)
-
-         let rpc = self.write(|rpcs| {
-            let mut empty = Vec::new();
-            let rpcs = rpcs.get_mut(&chain).unwrap_or(&mut empty);
-
-            let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-            let mut best_idx = None;
-            let mut best_score = u128::MAX;
-
-            for (idx, rpc) in rpcs.iter_mut().enumerate() {
-               if !rpc.is_enabled() || !rpc.is_working() {
-                  continue;
-               }
-
-               let time_since_used = now_ms.saturating_sub(rpc.last_used);
-               let penalty = cooldown_ms.saturating_sub(time_since_used) as u128;
-               let score = rpc.latency_ms() + penalty;
-               if score < best_score {
-                  best_score = score;
-                  best_idx = Some(idx);
-               }
-            }
-
-            let Some(idx) = best_idx else {
-               return None;
-            };
-
-            rpcs[idx].last_used = now_ms;
-            let rpc = rpcs[idx].clone();
-            Some(rpc)
-         });
+         let rpc = self.get_best_rpc(chain);
 
          let rpc = match rpc {
             Some(rpc) => rpc,
             None => {
-               return Err(anyhow!("No available RPCs for chain {}", chain));
+               attempts += 1;
+               sleep(Duration::from_millis(INITIAL_BACKOFF)).await;
+               continue;
             }
          };
 
-         // eprintln!("Selected RPC {} for chain {}", rpc.url, chain);
+         /*
+         eprintln!(
+            "Attempt {} to select RPC {} for chain {}",
+            attempts, rpc.url, chain
+         );
+         */
 
          // Connect and execute
          let client = match self.connect_to(&rpc).await {
@@ -990,6 +1038,7 @@ impl ZeusClient {
                tracing::warn!("Failed to connect to {}: {:?}", rpc.url, e);
                // Do not mark it as not working, could be a network issue
                attempts += 1;
+               self.penalize(chain, &rpc);
                continue;
             }
          };
@@ -997,12 +1046,10 @@ impl ZeusClient {
          match f(client).await {
             Ok(res) => return Ok(res),
             Err(e) => {
+               self.penalize(chain, &rpc);
                tracing::warn!("Request failed on {}: {:?}", rpc.url, e);
                attempts += 1;
-               // Exponential backoff (double each time, cap at 5s)
-               let backoff =
-                  Duration::from_millis(INITIAL_BACKOFF * 2u64.pow(attempts as u32 - 1).min(5000));
-               sleep(backoff).await;
+               sleep(Duration::from_millis(INITIAL_BACKOFF)).await;
             }
          }
 
@@ -1021,6 +1068,7 @@ impl ZeusClient {
 ///
 /// Others have a very low staticalll gas limit which cause the batch requests to fail
 pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow::Error> {
+   tracing::info!("Testing {}", rpc.url);
    let retry = retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -1122,6 +1170,12 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
 
    let guard = result.lock().unwrap();
    let result = guard.clone();
+
+   tracing::info!(
+      "Tested {} in {}secs",
+      rpc.url,
+      latency.as_secs_f32()
+   );
 
    Ok((latency, result))
 }
@@ -1240,7 +1294,7 @@ async fn v2_pool_reserves_check(
          }
          Err(e) => {
             batch_size -= 5;
-            tracing::trace!("V2 Reserves Check Error: {:?}", e);
+            tracing::warn!("V2 Reserves Check Error: {:?}", e);
          }
       }
    }
@@ -1306,7 +1360,7 @@ async fn v3_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
-            tracing::trace!("V3 State Check Error: {:?}", e);
+            tracing::warn!("V3 State Check Error: {:?}", e);
          }
       }
    }
@@ -1370,7 +1424,7 @@ async fn v4_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
-            tracing::trace!("V4 State Check Error: {:?}", e);
+            tracing::warn!("V4 State Check Error: {:?}", e);
          }
       }
    }
@@ -1430,7 +1484,7 @@ async fn validate_v4_pools_check(
          }
          Err(e) => {
             batch_size -= 5;
-            tracing::trace!("V4 Validate Pools Check Error: {:?}", e);
+            tracing::warn!("V4 Validate Pools Check Error: {:?}", e);
          }
       }
    }

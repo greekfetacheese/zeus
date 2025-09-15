@@ -153,11 +153,12 @@ impl NetworkSettings {
                      if res.inner.clicked() {
                         let z_client = ctx.get_zeus_client();
                         z_client.write(|z_client| {
-                           let rpcs = z_client.get_mut(&chain);
-                           if let Some(rpcs) = rpcs {
+                           let rpcs_opt = z_client.get_mut(&chain);
+                           if let Some(rpcs) = rpcs_opt {
                               for rpc_mut in rpcs.iter_mut() {
                                  if rpc_mut.url == rpc.url {
-                                    rpc_mut.enabled = !rpc.enabled;
+                                    rpc_mut.enabled = rpc.enabled;
+                                    break;
                                  }
                               }
                            }
