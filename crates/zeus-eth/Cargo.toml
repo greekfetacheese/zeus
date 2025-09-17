@@ -12,6 +12,7 @@ alloy-signer-local = "=1.0.30"
 alloy-signer = {version = "=1.0.30", features = ["eip712"]}
 
 alloy-rpc-types = "=1.0.30"
+alloy-json-rpc = "=1.0.30"
 alloy-contract = "=1.0.30"
 alloy-network = "=1.0.30"
 alloy-provider = {version = "=1.0.30", features = ["ws"]}
@@ -31,6 +32,7 @@ op-revm = "=10.0.0"
 rayon = "=1.11.0"
 tokio = {version = "=1.47.1", features = ["rt-multi-thread"]}
 futures = "=0.3.31"
+tower = "=0.5.2"
 
 uniswap_v3_math = { git = "https://github.com/greekfetacheese/uniswap-v3-math.git", branch = "main" }
 

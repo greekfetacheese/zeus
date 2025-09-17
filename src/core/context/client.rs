@@ -264,237 +264,103 @@ impl Default for ZeusClient {
       let not_mev_protect = false;
       let mev_protect = true;
 
+      let url1 = "wss://eth.merkle.io";
+      let url2 = "wss://ethereum-rpc.publicnode.com";
+      let url3 = "wss://mainnet.gateway.tenderly.co";
+      let url4 = "https://reth-ethereum.ithaca.xyz/rpc";
+      let url5 = "https://rpc.payload.de";
+      let url6 = "https://eth.merkle.io";
+      let url7 = "https://ethereum-rpc.publicnode.com";
+
+      let mev_url = "https://rpc.mevblocker.io";
+      let mev_url2 = "https://rpc.flashbots.net/fast";
+
       rpcs.insert(
          1,
          vec![
-            Rpc::new(
-               "wss://eth.merkle.io",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://ethereum-rpc.publicnode.com",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://mainnet.gateway.tenderly.co",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://reth-ethereum.ithaca.xyz/rpc",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://rpc.payload.de",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://eth.merkle.io",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://ethereum-rpc.publicnode.com",
-               1,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://rpc.mevblocker.io",
-               1,
-               true,
-               true,
-               mev_protect,
-            ),
-            Rpc::new(
-               "https://rpc.flashbots.net/fast",
-               1,
-               true,
-               true,
-               mev_protect,
-            ),
+            Rpc::new(url1, 1, true, true, not_mev_protect),
+            Rpc::new(url2, 1, true, true, not_mev_protect),
+            Rpc::new(url3, 1, true, true, not_mev_protect),
+            Rpc::new(url4, 1, true, true, not_mev_protect),
+            Rpc::new(url5, 1, true, true, not_mev_protect),
+            Rpc::new(url6, 1, true, true, not_mev_protect),
+            Rpc::new(url7, 1, true, true, not_mev_protect),
+            Rpc::new(mev_url, 1, true, true, mev_protect),
+            Rpc::new(mev_url2, 1, true, true, mev_protect),
          ],
       );
 
       // Chain ID 10: Optimism
 
+      let url = "wss://optimism.gateway.tenderly.co";
+      let url2 = "wss://optimism.drpc.org";
+      let url3 = "wss://optimism-rpc.publicnode.com";
+      let url4 = "https://mainnet.optimism.io";
+      let url5 = "https://optimism-rpc.publicnode.com";
+      let url6 = "https://optimism.drpc.org";
+
       rpcs.insert(
          10,
          vec![
-            Rpc::new(
-               "wss://optimism.gateway.tenderly.co",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://optimism.drpc.org",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://optimism-rpc.publicnode.com",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://mainnet.optimism.io",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://optimism-rpc.publicnode.com",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://optimism.drpc.org",
-               10,
-               true,
-               true,
-               not_mev_protect,
-            ),
+            Rpc::new(url, 10, true, true, not_mev_protect),
+            Rpc::new(url2, 10, true, true, not_mev_protect),
+            Rpc::new(url3, 10, true, true, not_mev_protect),
+            Rpc::new(url4, 10, true, true, not_mev_protect),
+            Rpc::new(url5, 10, true, true, not_mev_protect),
+            Rpc::new(url6, 10, true, true, not_mev_protect),
          ],
       );
 
       // Chain ID 56: BSC
 
+      let url = "wss://bsc-rpc.publicnode.com";
+      let url2 = "https://binance.llamarpc.com";
+      let url3 = "https://bsc-pokt.nodies.app";
+      let url4 = "https://api.zan.top/bsc-mainnet";
+
       rpcs.insert(
          56,
          vec![
-            Rpc::new(
-               "wss://bsc-rpc.publicnode.com",
-               56,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://binance.llamarpc.com",
-               56,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://bsc-pokt.nodies.app",
-               56,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://api.zan.top/bsc-mainnet",
-               56,
-               true,
-               true,
-               not_mev_protect,
-            ),
+            Rpc::new(url, 56, true, true, not_mev_protect),
+            Rpc::new(url2, 56, true, true, not_mev_protect),
+            Rpc::new(url3, 56, true, true, not_mev_protect),
+            Rpc::new(url4, 56, true, true, not_mev_protect),
          ],
       );
 
       // Chain ID 8453: Base
 
+      let url = "wss://base-rpc.publicnode.com";
+      let url2 = "wss://base.gateway.tenderly.co";
+      let url3 = "https://mainnet.base.org";
+      let url4 = "https://1rpc.io/base";
+      let url5 = "https://base-rpc.publicnode.com";
+
       rpcs.insert(
          8453,
          vec![
-            Rpc::new(
-               "wss://base-rpc.publicnode.com",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "wss://base.gateway.tenderly.co",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://mainnet.base.org",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://1rpc.io/base",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://base-rpc.publicnode.com",
-               8453,
-               true,
-               true,
-               not_mev_protect,
-            ),
+            Rpc::new(url, 8453, true, true, not_mev_protect),
+            Rpc::new(url2, 8453, true, true, not_mev_protect),
+            Rpc::new(url3, 8453, true, true, not_mev_protect),
+            Rpc::new(url4, 8453, true, true, not_mev_protect),
+            Rpc::new(url5, 8453, true, true, not_mev_protect),
          ],
       );
 
       // Chain ID 42161: Arbitrum
 
+      let url = "wss://arbitrum-one-rpc.publicnode.com";
+      let url2 = "https://arbitrum.meowrpc.com";
+      let url3 = "https://arb1.arbitrum.io/rpc";
+      let url4 = "https://1rpc.io/arb";
+
       rpcs.insert(
          42161,
          vec![
-            Rpc::new(
-               "wss://arbitrum-one-rpc.publicnode.com",
-               42161,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://arbitrum.meowrpc.com",
-               42161,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://arb1.arbitrum.io/rpc",
-               42161,
-               true,
-               true,
-               not_mev_protect,
-            ),
-            Rpc::new(
-               "https://1rpc.io/arb",
-               42161,
-               true,
-               true,
-               not_mev_protect,
-            ),
+            Rpc::new(url, 42161, true, true, not_mev_protect),
+            Rpc::new(url2, 42161, true, true, not_mev_protect),
+            Rpc::new(url3, 42161, true, true, not_mev_protect),
+            Rpc::new(url4, 42161, true, true, not_mev_protect),
          ],
       );
 
@@ -553,7 +419,13 @@ impl ZeusClient {
          COMPUTE_UNITS_PER_SECOND,
       );
       let throttle_layer = throttle_layer(CLIENT_RPS);
-      let client = get_client(&rpc.url, retry_layer, throttle_layer).await;
+      let client = get_client(
+         &rpc.url,
+         retry_layer,
+         throttle_layer,
+         REQUEST_TIMEOUT,
+      )
+      .await;
 
       let client = match client {
          Ok(client) => client,
@@ -761,7 +633,7 @@ impl ZeusClient {
 
       let throttle = throttle_layer(CLIENT_RPS);
 
-      get_client(&rpc.url, retry, throttle).await
+      get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -1076,7 +948,7 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    );
 
    let throttle = throttle_layer(CLIENT_RPS);
-   let client = get_client(&rpc.url, retry, throttle).await?;
+   let client = get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await?;
    let chain = rpc.chain_id;
 
    let time = std::time::Instant::now();

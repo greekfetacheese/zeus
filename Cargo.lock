@@ -8937,6 +8937,7 @@ version = "0.1.0"
 dependencies = [
  "alloy-contract",
  "alloy-dyn-abi",
+ "alloy-json-rpc",
  "alloy-network",
  "alloy-primitives",
  "alloy-provider",
@@ -8957,6 +8958,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.16",
  "tokio",
+ "tower",
  "tracing",
  "uniswap_v3_math",
  "url",

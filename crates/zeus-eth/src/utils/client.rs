@@ -1,16 +1,77 @@
 use alloy_contract::private::Ethereum;
+use alloy_json_rpc::{RequestPacket, ResponsePacket};
 use alloy_provider::{
    Identity, ProviderBuilder, RootProvider, WsConnect,
    fillers::{BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller},
 };
 use alloy_rpc_client::ClientBuilder;
-use alloy_transport::layers::{RetryBackoffLayer, ThrottleLayer};
+use alloy_transport::{
+   TransportError, TransportErrorKind,
+   layers::{RetryBackoffLayer, ThrottleLayer},
+};
+use tower::{BoxError, Layer, Service, timeout::Timeout};
 use url::Url;
+
+use std::{
+   future::Future,
+   pin::Pin,
+   task::{Context, Poll},
+   time::Duration,
+};
 
 pub type RpcClient = FillProvider<
    JoinFill<Identity, JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>>,
    RootProvider<Ethereum>,
 >;
+
+// Custom layer to apply timeout and map errors to TransportError
+#[derive(Clone, Copy, Debug)]
+struct CustomTimeoutLayer(Duration);
+
+impl CustomTimeoutLayer {
+   fn new(timeout: Duration) -> Self {
+      Self(timeout)
+   }
+}
+
+impl<S> Layer<S> for CustomTimeoutLayer
+where
+   S: Service<RequestPacket> + Send + 'static,
+   S::Future: Send + 'static,
+{
+   type Service = CustomTimeout<S>;
+
+   fn layer(&self, inner: S) -> Self::Service {
+      CustomTimeout(Timeout::new(inner, self.0))
+   }
+}
+
+#[derive(Clone, Debug)]
+struct CustomTimeout<S>(Timeout<S>);
+
+impl<S> Service<RequestPacket> for CustomTimeout<S>
+where
+   S: Service<RequestPacket, Response = ResponsePacket, Error = TransportError> + Send + 'static,
+   S::Future: Send + 'static,
+{
+   type Response = ResponsePacket;
+   type Error = TransportError;
+   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+   fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+      self.0.poll_ready(cx).map_err(map_timeout_error)
+   }
+
+   fn call(&mut self, req: RequestPacket) -> Self::Future {
+      let fut = self.0.call(req);
+      Box::pin(async move { fut.await.map_err(map_timeout_error) })
+   }
+}
+
+// Map BoxError (from Timeout) to TransportError
+fn map_timeout_error(e: BoxError) -> TransportError {
+   TransportErrorKind::custom_str(&format!("{:?}", e)).into()
+}
 
 pub fn retry_layer(
    max_rate_limit_retries: u32,
@@ -32,21 +93,23 @@ pub async fn get_client(
    url: &str,
    retry_layer: RetryBackoffLayer,
    throttle: ThrottleLayer,
+   timeout: u64,
 ) -> Result<RpcClient, anyhow::Error> {
    let is_ws = url.starts_with("ws");
    let url = Url::parse(url)?;
+   let timeout = Duration::from_secs(timeout);
+
+   let client_builder = ClientBuilder::default()
+      .layer(retry_layer)
+      .layer(throttle)
+      .layer(CustomTimeoutLayer::new(timeout));
+
    let client = if is_ws {
-      ClientBuilder::default()
-         .layer(retry_layer)
-         .layer(throttle)
-         .ws(WsConnect::new(url))
-         .await?
+      client_builder.ws(WsConnect::new(url)).await?
    } else {
-      ClientBuilder::default()
-         .layer(retry_layer)
-         .layer(throttle)
-         .http(url)
+      client_builder.http(url)
    };
+
    let client = ProviderBuilder::new().connect_client(client);
    Ok(client)
 }
@@ -105,7 +168,7 @@ mod tests {
       let retry = RetryBackoffLayer::new(10, 300, 330);
       let throttle = ThrottleLayer::new(2);
       let url = "https://eth.merkle.io";
-      let client = get_client(url, retry, throttle).await.unwrap();
+      let client = get_client(url, retry, throttle, 60).await.unwrap();
 
       let mut handles = Vec::new();
       for _ in 0..20 {
