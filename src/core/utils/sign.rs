@@ -133,13 +133,17 @@ impl Permit2Details {
          message["details"]["token"].as_str().ok_or(anyhow!("Missing token address"))?;
       let token_addr = Address::from_str(token_address)?;
 
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
 
       let token = if let Some(token) = cached {
          token
       } else {
-         let token = ERC20Token::new(client.clone(), token_addr, chain).await?;
+         let token = z_client
+            .request(chain, |client| async move {
+               ERC20Token::new(client, token_addr, chain).await
+            })
+            .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };

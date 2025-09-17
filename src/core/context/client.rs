@@ -639,51 +639,17 @@ impl ZeusClient {
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
       let time_passed = Instant::now();
       let timeout = Duration::from_secs(CLIENT_TIMEOUT);
-      let mut client = None;
 
-      while !self.rpc_available(chain) {
+      loop {
          if time_passed.elapsed() > timeout {
             return Err(anyhow!(
                "Failed to get client for chain {} Timeout exceeded",
                chain
             ));
          }
-         sleep(Duration::from_millis(100)).await;
-      }
 
-      let rpcs = self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec());
-
-      for rpc in &rpcs {
-         // prioritize fully functional RPCs
-         if !rpc.is_fully_functional() {
-            continue;
-         }
-
-         let c = match self.connect_to(rpc).await {
-            Ok(client) => client,
-            Err(e) => {
-               tracing::error!(
-                  "Error connecting to client using {} for chain {}: {:?}",
-                  rpc.url,
-                  chain,
-                  e
-               );
-               continue;
-            }
-         };
-
-         client = Some(c);
-         break;
-      }
-
-      if client.is_none() {
-         for rpc in &rpcs {
-            // skip them since we tried already
-            if rpc.is_fully_functional() {
-               continue;
-            }
-
-            let c = match self.connect_to(rpc).await {
+         if let Some(rpc) = self.get_best_rpc(chain) {
+            let c = match self.connect_to(&rpc).await {
                Ok(client) => client,
                Err(e) => {
                   tracing::error!(
@@ -692,18 +658,15 @@ impl ZeusClient {
                      chain,
                      e
                   );
+                  self.penalize(chain, &rpc);
+                  sleep(Duration::from_millis(100)).await;
                   continue;
                }
             };
-
-            client = Some(c);
-            break;
+            return Ok(c);
+         } else {
+            sleep(Duration::from_millis(100)).await;
          }
-      }
-
-      match client {
-         Some(client) => Ok(client),
-         None => Err(anyhow!("No clients found for chain {}", chain)),
       }
    }
 

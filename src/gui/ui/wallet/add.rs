@@ -148,7 +148,10 @@ impl ImportWallet {
             RT.spawn(async move {
                let manager = ctx.balance_manager();
                for chain in SUPPORTED_CHAINS {
-                  match manager.update_eth_balance(ctx.clone(), chain, vec![new_wallet_address]).await {
+                  match manager
+                     .update_eth_balance(ctx.clone(), chain, vec![new_wallet_address])
+                     .await
+                  {
                      Ok(_) => {}
                      Err(e) => {
                         tracing::error!("Failed to update ETH balance: {}", e);
@@ -502,7 +505,7 @@ impl AddWalletUi {
 }
 
 /// Still WIP
-/// 
+///
 /// If the user generates a lot of wallets the Ui can lag
 pub struct DiscoverChildWallets {
    open: bool,
@@ -950,9 +953,18 @@ async fn sync_wallets_balance(
       let addresses = addresses.clone();
 
       let task = RT.spawn(async move {
-         let client = ctx.get_client(chain).await?;
          let _permit = semaphore.acquire().await?;
-         let balances = batch::get_eth_balances(client.clone(), chain, None, addresses).await?;
+         let z_client = ctx.get_zeus_client();
+
+         let balances = z_client
+            .request(chain, |client| {
+               let addresses = addresses.clone();
+               async move {
+                  batch::get_eth_balances(client, chain, None, addresses).await
+               }
+            })
+            .await?;
+            
 
          let mut balance_map = SHARED_GUI.read(|gui| {
             gui.wallet_ui

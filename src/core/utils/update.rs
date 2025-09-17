@@ -352,24 +352,36 @@ async fn balance_update_interval(ctx: ZeusCtx) {
 }
 
 pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::Error> {
-   let client = ctx.get_client(chain).await?;
+   let z_client = ctx.get_zeus_client();
    let chain = ChainId::new(chain)?;
 
    if chain.is_ethereum() {
-      let block = client
-         .get_block(BlockId::latest())
-         .await?
-         .ok_or(anyhow!("Latest block not found"))?;
-      let base_fee = block.header.base_fee_per_gas.unwrap_or_default();
-      let next_base_fee = calculate_next_block_base_fee(block);
-      ctx.update_base_fee(chain.id(), base_fee, next_base_fee);
-      Ok(BaseFee::new(base_fee, next_base_fee))
-   } else {
-      let gas_price = client.get_gas_price().await?;
-      let fee: u64 = gas_price.try_into()?;
-      ctx.update_base_fee(chain.id(), fee, fee);
-      Ok(BaseFee::new(fee, fee))
+      let block = z_client
+         .request(chain.id(), |client| async move {
+            client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      if let Some(block) = block {
+         let base_fee = block.header.base_fee_per_gas.unwrap_or_default();
+         let next_base_fee = calculate_next_block_base_fee(block);
+         ctx.update_base_fee(chain.id(), base_fee, next_base_fee);
+
+         return Ok(BaseFee::new(base_fee, next_base_fee));
+      } else {
+         bail!("Latest block not found");
+      }
    }
+
+   let gas_price = z_client
+      .request(chain.id(), |client| async move {
+         client.get_gas_price().await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let fee: u64 = gas_price.try_into()?;
+   ctx.update_base_fee(chain.id(), fee, fee);
+   Ok(BaseFee::new(fee, fee))
 }
 
 pub async fn update_base_fee_interval(ctx: ZeusCtx) {
@@ -390,10 +402,15 @@ pub async fn update_base_fee_interval(ctx: ZeusCtx) {
 }
 
 pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client(chain).await?;
+   let z_client = ctx.get_zeus_client();
    let chain = ChainId::new(chain)?;
    if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
-      let fee = client.get_max_priority_fee_per_gas().await?;
+      let fee = z_client
+         .request(chain.id(), |client| async move {
+            client.get_max_priority_fee_per_gas().await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
       let fee_str = format_units(U256::from(fee), "gwei")?;
       let fee_value = NumericValue::parse_to_gwei(&fee_str);
       if fee_value.formatted() == "0" {

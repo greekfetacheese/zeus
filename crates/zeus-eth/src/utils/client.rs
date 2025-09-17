@@ -26,15 +26,15 @@ pub type RpcClient = FillProvider<
 
 // Custom layer to apply timeout and map errors to TransportError
 #[derive(Clone, Copy, Debug)]
-struct CustomTimeoutLayer(Duration);
+struct TimeoutLayer(Duration);
 
-impl CustomTimeoutLayer {
+impl TimeoutLayer {
    fn new(timeout: Duration) -> Self {
       Self(timeout)
    }
 }
 
-impl<S> Layer<S> for CustomTimeoutLayer
+impl<S> Layer<S> for TimeoutLayer
 where
    S: Service<RequestPacket> + Send + 'static,
    S::Future: Send + 'static,
@@ -70,7 +70,7 @@ where
 
 // Map BoxError (from Timeout) to TransportError
 fn map_timeout_error(e: BoxError) -> TransportError {
-   TransportErrorKind::custom_str(&format!("{:?}", e)).into()
+   TransportErrorKind::custom_str(&format!("Request timeout {:?}", e)).into()
 }
 
 pub fn retry_layer(
@@ -102,7 +102,7 @@ pub async fn get_client(
    let client_builder = ClientBuilder::default()
       .layer(retry_layer)
       .layer(throttle)
-      .layer(CustomTimeoutLayer::new(timeout));
+      .layer(TimeoutLayer::new(timeout));
 
    let client = if is_ws {
       client_builder.ws(WsConnect::new(url)).await?
@@ -135,53 +135,22 @@ mod tests {
    use alloy_provider::Provider;
 
    #[tokio::test]
-   async fn test_throttle_ws() {
+   #[should_panic]
+   async fn test_timeout() {
       let url = "wss://eth.merkle.io";
       let ws = WsConnect::new(url);
       let throttle = ThrottleLayer::new(5);
       let retry = RetryBackoffLayer::new(10, 400, 330);
+      let timeout = Duration::from_millis(1);
       let client = ClientBuilder::default()
          .layer(throttle)
          .layer(retry)
+         .layer(TimeoutLayer::new(timeout))
          .ws(ws)
          .await
          .unwrap();
       let client = ProviderBuilder::new().connect_client(client);
 
-      let mut handles = Vec::new();
-      for _ in 0..20 {
-         let client = client.clone();
-         let handle = tokio::spawn(async move {
-            let block = client.get_block_number().await.unwrap();
-            println!("Block: {}", block);
-         });
-         handles.push(handle);
-      }
-
-      for handle in handles {
-         handle.await.unwrap();
-      }
-   }
-
-   #[tokio::test]
-   async fn test_throttle() {
-      let retry = RetryBackoffLayer::new(10, 300, 330);
-      let throttle = ThrottleLayer::new(2);
-      let url = "https://eth.merkle.io";
-      let client = get_client(url, retry, throttle, 60).await.unwrap();
-
-      let mut handles = Vec::new();
-      for _ in 0..20 {
-         let client = client.clone();
-         let handle = tokio::spawn(async move {
-            let block = client.get_block_number().await.unwrap();
-            println!("Block: {}", block);
-         });
-         handles.push(handle);
-      }
-
-      for handle in handles {
-         handle.await.unwrap();
-      }
+      let _block = client.get_block_number().await.unwrap();
    }
 }

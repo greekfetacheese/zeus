@@ -714,8 +714,13 @@ async fn across_bridge(
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let mut from_block = None;
    if ctx.client_available(dest_chain.id()) {
-      let dest_client = ctx.get_client(dest_chain.id()).await?;
-      let block = dest_client.get_block_number().await;
+      let z_client = ctx.get_zeus_client();
+      let block = z_client
+         .request(dest_chain.id(), |client| async move {
+            client.get_block_number().await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await;
+
       if block.is_ok() {
          from_block = Some(block.unwrap());
       }
@@ -836,11 +841,20 @@ async fn wait_for_fill(
       .address(vec![target])
       .event(filled_relay_signature());
 
-   let dest_client = ctx.get_client(dest_chain.id()).await?;
+   let z_client = ctx.get_zeus_client();
 
    // Wait for the order to be filled at the destination chain
    while now.elapsed().as_secs() < deadline as u64 {
-      let logs = dest_client.get_logs(&filter).await?;
+      let logs = z_client
+         .request(dest_chain.id(), |client| {
+            let filter = filter.clone();
+            async move {
+               client.get_logs(&filter).await.map_err(|e| anyhow!("{:?}", e))
+            }
+         })
+         .await?;
+         
+
       for log in logs {
          if let Ok(decoded) = decode_filled_relay_log(log.data()) {
             tracing::debug!("Filled Relay Log Decoded: {:#?}", decoded);

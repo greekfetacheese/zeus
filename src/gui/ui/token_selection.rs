@@ -299,8 +299,12 @@ async fn get_erc20_token(
    owner: Address,
    token_address: Address,
 ) -> Result<ERC20Token, anyhow::Error> {
-   let client = ctx.get_client(chain).await?;
-   let token = ERC20Token::new(client.clone(), token_address, chain).await?;
+   let z_client = ctx.get_zeus_client();
+
+   let token = z_client.request(chain, |client| async move {
+      ERC20Token::new(client, token_address, chain).await
+   }).await?;
+
    let manager = ctx.balance_manager();
    manager
       .update_tokens_balance(ctx.clone(), chain, owner, vec![token.clone()])

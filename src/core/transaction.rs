@@ -450,10 +450,14 @@ impl BridgeParams {
       let input_token = if let Some(token) = input_cached {
          token
       } else {
-         let client = ctx.get_client(dest_chain).await?;
-         let token = ERC20Token::new(client.clone(), decoded.input_token, dest_chain).await?;
+         let z_client = ctx.get_zeus_client();
+         let token = z_client
+            .request(origin_chain, |client| async move {
+               ERC20Token::new(client, decoded.input_token, origin_chain).await
+            })
+            .await?;
          ctx.write(|ctx| {
-            ctx.currency_db.insert_currency(dest_chain, Currency::from(token.clone()))
+            ctx.currency_db.insert_currency(origin_chain, Currency::from(token.clone()))
          });
          ctx.save_currency_db();
          token
@@ -462,8 +466,12 @@ impl BridgeParams {
       let output_token = if let Some(token) = output_cached {
          token
       } else {
-         let client = ctx.get_client(dest_chain).await?;
-         let token = ERC20Token::new(client.clone(), decoded.output_token, dest_chain).await?;
+         let z_client = ctx.get_zeus_client();
+         let token = z_client
+            .request(dest_chain, |client| async move {
+               ERC20Token::new(client, decoded.output_token, dest_chain).await
+            })
+            .await?;
          ctx.write(|ctx| {
             ctx.currency_db.insert_currency(dest_chain, Currency::from(token.clone()))
          });
@@ -548,13 +556,17 @@ impl SwapParams {
          }
       };
 
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let cached = ctx.read(|ctx| ctx.pool_manager.get_v2_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached {
          pool
       } else {
-         let pool = UniswapV2Pool::from_address(client.clone(), chain, pool_address).await?;
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV2Pool::from_address(client, chain, pool_address).await
+            })
+            .await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
@@ -613,13 +625,17 @@ impl SwapParams {
          }
       };
 
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let cached = ctx.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, pool_address));
 
       let pool = if let Some(pool) = cached {
          pool
       } else {
-         let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV3Pool::from_address(client, chain, pool_address).await
+            })
+            .await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
@@ -812,12 +828,16 @@ impl ERC20TransferParams {
 
       let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_address));
 
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
 
       let token = if let Some(token) = cached {
          token
       } else {
-         let token = ERC20Token::new(client, token_address, chain).await?;
+         let token = z_client
+            .request(chain, |client| async move {
+               ERC20Token::new(client, token_address, chain).await
+            })
+            .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };
@@ -865,13 +885,17 @@ impl TokenApproveParams {
 
       let decoded = decoded.unwrap();
       let token_addr = token_addr.unwrap();
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let cached = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
 
       let token = if let Some(token) = cached {
          token
       } else {
-         let token = ERC20Token::new(client, token_addr, chain).await?;
+         let token = z_client
+            .request(chain, |client| async move {
+               ERC20Token::new(client, token_addr, chain).await
+            })
+            .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
          token
       };
@@ -1063,7 +1087,7 @@ impl UniswapPositionParams {
       from: Address,
       log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let mut collect_fees_log = None;
       let mut pool_address = None;
 
@@ -1085,7 +1109,11 @@ impl UniswapPositionParams {
       let pool = if let Some(pool) = cached_pool {
          pool
       } else {
-         let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV3Pool::from_address(client, chain, pool_address).await
+            })
+            .await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
@@ -1126,7 +1154,7 @@ impl UniswapPositionParams {
       from: Address,
       logs: &[Log],
    ) -> Result<Self, anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let mut decrease_liquidity_log = None;
       let mut burn_log = None;
       let mut pool_address = None;
@@ -1161,7 +1189,11 @@ impl UniswapPositionParams {
       let pool = if let Some(pool) = cached_pool {
          pool
       } else {
-         let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV3Pool::from_address(client, chain, pool_address).await
+            })
+            .await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
@@ -1201,7 +1233,7 @@ impl UniswapPositionParams {
       from: Address,
       logs: &[Log],
    ) -> Result<Self, anyhow::Error> {
-      let client = ctx.get_client(chain).await?;
+      let z_client = ctx.get_zeus_client();
       let mut add_liquidity_log = None;
       let mut mint_log = None;
       let mut pool_address = None;
@@ -1235,7 +1267,11 @@ impl UniswapPositionParams {
       let pool = if let Some(pool) = cached_pool {
          pool
       } else {
-         let pool = UniswapV3Pool::from_address(client, chain, pool_address).await?;
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV3Pool::from_address(client, chain, pool_address).await
+            })
+            .await?;
          let pool = AnyUniswapPool::from_pool(pool);
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));

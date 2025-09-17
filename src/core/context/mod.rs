@@ -751,8 +751,12 @@ impl ZeusCtx {
          }
       }
 
-      let client = self.get_client(chain.id()).await?;
-      let block = client.get_block(BlockId::latest()).await?;
+      let z_client = self.get_zeus_client();
+      let block = z_client
+         .request(chain.id(), |client| async move {
+            client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
 
       if let Some(block) = block {
          let block = Block::new(block.header.number, block.header.timestamp);
