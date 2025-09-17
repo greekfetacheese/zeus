@@ -99,7 +99,7 @@ impl Currency {
    ///
    /// If it's a `NativeCurrency`, we convert it to it's `ERC20Token` version
    /// for example ETH will become WETH
-   pub fn to_erc20(&self) -> Cow<ERC20Token> {
+   pub fn to_erc20(&self) -> Cow<'_, ERC20Token> {
       match self {
          Currency::ERC20(erc20) => Cow::Borrowed(erc20),
          Currency::Native(_) => Cow::Owned(self.to_wrapped_native()),

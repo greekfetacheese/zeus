@@ -149,19 +149,19 @@ impl UniswapV3Pool {
       Ok(Self::new(chain_id, address, fee, token0, token1, dex))
    }
 
-   pub fn token0(&self) -> Cow<ERC20Token> {
+   pub fn token0(&self) -> Cow<'_, ERC20Token> {
       self.currency0.to_erc20()
    }
 
-   pub fn token1(&self) -> Cow<ERC20Token> {
+   pub fn token1(&self) -> Cow<'_, ERC20Token> {
       self.currency1.to_erc20()
    }
 
-   pub fn base_token(&self) -> Cow<ERC20Token> {
+   pub fn base_token(&self) -> Cow<'_, ERC20Token> {
       self.base_currency().to_erc20()
    }
 
-   pub fn quote_token(&self) -> Cow<ERC20Token> {
+   pub fn quote_token(&self) -> Cow<'_, ERC20Token> {
       self.quote_currency().to_erc20()
    }
 
