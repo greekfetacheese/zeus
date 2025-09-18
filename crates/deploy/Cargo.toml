@@ -1,0 +1,9 @@
+[package]
+name = "deploy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zeus-eth = { path = "../zeus-eth" }
+anyhow = "=1.0.99"
+tokio = { version = "=1.47.1", features = ["rt-multi-thread"] }
