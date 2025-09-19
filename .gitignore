@@ -2,9 +2,5 @@
 /data
 /logs
 /releases
-/crates/zeus-token-list/ethereum.zip
-/crates/zeus-token-list/base.zip
-/crates/zeus-token-list/optimism.zip
-/crates/zeus-token-list/arbitrum.zip
-/crates/zeus-token-list/binance.zip
+/crates/zeus-token-list/token_data
 scc.exe
