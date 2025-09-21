@@ -142,9 +142,11 @@ impl PriceManagerHandle {
          }
       }
 
-      let _p = pool_manager
-         ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
-         .await?;
+      if !pools_to_update.is_empty() {
+         let _p = pool_manager
+            ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
+            .await?;
+      }
 
       // Search again for good pools if the current good pool liquidity has dropped below the minimum
       let mut tokens_need_new_pool = Vec::new();
@@ -263,9 +265,13 @@ impl PriceManagerHandle {
             }
          }
 
-         let updated_pools = pool_manager
-            ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
-            .await?;
+         let updated_pools = if !pools_to_update.is_empty() {
+            pool_manager
+               ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
+               .await?
+         } else {
+            Vec::new()
+         };
 
          for pool in pools.iter_mut() {
             for updated_pool in &updated_pools {

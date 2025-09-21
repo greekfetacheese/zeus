@@ -1,20 +1,21 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::{sync::Semaphore, task::JoinHandle};
-use tracing::{info, trace};
+use tokio::{sync::{Mutex, Semaphore}, task::JoinHandle};
+use tracing::{info, error, trace};
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::core::{context::pool_data_dir, serde_hashmap, ZeusCtx, utils::RT};
 use zeus_eth::{
+   abi::zeus::ZeusStateView,
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, PoolID, UniswapPool, UniswapV2Pool,
-      UniswapV3Pool, state::*, sync::*, v4::pool::MAX_FEE,
+      UniswapV3Pool, state::{V3PoolState, State}, sync::*, v4::pool::MAX_FEE,
    },
    currency::{Currency, NativeCurrency, ERC20Token},
    types::*,
@@ -302,65 +303,16 @@ impl PoolManagerHandle {
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_zeus_client();
 
-      let pools = if pools.len() > 100 {
-         let semaphore = Arc::new(Semaphore::new(concurrency));
-         let pools_arc = Arc::new(Mutex::new(Vec::new()));
-         let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-
-         for chunk in pools.chunks(100) {
-            let semaphore = semaphore.clone();
-            let client = client.clone();
-            let pools_arc = pools_arc.clone();
-            let chunk = chunk.to_vec();
-
-            let task = RT.spawn(async move {
-               let _permit = semaphore.acquire().await?;
-
-            let updated_pools = client.request(chain, |client| {
-               let pools_clone = chunk.clone();
-               async move {
-                  batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
-                     .await
-               }
-            }).await?;
-
-            let mut guard = pools_arc.lock().unwrap();
-            for pool in updated_pools {
-               guard.push(pool);
-            }
-
-            Ok(())
-         });
-
-         tasks.push(task);
-      }
-
-      for task in tasks {
-         match task.await {
-            Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
-         }
-      }
-         pools_arc.lock().unwrap().clone()
-      } else {
-         client.request(chain, |client| {
-            let pools_clone = pools.clone();
-            async move {
-               batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
-                  .await
-            }
-         }).await?
-      };
+      let updated_pools = batch_update_state(ctx.clone(), chain, concurrency, batch_size, pools).await?;
 
       self.write(|manager| {
-         for pool in &pools {
+         for pool in &updated_pools {
             manager.add_pool(pool.clone());
          }
       });
 
-      Ok(pools)
+      Ok(updated_pools)
    }
 
    /// Update the state for the given pools
@@ -1431,6 +1383,218 @@ impl PoolManager {
       }
    }
 }
+
+
+/// Update the state of all the pools for the given chain
+///
+/// Supports V2, V3 & V4 pools
+///
+/// Returns the pools with updated state
+async fn batch_update_state(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   concurrency: usize,
+   batch_size: usize,
+   mut pools: Vec<AnyUniswapPool>,
+) -> Result<Vec<AnyUniswapPool>, anyhow::Error>
+{
+   let v2_addresses: Vec<Address> = pools
+      .iter()
+      .filter(|p| p.dex_kind().is_v2() && p.chain_id() == chain_id)
+      .map(|p| p.address())
+      .collect();
+
+   info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V2 pools ChainId {}", v2_addresses.len(), chain_id);
+   let v2_reserves = Arc::new(Mutex::new(Vec::new()));
+   let mut v2_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+   let semaphore = Arc::new(Semaphore::new(concurrency));
+   let client = ctx.get_zeus_client();
+
+   for chunk in v2_addresses.chunks(batch_size) {
+      let client = client.clone();
+      let chunk_clone = chunk.to_vec();
+      let semaphore = semaphore.clone();
+      let v2_reserves = v2_reserves.clone();
+      let client = client.clone();
+
+      let task = tokio::spawn(async move {
+         let _permit = semaphore.acquire_owned().await?;
+         let res = client.request(chain_id, |client| {
+            let chunk_clone = chunk_clone.clone();
+            async move {
+               batch::get_v2_reserves(client.clone(), chain_id, chunk_clone).await
+            }
+         }).await;
+
+         match res {
+               Ok(data) => {
+               v2_reserves.lock().await.extend(data);
+            }
+            Err(e) => {
+               error!(target: "zeus_eth::amm::uniswap::state","Error fetching v2 pool reserves: (ChainId {}): {:?}", chain_id, e);
+            }
+         }
+         Ok(())
+      });
+      v2_tasks.push(task);
+   }
+
+   let v3_data = Arc::new(Mutex::new(Vec::new()));
+   let mut v3_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+   let mut v3_pool_info = Vec::new();
+
+   for pool in &pools {
+      if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
+         v3_pool_info.push(ZeusStateView::V3Pool {
+            addr: pool.address(),
+            tokenA: pool.currency0().address(),
+            tokenB: pool.currency1().address(),
+            fee: pool.fee().fee_u24(),
+         });
+      }
+   }
+
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V3 pools ChainId {}", v3_pool_info.len(), chain_id);
+   for pool in v3_pool_info.chunks(batch_size) {
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      let v3_data = v3_data.clone();
+      let pool_chunk = pool.to_vec();
+      let client = client.clone();
+
+      let task = tokio::spawn(async move {
+         let _permit = semaphore.acquire_owned().await.unwrap();
+         let res = client.request(chain_id, |client| {
+            let pool_chunk = pool_chunk.clone();
+            async move {
+               batch::get_v3_state(client.clone(), chain_id, pool_chunk).await
+               }
+         }).await;
+
+         match res {
+               Ok(data) => {
+               v3_data.lock().await.extend(data);
+            }
+            Err(e) => {
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v3 pool data (ChainId {}): {:?}", chain_id, e);
+            }
+         }
+         Ok(())
+      });
+      v3_tasks.push(task);
+   }
+
+   let v4_data = Arc::new(Mutex::new(Vec::new()));
+   let mut v4_tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+   let mut v4_pool_info = Vec::new();
+
+   for pool in &pools {
+      if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
+         v4_pool_info.push(ZeusStateView::V4Pool {
+            pool: pool.id(),
+            tickSpacing: pool.fee().tick_spacing(),
+         });
+      }
+   }
+
+   tracing::info!(target: "zeus_eth::amm::uniswap::state", "Batch request for {} V4 pools ChainId {}", v4_pool_info.len(), chain_id);
+   for pool in v4_pool_info.chunks(batch_size) {
+      let client = client.clone();
+      let semaphore = semaphore.clone();
+      let v4_data = v4_data.clone();
+      let pool_chunk = pool.to_vec();
+      let client = client.clone();
+
+      let task = tokio::spawn(async move {
+         let _permit = semaphore.acquire_owned().await.unwrap();
+         let res = client.request(chain_id, |client| {
+            let pool_chunk = pool_chunk.clone();
+            async move {
+               batch::get_v4_pool_state(client.clone(), chain_id, pool_chunk).await
+               }
+         }).await;
+
+         match res {
+            Ok(data) => {
+               v4_data.lock().await.extend(data);
+            }
+            Err(e) => {
+               tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data (ChainId {}): {:?}", chain_id, e);
+            }
+         }
+
+         Ok(())
+      });
+      v4_tasks.push(task);
+   }
+
+   for task in v2_tasks {
+      if let Err(e) = task.await? {
+         tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v2 pool reserves: {:?}", e);
+      }
+   }
+
+   for task in v3_tasks {
+      if let Err(e) = task.await? {
+         tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v3 pool data: {:?}", e);
+      }
+   }
+
+   for task in v4_tasks {
+      if let Err(e) = task.await? {
+         tracing::error!(target: "zeus_eth::amm::uniswap::state","Error fetching v4 pool data: {:?}", e);
+      }
+   }
+
+   let v2_reserves = Arc::try_unwrap(v2_reserves).unwrap().into_inner();
+   let v3_pool_data = Arc::try_unwrap(v3_data).unwrap().into_inner();
+   let v4_pool_data = Arc::try_unwrap(v4_data).unwrap().into_inner();
+
+   // update the state of the pools
+   for pool in pools.iter_mut() {
+      if pool.dex_kind().is_v2() && pool.chain_id() == chain_id {
+         for data in &v2_reserves {
+            if data.pool == pool.address() {
+               pool.set_state(State::v2(data.clone().into()));
+            }
+         }
+      }
+
+      if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
+         for data in &v3_pool_data {
+            if data.pool == pool.address() {
+               let state = V3PoolState::new(data.clone(), pool.fee().tick_spacing(), None)?;
+               pool.set_state(State::v3(state));
+               pool.v3_mut(|pool| {
+                  pool.liquidity_amount0 = data.tokenABalance;
+                  pool.liquidity_amount1 = data.tokenBBalance;
+               });
+            }
+         }
+      }
+
+      if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
+         for data in &v4_pool_data {
+            if data.pool == pool.id() {
+               let state = V3PoolState::for_v4(pool, data.clone())?;
+               pool.set_state(State::v3(state));
+               match pool.compute_virtual_reserves() {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!(target: "zeus_eth::amm::uniswap::state","Error computing virtual reserves for pool {} / {} ID: {} {:?}",
+                      pool.currency0().symbol(),
+                       pool.currency1().symbol(),
+                        pool.id(), e);
+                  }
+               }
+            }
+         }
+      }
+   }
+
+   Ok(pools)
+}
+
 
 
 
