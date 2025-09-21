@@ -339,10 +339,8 @@ async fn get_erc20_token(
       match pool_manager
          .sync_pools_for_tokens(
             ctx_clone.clone(),
-            chain,
             vec![token_clone.clone()],
             dex,
-            false,
          )
          .await
       {

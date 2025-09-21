@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Semaphore, task::JoinHandle};
-use tracing::trace;
+use tracing::{info, trace};
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
 use crate::core::{context::pool_data_dir, serde_hashmap, ZeusCtx, utils::RT};
@@ -271,31 +271,7 @@ impl PoolManagerHandle {
          }
       }
 
-      let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_zeus_client();
-
-      let pools = client.request(chain, |client| {
-         let pools_clone = pools_to_update.clone();
-         async move {
-            batch_update_state(
-               client.clone(),
-               chain,
-               concurrency,
-               batch_size,
-               pools_clone,
-            )
-            .await
-         }
-      })
-      .await?;
-      
-
-      self.write(|manager| {
-         for pool in pools {
-            manager.add_pool(pool.clone());
-         }
-      });
+      let _p = self._update_state_for_pools(ctx.clone(), chain, pools_to_update).await?;
 
       let tokens = currencies.iter().map(|c| c.to_erc20().into_owned()).collect();
       let price_manager = ctx.price_manager();
@@ -307,26 +283,84 @@ impl PoolManagerHandle {
    /// Update the state of the manager for the given chain
    pub async fn update(&self, ctx: ZeusCtx, chain_id: u64) -> Result<(), anyhow::Error> {
       let pools = self.get_pools_for_chain(chain_id);
-      let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_zeus_client();
-
-      let pools = client.request(chain_id, |client| {
-         let pools_clone = pools.clone();
-         async move {
-            batch_update_state(client.clone(), chain_id, concurrency, batch_size, pools_clone)
-               .await
-         }
-      })
-      .await?;
+      let updated_pools = self.update_state_for_pools(ctx.clone(), chain_id, pools).await?;
 
       self.write(|manager| {
-         for pool in pools {
+         for pool in updated_pools {
             manager.add_pool(pool);
          }
       });
 
       Ok(())
+   }
+
+   pub(crate) async fn _update_state_for_pools(
+      &self,
+      ctx: ZeusCtx,
+      chain: u64,
+      pools: Vec<AnyUniswapPool>,
+   ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
+      let concurrency = self.read(|manager| manager.concurrency);
+      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
+      let client = ctx.get_zeus_client();
+
+      let pools = if pools.len() > 100 {
+         let semaphore = Arc::new(Semaphore::new(concurrency));
+         let pools_arc = Arc::new(Mutex::new(Vec::new()));
+         let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+
+         for chunk in pools.chunks(100) {
+            let semaphore = semaphore.clone();
+            let client = client.clone();
+            let pools_arc = pools_arc.clone();
+            let chunk = chunk.to_vec();
+
+            let task = RT.spawn(async move {
+               let _permit = semaphore.acquire().await?;
+
+            let updated_pools = client.request(chain, |client| {
+               let pools_clone = chunk.clone();
+               async move {
+                  batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
+                     .await
+               }
+            }).await?;
+
+            let mut guard = pools_arc.lock().unwrap();
+            for pool in updated_pools {
+               guard.push(pool);
+            }
+
+            Ok(())
+         });
+
+         tasks.push(task);
+      }
+
+      for task in tasks {
+         match task.await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+         }
+      }
+         pools_arc.lock().unwrap().clone()
+      } else {
+         client.request(chain, |client| {
+            let pools_clone = pools.clone();
+            async move {
+               batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
+                  .await
+            }
+         }).await?
+      };
+
+      self.write(|manager| {
+         for pool in &pools {
+            manager.add_pool(pool.clone());
+         }
+      });
+
+      Ok(pools)
    }
 
    /// Update the state for the given pools
@@ -339,25 +373,8 @@ impl PoolManagerHandle {
       chain: u64,
       pools: Vec<AnyUniswapPool>,
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
-      let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
-      let client = ctx.get_zeus_client();
-
-      // TODO: For large number of pools split the requests into multiple batches
-
-      let pools = client.request(chain, |client| {
-         let pools_clone = pools.clone();
-         async move {
-            batch_update_state(client.clone(), chain, concurrency, batch_size, pools_clone)
-               .await
-         }
-      }).await?;
-
-      self.write(|manager| {
-         for pool in &pools {
-            manager.add_pool(pool.clone());
-         }
-      });
+      
+      let pools = self._update_state_for_pools(ctx.clone(), chain, pools).await?;
 
       // ignore on tests
       if !cfg!(test) {
@@ -486,38 +503,60 @@ impl PoolManagerHandle {
    /// - The token's chain id
    /// - The [DexKind]
    /// - Base Tokens [ERC20Token::base_tokens()]
-   ///
-   /// `sync_v4` whether to sync v4 pools or not (`Archive node required)`
    pub async fn sync_pools_for_tokens(
       &self,
       ctx: ZeusCtx,
-      chain: u64,
       tokens: Vec<ERC20Token>,
       dex_kinds: Vec<DexKind>,
-      sync_v4: bool,
    ) -> Result<(), anyhow::Error> {
       if tokens.is_empty() {
          return Ok(());
       }
       
+      let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
+      let semaphore = Arc::new(Semaphore::new(self.concurrency()));
+
+      let token_len = tokens.len();
+      let chain = tokens[0].chain_id;
+
       for token in tokens {
-         self
+         let semaphore = semaphore.clone();
+         let ctx = ctx.clone();
+         let manager = self.clone();
+         let dex_kinds = dex_kinds.clone();
+         let token = token.clone();
+
+         let task = RT.spawn(async move {
+            let _permit = semaphore.acquire().await?;
+
+         manager
             .sync_v2_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
             .await?;
 
-         self
+         manager
             .sync_v3_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
             .await?;
 
-         self
+         manager
             .sync_v4_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
             .await?;
+         
+
+         Ok(())
+         });
+         tasks.push(task);
       }
 
-      if sync_v4 {
-         let dex = DexKind::UniswapV4;
-         trace!(target: "zeus_eth::amm::pool_manager", "Syncing V4 pools for chain {}", chain);
-         self.sync_pools(ctx.clone(), chain.into(), dex, None).await?;
+      let mut synced = 0;
+
+      for task in tasks {
+         match task.await {
+            Ok(_) => {
+               synced += 1;
+               info!("Synced Token Pool Data {} out of {} tokens Chain {}", synced, token_len, chain);
+            }
+            Err(e) => tracing::error!("Error syncing pools: {:?}", e),
+         }
       }
 
       Ok(())
@@ -577,6 +616,7 @@ impl PoolManagerHandle {
                &currency_a,
                &currency_b,
             );
+
             if cached_pool.is_some() {
                continue;
             }

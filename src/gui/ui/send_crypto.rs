@@ -453,7 +453,7 @@ fn value(
             });
 
             match manager
-               .sync_pools_for_tokens(ctx.clone(), chain_id, vec![token], dexes, false)
+               .sync_pools_for_tokens(ctx.clone(), vec![token], dexes)
                .await
             {
                Ok(_) => {}

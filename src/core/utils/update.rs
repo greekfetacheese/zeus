@@ -474,7 +474,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          let pool_manager = ctx.pool_manager();
 
          match pool_manager
-            .sync_pools_for_tokens(ctx.clone(), chain, tokens, dexes, false)
+            .sync_pools_for_tokens(ctx.clone(), tokens, dexes)
             .await
          {
             Ok(_) => {}

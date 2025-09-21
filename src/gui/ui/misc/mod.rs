@@ -898,7 +898,7 @@ impl PortfolioUi {
          let dex = DexKind::main_dexes(chain);
 
          match pool_manager
-            .sync_pools_for_tokens(ctx.clone(), chain, tokens.clone(), dex, false)
+            .sync_pools_for_tokens(ctx.clone(), tokens.clone(), dex)
             .await
          {
             Ok(_) => {}
@@ -972,7 +972,6 @@ impl PortfolioUi {
          return;
       }
 
-      let chain = ctx.chain().id();
       let manager = ctx.pool_manager();
       let ctx_clone = ctx.clone();
       let dex_kinds = DexKind::main_dexes(chain_id);
@@ -981,10 +980,8 @@ impl PortfolioUi {
          match manager
             .sync_pools_for_tokens(
                ctx_clone.clone(),
-               chain,
                vec![token.clone()],
                dex_kinds,
-               false,
             )
             .await
          {

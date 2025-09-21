@@ -8,11 +8,21 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    types::{ARBITRUM, BASE, BSC, ETH, OPTIMISM},
 };
-use zeus_token_list::{TOKEN_DATA, TokenData};
 
-use bincode::{config::standard, decode_from_slice};
+use bincode::{Encode, Decode, config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "currencies.json";
+pub const TOKENS: &[u8] = include_bytes!("../../../../token_data.data");
+
+#[derive(Clone, Encode, Decode)]
+pub struct TokenData {
+   pub chain_id: u64,
+   pub address: String,
+   pub name: String,
+   pub symbol: String,
+   pub decimals: u8,
+   pub icon_data: Vec<u8>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrencyDB {
@@ -136,7 +146,7 @@ impl CurrencyDB {
 
       // Load the default token list
       let (default_tokens, _bytes_read): (Vec<TokenData>, usize) =
-         decode_from_slice(TOKEN_DATA, standard())?;
+         decode_from_slice(TOKENS, standard())?;
 
       let weth = ERC20Token::weth();
       let dai = ERC20Token::dai();

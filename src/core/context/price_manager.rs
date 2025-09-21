@@ -11,7 +11,7 @@ use crate::core::{
 };
 use zeus_eth::{
    alloy_primitives::{Address, B256},
-   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool, state::batch_update_state},
+   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
    currency::{Currency, ERC20Token},
    utils::{NumericValue, price_feed::get_base_token_price},
 };
@@ -142,13 +142,8 @@ impl PriceManagerHandle {
          }
       }
 
-      self
-         .update_state_for_pools(
-            ctx.clone(),
-            chain,
-            pool_manager.clone(),
-            pools_to_update,
-         )
+      let _p = pool_manager
+         ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
          .await?;
 
       // Search again for good pools if the current good pool liquidity has dropped below the minimum
@@ -193,13 +188,7 @@ impl PriceManagerHandle {
 
       let dexes = DexKind::main_dexes(chain);
       match pool_manager
-         .sync_pools_for_tokens(
-            ctx.clone(),
-            chain,
-            tokens_without_pool.clone(),
-            dexes,
-            false,
-         )
+         .sync_pools_for_tokens(ctx.clone(), tokens_without_pool.clone(), dexes)
          .await
       {
          Ok(_) => {}
@@ -274,8 +263,8 @@ impl PriceManagerHandle {
             }
          }
 
-         let updated_pools = self
-            .update_state_for_pools(ctx.clone(), chain, pool_manager, pools_to_update)
+         let updated_pools = pool_manager
+            ._update_state_for_pools(ctx.clone(), chain, pools_to_update)
             .await?;
 
          for pool in pools.iter_mut() {
@@ -324,38 +313,6 @@ impl PriceManagerHandle {
       Ok(())
    }
 
-   async fn update_state_for_pools(
-      &self,
-      ctx: ZeusCtx,
-      chain: u64,
-      pool_manager: PoolManagerHandle,
-      pools: Vec<AnyUniswapPool>,
-   ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
-      if pools.is_empty() {
-         return Ok(Vec::new());
-      }
-
-      let concurrency = pool_manager.concurrency();
-      let batch_size = pool_manager.batch_size_for_updating_pools_state();
-      let client = ctx.get_zeus_client();
-
-      let pools = client.request(chain, |client| {
-         let pools_clone = pools.clone();
-         async move {
-            batch_update_state(client, chain, concurrency, batch_size, pools_clone)
-               .await
-         }
-      }).await?;
-
-      pool_manager.write(|manager| {
-         for pool in &pools {
-            manager.add_pool(pool.clone());
-         }
-      });
-
-      Ok(pools)
-   }
-
    pub async fn update_base_token_prices(
       &self,
       ctx: ZeusCtx,
@@ -370,13 +327,13 @@ impl PriceManagerHandle {
       for token in tokens {
          let client = client.clone();
          let new_prices = new_prices.clone();
-         
+
          let task = RT.spawn(async move {
-            let price = client.request(chain, |client| {
-               async move {
+            let price = client
+               .request(chain, |client| async move {
                   get_base_token_price(client, chain, token.address, None).await
-               }
-            }).await?;
+               })
+               .await?;
             let mut new_prices = new_prices.lock().unwrap();
             new_prices.insert((chain, token.address), price);
             Ok(())

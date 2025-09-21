@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/egui-theme", "crates/zeus-token-list", "crates/zeus-eth", "crates/egui-widgets", "crates/tests", "crates/deploy"]
+members = ["crates/egui-theme", "crates/zeus-eth", "crates/egui-widgets", "crates/tests", "crates/deploy"]
 
 [package]
 name = "zeus"
@@ -23,7 +23,6 @@ wgpu = "25"
 
 # Zeus Crates
 zeus-eth = { path = "crates/zeus-eth" }
-zeus-token-list = { path = "crates/zeus-token-list" }
 egui-theme = { path = "crates/egui-theme", features = ["serde"]}
 
 # Alloy

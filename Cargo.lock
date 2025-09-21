@@ -8937,7 +8937,6 @@ dependencies = [
  "warp",
  "wgpu",
  "zeus-eth",
- "zeus-token-list",
 ]
 
 [[package]]
@@ -8971,18 +8970,6 @@ dependencies = [
  "tracing",
  "uniswap_v3_math",
  "url",
-]
-
-[[package]]
-name = "zeus-token-list"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "anyhow",
- "bincode",
- "image",
- "serde",
- "serde_json",
 ]
 
 [[package]]

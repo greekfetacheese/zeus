@@ -9,7 +9,7 @@ use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
-use zeus_token_list::*;
+use crate::core::context::db::currencies::{TokenData, TOKENS};
 
 use bincode::{config::standard, decode_from_slice};
 
@@ -66,7 +66,7 @@ impl Default for TokenIcons {
 impl TokenIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
-         decode_from_slice(TOKEN_DATA, standard())?;
+         decode_from_slice(TOKENS, standard())?;
 
       let mut icons = HashMap::new();
 

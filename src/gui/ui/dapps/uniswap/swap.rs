@@ -717,10 +717,8 @@ impl SwapUi {
          match pool_manager
             .sync_pools_for_tokens(
                ctx_clone.clone(),
-               chain_id,
                vec![token_out.clone()],
                dex,
-               false,
             )
             .await
          {
