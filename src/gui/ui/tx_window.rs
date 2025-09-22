@@ -6,14 +6,15 @@ use egui_theme::Theme;
 use egui_widgets::Label;
 
 use crate::assets::icons::Icons;
+use super::{address, chain, eth_received, contract_interact, tx_cost, tx_hash, value};
 use crate::core::{
    TransactionRich, ZeusCtx,
    transaction::*,
    tx_analysis::TransactionAnalysis,
-   utils::{estimate_tx_cost, truncate_address, truncate_hash},
+   utils::estimate_tx_cost,
 };
 use zeus_eth::{
-   alloy_primitives::{Address, TxHash, U256},
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
    types::ChainId,
    utils::NumericValue,
@@ -224,8 +225,8 @@ impl TxConfirmationWindow {
                   // Tx details
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
-                        chain_ui(self.chain, theme, icons.clone(), ui);
-                        address_ui(
+                        chain(self.chain, theme, icons.clone(), ui);
+                        address(
                            ctx.clone(),
                            self.chain,
                            "Sender",
@@ -255,7 +256,7 @@ impl TxConfirmationWindow {
                         );
 
                         // Transaction cost
-                        transaction_cost(
+                        tx_cost(
                            self.chain,
                            &self.tx_cost,
                            &self.tx_cost_usd,
@@ -511,7 +512,7 @@ impl TxWindow {
 
                   let tx = self.tx.as_ref().unwrap();
                   let action = &tx.action;
-                  let chain: ChainId = tx.chain.into();
+                  let chain_id: ChainId = tx.chain.into();
 
                   /*
                   // Show ETH sent
@@ -546,7 +547,7 @@ impl TxWindow {
                         frame.show(ui, |ui| {
                            show_action(
                               ctx.clone(),
-                              chain,
+                              chain_id,
                               theme,
                               icons.clone(),
                               action,
@@ -565,7 +566,7 @@ impl TxWindow {
 
                         show_decoded_events(
                            ctx.clone(),
-                           chain,
+                           chain_id,
                            theme,
                            icons.clone(),
                            &tx.analysis,
@@ -578,21 +579,21 @@ impl TxWindow {
 
                   ui.allocate_ui(frame_size, |ui| {
                      frame.show(ui, |ui| {
-                        chain_ui(chain, theme, icons.clone(), ui);
+                        chain(chain_id, theme, icons.clone(), ui);
 
                         if tx.contract_interact {
-                           contract_interact(ctx.clone(), chain, tx.interact_to(), theme, ui);
+                           contract_interact(ctx.clone(), chain_id, tx.interact_to(), theme, ui);
                         }
 
                         value(
                            ctx.clone(),
-                           chain,
+                           chain_id,
                            tx.value_sent.clone(),
                            theme,
                            ui,
                         );
 
-                        transaction_cost(chain, &tx.tx_cost, &tx.tx_cost_usd, theme, ui);
+                        tx_cost(chain_id, &tx.tx_cost, &tx.tx_cost_usd, theme, ui);
 
                         tx_hash(tx.chain.into(), &tx.hash, theme, ui);
                      });
@@ -635,204 +636,8 @@ impl TxWindow {
    }
 }
 
-pub fn transaction_cost(
-   chain: ChainId,
-   eth_cost: &NumericValue,
-   eth_cost_usd: &NumericValue,
-   theme: &Theme,
-   ui: &mut Ui,
-) {
-   let eth = NativeCurrency::from(chain.id());
 
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Cost").size(theme.text_sizes.large));
-      });
 
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let cost = eth_cost.format_abbreviated();
-         let text = format!(
-            "{} {} ~ ${:.4}",
-            cost,
-            eth.symbol,
-            eth_cost_usd.format_abbreviated()
-         );
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
-      });
-   });
-}
-
-pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = "Transaction hash";
-         ui.label(RichText::new(text).size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let hash_str = truncate_hash(tx_hash.to_string());
-         let explorer = chain.block_explorer();
-         let link = format!("{}/tx/{}", explorer, tx_hash);
-         ui.hyperlink_to(
-            RichText::new(hash_str)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
-}
-
-pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, ui: &mut Ui) {
-   let eth = Currency::from(NativeCurrency::from(chain.id()));
-
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Value").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
-         let text = format!(
-            "{} {} ~ ${:4}",
-            value.format_abbreviated(),
-            eth.symbol(),
-            value_usd.format_abbreviated()
-         );
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
-      });
-   });
-}
-
-pub fn contract_interact(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   interact_to: Address,
-   theme: &Theme,
-   ui: &mut Ui,
-) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let text = RichText::new("Contract interaction").size(theme.text_sizes.large);
-         ui.label(text);
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let interact_to_name = ctx.get_address_name(chain.id(), interact_to);
-
-         let interact_to_name = if let Some(interact_to_name_str) = interact_to_name {
-            interact_to_name_str
-         } else {
-            truncate_address(interact_to.to_string())
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, interact_to);
-
-         ui.hyperlink_to(
-            RichText::new(interact_to_name)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
-}
-
-/// Show the address of the sender or recipient depending on the context
-pub fn address_ui(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   label: &str,
-   address: Address,
-   theme: &Theme,
-   ui: &mut Ui,
-) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new(label).size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let address_short = truncate_address(address.to_string());
-         let address_name = ctx.get_address_name(chain.id(), address);
-         let address_name = if let Some(address_name_str) = address_name {
-            address_name_str
-         } else {
-            address_short
-         };
-
-         let explorer = chain.block_explorer();
-         let link = format!("{}/address/{}", explorer, address.to_string());
-         ui.hyperlink_to(
-            RichText::new(address_name)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
-            link,
-         );
-      });
-   });
-}
-
-pub fn chain_ui(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Chain").size(theme.text_sizes.large));
-      });
-
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let icon = icons.chain_icon(chain.id());
-         let label = Label::new(
-            RichText::new(chain.name()).size(theme.text_sizes.normal),
-            Some(icon),
-         )
-         .image_on_left();
-         ui.add(label);
-      });
-   });
-}
-
-pub fn eth_spent(
-   chain: u64,
-   eth_spent: NumericValue,
-   eth_spent_usd: NumericValue,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   _text: &str,
-   ui: &mut Ui,
-) {
-   let native = NativeCurrency::from(chain);
-   let icon = icons.native_currency_icon_x24(chain);
-   let text = format!(
-      "{} {} ≈ {}",
-      eth_spent.format_abbreviated(),
-      native.symbol,
-      eth_spent_usd.format_abbreviated()
-   );
-   let text = RichText::new(text).size(theme.text_sizes.normal);
-   ui.add(Label::new(text, Some(icon)).image_on_left());
-}
-
-pub fn eth_received(
-   chain: u64,
-   eth_received: NumericValue,
-   eth_received_usd: NumericValue,
-   theme: &Theme,
-   _icons: Arc<Icons>,
-   text: &str,
-   ui: &mut Ui,
-) {
-   let native = NativeCurrency::from(chain);
-   // let icon = icons.native_currency_icon_x24(chain);
-   let text = format!(
-      "{text} {} {} ≈ ${}",
-      eth_received.format_abbreviated(),
-      native.symbol,
-      eth_received_usd.format_abbreviated()
-   );
-   let text = RichText::new(text).size(theme.text_sizes.large);
-   ui.add(Label::new(text, None).image_on_left());
-}
 
 pub fn token_approval_event_ui(
    ctx: ZeusCtx,
@@ -873,7 +678,7 @@ pub fn token_approval_event_ui(
    }
 
    // Owner
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Owner",
@@ -883,7 +688,7 @@ pub fn token_approval_event_ui(
    );
 
    // Spender
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Spender",
@@ -933,7 +738,7 @@ fn transfer_event_ui(
 
    // Recipient
    ui.allocate_ui(size, |ui| {
-      address_ui(
+      address(
          ctx.clone(),
          chain,
          "Recipient",
@@ -978,7 +783,7 @@ fn erc20_transfer_event_ui(
    });
 
    // Sender
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Sender",
@@ -988,7 +793,7 @@ fn erc20_transfer_event_ui(
    );
 
    // Recipient
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Recipient",
@@ -1105,7 +910,7 @@ fn bridge_event_ui(
    });
 
    // Depositor
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Depositor",
@@ -1115,7 +920,7 @@ fn bridge_event_ui(
    );
 
    // Recipient
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Recipient",
@@ -1279,7 +1084,7 @@ fn wrap_eth_event_ui(
    });
 
    // Recipient
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Recipient",
@@ -1327,7 +1132,7 @@ fn unwrap_weth_event_ui(
    });
 
    // Source
-   address_ui(
+   address(
       ctx.clone(),
       chain,
       "Source",
@@ -1463,7 +1268,7 @@ fn uniswap_position_op_event_ui(
 
    // Recipient
    if params.recipient.is_some() {
-      address_ui(
+      address(
          ctx.clone(),
          chain,
          "Recipient",

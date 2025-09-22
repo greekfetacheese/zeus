@@ -1,13 +1,15 @@
+use super::parse_typed_data;
 use crate::core::ZeusCtx;
 use anyhow::anyhow;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::str::FromStr;
 use zeus_eth::{
    abi::permit::Permit2,
    alloy_dyn_abi::TypedData,
    alloy_primitives::{Address, U256},
+   alloy_signer::{Signature, Signer},
    currency::{Currency, ERC20Token},
-   utils::{NumericValue, address_book},
+   utils::{NumericValue, SecureSigner, address_book},
 };
 
 const PERMIT_SINGLE: &str = "PermitSingle";
@@ -16,7 +18,8 @@ const PERMIT_SINGLE: &str = "PermitSingle";
 pub enum SignMsgType {
    Permit2(Permit2Details),
    Permit2Batch(Permit2BatchDetails),
-   Other(TypedData),
+   PersonalSign(Value),
+   Other(Value),
 }
 
 impl SignMsgType {
@@ -24,14 +27,22 @@ impl SignMsgType {
       Self::Permit2(Permit2Details::dummy())
    }
 
-   pub async fn new(ctx: ZeusCtx, chain: u64, data: TypedData) -> Self {
-      let mut msg_type = Self::Other(data.clone());
+   pub async fn from_msg(ctx: ZeusCtx, chain: u64, msg: Value) -> Self {
+      let mut msg_type = Self::Other(msg.clone());
 
-      if let Ok(details) = Permit2Details::new(ctx, chain, data).await {
+      if let Ok(details) = Permit2Details::new(ctx, chain, msg).await {
          msg_type = Self::Permit2(details);
       }
 
       msg_type
+   }
+
+   pub fn from_message(message: String) -> Self {
+      Self::PersonalSign(json!(message))
+   }
+
+   pub fn is_known(&self) -> bool {
+      matches!(self, Self::Permit2(_) | Self::Permit2Batch(_))
    }
 
    pub fn is_permit2_single(&self) -> bool {
@@ -46,11 +57,77 @@ impl SignMsgType {
       matches!(self, Self::Other(_))
    }
 
+   pub fn is_personal_sign(&self) -> bool {
+      matches!(self, Self::PersonalSign(_))
+   }
+
+   pub fn typed_data(&self) -> Option<TypedData> {
+      match self {
+         Self::Permit2(details) => match parse_typed_data(details.msg_value.clone()) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+         },
+         Self::Permit2Batch(details) => match parse_typed_data(details.msg_value.clone()) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+         },
+         Self::PersonalSign(msg) => match parse_typed_data(msg.clone()) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+         },
+         Self::Other(details) => match parse_typed_data(details.clone()) {
+            Ok(data) => Some(data),
+            Err(_) => None,
+         },
+      }
+   }
+
+   pub async fn sign(&self, signer: &SecureSigner) -> Result<Signature, anyhow::Error> {
+      match self {
+         Self::Permit2(_) => {
+            let typed = match self.typed_data() {
+               Some(data) => data,
+               None => return Err(anyhow!("No typed data found")),
+            };
+            let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+            Ok(sig)
+         }
+         Self::Permit2Batch(_) => {
+            let typed = match self.typed_data() {
+               Some(data) => data,
+               None => return Err(anyhow!("No typed data found")),
+            };
+            let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+            Ok(sig)
+         }
+         Self::PersonalSign(msg) => {
+            let msg = msg.to_string();
+            let signer = signer.to_signer();
+            let sig = signer.sign_message(msg.as_bytes()).await?;
+            Ok(sig)
+         }
+         Self::Other(details) => {
+            let typed = self.typed_data();
+            if typed.is_some() {
+               let typed = typed.unwrap();
+               let sig = signer.to_signer().sign_dynamic_typed_data(&typed).await?;
+               Ok(sig)
+            } else {
+               let msg = details.to_string();
+               let signer = signer.to_signer();
+               let sig = signer.sign_message(msg.as_bytes()).await?;
+               Ok(sig)
+            }
+         }
+      }
+   }
+
    pub fn msg_value(&self) -> &Value {
       match self {
          Self::Permit2(details) => &details.msg_value,
          Self::Permit2Batch(details) => &details.msg_value,
-         Self::Other(details) => &details.message,
+         Self::PersonalSign(msg) => &msg,
+         Self::Other(details) => &details,
       }
    }
 
@@ -58,6 +135,7 @@ impl SignMsgType {
       match self {
          Self::Permit2(_) => "Permit2 Token Approval",
          Self::Permit2Batch(_) => "Permit2 Batch Token Approval",
+         Self::PersonalSign(_) => "Personal Sign",
          Self::Other(_) => "Unknown Message",
       }
    }
@@ -121,7 +199,8 @@ impl Permit2Details {
       }
    }
 
-   pub async fn new(ctx: ZeusCtx, chain: u64, data: TypedData) -> Result<Self, anyhow::Error> {
+   pub async fn new(ctx: ZeusCtx, chain: u64, msg: Value) -> Result<Self, anyhow::Error> {
+      let data = parse_typed_data(msg)?;
       if data.primary_type != PERMIT_SINGLE {
          return Err(anyhow!("Invalid permit2 data"));
       }
@@ -264,14 +343,12 @@ fn permit2_json() -> serde_json::Value {
 mod tests {
    use super::*;
    use crate::core::ZeusCtx;
-   use crate::core::utils::parse_typed_data;
 
    #[tokio::test]
    async fn test_permit2_details() {
       let ctx = ZeusCtx::new();
       let json = permit2_json();
-      let typed_data = parse_typed_data(json).unwrap();
-      let msg_type = SignMsgType::new(ctx, 8453, typed_data).await;
+      let msg_type = SignMsgType::from_msg(ctx, 8453, json).await;
       let permit2 = msg_type.permit2_details();
 
       assert_eq!(

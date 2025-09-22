@@ -56,6 +56,7 @@ pub enum RequestMethod {
    EthGasPrice,
    GetBalance,
    EthSignedTypedDataV4,
+   PersonalSign,
 }
 
 impl RequestMethod {
@@ -81,6 +82,7 @@ impl RequestMethod {
          "eth_gasPrice" => Ok(RequestMethod::EthGasPrice),
          "eth_getBalance" => Ok(RequestMethod::GetBalance),
          "eth_signTypedData_v4" => Ok(RequestMethod::EthSignedTypedDataV4),
+         "personal_sign" => Ok(RequestMethod::PersonalSign),
          _ => Err(anyhow!("Invalid Request Method: {:?}", s)),
       }
    }
@@ -107,6 +109,7 @@ impl RequestMethod {
          RequestMethod::EthGasPrice => "eth_gasPrice",
          RequestMethod::GetBalance => "eth_getBalance",
          RequestMethod::EthSignedTypedDataV4 => "eth_signTypedData_v4",
+         RequestMethod::PersonalSign => "personal_sign",
       }
    }
 
@@ -139,6 +142,7 @@ impl RequestMethod {
          RequestMethod::EthGasPrice,
          RequestMethod::GetBalance,
          RequestMethod::EthSignedTypedDataV4,
+         RequestMethod::PersonalSign,
       ]
    }
 }
@@ -1201,6 +1205,103 @@ async fn eth_sign_typed_data_v4(
    Ok(response)
 }
 
+async fn personal_sign(
+   ctx: ZeusCtx,
+   origin: String,
+   payload: JsonRpcRequest,
+) -> Result<JsonRpcResponse, Infallible> {
+   // Validate params: array of exactly 2 elements - [message_hex: String, address: String]
+   let params_array = match payload.params {
+      Value::Array(params) if params.len() == 2 => params,
+      _ => {
+         error!(
+            "Invalid params for personal_sign: expected array with 2 elements (message, address)"
+         );
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let message_hex = match &params_array[0] {
+      Value::String(s) => s.clone(),
+      _ => {
+         error!("Invalid params for personal_sign: message must be a hex string");
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let address_str = match &params_array[1] {
+      Value::String(s) => s.clone(),
+      _ => {
+         error!("Invalid params for personal_sign: address must be a string");
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let address = match Address::from_str(&address_str) {
+      Ok(addr) => addr,
+      Err(e) => {
+         error!("Invalid address for personal_sign: {}", e);
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   // Ensure the address matches the current wallet
+   let current_wallet = ctx.current_wallet_address();
+   if address != current_wallet {
+      error!(
+         "personal_sign: Address mismatch - requested {} but current is {}",
+         address, current_wallet
+      );
+      return Ok(JsonRpcResponse::error(UNAUTHORIZED, payload.id)); // Or a specific error like 4100
+   }
+
+   // Decode the hex message to bytes
+   let message_bytes = match hex::decode(message_hex.strip_prefix("0x").unwrap_or(&message_hex)) {
+      Ok(bytes) => bytes,
+      Err(e) => {
+         error!("Invalid hex message for personal_sign: {}", e);
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   // Prefix for personal_sign: "\x19Ethereum Signed Message:\n<length>" + message
+   let prefix = format!(
+      "\x19Ethereum Signed Message:\n{}",
+      message_bytes.len()
+   );
+   let full_message = format!(
+      "{}{}",
+      prefix,
+      String::from_utf8_lossy(&message_bytes)
+   );
+
+
+   let msg = json!(full_message);
+   let chain = ctx.chain();
+   let signature = match eth::sign_message(ctx, origin, chain, msg)
+   .await
+   {
+      Ok(sig) => sig,
+      Err(e) => {
+         SHARED_GUI.write(|gui| {
+            gui.loading_window.reset();
+            gui.msg_window.open("Error Signing Message", e.to_string());
+            gui.request_repaint();
+         });
+         error!("Error signing personal message: {:?}", e);
+         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+      }
+   };
+
+   let sig_bytes = signature.as_bytes();
+   let sig_hex = format!("0x{}", hex::encode(sig_bytes));
+
+   Ok(JsonRpcResponse::ok(
+      Some(Value::String(sig_hex)),
+      payload.id,
+   ))
+}
+
 fn switch_ethereum_chain(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
@@ -1641,6 +1742,8 @@ async fn handle_request(
       m if m == RequestMethod::EthSignedTypedDataV4 => {
          eth_sign_typed_data_v4(ctx, origin, payload).await
       }
+
+      m if m == RequestMethod::PersonalSign => personal_sign(ctx, origin, payload).await,
 
       m if m == RequestMethod::EthSendTransaction => {
          eth_send_transaction(ctx, origin, payload).await

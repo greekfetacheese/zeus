@@ -60,6 +60,8 @@ reqwest = { version = "=0.12.23", features = ["json"] }
 
 
 # Misc
+textwrap = "0.16.2"
+regex = "=1.11.2"
 either = "=1.15.0"
 rayon = "=1.11.0"
 anyhow = "=1.0.99"

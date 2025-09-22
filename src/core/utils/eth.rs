@@ -3,7 +3,7 @@ use crate::core::{
    Dapp, TransactionAnalysis, TransactionRich, ZeusCtx,
    db::V3Position,
    transaction::*,
-   utils::{self, estimate_tx_cost, parse_typed_data, sign::SignMsgType, tx},
+   utils::{self, estimate_tx_cost, sign::SignMsgType, tx},
 };
 use crate::gui::{SHARED_GUI, ui::Step};
 use anyhow::bail;
@@ -19,7 +19,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, Signed, TxKind, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Log, TransactionReceipt},
-   alloy_signer::{Signature, Signer},
+   alloy_signer::Signature,
    amm::uniswap::{
       UniswapPool, UniswapV3Pool, uniswap_v3_math,
       universal_router_v2::{encode_swap, *},
@@ -34,7 +34,6 @@ use zeus_eth::{
    utils::{
       NumericValue,
       address_book::{permit2_contract, uniswap_nft_position_manager, universal_router_v2},
-      secure_signer::erase_signer,
    },
 };
 
@@ -350,12 +349,11 @@ pub async fn sign_message(
    chain: ChainId,
    msg: Value,
 ) -> Result<Signature, anyhow::Error> {
-   let typed_data = parse_typed_data(msg)?;
-   let msg_type = SignMsgType::new(ctx.clone(), chain.id(), typed_data.clone()).await;
+   let msg_type = SignMsgType::from_msg(ctx.clone(), chain.id(), msg).await;
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
-      gui.sign_msg_window.open(dapp, chain.id(), msg_type);
+      gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone());
       gui.request_repaint();
    });
 
@@ -380,13 +378,11 @@ pub async fn sign_message(
 
    if !signed {
       SHARED_GUI.request_repaint();
-      return Err(anyhow::anyhow!("You cancelled the transaction"));
+      return Err(anyhow::anyhow!("You cancelled the signing process"));
    }
 
    let secure_signer = ctx.get_current_wallet().key;
-   let signer = secure_signer.to_signer();
-   let signature = signer.sign_dynamic_typed_data(&typed_data).await?;
-   erase_signer(signer);
+   let signature = msg_type.sign(&secure_signer).await?;
 
    SHARED_GUI.request_repaint();
 
