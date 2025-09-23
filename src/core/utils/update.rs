@@ -108,7 +108,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
             ctx_clone.calculate_portfolio_value(chain, portfolio.owner);
          }
       }
-      ctx_clone.save_portfolio_db();
       ctx_clone.write(|ctx| {
          ctx.on_startup_syncing = false;
       });
@@ -125,6 +124,12 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
       });
    }
+
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      check_smart_account_status(ctx_clone).await;
+      tracing::info!("Checked smart account status");
+   });
 
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
@@ -161,65 +166,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       measure_rpcs_interval(ctx_clone).await;
    });
 
-   // Sync V4 pools if needed
-   let sync_v4 = ctx.pool_manager().do_we_sync_v4_pools();
-
-   if sync_v4 {
-      ctx.write(|ctx| {
-         ctx.dex_syncing = true;
-      });
-
-      let mut tasks = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         /*
-         let ignore_chains = ctx.pool_manager().ignore_chains();
-         if ignore_chains.contains(&chain) {
-            continue;
-         }
-          */
-
-         tracing::info!("Syncing V4 pools for chain {}", chain);
-
-         let ctx_clone = ctx.clone();
-
-         let task = RT.spawn(async move {
-            let manager = ctx_clone.pool_manager();
-            let dex = DexKind::UniswapV4;
-
-            match manager.sync_pools(ctx_clone.clone(), chain.into(), dex, None).await {
-               Ok(_) => {}
-               Err(e) => tracing::error!("Error syncing pools: {:?}", e),
-            }
-
-            // let v4_pools = manager.get_v4_pools_for_chain(chain);
-
-            /*
-            match manager.update_state_for_pools(ctx_clone, chain, v4_pools).await {
-               Ok(_) => {}
-               Err(e) => tracing::error!(
-                  "Error updating pool manager for chain {}: {:?}",
-                  chain,
-                  e
-               ),
-            }
-            */
-         });
-         tasks.push(task);
-      }
-
-      for task in tasks {
-         let _ = task.await;
-      }
-
-      let manager = ctx.pool_manager();
-      manager.remove_v4_pools_with_no_base_token();
-      manager.remove_v4_pools_with_high_fee();
-      // manager.remove_v4_pools_with_no_liquidity();
-
-      ctx.write(|ctx| {
-         ctx.dex_syncing = false;
-      });
-   }
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      check_smart_account_status_interval(ctx_clone).await;
+   });
 
    RT.spawn_blocking(move || {
       ctx.save_all();
@@ -251,8 +201,6 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          ctx.calculate_portfolio_value(chain, portfolio.owner);
       }
    }
-   ctx.save_portfolio_db();
-   tracing::info!("Updated portfolio value");
 }
 
 pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
@@ -273,7 +221,7 @@ pub fn calculate_portfolio_value_interval(ctx: ZeusCtx) {
    }
 }
 
-pub async fn update_token_prices_interval(ctx: ZeusCtx) {
+async fn update_token_prices_interval(ctx: ZeusCtx) {
    let mut time_passed = Instant::now();
 
    loop {
@@ -283,6 +231,57 @@ pub async fn update_token_prices_interval(ctx: ZeusCtx) {
       }
       tokio::time::sleep(Duration::from_secs(1)).await;
    }
+}
+
+async fn check_smart_account_status_interval(ctx: ZeusCtx) {
+   loop {
+      let accounts = ctx.get_all_wallets_info();
+
+      for chain in SUPPORTED_CHAINS {
+         let ctx = ctx.clone();
+         let accounts = accounts.clone();
+
+         RT.spawn(async move {
+            for account in &accounts {
+               if ctx.should_check_smart_account_status(chain, account.address) {
+                  match ctx.check_smart_account_status(chain, account.address).await {
+                     Ok(_) => {}
+                     Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
+                  }
+               }
+            }
+         });
+      }
+      tokio::time::sleep(Duration::from_secs(10)).await;
+   }
+}
+
+async fn check_smart_account_status(ctx: ZeusCtx) {
+   let accounts = ctx.get_all_wallets_info();
+   let mut tasks = Vec::new();
+
+   for chain in SUPPORTED_CHAINS {
+      let ctx = ctx.clone();
+      let accounts = accounts.clone();
+
+      let task = RT.spawn(async move {
+         for account in &accounts {
+            if ctx.should_check_smart_account_status(chain, account.address) {
+               match ctx.check_smart_account_status(chain, account.address).await {
+                  Ok(_) => {}
+                  Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
+               }
+            }
+         }
+      });
+      tasks.push(task);
+   }
+
+   for task in tasks {
+      let _ = task.await;
+   }
+
+   ctx.save_smart_accounts();
 }
 
 /// Update the token prices across all chains
@@ -473,10 +472,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          let dexes = DexKind::main_dexes(chain);
          let pool_manager = ctx.pool_manager();
 
-         match pool_manager
-            .sync_pools_for_tokens(ctx.clone(), tokens, dexes)
-            .await
-         {
+         match pool_manager.sync_pools_for_tokens(ctx.clone(), tokens, dexes).await {
             Ok(_) => {}
             Err(e) => tracing::error!(
                "Failed to sync pools for chain_id {} {}",

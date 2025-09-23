@@ -2,6 +2,7 @@ use super::price_manager::PriceManagerHandle;
 use crate::core::{
    WalletInfo,
    client::Rpc,
+   serde_hashmap,
    user::{Contact, Vault, Wallet},
    utils::update::test_and_measure_rpcs,
 };
@@ -26,6 +27,9 @@ use zeus_eth::{
    utils::{NumericValue, address_book, client::RpcClient},
 };
 
+use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 pub mod balance_manager;
 pub mod client;
 pub mod db;
@@ -44,9 +48,12 @@ const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
+const SMART_ACCOUNTS_FILE: &str = "smart_accounts.json";
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
+
+const SMART_ACCOUNT_CHECK_TIMEOUT: u64 = 600;
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -66,6 +73,11 @@ pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(SERVER_PORT_FILE);
+   Ok(dir)
+}
+
+pub fn smart_accounts_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(SMART_ACCOUNTS_FILE);
    Ok(dir)
 }
 
@@ -194,6 +206,26 @@ impl ZeusCtx {
 
    pub fn wallet_discovery_in_progress(&self) -> bool {
       self.read(|ctx| ctx.wallet_discovery_in_progress)
+   }
+
+   pub fn tx_confirm_window_open(&self) -> bool {
+      self.read(|ctx| ctx.tx_confirm_window_open)
+   }
+
+   pub fn set_tx_confirm_window_open(&self, open: bool) {
+      self.write(|ctx| {
+         ctx.tx_confirm_window_open = open;
+      });
+   }
+
+   pub fn sign_msg_window_open(&self) -> bool {
+      self.read(|ctx| ctx.sign_msg_window_open)
+   }
+
+   pub fn set_sign_msg_window_open(&self, open: bool) {
+      self.write(|ctx| {
+         ctx.sign_msg_window_open = open;
+      });
    }
 
    /// Mutable access to the vault
@@ -455,6 +487,17 @@ impl ZeusCtx {
       })
    }
 
+   pub fn save_smart_accounts(&self) {
+      self.read(|ctx| match ctx.smart_accounts.save_to_file() {
+         Ok(_) => {
+            tracing::trace!("Smart Accounts saved");
+         }
+         Err(e) => {
+            tracing::error!("Error saving Smart Accounts: {:?}", e);
+         }
+      })
+   }
+
    pub fn save_all(&self) {
       self.save_balance_manager();
       self.save_currency_db();
@@ -464,6 +507,7 @@ impl ZeusCtx {
       self.save_v3_positions_db();
       self.save_pool_manager();
       self.save_price_manager();
+      self.save_smart_accounts();
    }
 
    /// Return the chains which the owner has balance in
@@ -729,6 +773,40 @@ impl ZeusCtx {
       self.read(|ctx| ctx.connected_dapps.is_connected(dapp))
    }
 
+   pub fn should_check_smart_account_status(&self, chain: u64, account: Address) -> bool {
+      self.read(|ctx| ctx.smart_accounts.should_check(chain, account))
+   }
+
+   pub fn get_delegated_address(&self, chain: u64, account: Address) -> Option<Address> {
+      self.read(|ctx| ctx.smart_accounts.get(chain, account))
+   }
+
+   pub async fn check_smart_account_status(
+      &self,
+      chain: u64,
+      account: Address,
+   ) -> Result<(), anyhow::Error> {
+      let client = self.get_zeus_client();
+      let code = client
+         .request(chain, |client| async move {
+            client.get_code_at(account).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      if code.is_empty() {
+         return Ok(());
+      }
+
+      let addr_slice = &code[3..];
+      let delegated_address = Address::from_slice(&addr_slice);
+
+      self.write(|ctx| {
+         ctx.smart_accounts.add(chain, account, delegated_address);
+      });
+
+      Ok(())
+   }
+
    pub async fn get_latest_block(&self) -> Result<Option<Block>, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();
@@ -810,6 +888,64 @@ impl ConnectedDapps {
 
    pub fn is_connected(&self, dapp: &str) -> bool {
       self.dapps.contains(&dapp.to_string())
+   }
+}
+
+/// Holds addresses that are upgraded to smart accounts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SmartAccounts {
+   #[serde(with = "serde_hashmap")]
+   /// Map of (chain, account) to delegated address
+   pub map: HashMap<(u64, Address), Address>,
+   /// Last time we checked the smart account status
+   /// Time is in UNIX timestamp
+   pub last_check: HashMap<(u64, Address), u64>,
+}
+
+impl SmartAccounts {
+   pub fn new() -> Self {
+      Self {
+         map: HashMap::new(),
+         last_check: HashMap::new(),
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = smart_accounts_dir()?;
+      let data = std::fs::read(dir)?;
+      let smart_accounts = serde_json::from_slice(&data)?;
+      Ok(smart_accounts)
+   }
+
+   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
+      let data = serde_json::to_string(self)?;
+      let dir = smart_accounts_dir()?;
+      std::fs::write(dir, data)?;
+      Ok(())
+   }
+
+   pub fn add(&mut self, chain: u64, account: Address, delegated_address: Address) {
+      self.map.insert((chain, account), delegated_address);
+   }
+
+   pub fn remove(&mut self, chain: u64, account: Address) {
+      self.map.remove(&(chain, account));
+   }
+
+   pub fn should_check(&self, chain: u64, account: Address) -> bool {
+      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+      let last_check = self.last_check.get(&(chain, account)).cloned();
+      if last_check.is_none() {
+         return true;
+      }
+
+      let last_check = last_check.unwrap();
+      let time_passed = now.saturating_sub(last_check);
+      time_passed > SMART_ACCOUNT_CHECK_TIMEOUT
+   }
+
+   pub fn get(&self, chain: u64, account: Address) -> Option<Address> {
+      self.map.get(&(chain, account)).cloned()
    }
 }
 
@@ -910,7 +1046,10 @@ pub struct ZeusContext {
    pub latest_block: HashMap<u64, Block>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
+   pub smart_accounts: SmartAccounts,
    pub server_port: u16,
+   pub tx_confirm_window_open: bool,
+   pub sign_msg_window_open: bool,
 }
 
 impl ZeusContext {
@@ -987,6 +1126,14 @@ impl ZeusContext {
          }
       };
 
+      let smart_accounts = match SmartAccounts::load_from_file() {
+         Ok(accounts) => accounts,
+         Err(e) => {
+            tracing::error!("Failed to load smart accounts: {:?}", e);
+            SmartAccounts::new()
+         }
+      };
+
       let priority_fee = PriorityFee::default();
       Self {
          client,
@@ -1011,7 +1158,10 @@ impl ZeusContext {
          latest_block: HashMap::new(),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
+         smart_accounts,
          server_port: SERVER_PORT,
+         tx_confirm_window_open: false,
+         sign_msg_window_open: false,
       }
    }
 
@@ -1023,6 +1173,7 @@ impl ZeusContext {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use std::str::FromStr;
    use zeus_eth::{
       alloy_primitives::{U256, utils::format_units},
       alloy_provider::Provider,
@@ -1061,6 +1212,27 @@ mod tests {
       let gas_price = client.get_gas_price().await.unwrap();
       let fee = format_units(gas_price, "gwei").unwrap();
       println!("Arbitrum base fee: {}", fee);
+   }
+
+   #[tokio::test]
+   async fn test_extract_delegated_address() {
+      let ctx = ZeusCtx::new();
+
+      let chain = 1;
+      let account = Address::from_str("0x67d3FA6a5CF45D85F697A497b3270A06415E5BfE").unwrap();
+      let delegated_address =
+         Address::from_str("0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B").unwrap();
+
+      let client = ctx.get_client(chain).await.unwrap();
+      let code = client.get_code_at(account).await.unwrap();
+      eprintln!("Code {}", code);
+      eprintln!("Code length: {}", code.len());
+
+      let addr_slice = &code[3..];
+      let address = Address::from_slice(&addr_slice);
+      eprintln!("Address: {}", address);
+
+      assert_eq!(address, delegated_address);
    }
 
    #[tokio::test]

@@ -1378,7 +1378,7 @@ fn switch_ethereum_chain(
    });
 
    SHARED_GUI.write(|gui| {
-      gui.chain_selection.chain_select.chain = chain;
+      gui.header.set_current_chain(chain);
       gui.request_repaint();
    });
 
@@ -1531,7 +1531,7 @@ async fn eth_send_transaction(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            gui.tx_confirmation_window.reset();
+            gui.tx_confirmation_window.reset(ctx.clone());
             gui.msg_window.open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
          });

@@ -1125,7 +1125,7 @@ impl SwapUi {
                SHARED_GUI.write(|gui| {
                   gui.progress_window.reset();
                   gui.loading_window.reset();
-                  gui.tx_confirmation_window.reset();
+                  gui.tx_confirmation_window.reset(ctx);
                   gui.msg_window.open("Transaction Error", e.to_string());
                   gui.request_repaint();
                });

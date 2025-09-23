@@ -49,7 +49,8 @@ impl SignMsgWindow {
       self.open
    }
 
-   pub fn open(&mut self, dapp: String, chain: u64, msg: SignMsgType) {
+   pub fn open(&mut self, ctx: ZeusCtx, dapp: String, chain: u64, msg: SignMsgType) {
+      ctx.set_sign_msg_window_open(true);
       self.dapp = dapp;
       self.chain = chain.into();
       self.open = true;
@@ -57,8 +58,14 @@ impl SignMsgWindow {
       self.signed = None;
    }
 
-   pub fn reset(&mut self) {
+   pub fn reset(&mut self, ctx: ZeusCtx) {
+      ctx.set_sign_msg_window_open(false);
       *self = Self::new();
+   }
+
+   pub fn close(&mut self, ctx: ZeusCtx) {
+      ctx.set_sign_msg_window_open(false);
+      self.open = false;
    }
 
    pub fn is_signed(&self) -> Option<bool> {
@@ -151,15 +158,15 @@ impl SignMsgWindow {
                            Button::new(RichText::new("Sign").size(theme.text_sizes.normal))
                               .min_size(button_size);
                         if ui.add(ok_btn).clicked() {
-                           self.open = false;
-                           self.signed = Some(true)
+                           self.signed = Some(true);
+                           self.close(ctx.clone());
                         }
 
                         let cancel_btn =
                            Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
                               .min_size(button_size);
                         if ui.add(cancel_btn).clicked() {
-                           self.reset();
+                           self.close(ctx);
                         }
                      });
                   });

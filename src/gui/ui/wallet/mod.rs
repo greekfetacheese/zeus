@@ -269,7 +269,7 @@ impl WalletUi {
             });
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
-                  gui.wallet_selection.wallet_select.wallet = new_selected_wallet;
+                  gui.header.set_current_wallet(new_selected_wallet);
                });
             });
          }
@@ -593,7 +593,7 @@ impl DeleteWalletUi {
             if is_current {
                let master_wallet = new_vault.get_master_wallet();
                SHARED_GUI.write(|gui| {
-                  gui.wallet_selection.wallet_select.wallet = master_wallet;
+                  gui.header.set_current_wallet(master_wallet);
                });
             }
 

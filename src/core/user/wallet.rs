@@ -165,6 +165,18 @@ impl Wallet {
       format!("{} {}", self.name, id)
    }
 
+   pub fn name_with_id_short(&self) -> String {
+      let id = if self.is_master() {
+         "(M)"
+      } else if self.is_child() {
+         "(C)"
+      } else {
+         "(I)"
+      };
+
+      format!("{} {}", self.name, id)
+   }
+
    pub fn to_wallet_info(&self) -> WalletInfo {
       WalletInfo::new(
          self.address(),
@@ -406,7 +418,11 @@ impl SecureHDWallet {
    /// Derive a new child wallet using the given name and index
    ///
    /// Does not increments the `next_child_index` but adds the wallet to [Self::children]
-   pub fn derive_child_at_mut(&mut self, name: String, index: u32) -> Result<Wallet, anyhow::Error> {
+   pub fn derive_child_at_mut(
+      &mut self,
+      name: String,
+      index: u32,
+   ) -> Result<Wallet, anyhow::Error> {
       let xpriv = self.master_to_xpriv();
 
       let base_path = DerivationPath::from_str(DEFAULT_DERIVATION_PATH)?;

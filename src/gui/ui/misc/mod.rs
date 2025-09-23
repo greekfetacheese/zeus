@@ -62,9 +62,12 @@ impl ChainSelect {
       let selected_chain = self.chain;
       let mut clicked = false;
       let supported_chains = ChainId::supported_chains();
+
+      let text_size = theme.text_sizes.normal;
       let icon = icons.chain_icon(selected_chain.id());
+
       let selected_chain = Label::new(
-         RichText::new(selected_chain.name()).size(theme.text_sizes.normal),
+         RichText::new(selected_chain.name()).size(text_size),
          Some(icon),
       )
       .image_on_left()
@@ -76,8 +79,9 @@ impl ChainSelect {
                continue;
             }
 
-            let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+            let text = RichText::new(chain.name()).size(text_size);
             let icon = icons.chain_icon(chain.id());
+
             let chain_label =
                Label::new(text.clone(), Some(icon)).image_on_left().sense(Sense::click());
 
@@ -123,13 +127,14 @@ impl WalletSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, theme: &Theme, ctx: ZeusCtx, _icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(&mut self, theme: &Theme, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let mut clicked = false;
-      let text = RichText::new(&self.wallet.name_with_id()).size(theme.text_sizes.normal);
+      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.text_sizes.normal);
+      let wallet_icon = icons.wallet_main_x24();
 
       ComboBox::new(
          self.id,
-         Label::new(text, None).sense(Sense::click()),
+         Label::new(text, Some(wallet_icon)).image_on_left().sense(Sense::click()),
       )
       .width(self.size.x)
       .show_ui(ui, |ui| {
@@ -138,7 +143,7 @@ impl WalletSelect {
 
          ctx.read(|ctx| {
             for wallet in ctx.vault_ref().all_wallets() {
-               let text = RichText::new(wallet.name_with_id()).size(theme.text_sizes.normal);
+               let text = RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
                let wallet_label = Label::new(text, None).sense(Sense::click());
 
                if ui.add(wallet_label).clicked() {
@@ -897,10 +902,7 @@ impl PortfolioUi {
          let pool_manager = ctx.pool_manager();
          let dex = DexKind::main_dexes(chain);
 
-         match pool_manager
-            .sync_pools_for_tokens(ctx.clone(), tokens.clone(), dex)
-            .await
-         {
+         match pool_manager.sync_pools_for_tokens(ctx.clone(), tokens.clone(), dex).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Error syncing pools: {:?}", e),
          }
@@ -978,11 +980,7 @@ impl PortfolioUi {
       self.show_spinner = true;
       RT.spawn(async move {
          match manager
-            .sync_pools_for_tokens(
-               ctx_clone.clone(),
-               vec![token.clone()],
-               dex_kinds,
-            )
+            .sync_pools_for_tokens(ctx_clone.clone(), vec![token.clone()], dex_kinds)
             .await
          {
             Ok(_) => {
@@ -1017,7 +1015,8 @@ impl PortfolioUi {
          let balance_manager = ctx_clone.balance_manager();
          match balance_manager
             .update_tokens_balance(ctx_clone.clone(), chain_id, owner, vec![token])
-            .await {
+            .await
+         {
             Ok(_) => {}
             Err(e) => tracing::error!("Error updating tokens balance: {:?}", e),
          }

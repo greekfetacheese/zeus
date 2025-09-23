@@ -63,9 +63,11 @@ impl SignMsgType {
 
    pub fn typed_data(&self) -> Option<TypedData> {
       match self {
-         Self::Permit2(details) => match parse_typed_data(details.msg_value.clone()) {
+         Self::Permit2(details) => match parse_typed_data(details.raw_msg.clone()) {
             Ok(data) => Some(data),
-            Err(_) => None,
+            Err(_) => {
+               None
+            },
          },
          Self::Permit2Batch(details) => match parse_typed_data(details.msg_value.clone()) {
             Ok(data) => Some(data),
@@ -182,6 +184,7 @@ pub struct Permit2Details {
    pub permit2_contract: Address,
    pub spender: Address,
    pub msg_value: Value,
+   pub raw_msg: Value,
 }
 
 impl Permit2Details {
@@ -196,11 +199,12 @@ impl Permit2Details {
          permit2_contract: permit2,
          spender,
          msg_value: permit2_json(),
+         raw_msg: permit2_json(),
       }
    }
 
    pub async fn new(ctx: ZeusCtx, chain: u64, msg: Value) -> Result<Self, anyhow::Error> {
-      let data = parse_typed_data(msg)?;
+      let data = parse_typed_data(msg.clone())?;
       if data.primary_type != PERMIT_SINGLE {
          return Err(anyhow!("Invalid permit2 data"));
       }
@@ -258,6 +262,7 @@ impl Permit2Details {
          permit2_contract,
          spender,
          msg_value: message.clone(),
+         raw_msg: msg,
       })
    }
 

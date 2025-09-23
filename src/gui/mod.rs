@@ -11,17 +11,12 @@ use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 use crate::gui::ui::{
-   ConfirmWindow, LoadingWindow, MsgWindow, PortfolioUi, ProgressWindow,
-   RecipientSelectionWindow, UnlockVault, RecoverHDWallet, SendCryptoUi, SettingsUi, TestingWindow,
-   TokenSelectionWindow, TxConfirmationWindow, TxWindow, WalletUi,
+   ConfirmWindow, Header, LoadingWindow, MsgWindow, PortfolioUi, ProgressWindow,
+   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TestingWindow,
+   TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
-   panels::{
-      central_panel::FPSMetrics,
-      top_panel::ChainSelection,
-      top_panel::WalletSelection,
-      left_panel::ConnectedDappsUi,
-   },
    misc::dev::DevUi,
+   panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    sign_msg_window::SignMsgWindow,
    tx_history::TxHistory,
 };
@@ -68,11 +63,10 @@ pub struct GUI {
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
    pub theme: Theme,
-   pub chain_selection: ChainSelection,
-   pub wallet_selection: WalletSelection,
    pub editor: ThemeEditor,
    pub uniswap: UniswapUi,
    pub across_bridge: AcrossBridge,
+   pub header: Header,
    pub token_selection: TokenSelectionWindow,
    pub recipient_selection: RecipientSelectionWindow,
    pub wallet_ui: WalletUi,
@@ -93,7 +87,7 @@ pub struct GUI {
    pub sign_msg_window: SignMsgWindow,
    pub fps_metrics: FPSMetrics,
    pub connected_dapps: ConnectedDappsUi,
-   pub dev: DevUi
+   pub dev: DevUi,
 }
 
 impl GUI {
@@ -104,8 +98,7 @@ impl GUI {
       let recipient_selection = ui::RecipientSelectionWindow::new();
       let send_crypto = ui::SendCryptoUi::new();
       let across_bridge = ui::dapps::across::AcrossBridge::new();
-      let chain_selection = ui::panels::top_panel::ChainSelection::new();
-      let wallet_selection = ui::panels::top_panel::WalletSelection::new();
+      let header = Header::new();
 
       let msg_window = ui::MsgWindow::new();
       let loading_window = ui::LoadingWindow::new();
@@ -123,10 +116,9 @@ impl GUI {
          egui_ctx,
          ctx: ctx.clone(),
          theme,
-         chain_selection,
-         wallet_selection,
          editor: ThemeEditor::new(),
          icons,
+         header,
          token_selection,
          recipient_selection,
          wallet_ui,
@@ -149,7 +141,7 @@ impl GUI {
          sign_msg_window,
          fps_metrics: FPSMetrics::new(),
          connected_dapps,
-         dev: DevUi::new()
+         dev: DevUi::new(),
       }
    }
 

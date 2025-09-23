@@ -673,7 +673,7 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open("app.uniswap.org".to_string(), 8453, msg);
+                     gui.sign_msg_window.open(ctx.clone(), "app.uniswap.org".to_string(), 8453, msg);
                   });
                });
             }

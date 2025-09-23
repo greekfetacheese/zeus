@@ -149,7 +149,7 @@ pub async fn send_transaction(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            gui.tx_confirmation_window.close();
+            gui.tx_confirmation_window.close(ctx.clone());
          });
          break;
       }
@@ -353,7 +353,7 @@ pub async fn sign_message(
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
-      gui.sign_msg_window.open(dapp, chain.id(), msg_type.clone());
+      gui.sign_msg_window.open(ctx.clone(), dapp, chain.id(), msg_type.clone());
       gui.request_repaint();
    });
 
@@ -368,7 +368,7 @@ pub async fn sign_message(
 
       if signed.is_some() {
          SHARED_GUI.write(|gui| {
-            gui.sign_msg_window.reset();
+            gui.sign_msg_window.close(ctx.clone());
          });
          break;
       }
@@ -384,7 +384,10 @@ pub async fn sign_message(
    let secure_signer = ctx.get_current_wallet().key;
    let signature = msg_type.sign(&secure_signer).await?;
 
-   SHARED_GUI.request_repaint();
+   SHARED_GUI.write(|gui| {
+      gui.sign_msg_window.reset(ctx);
+      gui.request_repaint();
+   });
 
    Ok(signature)
 }

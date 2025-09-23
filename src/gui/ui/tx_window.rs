@@ -5,12 +5,10 @@ use egui::{
 use egui_theme::Theme;
 use egui_widgets::Label;
 
+use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
-use super::{address, chain, eth_received, contract_interact, tx_cost, tx_hash, value};
 use crate::core::{
-   TransactionRich, ZeusCtx,
-   transaction::*,
-   tx_analysis::TransactionAnalysis,
+   TransactionRich, ZeusCtx, transaction::*, tx_analysis::TransactionAnalysis,
    utils::estimate_tx_cost,
 };
 use zeus_eth::{
@@ -69,12 +67,14 @@ impl TxConfirmationWindow {
       self.open
    }
 
-   pub fn close(&mut self) {
-      self.open = false;
+   pub fn reset(&mut self, ctx: ZeusCtx) {
+      ctx.set_tx_confirm_window_open(false);
+      *self = Self::new();
    }
 
-   pub fn reset(&mut self) {
-      *self = Self::new();
+   pub fn close(&mut self, ctx: ZeusCtx) {
+      ctx.set_tx_confirm_window_open(false);
+      self.open = false;
    }
 
    /// Open this [TxConfirmationWindow]
@@ -93,6 +93,8 @@ impl TxConfirmationWindow {
       priority_fee: String,
       mev_protect: bool,
    ) {
+      ctx.set_tx_confirm_window_open(true);
+
       let native = NativeCurrency::from(chain.id());
       let action = tx.infer_action(ctx.clone(), chain.id());
       let gas_limit = tx.gas_used * 15 / 10;
@@ -412,22 +414,22 @@ impl TxConfirmationWindow {
 
                         let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
-                        let button =
+                        let confirm =
                            Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
                               .min_size(button_size);
 
-                        if ui.add_enabled(sufficient_balance, button).clicked() {
+                        if ui.add_enabled(sufficient_balance, confirm).clicked() {
                            self.confirmed_or_rejected = Some(true);
-                           self.close();
+                           self.close(ctx.clone());
                         }
 
-                        let button =
+                        let reject =
                            Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
                               .min_size(button_size);
 
-                        if ui.add(button).clicked() {
+                        if ui.add(reject).clicked() {
                            self.confirmed_or_rejected = Some(false);
-                           self.close();
+                           self.close(ctx);
                         }
                      });
                   });
@@ -636,9 +638,6 @@ impl TxWindow {
    }
 }
 
-
-
-
 pub fn token_approval_event_ui(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -842,7 +841,6 @@ fn bridge_event_ui(
    params: &BridgeParams,
    ui: &mut Ui,
 ) {
-
    let origin_chain = params.origin_chain;
    let destination_chain = params.destination_chain;
 

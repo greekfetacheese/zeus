@@ -454,14 +454,14 @@ impl UnlockVault {
          // Load the vault
          match vault.load(data) {
             Ok(_) => {
+               let current_wallet = vault.get_master_wallet();
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
                   gui.portofolio.open();
-                  gui.wallet_selection.open = true;
-                  gui.chain_selection.open = true;
                   gui.loading_window.reset();
                   gui.settings.encryption.set_argon2(info.argon2);
-                  gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
+                  gui.header.open();
+                  gui.header.set_current_wallet(current_wallet);
                });
 
                ctx.write(|ctx| {
@@ -679,12 +679,12 @@ impl RecoverHDWallet {
          if ui.add(ok_button).clicked() {
             let vault = ctx.get_vault();
             RT.spawn_blocking(move || {
+            let current_wallet = vault.get_master_wallet();
             SHARED_GUI.write(|gui| {
-               gui.wallet_selection.wallet_select.wallet = vault.get_master_wallet();
                gui.recover_wallet_ui.show_tips = false;
                gui.portofolio.open();
-               gui.wallet_selection.open = true;
-               gui.chain_selection.open = true;
+               gui.header.open();
+               gui.header.set_current_wallet(current_wallet);
 
                ctx.write(|ctx| {
                   ctx.vault_exists = true;

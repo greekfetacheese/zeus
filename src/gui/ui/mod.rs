@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod header;
 pub mod dapps;
 pub mod misc;
 pub mod panels;
@@ -10,6 +11,7 @@ pub mod token_selection;
 pub mod tx_window;
 pub mod wallet;
 
+pub use header::Header;
 pub use auth::{CredentialsForm, RecoverHDWallet, UnlockVault};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
 pub use misc::*;
