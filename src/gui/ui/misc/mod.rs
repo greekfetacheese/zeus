@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Margin, Order, RichText, ScrollArea,
-   Sense, Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Margin, Order,
+   RichText, ScrollArea, Sense, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::DexKind;
@@ -839,8 +839,12 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
-         ui.label(RichText::new(currency.symbol()).size(theme.text_sizes.normal))
-            .on_hover_text(currency.name());
+         let text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
+         let label = Label::new(text, None).wrap();
+         ui.scope(|ui| {
+            ui.set_max_width(100.0);
+            ui.add(label).on_hover_text(currency.name());
+         });
       });
    }
 

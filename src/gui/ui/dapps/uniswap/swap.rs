@@ -696,13 +696,15 @@ impl SwapUi {
          return;
       }
 
-      let token_out = self.currency_out.to_erc20().into_owned();
-
       let chain_id = ctx.chain().id();
       let pool_manager = ctx.pool_manager();
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
-      tracing::info!("Token to sync pools for: {}", token_out.symbol);
+      
+      let tokens = vec![
+         currency_in.to_erc20().into_owned(),
+         currency_out.to_erc20().into_owned(),
+      ];
 
       let swap_on_v2 = settings.swap_on_v2;
       let swap_on_v3 = settings.swap_on_v3;
@@ -714,14 +716,7 @@ impl SwapUi {
       RT.spawn(async move {
          let dex = DexKind::main_dexes(chain_id);
 
-         match pool_manager
-            .sync_pools_for_tokens(
-               ctx_clone.clone(),
-               vec![token_out.clone()],
-               dex,
-            )
-            .await
-         {
+         match pool_manager.sync_pools_for_tokens(ctx_clone.clone(), tokens, dex).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to sync pools: {}", e);

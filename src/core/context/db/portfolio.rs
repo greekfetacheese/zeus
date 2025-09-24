@@ -30,6 +30,9 @@ impl Portfolio {
    }
 
    pub fn add_token(&mut self, token: Currency) {
+      if self.tokens.contains(&token) {
+         return;
+      }
       self.tokens.push(token);
    }
 
