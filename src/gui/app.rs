@@ -155,7 +155,7 @@ impl eframe::App for ZeusApp {
             if gui.should_show_right_panel() {
                // Paint the Ui that belongs to the left panel
                egui::SidePanel::right("right_panel")
-                  .exact_width(150.0)
+                  .min_width(150.0)
                   .resizable(false)
                   .show_separator_line(true)
                   .frame(panel_frame)

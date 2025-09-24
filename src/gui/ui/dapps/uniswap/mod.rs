@@ -367,6 +367,12 @@ impl UniswapUi {
                ui.set_width(self.size.0);
                ui.spacing_mut().item_spacing.x = 10.0;
 
+               let enabled = if cfg!(feature = "dev") {
+                  true
+               } else {
+                  false
+               };
+
                let text = RichText::new("Swap").size(theme.text_sizes.large);
                let swap_button = Button::new(text);
                if ui.add(swap_button).clicked() {
@@ -387,7 +393,7 @@ impl UniswapUi {
 
                let text = RichText::new("Create Position").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
-               if ui.add(positions_button).clicked() {
+               if ui.add_enabled(enabled, positions_button).clicked() {
                   self.create_position_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
@@ -396,7 +402,7 @@ impl UniswapUi {
 
                let text = RichText::new("View Positions").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
-               if ui.add(positions_button).clicked() {
+               if ui.add_enabled(enabled, positions_button).clicked() {
                   self.view_positions_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
