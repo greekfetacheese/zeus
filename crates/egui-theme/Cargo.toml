@@ -15,12 +15,12 @@ version = "=0.32.0"
 
 
 [dependencies.serde_json]
-version = "=1.0.143"
+version = "=1.0.145"
 optional = true
 
 
 [dependencies.serde]
-version = "=1.0.219"
+version = "=1.0.226"
 optional = true
 features = ["derive"]
 

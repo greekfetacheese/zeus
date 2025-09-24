@@ -318,6 +318,7 @@ pub fn simulate_transaction<DB>(
 where
    DB: Database + DatabaseCommit,
 {
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = from;
    evm.tx.kind = TxKind::Call(interact_to);
    evm.tx.data = call_data.clone();

@@ -21,6 +21,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::misc::encode_swap(params);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = caller;
    evm.tx.data = data.into();
    evm.tx.value = U256::ZERO;
@@ -52,6 +54,8 @@ where
    DB: Database,
 {
    let data = abi::erc20::encode_balance_of(owner);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
    evm.tx.kind = TxKind::Call(token);
@@ -77,6 +81,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::erc20::encode_transfer(to, amount);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = from;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
@@ -115,6 +121,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::erc20::encode_approve(spender, amount);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = owner;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
@@ -145,6 +153,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::uniswap::nft_position::encode_mint(params);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = caller;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
@@ -191,6 +201,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::uniswap::nft_position::encode_increase_liquidity(params);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = caller;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
@@ -229,6 +241,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = encode_decrease_liquidity(params);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = caller;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
@@ -269,6 +283,8 @@ where
    DB: Database + DatabaseCommit,
 {
    let data = abi::uniswap::nft_position::encode_collect(params);
+
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
    evm.tx.caller = caller;
    evm.tx.data = data;
    evm.tx.value = U256::ZERO;
