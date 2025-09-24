@@ -32,11 +32,15 @@ use zeus_eth::{
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
 
 /// Cache the results for this many seconds
 const CACHE_EXPIRE: u64 = 250;
 
 const TIME_BETWEEN_EACH_REQUEST: u64 = 2;
+
+/// Timeout for the dest chain block
+const BLOCK_TIMEOUT: u64 = 10;
 
 type ChainPath = (u64, u64);
 
@@ -590,16 +594,11 @@ impl AcrossBridge {
       let cache = cache.unwrap();
       let relayer = cache.res.suggested_fees.exclusive_relayer;
       let timestamp = u32::from_str(&cache.res.suggested_fees.timestamp).unwrap_or_default();
-      let fill_deadline =
-         u32::from_str(&cache.res.suggested_fees.fill_deadline).unwrap_or_default();
       let exclusivity_deadline = cache.res.suggested_fees.exclusivity_deadline;
 
       // add a 5 minute deadline, because the fill deadline from the api is very high
-      let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
-      let deadline: u32 = now
-         .is_ok()
-         .then(|| (now.unwrap().as_secs() + 300) as u32)
-         .unwrap_or(fill_deadline);
+      let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+      let deadline: u32 = (now.as_secs() + 300) as u32;
 
       let deposit_args = DepositV3Args {
          depositor,
@@ -617,7 +616,7 @@ impl AcrossBridge {
       };
 
       let call_data = encode_deposit_v3(deposit_args.clone());
-      let transact_to = address_book::across_spoke_pool_v2(self.from_chain.chain.id()).unwrap();
+      let transact_to = address_book::across_spoke_pool_v2(from_chain.id())?;
 
       RT.spawn(async move {
          SHARED_GUI.write(|gui| {
@@ -712,19 +711,25 @@ async fn across_bridge(
 ) -> Result<(), anyhow::Error> {
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
-   let mut from_block = None;
-   if ctx.client_available(dest_chain.id()) {
-      let z_client = ctx.get_zeus_client();
-      let block = z_client
-         .request(dest_chain.id(), |client| async move {
-            client.get_block_number().await.map_err(|e| anyhow!("{:?}", e))
-         })
-         .await;
+   let from_block = Arc::new(Mutex::new(None));
 
-      if block.is_ok() {
-         from_block = Some(block.unwrap());
+   let ctx_clone = ctx.clone();
+   let from_block_clone = from_block.clone();
+   RT.spawn(async move {
+      if ctx_clone.client_available(dest_chain.id()) {
+         let z_client = ctx_clone.get_zeus_client();
+         let block = z_client
+            .request(dest_chain.id(), |client| async move {
+               client.get_block_number().await.map_err(|e| anyhow!("{:?}", e))
+            })
+            .await;
+
+         if block.is_ok() {
+            let mut guard = from_block_clone.lock().await;
+            *guard = Some(block.unwrap());
+         }
       }
-   }
+   });
 
    let mev_protect = false;
    let (_, tx_rich) = eth::send_transaction(
@@ -797,14 +802,14 @@ async fn across_bridge(
       let manager = ctx.balance_manager();
 
       if exists {
-         match manager.update_eth_balance(ctx.clone(), chain.id(), vec![recipient]).await {
+         match manager.update_eth_balance(ctx.clone(), dest_chain.id(), vec![recipient]).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to update ETH balance: {}", e);
             }
          }
 
-         ctx.calculate_portfolio_value(chain.id(), recipient);
+         ctx.calculate_portfolio_value(dest_chain.id(), recipient);
       }
 
       ctx.save_balance_manager();
@@ -818,14 +823,26 @@ async fn wait_for_fill(
    ctx: ZeusCtx,
    dest_chain: ChainId,
    recipient: Address,
-   from_block: Option<u64>,
+   from_block: Arc<Mutex<Option<u64>>>,
    deadline: u32,
 ) -> Result<(), anyhow::Error> {
-   if from_block.is_none() {
+   let time_passed = Instant::now();
+   let mut block = None;
+
+   while time_passed.elapsed().as_secs() < BLOCK_TIMEOUT {
+      let guard = from_block.lock().await;
+      block = guard.clone();
+      if block.is_some() {
+         break;
+      }
+      tokio::time::sleep(Duration::from_millis(10)).await;
+   }
+
+   if block.is_none() {
       return Ok(());
    }
 
-   let from_block = from_block.unwrap();
+   let from_block = block.unwrap();
    let mut block_time_ms = dest_chain.block_time_millis();
    if dest_chain.is_arbitrum() {
       // give more time so we dont spam the rpc
@@ -848,12 +865,9 @@ async fn wait_for_fill(
       let logs = z_client
          .request(dest_chain.id(), |client| {
             let filter = filter.clone();
-            async move {
-               client.get_logs(&filter).await.map_err(|e| anyhow!("{:?}", e))
-            }
+            async move { client.get_logs(&filter).await.map_err(|e| anyhow!("{:?}", e)) }
          })
          .await?;
-         
 
       for log in logs {
          if let Ok(decoded) = decode_filled_relay_log(log.data()) {
