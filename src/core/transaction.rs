@@ -643,7 +643,7 @@ impl SwapParams {
          pool
       };
 
-      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
+      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_positive() {
          (
             swap.amount0,
             pool.currency0().clone(),
@@ -659,8 +659,8 @@ impl SwapParams {
          )
       };
 
-      let amount_in = amount_in.to_string().trim_start_matches('-').parse::<U256>()?;
-      let amount_out = U256::from_str(&amount_out.to_string())?;
+      let amount_in = amount_in.to_string().parse::<U256>()?;
+      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
@@ -711,7 +711,7 @@ impl SwapParams {
          return Err(anyhow::anyhow!("V4 Pool not found in cache"));
       };
 
-      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
+      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_positive() {
          (
             swap.amount0,
             pool.currency0().clone(),
@@ -727,8 +727,8 @@ impl SwapParams {
          )
       };
 
-      let amount_in = amount_in.to_string().trim_start_matches('-').parse::<U256>()?;
-      let amount_out = U256::from_str(&amount_out.to_string())?;
+      let amount_in = amount_in.to_string().parse::<U256>()?;
+      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());

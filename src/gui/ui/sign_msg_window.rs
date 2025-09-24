@@ -55,6 +55,7 @@ impl SignMsgWindow {
       self.chain = chain.into();
       self.open = true;
       self.msg = Some(msg);
+      self.formatted_msg = None;
       self.signed = None;
    }
 
@@ -166,7 +167,8 @@ impl SignMsgWindow {
                            Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
                               .min_size(button_size);
                         if ui.add(cancel_btn).clicked() {
-                           self.close(ctx);
+                           self.reset(ctx);
+                           self.signed = Some(false);
                         }
                      });
                   });

@@ -385,7 +385,7 @@ pub async fn sign_message(
    let signature = msg_type.sign(&secure_signer).await?;
 
    SHARED_GUI.write(|gui| {
-      gui.sign_msg_window.reset(ctx);
+     // gui.sign_msg_window.reset(ctx);
       gui.request_repaint();
    });
 
