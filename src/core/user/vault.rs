@@ -46,6 +46,10 @@ impl Default for Vault {
 impl Vault {
    const MAX_CHARS: usize = 20;
 
+   pub fn name_max_chars(&self) -> usize {
+      Self::MAX_CHARS
+   }
+
    /// Return all the wallets in the vault in this order:
    ///
    /// - The master wallet
@@ -301,6 +305,13 @@ impl Vault {
    pub fn remove_wallet(&mut self, address: Address) {
       self.imported_wallets.retain(|w| w.address() != address);
       self.hd_wallet.children.retain(|w| w.address() != address);
+   }
+
+   /// Return a mutable reference iter to all the wallets in the vault
+   pub fn all_wallets_mut(&mut self) -> impl Iterator<Item = &mut Wallet> {
+      std::iter::once(&mut self.hd_wallet.master_wallet)
+         .chain(self.hd_wallet.children.iter_mut())
+         .chain(self.imported_wallets.iter_mut())
    }
 
    pub fn encrypted_info(&self) -> Result<EncryptedInfo, anyhow::Error> {

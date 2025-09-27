@@ -16,6 +16,9 @@ use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 pub struct WalletUi {
    open: bool,
    main_ui: bool,
+   rename_wallet: bool,
+   new_wallet_name: String,
+   wallet_to_rename: Option<Wallet>,
    add_wallet_ui: AddWalletUi,
    search_query: String,
    export_key_ui: ExportKeyUi,
@@ -28,6 +31,9 @@ impl WalletUi {
       Self {
          open: false,
          main_ui: true,
+         rename_wallet: false,
+         new_wallet_name: String::new(),
+         wallet_to_rename: None,
          add_wallet_ui: AddWalletUi::new(),
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
@@ -54,9 +60,10 @@ impl WalletUi {
       }
 
       self.main_ui(ctx.clone(), theme, icons.clone(), ui);
+      self.rename_wallet(ctx.clone(), theme, ui);
       self.add_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
       self.export_key_ui.show(ctx.clone(), theme, icons.clone(), ui);
-      self.delete_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
+      self.delete_wallet_ui.show(ctx, theme, icons.clone(), ui);
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.
@@ -198,7 +205,8 @@ impl WalletUi {
          ui.vertical(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                // Wallet name
-               let name = Label::new(RichText::new(wallet.name()).size(theme.text_sizes.normal));
+               let name =
+                  Label::new(RichText::new(wallet.name()).size(theme.text_sizes.normal)).wrap();
 
                ui.scope(|ui| {
                   ui.set_width(ui.available_width() * 0.45);
@@ -207,8 +215,7 @@ impl WalletUi {
 
                // Export button
                let enabled = !wallet.is_master();
-               let export_key =
-                  Button::new(RichText::new("Export Key").size(theme.text_sizes.small));
+               let export_key = Button::new(RichText::new("Export").size(theme.text_sizes.small));
                if ui.add_enabled(enabled, export_key).clicked() {
                   let wallet = ctx.get_wallet(wallet.address);
                   self.export_key_ui.open = true;
@@ -218,9 +225,20 @@ impl WalletUi {
 
                ui.add_space(8.0);
 
+               // Rename button
+               let rename_wallet =
+                  Button::new(RichText::new("Rename").size(theme.text_sizes.small));
+               if ui.add(rename_wallet).clicked() {
+                  let wallet_opt = ctx.get_wallet(wallet.address);
+                  self.rename_wallet = true;
+                  self.wallet_to_rename = wallet_opt;
+               }
+
+               ui.add_space(8.0);
+
                // Delete button
                let delete_wallet =
-                  Button::new(RichText::new("Delete Wallet").size(theme.text_sizes.small));
+                  Button::new(RichText::new("Delete").size(theme.text_sizes.small));
                if ui.add_enabled(enabled, delete_wallet).clicked() {
                   self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
                   self.delete_wallet_ui.credentials_form.open = true;
@@ -273,6 +291,155 @@ impl WalletUi {
                });
             });
          }
+      }
+   }
+
+   fn rename_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      let mut open = self.rename_wallet;
+
+      let title = RichText::new("Rename Wallet").size(theme.text_sizes.heading);
+      Window::new(title)
+         .open(&mut open)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(300.0);
+            ui.set_height(200.0);
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing.y = 15.0;
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+               ui.add_space(20.0);
+
+               let wallet = self.wallet_to_rename.as_ref();
+
+               if wallet.is_none() {
+                  ui.label(RichText::new("No wallet selected").size(theme.text_sizes.large));
+                  return;
+               }
+
+               let old_wallet = wallet.unwrap();
+
+               ui.label(RichText::new("Wallet Name").size(theme.text_sizes.large));
+               ui.add_space(10.0);
+
+               TextEdit::singleline(&mut self.new_wallet_name)
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .margin(Margin::same(10))
+                  .min_size(vec2(ui.available_width() * 0.9, 25.0))
+                  .show(ui);
+
+               let rename_button =
+                  Button::new(RichText::new("Rename").size(theme.text_sizes.normal));
+
+               if ui.add(rename_button).clicked() {
+                  let new_wallet_name = self.new_wallet_name.clone();
+                  let old_wallet = old_wallet.clone();
+                  let old_wallet_addr = old_wallet.address();
+
+                  // On failure, revert the changes
+                  RT.spawn_blocking(move || {
+                     let old_vault = ctx.get_vault();
+
+                     if old_vault.wallet_name_exists(&new_wallet_name) {
+                        SHARED_GUI.write(|gui| {
+                           gui.open_msg_window(
+                              "Error",
+                              format!(
+                                 "Wallet with name {} already exists",
+                                 &new_wallet_name
+                              ),
+                           );
+                           gui.request_repaint();
+                        });
+                        return;
+                     }
+
+                     if new_wallet_name.is_empty() {
+                        SHARED_GUI.write(|gui| {
+                           gui.open_msg_window("Error", "Wallet name cannot be empty");
+                           gui.request_repaint();
+                        });
+                        return;
+                     }
+
+                     let max_chars = old_vault.name_max_chars();
+
+                     if new_wallet_name.chars().count() > max_chars {
+                        SHARED_GUI.write(|gui| {
+                           gui.open_msg_window(
+                              "Error",
+                              format!(
+                                 "Wallet name cannot be longer than {} characters",
+                                 max_chars
+                              ),
+                           );
+                           gui.request_repaint();
+                        });
+                        return;
+                     }
+
+                     let mut new_wallet = old_wallet.clone();
+                     new_wallet.name = new_wallet_name;
+
+                     let mut new_vault = old_vault.clone();
+
+                     for wallet in new_vault.all_wallets_mut() {
+                        if wallet.address() == old_wallet_addr {
+                           *wallet = new_wallet.clone();
+                        }
+                     }
+
+                     let is_current = ctx.is_current_wallet(new_wallet.address());
+
+                     if is_current {
+                        ctx.write(|ctx| {
+                           ctx.current_wallet = new_wallet.clone();
+                        });
+                     }
+
+                     ctx.set_vault(new_vault.clone());
+
+                     match ctx.encrypt_and_save_vault(Some(new_vault), None) {
+                        Ok(_) => {
+                           SHARED_GUI.write(|gui| {
+                              if is_current {
+                                 gui.header.set_current_wallet(new_wallet);
+                              }
+
+                              gui.wallet_ui.rename_wallet = false;
+                              gui.wallet_ui.new_wallet_name.clear();
+                              gui.wallet_ui.wallet_to_rename = None;
+                              gui.open_msg_window("Success", "");
+                              gui.request_repaint();
+                           });
+                        }
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window(
+                                 "Failed to encrypt vault, changes reverted",
+                                 e.to_string(),
+                              );
+                              gui.request_repaint();
+                           });
+                           ctx.set_vault(old_vault);
+                           ctx.write(|ctx| {
+                              ctx.current_wallet = old_wallet;
+                           });
+                        }
+                     };
+                  });
+               }
+            });
+         });
+
+      self.rename_wallet = open;
+      if !self.rename_wallet {
+         self.new_wallet_name.clear();
+         self.wallet_to_rename = None;
       }
    }
 }
