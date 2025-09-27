@@ -10,6 +10,7 @@ pub mod sign_msg_window;
 pub mod token_selection;
 pub mod tx_window;
 pub mod wallet;
+pub mod notification;
 
 pub use header::Header;
 pub use auth::{CredentialsForm, RecoverHDWallet, UnlockVault};
@@ -21,6 +22,7 @@ pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
 pub use tx_window::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
+pub use notification::{Notification, NotificationType};
 
 pub const GREEN_CHECK: &str = "✅";
 pub const REFRESH: &str = "⟲";

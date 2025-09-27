@@ -6,8 +6,7 @@ use crate::core::{
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ChainSelect, ContactsUi, RecipientSelectionWindow, Step,
-      dapps::amount_field_with_currency_selector,
+      ChainSelect, ContactsUi, RecipientSelectionWindow, dapps::amount_field_with_currency_selector,
    },
 };
 use anyhow::anyhow;
@@ -81,7 +80,7 @@ impl AcrossBridge {
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
-         size: (450.0, 650.0),
+         size: (450.0, 600.0),
       }
    }
 
@@ -123,14 +122,14 @@ impl AcrossBridge {
 
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
-      let main_frame = theme.frame1;
+      let frame = theme.frame1;
 
       Window::new("across_bridge_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(main_frame)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 120.0))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
@@ -254,24 +253,13 @@ impl AcrossBridge {
 
                ui.add_space(10.0);
 
-               inner_frame.show(ui, |ui| {
-                  // Network Fee
-                  ui.label(
-                     RichText::new(format!(
-                        "Network Fee≈ ${}",
-                        self.cost(ctx.clone()).1.formatted()
-                     ))
-                     .size(theme.text_sizes.normal),
-                  );
+               let network_fee = self.cost(ctx.clone()).1;
+               let bridge_fee = self.bridge_fee(ctx.clone());
+               let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
-                  // Bridge Fee
-                  ui.label(
-                     RichText::new(format!(
-                        "Bridge Fee≈ ${}",
-                        self.bridge_fee(ctx.clone()).formatted()
-                     ))
-                     .size(theme.text_sizes.normal),
-                  );
+               inner_frame.show(ui, |ui| {
+                  let text = format!("Total Fee≈ ${}", total_fee.format_abbreviated());
+                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                   if self.requesting {
                      ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
@@ -643,7 +631,7 @@ impl AcrossBridge {
             Err(e) => {
                tracing::error!("Bridge Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.progress_window.reset();
+                  gui.notification.reset();
                   gui.loading_window.reset();
                   gui.msg_window.open("Transaction Error", e.to_string());
                });
@@ -732,7 +720,7 @@ async fn across_bridge(
    });
 
    let mev_protect = false;
-   let (_, tx_rich) = eth::send_transaction(
+   let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
       None,
@@ -762,25 +750,6 @@ async fn across_bridge(
       ctx_clone.save_portfolio_db();
    });
 
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   let step2 = Step {
-      id: "step2",
-      in_progress: true,
-      finished: false,
-      msg: "Waiting for the order to be filled".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.open_with(vec![step1, step2], "Success!".to_string());
-      gui.request_repaint();
-   });
-
    wait_for_fill(
       ctx.clone(),
       dest_chain,
@@ -789,12 +758,6 @@ async fn across_bridge(
       deadline,
    )
    .await?;
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.finish_last_step();
-      gui.progress_window.set_tx(tx_rich);
-      gui.request_repaint();
-   });
 
    // update the recipients balance if needed
    let exists = ctx.wallet_exists(recipient);

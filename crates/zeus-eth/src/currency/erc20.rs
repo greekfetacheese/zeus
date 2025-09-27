@@ -480,6 +480,10 @@ impl ERC20Token {
       self.is_usdc() || self.is_usdt() || self.is_dai()
    }
 
+   pub fn is_native_wrapped(&self) -> bool {
+      self.is_weth() || self.is_wbnb()
+   }
+
    pub fn is_base(&self) -> bool {
       self.is_weth() || self.is_wbnb() || self.is_stablecoin()
    }

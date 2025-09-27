@@ -1,5 +1,4 @@
 use super::UniswapSettingsUi;
-use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::{amount_field_with_currency_selector, uniswap::ProtocolVersion};
 use crate::gui::ui::*;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
@@ -7,16 +6,31 @@ use egui::{
    Align, Button, Color32, ComboBox, Frame, Grid, Id, Layout, RichText, ScrollArea, Spinner, Ui,
    Window, vec2,
 };
+
+use anyhow::anyhow;
 use egui_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
-use zeus_eth::amm::uniswap::{quoter::*, universal_router_v2::SwapType};
-use zeus_eth::utils::NumericValue;
 
-use crate::core::utils::{RT, eth};
+use crate::core::{
+   Dapp, TransactionAnalysis, ZeusCtx,
+   transaction::{SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
+   utils::{RT, eth},
+};
+
 use zeus_eth::{
-   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
+   abi,
+   alloy_primitives::U256,
+   alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
+   amm::uniswap::{
+      AnyUniswapPool, DexKind, UniswapPool,
+      quoter::*,
+      universal_router_v2::{SwapStep, SwapType, encode_swap},
+   },
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
+   revm_utils::{ForkFactory, Host, new_evm, simulate},
+   utils::{NumericValue, address_book},
 };
 
 /// Time in seconds to wait before updating the pool state again
@@ -671,7 +685,6 @@ impl SwapUi {
       balance.wei() >= amount.wei()
    }
 
-   /// Sync pools for the first time for currency out
    fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, changed_currency: bool) {
       if self.syncing_pools {
          return;
@@ -700,7 +713,7 @@ impl SwapUi {
       let pool_manager = ctx.pool_manager();
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
-      
+
       let tokens = vec![
          currency_in.to_erc20().into_owned(),
          currency_out.to_erc20().into_owned(),
@@ -830,12 +843,6 @@ impl SwapUi {
             self.currency_out.symbol()
          );
       }
-
-      tracing::info!(
-         "Updating pool state for {}-{}",
-         self.currency_in.symbol(),
-         self.currency_out.symbol()
-      );
 
       let chain_id = ctx.chain().id();
       let manager = ctx.pool_manager();
@@ -1043,11 +1050,11 @@ impl SwapUi {
                gui.request_repaint();
             });
 
-            match eth::wrap_eth(ctx.clone(), from, chain, amount_in.clone()).await {
+            match wrap_eth(ctx.clone(), from, chain, amount_in.clone()).await {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.progress_window.reset();
+                     gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
                      gui.request_repaint();
@@ -1068,11 +1075,11 @@ impl SwapUi {
                gui.request_repaint();
             });
 
-            match eth::unwrap_weth(ctx.clone(), from, chain, amount_in.clone()).await {
+            match unwrap_weth(ctx.clone(), from, chain, amount_in.clone()).await {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.progress_window.reset();
+                     gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
                      gui.request_repaint();
@@ -1097,7 +1104,7 @@ impl SwapUi {
          SHARED_GUI.open_loading("Wait while magic happens");
          SHARED_GUI.request_repaint();
 
-         match eth::swap(
+         match swap(
             ctx.clone(),
             chain,
             slippage,
@@ -1118,7 +1125,7 @@ impl SwapUi {
             Err(e) => {
                tracing::error!("Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
-                  gui.progress_window.reset();
+                  gui.notification.reset();
                   gui.loading_window.reset();
                   gui.tx_confirmation_window.reset(ctx);
                   gui.msg_window.open("Transaction Error", e.to_string());
@@ -1210,4 +1217,549 @@ pub fn get_relevant_pools(
    }
 
    relevant_pools
+}
+
+async fn swap(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   slippage: f64,
+   mev_protect: bool,
+   from: Address,
+   swap_type: SwapType,
+   amount_in: NumericValue,
+   _amount_out: NumericValue,
+   currency_in: Currency,
+   currency_out: Currency,
+   swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let interact_to = address_book::universal_router_v2(chain.id())?;
+   let block_fut = client.get_block(BlockId::latest());
+   let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
+
+   // Simulate the swap to find out the real amount of tokens received in case of a tax or any malicious contract
+   let time = std::time::Instant::now();
+   let execute_params = encode_swap(
+      client.clone(),
+      chain.id(),
+      swap_steps.clone(),
+      swap_type,
+      amount_in.wei(),
+      U256::ZERO, // No slippage so the simulation goes through
+      slippage,
+      currency_in.clone(),
+      currency_out.clone(),
+      signer.clone(),
+      from,
+   )
+   .await?;
+
+   tracing::info!(
+      "Build Execute Params took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let block = block_fut.await?;
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let token_out_balance_after;
+   let eth_balance_after;
+   let sim_res;
+   let mut approval_gas_used = 50_000;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+      if execute_params.token_needs_approval {
+         let permit2 = address_book::permit2_contract(chain.id())?;
+         let time = std::time::Instant::now();
+
+         let res = simulate::approve_token(
+            &mut evm,
+            currency_in.address(),
+            from,
+            permit2,
+            U256::MAX,
+         )?;
+
+         tracing::info!(
+            "Approve Token sim took {} ms",
+            time.elapsed().as_millis()
+         );
+
+         approval_gas_used = res.gas_used();
+      }
+
+      // simulate the swap
+      let time = std::time::Instant::now();
+
+      sim_res = eth::simulate_transaction(
+         &mut evm,
+         from,
+         interact_to,
+         execute_params.call_data.clone(),
+         execute_params.value,
+      )?;
+
+      tracing::info!(
+         "Swap Simulation took {} ms",
+         time.elapsed().as_millis()
+      );
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
+      token_out_balance_after = if currency_out.is_native() {
+         eth_balance_after
+      } else {
+         let b = simulate::erc20_balance(&mut evm, currency_out.address(), from)?;
+         b
+      };
+   }
+
+   let balance_before = if currency_out.is_native() {
+      client.get_balance(from).await?
+   } else {
+      currency_out.to_erc20().balance_of(client.clone(), from, None).await?
+   };
+
+   // calculate the real amount out
+   let real_amount_out = if token_out_balance_after > balance_before {
+      let amount_out = token_out_balance_after - balance_before;
+      NumericValue::format_wei(amount_out, currency_out.decimals())
+   } else {
+      return Err(anyhow::anyhow!(
+         "No tokens received from the swap"
+      ));
+   };
+
+   let amount_out_min = real_amount_out.calc_slippage(slippage, currency_out.decimals());
+
+   // build the call data again with the real_amount_out and slippage applied
+   // TODO: Avoid this step again or at least avoid making calls to the provider
+   let time = std::time::Instant::now();
+   let execute_params = encode_swap(
+      client.clone(),
+      chain.id(),
+      swap_steps.clone(),
+      swap_type,
+      amount_in.wei(),
+      amount_out_min.wei(),
+      slippage,
+      currency_in.clone(),
+      currency_out.clone(),
+      signer,
+      from,
+   )
+   .await?;
+   tracing::info!(
+      "Build Execute Params took {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let amount_in_usd = ctx.get_currency_value_for_amount(amount_in.f64(), &currency_in);
+   let received_usd = ctx.get_currency_value_for_amount(real_amount_out.f64(), &currency_out);
+   let min_received_usd = ctx.get_currency_value_for_amount(amount_out_min.f64(), &currency_out);
+
+   let swap_params = SwapParams {
+      dapp: Dapp::Uniswap,
+      input_currency: currency_in.clone(),
+      output_currency: currency_out.clone(),
+      amount_in: amount_in.clone(),
+      amount_in_usd: Some(amount_in_usd),
+      received: real_amount_out,
+      received_usd: Some(received_usd),
+      min_received: Some(amount_out_min),
+      min_received_usd: Some(min_received_usd),
+      sender: from,
+      recipient: Some(from),
+   };
+
+   let contract_interact = true;
+
+   let swap_tx_analysis = TransactionAnalysis {
+      chain: chain.id(),
+      sender: from,
+      interact_to,
+      contract_interact,
+      value: execute_params.value,
+      call_data: execute_params.call_data.clone(),
+      gas_used: sim_res.gas_used(),
+      eth_balance_before: balance_before,
+      eth_balance_after,
+      decoded_selector: "Execute".to_string(),
+      swaps: vec![swap_params],
+      ..Default::default()
+   };
+
+   let msg_value = execute_params.message.as_ref();
+
+   if let Some(msg_value) = msg_value {
+      let _sig = eth::sign_message(
+         ctx.clone(),
+         "".to_string(),
+         chain,
+         msg_value.clone(),
+      )
+      .await?;
+   }
+
+   if execute_params.token_needs_approval {
+      let permit2 = address_book::permit2_contract(chain.id())?;
+      let token = currency_in.to_erc20();
+
+      let call_data = token.encode_approve(permit2, U256::MAX);
+      let dapp = "".to_string();
+      let interact_to = token.address;
+      let value = U256::ZERO;
+      let amount = NumericValue::format_wei(U256::MAX, token.decimals);
+
+      let params = TokenApproveParams {
+         token: vec![token.into_owned()],
+         amount: vec![amount],
+         amount_usd: vec![None],
+         owner: from,
+         spender: permit2,
+      };
+
+      let analysis = TransactionAnalysis {
+         chain: chain.id(),
+         sender: from,
+         interact_to,
+         contract_interact: true,
+         value,
+         call_data: call_data.clone(),
+         gas_used: approval_gas_used,
+         eth_balance_before: balance_before,
+         eth_balance_after: balance_before,
+         decoded_selector: "Approve".to_string(),
+         token_approvals: vec![params],
+         ..Default::default()
+      };
+
+      let (receipt, _) = eth::send_transaction(
+         ctx.clone(),
+         dapp,
+         None,
+         Some(analysis),
+         chain,
+         false, // mev protect not needed for approval
+         from,
+         interact_to,
+         call_data,
+         value,
+      )
+      .await?;
+
+      if !receipt.status() {
+         return Err(anyhow!("Token Approval Failed"));
+      }
+   }
+
+   // now we can proceed with the swap
+   let call_data = execute_params.call_data.clone();
+   let value = execute_params.value;
+   let dapp = "".to_string();
+
+   let (_, _) = eth::send_transaction(
+      ctx.clone(),
+      dapp,
+      None,
+      Some(swap_tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   let tokens = vec![
+      currency_in.to_erc20().into_owned(),
+      currency_out.to_erc20().into_owned(),
+   ];
+
+   // update balances
+   RT.spawn(async move {
+      let manager = ctx.balance_manager();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, tokens).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
+
+      // Update the portfolio value
+      let mut portfolio = ctx.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&currency_out) {
+         portfolio.add_token(currency_out);
+         ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      }
+      ctx.calculate_portfolio_value(chain.id(), from);
+      ctx.save_balance_manager();
+      ctx.save_portfolio_db();
+   });
+
+   Ok(())
+}
+
+pub async fn wrap_eth(
+   ctx: ZeusCtx,
+   from: Address,
+   chain: ChainId,
+   amount: NumericValue,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let block = client.get_block(BlockId::latest()).await?;
+   let weth = ERC20Token::wrapped_native_token(chain.id());
+
+   let call_data = weth.encode_deposit();
+   let interact_to = weth.address;
+   let value = amount.wei();
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let eth_balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+
+      let time = Instant::now();
+      sim_res = eth::simulate_transaction(
+         &mut evm,
+         from,
+         interact_to,
+         call_data.clone(),
+         value,
+      )?;
+      tracing::info!(
+         "Simulate Transaction took {} ms",
+         time.elapsed().as_millis()
+      );
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let logs = sim_res.clone().into_logs();
+
+   let wrapped: Currency = weth.clone().into();
+   let eth_balance_before = client.get_balance(from).await?;
+   let eth_wrapped_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
+   let mut weth_received = None;
+
+   for log in &logs {
+      if let Ok(decoded) = abi::weth9::decode_deposit_log(log) {
+         weth_received = Some(decoded.wad);
+         break;
+      }
+   }
+
+   if weth_received.is_none() {
+      return Err(anyhow::anyhow!(
+         "Failed to decode weth deposit log"
+      ));
+   }
+
+   let weth_received = NumericValue::format_wei(weth_received.unwrap(), wrapped.decimals());
+   let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &wrapped);
+
+   let contract_interact = true;
+   let params = WrapETHParams {
+      chain: chain.id(),
+      recipient: from,
+      eth_wrapped: amount,
+      eth_wrapped_usd: Some(eth_wrapped_usd),
+      weth_received,
+      weth_received_usd: Some(weth_received_usd),
+   };
+
+   let tx_analysis = TransactionAnalysis {
+      chain: chain.id(),
+      sender: from,
+      interact_to,
+      contract_interact,
+      value,
+      call_data: call_data.clone(),
+      gas_used: sim_res.gas_used(),
+      eth_balance_before,
+      eth_balance_after,
+      decoded_selector: "Deposit".to_string(),
+      eth_wraps: vec![params],
+      ..Default::default()
+   };
+
+   let mev_protect = false;
+   let (_, _) = eth::send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      None,
+      Some(tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   // update balances
+   RT.spawn(async move {
+      let manager = ctx.balance_manager();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+      }
+
+      ctx.save_balance_manager();
+   });
+
+   Ok(())
+}
+
+pub async fn unwrap_weth(
+   ctx: ZeusCtx,
+   from: Address,
+   chain: ChainId,
+   amount: NumericValue,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let block = client.get_block(BlockId::latest()).await?;
+   let weth = ERC20Token::wrapped_native_token(chain.id());
+
+   let call_data = weth.encode_withdraw(amount.wei());
+   let interact_to = weth.address;
+   let value = U256::ZERO;
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let eth_balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+
+      let time = Instant::now();
+      sim_res = eth::simulate_transaction(
+         &mut evm,
+         from,
+         interact_to,
+         call_data.clone(),
+         value,
+      )?;
+
+      tracing::info!(
+         "Simulate Transaction took {} ms",
+         time.elapsed().as_millis()
+      );
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let logs = sim_res.clone().into_logs();
+
+   let eth_balance_before = client.get_balance(from).await?;
+   let mut eth_received = None;
+
+   for log in &logs {
+      if let Ok(decoded) = abi::weth9::decode_withdraw_log(log) {
+         eth_received = Some(decoded.wad);
+         break;
+      }
+   }
+
+   if eth_received.is_none() {
+      return Err(anyhow::anyhow!(
+         "Failed to decode weth withdraw log"
+      ));
+   }
+
+   let eth_received = NumericValue::format_wei(eth_received.unwrap(), weth.decimals);
+   let wrapped_c: Currency = weth.clone().into();
+   let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &wrapped_c);
+
+   let contract_interact = true;
+   let params = UnwrapWETHParams {
+      chain: chain.id(),
+      src: from,
+      weth_unwrapped: amount,
+      weth_unwrapped_usd: Some(eth_received_usd.clone()),
+      eth_received,
+      eth_received_usd: Some(eth_received_usd),
+   };
+
+   let tx_analysis = TransactionAnalysis {
+      chain: chain.id(),
+      sender: from,
+      interact_to,
+      contract_interact,
+      value,
+      call_data: call_data.clone(),
+      gas_used: sim_res.gas_used(),
+      eth_balance_before: eth_balance_before,
+      eth_balance_after,
+      decoded_selector: "Withdraw".to_string(),
+      weth_unwraps: vec![params],
+      ..Default::default()
+   };
+
+   let mev_protect = false;
+   let (_, _) = eth::send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      None,
+      Some(tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+   )
+   .await?;
+
+   // update balances
+   RT.spawn(async move {
+      let manager = ctx.balance_manager();
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
+      }
+
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
+      }
+
+      ctx.save_balance_manager();
+   });
+
+   Ok(())
 }

@@ -9,17 +9,17 @@ use std::sync::Arc;
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 #[derive(Clone)]
-pub struct LabelWithImage {
+pub struct Label {
    text: WidgetText,
-   image: Option<Image<'static>>,
+   pub(crate) image: Option<Image<'static>>,
    spacing: f32,
-   sense: Option<Sense>,
+   pub(crate) sense: Option<Sense>,
    wrap_mode: Option<TextWrapMode>,
    selectable: Option<bool>,
    text_first: bool,
 }
 
-impl LabelWithImage {
+impl Label {
    /// Create a new `LabelWithImage` with text and an optional image.
    /// By default the image is shown after the text
    pub fn new(text: impl Into<WidgetText>, image: Option<Image<'static>>) -> Self {
@@ -175,9 +175,9 @@ impl LabelWithImage {
    }
 }
 
-impl Widget for LabelWithImage {
+impl Widget for Label {
    fn ui(self, ui: &mut Ui) -> Response {
-      // --- Calculate Size (Content Only) ---
+      // Calculate Size (Content Only)
       let available_width = ui.available_width();
       let available_width_for_text = if self.image.is_some() {
          (available_width
@@ -192,11 +192,11 @@ impl Widget for LabelWithImage {
       };
       let (galley, desired_size) = self.galley_and_size(ui, available_width_for_text);
 
-      // --- Allocate Space (Content Size Only) ---
+      // Allocate Space (Content Size Only)
       let sense = self.sense.unwrap_or(Sense::hover());
       let (rect, response) = ui.allocate_exact_size(desired_size, sense);
 
-      // --- Paint ---
+      // Paint
       if ui.is_rect_visible(rect) {
          let visuals = if self.sense.is_some() {
             ui.style().interact(&response)
@@ -204,7 +204,7 @@ impl Widget for LabelWithImage {
             ui.style().noninteractive()
          };
 
-         // --- Paint Background (Only if Interactive) ---
+         // Paint Background
          let is_interactive = self.sense.is_some();
          if is_interactive
             && (response.hovered() || response.is_pointer_button_down_on() || response.has_focus())
@@ -219,7 +219,7 @@ impl Widget for LabelWithImage {
             ));
          }
 
-         // --- Layout and Paint Content ---
+         // Layout and Paint Content
          let (text_pos, image_rect_opt) = layout_content_within_rect(
             ui,
             rect,

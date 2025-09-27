@@ -168,7 +168,6 @@ impl eframe::App for ZeusApp {
 
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
-               ui.set_max_width(900.0);
                gui.show_central_panel(ui);
             });
          });

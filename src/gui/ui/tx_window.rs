@@ -735,52 +735,6 @@ fn transfer_event_ui(
       });
    });
 
-   // Recipient
-   ui.allocate_ui(size, |ui| {
-      address(
-         ctx.clone(),
-         chain,
-         "Recipient",
-         params.recipient,
-         theme,
-         ui,
-      );
-   });
-}
-
-fn erc20_transfer_event_ui(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   params: &ERC20TransferParams,
-   ui: &mut Ui,
-) {
-   ui.horizontal(|ui| {
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let token = &params.token;
-         let amount = &params.amount;
-         let icon = icons.token_icon(token.address, token.chain_id);
-         let text = RichText::new(format!(
-            "{} {} ",
-            amount.format_abbreviated(),
-            token.symbol
-         ))
-         .size(theme.text_sizes.large);
-         let label = Label::new(text, Some(icon)).image_on_left();
-         ui.add(label);
-      });
-
-      // Value
-      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let amount = params.amount_usd.clone().unwrap_or_default();
-         ui.label(
-            RichText::new(format!("~ ${}", amount.format_abbreviated()))
-               .size(theme.text_sizes.large),
-         );
-      });
-   });
-
    // Sender
    address(
       ctx.clone(),
@@ -792,14 +746,16 @@ fn erc20_transfer_event_ui(
    );
 
    // Recipient
-   address(
-      ctx.clone(),
-      chain,
-      "Recipient",
-      params.recipient,
-      theme,
-      ui,
-   );
+   ui.allocate_ui(size, |ui| {
+      address(
+         ctx.clone(),
+         chain,
+         "Recipient",
+         params.recipient,
+         theme,
+         ui,
+      );
+   });
 
    // Actual amount sent
    if params.real_amount_sent.is_some() {
@@ -819,11 +775,11 @@ fn erc20_transfer_event_ui(
                .size(theme.text_sizes.large),
             );
 
-            let token = &params.token;
+            let currency = &params.currency;
             let text = RichText::new(format!(
                "{} {} ",
                real_amount_sent.format_abbreviated(),
-               token.symbol
+               currency.symbol()
             ))
             .size(theme.text_sizes.large);
             let label = Label::new(text, None);
@@ -1086,7 +1042,7 @@ fn wrap_eth_event_ui(
       ctx.clone(),
       chain,
       "Recipient",
-      params.dst,
+      params.recipient,
       theme,
       ui,
    );
@@ -1287,12 +1243,14 @@ fn show_decoded_events(
    frame: Frame,
    ui: &mut Ui,
 ) {
-   for erc20_transfer in &analysis.erc20_transfers {
+   let erc20_transfers = &analysis.erc20_transfers();
+
+   for erc20_transfer in erc20_transfers {
       ui.allocate_ui(frame_size, |ui| {
          frame.show(ui, |ui| {
-            ui.label(RichText::new("Transfer").size(theme.text_sizes.large));
+            ui.label(RichText::new("ERC20 Transfer").size(theme.text_sizes.large));
 
-            erc20_transfer_event_ui(
+            transfer_event_ui(
                ctx.clone(),
                chain,
                theme,
@@ -1407,21 +1365,9 @@ fn show_action(
    action: &TransactionAction,
    ui: &mut Ui,
 ) {
-   if action.is_transfer() {
+   if action.is_native_transfer() || action.is_erc20_transfer() {
       let params = action.transfer_params();
       transfer_event_ui(
-         ctx.clone(),
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
-   }
-
-   if action.is_erc20_transfer() {
-      let params = action.erc20_transfer_params();
-      erc20_transfer_event_ui(
          ctx.clone(),
          chain,
          theme,

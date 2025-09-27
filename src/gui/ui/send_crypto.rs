@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
-   ERC20TransferParams, TransactionAnalysis, ZeusCtx,
+   TransactionAnalysis, TransferParams, ZeusCtx,
    utils::{RT, estimate_tx_cost, eth},
 };
 
@@ -12,7 +12,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ContactsUi, RecipientSelectionWindow, Step, TokenSelectionWindow,
+      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       dapps::amount_field_with_currency_selector,
    },
 };
@@ -107,7 +107,7 @@ impl SendCryptoUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 30.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
@@ -383,7 +383,7 @@ impl SendCryptoUi {
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
-                     gui.progress_window.reset();
+                     gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
                   });
@@ -408,7 +408,7 @@ impl SendCryptoUi {
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
-                     gui.progress_window.reset();
+                     gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
                   });
@@ -452,10 +452,7 @@ fn value(
                gui.send_crypto.pool_data_syncing = true;
             });
 
-            match manager
-               .sync_pools_for_tokens(ctx.clone(), vec![token], dexes)
-               .await
-            {
+            match manager.sync_pools_for_tokens(ctx.clone(), vec![token], dexes).await {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Error getting pools: {:?}", e);
@@ -518,7 +515,7 @@ async fn send_eth(
    let value = amount.wei();
    let call_data = Bytes::default();
 
-   let (_, tx_rich) = eth::send_transaction(
+   let (_, _) = eth::send_transaction(
       ctx.clone(),
       dapp,
       None,
@@ -531,19 +528,6 @@ async fn send_eth(
       value,
    )
    .await?;
-
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx(tx_rich);
-      gui.request_repaint();
-   });
 
    match update_balances(ctx.clone(), chain.id(), currency, from, recipient).await {
       Ok(_) => {}
@@ -577,8 +561,8 @@ async fn send_token(
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
    let fork_db = factory.new_sandbox_fork();
 
-   let mut transfer_params = ERC20TransferParams {
-      token: token.clone(),
+   let mut transfer_params = TransferParams {
+      currency: token.clone().into(),
       sender: from,
       recipient,
       ..Default::default()
@@ -635,11 +619,11 @@ async fn send_token(
       eth_balance_before: eth_balance_before.wei(),
       eth_balance_after: eth_balance_before.wei(),
       decoded_selector: "ERC20 Transfer".to_string(),
-      erc20_transfers: vec![transfer_params],
+      transfers: vec![transfer_params],
       ..Default::default()
    };
 
-   let (_, tx_rich) = eth::send_transaction(
+   let (_, _) = eth::send_transaction(
       ctx.clone(),
       dapp,
       None,
@@ -652,19 +636,6 @@ async fn send_token(
       value,
    )
    .await?;
-
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx(tx_rich);
-      gui.request_repaint();
-   });
 
    match update_balances(ctx.clone(), chain.id(), currency, from, recipient).await {
       Ok(_) => {}

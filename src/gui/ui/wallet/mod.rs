@@ -32,7 +32,7 @@ impl WalletUi {
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
          delete_wallet_ui: DeleteWalletUi::new(),
-         size: (550.0, 650.0),
+         size: (550.0, 600.0),
       }
    }
 
@@ -101,7 +101,7 @@ impl WalletUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);

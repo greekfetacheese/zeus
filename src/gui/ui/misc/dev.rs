@@ -1,27 +1,28 @@
 use bincode::{config::standard, decode_from_slice, encode_to_vec};
 use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use zeus_eth::amm::uniswap::DexKind;
 
 use crate::assets::Icons;
 use crate::core::{
    TransactionAnalysis, ZeusCtx,
+   context::db::currencies::TokenData,
    transaction::*,
    utils::{RT, sign::SignMsgType},
-   context::db::currencies::TokenData,
 };
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 
 use zeus_eth::{
-   alloy_primitives::Address, amm::uniswap::UniswapPool, currency::ERC20Token,
-   types::SUPPORTED_CHAINS, utils::NumericValue,
+   alloy_primitives::Address,
+   amm::uniswap::{DexKind, UniswapPool},
+   currency::ERC20Token,
+   types::SUPPORTED_CHAINS,
+   utils::NumericValue,
 };
 
 use super::sync::SyncPoolsUi;
 use egui_theme::Theme;
-
 use std::str::FromStr;
 use std::sync::Arc;
-
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct DevUi {
    pub open: bool,
@@ -351,10 +352,136 @@ impl UiTesting {
          let button_size = vec2(self.size.0, 50.0);
 
          let text_size = theme.text_sizes.normal;
-         let button =
-            Button::new(RichText::new("Data Syncing").size(text_size)).min_size(button_size);
 
          ScrollArea::vertical().show(ui, |ui| {
+            let button =
+               Button::new(RichText::new("Swap Notification With Progress Bar").size(text_size))
+                  .min_size(button_size);
+
+            let dummy_swap = TransactionAction::dummy_swap().clone();
+            let dummy_bridge = TransactionAction::dummy_bridge().clone();
+            let dummy_transfer = TransactionAction::dummy_transfer().clone();
+            let dummy_approval = TransactionAction::dummy_token_approve().clone();
+
+            let swap_title = dummy_swap.name();
+            let bridge_title = dummy_bridge.name();
+            let transfer_title = dummy_transfer.name();
+            let approval_title = dummy_approval.name();
+
+            let swap_notification = NotificationType::from_tx_action(dummy_swap);
+            let bridge_notification = NotificationType::from_tx_action(dummy_bridge);
+            let transfer_notification = NotificationType::from_tx_action(dummy_transfer);
+            let approval_notification = NotificationType::from_tx_action(dummy_approval);
+
+            if ui.add(button).clicked() {
+               let title = swap_title.clone();
+               let notification_clone = swap_notification.clone();
+               RT.spawn_blocking(move || {
+                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                  let finish_on = now + 5;
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_progress_bar(
+                        now,
+                        finish_on,
+                        title,
+                        notification_clone,
+                        None,
+                     );
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Swap Notification With Spinner").size(text_size))
+                  .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_spinner(swap_title, swap_notification);
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Bridge Notification With Progress Bar").size(text_size))
+                  .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let notification_clone = bridge_notification.clone();
+               let title = bridge_title.clone();
+               RT.spawn_blocking(move || {
+                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                  let finish_on = now + 5;
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_progress_bar(
+                        now,
+                        finish_on,
+                        title,
+                        notification_clone,
+                        None,
+                     );
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Bridge Notification With Spinner").size(text_size))
+                  .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_spinner(bridge_title, bridge_notification);
+                  });
+               });
+            }
+
+            let button = Button::new(
+               RichText::new("Transfer Notification With Progress Bar").size(text_size),
+            )
+            .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let notification_clone = transfer_notification.clone();
+               RT.spawn_blocking(move || {
+                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                  let finish_on = now + 5;
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_progress_bar(
+                        now,
+                        finish_on,
+                        transfer_title,
+                        notification_clone,
+                        None,
+                     );
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Approval with Progress Bar").size(text_size))
+               .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let notification_clone = approval_notification.clone();
+               RT.spawn_blocking(move || {
+                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                  let finish_on = now + 5;
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_progress_bar(
+                        now,
+                        finish_on,
+                        approval_title,
+                        notification_clone,
+                        None,
+                     );
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Data Syncing").size(text_size)).min_size(button_size);
+
             if ui.add(button).clicked() {
                ctx.write(|ctx| ctx.data_syncing = !ctx.data_syncing);
             }
@@ -373,13 +500,12 @@ impl UiTesting {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params =
-                     TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
                   let analysis = TransactionAnalysis {
                      chain: 1,
                      contract_interact: true,
                      decoded_selector: "Unknown".to_string(),
-                     erc20_transfers: vec![params.clone(), params.clone(), params],
+                     transfers: vec![params.clone(), params.clone(), params],
                      gas_used: 160_000,
                      value: NumericValue::parse_to_wei("1", 18).wei(),
                      ..Default::default()
@@ -405,14 +531,13 @@ impl UiTesting {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params =
-                     TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
                   let unwrap = TransactionAction::dummy_unwrap_weth().unwrap_weth_params().clone();
                   let analysis = TransactionAnalysis {
                      chain: 1,
                      contract_interact: true,
                      decoded_selector: "Unknown".to_string(),
-                     erc20_transfers: vec![params.clone(), params.clone()],
+                     transfers: vec![params.clone(), params.clone()],
                      weth_unwraps: vec![unwrap],
                      gas_used: 160_000,
                      eth_balance_before: NumericValue::default().wei(),
@@ -556,14 +681,13 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params =
-                     TransactionAction::dummy_erc20_transfer().erc20_transfer_params().clone();
+                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
                   let analysis = TransactionAnalysis {
                      chain: 1,
                      contract_interact: true,
                      decoded_selector: "ERC20 Transfer".to_string(),
                      gas_used: 50_000,
-                     erc20_transfers: vec![params],
+                     transfers: vec![params],
                      ..Default::default()
                   };
                   SHARED_GUI.write(|gui| {
@@ -673,33 +797,12 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open(ctx.clone(), "app.uniswap.org".to_string(), 8453, msg);
-                  });
-               });
-            }
-
-            let progress_window =
-               Button::new(RichText::new("Progress Window").size(text_size)).min_size(button_size);
-
-            if ui.add(progress_window).clicked() {
-               RT.spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     gui.progress_window.open_test();
-                  });
-
-                  std::thread::sleep(std::time::Duration::from_secs(1));
-                  SHARED_GUI.write(|gui| {
-                     gui.progress_window.proceed_with("step2");
-                  });
-
-                  std::thread::sleep(std::time::Duration::from_secs(1));
-                  SHARED_GUI.write(|gui| {
-                     gui.progress_window.proceed_with("step3");
-                  });
-
-                  std::thread::sleep(std::time::Duration::from_secs(1));
-                  SHARED_GUI.write(|gui| {
-                     gui.progress_window.finish_last_step();
+                     gui.sign_msg_window.open(
+                        ctx.clone(),
+                        "app.uniswap.org".to_string(),
+                        8453,
+                        msg,
+                     );
                   });
                });
             }

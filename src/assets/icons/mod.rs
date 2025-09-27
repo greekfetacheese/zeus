@@ -5,11 +5,11 @@ use eframe::egui::{
    ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
 };
 
+use crate::core::context::db::currencies::{TOKENS, TokenData};
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
-use crate::core::context::db::currencies::{TokenData, TOKENS};
 
 use bincode::{config::standard, decode_from_slice};
 
@@ -38,27 +38,38 @@ impl Default for Icons {
 }
 
 pub struct TokenIcons {
-   pub icon_x32: HashMap<(Address, u64), TextureHandle>,
-   // pub icon_x24: HashMap<(Address, u64), TextureHandle>,
-   /// ERC20 Placeholder
+   pub icons_x32: HashMap<(Address, u64), TextureHandle>,
+   pub icons_x24: HashMap<(Address, u64), TextureHandle>,
    pub erc20_x32: TextureHandle,
-   /// BEP20 Placeholder
+   pub erc20_x24: TextureHandle,
    pub bep20_x32: TextureHandle,
+   pub bep20_x24: TextureHandle,
 }
 
 impl Default for TokenIcons {
    fn default() -> Self {
       let ctx = Context::default();
       let texture_options = TextureOptions::default();
-      let erc20 = load_image(include_bytes!("currency/resized/erc20.png")).unwrap();
-      let bep20 = load_image(include_bytes!("currency/resized/bep20.png")).unwrap();
-      let erc20 = ctx.load_texture("erc20", erc20, texture_options);
-      let bep20 = ctx.load_texture("bep20", bep20, texture_options);
+
+      let erc20_x32 = load_image(include_bytes!("currency/resized/erc20.png")).unwrap();
+      let bep20_x32 = load_image(include_bytes!("currency/resized/bep20.png")).unwrap();
+
+      let erc20_x24 = load_image(include_bytes!("currency/resized/x24/erc20.png")).unwrap();
+      let bep20_x24 = load_image(include_bytes!("currency/resized/x24/bep20.png")).unwrap();
+
+      let erc20_x32 = ctx.load_texture("erc20_x32", erc20_x32, texture_options);
+      let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
+
+      let erc20_x24 = ctx.load_texture("erc20_x24", erc20_x24, texture_options);
+      let bep20_x24 = ctx.load_texture("bep20_x24", bep20_x24, texture_options);
 
       Self {
-         icon_x32: HashMap::new(),
-         erc20_x32: erc20,
-         bep20_x32: bep20,
+         icons_x32: HashMap::new(),
+         icons_x24: HashMap::new(),
+         erc20_x32,
+         bep20_x32,
+         erc20_x24,
+         bep20_x24,
       }
    }
 }
@@ -68,28 +79,46 @@ impl TokenIcons {
       let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
          decode_from_slice(TOKENS, standard())?;
 
-      let mut icons = HashMap::new();
+      let mut icons_x32 = HashMap::new();
+      let mut icons_x24 = HashMap::new();
 
       let texture_options = TextureOptions::default();
       for icon in icon_data {
          let img = load_image(&icon.icon_data)?;
          let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
-         icons.insert(
+         icons_x32.insert(
+            (Address::from_str(&icon.address)?, icon.chain_id),
+            texture_handle,
+         );
+
+         let img = load_and_resize_image(&icon.icon_data, 24, 24)?;
+         let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
+         icons_x24.insert(
             (Address::from_str(&icon.address)?, icon.chain_id),
             texture_handle,
          );
       }
 
       // ERC20 & BEP20 Placeholders
-      let erc20 = load_image(include_bytes!("currency/resized/erc20.png"))?;
-      let bep20 = load_image(include_bytes!("currency/resized/bep20.png"))?;
-      let erc20 = ctx.load_texture("erc20", erc20, texture_options);
-      let bep20 = ctx.load_texture("bep20", bep20, texture_options);
+      let erc20_x32 = load_image(include_bytes!("currency/resized/erc20.png"))?;
+      let bep20_x32 = load_image(include_bytes!("currency/resized/bep20.png"))?;
+
+      let erc20_x24 = load_image(include_bytes!("currency/resized/x24/erc20.png"))?;
+      let bep20_x24 = load_image(include_bytes!("currency/resized/x24/bep20.png"))?;
+
+      let erc20_x32 = ctx.load_texture("erc20_x32", erc20_x32, texture_options);
+      let bep20_x32 = ctx.load_texture("bep20_x32", bep20_x32, texture_options);
+
+      let erc20_x24 = ctx.load_texture("erc20_x24", erc20_x24, texture_options);
+      let bep20_x24 = ctx.load_texture("bep20_x24", bep20_x24, texture_options);
 
       Ok(Self {
-         icon_x32: icons,
-         erc20_x32: erc20,
-         bep20_x32: bep20,
+         icons_x32,
+         icons_x24,
+         erc20_x32,
+         bep20_x32,
+         erc20_x24,
+         bep20_x24,
       })
    }
 }
@@ -190,6 +219,8 @@ pub struct MiscIcons {
    pub wallet_light: TextureHandle,
    pub wallet_dark: TextureHandle,
    pub wallet_main_x24: TextureHandle,
+   pub arrow_right_white_x24: TextureHandle,
+   pub arrow_right_dark_x24: TextureHandle,
 }
 
 impl MiscIcons {
@@ -213,6 +244,17 @@ impl MiscIcons {
 
       let wallet_dark = load_image(include_bytes!("misc/x16/wallet-dark.png"))?;
 
+      let arrow_right_white_x24 = load_and_resize_image(
+         include_bytes!("misc/arrow-right-white.png"),
+         24,
+         24,
+      )?;
+      let arrow_right_dark_x24 = load_and_resize_image(
+         include_bytes!("misc/arrow-right-dark.png"),
+         24,
+         24,
+      )?;
+
       Ok(Self {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
          green_circle: ctx.load_texture("green_circle", green_circle, texture_options),
@@ -224,7 +266,21 @@ impl MiscIcons {
          hide_light: ctx.load_texture("hide_light", hide_light, texture_options),
          wallet_light: ctx.load_texture("wallet_light", wallet_light, texture_options),
          wallet_dark: ctx.load_texture("wallet_dark", wallet_dark, texture_options),
-         wallet_main_x24: ctx.load_texture("wallet_main_x24", wallet_main_x24, texture_options),
+         wallet_main_x24: ctx.load_texture(
+            "wallet_main_x24",
+            wallet_main_x24,
+            texture_options,
+         ),
+         arrow_right_white_x24: ctx.load_texture(
+            "arrow_right_white_x24",
+            arrow_right_white_x24,
+            texture_options,
+         ),
+         arrow_right_dark_x24: ctx.load_texture(
+            "arrow_right_dark_x24",
+            arrow_right_dark_x24,
+            texture_options,
+         ),
       })
    }
 }
@@ -305,30 +361,53 @@ impl Icons {
    /// If its ERC20, it will return the token icon based on the token address and chain id
    pub fn currency_icon(&self, currency: &Currency) -> Image<'static> {
       if currency.is_native() {
-         self.native_currency_icon(currency.native().unwrap().chain_id)
+         self.native_currency_icon(currency.chain_id())
       } else {
-         let token = currency.erc20().unwrap();
-         self.token_icon(token.address, token.chain_id)
+         self.token_icon_x32(currency.address(), currency.chain_id())
+      }
+   }
+
+   pub fn currency_icon_x24(&self, currency: &Currency) -> Image<'static> {
+      if currency.is_native() {
+         self.native_currency_icon_x24(currency.chain_id())
+      } else {
+         self.token_icon_x24(currency.address(), currency.chain_id())
       }
    }
 
    /// Return the token icon (32 x 32) based on its address and chain id
    ///
    /// If it does not exist we return a placeholder
-   pub fn token_icon(&self, address: Address, chain_id: u64) -> Image<'static> {
+   pub fn token_icon_x32(&self, address: Address, chain_id: u64) -> Image<'static> {
       let key = &(address, chain_id);
-      if let Some(icon) = self.tokens.icon_x32.get(key) {
+      if let Some(icon) = self.tokens.icons_x32.get(key) {
          return Image::new(icon);
       } else {
-         self.token_placeholder(chain_id)
+         self.token_placeholder_x32(chain_id)
+      }
+   }
+
+   pub fn token_icon_x24(&self, address: Address, chain_id: u64) -> Image<'static> {
+      let key = &(address, chain_id);
+      if let Some(icon) = self.tokens.icons_x24.get(key) {
+         return Image::new(icon);
+      } else {
+         self.token_placeholder_x24(chain_id)
       }
    }
 
    /// Return a placeholder icon for a token
-   pub fn token_placeholder(&self, id: u64) -> Image<'static> {
+   pub fn token_placeholder_x32(&self, id: u64) -> Image<'static> {
       match id {
          56 => Image::new(&self.tokens.bep20_x32),
          _ => Image::new(&self.tokens.erc20_x32),
+      }
+   }
+
+   pub fn token_placeholder_x24(&self, id: u64) -> Image<'static> {
+      match id {
+         56 => Image::new(&self.tokens.bep20_x24),
+         _ => Image::new(&self.tokens.erc20_x24),
       }
    }
 
@@ -384,6 +463,14 @@ impl Icons {
 
    pub fn wallet_dark(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_dark).sense(Sense::click())
+   }
+
+   pub fn arrow_right_white_x24(&self) -> Image<'static> {
+      Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click())
+   }
+
+   pub fn arrow_right_dark_x24(&self) -> Image<'static> {
+      Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click())
    }
 }
 

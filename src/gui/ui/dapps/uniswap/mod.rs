@@ -4,7 +4,7 @@ pub mod swap;
 pub mod view_positions;
 
 use create_position::CreatePositionUi;
-use egui_widgets::LabelWithImage;
+use egui_widgets::Label;
 use pool::PoolsUi;
 use swap::SwapUi;
 use view_positions::ViewPositionsUi;
@@ -344,9 +344,8 @@ impl UniswapUi {
          return;
       }
 
-      // ui.add_space(50.0);
-
       ui.vertical_centered(|ui| {
+         ui.add_space(20.0);
          ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -482,7 +481,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
                   let icon = icons.currency_icon(token0);
-                  let label = LabelWithImage::new(text, Some(icon)).image_on_left();
+                  let label = Label::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
 
@@ -490,7 +489,7 @@ pub fn currencies_amount_and_value(
                   let balance = ctx.get_currency_balance(chain, owner, token0);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
-                  let label = LabelWithImage::new(text, None);
+                  let label = Label::new(text, None);
                   ui.add(label);
                });
             });
@@ -517,7 +516,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
                   let icon = icons.currency_icon(token1);
-                  let label = LabelWithImage::new(text, Some(icon)).image_on_left();
+                  let label = Label::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
 
@@ -525,7 +524,7 @@ pub fn currencies_amount_and_value(
                   let balance = ctx.get_currency_balance(chain, owner, token1);
                   let b_text = format!("(Balance: {})", balance.format_abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
-                  let label = LabelWithImage::new(text, None);
+                  let label = Label::new(text, None);
                   ui.add(label);
                });
             });

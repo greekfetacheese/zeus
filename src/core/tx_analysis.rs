@@ -1,4 +1,4 @@
-use crate::core::{Dapp, ZeusCtx};
+use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
 use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
@@ -31,7 +31,7 @@ pub struct TransactionAnalysis {
    pub decoded_selector: String,
 
    // All decoded events
-   pub erc20_transfers: Vec<ERC20TransferParams>,
+   pub transfers: Vec<TransferParams>,
    pub token_approvals: Vec<TokenApproveParams>,
    pub eth_wraps: Vec<WrapETHParams>,
    pub weth_unwraps: Vec<UnwrapWETHParams>,
@@ -92,8 +92,18 @@ impl TransactionAnalysis {
             continue;
          }
 
-         if let Ok(params) = ERC20TransferParams::from_log(ctx.clone(), chain, log).await {
-            analysis.erc20_transfers.push(params);
+         if let Ok(params) = TransferParams::new(
+            ctx.clone(),
+            chain,
+            from,
+            interact_to,
+            call_data.clone(),
+            value,
+            log,
+         )
+         .await
+         {
+            analysis.transfers.push(params);
             continue;
          }
 
@@ -208,8 +218,16 @@ impl TransactionAnalysis {
       selector_str
    }
 
+   pub fn erc20_transfers_len(&self) -> usize {
+      self.transfers.iter().filter(|t| t.is_erc20_transfer()).count()
+   }
+
+   pub fn erc20_transfers(&self) -> Vec<TransferParams> {
+      self.transfers.iter().filter(|t| t.is_erc20_transfer()).cloned().collect()
+   }
+
    pub fn decoded_events(&self) -> usize {
-      self.erc20_transfers.len()
+      self.erc20_transfers_len()
          + self.token_approvals.len()
          + self.eth_wraps.len()
          + self.weth_unwraps.len()
@@ -225,28 +243,51 @@ impl TransactionAnalysis {
          let native: Currency = NativeCurrency::from(chain).into();
          let amount = NumericValue::format_wei(self.value, native.decimals());
          let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &native);
+         let sender = self.sender;
+         let recipient = self.interact_to;
+
+         let sender_name_opt = ctx.get_address_name(chain, sender);
+         let recipient_name_opt = ctx.get_address_name(chain, recipient);
+
+         let sender_str = if let Some(sender_name) = sender_name_opt {
+            sender_name
+         } else {
+            truncate_address(sender.to_string())
+         };
+
+         let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+            recipient_name
+         } else {
+            truncate_address(recipient.to_string())
+         };
 
          let params = TransferParams {
             currency: native,
             amount,
             amount_usd: Some(amount_usd),
-            sender: self.sender,
-            recipient: self.interact_to,
+            real_amount_sent: None,
+            real_amount_sent_usd: None,
+            sender,
+            sender_str,
+            recipient,
+            recipient_str,
          };
 
          return TransactionAction::Transfer(params);
       }
 
-      let transfers_len = self.erc20_transfers.len();
+      let erc20_transfers_len = self.erc20_transfers_len();
+      let eth_wraps_len = self.eth_wraps.len();
+      let weth_unwraps_len = self.weth_unwraps.len();
       let approvals_len = self.token_approvals.len();
       let positions_ops_len = self.positions_ops.len();
       let bridge_len = self.bridge.len();
       let swaps_len = self.swaps.len();
 
       // Single ERC20 Transfer
-      if self.decoded_events() == 1 && transfers_len == 1 {
-         let params = self.erc20_transfers[0].clone();
-         return TransactionAction::ERC20Transfer(params);
+      if self.decoded_events() == 1 && erc20_transfers_len == 1 {
+         let params = self.transfers[0].clone();
+         return TransactionAction::Transfer(params);
       }
 
       // Single Token Approval
@@ -256,24 +297,24 @@ impl TransactionAnalysis {
       }
 
       // Single Wrap ETH
-      if self.is_wrap_eth() {
+      if self.decoded_events() == 1 && eth_wraps_len == 1 {
          let params = self.eth_wraps[0].clone();
          return TransactionAction::WrapETH(params);
       }
 
       // Single Unwrap WETH
-      if self.is_unwrap_weth() {
+      if self.decoded_events() == 1 && weth_unwraps_len == 1 {
          let params = self.weth_unwraps[0].clone();
          return TransactionAction::UnwrapWETH(params);
       }
 
       // Single Uniswap Position Operation
-      if positions_ops_len == 1 {
+      if self.decoded_events() == 1 && positions_ops_len == 1 {
          let params = self.positions_ops[0].clone();
          return TransactionAction::UniswapPositionOperation(params);
       }
 
-      // Single Bridge
+      // Bridge
       if bridge_len == 1 {
          let params = self.bridge[0].clone();
          return TransactionAction::Bridge(params);
@@ -281,10 +322,19 @@ impl TransactionAnalysis {
 
       // Single Swap
       if swaps_len == 1 {
-         // tracing::info!("Swap len 1");
-         let params = self.swaps[0].clone();
-         // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
-         // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
+         let mut params = self.swaps[0].clone();
+
+         // Handle ETH/WETH abstraction
+         if params.input_currency.is_native_wrapped() {
+            if self.value > U256::ZERO {
+               params.input_currency = NativeCurrency::from(self.chain).into();
+            }
+         }
+
+         if params.output_currency.is_native_wrapped() && self.weth_unwraps.len() == 1 {
+            params.output_currency = NativeCurrency::from(self.chain).into();
+         }
+
          return TransactionAction::SwapToken(params);
       }
 
@@ -299,23 +349,42 @@ impl TransactionAnalysis {
             ..Default::default()
          };
 
+         let erc20_transfers =
+            self.transfers.iter().filter(|t| t.is_erc20_transfer()).collect::<Vec<_>>();
+
          for (i, swap) in self.swaps.iter().enumerate() {
             let is_first = i == 0;
             let is_last = i == swaps_len - 1;
 
             if is_first {
-               params.input_currency = swap.input_currency.clone();
+               let mut input = swap.input_currency.clone();
+
+               // Handle ETH/WETH abstraction
+               if input.is_native_wrapped() {
+                  if self.value > U256::ZERO {
+                     input = NativeCurrency::from(self.chain).into();
+                  }
+               }
+
+               params.input_currency = input;
                params.amount_in = swap.amount_in.clone();
                params.amount_in_usd = swap.amount_in_usd.clone();
             }
 
             if is_last {
-               params.output_currency = swap.output_currency.clone();
+               let mut output = swap.output_currency.clone();
+
+               // Handle ETH/WETH abstraction
+               if output.is_native_wrapped() && self.weth_unwraps.len() == 1 {
+                  output = NativeCurrency::from(self.chain).into();
+               }
+
+               params.output_currency = output;
 
                // find the actual amount received from the transfer logs
                if swap.output_currency.is_erc20() {
-                  for transfer in self.erc20_transfers.iter() {
-                     if transfer.token.address == swap.output_currency.address() {
+                  for transfer in erc20_transfers.iter() {
+                     if transfer.currency.address() == swap.output_currency.address() {
                         if !transfer.recipient == self.sender {
                            continue;
                         }
@@ -345,10 +414,6 @@ impl TransactionAnalysis {
 
    pub fn is_native_transfer(&self) -> bool {
       self.value > U256::ZERO && self.call_data.is_empty() && self.decoded_events() == 0
-   }
-
-   pub fn is_wrap_eth(&self) -> bool {
-      self.decoded_events() == 1 && self.eth_wraps.len() == 1
    }
 
    pub fn is_unwrap_weth(&self) -> bool {

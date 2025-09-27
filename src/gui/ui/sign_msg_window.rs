@@ -203,7 +203,7 @@ fn permit2_single_approval(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = details.amount();
             let text = format!("{} {}", amount, details.token.symbol);
-            let icon = icons.token_icon(details.token.address, details.token.chain_id);
+            let icon = icons.token_icon_x32(details.token.address, details.token.chain_id);
             let label = Label::new(
                RichText::new(text).size(theme.text_sizes.normal),
                Some(icon),
@@ -282,7 +282,7 @@ fn _permit2_batch_approval_ui(
          };
 
          let text = format!("{} {}", amount, token.symbol);
-         let icon = icons.token_icon(token.address, token.chain_id);
+         let icon = icons.token_icon_x32(token.address, token.chain_id);
          let label = Label::new(
             RichText::new(text).size(theme.text_sizes.normal),
             Some(icon),

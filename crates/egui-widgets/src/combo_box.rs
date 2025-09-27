@@ -7,7 +7,7 @@ use egui::{
 };
 
 #[must_use = "You should call .show_ui()"]
-pub struct ComboBoxWithImage {
+pub struct ComboBox {
    id_salt: Id,
    label: Option<WidgetText>,
    selected_item: Label,
@@ -18,7 +18,7 @@ pub struct ComboBoxWithImage {
    close_behavior: Option<PopupCloseBehavior>,
 }
 
-impl ComboBoxWithImage {
+impl ComboBox {
    pub fn new(id_salt: impl std::hash::Hash, selected_item: Label) -> Self {
       Self {
          id_salt: Id::new(id_salt),

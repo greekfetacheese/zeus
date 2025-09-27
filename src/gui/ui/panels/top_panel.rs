@@ -25,6 +25,10 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          gui.header.show(ctx.clone(), theme, icons.clone(), ui);
       });
 
+     // ui.add_space(240.0);
+
+      gui.notification.show(&gui.theme, icons, ui);
+
       if data_syncing && !on_startup_syncing {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {

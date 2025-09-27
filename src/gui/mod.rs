@@ -11,7 +11,7 @@ use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 use crate::gui::ui::{
-   ConfirmWindow, Header, LoadingWindow, MsgWindow, PortfolioUi, ProgressWindow,
+   ConfirmWindow, Notification, Header, LoadingWindow, MsgWindow, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TestingWindow,
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
@@ -80,13 +80,13 @@ pub struct GUI {
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub testing_window: TestingWindow,
-   pub progress_window: ProgressWindow,
    pub confirm_window: ConfirmWindow,
    pub tx_confirmation_window: TxConfirmationWindow,
    pub tx_window: TxWindow,
    pub sign_msg_window: SignMsgWindow,
    pub fps_metrics: FPSMetrics,
    pub connected_dapps: ConnectedDappsUi,
+   pub notification: Notification,
    pub dev: DevUi,
 }
 
@@ -108,9 +108,9 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new();
       let settings = settings::SettingsUi::new(ctx.clone());
       let tx_history = ui::tx_history::TxHistory::new();
-      let progress_window = ui::misc::ProgressWindow::new();
       let sign_msg_window = SignMsgWindow::new();
       let connected_dapps = ConnectedDappsUi::new();
+      let notification = Notification::new();
 
       Self {
          egui_ctx,
@@ -137,10 +137,10 @@ impl GUI {
          confirm_window,
          tx_confirmation_window,
          tx_window,
-         progress_window,
          sign_msg_window,
          fps_metrics: FPSMetrics::new(),
          connected_dapps,
+         notification,
          dev: DevUi::new(),
       }
    }

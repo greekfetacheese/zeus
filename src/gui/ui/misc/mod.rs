@@ -1,21 +1,19 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Margin, Order,
-   RichText, ScrollArea, Sense, Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Sense,
+   Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::DexKind;
 use zeus_eth::currency::NativeCurrency;
 
 use crate::assets::icons::Icons;
-use crate::core::{TransactionRich, Wallet, ZeusCtx, utils::RT};
+use crate::core::{Wallet, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
 use egui_theme::Theme;
 use egui_widgets::{ComboBox, Label};
 use zeus_eth::{alloy_primitives::Address, currency::Currency, types::ChainId};
-
-use super::GREEN_CHECK;
 
 pub mod dev;
 pub mod sync;
@@ -208,203 +206,6 @@ impl TestingWindow {
                if ui.button("Close").clicked() {
                   self.open = false;
                }
-            });
-         });
-   }
-}
-
-pub struct Step {
-   pub id: &'static str,
-   pub in_progress: bool,
-   pub finished: bool,
-   pub msg: String,
-}
-
-pub struct ProgressWindow {
-   open: bool,
-   steps: Vec<Step>,
-   final_msg: String,
-   tx: Option<TransactionRich>,
-   size: (f32, f32),
-}
-
-impl ProgressWindow {
-   pub fn new() -> Self {
-      Self {
-         open: false,
-         steps: Vec::new(),
-         final_msg: String::new(),
-         tx: None,
-         size: (350.0, 150.0),
-      }
-   }
-
-   pub fn open_test(&mut self) {
-      let steps = vec![
-         Step {
-            id: "step1",
-            in_progress: true,
-            finished: false,
-            msg: "Step 1".to_string(),
-         },
-         Step {
-            id: "step2",
-            in_progress: false,
-            finished: false,
-            msg: "Step 2".to_string(),
-         },
-         Step {
-            id: "step3",
-            in_progress: false,
-            finished: false,
-            msg: "Step 3".to_string(),
-         },
-      ];
-      self.open_with(steps, "Done".to_string());
-   }
-
-   pub fn open(&mut self) {
-      self.open = true;
-   }
-
-   pub fn set_tx(&mut self, tx: TransactionRich) {
-      self.tx = Some(tx);
-   }
-
-   pub fn add_step(&mut self, id: &'static str, in_progress: bool, finished: bool, msg: String) {
-      self.steps.push(Step {
-         id,
-         in_progress,
-         finished,
-         msg,
-      });
-   }
-
-   pub fn open_with(&mut self, steps: Vec<Step>, final_msg: String) {
-      self.reset();
-      self.open = true;
-      self.steps = steps;
-      self.final_msg = final_msg;
-   }
-
-   pub fn current_step(&mut self) -> Option<&mut Step> {
-      self.steps.iter_mut().find(|s| s.in_progress)
-   }
-
-   pub fn next_step(&mut self, step_id: &str) -> Option<&mut Step> {
-      self.steps.iter_mut().find(|s| s.id == step_id)
-   }
-
-   /// Proceed to the next step, finishing the current one
-   pub fn proceed_with(&mut self, step_id: &str) {
-      if let Some(step) = self.current_step() {
-         step.in_progress = false;
-         step.finished = true;
-      }
-
-      if let Some(step) = self.next_step(step_id) {
-         step.in_progress = true;
-      } else {
-         tracing::error!("Step with id {} not found", step_id);
-      }
-   }
-
-   pub fn finish_last_step(&mut self) {
-      if let Some(step) = self.current_step() {
-         step.in_progress = false;
-         step.finished = true;
-      }
-   }
-
-   pub fn finished(&self) -> bool {
-      self.steps.iter().all(|s| s.finished)
-   }
-
-   pub fn reset(&mut self) {
-      self.open = false;
-      self.tx = None;
-      self.final_msg.clear();
-      self.steps.clear();
-   }
-
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      Window::new("Progress Window")
-         .title_bar(false)
-         .movable(false)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .frame(Frame::window(ui.style()))
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .show(ui.ctx(), |ui| {
-            Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
-               let normal = theme.text_sizes.normal;
-               ui.set_width(self.size.0);
-               ui.set_height(self.size.1);
-
-               ui.vertical_centered(|ui| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-                  let size = vec2(ui.available_width() * 0.3, 45.0);
-
-                  for step in &self.steps {
-                     ui.allocate_ui(size, |ui| {
-                        ui.horizontal(|ui| {
-                           ui.label(RichText::new(step.msg.clone()).size(normal));
-                           if step.in_progress {
-                              ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
-                           }
-
-                           if step.finished {
-                              ui.label(RichText::new(GREEN_CHECK).size(normal));
-                           }
-                        });
-                     });
-                  }
-
-                  ui.allocate_ui(size, |ui| {
-                     ui.horizontal(|ui| {
-                        if self.finished() {
-                           ui.label(RichText::new(self.final_msg.clone()).size(normal));
-                        } else {
-                           // occupy the space
-                           ui.label(RichText::new("").size(normal));
-                        }
-                     });
-                  });
-
-                  ui.add_space(20.0);
-
-                  let size = vec2(ui.available_width() * 0.9, 45.0);
-                  ui.allocate_ui(size, |ui| {
-                     ui.horizontal(|ui| {
-                        let button_size = vec2(ui.available_width() * 0.5, 45.0);
-                        let close =
-                           Button::new(RichText::new("Close").size(normal)).min_size(button_size);
-                        if ui.add(close).clicked() {
-                           self.open = false;
-                        }
-
-                        let summary_btn =
-                           Button::new(RichText::new("Open Transaction Details").size(normal))
-                              .min_size(button_size);
-                        if ui.add_enabled(self.finished(), summary_btn).clicked() {
-                           let tx = self.tx.clone();
-                           self.reset();
-
-                           RT.spawn_blocking(move || {
-                              SHARED_GUI.write(|gui| {
-                                 gui.tx_window.open(tx);
-                              });
-                           });
-                        }
-                     });
-                  });
-               });
             });
          });
    }

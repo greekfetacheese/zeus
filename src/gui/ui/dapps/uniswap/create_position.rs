@@ -475,7 +475,7 @@ impl CreatePositionUi {
                Err(e) => {
                   tracing::error!("Error minting new liquidity position: {:?}", e);
                   SHARED_GUI.write(|gui| {
-                     gui.progress_window.reset();
+                     gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
                      gui.request_repaint();

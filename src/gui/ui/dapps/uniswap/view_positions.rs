@@ -154,7 +154,7 @@ impl CollectFees {
                         Err(e) => {
                            tracing::error!("Error collecting fees: {:?}", e);
                            SHARED_GUI.write(|gui| {
-                              gui.progress_window.reset();
+                              gui.notification.reset();
                               gui.loading_window.reset();
                               gui.msg_window.open("Transaction Error", e.to_string());
                               gui.request_repaint();
@@ -367,7 +367,7 @@ impl RemoveLiquidity {
                         Err(e) => {
                            tracing::error!("Error removing liquidity: {:?}", e);
                            SHARED_GUI.write(|gui| {
-                              gui.progress_window.reset();
+                              gui.notification.reset();
                               gui.loading_window.reset();
                               gui.msg_window.open("Transaction Error", e.to_string());
                               gui.request_repaint();
@@ -594,7 +594,7 @@ impl AddLiquidity {
                         Err(e) => {
                            tracing::error!("Error adding liquidity: {:?}", e);
                            SHARED_GUI.write(|gui| {
-                              gui.progress_window.reset();
+                              gui.notification.reset();
                               gui.loading_window.reset();
                               gui.msg_window.open("Transaction Error", e.to_string());
                               gui.request_repaint();

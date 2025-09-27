@@ -1,4 +1,4 @@
-use crate::core::{Dapp, ZeusCtx};
+use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
@@ -70,8 +70,6 @@ pub enum TransactionAction {
 
    Transfer(TransferParams),
 
-   ERC20Transfer(ERC20TransferParams),
-
    WrapETH(WrapETHParams),
 
    UnwrapWETH(UnwrapWETHParams),
@@ -106,7 +104,8 @@ impl TransactionAction {
       let eth_wrapped_usd = NumericValue::value(eth_wrapped.f64(), 1600.0);
 
       Self::WrapETH(WrapETHParams {
-         dst,
+         chain: 1,
+         recipient: dst,
          eth_wrapped: eth_wrapped.clone(),
          eth_wrapped_usd: Some(eth_wrapped_usd.clone()),
          weth_received: eth_wrapped,
@@ -120,6 +119,7 @@ impl TransactionAction {
       let weth_unwrapped_usd = NumericValue::value(weth_unwrapped.f64(), 1600.0);
 
       Self::UnwrapWETH(UnwrapWETHParams {
+         chain: 1,
          src,
          weth_unwrapped: weth_unwrapped.clone(),
          weth_unwrapped_usd: Some(weth_unwrapped_usd.clone()),
@@ -188,7 +188,7 @@ impl TransactionAction {
    pub fn dummy_bridge() -> Self {
       let input_token = Currency::from(ERC20Token::weth());
       let output_token = Currency::from(ERC20Token::weth());
-      let amount_in = NumericValue::parse_to_wei("1", 18);
+      let amount_in = NumericValue::parse_to_wei("0.000001", 18);
       let amount_usd = NumericValue::value(amount_in.f64(), 1600.0);
 
       let params = BridgeParams {
@@ -212,34 +212,44 @@ impl TransactionAction {
       let currency: Currency = NativeCurrency::from(1).into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+      let sender_str = truncate_address(Address::ZERO.to_string());
+      let recipient_str = truncate_address(Address::ZERO.to_string());
 
       let params = TransferParams {
          currency,
          amount,
          amount_usd: Some(amount_usd),
+         real_amount_sent: None,
+         real_amount_sent_usd: None,
          sender: Address::ZERO,
+         sender_str,
          recipient: Address::ZERO,
+         recipient_str,
       };
 
       Self::Transfer(params)
    }
 
    pub fn dummy_erc20_transfer() -> Self {
-      let token = ERC20Token::weth();
+      let currency: Currency = ERC20Token::weth().into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+      let sender_str = truncate_address(Address::ZERO.to_string());
+      let recipient_str = truncate_address(Address::ZERO.to_string());
 
-      let params = ERC20TransferParams {
-         token: token.clone(),
+      let params = TransferParams {
+         currency,
          amount: amount.clone(),
          amount_usd: Some(amount_usd.clone()),
          real_amount_sent: Some(amount),
          real_amount_sent_usd: Some(amount_usd),
          sender: Address::ZERO,
+         sender_str,
          recipient: Address::ZERO,
+         recipient_str,
       };
 
-      Self::ERC20Transfer(params)
+      Self::Transfer(params)
    }
 
    /// We consider any action to be MEV vulnerable that involves some kind of slippage
@@ -261,16 +271,25 @@ impl TransactionAction {
    }
 
    pub fn name(&self) -> String {
-      match self {
-         Self::Bridge(_) => "Bridge".to_string(),
-         Self::SwapToken(_) => "Swap Token".to_string(),
-         Self::UniswapPositionOperation(p) => p.name(),
-         Self::Transfer(_) => "Transfer".to_string(),
-         Self::ERC20Transfer(_) => "ERC20 Transfer".to_string(),
-         Self::TokenApprove(_) => "Token Approval".to_string(),
-         Self::WrapETH(_) => "Wrap ETH".to_string(),
-         Self::UnwrapWETH(_) => "Unwrap WETH".to_string(),
-         Self::Other => "Unknown interaction".to_string(),
+      if self.is_native_transfer() {
+         return "Transfer".to_string();
+      } else if self.is_erc20_transfer() {
+         return "ERC20 Transfer".to_string();
+      } else if self.is_swap() {
+         return "Swap".to_string();
+      } else if self.is_bridge() {
+         return "Bridge".to_string();
+      } else if self.is_token_approval() {
+         return "Token Approval".to_string();
+      } else if self.is_wrap_eth() {
+         return "Wrap ETH".to_string();
+      } else if self.is_unwrap_weth() {
+         return "Unwrap WETH".to_string();
+      } else if self.is_uniswap_position_op() {
+         let op = self.uniswap_position_params();
+         return op.name();
+      } else {
+         return "Unknown interaction".to_string();
       }
    }
 
@@ -301,16 +320,6 @@ impl TransactionAction {
       match self {
          Self::Transfer(params) => params,
          _ => panic!("Action is not a transfer"),
-      }
-   }
-
-   /// Get the erc20 transfer params
-   ///
-   /// Panics if the action is not a erc20 transfer
-   pub fn erc20_transfer_params(&self) -> &ERC20TransferParams {
-      match self {
-         Self::ERC20Transfer(params) => params,
-         _ => panic!("Action is not a erc20 transfer"),
       }
    }
 
@@ -363,12 +372,18 @@ impl TransactionAction {
       matches!(self, Self::UniswapPositionOperation(_))
    }
 
-   pub fn is_transfer(&self) -> bool {
-      matches!(self, Self::Transfer(_))
+   pub fn is_native_transfer(&self) -> bool {
+      match self {
+         Self::Transfer(params) => params.is_native_transfer(),
+         _ => false,
+      }
    }
 
    pub fn is_erc20_transfer(&self) -> bool {
-      matches!(self, Self::ERC20Transfer(_))
+      match self {
+         Self::Transfer(params) => params.is_erc20_transfer(),
+         _ => false,
+      }
    }
 
    pub fn is_token_approval(&self) -> bool {
@@ -385,6 +400,10 @@ impl TransactionAction {
 
    pub fn is_other(&self) -> bool {
       matches!(self, Self::Other)
+   }
+
+   pub fn is_known(&self) -> bool {
+      !self.is_other()
    }
 }
 
@@ -479,6 +498,21 @@ impl BridgeParams {
          token
       };
 
+      // Assuming depositor and recipient are EOAs
+      let show_native = input_token.is_native_wrapped() && output_token.is_native_wrapped();
+
+      let input_currency = if show_native {
+         Currency::from(NativeCurrency::from(origin_chain))
+      } else {
+         Currency::from(input_token.clone())
+      };
+
+      let output_currency = if show_native {
+         Currency::from(NativeCurrency::from(dest_chain))
+      } else {
+         Currency::from(output_token.clone())
+      };
+
       let amount = NumericValue::format_wei(decoded.input_amount, input_token.decimals);
       let amount_usd =
          ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(input_token.clone()));
@@ -492,8 +526,8 @@ impl BridgeParams {
          dapp: Dapp::Across,
          origin_chain,
          destination_chain: dest_chain,
-         input_currency: Currency::from(input_token),
-         output_currency: Currency::from(output_token),
+         input_currency,
+         output_currency,
          amount,
          amount_usd: Some(amount_usd),
          received,
@@ -760,8 +794,15 @@ pub struct TransferParams {
    pub amount: NumericValue,
    /// USD value at the time of the tx
    pub amount_usd: Option<NumericValue>,
+   /// Real amount sent (in case of a transfer tax)
+   pub real_amount_sent: Option<NumericValue>,
+   pub real_amount_sent_usd: Option<NumericValue>,
    pub sender: Address,
+   /// The name of the sender if known, otherwise show truncated address
+   pub sender_str: String,
    pub recipient: Address,
+   /// The name of the recipient if known, otherwise show truncated address
+   pub recipient_str: String,
 }
 
 impl TransferParams {
@@ -772,45 +813,27 @@ impl TransferParams {
       interact_to: Address,
       call_data: Bytes,
       value: U256,
+      log: &Log,
    ) -> Result<Self, anyhow::Error> {
-      if !call_data.len() == 0 {
-         return Err(anyhow::anyhow!("Not a native transfer"));
+      if let Ok(native) = Self::native(
+         ctx.clone(),
+         chain,
+         from,
+         interact_to,
+         call_data,
+         value,
+      ) {
+         return Ok(native);
       }
 
-      if from.is_zero() {
-         return Err(anyhow::anyhow!("Transfer from zero address"));
+      if let Ok(erc20) = Self::from_erc20_log(ctx.clone(), chain, log).await {
+         return Ok(erc20);
       }
 
-      let native: Currency = NativeCurrency::from_chain_id(chain)?.into();
-      let amount = NumericValue::format_wei(value, native.decimals());
-      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &native);
-
-      Ok(Self {
-         currency: native,
-         amount,
-         amount_usd: Some(amount_usd),
-         sender: from,
-         recipient: interact_to,
-      })
+      Err(anyhow!("Transaction is not a transfer"))
    }
-}
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ERC20TransferParams {
-   pub token: ERC20Token,
-   /// Amount sent
-   pub amount: NumericValue,
-   /// USD value at the time of the tx
-   pub amount_usd: Option<NumericValue>,
-   /// Real amount sent (in case of a transfer tax)
-   pub real_amount_sent: Option<NumericValue>,
-   pub real_amount_sent_usd: Option<NumericValue>,
-   pub sender: Address,
-   pub recipient: Address,
-}
-
-impl ERC20TransferParams {
-   pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
+   pub async fn from_erc20_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
       let mut transfer_log = None;
       let mut token_address = None;
 
@@ -846,18 +869,92 @@ impl ERC20TransferParams {
       let amount_usd =
          ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
 
+      let currency = Currency::from(token);
       let sender = transfer_log.from;
       let recipient = transfer_log.to;
 
+      let sender_name_opt = ctx.get_address_name(chain, sender);
+      let recipient_name_opt = ctx.get_address_name(chain, recipient);
+
+      let sender_str = if let Some(sender_name) = sender_name_opt {
+         sender_name
+      } else {
+         truncate_address(sender.to_string())
+      };
+
+      let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+         recipient_name
+      } else {
+         truncate_address(recipient.to_string())
+      };
+
       Ok(Self {
-         token,
+         currency,
          amount,
          amount_usd: Some(amount_usd),
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender,
+         sender_str,
          recipient,
+         recipient_str,
       })
+   }
+
+   pub fn native(
+      ctx: ZeusCtx,
+      chain: u64,
+      from: Address,
+      to: Address,
+      call_data: Bytes,
+      value: U256,
+   ) -> Result<Self, anyhow::Error> {
+      if call_data.len() != 0 {
+         return Err(anyhow::anyhow!("Not a native transfer"));
+      }
+
+      if from.is_zero() {
+         return Err(anyhow::anyhow!("Transfer from zero address"));
+      }
+
+      let native: Currency = NativeCurrency::from_chain_id(chain)?.into();
+      let amount = NumericValue::format_wei(value, native.decimals());
+      let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &native);
+
+      let sender_name_opt = ctx.get_address_name(chain, from);
+      let recipient_name_opt = ctx.get_address_name(chain, to);
+
+      let sender_str = if let Some(sender_name) = sender_name_opt {
+         sender_name
+      } else {
+         truncate_address(from.to_string())
+      };
+
+      let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+         recipient_name
+      } else {
+         truncate_address(to.to_string())
+      };
+
+      Ok(Self {
+         currency: native,
+         amount,
+         amount_usd: Some(amount_usd),
+         real_amount_sent: None,
+         real_amount_sent_usd: None,
+         sender: from,
+         sender_str,
+         recipient: to,
+         recipient_str,
+      })
+   }
+
+   pub fn is_erc20_transfer(&self) -> bool {
+      self.currency.is_erc20()
+   }
+
+   pub fn is_native_transfer(&self) -> bool {
+      self.currency.is_native()
    }
 }
 
@@ -920,8 +1017,8 @@ impl TokenApproveParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrapETHParams {
-   /// Recipient address
-   pub dst: Address,
+   pub chain: u64,
+   pub recipient: Address,
    pub eth_wrapped: NumericValue,
    pub eth_wrapped_usd: Option<NumericValue>,
    pub weth_received: NumericValue,
@@ -944,7 +1041,8 @@ impl WrapETHParams {
       let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &currency);
 
       Ok(Self {
-         dst: decoded.dst,
+         chain,
+         recipient: decoded.dst,
          eth_wrapped,
          eth_wrapped_usd: Some(eth_wrapped_usd),
          weth_received,
@@ -955,6 +1053,7 @@ impl WrapETHParams {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct UnwrapWETHParams {
+   pub chain: u64,
    pub src: Address,
    pub weth_unwrapped: NumericValue,
    pub weth_unwrapped_usd: Option<NumericValue>,
@@ -996,6 +1095,7 @@ impl UnwrapWETHParams {
       let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &currency);
 
       Ok(Self {
+         chain,
          src: decoded.src,
          weth_unwrapped,
          weth_unwrapped_usd: Some(weth_unwrapped_usd),
@@ -1023,6 +1123,7 @@ impl UnwrapWETHParams {
       let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &currency);
 
       Ok(Self {
+         chain,
          src: decoded.src,
          weth_unwrapped,
          weth_unwrapped_usd: Some(weth_unwrapped_usd),

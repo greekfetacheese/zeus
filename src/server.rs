@@ -1,6 +1,6 @@
 use crate::core::ZeusCtx;
 use crate::core::utils::{RT, eth};
-use crate::gui::{SHARED_GUI, ui::Step};
+use crate::gui::SHARED_GUI;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1275,12 +1275,9 @@ async fn personal_sign(
       String::from_utf8_lossy(&message_bytes)
    );
 
-
    let msg = json!(full_message);
    let chain = ctx.chain();
-   let signature = match eth::sign_message(ctx, origin, chain, msg)
-   .await
-   {
+   let signature = match eth::sign_message(ctx, origin, chain, msg).await {
       Ok(sig) => sig,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1531,6 +1528,7 @@ async fn eth_send_transaction(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
+            gui.notification.reset();
             gui.tx_confirmation_window.reset(ctx.clone());
             gui.msg_window.open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
@@ -1539,19 +1537,6 @@ async fn eth_send_transaction(
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
       }
    };
-
-   let step1 = Step {
-      id: "step1",
-      in_progress: false,
-      finished: true,
-      msg: "Transaction Sent".to_string(),
-   };
-
-   SHARED_GUI.write(|gui| {
-      gui.progress_window.open_with(vec![step1], "Success!".to_string());
-      gui.progress_window.set_tx(tx_rich.clone());
-      gui.request_repaint();
-   });
 
    // Update balances
    RT.spawn(async move {
@@ -1575,24 +1560,27 @@ async fn eth_send_transaction(
       }
 
       // Update token balances if needed
-      let erc20_transfers = &tx_rich.analysis.erc20_transfers;
+      let erc20_transfers = &tx_rich.analysis.erc20_transfers();
       let wrap_eth = &tx_rich.analysis.eth_wraps;
       let unwrap_eth = &tx_rich.analysis.weth_unwraps;
 
       for wrap in wrap_eth {
          let token = ERC20Token::wrapped_native_token(chain.id());
-         let dest = wrap.dst;
-         let dest_exists = ctx.wallet_exists(dest);
+         let recipient = wrap.recipient;
+         let recipient_exists = ctx.wallet_exists(recipient);
 
-         if dest_exists {
-            match manager.update_tokens_balance(ctx.clone(), chain.id(), dest, vec![token]).await {
+         if recipient_exists {
+            match manager
+               .update_tokens_balance(ctx.clone(), chain.id(), recipient, vec![token])
+               .await
+            {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Error updating token balance: {:?}", e);
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), dest);
+            ctx.calculate_portfolio_value(chain.id(), recipient);
          }
       }
 
@@ -1614,7 +1602,7 @@ async fn eth_send_transaction(
       }
 
       for transfer in erc20_transfers {
-         let token = transfer.token.clone();
+         let token = transfer.currency.to_erc20().into_owned();
          let sender = transfer.sender;
          let recipient = transfer.recipient;
          let sender_exists = ctx.wallet_exists(sender);
