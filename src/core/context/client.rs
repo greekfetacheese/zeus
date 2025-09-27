@@ -25,7 +25,7 @@ use tokio::{sync::Semaphore, time::sleep};
 const PROVIDER_DATA_FILE: &str = "providers.json";
 
 const CLIENT_TIMEOUT: u64 = 30;
-const REQUEST_TIMEOUT: u64 = 60;
+const REQUEST_TIMEOUT: u64 = 10;
 
 /// 3 Days in seconds
 const THREE_DAYS: u64 = 259_200;

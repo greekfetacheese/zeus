@@ -971,7 +971,7 @@ type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 type IgnoreChains = HashSet<u64>;
 
 fn default_batch_size() -> usize {
-   10
+   20
 }
 
 fn default_batch_size_for_syncing_pools() -> usize {
