@@ -14,8 +14,6 @@ use egui_theme::{Theme, ThemeKind, window::window_frame};
 use std::sync::Arc;
 
 pub struct ZeusApp {
-   pub set_style_on_startup: bool,
-   pub updated_started: bool,
    pub ctx: ZeusCtx,
 }
 
@@ -33,11 +31,8 @@ impl ZeusApp {
       let theme = Theme::new(theme_kind);
       egui_ctx.set_style(theme.style.clone());
 
-      // Load the icons
       let icons = Icons::new(&cc.egui_ctx).unwrap();
       let icons = Arc::new(icons);
-
-      // Update the shared GUI with the current GUI state
 
       SHARED_GUI.write(|shared_gui| {
          shared_gui.icons = icons.clone();
@@ -51,42 +46,25 @@ impl ZeusApp {
          "ZeusApp loaded in {}ms",
          time.elapsed().as_millis()
       );
-      Self {
-         set_style_on_startup: true,
-         updated_started: false,
-         ctx,
-      }
-   }
 
-   fn set_style(&mut self, ctx: &egui::Context) {
-      let ctx = ctx.clone();
-      let style = SHARED_GUI.read(|shared_gui| shared_gui.theme.style.clone());
-      ctx.set_style(style);
-   }
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         update::test_and_measure_rpcs(ctx_clone).await;
+      });
 
-   fn start_update(&mut self) {
-      let ctx = self.ctx.clone();
-      if !self.updated_started {
-         let ctx_clone = ctx.clone();
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         if ctx_clone.vault_exists() {
+            update::on_startup(ctx_clone).await;
+         }
+      });
 
-         RT.spawn(async move {
-            update::test_and_measure_rpcs(ctx_clone).await;
-         });
+      let ctx_clone = ctx.clone();
+      RT.spawn(async move {
+         let _r = run_server(ctx_clone).await;
+      });
 
-         let ctx_clone = ctx.clone();
-         RT.spawn(async move {
-            if ctx_clone.vault_exists() {
-               update::on_startup(ctx_clone).await;
-            }
-         });
-
-         let ctx_clone = ctx.clone();
-         RT.spawn(async move {
-            let _r = run_server(ctx_clone).await;
-         });
-
-         self.updated_started = true;
-      }
+      Self { ctx }
    }
 
    fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
@@ -107,15 +85,6 @@ impl eframe::App for ZeusApp {
    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
       #[cfg(feature = "dev")]
       let time = std::time::Instant::now();
-
-      if !self.updated_started {
-         self.start_update();
-      }
-
-      if self.set_style_on_startup {
-         self.set_style(ctx);
-         self.set_style_on_startup = false;
-      }
 
       SHARED_GUI.write(|gui| {
          self.on_shutdown(ctx, gui);
