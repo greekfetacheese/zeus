@@ -1,5 +1,4 @@
-use crate::abi::uniswap::{encode_v2_swap_exact_in, encode_v3_swap_exact_in, universal_router_v2::*, v4::actions::*};
-
+use crate::abi::uniswap::{universal_router_v2::*, v4::actions::*};
 use super::{UniswapPool, v4::Actions};
 
 use crate::currency::Currency;
@@ -187,7 +186,7 @@ where
          .sum();
 
       if amount_to_wrap > U256::ZERO {
-         let data = crate::abi::uniswap::encode_wrap_eth(router_addr, amount_to_wrap);
+         let data = encode_wrap_eth(router_addr, amount_to_wrap);
          commands.push(Commands::WRAP_ETH as u8);
          inputs.push(data);
       }
@@ -365,7 +364,7 @@ where
 
    // UR has just WETH, in that case we just unwrap WETH and send it to the recipient
    if currency_out.is_native() && ur_has_weth_balance && !ur_has_eth_balance {
-      let data = crate::abi::uniswap::encode_unwrap_weth(recipient, amount_out_min);
+      let data = encode_unwrap_weth(recipient, amount_out_min);
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
 
@@ -377,7 +376,7 @@ where
       let weth_amount = NumericValue::format_wei(router_weth_balance, currency_out.decimals());
       let amount_min = weth_amount.calc_slippage(slippage, currency_out.decimals());
 
-      let data = crate::abi::uniswap::encode_unwrap_weth(router_addr, amount_min.wei());
+      let data = encode_unwrap_weth(router_addr, amount_min.wei());
       commands.push(Commands::UNWRAP_WETH as u8);
       inputs.push(data);
    }
