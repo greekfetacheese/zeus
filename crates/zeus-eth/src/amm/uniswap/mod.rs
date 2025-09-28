@@ -1,10 +1,9 @@
-use crate::currency::{Currency, ERC20Token};
+use crate::currency::Currency;
 use crate::types::ChainId;
 use crate::utils::{NumericValue, address_book};
 use alloy_primitives::{
    Address, B256, U256,
    aliases::{I24, U24},
-   utils::parse_units,
 };
 use anyhow::bail;
 
@@ -21,7 +20,6 @@ pub mod quoter;
 pub mod state;
 pub mod sync;
 pub mod universal_router_v2;
-// pub mod zeus_router;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -130,37 +128,6 @@ impl PoolID {
          address,
          pool_id,
       }
-   }
-}
-
-/// Minimum liquidity we consider to be required for a pool to able to swap
-///
-/// for V4 we set a threshold 10x higher than other protocols since we cannot just query the token balances
-/// of the pool and we rely on the `compute_virtual_reserves` to give an idea of the liquidity
-// TODO: This should be based on a USD value
-pub fn minimum_liquidity(token: &ERC20Token, dex: DexKind) -> U256 {
-   let weth_amount = if !dex.is_v4() {
-      parse_units("5", token.decimals).unwrap().get_absolute()
-   } else {
-      parse_units("50", token.decimals).unwrap().get_absolute()
-   };
-
-   let wbnb_amount = if !dex.is_v4() {
-      parse_units("25", token.decimals).unwrap().get_absolute()
-   } else {
-      parse_units("200", token.decimals).unwrap().get_absolute()
-   };
-
-   let stable_amount = parse_units("40_000", token.decimals)
-      .unwrap()
-      .get_absolute();
-
-   if token.is_weth() {
-      weth_amount
-   } else if token.is_stablecoin() {
-      stable_amount
-   } else {
-      wbnb_amount
    }
 }
 
@@ -364,25 +331,13 @@ pub trait UniswapPool {
 
    fn currency1(&self) -> &Currency;
 
-   /// Zero for one is true if the token_in address equals the token0 address of the pool
-   ///
-   /// This is V3 specific
-   fn zero_for_one_v3(&self, token_in: Address) -> bool;
-
-   /// Zero for one is true if currency_in equals the currency0 of the pool
-   ///
-   /// This is V4 specific
-   fn zero_for_one_v4(&self, currency_in: &Currency) -> bool;
+   fn zero_for_one(&self, currency_in: &Currency) -> bool;
 
    fn have(&self, currency: &Currency) -> bool;
 
    fn is_currency0(&self, currency: &Currency) -> bool;
 
    fn is_currency1(&self, currency: &Currency) -> bool;
-
-   fn is_token0(&self, token: Address) -> bool;
-
-   fn is_token1(&self, token: Address) -> bool;
 
    fn base_currency_exists(&self) -> bool;
 
@@ -403,9 +358,6 @@ pub trait UniswapPool {
 
    /// Computes the virtual reserves of the pool
    fn compute_virtual_reserves(&mut self) -> Result<(), anyhow::Error>;
-
-   /// Does this pool have enough liquidity
-   fn enough_liquidity(&self) -> bool;
 
    /// Get the base currency of this pool
    fn base_currency(&self) -> &Currency;
@@ -642,19 +594,11 @@ impl UniswapPool for AnyUniswapPool {
       }
    }
 
-   fn zero_for_one_v3(&self, token_in: Address) -> bool {
+   fn zero_for_one(&self, currency_in: &Currency) -> bool {
       match self {
-         AnyUniswapPool::V2(pool) => pool.zero_for_one_v3(token_in),
-         AnyUniswapPool::V3(pool) => pool.zero_for_one_v3(token_in),
-         AnyUniswapPool::V4(pool) => pool.zero_for_one_v3(token_in),
-      }
-   }
-
-   fn zero_for_one_v4(&self, currency_in: &Currency) -> bool {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.zero_for_one_v4(currency_in),
-         AnyUniswapPool::V3(pool) => pool.zero_for_one_v4(currency_in),
-         AnyUniswapPool::V4(pool) => pool.zero_for_one_v4(currency_in),
+         AnyUniswapPool::V2(pool) => pool.zero_for_one(currency_in),
+         AnyUniswapPool::V3(pool) => pool.zero_for_one(currency_in),
+         AnyUniswapPool::V4(pool) => pool.zero_for_one(currency_in),
       }
    }
 
@@ -671,22 +615,6 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.is_currency1(currency),
          AnyUniswapPool::V3(pool) => pool.is_currency1(currency),
          AnyUniswapPool::V4(pool) => pool.is_currency1(currency),
-      }
-   }
-
-   fn is_token0(&self, token: Address) -> bool {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.is_token0(token),
-         AnyUniswapPool::V3(pool) => pool.is_token0(token),
-         AnyUniswapPool::V4(pool) => pool.is_token0(token),
-      }
-   }
-
-   fn is_token1(&self, token: Address) -> bool {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.is_token1(token),
-         AnyUniswapPool::V3(pool) => pool.is_token1(token),
-         AnyUniswapPool::V4(pool) => pool.is_token1(token),
       }
    }
 
@@ -719,14 +647,6 @@ impl UniswapPool for AnyUniswapPool {
          AnyUniswapPool::V2(pool) => pool.set_state_res(state),
          AnyUniswapPool::V3(pool) => pool.set_state_res(state),
          AnyUniswapPool::V4(pool) => pool.set_state_res(state),
-      }
-   }
-
-   fn enough_liquidity(&self) -> bool {
-      match self {
-         AnyUniswapPool::V2(pool) => pool.enough_liquidity(),
-         AnyUniswapPool::V3(pool) => pool.enough_liquidity(),
-         AnyUniswapPool::V4(pool) => pool.enough_liquidity(),
       }
    }
 

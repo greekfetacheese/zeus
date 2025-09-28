@@ -7,7 +7,7 @@ use alloy_rpc_types::BlockId;
 use std::borrow::Cow;
 
 use crate::amm::uniswap::{
-   AnyUniswapPool, DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity, state::get_v3_pool_state,
+   AnyUniswapPool, DexKind, FeeAmount, State, SwapResult, UniswapPool, state::get_v3_pool_state,
 };
 
 use crate::abi::uniswap::{universal_router_v2::PoolKey, v3};
@@ -253,20 +253,8 @@ impl UniswapPool for UniswapV3Pool {
       Address::ZERO
    }
 
-   fn zero_for_one_v3(&self, token_in: Address) -> bool {
-      token_in == self.token0().address
-   }
-
-   fn zero_for_one_v4(&self, _currency_in: &Currency) -> bool {
-      panic!("You should call zero_for_one_v3 instead");
-   }
-
-   fn is_token0(&self, token: Address) -> bool {
-      self.token0().address == token
-   }
-
-   fn is_token1(&self, token: Address) -> bool {
-      self.token1().address == token
+   fn zero_for_one(&self, currency_in: &Currency) -> bool {
+      currency_in.address() == self.currency0().address()
    }
 
    fn have(&self, currency: &Currency) -> bool {
@@ -304,12 +292,6 @@ impl UniswapPool for UniswapV3Pool {
       } else {
          Err(anyhow::anyhow!("Pool state is not for v3"))
       }
-   }
-
-   fn enough_liquidity(&self) -> bool {
-      let threshold = minimum_liquidity(&self.base_token(), self.dex);
-      let balance = self.base_balance();
-      balance.wei() >= threshold
    }
 
    fn base_currency_exists(&self) -> bool {
@@ -355,7 +337,7 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let zero_for_one = self.zero_for_one(currency_in);
       let price = super::calculate_price(self, zero_for_one)?;
       Ok(price)
    }
@@ -377,7 +359,7 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn simulate_swap(&self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
       let state = self
          .state()
@@ -388,7 +370,7 @@ impl UniswapPool for UniswapV3Pool {
    }
 
    fn simulate_swap_mut(&mut self, currency_in: &Currency, amount_in: U256) -> Result<U256, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v3(currency_in.to_erc20().address);
+      let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
       let state = self
          .state_mut()

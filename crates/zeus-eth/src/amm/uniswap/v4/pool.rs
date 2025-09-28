@@ -8,7 +8,7 @@ use alloy_sol_types::SolValue;
 
 use crate::amm::uniswap::state::get_v4_pool_state;
 use crate::amm::uniswap::{
-   DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity,
+   DexKind, FeeAmount, State, SwapResult, UniswapPool,
    v3::{calculate_price, calculate_swap, calculate_swap_mut},
 };
 
@@ -118,7 +118,7 @@ impl UniswapV4Pool {
    }
 
    pub fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v4(currency_in);
+      let zero_for_one = self.zero_for_one(currency_in);
       let price = calculate_price(self, zero_for_one)?;
       Ok(price)
    }
@@ -336,26 +336,8 @@ impl UniswapPool for UniswapV4Pool {
       self.hooks
    }
 
-   fn zero_for_one_v3(&self, _token_in: Address) -> bool {
-      panic!("This method only applies to V3");
-   }
-
-   fn zero_for_one_v4(&self, currency_in: &Currency) -> bool {
-      currency_in == &self.currency0
-   }
-
-   fn is_token0(&self, token: Address) -> bool {
-      if self.currency0().is_native() {
-         return false;
-      }
-      self.currency0().to_erc20().address == token
-   }
-
-   fn is_token1(&self, token: Address) -> bool {
-      if self.currency1().is_native() {
-         return false;
-      }
-      self.currency1().to_erc20().address == token
+   fn zero_for_one(&self, currency_in: &Currency) -> bool {
+      currency_in.address() == self.currency0.address()
    }
 
    fn currency0(&self) -> &Currency {
@@ -395,12 +377,6 @@ impl UniswapPool for UniswapV4Pool {
       }
    }
 
-   fn enough_liquidity(&self) -> bool {
-      let threshold = minimum_liquidity(&self.base_currency().to_erc20(), self.dex);
-      let balance = self.base_balance();
-      balance.wei() >= threshold
-   }
-
    fn base_currency_exists(&self) -> bool {
       self.currency0().is_base() || self.currency1().is_base()
    }
@@ -422,7 +398,7 @@ impl UniswapPool for UniswapV4Pool {
    }
 
    fn calculate_price(&self, currency_in: &Currency) -> Result<f64, anyhow::Error> {
-      let zero_for_one = self.zero_for_one_v4(currency_in);
+      let zero_for_one = self.zero_for_one(currency_in);
       let price = calculate_price(self, zero_for_one)?;
       Ok(price)
    }
@@ -520,7 +496,7 @@ impl UniswapPool for UniswapV4Pool {
          return Err(anyhow!("Unsupported Hook"));
       }
 
-      let zero_for_one = self.zero_for_one_v4(currency_in);
+      let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
       let state = self
          .state()
@@ -540,7 +516,7 @@ impl UniswapPool for UniswapV4Pool {
          return Err(anyhow!("Unsupported Hook"));
       }
 
-      let zero_for_one = self.zero_for_one_v4(currency_in);
+      let zero_for_one = self.zero_for_one(currency_in);
       let fee = self.fee.fee();
       let state = self
          .state_mut()

@@ -262,8 +262,6 @@ async fn cleanup_pools(ctx: ZeusCtx, manager: PoolManagerHandle) -> Result<(), a
       }
    }
 
-   manager.remove_v4_pools_with_no_liquidity();
-
    manager.save_to_dir(&pool_data_dir)?;
 
    Ok(())

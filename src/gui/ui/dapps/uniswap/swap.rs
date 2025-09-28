@@ -920,6 +920,7 @@ impl SwapUi {
       let swap_on_v3 = settings.swap_on_v3;
       let swap_on_v4 = settings.swap_on_v4;
 
+      let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
          let pools = get_relevant_pools(
             ctx.clone(),
@@ -930,12 +931,21 @@ impl SwapUi {
             &currency_out,
          );
 
+         let mut liquid_pools = Vec::new();
+         for pool in pools.iter() {
+            let has_liquidity = ctx_clone.pool_has_sufficient_liquidity(pool).unwrap_or(false);
+
+            if has_liquidity {
+               liquid_pools.push(pool.clone());
+            }
+         }
+
          let quote = if split_routing_enabled {
             get_quote_with_split_routing(
                amount_in.clone(),
                currency_in.clone(),
                currency_out.clone(),
-               pools,
+               liquid_pools,
                eth_price,
                currency_out_price,
                base_fee,
@@ -948,7 +958,7 @@ impl SwapUi {
                amount_in.clone(),
                currency_in.clone(),
                currency_out.clone(),
-               pools,
+               liquid_pools,
                eth_price,
                currency_out_price,
                base_fee,

@@ -7,7 +7,7 @@ use core::panic;
 use std::borrow::Cow;
 
 use crate::amm::uniswap::state::get_v2_pool_state;
-use crate::amm::uniswap::{DexKind, FeeAmount, State, SwapResult, UniswapPool, minimum_liquidity};
+use crate::amm::uniswap::{DexKind, FeeAmount, State, SwapResult, UniswapPool};
 
 use crate::abi::uniswap::{universal_router_v2::PoolKey, v2};
 use crate::currency::{Currency, ERC20Token};
@@ -214,12 +214,8 @@ impl UniswapPool for UniswapV2Pool {
       Address::ZERO
    }
 
-   fn zero_for_one_v3(&self, _token_in: Address) -> bool {
-      panic!("This method only applies to V3");
-   }
-
-   fn zero_for_one_v4(&self, _currency_in: &Currency) -> bool {
-      panic!("This method only applies to V4");
+   fn zero_for_one(&self, _currency_in: &Currency) -> bool {
+      panic!("This method only applies to V3/V4");
    }
 
    fn have(&self, currency: &Currency) -> bool {
@@ -253,20 +249,6 @@ impl UniswapPool for UniswapV2Pool {
       } else {
          Err(anyhow::anyhow!("Pool state is not for v2"))
       }
-   }
-
-   fn is_token0(&self, token: Address) -> bool {
-      self.token0().address == token
-   }
-
-   fn is_token1(&self, token: Address) -> bool {
-      self.token1().address == token
-   }
-
-   fn enough_liquidity(&self) -> bool {
-      let balance = self.base_balance();
-      let threshold = minimum_liquidity(&self.base_token(), self.dex);
-      balance.wei() >= threshold
    }
 
    fn base_currency_exists(&self) -> bool {

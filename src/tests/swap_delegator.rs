@@ -116,7 +116,7 @@ mod tests {
          amountIn: ten_eth.wei(),
          fee: eth_usdt.fee.fee_u24(),
          tickSpacing: eth_usdt.fee.tick_spacing(),
-         zeroForOne: eth_usdt.zero_for_one_v4(&currency_in),
+         zeroForOne: eth_usdt.zero_for_one(&currency_in),
          hooks: Address::ZERO,
          hookData: Bytes::default(),
          recipient: bob.address,
@@ -340,6 +340,7 @@ mod tests {
 
       let quote = if with_split_routing {
          get_quote_with_split_routing(
+            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
@@ -353,6 +354,7 @@ mod tests {
          )
       } else {
          get_quote(
+            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),

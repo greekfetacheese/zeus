@@ -1,6 +1,6 @@
 use super::{AnyUniswapPool, UniswapPool};
-use crate::utils::batch;
 use crate::abi::zeus::ZeusStateView;
+use crate::utils::batch;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, aliases::I24};
 use alloy_rpc_types::BlockId;
@@ -12,34 +12,6 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-
-/// Decodes a Uniswap V3 tick bitmap into a list of tick indexes.
-///
-/// # Arguments
-/// * `word_pos` - The int16 position of the word in the tickBitmap mapping.
-/// * `bitmap` - The U256 bitmap value for that word.
-/// * `tick_spacing` - The tick spacing of the pool.
-///
-/// # Returns
-/// A vector of i32 tick indexes.
-pub fn decode_bitmap(word_pos: i16, bitmap: U256, tick_spacing: i32) -> Vec<i32> {
-   let mut ticks = Vec::new();
-   if bitmap == U256::ZERO {
-      return ticks;
-   }
-
-   // The start of the tick range for this word
-   let tick_start = (word_pos as i32) * 256 * tick_spacing;
-
-   for i in 0..256 {
-      // Check if the i-th bit is set
-      if (bitmap >> i) & U256::from(1) != U256::ZERO {
-         let tick_offset = i * tick_spacing;
-         ticks.push(tick_start + tick_offset);
-      }
-   }
-   ticks
-}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum State {
@@ -162,7 +134,11 @@ pub struct TickInfo {
 }
 
 impl V3PoolState {
-   pub fn new(pool_data: ZeusStateView::V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
+   pub fn new(
+      pool_data: ZeusStateView::V3PoolData,
+      tick_spacing: I24,
+      _block: Option<BlockId>,
+   ) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 
@@ -194,10 +170,7 @@ impl V3PoolState {
       })
    }
 
-   pub fn for_v4(
-      pool: &impl UniswapPool,
-      data: ZeusStateView::V4PoolData,
-   ) -> Result<Self, anyhow::Error> {
+   pub fn for_v4(pool: &impl UniswapPool, data: ZeusStateView::V4PoolData) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
 

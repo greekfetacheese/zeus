@@ -364,16 +364,6 @@ impl PoolManagerHandle {
       Ok(pools)
    }
 
-   /// Cleanup pools that do not have sufficient liquidity
-   pub fn remove_pools_with_no_liquidity(&self) {
-      self.write(|manager| manager.remove_pools_with_no_liquidity())
-   }
-
-   /// Cleanup V4 pools that do not have sufficient liquidity
-   pub fn remove_v4_pools_with_no_liquidity(&self) {
-      self.write(|manager| manager.remove_v4_pools_with_no_liquidity())
-   }
-
    pub fn remove_v4_pools_with_no_base_token(&self) {
       self.write(|manager| manager.remove_v4_pools_with_no_base_token())
    }
@@ -1087,26 +1077,6 @@ impl PoolManager {
 
    fn get_v4_pool_last_sync_time(&self, chain: u64, dex: DexKind) -> Option<Instant> {
       self.v4_pool_last_sync.get(&(chain, dex)).cloned()
-   }
-
-   pub fn remove_pools_with_no_liquidity(&mut self) {
-      self.pools.retain(|_, pool| pool.enough_liquidity());
-
-      self.pools.shrink_to_fit();
-   }
-
-   /// Removes V4 pools that have no liquidity
-   pub fn remove_v4_pools_with_no_liquidity(&mut self) {
-      self.pools.retain(|_key, pool| {
-         // Keep the pool if it's NOT a V4 pool, OR
-         // if it IS a V4 pool AND it has enough liquidity.
-         // Also ignore pools that are base pairs
-         !pool.dex_kind().is_v4()
-            || pool.enough_liquidity()
-            || pool.currency0().is_base() && pool.currency1().is_base()
-      });
-
-      self.pools.shrink_to_fit();
    }
 
    /// Removes pool that exceed the [MAX_FEE]

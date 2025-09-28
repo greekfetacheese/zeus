@@ -140,7 +140,7 @@ where
    let (base_usd, quote_usd) = pool.tokens_price(client.clone(), Some(fork_block)).await?;
 
    // make sure we set the prices in the correct order
-   let (past_token0_usd, past_token1_usd) = if pool.is_token0(pool.base_token().address) {
+   let (past_token0_usd, past_token1_usd) = if pool.is_currency0(pool.base_currency()) {
       (base_usd, quote_usd)
    } else {
       (quote_usd, base_usd)
@@ -528,7 +528,7 @@ where
    let (base_usd, quote_usd) = pool.tokens_price(client.clone(), None).await?;
 
    // make sure we set the prices in the correct order
-   let (latest_token0_usd, latest_token1_usd) = if pool.is_token0(pool.base_token().address) {
+   let (latest_token0_usd, latest_token1_usd) = if pool.is_currency0(pool.base_currency()) {
       (base_usd, quote_usd)
    } else {
       (quote_usd, base_usd)

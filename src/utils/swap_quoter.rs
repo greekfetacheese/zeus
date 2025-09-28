@@ -1,3 +1,4 @@
+use crate::core::ZeusCtx;
 use rayon::prelude::*;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
@@ -107,6 +108,7 @@ impl EvaluatedRoute {
 const SPLIT_ROUTING_ITERATIONS: u32 = 100;
 
 pub fn get_quote(
+   ctx: ZeusCtx,
    amount_to_swap: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
@@ -121,6 +123,7 @@ pub fn get_quote(
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
    let all_paths = find_all_paths(
+      ctx,
       &all_pools,
       currency_in.clone(),
       currency_out.clone(),
@@ -162,6 +165,7 @@ pub fn get_quote(
 }
 
 pub fn get_quote_with_split_routing(
+   ctx: ZeusCtx,
    amount_to_swap: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
@@ -176,6 +180,7 @@ pub fn get_quote_with_split_routing(
    let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
 
    let all_paths = find_all_paths(
+      ctx,
       &all_pools,
       currency_in.clone(),
       currency_out.clone(),
@@ -328,6 +333,7 @@ pub fn get_quote_with_split_routing(
 
 /// Finds all possible sequences of pools to connect input and output currencies.
 fn find_all_paths(
+   ctx: ZeusCtx,
    all_pools: &[Arc<AnyUniswapPool>],
    start_currency: Currency,
    end_currency: Currency,
@@ -336,9 +342,12 @@ fn find_all_paths(
    // Adjacency list: Currency -> Vec<(NeighborCurrency, Pool)>
    let mut adj: HashMap<Currency, Vec<(Currency, Arc<AnyUniswapPool>)>> = HashMap::new();
    for pool in all_pools {
-      if !pool.enough_liquidity() {
+      let has_liquidity = ctx.pool_has_sufficient_liquidity(pool).unwrap_or(false);
+
+      if !has_liquidity {
          continue;
       }
+
       let c0 = pool.currency0().clone();
       let c1 = pool.currency1().clone();
       adj.entry(c0.clone()).or_default().push((c1.clone(), pool.clone()));

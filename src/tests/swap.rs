@@ -1022,6 +1022,15 @@ mod tests {
       let pool_manager = ctx.pool_manager();
       let updated_pools = pool_manager.update_state_for_pools(ctx.clone(), chain, pools).await?;
 
+      let mut liquid_pools = Vec::new();
+      for pool in updated_pools.iter() {
+         let has_liquidity = ctx.pool_has_sufficient_liquidity(pool).unwrap_or(false);
+
+         if has_liquidity {
+            liquid_pools.push(pool.clone());
+         }
+      }
+
       let eth = Currency::from(NativeCurrency::from(chain));
       let eth_price = ctx.get_currency_price(&eth);
       let currency_out_price = ctx.get_currency_price(&currency_out);
@@ -1033,7 +1042,7 @@ mod tests {
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
-            updated_pools,
+            liquid_pools,
             eth_price.clone(),
             currency_out_price.clone(),
             base_fee.next,
@@ -1046,7 +1055,7 @@ mod tests {
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
-            updated_pools,
+            liquid_pools,
             eth_price.clone(),
             currency_out_price.clone(),
             base_fee.next,

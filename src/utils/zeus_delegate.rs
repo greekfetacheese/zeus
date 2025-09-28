@@ -167,7 +167,7 @@ pub async fn encode_swap_delegate(
             amountIn: swap.amount_in.wei(),
             fee: swap.pool.fee().fee_u24(),
             tickSpacing: swap.pool.fee().tick_spacing(),
-            zeroForOne: swap.pool.zero_for_one_v4(&swap.currency_in),
+            zeroForOne: swap.pool.zero_for_one(&swap.currency_in),
             hooks: Address::ZERO,
             hookData: Bytes::default(),
             recipient,
