@@ -75,7 +75,7 @@ impl RecipientSelectionWindow {
          open = false;
       }
 
-      let title = RichText::new("Recipient").size(theme.text_sizes.large);
+      let title = RichText::new("Recipient").size(theme.text_sizes.heading);
       Window::new(title)
          .open(&mut open)
          .order(Order::Foreground)
@@ -215,6 +215,7 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let frame = theme.frame2;
+      let frame = frame.fill(theme.colors.bg_color);
       let column0 = ui.available_width() * 0.33;
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;
@@ -285,6 +286,7 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let frame = theme.frame2;
+      let frame = frame.fill(theme.colors.bg_color);
       let column0 = ui.available_width() * 0.33;
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;

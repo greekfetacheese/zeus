@@ -442,6 +442,7 @@ impl ContactsUi {
                   ui.set_width(self.size.0);
 
                   let frame = theme.frame2;
+                  let frame = frame.fill(theme.colors.bg_color);
                   for contact in &contacts {
                      frame.show(ui, |ui| {
                         ui.set_width(ui.available_width() * 0.7);
