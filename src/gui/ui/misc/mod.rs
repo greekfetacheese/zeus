@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, Frame, Grid, Id, Layout, Order, RichText, ScrollArea, Sense,
+   Align, Align2, Button, Color32, Frame, Grid, Layout, Order, RichText, ScrollArea, Sense,
    Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
@@ -156,60 +156,6 @@ impl WalletSelect {
    }
 }
 
-/// Testing Window
-pub struct TestingWindow {
-   pub open: bool,
-   pub size: (f32, f32),
-   pub chain: ChainId,
-   pub id: Id,
-}
-
-impl TestingWindow {
-   pub fn new() -> Self {
-      Self {
-         open: false,
-         size: (500.0, 400.0),
-         chain: ChainId::new(1).unwrap(),
-         id: Id::new("test_window"),
-      }
-   }
-
-   pub fn open(&mut self) {
-      self.open = true;
-   }
-
-   pub fn reset(&mut self) {
-      self.open = false;
-   }
-
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      Window::new(RichText::new("Testing Window").size(theme.text_sizes.normal))
-         .title_bar(true)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               // ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.set_width(self.size.0);
-               ui.set_height(self.size.1);
-
-               let mut chain_select = ChainSelect::new("testing13232", 1);
-               chain_select.show(0, theme, icons.clone(), ui);
-
-               if ui.button("Close").clicked() {
-                  self.open = false;
-               }
-            });
-         });
-   }
-}
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {

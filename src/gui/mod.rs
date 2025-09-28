@@ -12,7 +12,7 @@ use lazy_static::lazy_static;
 
 use crate::gui::ui::{
    ConfirmWindow, Notification, Header, LoadingWindow, MsgWindow, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TestingWindow,
+   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    misc::dev::DevUi,
@@ -79,7 +79,6 @@ pub struct GUI {
    pub settings: SettingsUi,
    pub tx_history: TxHistory,
    pub data_inspection: bool,
-   pub testing_window: TestingWindow,
    pub confirm_window: ConfirmWindow,
    pub tx_confirmation_window: TxConfirmationWindow,
    pub tx_window: TxWindow,
@@ -133,7 +132,6 @@ impl GUI {
          settings,
          tx_history,
          data_inspection: false,
-         testing_window: TestingWindow::new(),
          confirm_window,
          tx_confirmation_window,
          tx_window,

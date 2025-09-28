@@ -17,8 +17,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.confirm_window.show(theme, ui);
 
-   gui.testing_window.show(theme, icons.clone(), ui);
-
    gui.msg_window.show(theme, ui);
 
    gui.loading_window.show(ui);
