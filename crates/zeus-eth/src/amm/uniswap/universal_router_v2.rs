@@ -5,7 +5,7 @@ use crate::currency::Currency;
 use crate::utils::{
    NumericValue,
    address_book::permit2_contract,
-   generate_permit2_single_value, parse_typed_data,
+   generate_permit2_json_value, parse_typed_data,
    secure_signer::{SecureSigner, erase_signer},
 };
 use alloy_contract::private::{Network, Provider};
@@ -223,7 +223,7 @@ where
          let expiration = U256::from(current_time + 30 * 24 * 60 * 60); // 30 days
          let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes
 
-         let value = generate_permit2_single_value(
+         let value = generate_permit2_json_value(
             chain_id,
             token_in.address,
             router_addr,

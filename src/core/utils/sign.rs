@@ -198,8 +198,8 @@ impl Permit2Details {
          expiration: 1747886275,
          permit2_contract: permit2,
          spender,
-         msg_value: permit2_json(),
-         raw_msg: permit2_json(),
+         msg_value: dummy_permit2_json(),
+         raw_msg: dummy_permit2_json(),
       }
    }
 
@@ -275,7 +275,7 @@ impl Permit2Details {
    }
 }
 
-fn permit2_json() -> serde_json::Value {
+fn dummy_permit2_json() -> serde_json::Value {
    serde_json::json!({
        "types": {
            "PermitSingle": [
@@ -352,7 +352,7 @@ mod tests {
    #[tokio::test]
    async fn test_permit2_details() {
       let ctx = ZeusCtx::new();
-      let json = permit2_json();
+      let json = dummy_permit2_json();
       let msg_type = SignMsgType::from_msg(ctx, 8453, json).await;
       let permit2 = msg_type.permit2_details();
 

@@ -18,8 +18,6 @@ use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::abi::permit::Permit2::PermitDetails;
-
 use anyhow::anyhow;
 use std::sync::Arc;
 use tokio::{
@@ -27,9 +25,7 @@ use tokio::{
    task::JoinHandle,
 };
 
-
-
-pub fn generate_permit2_single_value(
+pub fn generate_permit2_json_value(
    chain_id: u64,
    token: Address,
    spender: Address,
@@ -71,67 +67,6 @@ pub fn generate_permit2_single_value(
                "expiration": expiration.to_string(),
                "nonce": nonce.to_string()
            },
-           "spender": spender.to_string(),
-           "sigDeadline": sig_deadline.to_string()
-       }
-   });
-
-   value
-}
-
-pub fn generate_permit2_batch_value(
-   chain_id: u64,
-   details: Vec<PermitDetails>,
-   spender: Address,
-   permit2: Address,
-   sig_deadline: U256,
-) -> Value {
-   let details_json: Vec<Value> = details
-      .iter()
-      .map(
-         |PermitDetails {
-             token,
-             amount,
-             expiration,
-             nonce,
-          }| {
-            serde_json::json!({
-                "token": token.to_string(),
-                "amount": amount.to_string(),
-                "expiration": expiration.to_string(),
-                "nonce": nonce.to_string()
-            })
-         },
-      )
-      .collect();
-
-   let value = serde_json::json!({
-       "types": {
-           "PermitBatch": [
-               {"name": "details", "type": "PermitDetails[]"},
-               {"name": "spender", "type": "address"},
-               {"name": "sigDeadline", "type": "uint256"}
-           ],
-           "PermitDetails": [
-               {"name": "token", "type": "address"},
-               {"name": "amount", "type": "uint160"},
-               {"name": "expiration", "type": "uint48"},
-               {"name": "nonce", "type": "uint48"}
-           ],
-           "EIP712Domain": [
-               {"name": "name", "type": "string"},
-               {"name": "chainId", "type": "uint256"},
-               {"name": "verifyingContract", "type": "address"}
-           ]
-       },
-       "domain": {
-           "name": "Permit2",
-           "chainId": chain_id.to_string(),
-           "verifyingContract": permit2.to_string()
-       },
-       "primaryType": "PermitBatch",
-       "message": {
-           "details": details_json,
            "spender": spender.to_string(),
            "sigDeadline": sig_deadline.to_string()
        }
@@ -653,7 +588,10 @@ mod tests {
    fn test_calc_slippage() {
       let value = NumericValue::parse_to_wei("1", 18);
       let value_after_slippage = value.calc_slippage(10.0, 18);
-      assert_eq!(value_after_slippage.wei(), U256::from(900000000000000000u128));
+      assert_eq!(
+         value_after_slippage.wei(),
+         U256::from(900000000000000000u128)
+      );
       assert_eq!(value_after_slippage.f64, 0.9);
       assert_eq!(value_after_slippage.formatted, "0.9");
    }
