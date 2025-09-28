@@ -377,7 +377,7 @@ pub struct PortfolioUi {
 impl PortfolioUi {
    pub fn new() -> Self {
       Self {
-         open: true,
+         open: false,
          show_spinner: false,
       }
    }

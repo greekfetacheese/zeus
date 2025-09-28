@@ -3,8 +3,6 @@ use eframe::egui::{Frame, RichText, Ui, Window, vec2};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
-   let vault_unlocked = ctx.vault_unlocked();
-   let vault_exists = ctx.vault_exists();
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
@@ -22,14 +20,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.loading_window.show(ui);
 
    gui.sign_msg_window.show(ctx.clone(), theme, icons.clone(), ui);
-
-   if !vault_exists {
-      gui.portofolio.close();
-   }
-
-   if vault_exists && !vault_unlocked {
-      gui.portofolio.close();
-   }
 
    gui.recover_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.unlock_vault_ui.show(ctx.clone(), theme, icons.clone(), ui);

@@ -507,10 +507,7 @@ impl RecoverHDWallet {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      let vault_exists = ctx.vault_exists();
-      let open = !vault_exists;
-
-      if !open {
+      if ctx.vault_exists() {
          return;
       }
 
