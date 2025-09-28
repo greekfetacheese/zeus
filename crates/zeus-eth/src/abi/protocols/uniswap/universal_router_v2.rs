@@ -152,6 +152,13 @@ sol! {
         // the minimum amount of eth to receive
         uint256 amountMin;
     }
+
+   #[derive(Debug)]
+    struct Sweep {
+    address token;
+    address recipient;
+    uint256 amountMin;
+    }
 }
 
 pub fn execute_call_selector() -> [u8; 4] {

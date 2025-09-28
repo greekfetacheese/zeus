@@ -134,13 +134,6 @@ sol! {
         address currency1;
     }
 
-    #[derive(Debug)]
-    struct Sweep {
-    address token;
-    address recipient;
-    uint256 amountMin;
-    }
-
     #[derive(Debug, Default, PartialEq, Eq)]
     struct TakeParams {
         address currency;
