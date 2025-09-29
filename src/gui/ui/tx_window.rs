@@ -649,7 +649,7 @@ pub fn eoa_delegate_event_ui(
    address(
       ctx.clone(),
       chain,
-      "Account",
+      "Wallet",
       params.eoa,
       theme,
       ui,

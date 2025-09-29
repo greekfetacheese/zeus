@@ -308,7 +308,7 @@ impl TransactionAction {
          let op = self.uniswap_position_params();
          return op.name();
       } else if self.is_eoa_delegate() {
-         return "EOA Delegate".to_string();
+         return "Wallet Delegation".to_string();
       } else {
          return "Unknown interaction".to_string();
       }

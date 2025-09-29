@@ -14,6 +14,10 @@ use zeus_eth::{
    types::ChainId,
 };
 
+const DELEGATE_TIP1: &str =
+   "This wallet has been temporarily upgraded to a smart contract";
+const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
+
 /// Show some of current state of Zeus like the current chain, wallet, etc.
 pub struct Header {
    open: bool,
@@ -86,18 +90,26 @@ impl Header {
                }
             });
 
-            // Smart Account status
+            // Wallet delegated status
             let deleg_addr = ctx.get_delegated_address(chain.id(), wallet.address);
             ui.horizontal(|ui| {
-               let text = RichText::new("Smart Account").size(theme.text_sizes.normal);
+               let text = RichText::new("Delegated").size(theme.text_sizes.normal);
 
                let icon = match deleg_addr.is_some() {
                   true => icons.green_circle(),
                   false => icons.red_circle(),
                };
 
+               let tip = if deleg_addr.is_some() {
+                  DELEGATE_TIP1
+               } else {
+                  DELEGATE_TIP2
+               };
+
+               let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
+
                let label = Label::new(text, Some(icon));
-               ui.add(label);
+               ui.add(label).on_hover_text(tip_text);
             });
 
             let show_deleg = if cfg!(feature = "dev") {
