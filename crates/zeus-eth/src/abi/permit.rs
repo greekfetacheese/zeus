@@ -1,9 +1,9 @@
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
-   Address, Bytes, Signature, U256,
+   Address, Bytes, LogData, Signature, U256,
    aliases::{U48, U160},
 };
-use alloy_sol_types::{SolCall, SolValue, sol};
+use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
 
 sol! {
 
@@ -62,10 +62,11 @@ sol! {
         returns (uint160 amount, uint48 expiration, uint48 nonce);
 
         function permit(address owner, PermitBatch memory permitBatch, bytes calldata signature) external;
+
+        event Permit(address indexed owner, address indexed token, address indexed spender, uint160 amount, uint48 expiration, uint48 nonce);
     }
 
 }
-
 
 pub async fn allowance<P, N>(
    client: P,
@@ -159,4 +160,9 @@ pub fn encode_permit2_permit_single(
    let encoded_args = (permit_single, sig_bytes).abi_encode();
 
    encoded_args.into()
+}
+
+pub fn decode_permit_log(log: &LogData) -> Result<Permit2::Permit, anyhow::Error> {
+   let decoded = Permit2::Permit::decode_raw_log(log.topics(), &log.data)?;
+   Ok(decoded)
 }

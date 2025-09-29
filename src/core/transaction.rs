@@ -2,7 +2,7 @@ use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
-   abi::{erc20, protocols::across, uniswap, weth9},
+   abi::{erc20, permit, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, TxHash, U256},
    amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool},
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -77,6 +77,8 @@ pub enum TransactionAction {
 
    EOADelegate(EOADelegateParams),
 
+   Permit(PermitParams),
+
    #[default]
    Other,
 }
@@ -96,6 +98,28 @@ impl TransactionAction {
       };
 
       Self::EOADelegate(params)
+   }
+
+   pub fn dummy_permit() -> Self {
+      let chain = 1;
+      let owner = Address::ZERO;
+      let token = Currency::from(ERC20Token::weth());
+      let spender = Address::ZERO;
+      let amount = NumericValue::parse_to_wei("100", 18);
+      let amount_usd = Some(NumericValue::value(amount.f64(), 1600.0));
+      let expiration = 0;
+
+      let params = PermitParams {
+         chain,
+         owner,
+         token,
+         spender,
+         amount,
+         amount_usd,
+         expiration,
+      };
+
+      Self::Permit(params)
    }
 
    pub fn dummy_token_approve() -> Self {
@@ -309,6 +333,8 @@ impl TransactionAction {
          return op.name();
       } else if self.is_eoa_delegate() {
          return "Wallet Delegation".to_string();
+      } else if self.is_permit() {
+         return "Permit".to_string();
       } else {
          return "Unknown interaction".to_string();
       }
@@ -388,6 +414,13 @@ impl TransactionAction {
       }
    }
 
+   pub fn permit_params(&self) -> &PermitParams {
+      match self {
+         Self::Permit(params) => params,
+         _ => panic!("Action is not a Permit"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -428,6 +461,10 @@ impl TransactionAction {
 
    pub fn is_eoa_delegate(&self) -> bool {
       matches!(self, Self::EOADelegate(_))
+   }
+
+   pub fn is_permit(&self) -> bool {
+      matches!(self, Self::Permit(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -1460,5 +1497,65 @@ impl UniswapPositionParams {
          PositionOperation::DecreaseLiquidity => "Remove Liquidity".to_string(),
          PositionOperation::CollectFees => "Collect Fees".to_string(),
       }
+   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermitParams {
+   pub chain: u64,
+   pub owner: Address,
+   pub token: Currency,
+   pub spender: Address,
+   pub amount: NumericValue,
+   pub amount_usd: Option<NumericValue>,
+   pub expiration: u64,
+}
+
+impl PermitParams {
+   pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
+      let mut decoded = None;
+      if let Ok(decoded_log) = permit::decode_permit_log(log) {
+         decoded = Some(decoded_log);
+      }
+
+      if decoded.is_none() {
+         return Err(anyhow!("Failed to decode permit log"));
+      }
+
+      let decoded = decoded.unwrap();
+      let token_addr = decoded.token;
+
+      let token_opt = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, token_addr));
+
+      let token = if let Some(token) = token_opt {
+         token
+      } else {
+         let z_client = ctx.get_zeus_client();
+         let token = z_client
+            .request(chain, |client| async move {
+               ERC20Token::new(client, token_addr, chain).await
+            })
+            .await?;
+         ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
+         token
+      };
+
+      let token = Currency::from(token);
+      let spender = decoded.spender;
+      let owner = decoded.owner;
+      let amount = NumericValue::format_wei(U256::from(decoded.amount), token.decimals());
+      let amount_usd =
+         ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
+      let expiration: u64 = decoded.expiration.to_string().parse()?;
+
+      Ok(Self {
+         chain,
+         owner,
+         token,
+         spender,
+         amount,
+         amount_usd: Some(amount_usd),
+         expiration,
+      })
    }
 }

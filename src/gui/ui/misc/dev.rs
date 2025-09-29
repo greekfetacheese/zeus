@@ -762,6 +762,33 @@ impl UiTesting {
                });
             }
 
+            let button = Button::new(RichText::new("Permit Analysis").size(text_size))
+               .min_size(button_size);
+            if ui.add(button).clicked() {
+               let ctx_clone = ctx.clone();
+               RT.spawn_blocking(move || {
+                  let params = TransactionAction::dummy_permit().permit_params().clone();
+                  let analysis = TransactionAnalysis {
+                     chain: 1,
+                     contract_interact: true,
+                     decoded_selector: "Permit".to_string(),
+                     gas_used: 50_000,
+                     permits: vec![params],
+                     ..Default::default()
+                  };
+                  SHARED_GUI.write(|gui| {
+                     gui.tx_confirmation_window.open(
+                        ctx_clone.clone(),
+                        "".to_string(),
+                        ctx_clone.chain(),
+                        analysis,
+                        "1".to_string(),
+                        true,
+                     );
+                  });
+               });
+            }
+
             let button =
                Button::new(RichText::new("Uniswap AddLiquidity V3 Analysis").size(text_size))
                   .min_size(button_size);

@@ -9,7 +9,7 @@ use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, v
 use crate::assets::icons::Icons;
 use crate::core::{
    TransactionRich, ZeusCtx, transaction::*, tx_analysis::TransactionAnalysis,
-   utils::estimate_tx_cost,
+   utils::{estimate_tx_cost, format_expiry},
 };
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -734,6 +734,73 @@ pub fn eoa_delegate_event_ui(
    });
 }
 
+pub fn permit_event_ui(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &PermitParams,
+   ui: &mut Ui,
+) {
+   let is_unlimited = params.amount.wei() == U256::MAX;
+   let amount = if is_unlimited {
+      "Unlimited".to_string()
+   } else {
+      params.amount.format_abbreviated()
+   };
+
+   let show_usd_value = !is_unlimited && params.amount_usd.is_some();
+   let expiration = format_expiry(params.expiration);
+
+   let icon = icons.currency_icon(&params.token);
+   let text = if show_usd_value {
+      let amount_usd = params.amount_usd.as_ref().unwrap();
+      RichText::new(format!(
+         "{} {} ~ ${}",
+         amount,
+         params.token.symbol(),
+         amount_usd.format_abbreviated()
+      ))
+      .size(theme.text_sizes.normal)
+   } else {
+      RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.text_sizes.normal)
+   };
+
+   let label = Label::new(text, Some(icon)).image_on_left();
+   ui.add(label);
+
+   // Owner
+   address(
+      ctx.clone(),
+      chain,
+      "Owner",
+      params.owner,
+      theme,
+      ui,
+   );
+
+   // Spender
+   address(
+      ctx.clone(),
+      chain,
+      "Spender",
+      params.spender,
+      theme,
+      ui,
+   );
+
+   // Expiration
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Expiration").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(expiration).size(theme.text_sizes.normal));
+      });
+   });
+}
+
 pub fn token_approval_event_ui(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -1340,6 +1407,16 @@ fn show_decoded_events(
    ui: &mut Ui,
 ) {
    let erc20_transfers = &analysis.erc20_transfers();
+
+   for permit in &analysis.permits {
+      ui.allocate_ui(frame_size, |ui| {
+         frame.show(ui, |ui| {
+            ui.label(RichText::new("Permit").size(theme.text_sizes.large));
+
+            permit_event_ui(ctx.clone(), chain, theme, icons.clone(), permit, ui);
+         });
+      });
+   }
 
    for erc20_transfer in erc20_transfers {
       ui.allocate_ui(frame_size, |ui| {

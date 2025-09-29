@@ -44,6 +44,7 @@ pub struct TransactionAnalysis {
    pub positions_ops: Vec<UniswapPositionParams>,
    pub bridge: Vec<BridgeParams>,
    pub swaps: Vec<SwapParams>,
+   pub permits: Vec<PermitParams>,
 }
 
 impl TransactionAnalysis {
@@ -130,6 +131,12 @@ impl TransactionAnalysis {
 
          if let Ok(params) = TokenApproveParams::from_log(ctx.clone(), chain, log).await {
             analysis.token_approvals.push(params);
+            known_events += 1;
+            continue;
+         }
+
+         if let Ok(params) = PermitParams::from_log(ctx.clone(), chain, log).await {
+            analysis.permits.push(params);
             known_events += 1;
             continue;
          }
@@ -274,6 +281,7 @@ impl TransactionAnalysis {
          + self.bridge.len()
          + self.swaps.len()
          + self.eoa_delegates.len()
+         + self.permits.len()
    }
 
    /// Try to infer a high-level action from the analysis
