@@ -8,7 +8,7 @@ use zeus_eth::{
    types::ChainId,
    utils::{SecureSigner, erase_wallet, NumericValue},
 };
-
+use crate::core::client::CLIENT_TIMEOUT;
 use alloy_eips::eip7702::SignedAuthorization;
 
 
@@ -102,7 +102,7 @@ where
    let receipt = client
       .send_tx_envelope(tx_envelope)
       .await?
-      .with_timeout(Some(Duration::from_secs(60)))
+      .with_timeout(Some(Duration::from_secs(CLIENT_TIMEOUT)))
       .get_receipt()
       .await?;
    tracing::info!(
@@ -115,7 +115,7 @@ where
 
 pub fn make_tx_request(params: TxParams) -> TransactionRequest {
    if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
-      return TransactionRequest::default()
+      let mut tx = TransactionRequest::default()
          .with_from(params.signer.address())
          .with_to(params.transcact_to)
          .with_chain_id(params.chain.id())
@@ -124,17 +124,22 @@ pub fn make_tx_request(params: TxParams) -> TransactionRequest {
          .with_input(params.call_data.clone())
          .with_gas_limit(params.gas_limit)
          .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
-         .max_fee_per_gas(params.max_fee_per_gas().to::<u128>())
-         .with_authorization_list(params.authorization_list);
+         .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
+       
+       if !params.authorization_list.is_empty() {
+         tx.set_authorization_list(params.authorization_list);
+       }
+
+      tx
    } else {
       // Legacy
-      return TransactionRequest::default()
+      TransactionRequest::default()
          .with_from(params.signer.address())
          .with_to(params.transcact_to)
          .with_value(params.value)
          .with_nonce(params.nonce)
          .with_input(params.call_data)
          .with_gas_limit(params.gas_limit)
-         .with_gas_price(params.base_fee.into());
+         .with_gas_price(params.base_fee.into())
    }
 }

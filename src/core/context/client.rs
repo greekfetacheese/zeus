@@ -24,7 +24,7 @@ use tokio::{sync::Semaphore, time::sleep};
 
 const PROVIDER_DATA_FILE: &str = "providers.json";
 
-const CLIENT_TIMEOUT: u64 = 30;
+pub const CLIENT_TIMEOUT: u64 = 60;
 const REQUEST_TIMEOUT: u64 = 10;
 
 /// 3 Days in seconds
@@ -423,7 +423,7 @@ impl ZeusClient {
          &rpc.url,
          retry_layer,
          throttle_layer,
-         REQUEST_TIMEOUT,
+         CLIENT_TIMEOUT,
       )
       .await;
 
@@ -633,7 +633,7 @@ impl ZeusClient {
 
       let throttle = throttle_layer(CLIENT_RPS);
 
-      get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await
+      get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
@@ -911,7 +911,7 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    );
 
    let throttle = throttle_layer(CLIENT_RPS);
-   let client = get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await?;
+   let client = get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT).await?;
    let chain = rpc.chain_id;
 
    let time = std::time::Instant::now();
