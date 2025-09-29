@@ -720,6 +720,8 @@ async fn across_bridge(
    });
 
    let mev_protect = false;
+   let auth_list = Vec::new();
+
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
@@ -731,6 +733,7 @@ async fn across_bridge(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 

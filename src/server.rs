@@ -1509,6 +1509,7 @@ async fn eth_send_transaction(
    };
 
    let chain = ctx.chain();
+   let auth_list = Vec::new();
 
    let (receipt, tx_rich) = match eth::send_transaction(
       ctx.clone(),
@@ -1521,6 +1522,7 @@ async fn eth_send_transaction(
       transact_to,
       call_data,
       value,
+      auth_list,
    )
    .await
    {

@@ -1426,6 +1426,7 @@ async fn swap(
       let interact_to = token.address;
       let value = U256::ZERO;
       let amount = NumericValue::format_wei(U256::MAX, token.decimals);
+      let auth_list = Vec::new();
 
       let params = TokenApproveParams {
          token: vec![token.into_owned()],
@@ -1461,6 +1462,7 @@ async fn swap(
          interact_to,
          call_data,
          value,
+         auth_list,
       )
       .await?;
 
@@ -1473,6 +1475,7 @@ async fn swap(
    let call_data = execute_params.call_data.clone();
    let value = execute_params.value;
    let dapp = "".to_string();
+   let auth_list = Vec::new();
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),
@@ -1485,6 +1488,7 @@ async fn swap(
       interact_to,
       call_data,
       value,
+      auth_list
    )
    .await?;
 
@@ -1616,6 +1620,8 @@ pub async fn wrap_eth(
    };
 
    let mev_protect = false;
+   let auth_list = Vec::new();
+
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
@@ -1627,6 +1633,7 @@ pub async fn wrap_eth(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 
@@ -1741,6 +1748,8 @@ pub async fn unwrap_weth(
    };
 
    let mev_protect = false;
+   let auth_list = Vec::new();
+
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
@@ -1752,6 +1761,7 @@ pub async fn unwrap_weth(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 

@@ -43,6 +43,7 @@ impl NotificationType {
          TransactionAction::WrapETH(params) => Self::WrapETH(params),
          TransactionAction::UnwrapWETH(params) => Self::UnwrapWETH(params),
          TransactionAction::UniswapPositionOperation(_params) => Self::Other(String::new()),
+         TransactionAction::EOADelegate(_params) => Self::Other(String::new()),
          TransactionAction::Other => Self::Other("Transaction".to_string()),
       }
    }

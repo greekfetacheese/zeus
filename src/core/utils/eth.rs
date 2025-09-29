@@ -29,6 +29,8 @@ use zeus_eth::{
    utils::{NumericValue, address_book::uniswap_nft_position_manager},
 };
 
+use alloy_eips::eip7702::SignedAuthorization;
+
 pub async fn send_transaction(
    ctx: ZeusCtx,
    dapp: String,
@@ -40,6 +42,7 @@ pub async fn send_transaction(
    interact_to: Address,
    call_data: Bytes,
    value: U256,
+   authorization_list: Vec<SignedAuthorization>,
 ) -> Result<(TransactionReceipt, TransactionRich), anyhow::Error> {
    let client = ctx.get_client(chain.id()).await?;
    let base_fee_fut = update::get_base_fee(ctx.clone(), chain.id());
@@ -115,6 +118,7 @@ pub async fn send_transaction(
          sim_res.gas_used(),
          balance_before,
          balance_after,
+         authorization_list.clone()
       )
       .await?
    };
@@ -195,6 +199,7 @@ pub async fn send_transaction(
       call_data.clone(),
       gas_used,
       gas_limit,
+      authorization_list.clone(),
    );
 
    // If needed use MEV protect client, if not found prompt the user to continue
@@ -265,6 +270,7 @@ pub async fn send_transaction(
       receipt.gas_used,
       balance_before,
       balance_after,
+      authorization_list
    )
    .await?;
 
@@ -285,6 +291,7 @@ pub async fn send_transaction(
    );
 
    let tx_rich = TransactionRich {
+      tx_type: receipt.transaction_type(),
       success: receipt.status(),
       chain: chain.id(),
       block: receipt.block_number.unwrap_or_default(),
@@ -441,6 +448,7 @@ pub async fn collect_fees_position_v3(
    let interact_to = nft_contract;
    let value = U256::ZERO;
    let mev_protect = false;
+   let auth_list = Vec::new();
 
    let (receipt, _) = send_transaction(
       ctx.clone(),
@@ -453,6 +461,7 @@ pub async fn collect_fees_position_v3(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 
@@ -653,6 +662,7 @@ pub async fn decrease_liquidity_position_v3(
    let contract_interact = true;
    let interact_to = nft_contract;
    let value = U256::ZERO;
+   let auth_list = Vec::new();
 
    let tx_analysis = TransactionAnalysis {
       chain: chain.id(),
@@ -680,6 +690,7 @@ pub async fn decrease_liquidity_position_v3(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 
@@ -943,6 +954,7 @@ pub async fn increase_liquidity_position_v3(
       let value = U256::ZERO;
       let contract_interact = true;
       let amount = NumericValue::format_wei(U256::MAX, pool.token0().decimals);
+      let auth_list = Vec::new();
 
       let params = TokenApproveParams {
          token: vec![pool.token0().into_owned()],
@@ -978,6 +990,7 @@ pub async fn increase_liquidity_position_v3(
          interact_to,
          call_data,
          value,
+         auth_list,
       )
       .await?;
 
@@ -994,6 +1007,7 @@ pub async fn increase_liquidity_position_v3(
       let value = U256::ZERO;
       let contract_interact = true;
       let amount = NumericValue::format_wei(U256::MAX, pool.token1().decimals);
+      let auth_list = Vec::new();
 
       let params = TokenApproveParams {
          token: vec![pool.token1().into_owned()],
@@ -1029,6 +1043,7 @@ pub async fn increase_liquidity_position_v3(
          interact_to,
          call_data,
          value,
+         auth_list,
       )
       .await?;
 
@@ -1043,6 +1058,7 @@ pub async fn increase_liquidity_position_v3(
    let contract_interact = true;
    let interact_to = nft_contract;
    let value = U256::ZERO;
+   let auth_list = Vec::new();
 
    let tx_analysis = TransactionAnalysis {
       chain: chain.id(),
@@ -1070,6 +1086,7 @@ pub async fn increase_liquidity_position_v3(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 
@@ -1338,6 +1355,7 @@ pub async fn mint_new_liquidity_position_v3(
       let value = U256::ZERO;
       let contract_interact = true;
       let amount = NumericValue::format_wei(U256::MAX, pool.token0().decimals);
+      let auth_list = Vec::new();
 
       let params = TokenApproveParams {
          token: vec![pool.token0().into_owned()],
@@ -1373,6 +1391,7 @@ pub async fn mint_new_liquidity_position_v3(
          interact_to,
          call_data,
          value,
+         auth_list,
       )
       .await?;
 
@@ -1389,6 +1408,7 @@ pub async fn mint_new_liquidity_position_v3(
       let value = U256::ZERO;
       let contract_interact = true;
       let amount = NumericValue::format_wei(U256::MAX, pool.token1().decimals);
+      let auth_list = Vec::new();
 
       let params = TokenApproveParams {
          token: vec![pool.token1().into_owned()],
@@ -1424,6 +1444,7 @@ pub async fn mint_new_liquidity_position_v3(
          interact_to,
          call_data,
          value,
+         auth_list,
       )
       .await?;
 
@@ -1437,6 +1458,7 @@ pub async fn mint_new_liquidity_position_v3(
    let contract_interact = true;
    let interact_to = nft_contract;
    let value = U256::ZERO;
+   let auth_list = Vec::new();
 
    let tx_analysis = TransactionAnalysis {
       chain: chain.id(),
@@ -1464,6 +1486,7 @@ pub async fn mint_new_liquidity_position_v3(
       interact_to,
       mint_call_data,
       value,
+      auth_list,
    )
    .await?;
 

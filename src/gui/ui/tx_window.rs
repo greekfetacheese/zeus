@@ -182,6 +182,7 @@ impl TxConfirmationWindow {
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
+                  // Action Name
                   ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
 
                   let text = "Simulation Result";
@@ -636,6 +637,43 @@ impl TxWindow {
             });
          });
    }
+}
+
+pub fn eoa_delegate_event_ui(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   theme: &Theme,
+   params: &EOADelegateParams,
+   ui: &mut Ui,
+) {
+   address(
+      ctx.clone(),
+      chain,
+      "Account",
+      params.eoa,
+      theme,
+      ui,
+   );
+
+   address(
+      ctx.clone(),
+      chain,
+      "Delegate to",
+      params.address,
+      theme,
+      ui,
+   );
+
+   // Nonce
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         ui.label(RichText::new("Nonce").size(theme.text_sizes.large));
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         ui.label(RichText::new(format!("{}", params.nonce)).size(theme.text_sizes.normal));
+      });
+   });
 }
 
 pub fn token_approval_event_ui(
@@ -1355,6 +1393,15 @@ fn show_decoded_events(
          });
       });
    }
+
+   for eoa_delegate in &analysis.eoa_delegates {
+      ui.allocate_ui(frame_size, |ui| {
+         frame.show(ui, |ui| {
+            ui.label(RichText::new("Account Delegate").size(theme.text_sizes.large));
+            eoa_delegate_event_ui(ctx.clone(), chain, theme, eoa_delegate, ui);
+         });
+      });
+   }
 }
 
 fn show_action(
@@ -1440,5 +1487,10 @@ fn show_action(
    if action.is_swap() {
       let params = action.swap_params();
       swap_event_ui(theme, icons.clone(), params, ui);
+   }
+
+   if action.is_eoa_delegate() {
+      let params = action.eoa_delegate_params();
+      eoa_delegate_event_ui(ctx.clone(), chain, theme, params, ui);
    }
 }

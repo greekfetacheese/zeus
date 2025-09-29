@@ -9,6 +9,9 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+use alloy_consensus::TxType;
+use alloy_eips::eip7702::SignedAuthorization;
+
 use super::tx_analysis::TransactionAnalysis;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +20,7 @@ use serde::{Deserialize, Serialize};
 /// a high-level overview of the transaction, decoded events etc...
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionRich {
+   pub tx_type: TxType,
    pub success: bool,
    pub chain: u64,
    pub block: u64,
@@ -56,16 +60,13 @@ impl TransactionRich {
 /// A brief overiview of a transaction
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum TransactionAction {
-   /// Cross Swap / Bridge
    Bridge(BridgeParams),
 
-   /// Token Swap
    SwapToken(SwapParams),
 
    /// An operation on a Uniswap position
    UniswapPositionOperation(UniswapPositionParams),
 
-   /// ERC20 Token Approval
    TokenApprove(TokenApproveParams),
 
    Transfer(TransferParams),
@@ -74,11 +75,29 @@ pub enum TransactionAction {
 
    UnwrapWETH(UnwrapWETHParams),
 
+   EOADelegate(EOADelegateParams),
+
    #[default]
    Other,
 }
 
 impl TransactionAction {
+   pub fn dummy_eoa_delegate() -> Self {
+      let chain = 1;
+      let eoa = Address::ZERO;
+      let address = Address::ZERO;
+      let nonce = 0;
+
+      let params = EOADelegateParams {
+         chain,
+         eoa,
+         address,
+         nonce,
+      };
+
+      Self::EOADelegate(params)
+   }
+
    pub fn dummy_token_approve() -> Self {
       let token = vec![ERC20Token::weth()];
       let amount = vec![NumericValue::parse_to_wei("1000000000", 18)];
@@ -288,6 +307,8 @@ impl TransactionAction {
       } else if self.is_uniswap_position_op() {
          let op = self.uniswap_position_params();
          return op.name();
+      } else if self.is_eoa_delegate() {
+         return "EOA Delegate".to_string();
       } else {
          return "Unknown interaction".to_string();
       }
@@ -360,6 +381,13 @@ impl TransactionAction {
       }
    }
 
+   pub fn eoa_delegate_params(&self) -> &EOADelegateParams {
+      match self {
+         Self::EOADelegate(params) => params,
+         _ => panic!("Action is not a EOA Delegate"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -398,12 +426,35 @@ impl TransactionAction {
       matches!(self, Self::UnwrapWETH(_))
    }
 
+   pub fn is_eoa_delegate(&self) -> bool {
+      matches!(self, Self::EOADelegate(_))
+   }
+
    pub fn is_other(&self) -> bool {
       matches!(self, Self::Other)
    }
 
    pub fn is_known(&self) -> bool {
       !self.is_other()
+   }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EOADelegateParams {
+   pub chain: u64,
+   pub eoa: Address,
+   pub address: Address,
+   pub nonce: u64,
+}
+
+impl EOADelegateParams {
+   pub fn new(chain: u64, eoa: Address, auth: SignedAuthorization) -> Self {
+      Self {
+         chain,
+         eoa,
+         address: auth.address().clone(),
+         nonce: auth.nonce(),
+      }
    }
 }
 

@@ -493,6 +493,34 @@ impl UiTesting {
                ctx.write(|ctx| ctx.on_startup_syncing = !ctx.on_startup_syncing);
             }
 
+            let button =
+               Button::new(RichText::new("EOA Delegate").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let params = TransactionAction::dummy_eoa_delegate().eoa_delegate_params().clone();
+               let analysis = TransactionAnalysis {
+                  chain: 1,
+                  contract_interact: false,
+                  decoded_selector: "EOA Delegate".to_string(),
+                  gas_used: 50_000,
+                  eoa_delegates: vec![params],
+                  ..Default::default()
+               };
+               let ctx_clone = ctx.clone();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.tx_confirmation_window.open(
+                        ctx_clone.clone(),
+                        "".to_string(),
+                        ctx_clone.chain(),
+                        analysis,
+                        "1".to_string(),
+                        true,
+                     );
+                  });
+               });
+            }
+
             let button = Button::new(RichText::new("Unknown Tx Analysis 1").size(text_size))
                .min_size(button_size);
 

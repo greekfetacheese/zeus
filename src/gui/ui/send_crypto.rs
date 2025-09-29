@@ -514,6 +514,7 @@ async fn send_eth(
    let interact_to = recipient;
    let value = amount.wei();
    let call_data = Bytes::default();
+   let auth_list = Vec::new();
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),
@@ -526,6 +527,7 @@ async fn send_eth(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 
@@ -556,6 +558,7 @@ async fn send_token(
    let call_data = token.encode_transfer(recipient, amount.wei());
 
    let client = ctx.get_client(chain.id()).await?;
+   let eth_balance_before_fut = client.get_balance(from).into_future();
    let block = client.get_block(BlockId::latest()).await?;
 
    let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
@@ -606,7 +609,7 @@ async fn send_token(
    transfer_params.real_amount_sent = Some(real_amount_sent);
    transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
 
-   let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
+   let eth_balance_before = eth_balance_before_fut.await?;
 
    let tx_analysis = TransactionAnalysis {
       chain: chain.id(),
@@ -616,12 +619,14 @@ async fn send_token(
       value,
       call_data: call_data.clone(),
       gas_used,
-      eth_balance_before: eth_balance_before.wei(),
-      eth_balance_after: eth_balance_before.wei(),
+      eth_balance_before: eth_balance_before,
+      eth_balance_after: eth_balance_before,
       decoded_selector: "ERC20 Transfer".to_string(),
       transfers: vec![transfer_params],
       ..Default::default()
    };
+
+   let auth_list = Vec::new();
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),
@@ -634,6 +639,7 @@ async fn send_token(
       interact_to,
       call_data,
       value,
+      auth_list,
    )
    .await?;
 

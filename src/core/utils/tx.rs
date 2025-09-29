@@ -2,12 +2,14 @@ use anyhow::anyhow;
 use std::time::Duration;
 use zeus_eth::{
    alloy_contract::private::Provider,
-   alloy_network::{Ethereum, TransactionBuilder},
+   alloy_network::{Ethereum, TransactionBuilder, TransactionBuilder7702},
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{TransactionReceipt, TransactionRequest},
    types::ChainId,
    utils::{SecureSigner, erase_wallet, NumericValue},
 };
+
+use alloy_eips::eip7702::SignedAuthorization;
 
 
 #[derive(Clone)]
@@ -22,6 +24,7 @@ pub struct TxParams {
    pub call_data: Bytes,
    pub gas_used: u64,
    pub gas_limit: u64,
+   pub authorization_list: Vec<SignedAuthorization>,
 }
 
 impl TxParams {
@@ -36,6 +39,7 @@ impl TxParams {
       call_data: Bytes,
       gas_used: u64,
       gas_limit: u64,
+      authorization_list: Vec<SignedAuthorization>,
    ) -> Self {
       Self {
          signer,
@@ -48,6 +52,7 @@ impl TxParams {
          call_data,
          gas_used,
          gas_limit,
+         authorization_list,
       }
    }
 
@@ -88,7 +93,7 @@ pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceip
 where
    P: Provider<Ethereum> + Clone + 'static,
 {
-   let tx = legacy_or_eip1559(params.clone());
+   let tx = make_tx_request(params.clone());
    let wallet = params.signer.to_wallet();
    let tx_envelope = tx.clone().build(&wallet).await?;
    erase_wallet(wallet);
@@ -108,8 +113,7 @@ where
    Ok(receipt)
 }
 
-pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
-   // Eip1559
+pub fn make_tx_request(params: TxParams) -> TransactionRequest {
    if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
       return TransactionRequest::default()
          .with_from(params.signer.address())
@@ -120,7 +124,8 @@ pub fn legacy_or_eip1559(params: TxParams) -> TransactionRequest {
          .with_input(params.call_data.clone())
          .with_gas_limit(params.gas_limit)
          .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
-         .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
+         .max_fee_per_gas(params.max_fee_per_gas().to::<u128>())
+         .with_authorization_list(params.authorization_list);
    } else {
       // Legacy
       return TransactionRequest::default()

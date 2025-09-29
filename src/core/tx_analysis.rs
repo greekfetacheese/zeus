@@ -1,4 +1,7 @@
+use super::transaction::*;
 use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
+use alloy_eips::eip7702::SignedAuthorization;
+use serde::{Deserialize, Serialize};
 use zeus_eth::{
    abi::{erc20, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, U256},
@@ -6,9 +9,6 @@ use zeus_eth::{
    currency::{Currency, NativeCurrency},
    utils::NumericValue,
 };
-
-use super::transaction::*;
-use serde::{Deserialize, Serialize};
 
 /// An analysis of all recognizable events and data within a single transaction.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -31,6 +31,7 @@ pub struct TransactionAnalysis {
    pub decoded_selector: String,
 
    // All decoded events
+   pub eoa_delegates: Vec<EOADelegateParams>,
    pub transfers: Vec<TransferParams>,
    pub token_approvals: Vec<TokenApproveParams>,
    pub eth_wraps: Vec<WrapETHParams>,
@@ -53,6 +54,7 @@ impl TransactionAnalysis {
       gas_used: u64,
       eth_balance_before: U256,
       eth_balance_after: U256,
+      auth_list: Vec<SignedAuthorization>,
    ) -> Result<Self, anyhow::Error> {
       let contract_interact = if let Some(contract_interact) = contract_interact {
          contract_interact
@@ -76,6 +78,11 @@ impl TransactionAnalysis {
          gas_used,
          ..Default::default()
       };
+
+      for auth in auth_list {
+         let params = EOADelegateParams::new(chain, from, auth);
+         analysis.eoa_delegates.push(params);
+      }
 
       let decoded_selector = analysis.decode_selector(selector);
       analysis.decoded_selector = decoded_selector;
@@ -226,6 +233,10 @@ impl TransactionAnalysis {
       self.transfers.iter().filter(|t| t.is_erc20_transfer()).cloned().collect()
    }
 
+   pub fn eoa_delegates(&self) -> Vec<EOADelegateParams> {
+      self.eoa_delegates.iter().cloned().collect()
+   }
+
    pub fn decoded_events(&self) -> usize {
       self.erc20_transfers_len()
          + self.token_approvals.len()
@@ -234,6 +245,7 @@ impl TransactionAnalysis {
          + self.positions_ops.len()
          + self.bridge.len()
          + self.swaps.len()
+         + self.eoa_delegates.len()
    }
 
    /// Try to infer a high-level action from the analysis
@@ -283,6 +295,7 @@ impl TransactionAnalysis {
       let positions_ops_len = self.positions_ops.len();
       let bridge_len = self.bridge.len();
       let swaps_len = self.swaps.len();
+      let eoa_delegates_len = self.eoa_delegates.len();
 
       // Single ERC20 Transfer
       if self.decoded_events() == 1 && erc20_transfers_len == 1 {
@@ -318,6 +331,12 @@ impl TransactionAnalysis {
       if bridge_len == 1 {
          let params = self.bridge[0].clone();
          return TransactionAction::Bridge(params);
+      }
+
+      // Single EOA Delegate
+      if self.decoded_events() == 1 && eoa_delegates_len == 1 {
+         let params = self.eoa_delegates[0].clone();
+         return TransactionAction::EOADelegate(params);
       }
 
       // Single Swap
