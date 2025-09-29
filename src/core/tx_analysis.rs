@@ -30,6 +30,11 @@ pub struct TransactionAnalysis {
    /// If not known we keep the selector's keccak256 hash
    pub decoded_selector: String,
 
+   /// Events in total by how many logs were emitted
+   pub logs_len: usize,
+   /// Total decoded events by how many logs were decoded
+   pub known_events: usize,
+
    // All decoded events
    pub eoa_delegates: Vec<EOADelegateParams>,
    pub transfers: Vec<TransferParams>,
@@ -76,6 +81,7 @@ impl TransactionAnalysis {
          eth_balance_before,
          eth_balance_after,
          gas_used,
+         logs_len: logs.len(),
          ..Default::default()
       };
 
@@ -88,14 +94,18 @@ impl TransactionAnalysis {
       analysis.decoded_selector = decoded_selector;
 
       let log_slice = logs.as_slice();
+      let mut known_events = 0;
+
       for log in &logs {
          if let Ok(params) = WrapETHParams::from_log(ctx.clone(), chain, log) {
             analysis.eth_wraps.push(params);
+            known_events += 1;
             continue;
          }
 
          if let Ok(params) = UnwrapWETHParams::from_log(ctx.clone(), chain, log) {
             analysis.weth_unwraps.push(params);
+            known_events += 1;
             continue;
          }
 
@@ -110,32 +120,41 @@ impl TransactionAnalysis {
          )
          .await
          {
+            if params.is_erc20_transfer() {
+               known_events += 1;
+            }
+
             analysis.transfers.push(params);
             continue;
          }
 
          if let Ok(params) = TokenApproveParams::from_log(ctx.clone(), chain, log).await {
             analysis.token_approvals.push(params);
+            known_events += 1;
             continue;
          }
 
          if let Ok(params) = BridgeParams::from_log(ctx.clone(), chain, log).await {
             analysis.bridge.push(params);
+            known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v2(ctx.clone(), chain, from, log).await {
             analysis.swaps.push(params);
+            known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v3(ctx.clone(), chain, from, log).await {
             analysis.swaps.push(params);
+            known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v4(ctx.clone(), chain, from, log).await {
             analysis.swaps.push(params);
+            known_events += 1;
             continue;
          }
 
@@ -143,6 +162,7 @@ impl TransactionAnalysis {
             UniswapPositionParams::collect_fees_for_v3_from_log(ctx.clone(), chain, from, log).await
          {
             analysis.positions_ops.push(params);
+            known_events += 1;
             continue;
          }
 
@@ -155,6 +175,7 @@ impl TransactionAnalysis {
          .await
          {
             analysis.positions_ops.push(params);
+            known_events += 1;
             continue;
          }
 
@@ -167,9 +188,12 @@ impl TransactionAnalysis {
          .await
          {
             analysis.positions_ops.push(params);
+            known_events += 1;
             continue;
          }
       }
+
+      analysis.known_events = known_events;
 
       Ok(analysis)
    }
@@ -235,6 +259,10 @@ impl TransactionAnalysis {
 
    pub fn eoa_delegates(&self) -> Vec<EOADelegateParams> {
       self.eoa_delegates.iter().cloned().collect()
+   }
+
+   pub fn total_events(&self) -> usize {
+      self.logs_len
    }
 
    pub fn decoded_events(&self) -> usize {

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 pub struct TxConfirmationWindow {
    open: bool,
+   show_all_decoded_events: bool,
    /// True to confirm, false to reject
    confirmed_or_rejected: Option<bool>,
    dapp: String,
@@ -46,6 +47,7 @@ impl TxConfirmationWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         show_all_decoded_events: false,
          confirmed_or_rejected: None,
          dapp: String::new(),
          chain: ChainId::default(),
@@ -181,12 +183,23 @@ impl TxConfirmationWindow {
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
+                  let mut open = self.show_all_decoded_events;
+
+                  let should_open = self.show_all_decoded_events(
+                     &mut open,
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     analysis,
+                     frame_size,
+                     frame,
+                     ui,
+                  );
+
+                  self.show_all_decoded_events = should_open;
 
                   // Action Name
                   ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
-
-                  let text = "Simulation Result";
-                  ui.label(RichText::new(text).size(theme.text_sizes.very_large));
 
                   if !action.is_other() {
                      ui.allocate_ui(frame_size, |ui| {
@@ -205,25 +218,20 @@ impl TxConfirmationWindow {
 
                   // Tx Action is unknown
                   if action.is_other() {
-                     ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
+                     let text = "Review the decoded events and proceed with caution";
+                     ui.label(
+                        RichText::new(text)
+                           .size(theme.text_sizes.large)
+                           .color(theme.colors.error_color),
+                     );
 
-                     ScrollArea::vertical().max_height(self.size.1 / 2.0).show(ui, |ui| {
-                        ui.set_width(self.size.0);
-
-                        show_decoded_events(
-                           ctx.clone(),
-                           self.chain,
-                           theme,
-                           icons.clone(),
-                           analysis,
-                           frame_size,
-                           frame,
-                           ui,
-                        );
-                     });
+                     let clicked = self.show_decoded_events_button(theme, ui);
+                     if clicked {
+                        self.show_all_decoded_events = true;
+                     }
                   }
 
-                  ui.add_space(20.0);
+                  ui.add_space(10.0);
 
                   // Tx details
                   ui.allocate_ui(frame_size, |ui| {
@@ -290,29 +298,15 @@ impl TxConfirmationWindow {
                      });
                   }
 
-                  /*
-                  // Show ETH sent
-                  if !analysis.value_sent().is_zero()
-                     && !analysis.is_native_transfer()
-                     && !analysis.is_wrap_eth()
-                     && !analysis.is_swap()
-                  {
-                     ui.allocate_ui(frame_size, |ui| {
-                        frame.show(ui, |ui| {
-                           eth_spent(
-                              self.chain.id(),
-                              analysis.value_sent(),
-                              analysis.value_sent_usd(ctx.clone()),
-                              theme,
-                              icons.clone(),
-                              ui,
-                           );
-                        });
-                     });
+                  // Give the option to see all the decoded events
+                  if !action.is_other() {
+                     let clicked = self.show_decoded_events_button(theme, ui);
+                     if clicked {
+                        self.show_all_decoded_events = true;
+                     }
                   }
-                   */
 
-                  ui.add_space(20.0);
+                  ui.add_space(10.0);
 
                   let sufficient_balance = self.sufficient_balance(
                      ctx.clone(),
@@ -439,10 +433,74 @@ impl TxConfirmationWindow {
          });
    }
 
+   fn show_decoded_events_button(&self, theme: &Theme, ui: &mut Ui) -> bool {
+      let text = RichText::new("Show all decoded events").size(theme.text_sizes.normal);
+      let button = Button::new(text);
+
+      ui.add(button).clicked()
+   }
+
    fn sufficient_balance(&self, ctx: ZeusCtx, eth_spent: U256, sender: Address) -> bool {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
+   }
+
+   fn show_all_decoded_events(
+      &self,
+      open: &mut bool,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      analysis: &TransactionAnalysis,
+      frame_size: Vec2,
+      frame: Frame,
+      ui: &mut Ui,
+   ) -> bool {
+      let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
+
+      Window::new(title)
+         .open(open)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Tooltip)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               let width = self.size.0 + 50.0;
+               ui.set_width(width);
+               ui.set_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               let all_events = analysis.total_events();
+               let known_events = analysis.known_events;
+
+               let text = format!(
+                  "Decoded {} out of {} total events",
+                  known_events, all_events
+               );
+               ui.label(RichText::new(text).size(theme.text_sizes.very_large));
+
+               ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
+                  ui.set_width(width);
+
+                  show_decoded_events(
+                     ctx.clone(),
+                     self.chain,
+                     theme,
+                     icons.clone(),
+                     analysis,
+                     frame_size,
+                     frame,
+                     ui,
+                  );
+               });
+            });
+         });
+
+      *open
    }
 }
 
@@ -1397,7 +1455,7 @@ fn show_decoded_events(
    for eoa_delegate in &analysis.eoa_delegates {
       ui.allocate_ui(frame_size, |ui| {
          frame.show(ui, |ui| {
-            ui.label(RichText::new("Account Delegate").size(theme.text_sizes.large));
+            ui.label(RichText::new("Wallet Delegation").size(theme.text_sizes.large));
             eoa_delegate_event_ui(ctx.clone(), chain, theme, eoa_delegate, ui);
          });
       });

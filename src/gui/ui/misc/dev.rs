@@ -660,6 +660,8 @@ impl UiTesting {
                      decoded_selector: "Swap".to_string(),
                      swaps: vec![params],
                      gas_used: 160_000,
+                     logs_len: 1,
+                     known_events: 1,
                      ..Default::default()
                   };
 

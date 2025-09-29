@@ -1390,6 +1390,7 @@ async fn swap(
 
    let contract_interact = true;
 
+   // ! For now set the logs_len & known_events to 1
    let swap_tx_analysis = TransactionAnalysis {
       chain: chain.id(),
       sender: from,
@@ -1401,6 +1402,8 @@ async fn swap(
       eth_balance_before: balance_before,
       eth_balance_after,
       decoded_selector: "Execute".to_string(),
+      logs_len: 1,
+      known_events: 1,
       swaps: vec![swap_params],
       ..Default::default()
    };
@@ -1616,6 +1619,8 @@ pub async fn wrap_eth(
       eth_balance_after,
       decoded_selector: "Deposit".to_string(),
       eth_wraps: vec![params],
+      logs_len: 1,
+      known_events: 1,
       ..Default::default()
    };
 
@@ -1744,6 +1749,8 @@ pub async fn unwrap_weth(
       eth_balance_after,
       decoded_selector: "Withdraw".to_string(),
       weth_unwraps: vec![params],
+      logs_len: 1,
+      known_events: 1,
       ..Default::default()
    };
 

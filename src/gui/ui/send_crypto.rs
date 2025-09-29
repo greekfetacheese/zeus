@@ -623,6 +623,8 @@ async fn send_token(
       eth_balance_after: eth_balance_before,
       decoded_selector: "ERC20 Transfer".to_string(),
       transfers: vec![transfer_params],
+      logs_len: 1,
+      known_events: 1,
       ..Default::default()
    };
 
