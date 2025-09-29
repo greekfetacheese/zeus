@@ -24,7 +24,12 @@ use tokio::{sync::Semaphore, time::sleep};
 
 const PROVIDER_DATA_FILE: &str = "providers.json";
 
-pub const CLIENT_TIMEOUT: u64 = 60;
+pub const CLIENT_SELECTION_TIMEOUT: u64 = 30;
+
+/// Default timeout for sending a transaction or using an MEV protect rpc
+pub const TIMEOUT_FOR_SENDING_TX: u64 = 60;
+
+/// Default client request timeout
 const REQUEST_TIMEOUT: u64 = 10;
 
 /// 3 Days in seconds
@@ -423,7 +428,7 @@ impl ZeusClient {
          &rpc.url,
          retry_layer,
          throttle_layer,
-         CLIENT_TIMEOUT,
+         REQUEST_TIMEOUT,
       )
       .await;
 
@@ -633,12 +638,28 @@ impl ZeusClient {
 
       let throttle = throttle_layer(CLIENT_RPS);
 
-      get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT).await
+      get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await
+   }
+
+   pub async fn connect_with_timeout(
+      &self,
+      rpc: &Rpc,
+      timeout: u64,
+   ) -> Result<RpcClient, anyhow::Error> {
+      let retry = retry_layer(
+         MAX_RETRIES,
+         INITIAL_BACKOFF,
+         COMPUTE_UNITS_PER_SECOND,
+      );
+
+      let throttle = throttle_layer(CLIENT_RPS);
+
+      get_client(&rpc.url, retry, throttle, timeout).await
    }
 
    pub async fn get_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
       let time_passed = Instant::now();
-      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
+      let timeout = Duration::from_secs(CLIENT_SELECTION_TIMEOUT);
 
       loop {
          if time_passed.elapsed() > timeout {
@@ -672,7 +693,7 @@ impl ZeusClient {
 
    pub async fn get_mev_protect_client(&self, chain: u64) -> Result<RpcClient, anyhow::Error> {
       let time_passed = Instant::now();
-      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
+      let timeout = Duration::from_secs(CLIENT_SELECTION_TIMEOUT);
       let mut client = None;
 
       while !self.mev_protect_available(chain) {
@@ -692,7 +713,7 @@ impl ZeusClient {
             continue;
          }
 
-         let c = match self.connect_to(rpc).await {
+         let c = match self.connect_with_timeout(rpc, TIMEOUT_FOR_SENDING_TX).await {
             Ok(client) => client,
             Err(e) => {
                tracing::error!(
@@ -724,7 +745,7 @@ impl ZeusClient {
       http: bool,
    ) -> Result<RpcClient, anyhow::Error> {
       let time_passed = Instant::now();
-      let timeout = Duration::from_secs(CLIENT_TIMEOUT);
+      let timeout = Duration::from_secs(CLIENT_SELECTION_TIMEOUT);
       let mut client = None;
 
       while !self.rpc_archive_available(chain) {
@@ -859,14 +880,6 @@ impl ZeusClient {
             }
          };
 
-         /*
-         eprintln!(
-            "Attempt {} to select RPC {} for chain {}",
-            attempts, rpc.url, chain
-         );
-         */
-
-         // Connect and execute
          let client = match self.connect_to(&rpc).await {
             Ok(client) => client,
             Err(e) => {
@@ -911,7 +924,7 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    );
 
    let throttle = throttle_layer(CLIENT_RPS);
-   let client = get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT).await?;
+   let client = get_client(&rpc.url, retry, throttle, TIMEOUT_FOR_SENDING_TX).await?;
    let chain = rpc.chain_id;
 
    let time = std::time::Instant::now();

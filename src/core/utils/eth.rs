@@ -1,6 +1,7 @@
 use super::{RT, tx::TxParams, update};
 use crate::core::{
    TransactionAnalysis, TransactionRich, ZeusCtx,
+   client::TIMEOUT_FOR_SENDING_TX,
    db::V3Position,
    transaction::*,
    utils::{self, estimate_tx_cost, sign::SignMsgType, tx},
@@ -118,7 +119,7 @@ pub async fn send_transaction(
          sim_res.gas_used(),
          balance_before,
          balance_after,
-         authorization_list.clone()
+         authorization_list.clone(),
       )
       .await?
    };
@@ -202,6 +203,10 @@ pub async fn send_transaction(
       authorization_list.clone(),
    );
 
+   let z_client = ctx.get_zeus_client();
+   let rpc = z_client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
+   let tx_client = z_client.connect_with_timeout(&rpc, TIMEOUT_FOR_SENDING_TX).await?;
+
    // If needed use MEV protect client, if not found prompt the user to continue
    let new_client = if chain.is_ethereum() && mev_protect {
       let mev_client_res = ctx.get_mev_protect_client(chain.id()).await;
@@ -237,12 +242,12 @@ pub async fn send_transaction(
          }
 
          // keep the old client
-         client.clone()
+         tx_client
       } else {
          mev_client_res.unwrap()
       }
    } else {
-      client.clone()
+      tx_client.clone()
    };
 
    let receipt = tx::send_tx(new_client, tx_params).await?;
@@ -270,7 +275,7 @@ pub async fn send_transaction(
       receipt.gas_used,
       balance_before,
       balance_after,
-      authorization_list
+      authorization_list,
    )
    .await?;
 

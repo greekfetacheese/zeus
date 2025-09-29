@@ -8,7 +8,7 @@ use zeus_eth::{
    types::ChainId,
    utils::{SecureSigner, erase_wallet, NumericValue},
 };
-use crate::core::client::CLIENT_TIMEOUT;
+use crate::core::client::TIMEOUT_FOR_SENDING_TX;
 use alloy_eips::eip7702::SignedAuthorization;
 
 
@@ -102,7 +102,7 @@ where
    let receipt = client
       .send_tx_envelope(tx_envelope)
       .await?
-      .with_timeout(Some(Duration::from_secs(CLIENT_TIMEOUT)))
+      .with_timeout(Some(Duration::from_secs(TIMEOUT_FOR_SENDING_TX)))
       .get_receipt()
       .await?;
    tracing::info!(
