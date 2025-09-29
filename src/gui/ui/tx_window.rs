@@ -8,7 +8,9 @@ use egui_widgets::Label;
 use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
 use crate::core::{
-   TransactionRich, ZeusCtx, transaction::*, tx_analysis::TransactionAnalysis,
+   TransactionRich, ZeusCtx,
+   transaction::*,
+   tx_analysis::TransactionAnalysis,
    utils::{estimate_tx_cost, format_expiry},
 };
 use zeus_eth::{
@@ -30,7 +32,7 @@ pub struct TxConfirmationWindow {
    native_currency: NativeCurrency,
    /// Tx to be confirmed and sent to the network
    tx: Option<TransactionAnalysis>,
-   tx_action: Option<TransactionAction>,
+   tx_main_event: Option<DecodedEvent>,
    /// Adjust priority fee
    priority_fee: String,
    mev_protect: bool,
@@ -53,7 +55,7 @@ impl TxConfirmationWindow {
          chain: ChainId::default(),
          native_currency: NativeCurrency::default(),
          tx: None,
-         tx_action: None,
+         tx_main_event: None,
          priority_fee: String::new(),
          mev_protect: false,
          gas_used: 0,
@@ -98,7 +100,7 @@ impl TxConfirmationWindow {
       ctx.set_tx_confirm_window_open(true);
 
       let native = NativeCurrency::from(chain.id());
-      let action = tx.infer_action(ctx.clone(), chain.id());
+      let main_event = tx.infer_main_event(ctx.clone(), chain.id());
       let gas_limit = tx.gas_used * 15 / 10;
 
       self.dapp = dapp;
@@ -110,7 +112,7 @@ impl TxConfirmationWindow {
       self.chain = chain;
       self.native_currency = native;
       self.tx = Some(tx);
-      self.tx_action = Some(action);
+      self.tx_main_event = Some(main_event);
       self.open = true;
       self.confirmed_or_rejected = None;
    }
@@ -175,7 +177,7 @@ impl TxConfirmationWindow {
                   self.calculate_tx_cost(ctx.clone(), self.gas_used);
 
                   let analysis = self.tx.as_ref().unwrap();
-                  let action = self.tx_action.as_ref().unwrap();
+                  let main_event = self.tx_main_event.as_ref().unwrap();
 
                   if !self.dapp.is_empty() {
                      ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
@@ -199,17 +201,17 @@ impl TxConfirmationWindow {
                   self.show_all_decoded_events = should_open;
 
                   // Action Name
-                  ui.label(RichText::new(action.name()).size(theme.text_sizes.heading));
+                  ui.label(RichText::new(main_event.name()).size(theme.text_sizes.heading));
 
-                  if !action.is_other() {
+                  if !main_event.is_other() {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
-                           show_action(
+                           show_event(
                               ctx.clone(),
                               self.chain,
                               theme,
                               icons.clone(),
-                              action,
+                              main_event,
                               ui,
                            );
                         });
@@ -217,7 +219,7 @@ impl TxConfirmationWindow {
                   }
 
                   // Tx Action is unknown
-                  if action.is_other() {
+                  if main_event.is_other() {
                      let text = "Review the decoded events and proceed with caution";
                      ui.label(
                         RichText::new(text)
@@ -299,7 +301,7 @@ impl TxConfirmationWindow {
                   }
 
                   // Give the option to see all the decoded events
-                  if !action.is_other() {
+                  if !main_event.is_other() {
                      let clicked = self.show_decoded_events_button(theme, ui);
                      if clicked {
                         self.show_all_decoded_events = true;
@@ -372,9 +374,10 @@ impl TxConfirmationWindow {
 
                   ui.add_space(10.0);
 
-                  let base_case =
-                     self.chain.is_ethereum() && !action.is_other() && action.is_mev_vulnerable();
-                  let show_mev_protect = base_case || action.is_other();
+                  let base_case = self.chain.is_ethereum()
+                     && !main_event.is_other()
+                     && main_event.is_mev_vulnerable();
+                  let show_mev_protect = base_case || main_event.is_other();
 
                   if show_mev_protect {
                      let icon = if self.mev_protect {
@@ -486,16 +489,20 @@ impl TxConfirmationWindow {
                ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
                   ui.set_width(width);
 
-                  show_decoded_events(
-                     ctx.clone(),
-                     self.chain,
-                     theme,
-                     icons.clone(),
-                     analysis,
-                     frame_size,
-                     frame,
-                     ui,
-                  );
+                  for event in &analysis.decoded_events {
+                     ui.allocate_ui(frame_size, |ui| {
+                        frame.show(ui, |ui| {
+                           show_event(
+                              ctx.clone(),
+                              self.chain,
+                              theme,
+                              icons.clone(),
+                              event,
+                              ui,
+                           );
+                        });
+                     });
+                  }
                });
             });
          });
@@ -572,7 +579,7 @@ impl TxWindow {
                   }
 
                   let tx = self.tx.as_ref().unwrap();
-                  let action = &tx.action;
+                  let main_event = &tx.main_event;
                   let chain_id: ChainId = tx.chain.into();
 
                   /*
@@ -601,17 +608,19 @@ impl TxWindow {
                   let frame = theme.frame2;
 
                   // Action Name
-                  ui.label(RichText::new(action.name()).size(theme.text_sizes.very_large).strong());
+                  ui.label(
+                     RichText::new(main_event.name()).size(theme.text_sizes.very_large).strong(),
+                  );
 
-                  if !action.is_other() {
+                  if !main_event.is_other() {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
-                           show_action(
+                           show_event(
                               ctx.clone(),
                               chain_id,
                               theme,
                               icons.clone(),
-                              action,
+                              main_event,
                               ui,
                            );
                         });
@@ -619,22 +628,26 @@ impl TxWindow {
                   }
 
                   // Tx Action is unknown
-                  if action.is_other() {
+                  if main_event.is_other() {
                      ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
 
                      ScrollArea::vertical().max_height(self.size.1 / 2.0).show(ui, |ui| {
                         ui.set_width(self.size.0);
 
-                        show_decoded_events(
-                           ctx.clone(),
-                           chain_id,
-                           theme,
-                           icons.clone(),
-                           &tx.analysis,
-                           frame_size,
-                           frame,
-                           ui,
-                        );
+                        for event in &tx.analysis.decoded_events {
+                           ui.allocate_ui(frame_size, |ui| {
+                              frame.show(ui, |ui| {
+                                 show_event(
+                                    ctx.clone(),
+                                    chain_id,
+                                    theme,
+                                    icons.clone(),
+                                    event,
+                                    ui,
+                                 );
+                              });
+                           });
+                        }
                      });
                   }
 
@@ -1396,159 +1409,16 @@ fn uniswap_position_op_event_ui(
    }
 }
 
-fn show_decoded_events(
+fn show_event(
    ctx: ZeusCtx,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
-   analysis: &TransactionAnalysis,
-   frame_size: Vec2,
-   frame: Frame,
+   event: &DecodedEvent,
    ui: &mut Ui,
 ) {
-   let erc20_transfers = &analysis.erc20_transfers();
-
-   for permit in &analysis.permits {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Permit").size(theme.text_sizes.large));
-
-            permit_event_ui(ctx.clone(), chain, theme, icons.clone(), permit, ui);
-         });
-      });
-   }
-
-   for erc20_transfer in erc20_transfers {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("ERC20 Transfer").size(theme.text_sizes.large));
-
-            transfer_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               erc20_transfer,
-               ui,
-            );
-         });
-      });
-   }
-
-   for token_approval in &analysis.token_approvals {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Token Approval").size(theme.text_sizes.large));
-
-            token_approval_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               token_approval,
-               ui,
-            );
-         });
-      });
-   }
-
-   for wrap_eth in &analysis.eth_wraps {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Wrap ETH").size(theme.text_sizes.large));
-
-            wrap_eth_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               wrap_eth,
-               ui,
-            );
-         });
-      });
-   }
-
-   for unwrap_weth in &analysis.weth_unwraps {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Unwrap WETH").size(theme.text_sizes.large));
-
-            unwrap_weth_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               unwrap_weth,
-               ui,
-            );
-         });
-      });
-   }
-
-   for swap in &analysis.swaps {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Swap").size(theme.text_sizes.large));
-            swap_event_ui(theme, icons.clone(), swap, ui);
-         });
-      });
-   }
-
-   for bridge in &analysis.bridge {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Bridge").size(theme.text_sizes.large));
-
-            bridge_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               bridge,
-               ui,
-            );
-         });
-      });
-   }
-
-   for uniswap_position_op in &analysis.positions_ops {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Uniswap Position Operation").size(theme.text_sizes.large));
-
-            uniswap_position_op_event_ui(
-               ctx.clone(),
-               chain,
-               theme,
-               icons.clone(),
-               uniswap_position_op,
-               ui,
-            );
-         });
-      });
-   }
-
-   for eoa_delegate in &analysis.eoa_delegates {
-      ui.allocate_ui(frame_size, |ui| {
-         frame.show(ui, |ui| {
-            ui.label(RichText::new("Wallet Delegation").size(theme.text_sizes.large));
-            eoa_delegate_event_ui(ctx.clone(), chain, theme, eoa_delegate, ui);
-         });
-      });
-   }
-}
-
-fn show_action(
-   ctx: ZeusCtx,
-   chain: ChainId,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   action: &TransactionAction,
-   ui: &mut Ui,
-) {
-   if action.is_native_transfer() || action.is_erc20_transfer() {
-      let params = action.transfer_params();
+   if event.is_native_transfer() || event.is_erc20_transfer() {
+      let params = event.transfer_params();
       transfer_event_ui(
          ctx.clone(),
          chain,
@@ -1559,8 +1429,8 @@ fn show_action(
       );
    }
 
-   if action.is_token_approval() {
-      let params = action.token_approval_params();
+   if event.is_token_approval() {
+      let params = event.token_approval_params();
       token_approval_event_ui(
          ctx.clone(),
          chain,
@@ -1571,8 +1441,20 @@ fn show_action(
       );
    }
 
-   if action.is_wrap_eth() {
-      let params = action.wrap_eth_params();
+   if event.is_permit() {
+      let params = event.permit_params();
+      permit_event_ui(
+         ctx.clone(),
+         chain,
+         theme,
+         icons.clone(),
+         params,
+         ui,
+      );
+   }
+
+   if event.is_wrap_eth() {
+      let params = event.wrap_eth_params();
       wrap_eth_event_ui(
          ctx.clone(),
          chain,
@@ -1583,8 +1465,8 @@ fn show_action(
       );
    }
 
-   if action.is_unwrap_weth() {
-      let params = action.unwrap_weth_params();
+   if event.is_unwrap_weth() {
+      let params = event.unwrap_weth_params();
       unwrap_weth_event_ui(
          ctx.clone(),
          chain,
@@ -1595,8 +1477,8 @@ fn show_action(
       );
    }
 
-   if action.is_uniswap_position_op() {
-      let params = action.uniswap_position_params();
+   if event.is_uniswap_position_op() {
+      let params = event.uniswap_position_params();
       uniswap_position_op_event_ui(
          ctx.clone(),
          chain,
@@ -1607,8 +1489,8 @@ fn show_action(
       );
    }
 
-   if action.is_bridge() {
-      let params = action.bridge_params();
+   if event.is_bridge() {
+      let params = event.bridge_params();
       bridge_event_ui(
          ctx.clone(),
          chain,
@@ -1619,13 +1501,13 @@ fn show_action(
       );
    }
 
-   if action.is_swap() {
-      let params = action.swap_params();
+   if event.is_swap() {
+      let params = event.swap_params();
       swap_event_ui(theme, icons.clone(), params, ui);
    }
 
-   if action.is_eoa_delegate() {
-      let params = action.eoa_delegate_params();
+   if event.is_eoa_delegate() {
+      let params = event.eoa_delegate_params();
       eoa_delegate_event_ui(ctx.clone(), chain, theme, params, ui);
    }
 }

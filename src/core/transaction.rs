@@ -35,7 +35,7 @@ pub struct TransactionRich {
    pub contract_interact: bool,
 
    pub analysis: TransactionAnalysis,
-   pub action: TransactionAction,
+   pub main_event: DecodedEvent,
 }
 
 impl TransactionRich {
@@ -57,9 +57,8 @@ impl TransactionRich {
    }
 }
 
-/// A brief overiview of a transaction
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub enum TransactionAction {
+pub enum DecodedEvent {
    Bridge(BridgeParams),
 
    SwapToken(SwapParams),
@@ -83,7 +82,7 @@ pub enum TransactionAction {
    Other,
 }
 
-impl TransactionAction {
+impl DecodedEvent {
    pub fn dummy_eoa_delegate() -> Self {
       let chain = 1;
       let eoa = Address::ZERO;

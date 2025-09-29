@@ -14,13 +14,13 @@ use std::{collections::HashSet, time::Instant};
 
 use crate::core::{
    Dapp, TransactionAnalysis, ZeusCtx,
-   transaction::{SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
+   transaction::{DecodedEvent, SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
    utils::{RT, eth},
 };
 
 use zeus_eth::{
    abi,
-   alloy_primitives::U256,
+   alloy_primitives::{Log, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::{
@@ -1246,6 +1246,7 @@ async fn swap(
    let interact_to = address_book::universal_router_v2(chain.id())?;
    let block_fut = client.get_block(BlockId::latest());
    let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
+   let eth_balance_before_fut = client.get_balance(from).into_future();
 
    // Simulate the swap to find out the real amount of tokens received in case of a tax or any malicious contract
    let time = std::time::Instant::now();
@@ -1276,7 +1277,10 @@ async fn swap(
    let token_out_balance_after;
    let eth_balance_after;
    let sim_res;
+
+   let mut approval_logs: Vec<Log> = Vec::new();
    let mut approval_gas_used = 50_000;
+   let mut approval_eth_balance_after = eth_balance_before_fut.await?;
    {
       let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
       if execute_params.token_needs_approval {
@@ -1297,6 +1301,14 @@ async fn swap(
          );
 
          approval_gas_used = res.gas_used();
+         approval_logs = res.logs().to_vec();
+
+         let state = evm.balance(from);
+         approval_eth_balance_after = if let Some(state) = state {
+            state.data
+         } else {
+            U256::ZERO
+         };
       }
 
       // simulate the swap
@@ -1388,25 +1400,29 @@ async fn swap(
       recipient: Some(from),
    };
 
-   let contract_interact = true;
+   let contract_interact = Some(true);
+   let logs = sim_res.logs().to_vec();
+   let gas_used = sim_res.gas_used();
+   let auth_list = Vec::new();
 
-   // ! For now set the logs_len & known_events to 1
-   let swap_tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut swap_tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
       contract_interact,
-      value: execute_params.value,
-      call_data: execute_params.call_data.clone(),
-      gas_used: sim_res.gas_used(),
-      eth_balance_before: balance_before,
+      execute_params.call_data.clone(),
+      execute_params.value,
+      logs,
+      gas_used,
+      balance_before,
       eth_balance_after,
-      decoded_selector: "Execute".to_string(),
-      logs_len: 1,
-      known_events: 1,
-      swaps: vec![swap_params],
-      ..Default::default()
-   };
+      auth_list,
+   )
+   .await?;
+
+   let main_event = DecodedEvent::SwapToken(swap_params.clone());
+   swap_tx_analysis.set_main_event(main_event);
 
    let msg_value = execute_params.message.as_ref();
 
@@ -1430,6 +1446,7 @@ async fn swap(
       let value = U256::ZERO;
       let amount = NumericValue::format_wei(U256::MAX, token.decimals);
       let auth_list = Vec::new();
+      let contract_interact = Some(true);
 
       let params = TokenApproveParams {
          token: vec![token.into_owned()],
@@ -1439,20 +1456,24 @@ async fn swap(
          spender: permit2,
       };
 
-      let analysis = TransactionAnalysis {
-         chain: chain.id(),
-         sender: from,
+      let mut analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
          interact_to,
-         contract_interact: true,
+         contract_interact,
+         call_data.clone(),
          value,
-         call_data: call_data.clone(),
-         gas_used: approval_gas_used,
-         eth_balance_before: balance_before,
-         eth_balance_after: balance_before,
-         decoded_selector: "Approve".to_string(),
-         token_approvals: vec![params],
-         ..Default::default()
-      };
+         approval_logs,
+         approval_gas_used,
+         balance_before,
+         approval_eth_balance_after,
+         auth_list.clone(),
+      )
+      .await?;
+
+      let main_event = DecodedEvent::TokenApprove(params.clone());
+      analysis.set_main_event(main_event);
 
       let (receipt, _) = eth::send_transaction(
          ctx.clone(),
@@ -1491,7 +1512,7 @@ async fn swap(
       interact_to,
       call_data,
       value,
-      auth_list
+      auth_list,
    )
    .await?;
 
@@ -1597,7 +1618,9 @@ pub async fn wrap_eth(
    let weth_received = NumericValue::format_wei(weth_received.unwrap(), wrapped.decimals());
    let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &wrapped);
 
-   let contract_interact = true;
+   let contract_interact = Some(true);
+   let auth_list = Vec::new();
+
    let params = WrapETHParams {
       chain: chain.id(),
       recipient: from,
@@ -1607,25 +1630,26 @@ pub async fn wrap_eth(
       weth_received_usd: Some(weth_received_usd),
    };
 
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
       contract_interact,
+      call_data.clone(),
       value,
-      call_data: call_data.clone(),
-      gas_used: sim_res.gas_used(),
+      logs,
+      sim_res.gas_used(),
       eth_balance_before,
       eth_balance_after,
-      decoded_selector: "Deposit".to_string(),
-      eth_wraps: vec![params],
-      logs_len: 1,
-      known_events: 1,
-      ..Default::default()
-   };
+      auth_list.clone(),
+   )
+   .await?;
+
+   let main_event = DecodedEvent::WrapETH(params.clone());
+   tx_analysis.set_main_event(main_event);
 
    let mev_protect = false;
-   let auth_list = Vec::new();
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),
@@ -1727,7 +1751,9 @@ pub async fn unwrap_weth(
    let wrapped_c: Currency = weth.clone().into();
    let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &wrapped_c);
 
-   let contract_interact = true;
+   let contract_interact = Some(true);
+   let auth_list = Vec::new();
+
    let params = UnwrapWETHParams {
       chain: chain.id(),
       src: from,
@@ -1737,25 +1763,26 @@ pub async fn unwrap_weth(
       eth_received_usd: Some(eth_received_usd),
    };
 
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
       contract_interact,
+      call_data.clone(),
       value,
-      call_data: call_data.clone(),
-      gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before,
+      logs,
+      sim_res.gas_used(),
+      eth_balance_before,
       eth_balance_after,
-      decoded_selector: "Withdraw".to_string(),
-      weth_unwraps: vec![params],
-      logs_len: 1,
-      known_events: 1,
-      ..Default::default()
-   };
+      auth_list.clone(),
+   )
+   .await?;
+
+   let main_event = DecodedEvent::UnwrapWETH(params.clone());
+   tx_analysis.set_main_event(main_event);
 
    let mev_protect = false;
-   let auth_list = Vec::new();
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),

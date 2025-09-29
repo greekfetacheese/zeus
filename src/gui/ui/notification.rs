@@ -1,5 +1,5 @@
 use crate::assets::Icons;
-use crate::core::{TransactionAction, TransactionRich, transaction::*, utils::RT};
+use crate::core::{DecodedEvent, TransactionRich, transaction::*, utils::RT};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use egui::{Align2, Button, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use egui_theme::Theme;
@@ -34,18 +34,18 @@ pub enum NotificationType {
 }
 
 impl NotificationType {
-   pub fn from_tx_action(action: TransactionAction) -> Self {
-      match action {
-         TransactionAction::Bridge(params) => Self::Bridge(params),
-         TransactionAction::SwapToken(params) => Self::Swap(params),
-         TransactionAction::Transfer(params) => Self::Transfer(params),
-         TransactionAction::TokenApprove(params) => Self::TokenApproval(params),
-         TransactionAction::WrapETH(params) => Self::WrapETH(params),
-         TransactionAction::UnwrapWETH(params) => Self::UnwrapWETH(params),
-         TransactionAction::UniswapPositionOperation(_params) => Self::Other(String::new()),
-         TransactionAction::EOADelegate(_params) => Self::Other(String::new()),
-         TransactionAction::Permit(_params) => Self::Other(String::new()),
-         TransactionAction::Other => Self::Other("Transaction".to_string()),
+   pub fn from_main_event(main_event: DecodedEvent) -> Self {
+      match main_event {
+         DecodedEvent::Bridge(params) => Self::Bridge(params),
+         DecodedEvent::SwapToken(params) => Self::Swap(params),
+         DecodedEvent::Transfer(params) => Self::Transfer(params),
+         DecodedEvent::TokenApprove(params) => Self::TokenApproval(params),
+         DecodedEvent::WrapETH(params) => Self::WrapETH(params),
+         DecodedEvent::UnwrapWETH(params) => Self::UnwrapWETH(params),
+         DecodedEvent::UniswapPositionOperation(_params) => Self::Other(String::new()),
+         DecodedEvent::EOADelegate(_params) => Self::Other(String::new()),
+         DecodedEvent::Permit(_params) => Self::Other(String::new()),
+         DecodedEvent::Other => Self::Other("Transaction".to_string()),
       }
    }
 

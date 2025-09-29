@@ -161,17 +161,17 @@ pub async fn send_transaction(
       return Err(anyhow!("Transaction rejected"));
    }
 
-   let action = tx_analysis.infer_action(ctx.clone(), chain.id());
-   let action_name = if action.is_known() {
-      action.name()
+   let main_event = tx_analysis.infer_main_event(ctx.clone(), chain.id());
+   let main_event_name = if main_event.is_known() {
+      main_event.name()
    } else {
       "Transaction in progress".to_string()
    };
 
-   let nofitification = NotificationType::from_tx_action(action);
+   let nofitification = NotificationType::from_main_event(main_event);
 
    SHARED_GUI.write(|gui| {
-      gui.notification.open_with_spinner(action_name, nofitification);
+      gui.notification.open_with_spinner(main_event_name, nofitification);
       gui.request_repaint();
    });
 
@@ -263,7 +263,7 @@ pub async fn send_transaction(
    let balance_after = client.get_balance(from).await?;
    let contract_interact = Some(tx_analysis.contract_interact);
 
-   let new_tx_analysis = TransactionAnalysis::new(
+   let mut new_tx_analysis = TransactionAnalysis::new(
       ctx.clone(),
       chain.id(),
       from,
@@ -279,14 +279,14 @@ pub async fn send_transaction(
    )
    .await?;
 
-   let action = new_tx_analysis.infer_action(ctx.clone(), chain.id());
-   let action_name = if action.is_known() {
-      action.name()
+   let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+   let main_event_name = if main_event.is_known() {
+      main_event.name()
    } else {
       "Transaction successful".to_string()
    };
 
-   let nofitification = NotificationType::from_tx_action(action.clone());
+   let nofitification = NotificationType::from_main_event(main_event.clone());
 
    let (tx_cost, tx_cost_usd) = estimate_tx_cost(
       ctx.clone(),
@@ -294,6 +294,9 @@ pub async fn send_transaction(
       receipt.gas_used,
       priority_fee.wei(),
    );
+
+   // Remove the redunant main event
+   new_tx_analysis.remove_main_event();
 
    let tx_rich = TransactionRich {
       tx_type: receipt.transaction_type(),
@@ -310,7 +313,7 @@ pub async fn send_transaction(
       hash: receipt.transaction_hash,
       contract_interact: new_tx_analysis.contract_interact,
       analysis: new_tx_analysis,
-      action,
+      main_event
    };
 
    let ctx_clone = ctx.clone();
@@ -331,7 +334,7 @@ pub async fn send_transaction(
       gui.notification.open_with_progress_bar(
          now,
          finish,
-         action_name,
+         main_event_name,
          nofitification,
          Some(tx_rich.clone()),
       );
@@ -664,25 +667,28 @@ pub async fn decrease_liquidity_position_v3(
 
    let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
 
-   let contract_interact = true;
+   let contract_interact = Some(true);
    let interact_to = nft_contract;
    let value = U256::ZERO;
    let auth_list = Vec::new();
 
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
       contract_interact,
+      call_data.clone(),
       value,
-      call_data: call_data.clone(),
-      gas_used: sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei(),
+      sim_res.logs().to_vec(),
+      sim_res.gas_used(),
+      eth_balance_before.wei(),
       eth_balance_after,
-      decoded_selector: "Decrease Liquidity".to_string(),
-      positions_ops: vec![position_params],
-      ..Default::default()
-   };
+      auth_list.clone(),
+   ).await?;
+
+   let main_event = DecodedEvent::UniswapPositionOperation(position_params);
+   tx_analysis.set_main_event(main_event);
 
    let (receipt, _) = send_transaction(
       ctx.clone(),
@@ -957,7 +963,7 @@ pub async fn increase_liquidity_position_v3(
       let call_data = pool.token0().encode_approve(nft_contract, U256::MAX);
       let interact_to = pool.token0().address;
       let value = U256::ZERO;
-      let contract_interact = true;
+      let contract_interact = Some(true);
       let amount = NumericValue::format_wei(U256::MAX, pool.token0().decimals);
       let auth_list = Vec::new();
 
@@ -969,33 +975,36 @@ pub async fn increase_liquidity_position_v3(
          spender: nft_contract,
       };
 
-      let analysis = TransactionAnalysis {
-         chain: chain.id(),
-         sender: from,
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
          interact_to,
          contract_interact,
+         call_data.clone(),
          value,
-         call_data: call_data.clone(),
-         gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei(),
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
          eth_balance_after,
-         decoded_selector: "Approve".to_string(),
-         token_approvals: vec![params],
-         ..Default::default()
-      };
+         auth_list.clone()
+      ).await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
 
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
          None,
-         Some(analysis),
+         Some(tx_analysis),
          chain,
          mev_protect,
          from,
          interact_to,
          call_data,
          value,
-         auth_list,
+         auth_list.clone(),
       )
       .await?;
 
@@ -1010,7 +1019,7 @@ pub async fn increase_liquidity_position_v3(
       let call_data = pool.token1().encode_approve(nft_contract, U256::MAX);
       let interact_to = pool.token1().address;
       let value = U256::ZERO;
-      let contract_interact = true;
+      let contract_interact = Some(true);
       let amount = NumericValue::format_wei(U256::MAX, pool.token1().decimals);
       let auth_list = Vec::new();
 
@@ -1022,26 +1031,29 @@ pub async fn increase_liquidity_position_v3(
          spender: nft_contract,
       };
 
-      let analysis = TransactionAnalysis {
-         chain: chain.id(),
-         sender: from,
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
          interact_to,
          contract_interact,
+         call_data.clone(),
          value,
-         call_data: call_data.clone(),
-         gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei(),
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
          eth_balance_after,
-         decoded_selector: "Approve".to_string(),
-         token_approvals: vec![params],
-         ..Default::default()
-      };
+         auth_list.clone()
+      ).await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
 
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
          None,
-         Some(analysis),
+         Some(tx_analysis),
          chain,
          mev_protect,
          from,
@@ -1060,25 +1072,28 @@ pub async fn increase_liquidity_position_v3(
    // Now proceed with the call
 
    let call_data = abi::uniswap::nft_position::encode_increase_liquidity(increase_liquidity_params);
-   let contract_interact = true;
+   let contract_interact = Some(true);
    let interact_to = nft_contract;
    let value = U256::ZERO;
    let auth_list = Vec::new();
 
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
       contract_interact,
-      value,
-      call_data: call_data.clone(),
-      gas_used: increase_liquidity_sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei(),
+      call_data.clone(),
+      value.clone(),
+      increase_liquidity_sim_res.logs().to_vec(),
+      increase_liquidity_sim_res.gas_used(),
+      eth_balance_before.wei(),
       eth_balance_after,
-      decoded_selector: "Increase Liquidity".to_string(),
-      positions_ops: vec![position_params],
-      ..Default::default()
-   };
+      auth_list.clone()
+   ).await?;
+
+   let main_event = DecodedEvent::UniswapPositionOperation(position_params);
+   tx_analysis.set_main_event(main_event);
 
    let (receipt, _) = send_transaction(
       ctx.clone(),
@@ -1358,7 +1373,7 @@ pub async fn mint_new_liquidity_position_v3(
       let call_data = pool.token0().encode_approve(nft_contract, U256::MAX);
       let interact_to = pool.token0().address;
       let value = U256::ZERO;
-      let contract_interact = true;
+      let contract_interact = Some(true);
       let amount = NumericValue::format_wei(U256::MAX, pool.token0().decimals);
       let auth_list = Vec::new();
 
@@ -1370,20 +1385,23 @@ pub async fn mint_new_liquidity_position_v3(
          spender: nft_contract,
       };
 
-      let tx_analysis = TransactionAnalysis {
-         chain: chain.id(),
-         sender: from,
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
          interact_to,
          contract_interact,
-         value,
-         call_data: call_data.clone(),
-         gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei(),
+         call_data.clone(),
+         value.clone(),
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
          eth_balance_after,
-         decoded_selector: "Approve".to_string(),
-         token_approvals: vec![params],
-         ..Default::default()
-      };
+         auth_list.clone()
+      ).await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
 
       let (receipt, _) = send_transaction(
          ctx.clone(),
@@ -1411,7 +1429,7 @@ pub async fn mint_new_liquidity_position_v3(
       let call_data = pool.token1().encode_approve(nft_contract, U256::MAX);
       let interact_to = pool.token1().address;
       let value = U256::ZERO;
-      let contract_interact = true;
+      let contract_interact = Some(true);
       let amount = NumericValue::format_wei(U256::MAX, pool.token1().decimals);
       let auth_list = Vec::new();
 
@@ -1423,20 +1441,23 @@ pub async fn mint_new_liquidity_position_v3(
          spender: nft_contract,
       };
 
-      let tx_analysis = TransactionAnalysis {
-         chain: chain.id(),
-         sender: from,
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
          interact_to,
          contract_interact,
-         value,
-         call_data: call_data.clone(),
-         gas_used: sim_res.gas_used(),
-         eth_balance_before: eth_balance_before.wei(),
+         call_data.clone(),
+         value.clone(),
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
          eth_balance_after,
-         decoded_selector: "Approve".to_string(),
-         token_approvals: vec![params],
-         ..Default::default()
-      };
+         auth_list.clone()
+      ).await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
 
       let (receipt, _) = send_transaction(
          ctx.clone(),
@@ -1460,25 +1481,28 @@ pub async fn mint_new_liquidity_position_v3(
 
    // Now proceed with the mint call
 
-   let contract_interact = true;
+   let contract_interact = Some(true);
    let interact_to = nft_contract;
    let value = U256::ZERO;
    let auth_list = Vec::new();
 
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
       interact_to,
-      contract_interact,
-      value,
-      call_data: mint_call_data.clone(),
-      gas_used: mint_sim_res.gas_used(),
-      eth_balance_before: eth_balance_before.wei(),
+      contract_interact.clone(),
+      mint_call_data.clone(),
+      value.clone(),
+      mint_sim_res.logs().to_vec(),
+      mint_sim_res.gas_used(),
+      eth_balance_before.wei(),
       eth_balance_after,
-      decoded_selector: "Mint".to_string(),
-      positions_ops: vec![position_params],
-      ..Default::default()
-   };
+      auth_list.clone()
+   ).await?;
+
+   let main_event = DecodedEvent::UniswapPositionOperation(position_params);
+   tx_analysis.set_main_event(main_event);
 
    let (receipt, _) = send_transaction(
       ctx.clone(),

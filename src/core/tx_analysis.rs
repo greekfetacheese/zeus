@@ -32,19 +32,15 @@ pub struct TransactionAnalysis {
 
    /// Events in total by how many logs were emitted
    pub logs_len: usize,
+
    /// Total decoded events by how many logs were decoded
+   /// 
+   /// ETH transfers and EIP7702 Authorization events are not counted
    pub known_events: usize,
 
    // All decoded events
-   pub eoa_delegates: Vec<EOADelegateParams>,
-   pub transfers: Vec<TransferParams>,
-   pub token_approvals: Vec<TokenApproveParams>,
-   pub eth_wraps: Vec<WrapETHParams>,
-   pub weth_unwraps: Vec<UnwrapWETHParams>,
-   pub positions_ops: Vec<UniswapPositionParams>,
-   pub bridge: Vec<BridgeParams>,
-   pub swaps: Vec<SwapParams>,
-   pub permits: Vec<PermitParams>,
+   pub decoded_events: Vec<DecodedEvent>,
+   main_event: Option<DecodedEvent>,
 }
 
 impl TransactionAnalysis {
@@ -86,26 +82,26 @@ impl TransactionAnalysis {
          ..Default::default()
       };
 
-      for auth in auth_list {
-         let params = EOADelegateParams::new(chain, from, auth);
-         analysis.eoa_delegates.push(params);
-      }
-
       let decoded_selector = analysis.decode_selector(selector);
       analysis.decoded_selector = decoded_selector;
 
       let log_slice = logs.as_slice();
       let mut known_events = 0;
 
+      for auth in auth_list {
+         let params = EOADelegateParams::new(chain, from, auth);
+         analysis.decoded_events.push(DecodedEvent::EOADelegate(params));
+      }
+
       for log in &logs {
          if let Ok(params) = WrapETHParams::from_log(ctx.clone(), chain, log) {
-            analysis.eth_wraps.push(params);
+            analysis.decoded_events.push(DecodedEvent::WrapETH(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = UnwrapWETHParams::from_log(ctx.clone(), chain, log) {
-            analysis.weth_unwraps.push(params);
+            analysis.decoded_events.push(DecodedEvent::UnwrapWETH(params));
             known_events += 1;
             continue;
          }
@@ -125,42 +121,42 @@ impl TransactionAnalysis {
                known_events += 1;
             }
 
-            analysis.transfers.push(params);
+            analysis.decoded_events.push(DecodedEvent::Transfer(params));
             continue;
          }
 
          if let Ok(params) = TokenApproveParams::from_log(ctx.clone(), chain, log).await {
-            analysis.token_approvals.push(params);
+            analysis.decoded_events.push(DecodedEvent::TokenApprove(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = PermitParams::from_log(ctx.clone(), chain, log).await {
-            analysis.permits.push(params);
+            analysis.decoded_events.push(DecodedEvent::Permit(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = BridgeParams::from_log(ctx.clone(), chain, log).await {
-            analysis.bridge.push(params);
+            analysis.decoded_events.push(DecodedEvent::Bridge(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v2(ctx.clone(), chain, from, log).await {
-            analysis.swaps.push(params);
+            analysis.decoded_events.push(DecodedEvent::SwapToken(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v3(ctx.clone(), chain, from, log).await {
-            analysis.swaps.push(params);
+            analysis.decoded_events.push(DecodedEvent::SwapToken(params));
             known_events += 1;
             continue;
          }
 
          if let Ok(params) = SwapParams::from_uniswap_v4(ctx.clone(), chain, from, log).await {
-            analysis.swaps.push(params);
+            analysis.decoded_events.push(DecodedEvent::SwapToken(params));
             known_events += 1;
             continue;
          }
@@ -168,7 +164,7 @@ impl TransactionAnalysis {
          if let Ok(params) =
             UniswapPositionParams::collect_fees_for_v3_from_log(ctx.clone(), chain, from, log).await
          {
-            analysis.positions_ops.push(params);
+            analysis.decoded_events.push(DecodedEvent::UniswapPositionOperation(params));
             known_events += 1;
             continue;
          }
@@ -181,7 +177,7 @@ impl TransactionAnalysis {
          )
          .await
          {
-            analysis.positions_ops.push(params);
+            analysis.decoded_events.push(DecodedEvent::UniswapPositionOperation(params));
             known_events += 1;
             continue;
          }
@@ -194,7 +190,7 @@ impl TransactionAnalysis {
          )
          .await
          {
-            analysis.positions_ops.push(params);
+            analysis.decoded_events.push(DecodedEvent::UniswapPositionOperation(params));
             known_events += 1;
             continue;
          }
@@ -257,15 +253,129 @@ impl TransactionAnalysis {
    }
 
    pub fn erc20_transfers_len(&self) -> usize {
-      self.transfers.iter().filter(|t| t.is_erc20_transfer()).count()
+      self.decoded_events.iter().filter(|t| t.is_erc20_transfer()).count()
    }
 
    pub fn erc20_transfers(&self) -> Vec<TransferParams> {
-      self.transfers.iter().filter(|t| t.is_erc20_transfer()).cloned().collect()
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_erc20_transfer() {
+            params.push(event.transfer_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn token_approvals_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_token_approval()).count()
+   }
+
+   pub fn token_approvals(&self) -> Vec<TokenApproveParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_token_approval() {
+            params.push(event.token_approval_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn eth_wraps_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_wrap_eth()).count()
+   }
+
+   pub fn eth_wraps(&self) -> Vec<WrapETHParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_wrap_eth() {
+            params.push(event.wrap_eth_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn weth_unwraps_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_unwrap_weth()).count()
+   }
+
+   pub fn weth_unwraps(&self) -> Vec<UnwrapWETHParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_unwrap_weth() {
+            params.push(event.unwrap_weth_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn positions_ops_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_uniswap_position_op()).count()
+   }
+
+   pub fn positions_ops(&self) -> Vec<UniswapPositionParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_uniswap_position_op() {
+            params.push(event.uniswap_position_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn bridges_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_bridge()).count()
+   }
+
+   pub fn bridges(&self) -> Vec<BridgeParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_bridge() {
+            params.push(event.bridge_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn swaps_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_swap()).count()
+   }
+
+   pub fn swaps(&self) -> Vec<SwapParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_swap() {
+            params.push(event.swap_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn eoa_delegates_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_eoa_delegate()).count()
    }
 
    pub fn eoa_delegates(&self) -> Vec<EOADelegateParams> {
-      self.eoa_delegates.iter().cloned().collect()
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_eoa_delegate() {
+            params.push(event.eoa_delegate_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn permits_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_permit()).count()
+   }
+
+   pub fn permits(&self) -> Vec<PermitParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_permit() {
+            params.push(event.permit_params().clone());
+         }
+      }
+      params
    }
 
    pub fn total_events(&self) -> usize {
@@ -273,19 +383,31 @@ impl TransactionAnalysis {
    }
 
    pub fn decoded_events(&self) -> usize {
-      self.erc20_transfers_len()
-         + self.token_approvals.len()
-         + self.eth_wraps.len()
-         + self.weth_unwraps.len()
-         + self.positions_ops.len()
-         + self.bridge.len()
-         + self.swaps.len()
-         + self.eoa_delegates.len()
-         + self.permits.len()
+      let mut total = 0;
+      for event in &self.decoded_events {
+         if event.is_native_transfer() || event.is_eoa_delegate() {
+            continue;
+         }
+
+         total += 1;
+      }
+      total
    }
 
-   /// Try to infer a high-level action from the analysis
-   pub fn infer_action(&self, ctx: ZeusCtx, chain: u64) -> TransactionAction {
+   pub fn set_main_event(&mut self, event: DecodedEvent) {
+      self.main_event = Some(event);
+   }
+
+   pub fn remove_main_event(&mut self) {
+      self.main_event = None;
+   }
+
+   /// Try to infer the main event from the analysis
+   pub fn infer_main_event(&self, ctx: ZeusCtx, chain: u64) -> DecodedEvent {
+      if self.main_event.is_some() {
+         return self.main_event.clone().unwrap();
+      }
+
       // ETH Transfer
       if self.is_native_transfer() {
          let native: Currency = NativeCurrency::from(chain).into();
@@ -321,63 +443,54 @@ impl TransactionAnalysis {
             recipient_str,
          };
 
-         return TransactionAction::Transfer(params);
+         return DecodedEvent::Transfer(params);
       }
 
-      let erc20_transfers_len = self.erc20_transfers_len();
-      let eth_wraps_len = self.eth_wraps.len();
-      let weth_unwraps_len = self.weth_unwraps.len();
-      let approvals_len = self.token_approvals.len();
-      let positions_ops_len = self.positions_ops.len();
-      let bridge_len = self.bridge.len();
-      let swaps_len = self.swaps.len();
-      let eoa_delegates_len = self.eoa_delegates.len();
-
       // Single ERC20 Transfer
-      if self.decoded_events() == 1 && erc20_transfers_len == 1 {
-         let params = self.transfers[0].clone();
-         return TransactionAction::Transfer(params);
+      if self.decoded_events() == 1 && self.erc20_transfers_len() == 1 {
+         let params = self.erc20_transfers()[0].clone();
+         return DecodedEvent::Transfer(params);
       }
 
       // Single Token Approval
-      if self.decoded_events() == 1 && approvals_len == 1 {
-         let params = self.token_approvals[0].clone();
-         return TransactionAction::TokenApprove(params);
+      if self.decoded_events() == 1 && self.token_approvals_len() == 1 {
+         let params = self.token_approvals()[0].clone();
+         return DecodedEvent::TokenApprove(params);
       }
 
       // Single Wrap ETH
-      if self.decoded_events() == 1 && eth_wraps_len == 1 {
-         let params = self.eth_wraps[0].clone();
-         return TransactionAction::WrapETH(params);
+      if self.decoded_events() == 1 && self.eth_wraps_len() == 1 {
+         let params = self.eth_wraps()[0].clone();
+         return DecodedEvent::WrapETH(params);
       }
 
       // Single Unwrap WETH
-      if self.decoded_events() == 1 && weth_unwraps_len == 1 {
-         let params = self.weth_unwraps[0].clone();
-         return TransactionAction::UnwrapWETH(params);
+      if self.decoded_events() == 1 && self.weth_unwraps_len() == 1 {
+         let params = self.weth_unwraps()[0].clone();
+         return DecodedEvent::UnwrapWETH(params);
       }
 
       // Single Uniswap Position Operation
-      if self.decoded_events() == 1 && positions_ops_len == 1 {
-         let params = self.positions_ops[0].clone();
-         return TransactionAction::UniswapPositionOperation(params);
+      if self.decoded_events() == 1 && self.positions_ops_len() == 1 {
+         let params = self.positions_ops()[0].clone();
+         return DecodedEvent::UniswapPositionOperation(params);
       }
 
       // Bridge
-      if bridge_len == 1 {
-         let params = self.bridge[0].clone();
-         return TransactionAction::Bridge(params);
+      if self.bridges_len() == 1 {
+         let params = self.bridges()[0].clone();
+         return DecodedEvent::Bridge(params);
       }
 
       // Single EOA Delegate
-      if self.decoded_events() == 1 && eoa_delegates_len == 1 {
-         let params = self.eoa_delegates[0].clone();
-         return TransactionAction::EOADelegate(params);
+      if self.decoded_events() == 1 && self.eoa_delegates_len() == 1 {
+         let params = self.eoa_delegates()[0].clone();
+         return DecodedEvent::EOADelegate(params);
       }
 
       // Single Swap
-      if swaps_len == 1 {
-         let mut params = self.swaps[0].clone();
+      if self.swaps_len() == 1 {
+         let mut params = self.swaps()[0].clone();
 
          // Handle ETH/WETH abstraction
          if params.input_currency.is_native_wrapped() {
@@ -386,17 +499,18 @@ impl TransactionAnalysis {
             }
          }
 
-         if params.output_currency.is_native_wrapped() && self.weth_unwraps.len() == 1 {
+         if params.output_currency.is_native_wrapped() && self.weth_unwraps_len() == 1 {
             params.output_currency = NativeCurrency::from(self.chain).into();
          }
 
-         return TransactionAction::SwapToken(params);
+         return DecodedEvent::SwapToken(params);
       }
 
       // A lot of swaps go through multiple pools
       // Will try our best to figure out the input and output currencies but it's not perfect
       // Assuming that the recipient is the same address that sent the tx
       // If its not this will not return the recipient address
+      let swaps_len = self.swaps_len();
       if swaps_len > 1 {
          let mut params = SwapParams {
             dapp: Dapp::Uniswap,
@@ -404,10 +518,10 @@ impl TransactionAnalysis {
             ..Default::default()
          };
 
-         let erc20_transfers =
-            self.transfers.iter().filter(|t| t.is_erc20_transfer()).collect::<Vec<_>>();
+         let erc20_transfers = self.erc20_transfers();
+         let swaps = self.swaps();
 
-         for (i, swap) in self.swaps.iter().enumerate() {
+         for (i, swap) in swaps.iter().enumerate() {
             let is_first = i == 0;
             let is_last = i == swaps_len - 1;
 
@@ -430,7 +544,7 @@ impl TransactionAnalysis {
                let mut output = swap.output_currency.clone();
 
                // Handle ETH/WETH abstraction
-               if output.is_native_wrapped() && self.weth_unwraps.len() == 1 {
+               if output.is_native_wrapped() && self.weth_unwraps_len() == 1 {
                   output = NativeCurrency::from(self.chain).into();
                }
 
@@ -461,10 +575,10 @@ impl TransactionAnalysis {
          // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
          // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
 
-         return TransactionAction::SwapToken(params);
+         return DecodedEvent::SwapToken(params);
       }
 
-      TransactionAction::Other
+      DecodedEvent::Other
    }
 
    pub fn is_native_transfer(&self) -> bool {
@@ -472,11 +586,11 @@ impl TransactionAnalysis {
    }
 
    pub fn is_unwrap_weth(&self) -> bool {
-      self.decoded_events() == 1 && self.weth_unwraps.len() == 1
+      self.decoded_events() == 1 && self.weth_unwraps_len() == 1
    }
 
    pub fn is_swap(&self) -> bool {
-      !self.swaps.is_empty()
+      self.swaps_len() != 0
    }
 
    pub fn value_sent(&self) -> NumericValue {
