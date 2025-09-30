@@ -55,12 +55,11 @@ impl ChainCode {
 
 impl PartialEq for ChainCode {
    fn eq(&self, other: &ChainCode) -> bool {
-      other.data.unlock(|other_slice| {
-         self.data.unlock(|self_slice| self_slice == other_slice)
-      })
+      other
+         .data
+         .unlock(|other_slice| self.data.unlock(|self_slice| self_slice == other_slice))
    }
 }
-
 
 /// Info associated with an extended key
 #[derive(Clone, serde::Serialize, serde::Deserialize)]

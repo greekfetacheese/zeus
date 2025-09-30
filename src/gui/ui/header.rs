@@ -14,8 +14,7 @@ use zeus_eth::{
    types::ChainId,
 };
 
-const DELEGATE_TIP1: &str =
-   "This wallet has been temporarily upgraded to a smart contract";
+const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 
 /// Show some of current state of Zeus like the current chain, wallet, etc.

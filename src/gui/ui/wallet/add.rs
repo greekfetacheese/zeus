@@ -149,7 +149,12 @@ impl ImportWallet {
                let manager = ctx.balance_manager();
                for chain in SUPPORTED_CHAINS {
                   match manager
-                     .update_eth_balance(ctx.clone(), chain, vec![new_wallet_address], false)
+                     .update_eth_balance(
+                        ctx.clone(),
+                        chain,
+                        vec![new_wallet_address],
+                        false,
+                     )
                      .await
                   {
                      Ok(_) => {}
@@ -959,12 +964,9 @@ async fn sync_wallets_balance(
          let balances = z_client
             .request(chain, |client| {
                let addresses = addresses.clone();
-               async move {
-                  batch::get_eth_balances(client, chain, None, addresses).await
-               }
+               async move { batch::get_eth_balances(client, chain, None, addresses).await }
             })
             .await?;
-
 
          let mut balance_map = SHARED_GUI.read(|gui| {
             gui.wallet_ui

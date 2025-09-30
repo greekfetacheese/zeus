@@ -96,7 +96,11 @@ impl ThemeEditor {
 
          CollapsingHeader::new("Theme Frames").show(ui, |ui| {
             CollapsingHeader::new("Native Window Frame").show(ui, |ui| {
-               self.frame_settings(&mut theme.window_frame, &mut theme.frame1_visuals, ui);
+               self.frame_settings(
+                  &mut theme.window_frame,
+                  &mut theme.frame1_visuals,
+                  ui,
+               );
             });
 
             CollapsingHeader::new("Frame 1").show(ui, |ui| {

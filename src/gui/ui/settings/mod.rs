@@ -1,9 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{
-   ZeusCtx,
-   utils::RT,
-   context::theme_kind_dir
-};
+use crate::core::{ZeusCtx, context::theme_kind_dir, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use egui_theme::{Theme, ThemeKind};
@@ -437,8 +433,11 @@ impl EncryptionSettings {
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(
-                     Slider::new(&mut self.argon_params.m_cost, min_m_cost..=MAX_M_COST)
-                        .custom_formatter(|v, _ctx| format!("{:.0}", v / 1000.0)),
+                     Slider::new(
+                        &mut self.argon_params.m_cost,
+                        min_m_cost..=MAX_M_COST,
+                     )
+                     .custom_formatter(|v, _ctx| format!("{:.0}", v / 1000.0)),
                   );
                });
 

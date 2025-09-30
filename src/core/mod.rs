@@ -1,14 +1,14 @@
-pub mod context;
-pub mod user;
 pub mod bip32;
-pub mod utils;
+pub mod context;
 pub mod transaction;
 pub mod tx_analysis;
+pub mod user;
+pub mod utils;
 
 pub use context::*;
-pub use user::wallet::*;
 pub use transaction::*;
 pub use tx_analysis::TransactionAnalysis;
+pub use user::wallet::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Dapp {
@@ -26,8 +26,6 @@ impl Dapp {
    }
 }
 
-
-
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
    use std::collections::HashMap;
@@ -38,10 +36,8 @@ mod serde_hashmap {
       K: Serialize,
       V: Serialize,
    {
-      let stringified_map: HashMap<String, &V> = map
-         .iter()
-         .map(|(k, v)| (serde_json::to_string(k).unwrap(), v))
-         .collect();
+      let stringified_map: HashMap<String, &V> =
+         map.iter().map(|(k, v)| (serde_json::to_string(k).unwrap(), v)).collect();
       stringified_map.serialize(serializer)
    }
 

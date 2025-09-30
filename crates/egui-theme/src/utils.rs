@@ -10,10 +10,7 @@ pub fn change_theme(current_theme: &Theme, ui: &mut Ui) -> Option<Theme> {
       .selected_text(current_theme.kind.to_str())
       .show_ui(ui, |ui| {
          for kind in ThemeKind::to_vec() {
-            if ui
-               .selectable_label(current_theme.kind == kind, kind.to_str())
-               .clicked()
-            {
+            if ui.selectable_label(current_theme.kind == kind, kind.to_str()).clicked() {
                let new_theme = Theme::new(kind);
                ui.ctx().set_style(new_theme.style.clone());
                new_theme_opt = Some(new_theme);
@@ -63,10 +60,26 @@ pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
    bg_color_on_hover(ui, visuals.bg_color_on_hover);
    bg_color_on_click(ui, visuals.bg_color_on_click);
    bg_color_on_open(ui, visuals.bg_color_on_open);
-   border_on_idle(ui, visuals.border_on_idle.0, visuals.border_on_idle.1);
-   border_on_hover(ui, visuals.border_on_hover.0, visuals.border_on_hover.1);
-   border_on_click(ui, visuals.border_on_click.0, visuals.border_on_click.1);
-   border_on_open(ui, visuals.border_on_open.0, visuals.border_on_open.1);
+   border_on_idle(
+      ui,
+      visuals.border_on_idle.0,
+      visuals.border_on_idle.1,
+   );
+   border_on_hover(
+      ui,
+      visuals.border_on_hover.0,
+      visuals.border_on_hover.1,
+   );
+   border_on_click(
+      ui,
+      visuals.border_on_click.0,
+      visuals.border_on_click.1,
+   );
+   border_on_open(
+      ui,
+      visuals.border_on_open.0,
+      visuals.border_on_open.1,
+   );
    window_fill(ui, visuals.combobox_bg);
 }
 

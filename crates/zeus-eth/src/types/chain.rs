@@ -109,9 +109,9 @@ impl ChainId {
          ChainId::Optimism => 10,
          ChainId::BinanceSmartChain => 56,
          ChainId::Base => 8453,
-         ChainId::Arbitrum => 42161
+         ChainId::Arbitrum => 42161,
       }
-      }
+   }
 
    pub fn id_as_hex(&self) -> String {
       format!("0x{:x}", self.id())

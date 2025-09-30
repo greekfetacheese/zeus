@@ -366,11 +366,7 @@ impl UniswapUi {
                ui.set_width(self.size.0);
                ui.spacing_mut().item_spacing.x = 10.0;
 
-               let enabled = if cfg!(feature = "dev") {
-                  true
-               } else {
-                  false
-               };
+               let enabled = if cfg!(feature = "dev") { true } else { false };
 
                let text = RichText::new("Swap").size(theme.text_sizes.large);
                let swap_button = Button::new(text);

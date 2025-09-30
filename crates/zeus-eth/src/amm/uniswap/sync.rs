@@ -111,7 +111,6 @@ impl SyncConfig {
    }
 }
 
-
 /// Sync pools with the given configuration
 ///
 /// See [SyncConfig]

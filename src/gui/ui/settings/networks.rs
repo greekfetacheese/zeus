@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::RT, client::Rpc};
+use crate::core::{ZeusCtx, client::Rpc, utils::RT};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,
@@ -398,4 +398,3 @@ fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
       });
    });
 }
-

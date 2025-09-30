@@ -5,10 +5,10 @@ pub use currencies::CurrencyDB;
 pub use portfolio::{Portfolio, PortfolioDB};
 
 use crate::core::{
-   bip32::{DerivationPath, BIP32_HARDEN},
-   serde_hashmap,
-   context::data_dir,
    TransactionRich,
+   bip32::{BIP32_HARDEN, DerivationPath},
+   context::data_dir,
+   serde_hashmap,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -22,7 +22,6 @@ use zeus_eth::{
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
 pub const V3_POSITIONS_FILE: &str = "v3_positions.json";
 pub const DISCOVERED_WALLETS_FILE: &str = "discovered_wallets.json";
-
 
 /// Transactions by chain and wallet address
 pub type Transactions = HashMap<(u64, Address), Vec<TransactionRich>>;
@@ -59,11 +58,7 @@ impl TransactionsDB {
    pub fn add_tx(&mut self, chain: u64, owner: Address, tx: TransactionRich) {
       self.txs.entry((chain, owner)).or_default().push(tx);
       // sort the txs by newest to oldest
-      self
-         .txs
-         .get_mut(&(chain, owner))
-         .unwrap()
-         .sort_by(|a, b| b.block.cmp(&a.block));
+      self.txs.get_mut(&(chain, owner)).unwrap().sort_by(|a, b| b.block.cmp(&a.block));
    }
 
    pub fn get_txs(&self, chain: u64, owner: Address) -> Option<&Vec<TransactionRich>> {
@@ -158,30 +153,18 @@ impl V3PositionsDB {
    }
 
    pub fn get(&self, chain: u64, owner: Address) -> Vec<V3Position> {
-      self
-         .positions
-         .get(&(chain, owner))
-         .cloned()
-         .unwrap_or_default()
+      self.positions.get(&(chain, owner)).cloned().unwrap_or_default()
    }
 
    pub fn insert(&mut self, chain: u64, owner: Address, position: V3Position) {
       self.remove(chain, owner, &position);
-      self
-         .positions
-         .entry((chain, owner))
-         .or_default()
-         .push(position);
+      self.positions.entry((chain, owner)).or_default().push(position);
    }
 
    pub fn remove(&mut self, chain: u64, owner: Address, position: &V3Position) {
-      self
-         .positions
-         .get_mut(&(chain, owner))
-         .map(|p| p.retain(|p| p != position));
+      self.positions.get_mut(&(chain, owner)).map(|p| p.retain(|p| p != position));
    }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredWallet {
@@ -198,7 +181,6 @@ fn default_batch_size() -> usize {
    30
 }
 
-
 /// Discovered wallets that derived from a `SecureHDWallet`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredWallets {
@@ -213,7 +195,6 @@ pub struct DiscoveredWallets {
    /// Batch size
    #[serde(default = "default_batch_size")]
    pub batch_size: usize,
-
 }
 
 impl Default for DiscoveredWallets {

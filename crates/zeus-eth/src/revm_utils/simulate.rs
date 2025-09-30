@@ -5,7 +5,10 @@ use super::Evm2;
 use anyhow::anyhow;
 use revm::{DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, database::Database};
 
-use crate::abi::{self, uniswap::nft_position::{ encode_decrease_liquidity, INonfungiblePositionManager}};
+use crate::abi::{
+   self,
+   uniswap::nft_position::{INonfungiblePositionManager, encode_decrease_liquidity},
+};
 
 /// Simulate a swap using [abi::misc::SwapRouter]
 ///
@@ -107,8 +110,6 @@ where
    Ok(res)
 }
 
-
-
 /// Simulate the approve function in the ERC20 contract
 pub fn approve_token<DB>(
    evm: &mut Evm2<DB>,
@@ -173,14 +174,17 @@ where
 
    if !res.is_success() {
       let err = revert_msg(output);
-      eprintln!("Failed to mint position: {} Gas Used: {}", err, res.gas_used());
+      eprintln!(
+         "Failed to mint position: {} Gas Used: {}",
+         err,
+         res.gas_used()
+      );
       return Err(anyhow!("Failed to mint position: {}", err));
    }
 
    let mint = abi::uniswap::nft_position::decode_mint_call(output)?;
    Ok((res, mint))
 }
-
 
 /// Simulate the increase liquidity function in the [INonfungiblePositionManager] contract
 ///
@@ -228,7 +232,6 @@ where
    Ok((res, liquidity, amount0, amount1))
 }
 
-
 /// Simulate the decrease liquidity function in the [INonfungiblePositionManager] contract
 pub fn decrease_liquidity<DB>(
    evm: &mut Evm2<DB>,
@@ -267,7 +270,6 @@ where
    let (amount0, amount1) = abi::uniswap::nft_position::decode_decrease_liquidity_call(output)?;
    Ok((res, amount0, amount1))
 }
-
 
 /// Simulate the collect function in the [INonfungiblePositionManager] contract
 ///

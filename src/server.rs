@@ -1553,7 +1553,10 @@ async fn eth_send_transaction(
       }
 
       if transact_to_exists {
-         match manager.update_eth_balance(ctx.clone(), chain.id(), vec![transact_to], true).await {
+         match manager
+            .update_eth_balance(ctx.clone(), chain.id(), vec![transact_to], true)
+            .await
+         {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Error updating ETH balance: {:?}", e);
@@ -1573,7 +1576,13 @@ async fn eth_send_transaction(
 
          if recipient_exists {
             match manager
-               .update_tokens_balance(ctx.clone(), chain.id(), recipient, vec![token], true)
+               .update_tokens_balance(
+                  ctx.clone(),
+                  chain.id(),
+                  recipient,
+                  vec![token],
+                  true,
+               )
                .await
             {
                Ok(_) => {}
@@ -1592,7 +1601,10 @@ async fn eth_send_transaction(
          let src_exists = ctx.wallet_exists(src);
 
          if src_exists {
-            match manager.update_tokens_balance(ctx.clone(), chain.id(), src, vec![token], true).await {
+            match manager
+               .update_tokens_balance(ctx.clone(), chain.id(), src, vec![token], true)
+               .await
+            {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Error updating token balance: {:?}", e);
@@ -1617,7 +1629,7 @@ async fn eth_send_transaction(
                   chain.id(),
                   sender,
                   vec![token.clone()],
-                  true
+                  true,
                )
                .await
             {
@@ -1632,7 +1644,13 @@ async fn eth_send_transaction(
 
          if recipient_exists {
             match manager
-               .update_tokens_balance(ctx.clone(), chain.id(), recipient, vec![token], true)
+               .update_tokens_balance(
+                  ctx.clone(),
+                  chain.id(),
+                  recipient,
+                  vec![token],
+                  true,
+               )
                .await
             {
                Ok(_) => {}

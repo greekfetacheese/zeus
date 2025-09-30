@@ -1674,7 +1674,10 @@ pub async fn wrap_eth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true).await {
+      match manager
+         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }
@@ -1807,7 +1810,10 @@ pub async fn unwrap_weth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true).await {
+      match manager
+         .update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }

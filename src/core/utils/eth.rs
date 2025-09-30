@@ -313,7 +313,7 @@ pub async fn send_transaction(
       hash: receipt.transaction_hash,
       contract_interact: new_tx_analysis.contract_interact,
       analysis: new_tx_analysis,
-      main_event
+      main_event,
    };
 
    let ctx_clone = ctx.clone();
@@ -503,14 +503,20 @@ pub async fn collect_fees_position_v3(
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
-      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true).await {
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update balances: {}", e);
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true).await {
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -685,7 +691,8 @@ pub async fn decrease_liquidity_position_v3(
       eth_balance_before.wei(),
       eth_balance_after,
       auth_list.clone(),
-   ).await?;
+   )
+   .await?;
 
    let main_event = DecodedEvent::UniswapPositionOperation(position_params);
    tx_analysis.set_main_event(main_event);
@@ -758,14 +765,20 @@ pub async fn decrease_liquidity_position_v3(
          currency1.to_erc20().into_owned(),
       ];
       let manager = ctx_clone.balance_manager();
-      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true).await {
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update balances: {}", e);
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true).await {
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -987,8 +1000,9 @@ pub async fn increase_liquidity_position_v3(
          sim_res.gas_used(),
          eth_balance_before.wei(),
          eth_balance_after,
-         auth_list.clone()
-      ).await?;
+         auth_list.clone(),
+      )
+      .await?;
 
       let main_event = DecodedEvent::TokenApprove(params);
       tx_analysis.set_main_event(main_event);
@@ -1043,8 +1057,9 @@ pub async fn increase_liquidity_position_v3(
          sim_res.gas_used(),
          eth_balance_before.wei(),
          eth_balance_after,
-         auth_list.clone()
-      ).await?;
+         auth_list.clone(),
+      )
+      .await?;
 
       let main_event = DecodedEvent::TokenApprove(params);
       tx_analysis.set_main_event(main_event);
@@ -1089,8 +1104,9 @@ pub async fn increase_liquidity_position_v3(
       increase_liquidity_sim_res.gas_used(),
       eth_balance_before.wei(),
       eth_balance_after,
-      auth_list.clone()
-   ).await?;
+      auth_list.clone(),
+   )
+   .await?;
 
    let main_event = DecodedEvent::UniswapPositionOperation(position_params);
    tx_analysis.set_main_event(main_event);
@@ -1160,14 +1176,20 @@ pub async fn increase_liquidity_position_v3(
       ];
       let manager = ctx_clone.balance_manager();
 
-      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true).await {
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update balances: {}", e);
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true).await {
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -1397,8 +1419,9 @@ pub async fn mint_new_liquidity_position_v3(
          sim_res.gas_used(),
          eth_balance_before.wei(),
          eth_balance_after,
-         auth_list.clone()
-      ).await?;
+         auth_list.clone(),
+      )
+      .await?;
 
       let main_event = DecodedEvent::TokenApprove(params);
       tx_analysis.set_main_event(main_event);
@@ -1453,8 +1476,9 @@ pub async fn mint_new_liquidity_position_v3(
          sim_res.gas_used(),
          eth_balance_before.wei(),
          eth_balance_after,
-         auth_list.clone()
-      ).await?;
+         auth_list.clone(),
+      )
+      .await?;
 
       let main_event = DecodedEvent::TokenApprove(params);
       tx_analysis.set_main_event(main_event);
@@ -1498,8 +1522,9 @@ pub async fn mint_new_liquidity_position_v3(
       mint_sim_res.gas_used(),
       eth_balance_before.wei(),
       eth_balance_after,
-      auth_list.clone()
-   ).await?;
+      auth_list.clone(),
+   )
+   .await?;
 
    let main_event = DecodedEvent::UniswapPositionOperation(position_params);
    tx_analysis.set_main_event(main_event);
@@ -1554,14 +1579,20 @@ pub async fn mint_new_liquidity_position_v3(
 
       let manager = ctx_clone.balance_manager();
 
-      match manager.update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true).await {
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update balances: {}", e);
          }
       }
 
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true).await {
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);

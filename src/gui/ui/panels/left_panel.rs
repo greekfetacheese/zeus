@@ -64,8 +64,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       });
 
       let swap = if gui.uniswap.is_open() {
-         Button::new(RichText::new("Swap").size(text_size))
-            .fill(selected_color)
+         Button::new(RichText::new("Swap").size(text_size)).fill(selected_color)
       } else {
          Button::new(RichText::new("Swap").size(text_size))
       };
@@ -87,8 +86,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       });
 
       let bridge = if gui.across_bridge.is_open() {
-         Button::new(RichText::new("Bridge").size(text_size))
-            .fill(selected_color)
+         Button::new(RichText::new("Bridge").size(text_size)).fill(selected_color)
       } else {
          Button::new(RichText::new("Bridge").size(text_size))
       };
@@ -112,8 +110,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       });
 
       let wallets = if gui.wallet_ui.is_open() {
-         Button::new(RichText::new("Wallets").size(text_size))
-            .fill(selected_color)
+         Button::new(RichText::new("Wallets").size(text_size)).fill(selected_color)
       } else {
          Button::new(RichText::new("Wallets").size(text_size))
       };
@@ -135,8 +132,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       });
 
       let tx_history = if gui.tx_history.is_open() {
-         Button::new(RichText::new("Transactions").size(text_size))
-            .fill(selected_color)
+         Button::new(RichText::new("Transactions").size(text_size)).fill(selected_color)
       } else {
          Button::new(RichText::new("Transactions").size(text_size))
       };
@@ -158,8 +154,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       });
 
       let settings = if gui.settings.is_open() {
-         Button::new(RichText::new("Settings").size(text_size))
-            .fill(selected_color)
+         Button::new(RichText::new("Settings").size(text_size)).fill(selected_color)
       } else {
          Button::new(RichText::new("Settings").size(text_size))
       };

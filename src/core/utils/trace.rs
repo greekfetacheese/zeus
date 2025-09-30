@@ -20,17 +20,11 @@ pub fn setup_tracing() -> (WorkerGuard, WorkerGuard) {
    let output_filter = EnvFilter::new("zeus=info,error,warn,zeus_eth=info,error,warn");
 
    // Setting up layers
-   let console_layer = fmt::layer()
-      .with_writer(std::io::stdout)
-      .with_filter(console_filter);
+   let console_layer = fmt::layer().with_writer(std::io::stdout).with_filter(console_filter);
 
-   let trace_layer = fmt::layer()
-      .with_writer(trace_writer)
-      .with_filter(trace_filter);
+   let trace_layer = fmt::layer().with_writer(trace_writer).with_filter(trace_filter);
 
-   let output_layer = fmt::layer()
-      .with_writer(output_writer)
-      .with_filter(output_filter);
+   let output_layer = fmt::layer().with_writer(output_writer).with_filter(output_filter);
 
    // Applying configuration
    Registry::default()

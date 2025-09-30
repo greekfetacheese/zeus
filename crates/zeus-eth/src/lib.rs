@@ -1,9 +1,9 @@
 pub mod abi;
 pub mod amm;
-pub mod utils;
-pub mod types;
 pub mod currency;
 pub mod revm_utils;
+pub mod types;
+pub mod utils;
 
 pub use alloy_contract;
 pub use alloy_dyn_abi;
@@ -16,5 +16,5 @@ pub use alloy_signer;
 pub use alloy_signer_local;
 pub use alloy_sol_types;
 pub use alloy_transport;
-pub use revm;
 pub use op_revm;
+pub use revm;

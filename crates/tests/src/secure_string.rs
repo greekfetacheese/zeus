@@ -47,24 +47,24 @@ impl eframe::App for App {
             ui.spacing_mut().item_spacing.y = 10.0;
 
             if !self.hide_texts {
-            ui.label("Secret Text:");
-            self.secret_text.unlock_mut(|text| {
-               let text_edit = SecureTextEdit::singleline(text)
-                  .min_size(egui::vec2(200.0, 30.0))
-                  .hint_text("This is a hint");
-               text_edit.show(ui);
-            });
+               ui.label("Secret Text:");
+               self.secret_text.unlock_mut(|text| {
+                  let text_edit = SecureTextEdit::singleline(text)
+                     .min_size(egui::vec2(200.0, 30.0))
+                     .hint_text("This is a hint");
+                  text_edit.show(ui);
+               });
 
-            ui.separator();
+               ui.separator();
 
-            ui.label("Secret Text 2:");
-            self.secret_text2.unlock_mut(|text| {
-               let text_edit = SecureTextEdit::singleline(text)
-                  .password(true)
-                  .min_size(egui::vec2(200.0, 30.0));
-               text_edit.show(ui);
-            });
-         }
+               ui.label("Secret Text 2:");
+               self.secret_text2.unlock_mut(|text| {
+                  let text_edit = SecureTextEdit::singleline(text)
+                     .password(true)
+                     .min_size(egui::vec2(200.0, 30.0));
+                  text_edit.show(ui);
+               });
+            }
 
             ui.separator();
 

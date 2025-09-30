@@ -649,7 +649,9 @@ fn decode_events(logs: &Vec<Log>) -> Vec<SequencedEvent> {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use zeus_eth::{alloy_primitives::address, alloy_provider::ProviderBuilder, amm::uniswap::DexKind};
+   use zeus_eth::{
+      alloy_primitives::address, alloy_provider::ProviderBuilder, amm::uniswap::DexKind,
+   };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_simulate_position() {

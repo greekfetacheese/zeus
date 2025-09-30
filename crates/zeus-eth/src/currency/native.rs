@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::types::ChainId;
+use serde::{Deserialize, Serialize};
 
 /// Represents a Native Currency to its chain
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]

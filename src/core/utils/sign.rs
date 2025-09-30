@@ -65,9 +65,7 @@ impl SignMsgType {
       match self {
          Self::Permit2(details) => match parse_typed_data(details.raw_msg.clone()) {
             Ok(data) => Some(data),
-            Err(_) => {
-               None
-            },
+            Err(_) => None,
          },
          Self::Permit2Batch(details) => match parse_typed_data(details.msg_value.clone()) {
             Ok(data) => Some(data),

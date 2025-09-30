@@ -1,3 +1,5 @@
+use crate::core::client::TIMEOUT_FOR_SENDING_TX;
+use alloy_eips::eip7702::SignedAuthorization;
 use anyhow::anyhow;
 use std::time::Duration;
 use zeus_eth::{
@@ -6,11 +8,8 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::{TransactionReceipt, TransactionRequest},
    types::ChainId,
-   utils::{SecureSigner, erase_wallet, NumericValue},
+   utils::{NumericValue, SecureSigner, erase_wallet},
 };
-use crate::core::client::TIMEOUT_FOR_SENDING_TX;
-use alloy_eips::eip7702::SignedAuthorization;
-
 
 #[derive(Clone)]
 pub struct TxParams {
@@ -126,9 +125,9 @@ pub fn make_tx_request(params: TxParams) -> TransactionRequest {
          .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
          .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
 
-       if !params.authorization_list.is_empty() {
+      if !params.authorization_list.is_empty() {
          tx.set_authorization_list(params.authorization_list);
-       }
+      }
 
       tx
    } else {

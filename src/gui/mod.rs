@@ -11,9 +11,9 @@ use egui_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 use crate::gui::ui::{
-   ConfirmWindow, Notification, Header, LoadingWindow, MsgWindow, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
-   TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
+   ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
+   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
+   TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    misc::dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},

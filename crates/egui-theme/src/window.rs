@@ -1,7 +1,5 @@
 use super::{Theme, utils};
-use egui::{
-   self, Button, CentralPanel, Color32, Rect, RichText, UiBuilder, ViewportCommand, vec2,
-};
+use egui::{self, Button, CentralPanel, Color32, Rect, RichText, UiBuilder, ViewportCommand, vec2};
 
 /// A frame for the App's Native window
 pub fn window_frame(

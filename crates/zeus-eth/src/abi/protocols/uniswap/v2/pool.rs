@@ -103,7 +103,6 @@ where
    Ok((reserve0, reserve1, reserves.blockTimestampLast))
 }
 
-
 /// Return the address of token0
 pub async fn token0<P, N>(pair_address: Address, client: P) -> Result<Address, anyhow::Error>
 where
@@ -125,7 +124,6 @@ where
    let token1 = contract.token1().call().await?;
    Ok(token1)
 }
-
 
 pub fn decode_swap_log(log: &LogData) -> Result<Swap, anyhow::Error> {
    let b = IUniswapV2Pair::Swap::decode_raw_log(log.topics(), &log.data)?;

@@ -4,20 +4,26 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use tokio::{sync::{Mutex, Semaphore}, task::JoinHandle};
-use tracing::{info, error, trace};
+use tokio::{
+   sync::{Mutex, Semaphore},
+   task::JoinHandle,
+};
+use tracing::{error, info, trace};
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
-use crate::core::{context::pool_data_dir, serde_hashmap, ZeusCtx, utils::RT};
+use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap, utils::RT};
 use zeus_eth::{
    abi::zeus::ZeusStateView,
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
    amm::uniswap::{
       AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, PoolID, UniswapPool, UniswapV2Pool,
-      UniswapV3Pool, state::{V3PoolState, State}, sync::*, v4::pool::MAX_FEE,
+      UniswapV3Pool,
+      state::{State, V3PoolState},
+      sync::*,
+      v4::pool::MAX_FEE,
    },
-   currency::{Currency, NativeCurrency, ERC20Token},
+   currency::{Currency, ERC20Token, NativeCurrency},
    types::*,
    utils::batch,
 };
@@ -304,7 +310,8 @@ impl PoolManagerHandle {
       let concurrency = self.read(|manager| manager.concurrency);
       let batch_size = self.read(|manager| manager.batch_size_for_updating_pool_state);
 
-      let updated_pools = batch_update_state(ctx.clone(), chain, concurrency, batch_size, pools).await?;
+      let updated_pools =
+         batch_update_state(ctx.clone(), chain, concurrency, batch_size, pools).await?;
 
       self.write(|manager| {
          for pool in &updated_pools {
@@ -325,41 +332,41 @@ impl PoolManagerHandle {
       chain: u64,
       pools: Vec<AnyUniswapPool>,
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
-
       let pools = self._update_state_for_pools(ctx.clone(), chain, pools).await?;
 
       // ignore on tests
       if !cfg!(test) {
-      let mut tokens_to_update = Vec::new();
-      let mut inserted = HashSet::new();
-      for pool in &pools {
+         let mut tokens_to_update = Vec::new();
+         let mut inserted = HashSet::new();
+         for pool in &pools {
+            if !pool.currency0().is_base() {
+               let token = pool.currency0().to_erc20().into_owned();
 
-         if !pool.currency0().is_base() {
-            let token = pool.currency0().to_erc20().into_owned();
+               if inserted.contains(&token.address) {
+                  continue;
+               }
 
-            if inserted.contains(&token.address) {
-               continue;
+               inserted.insert(token.address);
+               tokens_to_update.push(token);
             }
 
-            inserted.insert(token.address);
-            tokens_to_update.push(token);
-         }
+            if !pool.currency1().is_base() {
+               let token = pool.currency1().to_erc20().into_owned();
 
-         if !pool.currency1().is_base() {
-            let token = pool.currency1().to_erc20().into_owned();
+               if inserted.contains(&token.address) {
+                  continue;
+               }
 
-            if inserted.contains(&token.address) {
-               continue;
+               inserted.insert(token.address);
+               tokens_to_update.push(token);
             }
-
-            inserted.insert(token.address);
-            tokens_to_update.push(token);
          }
+
+         let price_manager = ctx.price_manager();
+         price_manager
+            .calculate_prices(ctx.clone(), chain, self.clone(), tokens_to_update)
+            .await?;
       }
-
-      let price_manager = ctx.price_manager();
-      price_manager.calculate_prices(ctx.clone(), chain, self.clone(), tokens_to_update).await?;
-}
 
       Ok(pools)
    }
@@ -471,20 +478,19 @@ impl PoolManagerHandle {
          let task = RT.spawn(async move {
             let _permit = semaphore.acquire().await?;
 
-         manager
-            .sync_v2_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
-            .await?;
+            manager
+               .sync_v2_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
+               .await?;
 
-         manager
-            .sync_v3_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
-            .await?;
+            manager
+               .sync_v3_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
+               .await?;
 
-         manager
-            .sync_v4_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
-            .await?;
+            manager
+               .sync_v4_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
+               .await?;
 
-
-         Ok(())
+            Ok(())
          });
          tasks.push(task);
       }
@@ -495,7 +501,10 @@ impl PoolManagerHandle {
          match task.await {
             Ok(_) => {
                synced += 1;
-               info!("Synced Token Pool Data {} out of {} tokens Chain {}", synced, token_len, chain);
+               info!(
+                  "Synced Token Pool Data {} out of {} tokens Chain {}",
+                  synced, token_len, chain
+               );
             }
             Err(e) => tracing::error!("Error syncing pools: {:?}", e),
          }
@@ -671,8 +680,8 @@ impl PoolManagerHandle {
                }
 
                let factory = dex.factory(token.chain_id)?;
-               let pools = client.request(chain, |client| {
-                  async move {
+               let pools = client
+                  .request(chain, |client| async move {
                      batch::get_v3_pools(
                         client,
                         chain,
@@ -681,8 +690,8 @@ impl PoolManagerHandle {
                         base_token.address,
                      )
                      .await
-                  }
-               }).await?;
+                  })
+                  .await?;
 
                for pool in &pools {
                   if !pool.addr.is_zero() {
@@ -1302,10 +1311,8 @@ impl PoolManager {
    }
 
    pub fn get_v4_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<&AnyUniswapPool> {
-      if let Some(pool) = self
-         .pools
-         .iter()
-         .find(|(_, p)| p.id() == pool_id && p.chain_id() == chain_id)
+      if let Some(pool) =
+         self.pools.iter().find(|(_, p)| p.id() == pool_id && p.chain_id() == chain_id)
       {
          Some(pool.1)
       } else {
@@ -1354,7 +1361,6 @@ impl PoolManager {
    }
 }
 
-
 /// Update the state of all the pools for the given chain
 ///
 /// Supports V2, V3 & V4 pools
@@ -1366,8 +1372,7 @@ async fn batch_update_state(
    concurrency: usize,
    batch_size: usize,
    mut pools: Vec<AnyUniswapPool>,
-) -> Result<Vec<AnyUniswapPool>, anyhow::Error>
-{
+) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
    let v2_addresses: Vec<Address> = pools
       .iter()
       .filter(|p| p.dex_kind().is_v2() && p.chain_id() == chain_id)
@@ -1389,15 +1394,15 @@ async fn batch_update_state(
 
       let task = tokio::spawn(async move {
          let _permit = semaphore.acquire_owned().await?;
-         let res = client.request(chain_id, |client| {
-            let chunk_clone = chunk_clone.clone();
-            async move {
-               batch::get_v2_reserves(client.clone(), chain_id, chunk_clone).await
-            }
-         }).await;
+         let res = client
+            .request(chain_id, |client| {
+               let chunk_clone = chunk_clone.clone();
+               async move { batch::get_v2_reserves(client.clone(), chain_id, chunk_clone).await }
+            })
+            .await;
 
          match res {
-               Ok(data) => {
+            Ok(data) => {
                v2_reserves.lock().await.extend(data);
             }
             Err(e) => {
@@ -1434,15 +1439,15 @@ async fn batch_update_state(
 
       let task = tokio::spawn(async move {
          let _permit = semaphore.acquire_owned().await.unwrap();
-         let res = client.request(chain_id, |client| {
-            let pool_chunk = pool_chunk.clone();
-            async move {
-               batch::get_v3_state(client.clone(), chain_id, pool_chunk).await
-               }
-         }).await;
+         let res = client
+            .request(chain_id, |client| {
+               let pool_chunk = pool_chunk.clone();
+               async move { batch::get_v3_state(client.clone(), chain_id, pool_chunk).await }
+            })
+            .await;
 
          match res {
-               Ok(data) => {
+            Ok(data) => {
                v3_data.lock().await.extend(data);
             }
             Err(e) => {
@@ -1477,12 +1482,12 @@ async fn batch_update_state(
 
       let task = tokio::spawn(async move {
          let _permit = semaphore.acquire_owned().await.unwrap();
-         let res = client.request(chain_id, |client| {
-            let pool_chunk = pool_chunk.clone();
-            async move {
-               batch::get_v4_pool_state(client.clone(), chain_id, pool_chunk).await
-               }
-         }).await;
+         let res = client
+            .request(chain_id, |client| {
+               let pool_chunk = pool_chunk.clone();
+               async move { batch::get_v4_pool_state(client.clone(), chain_id, pool_chunk).await }
+            })
+            .await;
 
          match res {
             Ok(data) => {
@@ -1564,9 +1569,6 @@ async fn batch_update_state(
 
    Ok(pools)
 }
-
-
-
 
 #[cfg(test)]
 mod tests {

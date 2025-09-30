@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
-use crate::core::{serde_hashmap, context::data_dir};
+use crate::core::{context::data_dir, serde_hashmap};
 
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -9,7 +9,7 @@ use zeus_eth::{
    types::{ARBITRUM, BASE, BSC, ETH, OPTIMISM},
 };
 
-use bincode::{Encode, Decode, config::standard, decode_from_slice};
+use bincode::{Decode, Encode, config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "currencies.json";
 pub const TOKENS: &[u8] = include_bytes!("../../../../token_data.data");
@@ -66,9 +66,7 @@ impl CurrencyDB {
       for currencies_arc in self.currencies.values() {
          for currency in currencies_arc.iter() {
             if let Some(token) = currency.erc20() {
-               self
-                  .tokens
-                  .insert((token.chain_id, token.address), token.clone());
+               self.tokens.insert((token.chain_id, token.address), token.clone());
             }
          }
       }
@@ -100,9 +98,7 @@ impl CurrencyDB {
          }
          currencies.push(currency.clone());
       } else {
-         self
-            .currencies
-            .insert(chain_id, Arc::new(vec![currency.clone()]));
+         self.currencies.insert(chain_id, Arc::new(vec![currency.clone()]));
       }
       if currency.is_erc20() {
          let erc20 = currency.to_erc20().into_owned();
@@ -181,7 +177,6 @@ impl CurrencyDB {
       Ok(())
    }
 }
-
 
 #[cfg(test)]
 mod tests {

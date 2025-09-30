@@ -139,7 +139,6 @@ fn find_all_paths(
    // Adjacency list: Currency -> Vec<(NeighborCurrency, Pool)>
    let mut adj: HashMap<Currency, Vec<(Currency, Arc<AnyUniswapPool>)>> = HashMap::new();
    for pool in all_pools {
-
       let c0 = pool.currency0().clone();
       let c1 = pool.currency1().clone();
       adj.entry(c0.clone())

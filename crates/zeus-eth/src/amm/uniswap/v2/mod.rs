@@ -1,11 +1,10 @@
 pub mod pool;
 
-use super::{consts::*, UniswapPool};
-use alloy_primitives::U256;
+use super::{UniswapPool, consts::*};
 use crate::currency::Currency;
+use alloy_primitives::U256;
 
 pub use pool::UniswapV2Pool;
-
 
 pub fn div_uu(x: U256, y: U256) -> Result<u128, anyhow::Error> {
    if !y.is_zero() {

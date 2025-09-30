@@ -1,8 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::core::{serde_hashmap, context::data_dir};
-use zeus_eth::{alloy_primitives::Address, currency::{ERC20Token, Currency}, utils::NumericValue};
+use crate::core::{context::data_dir, serde_hashmap};
+use zeus_eth::{
+   alloy_primitives::Address,
+   currency::{Currency, ERC20Token},
+   utils::NumericValue,
+};
 
 const FILE_NAME: &str = "portfolio.json";
 
@@ -85,18 +89,11 @@ impl PortfolioDB {
 
    pub fn get(&self, chain_id: u64, owner: Address) -> Portfolio {
       let key = (chain_id, owner);
-      self
-         .portfolios
-         .get(&key)
-         .cloned()
-         .unwrap_or(Portfolio::new(owner, chain_id))
+      self.portfolios.get(&key).cloned().unwrap_or(Portfolio::new(owner, chain_id))
    }
 
    pub fn get_all(&self, chain_id: u64) -> Vec<Portfolio> {
-     let mut portfolios = self.portfolios
-         .iter()
-         .map(|(_, p)| p.clone())
-         .collect::<Vec<_>>();
+      let mut portfolios = self.portfolios.iter().map(|(_, p)| p.clone()).collect::<Vec<_>>();
       portfolios.retain(|p| p.chain_id == chain_id);
       portfolios
    }

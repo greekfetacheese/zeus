@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
-   TransactionAnalysis, DecodedEvent, TransferParams, ZeusCtx,
+   DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx,
    utils::{RT, estimate_tx_cost, eth},
 };
 
@@ -680,7 +680,9 @@ async fn update_balances(
 
    if currency.is_erc20() {
       let token = currency.to_erc20().into_owned();
-      manager.update_tokens_balance(ctx.clone(), chain, sender, vec![token], true).await?;
+      manager
+         .update_tokens_balance(ctx.clone(), chain, sender, vec![token], true)
+         .await?;
    }
 
    if exists {

@@ -3,7 +3,11 @@ pub use pool::UniswapV3Pool;
 
 use alloy_primitives::{Address, I256, U256};
 
-use super::{UniswapPool, consts::*, state::{V3PoolState, TickInfo}};
+use super::{
+   UniswapPool,
+   consts::*,
+   state::{TickInfo, V3PoolState},
+};
 
 use std::cmp::Ordering;
 use uniswap_v3_math::{full_math::mul_div, sqrt_price_math, tick_math::*};
@@ -150,11 +154,11 @@ pub fn calculate_swap(
 
    // Initialize a mutable state state struct to hold the dynamic simulated state of the pool
    let mut current_state = CurrentState {
-      sqrt_price_x_96: state.sqrt_price, //Active price on the pool
-      amount_calculated: I256::ZERO,             //Amount of token_out that has been calculated
+      sqrt_price_x_96: state.sqrt_price,                     //Active price on the pool
+      amount_calculated: I256::ZERO,                         //Amount of token_out that has been calculated
       amount_specified_remaining: I256::from_raw(amount_in), //Amount of token_in that has not been swapped
-      tick: state.tick,                  //Current i24 tick of the pool
-      liquidity: state.liquidity,        //Current available liquidity in the tick range
+      tick: state.tick,                                      //Current i24 tick of the pool
+      liquidity: state.liquidity,                            //Current available liquidity in the tick range
    };
 
    // Keep track of the fee growth for the token being swapped in

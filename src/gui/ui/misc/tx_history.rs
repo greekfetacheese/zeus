@@ -1,6 +1,5 @@
 use crate::core::{
-   WalletInfo,
-   TransactionRich, ZeusCtx,
+   TransactionRich, WalletInfo, ZeusCtx,
    utils::{RT, truncate_address},
 };
 use crate::gui::SHARED_GUI;
@@ -79,10 +78,10 @@ impl TxHistory {
 
             // Wallet Filter
             let wallets = ctx.get_all_wallets_info();
-            let selected_wallet_name =
-               self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name()
-               });
+            let selected_wallet_name = self
+               .selected_wallet
+               .clone()
+               .map_or("All Wallets".to_string(), |wallet| wallet.name());
 
             ComboBox::from_id_salt("wallet_filter")
                .width(200.0)

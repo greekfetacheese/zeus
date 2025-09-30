@@ -1,6 +1,6 @@
 use alloy_network::EthereumWallet;
 use alloy_primitives::{Address, hex};
-use alloy_signer::k256::ecdsa::{VerifyingKey, SigningKey};
+use alloy_signer::k256::ecdsa::{SigningKey, VerifyingKey};
 use alloy_signer_local::PrivateKeySigner;
 use secure_types::{SecureArray, SecureString, Zeroize};
 use serde::{Deserialize, Serialize};

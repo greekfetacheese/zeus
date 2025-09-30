@@ -25,7 +25,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          gui.header.show(ctx.clone(), theme, icons.clone(), ui);
       });
 
-     // ui.add_space(240.0);
+      // ui.add_space(240.0);
 
       gui.notification.show(&gui.theme, icons, ui);
 

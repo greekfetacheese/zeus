@@ -1,6 +1,6 @@
+use crate::types::ChainId;
 use alloy_rpc_types::Block;
 use alloy_sol_types::decode_revert_reason;
-use crate::types::ChainId;
 
 use revm::{
    Context, MainBuilder, MainContext,
@@ -15,8 +15,10 @@ use op_revm::OpSpecId;
 pub use op_revm;
 pub use revm;
 pub use revm::{
-   Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm, context_interface::result::{ExecutionResult, Output},
-   database::InMemoryDB, interpreter::Host,
+   Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm,
+   context_interface::result::{ExecutionResult, Output},
+   database::InMemoryDB,
+   interpreter::Host,
 };
 
 pub type Evm2<DB> = Evm<
@@ -67,7 +69,7 @@ where
 }
 
 pub fn revert_msg(bytes: &Bytes) -> String {
-    decode_revert_reason(bytes).unwrap_or_else(|| "Failed to decode revert reason".to_string())
+   decode_revert_reason(bytes).unwrap_or_else(|| "Failed to decode revert reason".to_string())
 }
 
 #[cfg(test)]

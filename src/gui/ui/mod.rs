@@ -1,7 +1,8 @@
 pub mod auth;
-pub mod header;
 pub mod dapps;
+pub mod header;
 pub mod misc;
+pub mod notification;
 pub mod panels;
 pub mod recipient_selection;
 pub mod send_crypto;
@@ -10,19 +11,18 @@ pub mod sign_msg_window;
 pub mod token_selection;
 pub mod tx_window;
 pub mod wallet;
-pub mod notification;
 
-pub use header::Header;
 pub use auth::{CredentialsForm, RecoverHDWallet, UnlockVault};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
+pub use header::Header;
 pub use misc::*;
+pub use notification::{Notification, NotificationType};
 pub use recipient_selection::RecipientSelectionWindow;
 pub use send_crypto::SendCryptoUi;
 pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
 pub use tx_window::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
-pub use notification::{Notification, NotificationType};
 
 pub const GREEN_CHECK: &str = "✅";
 pub const REFRESH: &str = "⟲";

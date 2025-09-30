@@ -32,7 +32,8 @@ fn hmac_and_split(
 
    result.zeroize();
 
-   let chain_code = ChainCode::from_slice_mut(&mut right).map_err(|e| Bip32Error::Custom(e.to_string()))?;
+   let chain_code =
+      ChainCode::from_slice_mut(&mut right).map_err(|e| Bip32Error::Custom(e.to_string()))?;
 
    Ok((left, chain_code))
 }

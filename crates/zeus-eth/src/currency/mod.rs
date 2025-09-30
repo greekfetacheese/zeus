@@ -1,10 +1,10 @@
 pub mod erc20;
 pub mod native;
 
+use crate::utils::is_base_token;
 use alloy_primitives::Address;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
-use crate::utils::is_base_token;
 
 pub use erc20::ERC20Token;
 pub use native::NativeCurrency;

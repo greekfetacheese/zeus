@@ -187,8 +187,6 @@ pub struct PositionsReturn {
    pub tokens_owed1: u128,
 }
 
-
-
 #[derive(Debug, Clone)]
 pub struct PositionParams {
    /// Nonce for permits
@@ -297,7 +295,6 @@ pub fn encode_increase_liquidity(params: INonfungiblePositionManager::IncreaseLi
    Bytes::from(abi.abi_encode())
 }
 
-
 pub fn encode_positions(token_id: U256) -> Bytes {
    let abi = INonfungiblePositionManager::positionsCall { tokenId: token_id };
    Bytes::from(abi.abi_encode())
@@ -400,7 +397,6 @@ pub fn decode_collect(data: &Bytes) -> Result<(U256, U256), anyhow::Error> {
    Ok((abi.amount0, abi.amount1))
 }
 
-
 pub fn decode_mint_call(bytes: &Bytes) -> Result<INonfungiblePositionManager::mintReturn, anyhow::Error> {
    let res = INonfungiblePositionManager::mintCall::abi_decode_returns(bytes)?;
    Ok(res)
@@ -429,12 +425,16 @@ pub fn decode_increase_liquidity_call(data: &Bytes) -> Result<(u128, U256, U256)
    Ok((abi.liquidity, abi.amount0, abi.amount1))
 }
 
-pub fn decode_increase_liquidity_log(log: &LogData) -> Result<INonfungiblePositionManager::IncreaseLiquidity, anyhow::Error> {
+pub fn decode_increase_liquidity_log(
+   log: &LogData,
+) -> Result<INonfungiblePositionManager::IncreaseLiquidity, anyhow::Error> {
    let res = INonfungiblePositionManager::IncreaseLiquidity::decode_raw_log(log.topics(), &log.data)?;
    Ok(res)
 }
 
-pub fn decode_decrease_liquidity_log(log: &LogData) -> Result<INonfungiblePositionManager::DecreaseLiquidity, anyhow::Error> {
+pub fn decode_decrease_liquidity_log(
+   log: &LogData,
+) -> Result<INonfungiblePositionManager::DecreaseLiquidity, anyhow::Error> {
    let res = INonfungiblePositionManager::DecreaseLiquidity::decode_raw_log(log.topics(), &log.data)?;
    Ok(res)
 }

@@ -139,7 +139,7 @@ impl UniswapV2Pool {
       self.currency1.to_erc20()
    }
 
-   pub fn base_token(&self) -> Cow<'_, ERC20Token>  {
+   pub fn base_token(&self) -> Cow<'_, ERC20Token> {
       self.base_currency().to_erc20()
    }
 

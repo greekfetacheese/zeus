@@ -136,10 +136,7 @@ impl Label {
       // Estimate available width for text layout within the provided rect
       let available_width_for_text = if self.image.is_some() {
          (rect.width()
-            - self
-               .image
-               .as_ref()
-               .map_or(0.0, |img| img.size().map_or(0.0, |s| s.x))
+            - self.image.as_ref().map_or(0.0, |img| img.size().map_or(0.0, |s| s.x))
             - self.spacing)
             .max(0.0)
       } else {
@@ -181,10 +178,7 @@ impl Widget for Label {
       let available_width = ui.available_width();
       let available_width_for_text = if self.image.is_some() {
          (available_width
-            - self
-               .image
-               .as_ref()
-               .map_or(0.0, |img| img.size().map_or(0.0, |s| s.x))
+            - self.image.as_ref().map_or(0.0, |img| img.size().map_or(0.0, |s| s.x))
             - self.spacing)
             .max(10.0)
       } else {

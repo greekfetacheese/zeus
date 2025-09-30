@@ -1,10 +1,10 @@
-pub mod state_view;
 pub mod actions;
+pub mod state_view;
 
-use alloy_sol_types::{sol, SolEvent};
 use alloy_primitives::LogData;
+use alloy_sol_types::{SolEvent, sol};
 
-pub use IPoolManager::{Swap, Initialize};
+pub use IPoolManager::{Initialize, Swap};
 
 sol! {
 

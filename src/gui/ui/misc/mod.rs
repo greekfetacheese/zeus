@@ -156,7 +156,6 @@ impl WalletSelect {
    }
 }
 
-
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
    pub open: bool,
@@ -765,7 +764,13 @@ impl PortfolioUi {
 
          let balance_manager = ctx_clone.balance_manager();
          match balance_manager
-            .update_tokens_balance(ctx_clone.clone(), chain_id, owner, vec![token], false)
+            .update_tokens_balance(
+               ctx_clone.clone(),
+               chain_id,
+               owner,
+               vec![token],
+               false,
+            )
             .await
          {
             Ok(_) => {}

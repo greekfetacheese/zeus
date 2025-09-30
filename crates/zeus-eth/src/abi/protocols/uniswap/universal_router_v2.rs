@@ -1,11 +1,11 @@
 use alloy_primitives::{
    Address, Bytes, Signature, U256,
-   aliases::{U48, U24, U160},
+   aliases::{U24, U48, U160},
 };
 use alloy_sol_types::{SolCall, SolValue, sol};
 
-use crate::abi::permit::Permit2;
 use super::v4::actions::*;
+use crate::abi::permit::Permit2;
 pub use IV4Router::{PathKey, PoolKey};
 
 // https://docs.uniswap.org/contracts/universal-router/technical-reference

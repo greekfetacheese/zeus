@@ -301,13 +301,21 @@ async fn get_erc20_token(
 ) -> Result<ERC20Token, anyhow::Error> {
    let z_client = ctx.get_zeus_client();
 
-   let token = z_client.request(chain, |client| async move {
-      ERC20Token::new(client, token_address, chain).await
-   }).await?;
+   let token = z_client
+      .request(chain, |client| async move {
+         ERC20Token::new(client, token_address, chain).await
+      })
+      .await?;
 
    let manager = ctx.balance_manager();
    manager
-      .update_tokens_balance(ctx.clone(), chain, owner, vec![token.clone()], false)
+      .update_tokens_balance(
+         ctx.clone(),
+         chain,
+         owner,
+         vec![token.clone()],
+         false,
+      )
       .await?;
 
    let currency = Currency::from(token.clone());
@@ -337,11 +345,7 @@ async fn get_erc20_token(
       let dex = DexKind::main_dexes(chain);
 
       match pool_manager
-         .sync_pools_for_tokens(
-            ctx_clone.clone(),
-            vec![token_clone.clone()],
-            dex,
-         )
+         .sync_pools_for_tokens(ctx_clone.clone(), vec![token_clone.clone()], dex)
          .await
       {
          Ok(_) => {

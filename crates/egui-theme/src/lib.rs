@@ -2,10 +2,10 @@ use egui::{Color32, Frame, style::Style};
 
 const PANIC_MSG: &str = "Custom theme not supported, use Theme::from_custom() instead";
 
-pub mod window;
 pub mod editor;
 pub mod themes;
 pub mod utils;
+pub mod window;
 
 pub use editor::ThemeEditor;
 
@@ -184,7 +184,14 @@ pub struct TextSizes {
 }
 
 impl TextSizes {
-   pub fn new(very_small: f32, small: f32, normal: f32, large: f32, very_large: f32, heading: f32) -> Self {
+   pub fn new(
+      very_small: f32,
+      small: f32,
+      normal: f32,
+      large: f32,
+      very_large: f32,
+      heading: f32,
+   ) -> Self {
       Self {
          very_small,
          small,

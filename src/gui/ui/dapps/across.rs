@@ -516,7 +516,10 @@ impl AcrossBridge {
       self.balance_syncing = true;
       RT.spawn(async move {
          let manager = ctx_clone.balance_manager();
-         match manager.update_eth_balance(ctx_clone.clone(), chain, vec![depositor], false).await {
+         match manager
+            .update_eth_balance(ctx_clone.clone(), chain, vec![depositor], false)
+            .await
+         {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to update ETH balance: {}", e);
@@ -741,7 +744,10 @@ async fn across_bridge(
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
-      match manager.update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true).await {
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -768,7 +774,15 @@ async fn across_bridge(
       let manager = ctx.balance_manager();
 
       if exists {
-         match manager.update_eth_balance(ctx.clone(), dest_chain.id(), vec![recipient], true).await {
+         match manager
+            .update_eth_balance(
+               ctx.clone(),
+               dest_chain.id(),
+               vec![recipient],
+               true,
+            )
+            .await
+         {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to update ETH balance: {}", e);

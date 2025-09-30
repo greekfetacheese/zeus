@@ -210,7 +210,7 @@ pub async fn encode_swap_delegate(
       inputs,
       currency_out.address(),
       amount_out_min,
-      U256::from(deadline)
+      U256::from(deadline),
    );
 
    execute_params.set_call_data(calldata);

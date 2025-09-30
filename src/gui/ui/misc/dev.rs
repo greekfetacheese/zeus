@@ -657,8 +657,8 @@ impl UiTesting {
                });
             }
 
-            let button = Button::new(RichText::new("Permit Analysis").size(text_size))
-               .min_size(button_size);
+            let button =
+               Button::new(RichText::new("Permit Analysis").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {

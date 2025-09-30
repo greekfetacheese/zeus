@@ -7,7 +7,6 @@ use zeus_eth::{
    types::*,
 };
 
-
 const POOL_DATA_FILTERED: &str = "pool_data_filtered.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 

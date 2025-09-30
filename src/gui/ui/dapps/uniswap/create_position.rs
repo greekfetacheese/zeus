@@ -646,7 +646,7 @@ impl CreatePositionUi {
                   chain_id,
                   owner,
                   vec![token_a, token_b],
-                  false
+                  false,
                )
                .await
             {
@@ -962,12 +962,10 @@ impl CreatePositionUi {
          let pool_manager = ctx_clone.pool_manager();
          let dex = DexKind::main_dexes(chain_id);
 
-         match pool_manager.sync_pools_for_tokens(
-            ctx_clone.clone(),
-            vec![token_in, token_out],
-            dex,
-         )
-         .await {
+         match pool_manager
+            .sync_pools_for_tokens(ctx_clone.clone(), vec![token_in, token_out], dex)
+            .await
+         {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Error syncing pools: {:?}", e);
