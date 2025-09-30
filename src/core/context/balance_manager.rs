@@ -1,12 +1,8 @@
-use crate::core::{
-   ZeusCtx, serde_hashmap,
-   utils::RT,
-   context::data_dir,
-};
+use crate::core::{ZeusCtx, context::data_dir, serde_hashmap, utils::RT};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, time::sleep};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -15,10 +11,9 @@ use zeus_eth::{
 };
 
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 const BALANCE_DATA_FILE: &str = "balances.json";
-
-
 
 #[derive(Clone)]
 pub struct BalanceManagerHandle(Arc<RwLock<BalanceManager>>);
@@ -60,12 +55,28 @@ impl BalanceManagerHandle {
       self.write(|manager| manager.concurrency = concurrency);
    }
 
+   pub fn set_max_retries(&self, max_retries: usize) {
+      self.write(|manager| manager.max_retries = max_retries);
+   }
+
+   pub fn set_retry_delay(&self, retry_delay: u64) {
+      self.write(|manager| manager.retry_delay = retry_delay);
+   }
+
    pub fn set_batch_size(&self, batch_size: usize) {
       self.write(|manager| manager.batch_size = batch_size);
    }
 
    pub fn concurrency(&self) -> usize {
       self.read(|manager| manager.concurrency)
+   }
+
+   pub fn max_retries(&self) -> usize {
+      self.read(|manager| manager.max_retries)
+   }
+
+   pub fn retry_delay(&self) -> u64 {
+      self.read(|manager| manager.retry_delay)
    }
 
    pub fn batch_size(&self) -> usize {
@@ -84,7 +95,7 @@ impl BalanceManagerHandle {
 
          let task = RT.spawn(async move {
             for chunk in owners.chunks(batch_size) {
-               match manager.update_eth_balance(ctx.clone(), chain, chunk.to_vec()).await {
+               match manager.update_eth_balance(ctx.clone(), chain, chunk.to_vec(), false).await {
                   Ok(_) => {}
                   Err(e) => {
                      tracing::error!(
@@ -116,7 +127,7 @@ impl BalanceManagerHandle {
                let tokens = portfolio.get_tokens();
 
                match manager
-                  .update_tokens_balance(ctx.clone(), chain, portfolio.owner, tokens)
+                  .update_tokens_balance(ctx.clone(), chain, portfolio.owner, tokens, false)
                   .await
                {
                   Ok(_) => {}
@@ -143,20 +154,75 @@ impl BalanceManagerHandle {
       ctx: ZeusCtx,
       chain: u64,
       owners: Vec<Address>,
+      retry_if_unchanged: bool,
    ) -> Result<(), anyhow::Error> {
       let client = ctx.get_zeus_client();
-      let balances = client.request(chain, |client| {
-         let owners_clone = owners.clone();
-         async move {
-            batch::get_eth_balances(client, chain, None, owners_clone).await
-         }
-      }).await?;
 
-      for balance in balances {
-         let owner = balance.owner;
-         let eth_balance = balance.balance;
-         let native = NativeCurrency::from(chain);
-         self.insert_eth_balance(chain, owner, eth_balance, &native);
+      let max_retries = self.max_retries();
+      let retry_delay = self.retry_delay();
+      let mut attempt = 0;
+
+      let mut old_balances = HashMap::new();
+
+      let owners_clone = owners.clone();
+      for owner in owners_clone {
+         let balance = self.get_eth_balance(chain, owner);
+         old_balances.insert(owner, balance);
+      }
+
+      loop {
+         if attempt > max_retries {
+            tracing::error!("Max retries reached");
+            break;
+         }
+
+         let balances = client
+            .request(chain, |client| {
+               let owners_clone = owners.clone();
+               async move { batch::get_eth_balances(client, chain, None, owners_clone).await }
+            })
+            .await?;
+
+         let mut should_break = false;
+
+         if !retry_if_unchanged {
+            should_break = true;
+
+            for balance in balances {
+               let owner = balance.owner;
+               let eth_balance = balance.balance;
+               let native = NativeCurrency::from(chain);
+               self.insert_eth_balance(chain, owner, eth_balance, &native);
+            }
+         } else {
+            for balance in balances {
+               let owner = balance.owner;
+               let eth_balance = balance.balance;
+               let native = NativeCurrency::from(chain);
+               let old_balance = old_balances.get(&owner).unwrap();
+               if eth_balance == old_balance.wei() {
+                  tracing::warn!(
+                     "Balances for owner {} are the same New {} Old {}, retrying",
+                     owner,
+                     eth_balance,
+                     old_balance.wei()
+                  );
+                  should_break = false;
+                  break;
+               } else {
+                  should_break = true;
+                  self.insert_eth_balance(chain, owner, eth_balance, &native);
+               }
+            }
+         }
+
+         match should_break {
+            true => break,
+            false => {
+               attempt += 1;
+               sleep(Duration::from_millis(retry_delay)).await;
+            }
+         }
       }
 
       Ok(())
@@ -168,6 +234,7 @@ impl BalanceManagerHandle {
       chain: u64,
       owner: Address,
       tokens: Vec<ERC20Token>,
+      retry_if_unchanged: bool,
    ) -> Result<(), anyhow::Error> {
       let client = ctx.get_zeus_client();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
@@ -177,6 +244,9 @@ impl BalanceManagerHandle {
 
       let mut tasks = Vec::new();
       let batch_size = std::cmp::max(1, self.batch_size());
+      let max_retries = self.max_retries();
+      let retry_delay = self.retry_delay();
+
       for chunk in tokens_addr.chunks(batch_size) {
          let client = client.clone();
          let semaphore = semaphore.clone();
@@ -184,39 +254,89 @@ impl BalanceManagerHandle {
          let token_map = token_map.clone();
          let tokens_addr = chunk.to_vec();
 
-         let task = RT.spawn(async move {
-            let _permit = semaphore.acquire().await.unwrap();
-            let balances = client.request(chain, |client| {
-               let tokens_addr_clone = tokens_addr.clone();
-               async move {
-                  batch::get_erc20_balances(client, chain, None, owner, tokens_addr_clone)
-                     .await
-               }
-            }).await;
+         let mut old_balances = HashMap::new();
 
-            match balances {
-               Ok(balances) => {
+         let tokens = tokens_addr.clone();
+         for token in tokens {
+            let balance = self.get_token_balance(chain, owner, token);
+            old_balances.insert(token, balance);
+         }
+
+         let task = RT.spawn(async move {
+            let mut attempt = 0;
+
+            loop {
+               if attempt > max_retries {
+                  tracing::error!("Max retries reached");
+                  break;
+               }
+
+                let _permit = semaphore.acquire().await.unwrap();
+                let balances = client
+                    .request(chain, |client| {
+                        let tokens_addr_clone = tokens_addr.clone();
+                        async move {
+                            batch::get_erc20_balances(client, chain, None, owner, tokens_addr_clone).await
+                        }
+                    })
+                    .await;
+
+                let balances = match balances {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to get erc20 balances for Owner: {owner:?} ChainId: {chain:?} Error: {e:?}"
+                        );
+                        tokio::time::sleep(Duration::from_millis(retry_delay)).await;
+                        attempt += 1;
+                        continue;
+                    }
+                };
+
+                let mut should_break = false;
+
+                // Just update the balances
+                if !retry_if_unchanged {
+                   should_break = true;
+
+                for balance in &balances {
+                     let token =  token_map.get(&balance.token).unwrap();
+                     manager.insert_token_balance(chain, owner, balance.balance, token);
+               }
+               tracing::info!("Updated balances for {} tokens", balances.len());
+            } else {
+                // In case the picked RPC is not synced with the latest block,
+                // it will return the same balances, in that case we need to retry
+
                 for balance in balances {
-                  if let Some(token) = token_map.get(&balance.token) {
-                  manager.insert_token_balance(chain, owner, balance.balance, token);
-                  }
-               }
-               }
-               Err(e) => {
-                tracing::error!(
-                  "Failed to get erc20 balances for Owner: {owner:?} ChainId: {chain:?} Error: {e:?}"
-               );
-               }
+                     let token = token_map.get(&balance.token).unwrap();
+                        let old_balance = old_balances.get(&balance.token).unwrap();
+                        if balance.balance == old_balance.wei() {
+                           tracing::warn!("Balances for token {} are the same New {} Old {}, retrying", token.symbol, balance.balance, old_balance.wei());
+                           should_break = false;
+                           break;
+                        } else {
+                           should_break = true;
+                           manager.insert_token_balance(chain, owner, balance.balance, token);
+                        }
+                }
             }
 
-         });
+               match should_break {
+                  true => break,
+                  false => {
+                     attempt += 1;
+                     sleep(Duration::from_millis(retry_delay)).await;
+                  }
+               }
+            }
+        });
          tasks.push(task);
       }
 
       for task in tasks {
          task.await.unwrap();
       }
-
       Ok(())
    }
 
@@ -278,6 +398,14 @@ fn default_concurrency() -> usize {
    1
 }
 
+fn default_max_retries() -> usize {
+   10
+}
+
+fn default_retry_delay() -> u64 {
+   500
+}
+
 fn default_batch_size() -> usize {
    10
 }
@@ -294,6 +422,12 @@ pub struct BalanceManager {
 
    #[serde(default = "default_concurrency")]
    pub concurrency: usize,
+
+   #[serde(default = "default_max_retries")]
+   pub max_retries: usize,
+
+   #[serde(default = "default_retry_delay")]
+   pub retry_delay: u64,
 
    #[serde(default = "default_batch_size")]
    pub batch_size: usize,
@@ -312,6 +446,9 @@ mod tests {
       let owner = Address::ZERO;
       let tokens = vec![ERC20Token::weth()];
 
-      manager.update_tokens_balance(ctx.clone(), chain, owner, tokens).await.unwrap();
+      manager
+         .update_tokens_balance(ctx.clone(), chain, owner, tokens, false)
+         .await
+         .unwrap();
    }
 }

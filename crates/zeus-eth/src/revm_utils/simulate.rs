@@ -183,9 +183,9 @@ where
 
 
 /// Simulate the increase liquidity function in the [INonfungiblePositionManager] contract
-/// 
+///
 /// ## Returns
-/// 
+///
 /// - The execution result
 /// - The liquidity that was minted
 /// - The amount0 that was minted

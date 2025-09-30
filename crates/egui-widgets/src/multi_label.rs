@@ -41,7 +41,7 @@ impl Widget for MultiLabel {
       if self.labels.is_empty() {
          return ui.allocate_response(Vec2::ZERO, Sense::empty());
       }
-      
+
       // Calculate Intrinsic Sizes (no wrapping)
       let mut total_width = 0.0;
       let mut max_height: f32 = 0.0;

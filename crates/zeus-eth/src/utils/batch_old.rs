@@ -281,7 +281,7 @@ where
 }
 
 /// Verify that the given pool ids are valid
-/// 
+///
 /// Returns the pool ids that are valid
 pub async fn get_v4_pools<P, N>(
    client: P,

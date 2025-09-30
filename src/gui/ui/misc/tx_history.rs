@@ -202,7 +202,7 @@ impl TxHistory {
          let all_wallets = ctx.get_all_wallets_info();
          let filtered_txs: Vec<TransactionRich> = ctx.read(|ctx_read| {
             let mut txs = Vec::new();
-            
+
             for wallet in &all_wallets {
                if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
                   continue;

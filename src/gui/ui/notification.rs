@@ -333,7 +333,7 @@ impl Notification {
 
    fn show_bridge_nofitication(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.bridge_params();
-      ui.vertical_centered(|ui| {         
+      ui.vertical_centered(|ui| {
          let from_chain: ChainId = params.origin_chain.into();
          let symbol_in = params.input_currency.symbol();
          let amount_in = params.amount.format_abbreviated();

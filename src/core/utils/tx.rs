@@ -125,7 +125,7 @@ pub fn make_tx_request(params: TxParams) -> TransactionRequest {
          .with_gas_limit(params.gas_limit)
          .with_max_priority_fee_per_gas(params.miner_tip.to::<u128>())
          .max_fee_per_gas(params.max_fee_per_gas().to::<u128>());
-       
+
        if !params.authorization_list.is_empty() {
          tx.set_authorization_list(params.authorization_list);
        }

@@ -250,7 +250,7 @@ impl PoolManagerHandle {
    }
 
    /// Update the state of the manager based on the given currencies and chain
-   /// 
+   ///
    /// It also updates the token prices
    pub async fn update_for_currencies(
       &self,
@@ -316,8 +316,8 @@ impl PoolManagerHandle {
    }
 
    /// Update the state for the given pools
-   /// 
-   /// It also updates the token prices, this is not ideal but this function is called 
+   ///
+   /// It also updates the token prices, this is not ideal but this function is called
    /// from a lot of places and i dont want to forget calling the price manager manually
    pub async fn update_state_for_pools(
       &self,
@@ -325,7 +325,7 @@ impl PoolManagerHandle {
       chain: u64,
       pools: Vec<AnyUniswapPool>,
    ) -> Result<Vec<AnyUniswapPool>, anyhow::Error> {
-      
+
       let pools = self._update_state_for_pools(ctx.clone(), chain, pools).await?;
 
       // ignore on tests
@@ -344,7 +344,7 @@ impl PoolManagerHandle {
             inserted.insert(token.address);
             tokens_to_update.push(token);
          }
-         
+
          if !pool.currency1().is_base() {
             let token = pool.currency1().to_erc20().into_owned();
 
@@ -454,7 +454,7 @@ impl PoolManagerHandle {
       if tokens.is_empty() {
          return Ok(());
       }
-      
+
       let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
 
@@ -482,7 +482,7 @@ impl PoolManagerHandle {
          manager
             .sync_v4_pools_for_token(ctx.clone(), token.clone(), dex_kinds.clone())
             .await?;
-         
+
 
          Ok(())
          });
@@ -809,7 +809,7 @@ impl PoolManagerHandle {
                   pool_ids.push(pool.id());
                   pools.push(pool);
                }
-                  
+
                let valid_pool_ids = client.request(chain, |client| {
                   let pool_ids_clone = pool_ids.clone();
                   async move {

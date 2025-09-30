@@ -646,6 +646,7 @@ impl CreatePositionUi {
                   chain_id,
                   owner,
                   vec![token_a, token_b],
+                  false
                )
                .await
             {

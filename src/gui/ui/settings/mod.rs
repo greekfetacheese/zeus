@@ -32,7 +32,7 @@ const DEV_T_MIN_COST: u32 = 3;
 
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
-    This is the most improtant parameter against GPU/ASIC brute-forcing attacks. 
+    This is the most improtant parameter against GPU/ASIC brute-forcing attacks.
     You probably want to just increase the Memory cost to a sensible value 512 - 1024mb or even more if your RAM can afford it";
 
 const T_COST_TIP: &str = "The number of iterations the Argon2 algorithm will run over the memory. Higher values are more secure but slower.";

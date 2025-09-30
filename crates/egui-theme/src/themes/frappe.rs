@@ -165,7 +165,7 @@ fn widgets(colors: ThemeColors) -> Widgets {
 
    let mut non_interactive_base = base_visuals.clone();
    non_interactive_base.bg_stroke.width = 0.0;
-   
+
    Widgets {
       noninteractive: non_interactive_base,
       inactive: base_visuals,

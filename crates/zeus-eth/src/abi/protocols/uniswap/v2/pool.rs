@@ -84,7 +84,7 @@ where
 }
 
 /// * `block_id` - The block id to query the reserves
-/// 
+///
 /// If None, the latest block will be used
 pub async fn get_reserves<P, N>(
    pair_address: Address,

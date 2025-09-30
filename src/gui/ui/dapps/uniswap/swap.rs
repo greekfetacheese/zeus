@@ -1516,22 +1516,27 @@ async fn swap(
    )
    .await?;
 
-   let tokens = vec![
-      currency_in.to_erc20().into_owned(),
-      currency_out.to_erc20().into_owned(),
-   ];
+   let mut tokens = Vec::new();
+
+   if currency_in.is_erc20() {
+      tokens.push(currency_in.to_erc20().into_owned());
+   }
+
+   if currency_out.is_erc20() {
+      tokens.push(currency_out.to_erc20().into_owned());
+   }
 
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, tokens).await {
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, tokens, true).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update balances: {}", e);
          }
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from], true).await {
          Ok(_) => {}
          Err(e) => {
             tracing::error!("Failed to update ETH balance: {}", e);
@@ -1669,12 +1674,12 @@ pub async fn wrap_eth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from], true).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
@@ -1802,12 +1807,12 @@ pub async fn unwrap_weth(
    // update balances
    RT.spawn(async move {
       let manager = ctx.balance_manager();
-      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth]).await {
+      match manager.update_tokens_balance(ctx.clone(), chain.id(), from, vec![weth], true).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating weth balance: {:?}", e),
       }
 
-      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from]).await {
+      match manager.update_eth_balance(ctx.clone(), chain.id(), vec![from], true).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }

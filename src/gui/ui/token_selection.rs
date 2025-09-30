@@ -307,7 +307,7 @@ async fn get_erc20_token(
 
    let manager = ctx.balance_manager();
    manager
-      .update_tokens_balance(ctx.clone(), chain, owner, vec![token.clone()])
+      .update_tokens_balance(ctx.clone(), chain, owner, vec![token.clone()], false)
       .await?;
 
    let currency = Currency::from(token.clone());

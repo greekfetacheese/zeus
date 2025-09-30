@@ -106,7 +106,7 @@ impl Label {
          FontSelection::Default,
          ui.text_valign(),
       );
-      
+
       // remove the Arc
       let mut layout_job: LayoutJob = (*layout_job).clone();
 

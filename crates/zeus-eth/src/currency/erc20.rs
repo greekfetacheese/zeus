@@ -219,7 +219,7 @@ impl ERC20Token {
    }
 
    /// Return a list of base tokens based on the chain id.
-   /// 
+   ///
    /// If the chain id is invalid, it fallbacks to [ChainId::Ethereum]
    pub fn base_tokens(chain_id: u64) -> Vec<ERC20Token> {
       let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum);
