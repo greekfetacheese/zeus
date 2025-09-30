@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
-   TransactionAnalysis, TransferParams, ZeusCtx,
+   TransactionAnalysis, DecodedEvent, TransferParams, ZeusCtx,
    utils::{RT, estimate_tx_cost, eth},
 };
 
@@ -24,7 +24,7 @@ use zeus_eth::{
    alloy_rpc_types::BlockId,
    amm::uniswap::DexKind,
    currency::{Currency, NativeCurrency},
-   revm_utils::{ForkFactory, new_evm, simulate},
+   revm_utils::{ForkFactory, Host, new_evm, simulate},
    types::ChainId,
    utils::NumericValue,
 };
@@ -574,6 +574,8 @@ async fn send_token(
    let recipient_balance_before = token.balance_of(client.clone(), recipient, None).await?;
 
    let real_amount_sent;
+   let eth_balance_after;
+   let logs;
    let gas_used;
 
    {
@@ -596,8 +598,16 @@ async fn send_token(
          U256::ZERO
       };
 
+      let state = evm.balance(recipient);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+
       real_amount_sent = real_amount;
       gas_used = res.gas_used();
+      logs = res.logs().to_vec();
    }
 
    let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
@@ -610,25 +620,26 @@ async fn send_token(
    transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
 
    let eth_balance_before = eth_balance_before_fut.await?;
-
-   let tx_analysis = TransactionAnalysis {
-      chain: chain.id(),
-      sender: from,
-      interact_to,
-      contract_interact: true,
-      value,
-      call_data: call_data.clone(),
-      gas_used,
-      eth_balance_before: eth_balance_before,
-      eth_balance_after: eth_balance_before,
-      decoded_selector: "ERC20 Transfer".to_string(),
-      transfers: vec![transfer_params],
-      logs_len: 1,
-      known_events: 1,
-      ..Default::default()
-   };
-
+   let contract_interact = Some(true);
    let auth_list = Vec::new();
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      call_data.clone(),
+      value,
+      logs,
+      gas_used,
+      eth_balance_before,
+      eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
 
    let (_, _) = eth::send_transaction(
       ctx.clone(),

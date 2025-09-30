@@ -7,8 +7,16 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, Log, U256},
    alloy_provider::Provider,
    currency::{Currency, NativeCurrency},
-   utils::NumericValue,
+   utils::{
+      NumericValue,
+      address_book::{
+         across_spoke_pool_v2, permit2_contract, uniswap_nft_position_manager, universal_router_v2,
+         vitalik, weth,
+      },
+   },
 };
+
+use std::str::FromStr;
 
 /// An analysis of all recognizable events and data within a single transaction.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -34,7 +42,7 @@ pub struct TransactionAnalysis {
    pub logs_len: usize,
 
    /// Total decoded events by how many logs were decoded
-   /// 
+   ///
    /// ETH transfers and EIP7702 Authorization events are not counted
    pub known_events: usize,
 
@@ -571,10 +579,6 @@ impl TransactionAnalysis {
             }
          }
 
-         // tracing::info!("Swaps Len {}", swaps_len);
-         // tracing::info!("Input Token: {:?}", params.input_currency.symbol());
-         // tracing::info!("Output Token: {:?}", params.output_currency.symbol());
-
          return DecodedEvent::SwapToken(params);
       }
 
@@ -621,5 +625,232 @@ impl TransactionAnalysis {
    pub fn eth_received_usd(&self, ctx: ZeusCtx) -> NumericValue {
       let native = NativeCurrency::from(self.chain);
       ctx.get_currency_value_for_amount(self.eth_received().f64(), &Currency::from(native))
+   }
+}
+
+impl TransactionAnalysis {
+   pub fn dummy_token_approval() -> Self {
+      let main_event = DecodedEvent::dummy_token_approve();
+      let token = main_event.token_approval_params().token[0].clone();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: token.address,
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Approve".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_swap() -> Self {
+      let main_event = DecodedEvent::dummy_swap();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: universal_router_v2(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 150_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Swap".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_bridge() -> Self {
+      let main_event = DecodedEvent::dummy_bridge();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: across_spoke_pool_v2(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Bridge".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_transfer() -> Self {
+      let main_event = DecodedEvent::dummy_transfer();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
+         contract_interact: false,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 21_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Transfer".to_string(),
+         logs_len: 0,
+         known_events: 0,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_erc20_transfer() -> Self {
+      let main_event = DecodedEvent::dummy_erc20_transfer();
+      let token = main_event.transfer_params().currency.address();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: token,
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "ERC20 Transfer".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_unwrap_weth() -> Self {
+      let main_event = DecodedEvent::dummy_unwrap_weth();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: weth(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Withdraw".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_wrap_eth() -> Self {
+      let main_event = DecodedEvent::dummy_wrap_eth();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: weth(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Deposit".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_uniswap_position_operation() -> Self {
+      let main_event = DecodedEvent::dummy_uniswap_position_operation();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: uniswap_nft_position_manager(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 100_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "AddLiquidity".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_permit() -> Self {
+      let main_event = DecodedEvent::dummy_permit();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: permit2_contract(1).unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Permit".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_eoa_delegate() -> Self {
+      let main_event = DecodedEvent::dummy_eoa_delegate();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "EOA Delegate".to_string(),
+         logs_len: 0,
+         known_events: 0,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn unknown_tx_1() -> Self {
+      let erc20_transfer = DecodedEvent::dummy_erc20_transfer();
+      let unwrap_weth = DecodedEvent::dummy_unwrap_weth();
+      let balance_after = NumericValue::parse_to_wei("1", 18);
+
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: Address::from_str("0x0000000000000000000000000000000000000000").unwrap(),
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: balance_after.wei(),
+         decoded_selector: "Unknown".to_string(),
+         logs_len: 2,
+         known_events: 2,
+         decoded_events: vec![erc20_transfer, unwrap_weth],
+         main_event: None,
+      }
    }
 }

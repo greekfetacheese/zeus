@@ -352,7 +352,7 @@ impl TxHistory {
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[1]);
                               ui.label(
-                                 RichText::new(tx.action.name())
+                                 RichText::new(tx.main_event.name())
                                     .size(theme.text_sizes.normal)
                                     .color(theme.colors.text_color),
                               );

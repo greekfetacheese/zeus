@@ -2,6 +2,9 @@ use crate::types::ChainId;
 use alloy_primitives::{Address, address};
 use anyhow::bail;
 
+pub fn vitalik() -> Address {
+   address!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")
+}
 
 pub fn zeus_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;

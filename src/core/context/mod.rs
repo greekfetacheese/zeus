@@ -740,6 +740,10 @@ impl ZeusCtx {
          }
       }
 
+      if address == address_book::vitalik() {
+         return Some("Vitalik".to_string());
+      }
+
       None
    }
 

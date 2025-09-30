@@ -358,20 +358,20 @@ impl UiTesting {
                Button::new(RichText::new("Swap Notification With Progress Bar").size(text_size))
                   .min_size(button_size);
 
-            let dummy_swap = TransactionAction::dummy_swap().clone();
-            let dummy_bridge = TransactionAction::dummy_bridge().clone();
-            let dummy_transfer = TransactionAction::dummy_transfer().clone();
-            let dummy_approval = TransactionAction::dummy_token_approve().clone();
+            let dummy_swap = DecodedEvent::dummy_swap().clone();
+            let dummy_bridge = DecodedEvent::dummy_bridge().clone();
+            let dummy_transfer = DecodedEvent::dummy_transfer().clone();
+            let dummy_approval = DecodedEvent::dummy_token_approve().clone();
 
             let swap_title = dummy_swap.name();
             let bridge_title = dummy_bridge.name();
             let transfer_title = dummy_transfer.name();
             let approval_title = dummy_approval.name();
 
-            let swap_notification = NotificationType::from_tx_action(dummy_swap);
-            let bridge_notification = NotificationType::from_tx_action(dummy_bridge);
-            let transfer_notification = NotificationType::from_tx_action(dummy_transfer);
-            let approval_notification = NotificationType::from_tx_action(dummy_approval);
+            let swap_notification = NotificationType::from_main_event(dummy_swap);
+            let bridge_notification = NotificationType::from_main_event(dummy_bridge);
+            let transfer_notification = NotificationType::from_main_event(dummy_transfer);
+            let approval_notification = NotificationType::from_main_event(dummy_approval);
 
             if ui.add(button).clicked() {
                let title = swap_title.clone();
@@ -497,15 +497,7 @@ impl UiTesting {
                Button::new(RichText::new("EOA Delegate").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               let params = TransactionAction::dummy_eoa_delegate().eoa_delegate_params().clone();
-               let analysis = TransactionAnalysis {
-                  chain: 1,
-                  contract_interact: false,
-                  decoded_selector: "EOA Delegate".to_string(),
-                  gas_used: 50_000,
-                  eoa_delegates: vec![params],
-                  ..Default::default()
-               };
+               let analysis = TransactionAnalysis::dummy_eoa_delegate();
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
@@ -521,58 +513,14 @@ impl UiTesting {
                });
             }
 
-            let button = Button::new(RichText::new("Unknown Tx Analysis 1").size(text_size))
+            let button = Button::new(RichText::new("Unknown Tx Analysis").size(text_size))
                .min_size(button_size);
 
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Unknown".to_string(),
-                     transfers: vec![params.clone(), params.clone(), params],
-                     gas_used: 160_000,
-                     value: NumericValue::parse_to_wei("1", 18).wei(),
-                     ..Default::default()
-                  };
-
-                  SHARED_GUI.write(|gui| {
-                     gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
-                        "".to_string(),
-                        ctx_clone.chain(),
-                        analysis,
-                        "1".to_string(),
-                        true,
-                     );
-                  });
-               });
-            }
-
-            let button = Button::new(RichText::new("Unknown Tx Analysis 2").size(text_size))
-               .min_size(button_size);
-
-            if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
-
-               RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
-                  let unwrap = TransactionAction::dummy_unwrap_weth().unwrap_weth_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Unknown".to_string(),
-                     transfers: vec![params.clone(), params.clone()],
-                     weth_unwraps: vec![unwrap],
-                     gas_used: 160_000,
-                     eth_balance_before: NumericValue::default().wei(),
-                     eth_balance_after: NumericValue::parse_to_wei("1", 18).wei(),
-                     ..Default::default()
-                  };
-
+                  let analysis = TransactionAnalysis::unknown_tx_1();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -593,16 +541,7 @@ impl UiTesting {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_wrap_eth().wrap_eth_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Deposit".to_string(),
-                     eth_wraps: vec![params],
-                     gas_used: 160_000,
-                     ..Default::default()
-                  };
-
+                  let analysis = TransactionAnalysis::dummy_wrap_eth();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -623,16 +562,7 @@ impl UiTesting {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_unwrap_weth().unwrap_weth_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Withdraw".to_string(),
-                     weth_unwraps: vec![params],
-                     gas_used: 160_000,
-                     ..Default::default()
-                  };
-
+                  let analysis = TransactionAnalysis::dummy_unwrap_weth();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -653,18 +583,7 @@ impl UiTesting {
                let ctx_clone = ctx.clone();
 
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_swap().swap_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Swap".to_string(),
-                     swaps: vec![params],
-                     gas_used: 160_000,
-                     logs_len: 1,
-                     known_events: 1,
-                     ..Default::default()
-                  };
-
+                  let analysis = TransactionAnalysis::dummy_swap();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -684,14 +603,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     value: NumericValue::parse_to_wei("1", 18).wei(),
-                     contract_interact: false,
-                     decoded_selector: "Transfer".to_string(),
-                     gas_used: 21_000,
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_transfer();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -711,15 +623,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_erc20_transfer().transfer_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "ERC20 Transfer".to_string(),
-                     gas_used: 50_000,
-                     transfers: vec![params],
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_erc20_transfer();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -739,16 +643,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params =
-                     TransactionAction::dummy_token_approve().token_approval_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Approve".to_string(),
-                     gas_used: 50_000,
-                     token_approvals: vec![params],
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_token_approval();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -767,15 +662,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_permit().permit_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Permit".to_string(),
-                     gas_used: 50_000,
-                     permits: vec![params],
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_permit();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -795,17 +682,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_uniswap_position_operation()
-                     .uniswap_position_params()
-                     .clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "AddLiquidity".to_string(),
-                     gas_used: 120_000,
-                     positions_ops: vec![params],
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_uniswap_position_operation();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),
@@ -825,15 +702,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
-                  let params = TransactionAction::dummy_bridge().bridge_params().clone();
-                  let analysis = TransactionAnalysis {
-                     chain: 1,
-                     contract_interact: true,
-                     decoded_selector: "Bridge".to_string(),
-                     gas_used: 120_000,
-                     bridge: vec![params],
-                     ..Default::default()
-                  };
+                  let analysis = TransactionAnalysis::dummy_bridge();
                   SHARED_GUI.write(|gui| {
                      gui.tx_confirmation_window.open(
                         ctx_clone.clone(),

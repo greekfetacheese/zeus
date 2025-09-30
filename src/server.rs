@@ -1563,10 +1563,10 @@ async fn eth_send_transaction(
 
       // Update token balances if needed
       let erc20_transfers = &tx_rich.analysis.erc20_transfers();
-      let wrap_eth = &tx_rich.analysis.eth_wraps;
-      let unwrap_eth = &tx_rich.analysis.weth_unwraps;
+      let eth_wraps = &tx_rich.analysis.eth_wraps();
+      let eth_unwraps = &tx_rich.analysis.weth_unwraps();
 
-      for wrap in wrap_eth {
+      for wrap in eth_wraps {
          let token = ERC20Token::wrapped_native_token(chain.id());
          let recipient = wrap.recipient;
          let recipient_exists = ctx.wallet_exists(recipient);
@@ -1586,7 +1586,7 @@ async fn eth_send_transaction(
          }
       }
 
-      for unwrap in unwrap_eth {
+      for unwrap in eth_unwraps {
          let token = ERC20Token::wrapped_native_token(chain.id());
          let src = unwrap.src;
          let src_exists = ctx.wallet_exists(src);
