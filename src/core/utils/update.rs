@@ -6,6 +6,7 @@ use crate::core::{
 use anyhow::{anyhow, bail};
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
+use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{U256, utils::format_units},
    alloy_provider::Provider,
@@ -15,6 +16,8 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };
+
+use tokio::sync::Semaphore;
 
 const MEASURE_RPCS_INTERVAL: u64 = 120;
 const PORTFOLIO_INTERVAL: u64 = 600;
@@ -26,6 +29,7 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
    let client = ctx.get_zeus_client();
 
    let mut tasks = Vec::new();
+   let semaphore = Arc::new(Semaphore::new(5));
 
    let time = std::time::Instant::now();
    for chain in SUPPORTED_CHAINS {
@@ -33,18 +37,21 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
 
       for rpc in &rpcs {
          let client = client.clone();
+         let semaphore = semaphore.clone();
 
          if rpc.should_run_check() {
             let rpc = rpc.clone();
             let ctx = ctx.clone();
 
             let task = RT.spawn(async move {
+               let _permit = semaphore.acquire().await.unwrap();
                client.run_check_for(ctx, rpc).await;
             });
             tasks.push(task);
          } else {
             let rpc = rpc.clone();
             let task = RT.spawn(async move {
+               let _permit = semaphore.acquire().await.unwrap();
                client.run_latency_check_for(rpc).await;
             });
             tasks.push(task);
