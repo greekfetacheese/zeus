@@ -49,6 +49,8 @@ pub struct SwapExecuteParams {
    pub value: U256,
    /// Whether we need to approve Permit2 contract to spend the token
    pub token_needs_approval: bool,
+   /// Whether the permit2 is expired
+   pub permit2_expired: bool,
    /// The message to be signed
    ///
    /// This is just to show it in a UI, the message if any already signed internally
@@ -67,6 +69,7 @@ impl SwapExecuteParams {
          call_data: Bytes::default(),
          value: U256::ZERO,
          token_needs_approval: false,
+         permit2_expired: false,
          message: None,
       }
    }
@@ -81,6 +84,10 @@ impl SwapExecuteParams {
 
    pub fn set_token_needs_approval(&mut self, token_needs_approval: bool) {
       self.token_needs_approval = token_needs_approval;
+   }
+
+   pub fn set_permit2_expired(&mut self, permit2_expired: bool) {
+      self.permit2_expired = permit2_expired;
    }
 
    pub fn set_message(&mut self, message: Option<Value>) {
@@ -255,6 +262,7 @@ where
 
          execute_params.set_message(Some(value));
          execute_params.set_token_needs_approval(permit2_contract_need_approval);
+         execute_params.set_permit2_expired(expired);
       }
    }
 

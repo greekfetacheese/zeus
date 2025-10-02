@@ -113,6 +113,7 @@ where
             if let Some(acc) = acc {
                let _ = sender.send(Ok(acc.info.clone()));
             } else {
+              // tracing::info!("Account {} not found in cache", addr);
                self.request_account(addr, sender);
             }
          }
@@ -152,6 +153,7 @@ where
             let provider = self.provider.clone();
             let block_num = self.block_num.unwrap_or(BlockId::latest());
             let fut = Box::pin(async move {
+              // tracing::info!("Fetching account info for {}", address);
                let balance = provider
                   .get_balance(address)
                   .block_id(block_num)
@@ -186,6 +188,7 @@ where
             let provider = self.provider.clone();
             let block_num = self.block_num.unwrap_or(BlockId::latest());
             let fut = Box::pin(async move {
+              // tracing::info!("Fetching storage for {} at {}", address, idx);
                let storage = provider
                   .get_storage_at(address, idx)
                   .block_id(block_num)

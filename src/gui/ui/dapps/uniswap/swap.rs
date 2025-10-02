@@ -18,6 +18,8 @@ use crate::core::{
    utils::{RT, eth},
 };
 
+use crate::utils::simulate::*;
+
 use zeus_eth::{
    abi,
    alloy_primitives::{Log, U256},
@@ -1270,8 +1272,88 @@ async fn swap(
       time.elapsed().as_millis()
    );
 
+   let permit2 = address_book::permit2_contract(chain.id())?;
+   let router = address_book::universal_router_v2(chain.id())?;
+   let first_pool = &swap_steps.first().unwrap().pool;
+   let last_pool = &swap_steps.last().unwrap().pool;
+
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(router);
+   accounts.push(permit2);
+
+   if currency_in.is_erc20() {
+      accounts.push(currency_in.address());
+   }
+
+   if currency_in.is_native() && !first_pool.dex_kind().is_v4() {
+      accounts.push(currency_in.to_erc20().address)
+   }
+
+   if currency_out.is_erc20() {
+      accounts.push(currency_out.address());
+   }
+
+   if currency_out.is_native() && !last_pool.dex_kind().is_v4() {
+      accounts.push(currency_out.to_erc20().address)
+   }
+
+   let pools_addr = swap_steps.iter().map(|s| s.pool.address()).collect::<Vec<_>>();
+   for pool in pools_addr {
+      if !pool.is_zero() {
+         accounts.push(pool);
+      }
+   }
+
    let block = block_fut.await?;
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+
+   if let Some(block) = block.as_ref() {
+      accounts.push(block.header.beneficiary);
+   }
+
+   let block_id = if let Some(block) = block.as_ref() {
+      BlockId::number(block.number())
+   } else {
+      BlockId::latest()
+   };
+
+   let accounts_info_fut = fetch_accounts_info(
+      ctx.clone(),
+      chain.id(),
+      block_id,
+      accounts.clone(),
+   );
+
+   let pools = swap_steps.iter().map(|s| s.pool.clone()).collect::<Vec<_>>();
+   let storage_fut = fetch_storage_for_pools(ctx.clone(), chain.id(), block_id, pools);
+
+   let time = Instant::now();
+
+   let accounts_info = accounts_info_fut.await;
+   tracing::info!(
+      "Fetched accounts info for {} in {} ms",
+      accounts.len(),
+      time.elapsed().as_millis()
+   );
+
+   let time = Instant::now();
+   let storage_info = storage_fut.await;
+   tracing::info!(
+      "Fetched storage in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   let mut factory =
+      ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   for storage in storage_info {
+      let _r = factory.insert_account_storage(storage.address, storage.slot, storage.value);
+   }
+
    let fork_db = factory.new_sandbox_fork();
 
    let token_out_balance_after;

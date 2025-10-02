@@ -79,30 +79,26 @@ impl Database for ForkDB {
    }
 
    fn storage(&mut self, address: Address, index: U256) -> Result<U256, Self::Error> {
-      // found locally, return it
       if let Some(account) = self.db.cache.accounts.get(&address) {
          if let Some(entry) = account.storage.get(&index) {
-            // account storage exists at slot
             return Ok(*entry);
          }
       }
 
-      // get account info
-      let acc_info = self.do_get_basic(address)?;
-
-      if let Some(a) = acc_info {
-         self.db.insert_account_info(address, a);
+      // Only fetch account info if account is missing
+      if !self.db.cache.accounts.contains_key(&address) {
+         let acc_info = self.do_get_basic(address)?;
+         if let Some(a) = acc_info {
+            self.db.insert_account_info(address, a);
+         }
       }
 
-      // make rpc call to fetch storage
       let storage_val = self.do_get_storage(address, index)?;
 
-      // keep record of fetched storage (can unwrap safely as cacheDB always returns true)
       self
          .db
          .insert_account_storage(address, index, storage_val)
          .unwrap();
-
       Ok(storage_val)
    }
 
@@ -155,21 +151,9 @@ impl DatabaseRef for ForkDB {
       match self.db.cache.accounts.get(&address) {
          Some(account) => match account.storage.get(&index) {
             Some(entry) => Ok(*entry),
-            None => {
-               // state doesnt exist so fetch it
-               match self.do_get_storage(address, index) {
-                  Ok(storage) => Ok(storage),
-                  Err(e) => Err(e),
-               }
-            }
+            None => self.do_get_storage(address, index),
          },
-         None => {
-            // state doesnt exist so fetch it
-            match self.do_get_storage(address, index) {
-               Ok(storage) => Ok(storage),
-               Err(e) => Err(e),
-            }
-         }
+         None => self.do_get_storage(address, index),
       }
    }
 
