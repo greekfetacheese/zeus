@@ -492,6 +492,8 @@ impl TxConfirmationWindow {
                   for event in &analysis.decoded_events {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
+                           ui.label(RichText::new(event.name()).size(theme.text_sizes.very_large));
+
                            show_event(
                               ctx.clone(),
                               self.chain,
