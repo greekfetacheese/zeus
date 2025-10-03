@@ -729,7 +729,6 @@ async fn across_bridge(
       ctx.clone(),
       "".to_string(),
       None,
-      None,
       chain,
       mev_protect,
       from,

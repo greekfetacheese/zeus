@@ -16,6 +16,7 @@ use crate::gui::{
       dapps::amount_field_with_currency_selector,
    },
 };
+use crate::utils::simulate::fetch_accounts_info;
 use egui_theme::Theme;
 
 use zeus_eth::{
@@ -28,6 +29,8 @@ use zeus_eth::{
    types::ChainId,
    utils::NumericValue,
 };
+
+use anyhow::anyhow;
 
 pub struct SendCryptoUi {
    open: bool,
@@ -520,7 +523,6 @@ async fn send_eth(
       ctx.clone(),
       dapp,
       None,
-      None,
       chain,
       mev_protect,
       from,
@@ -557,11 +559,57 @@ async fn send_token(
    let value = U256::ZERO;
    let call_data = token.encode_transfer(recipient, amount.wei());
 
-   let client = ctx.get_client(chain.id()).await?;
-   let eth_balance_before_fut = client.get_balance(from).into_future();
-   let block = client.get_block(BlockId::latest()).await?;
+   let client = ctx.get_zeus_client();
 
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let block_fut = client.request(chain.id(), |client| async move {
+      client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let eth_balance_before_fut = client.request(chain.id(), |client| async move {
+      client
+         .get_balance(from)
+         .block_id(BlockId::latest())
+         .await
+         .map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let recipient_token_balance_before_fut = client.request(chain.id(), |client| {
+      let token_clone = token.clone();
+      async move { token_clone.balance_of(client.clone(), recipient, None).await }
+   });
+
+   let (block, eth_balance_before, recipient_token_balance_before) = tokio::try_join!(
+      block_fut,
+      eth_balance_before_fut,
+      recipient_token_balance_before_fut
+   )?;
+
+   let block = if let Some(block) = block {
+      block
+   } else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
+   let block_id = BlockId::number(block.number());
+
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(recipient);
+   accounts.push(token.address);
+   accounts.push(block.header.beneficiary);
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
    let fork_db = factory.new_sandbox_fork();
 
    let mut transfer_params = TransferParams {
@@ -571,15 +619,13 @@ async fn send_token(
       ..Default::default()
    };
 
-   let recipient_balance_before = token.balance_of(client.clone(), recipient, None).await?;
-
    let real_amount_sent;
    let eth_balance_after;
    let logs;
    let gas_used;
 
    {
-      let mut evm = new_evm(chain, block.as_ref(), fork_db);
+      let mut evm = new_evm(chain, Some(&block), fork_db);
 
       let res = simulate::transfer_token(
          &mut evm,
@@ -590,12 +636,15 @@ async fn send_token(
          true,
       )?;
 
-      let balance_after = simulate::erc20_balance(&mut evm, token.address, recipient)?;
+      let recipient_token_balance_after =
+         simulate::erc20_balance(&mut evm, token.address, recipient)?;
 
-      let real_amount = if balance_after > recipient_balance_before {
-         balance_after - recipient_balance_before
+      let real_amount = if recipient_token_balance_after > recipient_token_balance_before {
+         recipient_token_balance_after - recipient_token_balance_before
       } else {
-         U256::ZERO
+         return Err(anyhow!(
+            "ERC20 transfer was success but no tokens were actually transferred"
+         ));
       };
 
       let state = evm.balance(recipient);
@@ -619,7 +668,6 @@ async fn send_token(
    transfer_params.real_amount_sent = Some(real_amount_sent);
    transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
 
-   let eth_balance_before = eth_balance_before_fut.await?;
    let contract_interact = Some(true);
    let auth_list = Vec::new();
 
@@ -644,7 +692,6 @@ async fn send_token(
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       dapp,
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,

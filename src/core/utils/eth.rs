@@ -1,12 +1,15 @@
 use super::{RT, tx::TxParams, update};
-use crate::core::{
-   TransactionAnalysis, TransactionRich, ZeusCtx,
-   client::TIMEOUT_FOR_SENDING_TX,
-   db::V3Position,
-   transaction::*,
-   utils::{self, estimate_tx_cost, sign::SignMsgType, tx},
-};
 use crate::gui::{SHARED_GUI, ui::NotificationType};
+use crate::{
+   core::{
+      TransactionAnalysis, TransactionRich, ZeusCtx,
+      client::TIMEOUT_FOR_SENDING_TX,
+      db::V3Position,
+      transaction::*,
+      utils::{self, estimate_tx_cost, sign::SignMsgType, tx},
+   },
+   utils::simulate::fetch_accounts_info,
+};
 use anyhow::{Context, anyhow};
 use serde_json::Value;
 use std::future::IntoFuture;
@@ -23,7 +26,7 @@ use zeus_eth::{
    amm::uniswap::{UniswapPool, UniswapV3Pool, uniswap_v3_math, v3::*},
    currency::Currency,
    revm_utils::{
-      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkDB, ForkFactory, Host,
+      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkFactory, Host,
       new_evm, revert_msg, simulate,
    },
    types::ChainId,
@@ -35,7 +38,6 @@ use alloy_eips::eip7702::SignedAuthorization;
 pub async fn send_transaction(
    ctx: ZeusCtx,
    dapp: String,
-   fork_db: Option<ForkDB>,
    tx_analysis: Option<TransactionAnalysis>,
    chain: ChainId,
    mev_protect: bool,
@@ -45,14 +47,21 @@ pub async fn send_transaction(
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
 ) -> Result<(TransactionReceipt, TransactionRich), anyhow::Error> {
-   let client = ctx.get_client(chain.id()).await?;
+   let client = ctx.get_zeus_client();
+
    let base_fee_fut = update::get_base_fee(ctx.clone(), chain.id());
-   let nonce_fut = client.get_transaction_count(from).into_future();
+   let nonce_fut = client.request(chain.id(), |client| async move {
+      client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
+   });
 
    let balance_before = if let Some(analysis) = tx_analysis.as_ref() {
       analysis.eth_balance_before
    } else {
-      client.get_balance(from).await?
+      client
+         .request(chain.id(), |client| async move {
+            client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?
    };
 
    // If no tx analysis is provided, simulate the transaction
@@ -64,21 +73,47 @@ pub async fn send_transaction(
          gui.request_repaint();
       });
 
-      let fork_db = if let Some(fork_db) = fork_db {
-         fork_db
+      let block = client
+         .request(chain.id(), |client| async move {
+            client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      let block = if let Some(block) = block {
+         block
       } else {
-         let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
-         factory.new_sandbox_fork()
+         return Err(anyhow!(
+            "No block found, this is usally a provider issue"
+         ));
       };
 
-      let bytecode_fut = client.get_code_at(interact_to).into_future();
-      let block = client.get_block(BlockId::latest()).await?;
+      let block_id = BlockId::number(block.header.number);
+
+      let mut accounts = Vec::new();
+      accounts.push(from);
+      accounts.push(interact_to);
+      accounts.push(block.header.beneficiary);
+
+      let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+      let fork_client = ctx.get_client(chain.id()).await?;
+      let mut factory =
+         ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+      for info in accounts_info {
+         factory.insert_account_info(info.address, info.info);
+      }
+
+      let fork_db = factory.new_sandbox_fork();
+
+      let bytecode_fut = client.request(chain.id(), |client| async move {
+         client.get_code_at(interact_to).await.map_err(|e| anyhow!("{:?}", e))
+      });
 
       let balance_after;
       let sim_res;
 
       {
-         let mut evm = new_evm(chain, block.as_ref(), fork_db);
+         let mut evm = new_evm(chain, Some(&block), fork_db);
 
          let time = std::time::Instant::now();
          sim_res = simulate_transaction(
@@ -260,7 +295,12 @@ pub async fn send_transaction(
       .unwrap()
       .as_secs();
 
-   let balance_after = client.get_balance(from).await?;
+   let balance_after = client
+      .request(chain.id(), |client| async move {
+         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
    let contract_interact = Some(tx_analysis.contract_interact);
 
    let mut new_tx_analysis = TransactionAnalysis::new(
@@ -461,7 +501,6 @@ pub async fn collect_fees_position_v3(
    let (receipt, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       None,
       chain,
       mev_protect,
@@ -700,7 +739,6 @@ pub async fn decrease_liquidity_position_v3(
    let (receipt, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,
@@ -1010,7 +1048,6 @@ pub async fn increase_liquidity_position_v3(
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
-         None,
          Some(tx_analysis),
          chain,
          mev_protect,
@@ -1067,7 +1104,6 @@ pub async fn increase_liquidity_position_v3(
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
-         None,
          Some(tx_analysis),
          chain,
          mev_protect,
@@ -1114,7 +1150,6 @@ pub async fn increase_liquidity_position_v3(
    let (receipt, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,
@@ -1429,7 +1464,6 @@ pub async fn mint_new_liquidity_position_v3(
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
-         None,
          Some(tx_analysis),
          chain,
          mev_protect,
@@ -1486,7 +1520,6 @@ pub async fn mint_new_liquidity_position_v3(
       let (receipt, _) = send_transaction(
          ctx.clone(),
          "".to_string(),
-         None,
          Some(tx_analysis),
          chain,
          mev_protect,
@@ -1532,7 +1565,6 @@ pub async fn mint_new_liquidity_position_v3(
    let (receipt, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,

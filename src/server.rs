@@ -1515,7 +1515,6 @@ async fn eth_send_transaction(
       ctx.clone(),
       origin.clone(),
       None,
-      None,
       chain,
       true,
       from,

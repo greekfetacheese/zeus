@@ -1272,21 +1272,60 @@ pub async fn wrap_eth(
    chain: ChainId,
    amount: NumericValue,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client(chain.id()).await?;
-   let block = client.get_block(BlockId::latest()).await?;
+   let client = ctx.get_zeus_client();
+
+   let eth_balance_before_fut = client.request(chain.id(), |client| async move {
+      client
+         .get_balance(from)
+         .block_id(BlockId::latest())
+         .await
+         .map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let block = client
+      .request(chain.id(), |client| async move {
+         client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let block = if let Some(block) = block {
+      block
+   } else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
+   let block_id = BlockId::number(block.header.number);
+
    let weth = ERC20Token::wrapped_native_token(chain.id());
 
    let call_data = weth.encode_deposit();
    let interact_to = weth.address;
    let value = amount.wei();
 
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(interact_to);
+   accounts.push(block.header.beneficiary);
+   accounts.push(weth.address);
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
    let fork_db = factory.new_sandbox_fork();
 
    let eth_balance_after;
    let sim_res;
    {
-      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+      let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
       let time = Instant::now();
       sim_res = eth::simulate_transaction(
@@ -1312,7 +1351,7 @@ pub async fn wrap_eth(
    let logs = sim_res.clone().into_logs();
 
    let wrapped: Currency = weth.clone().into();
-   let eth_balance_before = client.get_balance(from).await?;
+   let eth_balance_before = eth_balance_before_fut.await?;
    let eth_wrapped_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
    let mut weth_received = None;
 
@@ -1368,7 +1407,6 @@ pub async fn wrap_eth(
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,
@@ -1408,21 +1446,59 @@ pub async fn unwrap_weth(
    chain: ChainId,
    amount: NumericValue,
 ) -> Result<(), anyhow::Error> {
-   let client = ctx.get_client(chain.id()).await?;
-   let block = client.get_block(BlockId::latest()).await?;
+   let client = ctx.get_zeus_client();
+
+   let eth_balance_before_fut = client.request(chain.id(), |client| async move {
+      client
+         .get_balance(from)
+         .block_id(BlockId::latest())
+         .await
+         .map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let block = client
+      .request(chain.id(), |client| async move {
+         client.get_block(BlockId::latest()).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let block = if let Some(block) = block {
+      block
+   } else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
+   let block_id = BlockId::number(block.header.number);
    let weth = ERC20Token::wrapped_native_token(chain.id());
 
    let call_data = weth.encode_withdraw(amount.wei());
    let interact_to = weth.address;
    let value = U256::ZERO;
 
-   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(interact_to);
+   accounts.push(block.header.beneficiary);
+   accounts.push(weth.address);
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
    let fork_db = factory.new_sandbox_fork();
 
    let eth_balance_after;
    let sim_res;
    {
-      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+      let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
       let time = Instant::now();
       sim_res = eth::simulate_transaction(
@@ -1448,7 +1524,7 @@ pub async fn unwrap_weth(
 
    let logs = sim_res.clone().into_logs();
 
-   let eth_balance_before = client.get_balance(from).await?;
+   let eth_balance_before = eth_balance_before_fut.await?;
    let mut eth_received = None;
 
    for log in &logs {
@@ -1504,7 +1580,6 @@ pub async fn unwrap_weth(
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       "".to_string(),
-      None,
       Some(tx_analysis),
       chain,
       mev_protect,
@@ -1625,7 +1700,6 @@ async fn handle_approve(
       let (receipt, _) = eth::send_transaction(
          ctx.clone(),
          dapp,
-         None,
          Some(analysis),
          chain,
          false, // mev protect not needed for approval
@@ -1950,7 +2024,6 @@ async fn swap_via_ur(
    let (_, _) = eth::send_transaction(
       ctx.clone(),
       dapp,
-      None,
       Some(swap_tx_analysis),
       chain,
       mev_protect,
