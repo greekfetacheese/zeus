@@ -3,429 +3,17 @@ mod tests {
    use crate::core::{BaseFee, ZeusCtx};
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
+   use crate::utils::{swap_quoter::*, universal_router_v2::*};
+
    use zeus_eth::{
-      abi::zeus::ZeusStateView,
       alloy_primitives::{TxKind, U256},
-      alloy_provider::{Provider, ProviderBuilder},
-      alloy_rpc_types::{BlockId, BlockNumberOrTag},
-      amm::uniswap::{
-         AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
-         quoter::{get_quote, get_quote_with_split_routing},
-         universal_router_v2::{SwapStep, SwapType, encode_swap},
-      },
+      alloy_provider::Provider,
+      alloy_rpc_types::BlockId,
+      amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV4Pool},
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
-      utils::{NumericValue, SecureSigner, address_book, batch},
+      utils::{NumericValue, SecureSigner, address_book},
    };
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn can_get_v3_batch_state() {
-      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-      let chain_id = 1;
-
-      let ctx = ZeusCtx::new();
-
-      let pool_manager = ctx.pool_manager();
-      let v3_pools = pool_manager.get_v3_pools_for_chain(chain_id);
-
-      if v3_pools.len() < 10 {
-         panic!("Cannot continue test, less than 10 v3 pools found");
-      }
-
-      let mut pools_to_update = Vec::new();
-      for pool in &v3_pools {
-         if pools_to_update.len() >= 10 {
-            break;
-         }
-         pools_to_update.push(ZeusStateView::V3Pool {
-            addr: pool.address(),
-            tokenA: pool.currency0().address(),
-            tokenB: pool.currency1().address(),
-            fee: pool.fee().fee_u24(),
-         });
-      }
-
-      let res = batch::get_v3_state(client, chain_id, pools_to_update).await.unwrap();
-
-      if res.len() < 10 {
-         panic!(
-            "Requested the state for 10 pools but got back only for {}",
-            res.len()
-         );
-      }
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn v2_swap_amount_consistency() {
-      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-      let chain_id = 1;
-      let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
-      let block_id = BlockId::Number(BlockNumberOrTag::Number(block.header.number));
-
-      let mut pool = UniswapV2Pool::weth_uni();
-      pool.update_state(client.clone(), Some(block_id)).await.unwrap();
-
-      let weth = pool.base_currency();
-      let uni = pool.quote_currency();
-
-      let amount_in = NumericValue::parse_to_wei("50", weth.decimals());
-      let amount_out = pool.simulate_swap(&weth, amount_in.wei()).unwrap();
-      let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
-      let slippage = 0.1;
-
-      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
-
-      eprintln!(
-         "Quote {} {} For {} {}",
-         amount_in.formatted(),
-         weth.symbol(),
-         amount_out.formatted(),
-         uni.symbol()
-      );
-
-      let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::from(alice.key.clone());
-
-      let mut factory =
-         ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
-      factory.insert_dummy_account(alice.clone());
-      factory.give_token(alice.address, weth.address(), amount_in.wei()).unwrap();
-
-      let fork_db = factory.new_sandbox_fork();
-
-      let swap_step = SwapStep {
-         amount_in: amount_in.clone(),
-         amount_out: amount_out.clone(),
-         pool: pool.clone(),
-         currency_in: weth.clone(),
-         currency_out: uni.clone(),
-      };
-
-      let swap_steps = vec![swap_step];
-
-      let params = encode_swap(
-         client,
-         chain_id,
-         swap_steps,
-         SwapType::ExactInput,
-         amount_in.wei(),
-         min_amount_out.wei(),
-         slippage,
-         weth.clone(),
-         uni.clone(),
-         signer,
-         alice.address,
-      )
-      .await
-      .unwrap();
-
-      let router = address_book::universal_router_v2(chain_id).unwrap();
-      let permit2 = address_book::permit2_contract(chain_id).unwrap();
-
-      let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
-
-      simulate::approve_token(
-         &mut evm,
-         weth.address(),
-         alice.address,
-         permit2,
-         U256::MAX,
-      )
-      .unwrap();
-
-      evm.tx.caller = alice.address;
-      evm.tx.data = params.call_data.clone();
-      evm.tx.value = params.value.clone();
-      evm.tx.kind = TxKind::Call(router);
-
-      let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      let output = res.output().unwrap();
-      if !res.is_success() {
-         let err = revert_msg(&output);
-         eprintln!("Call Reverted: {}", err);
-         eprintln!("Output: {:?}", output);
-         eprintln!("Gas Used: {}", res.gas_used());
-         panic!("Call Failed");
-      }
-
-      eprintln!("Router Call Successful");
-      eprintln!("Gas Used: {}", res.gas_used());
-
-      let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      assert!(balance >= min_amount_out.wei());
-      let balance = NumericValue::format_wei(balance, uni.decimals());
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.wei()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.wei()
-      );
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn v3_swap_amount_consistency() {
-      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-      let chain_id = 1;
-      let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
-      let block_id = BlockId::Number(BlockNumberOrTag::Number(block.header.number));
-
-      let mut pool = UniswapV3Pool::usdt_uni();
-      pool.update_state(client.clone(), Some(block_id)).await.unwrap();
-
-      let usdt = pool.base_currency();
-      let uni = pool.quote_currency();
-
-      let amount_in = NumericValue::parse_to_wei("100000", usdt.decimals());
-      let amount_out = pool.simulate_swap(&usdt, amount_in.wei()).unwrap();
-      let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
-      let slippage = 0.1;
-
-      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
-
-      eprintln!(
-         "Quote {} {} For {} {}",
-         amount_in.formatted(),
-         usdt.symbol(),
-         amount_out.formatted(),
-         uni.symbol()
-      );
-
-      let alice = DummyAccount::new(AccountType::EOA, U256::ZERO);
-      let signer = SecureSigner::from(alice.key.clone());
-
-      let mut factory =
-         ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
-      factory.insert_dummy_account(alice.clone());
-      factory.give_token(alice.address, usdt.address(), amount_in.wei()).unwrap();
-
-      let fork_db = factory.new_sandbox_fork();
-
-      let swap_step = SwapStep {
-         amount_in: amount_in.clone(),
-         amount_out: amount_out.clone(),
-         pool: pool.clone(),
-         currency_in: usdt.clone(),
-         currency_out: uni.clone(),
-      };
-
-      let swap_steps = vec![swap_step];
-
-      let params = encode_swap(
-         client,
-         chain_id,
-         swap_steps,
-         SwapType::ExactInput,
-         amount_in.wei(),
-         min_amount_out.wei(),
-         slippage,
-         usdt.clone(),
-         uni.clone(),
-         signer,
-         alice.address,
-      )
-      .await
-      .unwrap();
-
-      let router = address_book::universal_router_v2(chain_id).unwrap();
-      let permit2 = address_book::permit2_contract(chain_id).unwrap();
-
-      let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
-
-      simulate::approve_token(
-         &mut evm,
-         usdt.address(),
-         alice.address,
-         permit2,
-         U256::MAX,
-      )
-      .unwrap();
-
-      evm.tx.caller = alice.address;
-      evm.tx.data = params.call_data.clone();
-      evm.tx.value = params.value.clone();
-      evm.tx.kind = TxKind::Call(router);
-
-      let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      let output = res.output().unwrap();
-      if !res.is_success() {
-         let err = revert_msg(&output);
-         eprintln!("Call Reverted: {}", err);
-         eprintln!("Output: {:?}", output);
-         eprintln!("Gas Used: {}", res.gas_used());
-         panic!("Call Failed");
-      }
-
-      eprintln!("Router Call Successful");
-      eprintln!("Gas Used: {}", res.gas_used());
-
-      let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      // assert!(balance >= min_amount_out.wei());
-      let balance = NumericValue::format_wei(balance, uni.decimals());
-
-      // assert_eq!(balance.wei(), amount_out.wei());
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.wei()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.wei()
-      );
-   }
-
-   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-   async fn v4_swap_amount_consistency() {
-      let url = "https://reth-ethereum.ithaca.xyz/rpc".parse().unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-      let chain_id = 1;
-      let block = client.get_block(BlockId::latest()).await.unwrap().unwrap();
-      let block_id = BlockId::Number(BlockNumberOrTag::Number(block.header.number));
-
-      let mut pool = UniswapV4Pool::eth_uni();
-      pool.update_state(client.clone(), Some(block_id)).await.unwrap();
-
-      let eth = pool.base_currency();
-      let uni = pool.quote_currency();
-
-      let amount_in = NumericValue::parse_to_wei("10", eth.decimals());
-      let amount_out = pool.simulate_swap(&eth, amount_in.wei()).unwrap();
-      let amount_out = NumericValue::format_wei(amount_out, uni.decimals());
-      let slippage = 0.1;
-
-      let min_amount_out = amount_out.calc_slippage(slippage, uni.decimals());
-
-      eprintln!(
-         "Quote {} {} For {} {}",
-         amount_in.formatted(),
-         eth.symbol(),
-         amount_out.formatted(),
-         uni.symbol()
-      );
-
-      let alice = DummyAccount::new(AccountType::EOA, amount_in.wei());
-      let signer = SecureSigner::from(alice.key.clone());
-
-      let mut factory =
-         ForkFactory::new_sandbox_factory(client.clone(), chain_id, None, Some(block_id));
-      factory.insert_dummy_account(alice.clone());
-
-      let fork_db = factory.new_sandbox_fork();
-
-      let swap_step = SwapStep {
-         amount_in: amount_in.clone(),
-         amount_out: amount_out.clone(),
-         pool: pool.clone(),
-         currency_in: eth.clone(),
-         currency_out: uni.clone(),
-      };
-
-      let swap_steps = vec![swap_step];
-
-      let params = encode_swap(
-         client,
-         chain_id,
-         swap_steps,
-         SwapType::ExactInput,
-         amount_in.wei(),
-         min_amount_out.wei(),
-         slippage,
-         eth.clone(),
-         uni.clone(),
-         signer,
-         alice.address,
-      )
-      .await
-      .unwrap();
-
-      let router = address_book::universal_router_v2(chain_id).unwrap();
-
-      let mut evm = new_evm(chain_id.into(), Some(&block), fork_db);
-
-      evm.tx.caller = alice.address;
-      evm.tx.data = params.call_data.clone();
-      evm.tx.value = params.value.clone();
-      evm.tx.kind = TxKind::Call(router);
-
-      let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      let output = res.output().unwrap();
-      if !res.is_success() {
-         let err = revert_msg(&output);
-         eprintln!("Call Reverted: {}", err);
-         eprintln!("Output: {:?}", output);
-         eprintln!("Gas Used: {}", res.gas_used());
-         panic!("Call Failed");
-      }
-
-      eprintln!("Router Call Successful");
-      eprintln!("Gas Used: {}", res.gas_used());
-
-      let balance = simulate::erc20_balance(&mut evm, uni.address(), alice.address).unwrap();
-      assert!(balance >= min_amount_out.wei());
-      let balance = NumericValue::format_wei(balance, uni.decimals());
-
-      // assert_eq!(balance.wei(), amount_out.wei());
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.format_abbreviated()
-      );
-
-      eprintln!(
-         "{} Quote Amount: {}",
-         uni.symbol(),
-         amount_out.wei()
-      );
-
-      eprintln!(
-         "{} Got from Swap: {}",
-         uni.symbol(),
-         balance.wei()
-      );
-   }
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn single_v4_swap_eth_to_erc20_mainnet() {
@@ -1039,6 +627,7 @@ mod tests {
 
       let quote = if with_split_routing {
          get_quote_with_split_routing(
+            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
@@ -1052,6 +641,7 @@ mod tests {
          )
       } else {
          get_quote(
+            ctx.clone(),
             amount_in.clone(),
             currency_in.clone(),
             currency_out.clone(),
@@ -1104,7 +694,8 @@ mod tests {
       let signer = SecureSigner::from(alice.key.clone());
 
       let swap_params = encode_swap(
-         client.clone(),
+         ctx.clone(),
+         None,
          chain,
          swap_steps,
          SwapType::ExactInput,
@@ -1136,7 +727,7 @@ mod tests {
 
       let mut evm = new_evm(chain.into(), block.as_ref(), fork_db);
 
-      if swap_params.token_needs_approval {
+      if swap_params.permit2_needs_approval() {
          simulate::approve_token(
             &mut evm,
             currency_in.address(),
