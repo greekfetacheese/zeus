@@ -14,6 +14,7 @@ use egui_theme::{Theme, ThemeKind, window::window_frame};
 use std::sync::Arc;
 
 pub struct ZeusApp {
+   pub style_has_been_set: bool,
    pub ctx: ZeusCtx,
 }
 
@@ -64,7 +65,7 @@ impl ZeusApp {
          let _r = run_server(ctx_clone).await;
       });
 
-      Self { ctx }
+      Self { style_has_been_set: false, ctx }
    }
 
    fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
@@ -88,6 +89,13 @@ impl eframe::App for ZeusApp {
 
       SHARED_GUI.write(|gui| {
          self.on_shutdown(ctx, gui);
+
+         // This is needed for Windows
+         if !self.style_has_been_set {
+            let style = gui.theme.style.clone();
+            ctx.set_style(style);
+            self.style_has_been_set = true;
+         }
 
          let theme = gui.theme.clone();
          let bg_color = theme.colors.bg_color;
