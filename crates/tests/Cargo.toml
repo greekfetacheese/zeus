@@ -22,10 +22,10 @@ version = "=1.0.99"
 version = "0.2"
 
 [dependencies.egui]
-version = "=0.32.0"
+version = "=0.32.3"
 
 [dependencies.eframe]
-version = "=0.32.0"
+version = "=0.32.3"
 
 
 [[bin]]

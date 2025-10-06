@@ -11,7 +11,7 @@ keywords = ["egui", "theme", "style"]
 categories = ["gui"]
 
 [dependencies.egui]
-version = "=0.32.0"
+version = "=0.32.3"
 
 
 [dependencies.serde_json]
@@ -25,7 +25,7 @@ optional = true
 features = ["derive"]
 
 [dev-dependencies]
-eframe = "=0.32.0"
+eframe = "=0.32.3"
 
 
 
