@@ -88,7 +88,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
          ui.hyperlink_to(
             RichText::new(hash_str)
                .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
+               .color(theme.colors.info).strong(),
             link,
          );
       });
@@ -147,7 +147,7 @@ pub fn contract_interact(
          ui.hyperlink_to(
             RichText::new(interact_to_name)
                .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
+               .color(theme.colors.info).strong(),
             link,
          );
       });
@@ -183,7 +183,7 @@ pub fn address(
          ui.hyperlink_to(
             RichText::new(address_name)
                .size(theme.text_sizes.normal)
-               .color(theme.colors.hyperlink_color),
+               .color(theme.colors.info).strong(),
             link,
          );
       });

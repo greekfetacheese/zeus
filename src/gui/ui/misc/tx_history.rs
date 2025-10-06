@@ -66,7 +66,7 @@ impl TxHistory {
             ui.label(
                RichText::new("Transaction History")
                   .size(theme.text_sizes.heading)
-                  .color(theme.colors.text_color),
+                  .color(theme.colors.text),
             );
          });
 
@@ -229,7 +229,7 @@ impl TxHistory {
                ui.label(
                   RichText::new("No transactions match your filters.")
                      .size(theme.text_sizes.large)
-                     .color(theme.colors.text_secondary),
+                     .color(theme.colors.text),
                );
             });
             return;
@@ -269,7 +269,7 @@ impl TxHistory {
             ui.label(
                RichText::new(format!("{} transactions found", total_txs))
                   .size(theme.text_sizes.normal)
-                  .color(theme.colors.text_secondary),
+                  .color(theme.colors.text),
             );
          });
          ui.add_space(20.0);
@@ -308,28 +308,28 @@ impl TxHistory {
                            RichText::new("Wallet")
                               .strong()
                               .size(theme.text_sizes.large)
-                              .color(theme.colors.text_secondary),
+                              .color(theme.colors.text),
                         );
 
                         ui.label(
                            RichText::new("Action")
                               .strong()
                               .size(theme.text_sizes.large)
-                              .color(theme.colors.text_secondary),
+                              .color(theme.colors.text),
                         );
 
                         ui.label(
                            RichText::new("Age")
                               .strong()
                               .size(theme.text_sizes.large)
-                              .color(theme.colors.text_secondary),
+                              .color(theme.colors.text),
                         );
 
                         ui.label(
                            RichText::new("Details")
                               .strong()
                               .size(theme.text_sizes.large)
-                              .color(theme.colors.text_secondary),
+                              .color(theme.colors.text),
                         );
                         ui.end_row();
 
@@ -343,7 +343,7 @@ impl TxHistory {
                               ui.label(
                                  RichText::new(name)
                                     .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text_color),
+                                    .color(theme.colors.text),
                               );
                            });
 
@@ -353,7 +353,7 @@ impl TxHistory {
                               ui.label(
                                  RichText::new(tx.main_event.name())
                                     .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text_color),
+                                    .color(theme.colors.text),
                               );
                            });
 
@@ -364,7 +364,7 @@ impl TxHistory {
                               ui.label(
                                  RichText::new(age_text)
                                     .size(theme.text_sizes.small)
-                                    .color(theme.colors.text_secondary),
+                                    .color(theme.colors.text),
                               );
                            });
 

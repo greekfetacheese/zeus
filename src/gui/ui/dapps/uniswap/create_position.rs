@@ -207,7 +207,6 @@ impl CreatePositionUi {
 
                TextEdit::singleline(&mut self.days_back)
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .show(ui);
 
@@ -769,7 +768,6 @@ impl SetPriceRangeUi {
       TextEdit::singleline(&mut self.deposit_amount)
          .hint_text("0")
          .font(FontId::proportional(theme.text_sizes.normal))
-         .background_color(theme.colors.text_edit_bg)
          .margin(Margin::same(10))
          .show(ui);
 

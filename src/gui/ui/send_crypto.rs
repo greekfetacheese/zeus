@@ -206,7 +206,7 @@ impl SendCryptoUi {
                               ui.label(
                                  RichText::new("Unknown Address")
                                     .size(theme.text_sizes.normal)
-                                    .color(theme.colors.error_color),
+                                    .color(theme.colors.error),
                               );
                            }
                         }
@@ -215,13 +215,12 @@ impl SendCryptoUi {
                      ui.horizontal(|ui| {
                         let hint = RichText::new("Search contacts or enter an address")
                            .size(theme.text_sizes.normal)
-                           .color(theme.colors.text_secondary);
+                           .color(theme.colors.text_muted);
                         let res = ui.add(
                            TextEdit::singleline(&mut recipient_selection.recipient)
                               .hint_text(hint)
                               .min_size(vec2(ui.available_width() * 0.9, 25.0))
                               .margin(Margin::same(10))
-                              .background_color(theme.colors.text_edit_bg)
                               .font(FontId::proportional(theme.text_sizes.large)),
                         );
                         if res.clicked() {

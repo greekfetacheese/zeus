@@ -1,5 +1,7 @@
 use super::{Theme, utils};
-use egui::{self, Button, CentralPanel, Color32, Rect, RichText, UiBuilder, ViewportCommand, vec2};
+use egui::{
+   self, Button, CentralPanel, Color32, Rect, RichText, UiBuilder, ViewportCommand, vec2,
+};
 
 /// A frame for the App's Native window
 pub fn window_frame(
@@ -46,7 +48,7 @@ fn title_bar_ui(ui: &mut egui::Ui, theme: &Theme, title_bar_rect: Rect, title: &
    );
 
    let title_size = theme.text_sizes.heading;
-   let title_color = theme.colors.text_color;
+   let title_color = theme.colors.text;
 
    // Paint the title:
    painter.text(
@@ -96,10 +98,10 @@ fn close_maximize_minimize(ui: &mut egui::Ui, theme: &Theme) {
    ui.style_mut().visuals.widgets.hovered.expansion = 5.0;
 
    let button_size = vec2(20.0, 15.0);
-   let color = theme.colors.text_color;
+   let color = theme.colors.text;
 
    ui.scope(|ui| {
-      utils::bg_color_on_hover(ui, theme.colors.error_color);
+      utils::bg_color_on_hover(ui, theme.colors.error);
       let text = RichText::new("❌").color(color).size(theme.text_sizes.large);
       let close_button = Button::new(text).min_size(button_size);
       let close_response = ui.add(close_button);
@@ -110,6 +112,7 @@ fn close_maximize_minimize(ui: &mut egui::Ui, theme: &Theme) {
    });
 
    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+   utils::bg_color_on_hover(ui, theme.colors.bg_light2);
 
    if is_maximized {
       let text = RichText::new("🗗").color(color).size(theme.text_sizes.large);

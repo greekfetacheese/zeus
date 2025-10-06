@@ -662,7 +662,7 @@ impl SwapUi {
       let swap_button = Button::new(
          RichText::new(button_text)
             .size(theme.text_sizes.large)
-            .color(theme.colors.text_color),
+            .color(theme.colors.text),
       )
       .min_size(vec2(ui.available_width() * 0.8, 45.0));
 

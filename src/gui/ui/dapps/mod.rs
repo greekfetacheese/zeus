@@ -6,7 +6,7 @@ use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::ui::token_selection::TokenSelectionWindow;
 use egui::{Align, Button, Color32, FontId, Layout, Margin, RichText, Spinner, TextEdit, Ui, vec2};
-use egui_theme::{Theme, ThemeKind};
+use egui_theme::Theme;
 use egui_widgets::Label;
 use std::sync::Arc;
 use zeus_eth::{currency::Currency, utils::NumericValue};
@@ -55,7 +55,7 @@ pub fn amount_field_with_currency_selector(
             ui.label(
                RichText::new(label)
                   .size(theme.text_sizes.large)
-                  .color(theme.colors.text_secondary),
+                  .color(theme.colors.text),
             );
          }
 
@@ -82,15 +82,15 @@ pub fn amount_field_with_currency_selector(
             ui.add_space(5.0);
 
             // Balance
-            let wallet_icon = match theme.kind {
-               ThemeKind::Latte => icons.wallet_dark(),
-               _ => icons.wallet_light(),
+            let wallet_icon = match theme.dark_mode {
+               true => icons.wallet_light(),
+               _ => icons.wallet_dark(),
             };
 
             let balance = get_balance();
             let text = RichText::new(balance.format_abbreviated())
                .size(theme.text_sizes.normal)
-               .color(theme.colors.text_secondary);
+               .color(theme.colors.text);
             let label = Label::new(text, Some(wallet_icon));
 
             ui.add(label);
@@ -101,8 +101,7 @@ pub fn amount_field_with_currency_selector(
       ui.horizontal(|ui| {
          let amount_input = TextEdit::singleline(amount)
             .font(FontId::proportional(theme.text_sizes.heading))
-            .hint_text(RichText::new("0").color(theme.colors.text_secondary))
-            .background_color(theme.colors.text_edit_bg)
+            .hint_text(RichText::new("0").color(theme.colors.text_muted))
             .margin(Margin::same(10))
             .desired_width(ui.available_width() * 0.6)
             .min_size(vec2(0.0, 50.0));

@@ -312,7 +312,7 @@ impl NetworkSettings {
                   ui.label(
                      RichText::new("Invalid URL")
                         .size(theme.text_sizes.small)
-                        .color(theme.colors.error_color),
+                        .color(theme.colors.error),
                   );
                }
 

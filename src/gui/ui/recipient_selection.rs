@@ -102,7 +102,7 @@ impl RecipientSelectionWindow {
 
                let hint = RichText::new("Search contacts or enter an address")
                   .size(theme.text_sizes.normal)
-                  .color(theme.colors.text_secondary);
+                  .color(theme.colors.text_muted);
 
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
@@ -215,7 +215,6 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let frame = theme.frame2;
-      let frame = frame.fill(theme.colors.bg_color);
       let column0 = ui.available_width() * 0.33;
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;
@@ -249,7 +248,7 @@ impl RecipientSelectionWindow {
                      ui.hyperlink_to(
                         RichText::new(wallet.address_truncated())
                            .size(theme.text_sizes.normal)
-                           .color(theme.colors.hyperlink_color),
+                           .color(theme.colors.info),
                         link,
                      );
                   });
@@ -286,7 +285,6 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let frame = theme.frame2;
-      let frame = frame.fill(theme.colors.bg_color);
       let column0 = ui.available_width() * 0.33;
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;
@@ -318,7 +316,7 @@ impl RecipientSelectionWindow {
                      ui.hyperlink_to(
                         RichText::new(&contact.address_short(10, 10))
                            .size(theme.text_sizes.small)
-                           .color(theme.colors.hyperlink_color),
+                           .color(theme.colors.info),
                         link,
                      );
                   });

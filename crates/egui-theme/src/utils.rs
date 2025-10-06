@@ -1,5 +1,5 @@
-use super::{FrameVisuals, Theme, ThemeKind, WidgetVisuals};
-use egui::{Color32, ComboBox, Frame, Response, Sense, Stroke, Ui};
+use super::{Theme, FrameVisuals, ThemeKind};
+use egui::{Color32, Frame, Sense, Response, ComboBox, Stroke, Ui};
 
 /// Show a ComboBox to change the theme
 ///
@@ -21,67 +21,15 @@ pub fn change_theme(current_theme: &Theme, ui: &mut Ui) -> Option<Theme> {
 }
 
 /// Apply any theme changes to the ui
-pub fn apply_theme_changes(theme: &Theme, ui: &mut Ui) {
+pub fn apply_theme_changes(theme: &mut Theme, ui: &mut Ui) {
+   theme.set_window_frame_colors();
+   theme.set_frame1_colors();
+   theme.set_frame2_colors();
+   
    ui.style_mut().visuals = theme.style.visuals.clone();
-
-   // text color
-   ui.style_mut().visuals.override_text_color = Some(theme.colors.text_color);
-
-   // widget bg color on idle
-   ui.style_mut().visuals.widgets.inactive.weak_bg_fill = theme.colors.widget_bg_color;
-
-   // widget bg color on click
-   ui.style_mut().visuals.widgets.active.weak_bg_fill = theme.colors.widget_bg_color_click;
-
-   // widget bg color on hover
-   ui.style_mut().visuals.widgets.hovered.weak_bg_fill = theme.colors.widget_bg_color_hover;
-
-   // widget bg color on open
-   ui.style_mut().visuals.widgets.open.weak_bg_fill = theme.colors.widget_bg_color_open;
-
-   // border color on idle
-   ui.style_mut().visuals.widgets.inactive.bg_stroke.color = theme.colors.border_color_idle;
-
-   // border color on click
-   ui.style_mut().visuals.widgets.active.bg_stroke.color = theme.colors.border_color_click;
-
-   // border color on hover
-   ui.style_mut().visuals.widgets.hovered.bg_stroke.color = theme.colors.border_color_hover;
-
-   // border color on open
-   ui.style_mut().visuals.widgets.open.bg_stroke.color = theme.colors.border_color_open;
 }
 
 // Helper functions to override the visuals
-
-/// Override the visuals for widgets
-pub fn widget_visuals(ui: &mut Ui, visuals: WidgetVisuals) {
-   bg_color_on_idle(ui, visuals.bg_color_on_idle);
-   bg_color_on_hover(ui, visuals.bg_color_on_hover);
-   bg_color_on_click(ui, visuals.bg_color_on_click);
-   bg_color_on_open(ui, visuals.bg_color_on_open);
-   border_on_idle(
-      ui,
-      visuals.border_on_idle.0,
-      visuals.border_on_idle.1,
-   );
-   border_on_hover(
-      ui,
-      visuals.border_on_hover.0,
-      visuals.border_on_hover.1,
-   );
-   border_on_click(
-      ui,
-      visuals.border_on_click.0,
-      visuals.border_on_click.1,
-   );
-   border_on_open(
-      ui,
-      visuals.border_on_open.0,
-      visuals.border_on_open.1,
-   );
-   window_fill(ui, visuals.combobox_bg);
-}
 
 /// Removes the border from widgets like Button, ComboxBox, TextEdit, Slider, RadioButton
 ///

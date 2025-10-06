@@ -783,7 +783,7 @@ impl DiscoverChildWallets {
                      ui.hyperlink_to(
                         RichText::new(text)
                            .size(theme.text_sizes.small)
-                           .color(theme.colors.hyperlink_color),
+                           .color(theme.colors.info),
                         link,
                      );
                   });
@@ -810,7 +810,7 @@ impl DiscoverChildWallets {
 
                   ui.label(
                      RichText::new(format!("${}", value.format_abbreviated()))
-                        .color(theme.colors.text_secondary)
+                        .color(theme.colors.text_muted)
                         .size(theme.text_sizes.small),
                   );
                });

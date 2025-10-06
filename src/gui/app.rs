@@ -26,7 +26,7 @@ impl ZeusApp {
       let theme_kind = if let Ok(kind) = load_theme_kind() {
          kind
       } else {
-         ThemeKind::Nord
+         ThemeKind::DarkClassic
       };
 
       let theme = Theme::new(theme_kind);
@@ -50,13 +50,13 @@ impl ZeusApp {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         update::test_and_measure_rpcs(ctx_clone).await;
+          update::test_and_measure_rpcs(ctx_clone).await;
       });
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          if ctx_clone.vault_exists() {
-            update::on_startup(ctx_clone).await;
+             update::on_startup(ctx_clone).await;
          }
       });
 
@@ -65,7 +65,10 @@ impl ZeusApp {
          let _r = run_server(ctx_clone).await;
       });
 
-      Self { style_has_been_set: false, ctx }
+      Self {
+         style_has_been_set: false,
+         ctx,
+      }
    }
 
    fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
@@ -98,12 +101,12 @@ impl eframe::App for ZeusApp {
          }
 
          let theme = gui.theme.clone();
-         let bg_color = theme.colors.bg_color;
+         let bg_color = theme.colors.bg_dark;
          let panel_frame = Frame::new().fill(bg_color);
 
          window_frame(ctx, "Zeus", theme, |ui| {
             #[cfg(feature = "dev")]
-            egui_theme::utils::apply_theme_changes(&gui.theme, ui);
+            egui_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
             egui::TopBottomPanel::top("top_panel")
@@ -119,10 +122,10 @@ impl eframe::App for ZeusApp {
 
             // Paint the Ui that belongs to the left panel
             egui::SidePanel::left("left_panel")
-               .exact_width(150.0)
+               .min_width(150.0)
+               .max_width(150.0)
                .resizable(false)
                .show_separator_line(true)
-               .frame(panel_frame)
                .show_inside(ui, |ui| {
                   if gui.ctx.vault_unlocked() {
                      gui.show_left_panel(ui);

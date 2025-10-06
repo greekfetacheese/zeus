@@ -136,8 +136,7 @@ impl SignMsgWindow {
                      let text_edit = TextEdit::multiline(&mut formatted)
                         .font(FontId::proportional(theme.text_sizes.large))
                         .margin(Margin::same(10))
-                        .desired_width(ui.available_width() * 0.95)
-                        .background_color(theme.colors.text_edit_bg);
+                        .desired_width(ui.available_width() * 0.95);
 
                      ui.label(RichText::new("Message").size(theme.text_sizes.large));
 

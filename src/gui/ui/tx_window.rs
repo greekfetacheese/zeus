@@ -224,7 +224,7 @@ impl TxConfirmationWindow {
                      ui.label(
                         RichText::new(text)
                            .size(theme.text_sizes.large)
-                           .color(theme.colors.error_color),
+                           .color(theme.colors.warning),
                      );
 
                      let clicked = self.show_decoded_events_button(theme, ui);
@@ -339,7 +339,6 @@ impl TxConfirmationWindow {
                               ui.add(
                                  TextEdit::singleline(&mut self.priority_fee)
                                     .margin(Margin::same(10))
-                                    .background_color(theme.colors.text_edit_bg)
                                     .desired_width(fee_width)
                                     .font(egui::FontId::proportional(
                                        theme.text_sizes.normal,
@@ -360,7 +359,6 @@ impl TxConfirmationWindow {
                                  ui.add(
                                     TextEdit::singleline(&mut self.adjusted_gas_limit)
                                        .margin(Margin::same(10))
-                                       .background_color(theme.colors.text_edit_bg)
                                        .desired_width(gas_width)
                                        .font(egui::FontId::proportional(
                                           theme.text_sizes.normal,
@@ -400,7 +398,7 @@ impl TxConfirmationWindow {
                      ui.label(
                         RichText::new("Insufficient balance to send transaction")
                            .size(theme.text_sizes.large)
-                           .color(theme.colors.error_color),
+                           .color(theme.colors.error),
                      );
                   }
 
@@ -1001,7 +999,7 @@ fn bridge_event_ui(
          currency_in.symbol()
       ))
       .size(theme.text_sizes.normal)
-      .color(theme.colors.error_color);
+      .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).image_on_left();
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
@@ -1028,7 +1026,7 @@ fn bridge_event_ui(
             currency_out.symbol()
          ))
          .size(theme.text_sizes.normal)
-         .color(theme.colors.success_color);
+         .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.add(label);
       });
@@ -1110,7 +1108,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          currency.symbol()
       ))
       .size(theme.text_sizes.large)
-      .color(theme.colors.error_color);
+      .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).image_on_left();
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
@@ -1138,7 +1136,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             currency.symbol()
          ))
          .size(theme.text_sizes.large)
-         .color(theme.colors.success_color);
+         .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.add(label);
       });
@@ -1197,7 +1195,7 @@ fn wrap_eth_event_ui(
          weth.symbol()
       ))
       .size(theme.text_sizes.normal)
-      .color(theme.colors.success_color);
+      .color(theme.colors.success);
       let label = Label::new(text, Some(weth_icon)).image_on_left();
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
@@ -1245,7 +1243,7 @@ fn unwrap_weth_event_ui(
          eth.symbol
       ))
       .size(theme.text_sizes.normal)
-      .color(theme.colors.success_color);
+      .color(theme.colors.success);
       let label = Label::new(text, Some(eth_icon)).image_on_left();
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);

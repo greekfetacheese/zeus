@@ -130,7 +130,7 @@ impl Header {
                   let link = format!("{}/address/{}", explorer, address.to_string());
                   let text = RichText::new(address_short)
                      .size(theme.text_sizes.normal)
-                     .color(theme.colors.hyperlink_color);
+                     .color(theme.colors.info);
 
                   ui.hyperlink_to(text, link);
                });

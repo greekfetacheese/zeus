@@ -13,21 +13,24 @@ categories = ["gui"]
 [dependencies.egui]
 version = "=0.32.3"
 
+[dependencies.palette]
+version = "0.7.6"
+
 
 [dependencies.serde_json]
-version = "=1.0.145"
+version = "1"
 optional = true
 
 
 [dependencies.serde]
-version = "=1.0.226"
+version = "1"
 optional = true
 features = ["derive"]
 
 [dev-dependencies]
-eframe = "=0.32.3"
+eframe = "0.32.0"
 
 
 
 [features]
-serde = ["dep:serde", "dep:serde_json", "egui/serde"]
+serde = ["dep:serde", "palette/serde", "dep:serde_json", "egui/serde"]

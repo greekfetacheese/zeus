@@ -442,7 +442,6 @@ impl ContactsUi {
                   ui.set_width(self.size.0);
 
                   let frame = theme.frame2;
-                  let frame = frame.fill(theme.colors.bg_color);
                   for contact in &contacts {
                      frame.show(ui, |ui| {
                         ui.set_width(ui.available_width() * 0.7);
@@ -459,7 +458,7 @@ impl ContactsUi {
                         ui.hyperlink_to(
                            RichText::new(contact.address_short(10, 10))
                               .size(theme.text_sizes.normal)
-                              .color(theme.colors.hyperlink_color),
+                              .color(theme.colors.info),
                            link,
                         );
 

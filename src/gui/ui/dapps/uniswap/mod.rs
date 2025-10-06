@@ -353,7 +353,7 @@ impl UniswapUi {
          if ctx.chain().is_bsc() {
             let text = RichText::new("Swap feature is not available on Binance Smart Chain")
                .size(theme.text_sizes.large)
-               .color(theme.colors.error_color);
+               .color(theme.colors.error);
             ui.label(text);
          }
 

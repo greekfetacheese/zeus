@@ -246,7 +246,7 @@ impl Notification {
 
    fn show_with_progress_bar(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let bar_width = self.size.0 / 2.0;
-      let bar_color = theme.colors.highlight1;
+      let bar_color = theme.colors.bg_light2;
 
       let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
       let start = (self.start_on as u128) * 1000u128;
@@ -292,7 +292,7 @@ impl Notification {
    }
 
    fn show_with_spinner(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      let spinner_color = theme.colors.highlight1;
+      let spinner_color = theme.colors.bg_light2;
 
       ui.vertical_centered(|ui| {
          ui.label(RichText::new(&self.title).size(theme.text_sizes.large));

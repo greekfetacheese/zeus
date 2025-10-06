@@ -129,7 +129,6 @@ impl TokenSelectionWindow {
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text(RichText::new("Search tokens or enter an address"))
                      .desired_width(ui_width * 0.7)
-                     .background_color(theme.colors.text_edit_bg)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );

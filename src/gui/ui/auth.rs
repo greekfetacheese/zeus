@@ -7,7 +7,7 @@ use eframe::egui::{
 };
 use egui::{Color32, Margin};
 use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
-use egui_theme::{Theme, ThemeKind};
+use egui_theme::Theme;
 use egui_widgets::SecureTextEdit;
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
@@ -107,7 +107,10 @@ impl VirtualKeyboard {
       ];
 
       ui.add_space(10.0);
-      Frame::group(&theme.style).fill(theme.colors.secondary_bg_color).show(ui, |ui| {
+
+      let frame = theme.frame2;
+
+      frame.show(ui, |ui| {
          ui.vertical(|ui| {
             let is_uppercase = self.shift_active ^ self.caps_lock_active;
             let layout = if is_uppercase {
@@ -249,14 +252,14 @@ impl CredentialsForm {
                   }
 
                   let icon = if self.hide_username {
-                     match theme.kind {
-                        ThemeKind::Latte => icons.hide(),
-                        _ => icons.hide_light(),
+                     match theme.dark_mode {
+                        true => icons.hide_light(),
+                        _ => icons.hide(),
                      }
                   } else {
-                     match theme.kind {
-                        ThemeKind::Latte => icons.view(),
-                        _ => icons.view_light(),
+                     match theme.dark_mode {
+                        true => icons.view_light(),
+                        _ => icons.view(),
                      }
                   };
 
@@ -287,14 +290,14 @@ impl CredentialsForm {
                   }
 
                   let icon = if self.hide_password {
-                     match theme.kind {
-                        ThemeKind::Latte => icons.hide(),
-                        _ => icons.hide_light(),
+                     match theme.dark_mode {
+                        true => icons.hide_light(),
+                        _ => icons.hide(),
                      }
                   } else {
-                     match theme.kind {
-                        ThemeKind::Latte => icons.view(),
-                        _ => icons.view_light(),
+                     match theme.dark_mode {
+                        true => icons.view_light(),
+                        _ => icons.view(),
                      }
                   };
 
@@ -326,14 +329,14 @@ impl CredentialsForm {
                      }
 
                      let icon = if self.hide_password {
-                        match theme.kind {
-                           ThemeKind::Latte => icons.hide(),
-                           _ => icons.hide_light(),
+                        match theme.dark_mode {
+                           true => icons.hide_light(),
+                           _ => icons.hide(),
                         }
                      } else {
-                        match theme.kind {
-                           ThemeKind::Latte => icons.view(),
-                           _ => icons.view_light(),
+                        match theme.dark_mode {
+                           true => icons.view_light(),
+                           _ => icons.view(),
                         }
                      };
 

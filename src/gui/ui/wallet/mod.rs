@@ -8,7 +8,7 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
    Sense, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui_theme::{Theme, utils::*};
+use egui_theme::{Theme, utils::frame_it};
 use std::sync::Arc;
 use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 
@@ -142,14 +142,13 @@ impl WalletUi {
                // Search bar
                ui.add_space(8.0);
 
-               let hint = RichText::new("Search...").color(theme.colors.text_secondary);
+               let hint = RichText::new("Search...").color(theme.colors.text_muted);
 
                ui.add(
                   TextEdit::singleline(&mut self.search_query)
                      .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal))
-                     .background_color(theme.colors.text_edit_bg)
                      .min_size(vec2(ui.available_width() * 0.7, 20.0)),
                );
                ui.add_space(8.0);
@@ -189,12 +188,12 @@ impl WalletUi {
       is_current: bool,
       ui: &mut Ui,
    ) {
-      let mut frame = Frame::group(ui.style()).inner_margin(8.0).fill(theme.colors.bg_color);
+      let mut frame = theme.frame2;
 
       let visuals = if is_current {
          None
       } else {
-         Some(theme.frame1_visuals.clone())
+         Some(theme.frame2_visuals)
       };
 
       let res = frame_it(&mut frame, visuals, ui, |ui| {
@@ -270,7 +269,7 @@ impl WalletUi {
                      });
                      ui.label(
                         RichText::new(format!("${}", value.formatted()))
-                           .color(theme.colors.text_secondary)
+                           .color(theme.colors.text_muted)
                            .size(theme.text_sizes.small),
                      );
                   });

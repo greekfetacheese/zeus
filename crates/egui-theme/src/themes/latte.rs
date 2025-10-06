@@ -98,12 +98,7 @@ fn frame1() -> Frame {
       inner_margin: Margin::same(12),
       fill: MANTLE,
       stroke: Stroke::new(1.0, CRUST),
-      shadow: Shadow {
-         offset: (0, 0).into(),
-         blur: 10,
-         spread: 0,
-         color: Color32::from_black_alpha(30),
-      },
+      shadow: Shadow { offset: (0, 0).into(), blur: 10, spread: 0, color: Color32::from_black_alpha(30) },
       ..Default::default()
    }
 }
@@ -145,10 +140,7 @@ fn visuals(widgets: Widgets) -> Visuals {
       dark_mode: false,
       override_text_color: Some(colors.text_color),
       widgets,
-      selection: Selection {
-         bg_fill: LAVENDER,
-         stroke: Stroke::NONE,
-      },
+      selection: Selection { bg_fill: LAVENDER, stroke: Stroke::NONE },
       hyperlink_color: colors.hyperlink_color,
       faint_bg_color: CRUST,
       extreme_bg_color: MANTLE,
@@ -156,12 +148,7 @@ fn visuals(widgets: Widgets) -> Visuals {
       warn_fg_color: PEACH,
       error_fg_color: RED,
       window_corner_radius: CornerRadius::same(6),
-      window_shadow: Shadow {
-         offset: (0, 0).into(),
-         blur: 20,
-         spread: 0,
-         color: Color32::from_black_alpha(40),
-      },
+      window_shadow: Shadow { offset: (0, 0).into(), blur: 20, spread: 0, color: Color32::from_black_alpha(40) },
       window_fill: colors.window_fill,
       window_stroke: Stroke::new(1.0, CRUST),
       panel_fill: colors.bg_color,
@@ -170,18 +157,18 @@ fn visuals(widgets: Widgets) -> Visuals {
 }
 
 fn widgets(colors: ThemeColors) -> Widgets {
-   let base_visuals = WidgetVisuals {
-      bg_fill: colors.widget_bg_color,
-      weak_bg_fill: colors.widget_bg_color,
-      bg_stroke: Stroke::new(1.0, colors.border_color_idle),
-      corner_radius: CornerRadius::same(4),
-      fg_stroke: Stroke::new(1.5, colors.text_color), // Slightly thicker fg for readability
-      expansion: 0.0,
-   };
+    let base_visuals = WidgetVisuals {
+        bg_fill: colors.widget_bg_color,
+        weak_bg_fill: colors.widget_bg_color,
+        bg_stroke: Stroke::new(1.0, colors.border_color_idle),
+        corner_radius: CornerRadius::same(4),
+        fg_stroke: Stroke::new(1.5, colors.text_color), // Slightly thicker fg for readability
+        expansion: 0.0,
+    };
 
    let mut non_interactive_base = base_visuals.clone();
    non_interactive_base.bg_stroke.width = 0.0;
-
+   
    Widgets {
       noninteractive: non_interactive_base,
       inactive: base_visuals,

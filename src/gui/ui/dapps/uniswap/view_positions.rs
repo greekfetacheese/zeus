@@ -265,7 +265,6 @@ impl RemoveLiquidity {
                TextEdit::singleline(&mut self.withdraw_amount)
                   .hint_text("0%")
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .show(ui);
 
@@ -326,7 +325,6 @@ impl RemoveLiquidity {
                TextEdit::singleline(&mut self.slippage)
                   .hint_text("0.5")
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .desired_width(25.0)
                   .show(ui);
@@ -483,7 +481,6 @@ impl AddLiquidity {
                TextEdit::singleline(&mut self.deposit_amount)
                   .hint_text("0")
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .show(ui);
 
@@ -553,7 +550,6 @@ impl AddLiquidity {
                TextEdit::singleline(&mut self.slippage)
                   .hint_text("0.5")
                   .font(FontId::proportional(theme.text_sizes.normal))
-                  .background_color(theme.colors.text_edit_bg)
                   .margin(Margin::same(10))
                   .desired_width(ui.available_width() * 0.3)
                   .show(ui);
