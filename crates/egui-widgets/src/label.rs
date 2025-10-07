@@ -1,6 +1,6 @@
 use egui::{
-   Align, FontSelection, Image, Pos2, Rect, Response, Sense, StrokeKind, TextWrapMode, Ui, Vec2,
-   Widget, WidgetText,
+   Align, Color32, FontSelection, Image, Pos2, Rect, Response, Sense, Stroke, StrokeKind,
+   TextWrapMode, Ui, Vec2, Widget, WidgetText,
    epaint::{RectShape, TextShape},
    style::WidgetVisuals,
    text::LayoutJob,
@@ -13,12 +13,14 @@ pub struct Label {
    text: WidgetText,
    pub(crate) image: Option<Image<'static>>,
    spacing: f32,
+   expansion: Option<f32>,
    pub(crate) sense: Option<Sense>,
    wrap_mode: Option<TextWrapMode>,
    selectable: Option<bool>,
    text_first: bool,
+   selected: bool,
+   fill_width: bool,
 }
-
 impl Label {
    /// Create a new `LabelWithImage` with text and an optional image.
    /// By default the image is shown after the text
@@ -27,16 +29,24 @@ impl Label {
          text: text.into(),
          image,
          spacing: 6.0,
+         expansion: None,
          sense: None,
          wrap_mode: None,
          selectable: None,
          text_first: true,
+         selected: false,
+         fill_width: false,
       }
    }
 
    /// Set the space between the text and the image.
    pub fn spacing(mut self, spacing: f32) -> Self {
       self.spacing = spacing;
+      self
+   }
+
+   pub fn expand(mut self, expansion: Option<f32>) -> Self {
+      self.expansion = expansion;
       self
    }
 
@@ -70,6 +80,16 @@ impl Label {
       self
    }
 
+   pub fn selected(mut self, selected: bool) -> Self {
+      self.selected = selected;
+      self
+   }
+
+   pub fn fill_width(mut self, fill: bool) -> Self {
+      self.fill_width = fill;
+      self
+   }
+
    /// Calculate the size needed by the widget.
    ///
    /// `available_width` is the width available *for the text part* after accounting for image/spacing.
@@ -80,8 +100,8 @@ impl Label {
    ) -> (Arc<egui::Galley>, Vec2) {
       let layout_job = self.prepare_layout_job(ui, available_width_for_text);
       let galley = ui.fonts(|fonts| fonts.layout_job(layout_job));
-
       let text_size = galley.size();
+
       let image_size = if let Some(image) = &self.image {
          image.calc_size(ui.available_size(), image.size())
       } else {
@@ -94,8 +114,8 @@ impl Label {
          } else {
             0.0
          };
-      let total_height = text_size.y.max(image_size.y);
 
+      let total_height = text_size.y.max(image_size.y);
       (galley, Vec2::new(total_width, total_height))
    }
 
@@ -109,7 +129,6 @@ impl Label {
 
       // remove the Arc
       let mut layout_job: LayoutJob = (*layout_job).clone();
-
       match wrap_mode {
          TextWrapMode::Extend => {
             layout_job.wrap.max_width = f32::INFINITY;
@@ -123,10 +142,10 @@ impl Label {
             layout_job.wrap.break_anywhere = true;
          }
       }
+
       layout_job.halign = Align::LEFT;
       layout_job
    }
-
    pub(crate) fn paint_content_within_rect(
       &self,
       ui: &mut Ui,
@@ -145,7 +164,6 @@ impl Label {
 
       // Calculate galley based on available width
       let (galley, _) = self.galley_and_size(ui, available_width_for_text);
-
       if ui.is_rect_visible(rect) {
          let (text_pos, image_rect_opt) = layout_content_within_rect(
             ui,
@@ -171,20 +189,31 @@ impl Label {
       }
    }
 }
-
 impl Widget for Label {
    fn ui(self, ui: &mut Ui) -> Response {
       // Calculate Size (Content Only)
-      let available_width = ui.available_width();
-      let available_width_for_text = if self.image.is_some() {
-         (available_width
-            - self.image.as_ref().map_or(0.0, |img| img.size().map_or(0.0, |s| s.x))
-            - self.spacing)
-            .max(10.0)
+      let image_size = if let Some(image) = &self.image {
+         image.calc_size(ui.available_size(), image.size())
       } else {
-         available_width
+         Vec2::ZERO
       };
-      let (galley, desired_size) = self.galley_and_size(ui, available_width_for_text);
+
+      let available_width_for_text = if self.fill_width {
+         if self.image.is_some() {
+            (ui.available_width() - self.spacing - image_size.x).max(10.0)
+         } else {
+            ui.available_width()
+         }
+      } else {
+         f32::INFINITY
+      };
+
+      let (galley, content_size) = self.galley_and_size(ui, available_width_for_text);
+      let desired_size = if self.fill_width {
+         Vec2::new(ui.available_width(), content_size.y)
+      } else {
+         content_size
+      };
 
       // Allocate Space (Content Size Only)
       let sense = self.sense.unwrap_or(Sense::hover());
@@ -192,26 +221,35 @@ impl Widget for Label {
 
       // Paint
       if ui.is_rect_visible(rect) {
-         let visuals = if self.sense.is_some() {
-            ui.style().interact(&response)
+         let mut visuals = ui.style().interact_selectable(&response, self.selected);
+
+         if self.selected {
+            visuals.weak_bg_fill = visuals.bg_fill;
+         }
+
+         let fill = if self.selected {
+            visuals.bg_fill
+         } else if response.hovered() || response.has_focus() {
+            visuals.weak_bg_fill
          } else {
-            ui.style().noninteractive()
+            Color32::TRANSPARENT
          };
 
-         // Paint Background
-         let is_interactive = self.sense.is_some();
-         if is_interactive
-            && (response.hovered() || response.is_pointer_button_down_on() || response.has_focus())
-         {
-            let background_rect = rect.expand(visuals.expansion);
-            ui.painter().add(RectShape::new(
-               background_rect,
-               visuals.corner_radius,
-               visuals.weak_bg_fill,
-               visuals.bg_stroke,
-               StrokeKind::Inside,
-            ));
-         }
+         let stroke = if self.selected || response.hovered() || response.has_focus() {
+            visuals.bg_stroke
+         } else {
+            Stroke::NONE
+         };
+
+         let expansion = self.expansion.unwrap_or(visuals.expansion);
+         let background_rect = rect.expand(expansion);
+         ui.painter().add(RectShape::new(
+            background_rect,
+            visuals.corner_radius,
+            fill,
+            stroke,
+            StrokeKind::Inside,
+         ));
 
          // Layout and Paint Content
          let (text_pos, image_rect_opt) = layout_content_within_rect(
@@ -224,7 +262,6 @@ impl Widget for Label {
          );
 
          let text_color = visuals.text_color();
-
          ui.painter().add(TextShape::new(
             text_pos,
             galley.clone(),
@@ -237,11 +274,9 @@ impl Widget for Label {
             }
          }
       }
-
       response
    }
 }
-
 fn layout_content_within_rect(
    ui: &Ui,
    rect: Rect,
@@ -294,6 +329,5 @@ fn layout_content_within_rect(
       text_start_x,
       top_y + (total_content_height - text_size.y) * 0.5,
    );
-
    (text_pos, image_final_rect)
 }

@@ -25,6 +25,7 @@ pub struct ChainSelect {
    pub chain: ChainId,
    pub size: Vec2,
    pub show_icon: bool,
+   pub expansion: Option<f32>,
 }
 
 impl ChainSelect {
@@ -34,6 +35,7 @@ impl ChainSelect {
          chain: ChainId::new(default_chain).unwrap(),
          size: (200.0, 25.0).into(),
          show_icon: true,
+         expansion: Some(4.0),
       }
    }
 
@@ -57,39 +59,49 @@ impl ChainSelect {
       icons: Arc<Icons>,
       ui: &mut Ui,
    ) -> bool {
-      let selected_chain = self.chain;
+      let current_chain = self.chain;
       let mut clicked = false;
       let supported_chains = ChainId::supported_chains();
+      let expansion = self.expansion;
 
       let text_size = theme.text_sizes.normal;
       let tint = theme.image_tint_recommended;
-      let icon = icons.chain_icon(selected_chain.id(), tint);
+      let icon = icons.chain_icon(current_chain.id(), tint);
 
-      let selected_chain = Label::new(
-         RichText::new(selected_chain.name()).size(text_size),
+      let current_chain_label = Label::new(
+         RichText::new(current_chain.name()).size(text_size),
          Some(icon),
       )
       .image_on_left()
       .sense(Sense::click());
 
-      ComboBox::new(self.id, selected_chain).width(self.size.x).show_ui(ui, |ui| {
-         for chain in supported_chains {
-            if chain.id() == ignore_chain {
-               continue;
+      ComboBox::new(self.id, current_chain_label)
+         .width(self.size.x)
+         .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 10.0;
+
+            for chain in supported_chains {
+               if chain.id() == ignore_chain {
+                  continue;
+               }
+
+               let text = RichText::new(chain.name()).size(text_size);
+               let icon = icons.chain_icon(chain.id(), tint);
+
+               let is_selected = chain == current_chain;
+               let chain_label = Label::new(text.clone(), Some(icon))
+                  .image_on_left()
+                  .expand(expansion)
+                  .fill_width(true)
+                  .selected(is_selected)
+                  .sense(Sense::click());
+
+               if ui.add(chain_label).clicked() {
+                  self.chain = chain;
+                  clicked = true;
+               }
             }
-
-            let text = RichText::new(chain.name()).size(text_size);
-            let icon = icons.chain_icon(chain.id(), tint);
-
-            let chain_label =
-               Label::new(text.clone(), Some(icon)).image_on_left().sense(Sense::click());
-
-            if ui.add(chain_label).clicked() {
-               self.chain = chain;
-               clicked = true;
-            }
-         }
-      });
+         });
       clicked
    }
 }
@@ -100,7 +112,7 @@ pub struct WalletSelect {
    /// Selected Wallet
    pub wallet: Wallet,
    pub size: Vec2,
-   pub button_padding: Vec2,
+   pub expansion: Option<f32>,
 }
 
 impl WalletSelect {
@@ -109,7 +121,7 @@ impl WalletSelect {
          id,
          wallet: Wallet::new_rng("I should not be here2".to_string()),
          size: (200.0, 25.0).into(),
-         button_padding: vec2(10.0, 4.0),
+         expansion: Some(6.0),
       }
    }
 
@@ -118,8 +130,8 @@ impl WalletSelect {
       self
    }
 
-   pub fn button_padding(mut self, button_padding: impl Into<Vec2>) -> Self {
-      self.button_padding = button_padding.into();
+   pub fn expansion(mut self, expansion: f32) -> Self {
+      self.expansion = Some(expansion);
       self
    }
 
@@ -128,30 +140,40 @@ impl WalletSelect {
    /// Returns true if the wallet was changed
    pub fn show(&mut self, theme: &Theme, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) -> bool {
       let mut clicked = false;
-      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.text_sizes.normal);
+      let expansion = self.expansion;
+
       let wallet_icon = icons.wallet_main_x24();
+      let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.text_sizes.normal);
 
-      ComboBox::new(
-         self.id,
-         Label::new(text, Some(wallet_icon)).image_on_left().sense(Sense::click()),
-      )
-      .width(self.size.x)
-      .show_ui(ui, |ui| {
-         ui.spacing_mut().item_spacing.y = 5.0;
-         ui.spacing_mut().button_padding = self.button_padding;
+      let current_wallet_label = Label::new(text, Some(wallet_icon))
+         .image_on_left()
+         .expand(expansion)
+         .sense(Sense::click());
 
-         ctx.read(|ctx| {
-            for wallet in ctx.vault_ref().all_wallets() {
-               let text = RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
-               let wallet_label = Label::new(text, None).sense(Sense::click());
+      ComboBox::new(self.id, current_wallet_label)
+         .width(self.size.x)
+         .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 14.0;
 
-               if ui.add(wallet_label).clicked() {
-                  self.wallet = wallet.clone();
-                  clicked = true;
+            ctx.read(|ctx| {
+               for wallet in ctx.vault_ref().all_wallets() {
+                  let is_selected = wallet.address() == self.wallet.address();
+                  let text =
+                     RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
+
+                  let wallet_label = Label::new(text, None)
+                     .fill_width(true)
+                     .expand(expansion)
+                     .selected(is_selected)
+                     .sense(Sense::click());
+
+                  if ui.add(wallet_label).clicked() {
+                     self.wallet = wallet.clone();
+                     clicked = true;
+                  }
                }
-            }
+            });
          });
-      });
 
       clicked
    }
