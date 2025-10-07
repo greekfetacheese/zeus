@@ -158,12 +158,13 @@ impl PoolsUi {
                      ui.scope(|ui| {
                         ui.set_width(column_width);
                         ui.spacing_mut().item_spacing.x = 5.0;
+                        let tint = theme.image_tint_recommended;
 
                         let token0 = pool.currency0();
                         let token1 = pool.currency1();
 
-                        let icon0 = icons.currency_icon(token0);
-                        let icon1 = icons.currency_icon(token1);
+                        let icon0 = icons.currency_icon(token0, tint);
+                        let icon1 = icons.currency_icon(token1, tint);
 
                         let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
                         let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);

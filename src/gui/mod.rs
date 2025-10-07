@@ -177,7 +177,7 @@ impl Default for GUI {
       let icons = Arc::new(Icons::default());
       GUI::new(
          icons,
-         Theme::new(ThemeKind::DarkClassic),
+         Theme::new(ThemeKind::Dark),
          Context::default(),
       )
    }

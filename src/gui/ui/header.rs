@@ -67,6 +67,7 @@ impl Header {
       let chain = ctx.chain();
       let frame = theme.frame1;
       let wallet = ctx.current_wallet_info();
+      let tint = theme.image_tint_recommended;
 
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
@@ -95,8 +96,8 @@ impl Header {
                let text = RichText::new("Delegated").size(theme.text_sizes.normal);
 
                let icon = match deleg_addr.is_some() {
-                  true => icons.green_circle(),
-                  false => icons.red_circle(),
+                  true => icons.green_circle(tint),
+                  false => icons.red_circle(tint),
                };
 
                let tip = if deleg_addr.is_some() {

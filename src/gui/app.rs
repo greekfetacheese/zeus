@@ -26,7 +26,7 @@ impl ZeusApp {
       let theme_kind = if let Ok(kind) = load_theme_kind() {
          kind
       } else {
-         ThemeKind::DarkClassic
+         ThemeKind::Dark
       };
 
       let theme = Theme::new(theme_kind);
@@ -128,6 +128,7 @@ impl eframe::App for ZeusApp {
                .show_separator_line(true)
                .show_inside(ui, |ui| {
                   if gui.ctx.vault_unlocked() {
+                     ui.add_space(40.0);
                      gui.show_left_panel(ui);
                   }
                });

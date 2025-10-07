@@ -14,7 +14,7 @@ use themes::*;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum ThemeKind {
-   DarkClassic,
+   Dark,
 
    /// A custom theme
    Custom,
@@ -23,20 +23,27 @@ pub enum ThemeKind {
 impl ThemeKind {
    pub fn to_str(&self) -> &str {
       match self {
-         ThemeKind::DarkClassic => "Dark Classic",
+         ThemeKind::Dark => "Dark",
          ThemeKind::Custom => "Custom",
       }
    }
 
    pub fn to_vec() -> Vec<Self> {
-      vec![Self::DarkClassic]
+      vec![Self::Dark]
    }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct Theme {
+   /// True if the theme is dark
    pub dark_mode: bool,
+
+   /// True if a tint is recomended to be applied to images
+   /// to soften the contrast between the image and the background
+   /// 
+   /// This is usually true for themes with very dark background
+   pub image_tint_recommended: bool,
    pub kind: ThemeKind,
    pub style: Style,
    pub colors: ThemeColors,
@@ -58,7 +65,7 @@ impl Theme {
    /// Use [Theme::from_custom()] instead
    pub fn new(kind: ThemeKind) -> Self {
       let theme = match kind {
-         ThemeKind::DarkClassic => dark_classic::theme(),
+         ThemeKind::Dark => dark::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       };
 
@@ -67,29 +74,28 @@ impl Theme {
 
    pub fn set_window_frame_colors(&mut self) {
       match self.kind {
-         ThemeKind::DarkClassic => self.window_frame = dark_classic::window_frame(&self.colors),
+         ThemeKind::Dark => self.window_frame = dark::window_frame(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
 
    pub fn set_frame1_colors(&mut self) {
       match self.kind {
-         ThemeKind::DarkClassic => self.frame1 = dark_classic::frame1(&self.colors),
+         ThemeKind::Dark => self.frame1 = dark::frame1(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
 
    pub fn set_frame2_colors(&mut self) {
       match self.kind {
-         ThemeKind::DarkClassic => self.frame2 = dark_classic::frame2(&self.colors),
+         ThemeKind::Dark => self.frame2 = dark::frame2(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
 }
 
-/// These colors can be used to override the visuals using [egui::Ui::visuals_mut]
-///
-/// `border_color` = [egui::Stroke] color
+
+/// This is the color palette of the theme
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct ThemeColors {
@@ -116,7 +122,9 @@ pub struct ThemeColors {
    /// Main text color
    pub text: Color32,
 
-   /// Secondary text color
+   /// Muted text color
+   /// 
+   /// For example a hint inside a text field
    pub text_muted: Color32,
 
    /// Highlight color
@@ -124,9 +132,6 @@ pub struct ThemeColors {
 
    /// Border color
    pub border: Color32,
-
-   /// Secondary border color
-   pub border_muted: Color32,
 
    /// Primary action color
    pub primary: Color32,

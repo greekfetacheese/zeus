@@ -62,7 +62,8 @@ impl ChainSelect {
       let supported_chains = ChainId::supported_chains();
 
       let text_size = theme.text_sizes.normal;
-      let icon = icons.chain_icon(selected_chain.id());
+      let tint = theme.image_tint_recommended;
+      let icon = icons.chain_icon(selected_chain.id(), tint);
 
       let selected_chain = Label::new(
          RichText::new(selected_chain.name()).size(text_size),
@@ -78,7 +79,7 @@ impl ChainSelect {
             }
 
             let text = RichText::new(chain.name()).size(text_size);
-            let icon = icons.chain_icon(chain.id());
+            let icon = icons.chain_icon(chain.id(), tint);
 
             let chain_label =
                Label::new(text.clone(), Some(icon)).image_on_left().sense(Sense::click());
@@ -581,7 +582,8 @@ impl PortfolioUi {
    }
 
    fn token(&self, theme: &Theme, icons: Arc<Icons>, currency: &Currency, ui: &mut Ui, width: f32) {
-      let icon = icons.currency_icon(currency);
+      let tint = theme.image_tint_recommended;
+      let icon = icons.currency_icon(currency, tint);
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);

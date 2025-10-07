@@ -160,6 +160,7 @@ impl TokenSelectionWindow {
 
             let num_rows = filtered_list.len();
             let row_height = 40.0;
+            let tint = theme.image_tint_recommended;
 
             ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
                ui,
@@ -167,7 +168,7 @@ impl TokenSelectionWindow {
                num_rows,
                |ui, row_range| {
                   ui.spacing_mut().item_spacing.y = 10.0;
-                  utils::no_border(ui);
+                  utils::no_border_on_idle(ui);
                   utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
 
                   for row_index in row_range {
@@ -175,7 +176,7 @@ impl TokenSelectionWindow {
                         let name = truncate_symbol_or_name(currency.name(), 20);
                         let symbol = truncate_symbol_or_name(currency.symbol(), 10);
                         let text = format!("{} ({})", name, symbol);
-                        let icon = icons.currency_icon(currency);
+                        let icon = icons.currency_icon(currency, tint);
                         let button = Button::image_and_text(
                            icon,
                            RichText::new(text).size(theme.text_sizes.normal),

@@ -189,6 +189,7 @@ impl WalletUi {
       ui: &mut Ui,
    ) {
       let mut frame = theme.frame2;
+      let tint = theme.image_tint_recommended;
 
       let visuals = if is_current {
          None
@@ -263,13 +264,12 @@ impl WalletUi {
                      let value = ctx.get_portfolio_value_all_chains(wallet.address);
                      ui.horizontal(|ui| {
                         for chain in chains {
-                           let icon = icons.chain_icon_x16(chain);
+                           let icon = icons.chain_icon_x16(chain, tint);
                            ui.add(icon);
                         }
                      });
                      ui.label(
                         RichText::new(format!("${}", value.formatted()))
-                           .color(theme.colors.text_muted)
                            .size(theme.text_sizes.small),
                      );
                   });

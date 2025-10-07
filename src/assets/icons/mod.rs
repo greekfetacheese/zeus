@@ -6,6 +6,7 @@ use eframe::egui::{
 };
 
 use crate::core::context::db::currencies::{TOKENS, TokenData};
+use egui_theme::utils::TINT_1;
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -302,56 +303,64 @@ impl Icons {
    }
 
    /// Return the chain icon based on the chain_id
-   pub fn chain_icon(&self, id: u64) -> Image<'static> {
-      match id {
+   pub fn chain_icon(&self, id: u64, tint: bool) -> Image<'static> {
+      let mut img = match id {
          1 => Image::new(&self.chain.eth_x24),
          10 => Image::new(&self.chain.op_x24),
          56 => Image::new(&self.chain.bsc_x24),
          8453 => Image::new(&self.chain.base_x24),
          42161 => Image::new(&self.chain.arbitrum_x24),
          _ => Image::new(&self.chain.eth_x24),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
       }
+
+      img
    }
 
-   pub fn chain_icon_x16(&self, id: u64) -> Image<'static> {
-      match id {
+   pub fn chain_icon_x16(&self, id: u64, tint: bool) -> Image<'static> {
+      let mut img = match id {
          1 => Image::new(&self.chain.eth_x16),
          10 => Image::new(&self.chain.op_x16),
          56 => Image::new(&self.chain.bsc_x16),
          8453 => Image::new(&self.chain.base_x16),
          42161 => Image::new(&self.chain.arbitrum_x16),
          _ => Image::new(&self.chain.eth_x16),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
       }
+
+      img
    }
 
-   pub fn eth_black(&self) -> Image<'static> {
-      Image::new(&self.currency.eth_black)
-   }
-
-   pub fn eth_black_x24(&self) -> Image<'static> {
-      Image::new(&self.currency.eth_black_x24)
-   }
-
-   pub fn eth_x24(&self) -> Image<'static> {
-      Image::new(&self.currency.eth_x24)
-   }
-
-   pub fn bnb_x24(&self) -> Image<'static> {
-      Image::new(&self.currency.bnb_x24)
-   }
-
-   pub fn native_currency_icon(&self, chain: u64) -> Image<'static> {
-      match chain {
+   pub fn native_currency_icon(&self, chain: u64, tint: bool) -> Image<'static> {
+      let mut img = match chain {
          56 => Image::new(&self.currency.bnb),
          _ => Image::new(&self.currency.eth),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
       }
+
+      img
    }
 
-   pub fn native_currency_icon_x24(&self, chain: u64) -> Image<'static> {
-      match chain {
+   pub fn native_currency_icon_x24(&self, chain: u64, tint: bool) -> Image<'static> {
+      let mut img = match chain {
          56 => Image::new(&self.currency.bnb_x24),
          _ => Image::new(&self.currency.eth_x24),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
       }
+
+      img
    }
 
    /// Return the currency icon based on the currency
@@ -359,118 +368,161 @@ impl Icons {
    /// If the currency is native, it will return the native currency icon based on the chain_id
    ///
    /// If its ERC20, it will return the token icon based on the token address and chain id
-   pub fn currency_icon(&self, currency: &Currency) -> Image<'static> {
+   pub fn currency_icon(&self, currency: &Currency, tint: bool) -> Image<'static> {
       if currency.is_native() {
-         self.native_currency_icon(currency.chain_id())
+         self.native_currency_icon(currency.chain_id(), tint)
       } else {
-         self.token_icon_x32(currency.address(), currency.chain_id())
+         self.token_icon_x32(currency.address(), currency.chain_id(), tint)
       }
    }
 
-   pub fn currency_icon_x24(&self, currency: &Currency) -> Image<'static> {
+   pub fn currency_icon_x24(&self, currency: &Currency, tint: bool) -> Image<'static> {
       if currency.is_native() {
-         self.native_currency_icon_x24(currency.chain_id())
+         self.native_currency_icon_x24(currency.chain_id(), tint)
       } else {
-         self.token_icon_x24(currency.address(), currency.chain_id())
+         self.token_icon_x24(currency.address(), currency.chain_id(), tint)
       }
    }
 
    /// Return the token icon (32 x 32) based on its address and chain id
    ///
    /// If it does not exist we return a placeholder
-   pub fn token_icon_x32(&self, address: Address, chain_id: u64) -> Image<'static> {
+   pub fn token_icon_x32(&self, address: Address, chain_id: u64, tint: bool) -> Image<'static> {
       let key = &(address, chain_id);
       if let Some(icon) = self.tokens.icons_x32.get(key) {
-         return Image::new(icon);
+         match tint {
+            true => Image::new(icon).tint(TINT_1),
+            false => Image::new(icon),
+         }
       } else {
-         self.token_placeholder_x32(chain_id)
+         self.token_placeholder_x32(chain_id, tint)
       }
    }
 
-   pub fn token_icon_x24(&self, address: Address, chain_id: u64) -> Image<'static> {
+   pub fn token_icon_x24(&self, address: Address, chain_id: u64, tint: bool) -> Image<'static> {
       let key = &(address, chain_id);
       if let Some(icon) = self.tokens.icons_x24.get(key) {
-         return Image::new(icon);
+         match tint {
+            true => Image::new(icon).tint(TINT_1),
+            false => Image::new(icon),
+         }
       } else {
-         self.token_placeholder_x24(chain_id)
+         self.token_placeholder_x24(chain_id, tint)
       }
    }
 
    /// Return a placeholder icon for a token
-   pub fn token_placeholder_x32(&self, id: u64) -> Image<'static> {
-      match id {
+   pub fn token_placeholder_x32(&self, id: u64, tint: bool) -> Image<'static> {
+      let mut img = match id {
          56 => Image::new(&self.tokens.bep20_x32),
          _ => Image::new(&self.tokens.erc20_x32),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
       }
+
+      img
    }
 
-   pub fn token_placeholder_x24(&self, id: u64) -> Image<'static> {
-      match id {
+   pub fn token_placeholder_x24(&self, id: u64, tint: bool) -> Image<'static> {
+      let mut img = match id {
          56 => Image::new(&self.tokens.bep20_x24),
          _ => Image::new(&self.tokens.erc20_x24),
+      };
+
+      if tint {
+         img = img.tint(TINT_1);
+      }
+
+      img
+   }
+
+   pub fn red_circle(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.red_circle).tint(TINT_1),
+         false => Image::new(&self.misc.red_circle),
       }
    }
 
-   /// Return the erc20 icon
-   pub fn erc20_icon(&self) -> Image<'static> {
-      Image::new(&self.tokens.erc20_x32)
+   pub fn green_circle(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.green_circle).tint(TINT_1),
+         false => Image::new(&self.misc.green_circle),
+      }
    }
 
-   /// Return the bep20 icon
-   pub fn bep20_icon(&self) -> Image<'static> {
-      Image::new(&self.tokens.bep20_x32)
+   pub fn orange_circle(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.orange_circle).tint(TINT_1),
+         false => Image::new(&self.misc.orange_circle),
+      }
    }
 
-   pub fn red_circle(&self) -> Image<'static> {
-      Image::new(&self.misc.red_circle)
+   pub fn swap(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.swap).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.swap).sense(Sense::click()),
+      }
    }
 
-   pub fn green_circle(&self) -> Image<'static> {
-      Image::new(&self.misc.green_circle)
-   }
-
-   pub fn orange_circle(&self) -> Image<'static> {
-      Image::new(&self.misc.orange_circle)
-   }
-
-   pub fn swap(&self) -> Image<'static> {
-      Image::new(&self.misc.swap).sense(Sense::click())
-   }
-
-   pub fn view(&self) -> Image<'static> {
+   /// For light themes
+   pub fn view_dark(&self) -> Image<'static> {
       Image::new(&self.misc.view).sense(Sense::click())
    }
 
-   pub fn hide(&self) -> Image<'static> {
+   /// For light themes
+   pub fn hide_dark(&self) -> Image<'static> {
       Image::new(&self.misc.hide).sense(Sense::click())
    }
 
-   pub fn view_light(&self) -> Image<'static> {
-      Image::new(&self.misc.view_light).sense(Sense::click())
+   /// For dark themes
+   pub fn view_light(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.view_light).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.view_light).sense(Sense::click()),
+      }
    }
 
-   pub fn hide_light(&self) -> Image<'static> {
-      Image::new(&self.misc.hide_light).sense(Sense::click())
+   /// For dark themes
+   pub fn hide_light(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.hide_light).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.hide_light).sense(Sense::click()),
+      }
    }
 
-   pub fn wallet_light(&self) -> Image<'static> {
-      Image::new(&self.misc.wallet_light).sense(Sense::click())
+   /// For dark themes
+   pub fn wallet_light(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.wallet_light).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.wallet_light).sense(Sense::click()),
+      }
    }
 
    pub fn wallet_main_x24(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_main_x24).sense(Sense::click())
    }
 
+   /// For light themes
    pub fn wallet_dark(&self) -> Image<'static> {
       Image::new(&self.misc.wallet_dark).sense(Sense::click())
    }
 
-   pub fn arrow_right_white_x24(&self) -> Image<'static> {
-      Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click())
+   /// For dark themes
+   pub fn arrow_right_white_x24(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.arrow_right_white_x24).sense(Sense::click()),
+      }
    }
 
-   pub fn arrow_right_dark_x24(&self) -> Image<'static> {
-      Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click())
+   /// For light themes
+   pub fn arrow_right_dark_x24(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()),
+      }
    }
 }
 

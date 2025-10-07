@@ -533,8 +533,9 @@ impl CreatePositionUi {
             ui.spacing_mut().item_spacing.x = 20.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            let icon0 = icons.currency_icon(&self.currency0);
-            let icon1 = icons.currency_icon(&self.currency1);
+            let tint = theme.image_tint_recommended;
+            let icon0 = icons.currency_icon(&self.currency0, tint);
+            let icon1 = icons.currency_icon(&self.currency1, tint);
 
             let text0 = RichText::new(self.currency0.symbol()).size(theme.text_sizes.normal);
             let text1 = RichText::new(self.currency1.symbol()).size(theme.text_sizes.normal);

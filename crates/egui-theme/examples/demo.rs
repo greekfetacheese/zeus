@@ -48,7 +48,7 @@ struct DemoApp {
 
 impl DemoApp {
    fn new(cc: &eframe::CreationContext<'_>) -> Self {
-      let theme = Theme::new(ThemeKind::DarkClassic);
+      let theme = Theme::new(ThemeKind::Dark);
       let editor = ThemeEditor::new();
       cc.egui_ctx.set_style(theme.style.clone());
 
@@ -429,14 +429,6 @@ fn theme_colors(theme: &Theme, ui: &mut Ui) {
          let painter = ui.painter();
          let pos = ui.min_rect().center();
          painter.circle(pos, 15.0, theme.colors.border, stroke);
-      });
-
-      ui.vertical(|ui| {
-         ui.set_height(70.0);
-         ui.label("Border Muted");
-         let painter = ui.painter();
-         let pos = ui.min_rect().center();
-         painter.circle(pos, 15.0, theme.colors.border_muted, stroke);
       });
 
       ui.vertical(|ui| {

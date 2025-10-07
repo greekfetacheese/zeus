@@ -1,5 +1,6 @@
 use bincode::{config::standard, decode_from_slice, encode_to_vec};
 use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui_widgets::Label;
 
 use crate::assets::Icons;
 use crate::core::{
@@ -57,13 +58,13 @@ impl DevUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
       self.show_sync_pools(ctx.clone(), theme, ui);
-      self.show_ui_testing(ctx.clone(), theme, ui);
+      self.show_ui_testing(ctx.clone(), theme, icons, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -159,7 +160,7 @@ impl DevUi {
       }
    }
 
-   fn show_ui_testing(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show_ui_testing(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let mut open = self.ui_testing.is_open();
       let title = RichText::new("Ui Testing").size(theme.text_sizes.heading);
       Window::new(title)
@@ -170,7 +171,7 @@ impl DevUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            self.ui_testing.show(ctx.clone(), theme, ui);
+            self.ui_testing.show(ctx.clone(), theme, icons, ui);
          });
 
       if !open {
@@ -317,6 +318,7 @@ async fn filter_tokens(ctx: ZeusCtx, mut token_data: Vec<TokenData>) -> Result<(
 
 pub struct UiTesting {
    open: bool,
+   icon_window_open: bool,
    size: (f32, f32),
 }
 
@@ -324,6 +326,7 @@ impl UiTesting {
    pub fn new() -> Self {
       Self {
          open: false,
+         icon_window_open: false,
          size: (500.0, 400.0),
       }
    }
@@ -340,10 +343,12 @@ impl UiTesting {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
+
+      self.icon_window(ctx.clone(), theme, icons, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -354,6 +359,12 @@ impl UiTesting {
          let text_size = theme.text_sizes.normal;
 
          ScrollArea::vertical().show(ui, |ui| {
+
+            let button = Button::new(RichText::new("Icon Window").size(text_size)).min_size(button_size);
+            if ui.add(button).clicked() {
+               self.icon_window_open = true;
+            }
+
             let button =
                Button::new(RichText::new("Swap Notification With Progress Bar").size(text_size))
                   .min_size(button_size);
@@ -734,5 +745,51 @@ impl UiTesting {
             }
          });
       });
+   }
+
+   fn icon_window(&mut self, _ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let mut open = self.icon_window_open;
+
+      let title = RichText::new("Icons").size(theme.text_sizes.heading);
+      Window::new(title)
+         .open(&mut open)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
+
+            let weth = ERC20Token::weth();
+            let dai = ERC20Token::dai();
+
+            let time = std::time::Instant::now();
+            let weth_with_tint = icons.token_icon_x32(weth.address, weth.chain_id, true);
+            tracing::info!("Token Icon With Tint took {} μs", time.elapsed().as_micros());
+
+            let time = std::time::Instant::now();
+            let weth_without_tint = icons.token_icon_x32(weth.address, weth.chain_id, false);
+            tracing::info!("Token Icon Without Tint took {} μs", time.elapsed().as_micros());
+            
+            let dai_with_tint = icons.token_icon_x32(dai.address, dai.chain_id, true);
+            let dai_without_tint = icons.token_icon_x32(dai.address, dai.chain_id, false);
+
+            let label = Label::new("With tint", Some(weth_with_tint));
+            ui.add(label);
+
+            let label = Label::new("Without tint", Some(weth_without_tint));
+            ui.add(label);
+
+            let label = Label::new("With tint", Some(dai_with_tint));
+            ui.add(label);
+
+            let label = Label::new("Without tint", Some(dai_without_tint));
+            ui.add(label);
+         });
+
+         self.icon_window_open = open;
    }
 }

@@ -1,6 +1,11 @@
 use super::{Theme, FrameVisuals, ThemeKind};
 use egui::{Color32, Frame, Sense, Response, ComboBox, Stroke, Ui};
 
+// Tint/Overlay colors, useful for example if you want to slightly darken an image on the fly
+
+/// Should work for most images that are shown on a very dark background
+pub const TINT_1: Color32 = Color32::from_rgba_premultiplied(216, 216, 216, 255);
+
 /// Show a ComboBox to change the theme
 ///
 /// Returns the new theme if we select one, the new theme is also applied to the [egui::Context]

@@ -509,7 +509,8 @@ impl SwapUi {
 
          // Swap Currencies
          ui.vertical_centered(|ui| {
-            let swap_button = Button::image(icons.swap()).min_size(vec2(40.0, 40.0));
+            let tint = theme.image_tint_recommended;
+            let swap_button = Button::image(icons.swap(tint)).min_size(vec2(40.0, 40.0));
 
             if ui.add(swap_button).clicked() {
                self.swap_currencies();

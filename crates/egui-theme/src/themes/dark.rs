@@ -1,4 +1,4 @@
-use super::super::{TextSizes, Theme, ThemeColors, ThemeKind};
+use super::super::{TextSizes, Theme, FrameVisuals, ThemeColors, ThemeKind};
 use egui::{
    Color32, CornerRadius, Frame, Margin, Shadow, Stroke, Style, Visuals,
    style::{Selection, WidgetVisuals, Widgets},
@@ -6,41 +6,33 @@ use egui::{
 
 // Background
 
-const BG_DARK: Color32 = Color32::from_rgba_premultiplied(25, 25, 25, 255);
-const BG: Color32 = Color32::from_rgba_premultiplied(10, 10, 10, 255);
-const BG_LIGHT: Color32 = Color32::from_rgba_premultiplied(23, 23, 23, 255);
-const BG_LIGHT2: Color32 = Color32::from_rgba_premultiplied(23, 23, 23, 255);
+const BG_DARK: Color32 = Color32::from_rgba_premultiplied(17, 17, 18, 255);
+const BG: Color32 = Color32::from_rgba_premultiplied(24, 24, 26, 255);
+const BG_LIGHT: Color32 = Color32::from_rgba_premultiplied(31, 31, 34, 255);
+const BG_LIGHT2: Color32 = Color32::from_rgba_premultiplied(43, 43, 48, 255);
 
-// Text
+const TEXT: Color32 = Color32::from_rgba_premultiplied(204, 204, 204, 255);
+const TEXT_MUTED: Color32 = Color32::from_rgba_premultiplied(127, 127, 127, 255);
 
-const TEXT: Color32 = Color32::from_rgba_premultiplied(242, 242, 242, 255);
-const TEXT_MUTED: Color32 = Color32::from_rgba_premultiplied(179, 179, 179, 255);
+const HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(160, 160, 160, 255);
 
-// Highlight
-
-const HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(98, 98, 98, 255);
-
-// Border
-
-const BORDER: Color32 = Color32::from_rgba_premultiplied(71, 71, 71, 255);
-const BORDER_MUTED: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 255);
-
-// Action
+const BORDER: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 255);
 
 const PRIMARY: Color32 = Color32::from_rgba_premultiplied(221, 152, 198, 255);
 const SECONDARY: Color32 = Color32::from_rgba_premultiplied(118, 198, 157, 255);
 
-// Alert
+// Semantic
 
-const ERROR: Color32 = Color32::from_rgba_premultiplied(191, 60, 37, 255);
-const WARNING: Color32 = Color32::from_rgba_premultiplied(173, 102, 30, 255);
-const SUCCESS: Color32 = Color32::from_rgba_premultiplied(104, 175, 135, 255);
-const INFO: Color32 = Color32::from_rgba_premultiplied(53, 110, 200, 255);
+const ERROR: Color32 = Color32::from_rgba_premultiplied(237, 57, 57, 255);
+const WARNING: Color32 = Color32::from_rgba_premultiplied(228, 128, 25, 255);
+const SUCCESS: Color32 = Color32::from_rgba_premultiplied(72, 182, 120, 255);
+const INFO: Color32 = Color32::from_rgba_premultiplied(195, 153, 255, 255);
 
 /// Return this theme
 pub fn theme() -> Theme {
    Theme {
       dark_mode: true,
+      image_tint_recommended: true,
       kind: ThemeKind::Dark,
       style: style(),
       colors: colors(),
@@ -48,6 +40,8 @@ pub fn theme() -> Theme {
       window_frame: window_frame(&colors()),
       frame1: frame1(&colors()),
       frame2: frame2(&colors()),
+      frame1_visuals: frame1_visuals(&colors()),
+      frame2_visuals: frame2_visuals(&colors()),
    }
 }
 
@@ -62,7 +56,6 @@ fn colors() -> ThemeColors {
       text_muted: TEXT_MUTED,
       highlight: HIGHLIGHT,
       border: BORDER,
-      border_muted: BORDER_MUTED,
       primary: PRIMARY,
       secondary: SECONDARY,
       error: ERROR,
@@ -97,6 +90,15 @@ pub fn frame1(colors: &ThemeColors) -> Frame {
    }
 }
 
+pub fn frame1_visuals(colors: &ThemeColors) -> FrameVisuals {
+   FrameVisuals {
+      bg_on_hover: colors.bg_light,
+      bg_on_click: colors.bg_light,
+      border_on_hover: (1.0, colors.border),
+      border_on_click: (1.0, colors.border),
+   }
+}
+
 /// Frame for nested elements, like individual list items.
 pub fn frame2(colors: &ThemeColors) -> Frame {
    Frame {
@@ -109,36 +111,50 @@ pub fn frame2(colors: &ThemeColors) -> Frame {
    }
 }
 
+pub fn frame2_visuals(colors: &ThemeColors) -> FrameVisuals {
+   FrameVisuals {
+      bg_on_hover: colors.bg_light2,
+      bg_on_click: colors.bg_light2,
+      border_on_hover: (0.0, colors.border),
+      border_on_click: (0.0, colors.border),
+   }
+}
+
 fn style() -> Style {
+   let widgets = widgets(colors());
+   let visuals = visuals(widgets, &colors());
    Style {
-      visuals: visuals(widgets(colors())),
+      visuals,
       animation_time: 0.3,
       ..Default::default()
    }
 }
 
-fn visuals(widgets: Widgets) -> Visuals {
+fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
    Visuals {
       dark_mode: true,
       override_text_color: Some(TEXT),
       widgets,
-      selection: Selection::default(),
-      hyperlink_color: INFO,
-      faint_bg_color: BG_DARK,
-      extreme_bg_color: BG,
-      code_bg_color: BG_DARK,
-      warn_fg_color: WARNING,
-      error_fg_color: ERROR,
+      selection: Selection {
+         bg_fill: colors.bg_light2, // affects selected text color, combox selected item bg
+         stroke: Stroke::new(1.0, colors.highlight), // also affects TextEdit border color when active
+      },
+      hyperlink_color: colors.info,
+      faint_bg_color: colors.bg_dark,
+      extreme_bg_color: colors.bg,
+      code_bg_color: colors.bg_dark,
+      warn_fg_color: colors.warning,
+      error_fg_color: colors.error,
       window_corner_radius: CornerRadius::same(6),
       window_shadow: Shadow {
          offset: (0, 0).into(),
-         blur: 20,
-         spread: 0,
-         color: Color32::from_black_alpha(50),
+         blur: 12,
+         spread: 1,
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 255),
       },
-      window_fill: BG,
-      window_stroke: Stroke::new(1.0, BORDER),
-      panel_fill: BG_DARK,
+      window_fill: colors.bg,
+      window_stroke: Stroke::new(1.0, colors.border),
+      panel_fill: colors.bg_dark,
       ..Default::default()
    }
 }
@@ -155,24 +171,31 @@ fn widgets(colors: ThemeColors) -> Widgets {
 
    let mut non_interactive_base = base_visuals.clone();
    non_interactive_base.bg_stroke.width = 0.0;
+
+   // Set inactive bg to border color
+   // Because widgets like sliders dont get a border and it will not distinguish
+   // from the bg color
+   let mut inactive_visuals = base_visuals.clone();
+   inactive_visuals.bg_fill = colors.border;
+
    Widgets {
       noninteractive: non_interactive_base,
-      inactive: base_visuals,
+      inactive: inactive_visuals,
       hovered: WidgetVisuals {
-         bg_fill: colors.highlight,
-         weak_bg_fill: colors.highlight,
-         bg_stroke: Stroke::new(1.0, colors.border),
+         bg_fill: colors.bg_light,
+         weak_bg_fill: colors.bg_light2,
+         bg_stroke: Stroke::new(1.0, colors.highlight),
          ..base_visuals
       },
       active: WidgetVisuals {
-         bg_fill: colors.primary,
-         weak_bg_fill: colors.primary,
+         bg_fill: colors.bg_dark,
+         weak_bg_fill: colors.bg_dark,
          bg_stroke: Stroke::new(1.0, colors.border),
          ..base_visuals
       },
       open: WidgetVisuals {
-         bg_fill: colors.primary,
-         weak_bg_fill: colors.primary,
+         bg_fill: colors.bg_dark,
+         weak_bg_fill: colors.bg_dark,
          bg_stroke: Stroke::new(1.0, colors.border),
          ..base_visuals
       },

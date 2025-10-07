@@ -469,6 +469,8 @@ pub fn currencies_amount_and_value(
    frame: Frame,
    ui: &mut Ui,
 ) {
+   let tint = theme.image_tint_recommended;
+
    ui.vertical(|ui| {
       // Currency 0
       frame.show(ui, |ui| {
@@ -476,7 +478,7 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(token0);
+                  let icon = icons.currency_icon(token0, tint);
                   let label = Label::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });
@@ -511,7 +513,7 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(token1);
+                  let icon = icons.currency_icon(token1, tint);
                   let label = Label::new(text, Some(icon)).image_on_left();
                   ui.add(label);
                });

@@ -192,13 +192,14 @@ pub fn address(
 
 /// Show the chain name with an icon in a horizontal layout from left to right
 pub fn chain(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   let tint = theme.image_tint_recommended;
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.label(RichText::new("Chain").size(theme.text_sizes.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let icon = icons.chain_icon(chain.id());
+         let icon = icons.chain_icon(chain.id(), tint);
          let label = Label::new(
             RichText::new(chain.name()).size(theme.text_sizes.normal),
             Some(icon),
@@ -219,8 +220,9 @@ pub fn eth_spent(
    _text: &str,
    ui: &mut Ui,
 ) {
+   let tint = theme.image_tint_recommended;
    let native = NativeCurrency::from(chain);
-   let icon = icons.native_currency_icon_x24(chain);
+   let icon = icons.native_currency_icon_x24(chain, tint);
    let text = format!(
       "{} {} ≈ {}",
       eth_spent.format_abbreviated(),

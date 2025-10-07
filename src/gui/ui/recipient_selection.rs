@@ -215,6 +215,7 @@ impl RecipientSelectionWindow {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       let frame = theme.frame2;
+      let tint = theme.image_tint_recommended;
       let column0 = ui.available_width() * 0.33;
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;
@@ -260,7 +261,7 @@ impl RecipientSelectionWindow {
                      ui.vertical(|ui| {
                         ui.horizontal(|ui| {
                            for chain in chains {
-                              let icon = icons.chain_icon_x16(chain);
+                              let icon = icons.chain_icon_x16(chain, tint);
                               ui.add(icon);
                            }
                         });

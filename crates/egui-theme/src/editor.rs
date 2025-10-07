@@ -24,7 +24,6 @@ pub enum Color {
    TextMuted(Color32),
    Highlight(Color32),
    Border(Color32),
-   BorderMuted(Color32),
    Primary(Color32),
    Secondary(Color32),
    Error(Color32),
@@ -43,7 +42,6 @@ impl Color {
          Color::TextMuted(theme.text_muted),
          Color::Highlight(theme.highlight),
          Color::Border(theme.border),
-         Color::BorderMuted(theme.border_muted),
          Color::Primary(theme.primary),
          Color::Secondary(theme.secondary),
          Color::Error(theme.error),
@@ -62,7 +60,6 @@ impl Color {
          Color::TextMuted(_) => "Text Muted",
          Color::Highlight(_) => "Highlight",
          Color::Border(_) => "Border",
-         Color::BorderMuted(_) => "Border Muted",
          Color::Primary(_) => "Primary",
          Color::Secondary(_) => "Secondary",
          Color::Error(_) => "Error",
@@ -81,7 +78,6 @@ impl Color {
          Color::TextMuted(color) => *color,
          Color::Highlight(color) => *color,
          Color::Border(color) => *color,
-         Color::BorderMuted(color) => *color,
          Color::Primary(color) => *color,
          Color::Secondary(color) => *color,
          Color::Error(color) => *color,
@@ -106,8 +102,6 @@ impl Color {
          "Highlight"
       } else if color == theme_colors.border {
          "Border"
-      } else if color == theme_colors.border_muted {
-         "Border Muted"
       } else if color == theme_colors.primary {
          "Primary"
       } else if color == theme_colors.secondary {
@@ -235,6 +229,9 @@ impl ThemeEditor {
             ui.label("BG Light");
             hsla_edit_button("bg_light1", ui, &mut theme.colors.bg_light);
 
+            ui.label("BG Light 2");
+            hsla_edit_button("bg_light2", ui, &mut theme.colors.bg_light2);
+
             ui.label("Text");
             hsla_edit_button("text1", ui, &mut theme.colors.text);
 
@@ -246,13 +243,6 @@ impl ThemeEditor {
 
             ui.label("Border");
             hsla_edit_button("border1", ui, &mut theme.colors.border);
-
-            ui.label("Border Muted");
-            hsla_edit_button(
-               "border_muted1",
-               ui,
-               &mut theme.colors.border_muted,
-            );
 
             ui.label("Primary");
             hsla_edit_button("primary1", ui, &mut theme.colors.primary);

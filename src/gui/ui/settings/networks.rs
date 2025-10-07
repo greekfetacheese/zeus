@@ -53,6 +53,8 @@ impl NetworkSettings {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let tint = theme.image_tint_recommended;
+
       self.add_rpc(ctx.clone(), theme, ui);
 
       let mut open = self.open;
@@ -175,11 +177,11 @@ impl NetworkSettings {
                         ui.set_width(column_widths[2]);
                         let icon = if rpc.is_working() {
                            match rpc.is_fully_functional() {
-                              true => icons.green_circle(),
-                              false => icons.orange_circle(),
+                              true => icons.green_circle(tint),
+                              false => icons.orange_circle(tint),
                            }
                         } else {
-                           icons.red_circle()
+                           icons.red_circle(tint)
                         };
                         ui.add(icon);
                      });
@@ -188,9 +190,9 @@ impl NetworkSettings {
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[3]);
                         let icon = if rpc.is_archive() {
-                           icons.green_circle()
+                           icons.green_circle(tint)
                         } else {
-                           icons.red_circle()
+                           icons.red_circle(tint)
                         };
                         ui.add(icon);
                      });

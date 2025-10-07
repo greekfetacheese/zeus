@@ -225,6 +225,8 @@ impl CredentialsForm {
          return;
       }
 
+      let tint = theme.image_tint_recommended;
+
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = self.y_spacing;
          ui.spacing_mut().item_spacing.x = self.x_spacing;
@@ -253,13 +255,13 @@ impl CredentialsForm {
 
                   let icon = if self.hide_username {
                      match theme.dark_mode {
-                        true => icons.hide_light(),
-                        _ => icons.hide(),
+                        true => icons.hide_light(tint),
+                        _ => icons.hide_dark(),
                      }
                   } else {
                      match theme.dark_mode {
-                        true => icons.view_light(),
-                        _ => icons.view(),
+                        true => icons.view_light(tint),
+                        _ => icons.view_dark(),
                      }
                   };
 
@@ -291,13 +293,13 @@ impl CredentialsForm {
 
                   let icon = if self.hide_password {
                      match theme.dark_mode {
-                        true => icons.hide_light(),
-                        _ => icons.hide(),
+                        true => icons.hide_light(tint),
+                        _ => icons.hide_dark(),
                      }
                   } else {
                      match theme.dark_mode {
-                        true => icons.view_light(),
-                        _ => icons.view(),
+                        true => icons.view_light(tint),
+                        _ => icons.view_dark(),
                      }
                   };
 
@@ -330,13 +332,13 @@ impl CredentialsForm {
 
                      let icon = if self.hide_password {
                         match theme.dark_mode {
-                           true => icons.hide_light(),
-                           _ => icons.hide(),
+                           true => icons.hide_light(tint),
+                           _ => icons.hide_dark(),
                         }
                      } else {
                         match theme.dark_mode {
-                           true => icons.view_light(),
-                           _ => icons.view(),
+                           true => icons.view_light(tint),
+                           _ => icons.view_dark(),
                         }
                      };
 

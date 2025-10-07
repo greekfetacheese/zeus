@@ -738,6 +738,8 @@ impl DiscoverChildWallets {
       column_widths: &[f32],
       ui: &mut Ui,
    ) {
+      let tint = theme.image_tint_recommended;
+
       for child in self.discovered_wallets.wallets.iter() {
          // If child already exists it will displayed as disabled in the Ui
          let exists = self.hd_wallet.contains_child(child.address);
@@ -803,7 +805,7 @@ impl DiscoverChildWallets {
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = 1.0;
                      for chain in SUPPORTED_CHAINS {
-                        let icon = icons.chain_icon_x16(chain);
+                        let icon = icons.chain_icon_x16(chain, tint);
                         ui.add(icon);
                      }
                   });

@@ -45,6 +45,7 @@ pub fn amount_field_with_currency_selector(
    ui: &mut Ui,
 ) -> bool {
    let mut amount_changed = false;
+   let tint = theme.image_tint_recommended;
 
    ui.vertical(|ui| {
       ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
@@ -52,11 +53,7 @@ pub fn amount_field_with_currency_selector(
       ui.horizontal(|ui| {
          // Optional label
          if let Some(label) = label {
-            ui.label(
-               RichText::new(label)
-                  .size(theme.text_sizes.large)
-                  .color(theme.colors.text),
-            );
+            ui.label(RichText::new(label).size(theme.text_sizes.large).color(theme.colors.text));
          }
 
          if loading {
@@ -83,7 +80,7 @@ pub fn amount_field_with_currency_selector(
 
             // Balance
             let wallet_icon = match theme.dark_mode {
-               true => icons.wallet_light(),
+               true => icons.wallet_light(tint),
                _ => icons.wallet_dark(),
             };
 
@@ -114,7 +111,7 @@ pub fn amount_field_with_currency_selector(
          ui.add_space(10.0);
 
          // Currency Selector Button
-         let icon = icons.currency_icon(currency);
+         let icon = icons.currency_icon(currency, tint);
          let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
          let width = ui.available_width() * 0.5;
          let button = Button::image_and_text(icon, button_text).min_size(vec2(width, 40.0));
