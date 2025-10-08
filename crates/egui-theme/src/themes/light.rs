@@ -6,34 +6,34 @@ use egui::{
 
 // Background
 
-const BG: Color32 = Color32::from_rgba_premultiplied(17, 17, 18, 255);
-const BG2: Color32 = Color32::from_rgba_premultiplied(24, 24, 26, 255);
-const BG3: Color32 = Color32::from_rgba_premultiplied(31, 31, 34, 255);
-const BG4: Color32 = Color32::from_rgba_premultiplied(43, 43, 48, 255);
+const BG: Color32 = Color32::from_rgba_premultiplied(226, 227, 232, 255);
+const BG2: Color32 = Color32::from_rgba_premultiplied(232, 232, 232, 255);
+const BG3: Color32 = Color32::from_rgba_premultiplied(246, 246, 248, 255);
+const BG4: Color32 = Color32::from_rgba_premultiplied(249, 249, 249, 255);
 
-const TEXT: Color32 = Color32::from_rgba_premultiplied(204, 204, 204, 255);
-const TEXT_MUTED: Color32 = Color32::from_rgba_premultiplied(127, 127, 127, 255);
+const TEXT: Color32 = Color32::from_rgba_premultiplied(25, 25, 25, 255);
+const TEXT_MUTED: Color32 = Color32::from_rgba_premultiplied(63, 63, 63, 255);
 
-const HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(160, 160, 160, 255);
+const HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(44, 44, 44, 255);
 
-const BORDER: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 255);
+const BORDER: Color32 = Color32::from_rgba_premultiplied(165, 165, 165, 255);
 
 const PRIMARY: Color32 = Color32::from_rgba_premultiplied(221, 152, 198, 255);
 const SECONDARY: Color32 = Color32::from_rgba_premultiplied(118, 198, 157, 255);
 
 // Semantic
 
-const ERROR: Color32 = Color32::from_rgba_premultiplied(237, 57, 57, 255);
-const WARNING: Color32 = Color32::from_rgba_premultiplied(228, 128, 25, 255);
-const SUCCESS: Color32 = Color32::from_rgba_premultiplied(72, 182, 120, 255);
-const INFO: Color32 = Color32::from_rgba_premultiplied(195, 153, 255, 255);
+const ERROR: Color32 = Color32::from_rgba_premultiplied(153, 0, 32, 255);
+const WARNING: Color32 = Color32::from_rgba_premultiplied(192, 71, 0, 255);
+const SUCCESS: Color32 = Color32::from_rgba_premultiplied(40, 101, 26, 255);
+const INFO: Color32 = Color32::from_rgba_premultiplied(111, 47, 206, 255);
 
 /// Return this theme
 pub fn theme() -> Theme {
    Theme {
-      dark_mode: true,
-      image_tint_recommended: true,
-      kind: ThemeKind::Dark,
+      dark_mode: false,
+      image_tint_recommended: false,
+      kind: ThemeKind::Light,
       style: style(),
       colors: colors(),
       text_sizes: text_sizes(),
@@ -150,7 +150,7 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
          offset: (0, 0).into(),
          blur: 12,
          spread: 1,
-         color: Color32::from_rgba_premultiplied(0, 0, 0, 255),
+         color: Color32::from_rgba_premultiplied(140, 140, 140, 255),
       },
       window_fill: colors.bg2,
       window_stroke: Stroke::new(1.0, colors.border),

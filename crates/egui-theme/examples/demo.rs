@@ -87,7 +87,7 @@ impl eframe::App for DemoApp {
 
 impl DemoApp {
    fn central_panel(&mut self, ui: &mut Ui) {
-      let bg_color = self.theme.colors.bg_dark;
+      let bg_color = self.theme.colors.bg;
       let frame = Frame::new().fill(bg_color);
 
       egui::CentralPanel::default().frame(frame).show_inside(ui, |ui| {
@@ -122,6 +122,10 @@ impl DemoApp {
                theme_colors(&self.theme, ui);
 
                self.text_sizes(ui);
+
+               ui.add_space(20.0);
+
+               self.bg_colors_on_frames(ui);
 
                self.nested_frames(ui);
 
@@ -235,6 +239,34 @@ impl DemoApp {
       ui.label(very_small);
    }
 
+   fn bg_colors_on_frames(&mut self, ui: &mut Ui) {
+      let frame1 = self.theme.frame1;
+      let frame2 = self.theme.frame2;
+      let frame3 = self.theme.frame2.fill(self.theme.colors.bg4);
+
+      frame1.show(ui, |ui| {
+         ui.set_width(250.0);
+         ui.set_height(200.0);
+
+         let text = RichText::new("BG2 Color").size(self.theme.text_sizes.large);
+         ui.label(text);
+
+         frame2.show(ui, |ui| {
+            ui.set_width(200.0);
+            ui.set_height(100.0);
+            let text = RichText::new("BG3 Color").size(self.theme.text_sizes.large);
+            ui.label(text);
+
+            frame3.show(ui, |ui| {
+               ui.set_width(150.0);
+               ui.set_height(50.0);
+               let text = RichText::new("BG4 Color").size(self.theme.text_sizes.large);
+               ui.label(text);
+            });
+         });
+      });
+   }
+
    fn nested_frames(&mut self, ui: &mut Ui) {
       let base_frame = self.theme.frame1;
       let inner_frame = self.theme.frame2;
@@ -249,13 +281,12 @@ impl DemoApp {
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
          let heading =
-            RichText::new("BG Color").size(self.theme.text_sizes.heading).color(text_color);
+            RichText::new("BG2 Color").size(self.theme.text_sizes.heading).color(text_color);
          ui.label(heading);
 
          inner_frame.show(ui, |ui| {
-            let text = RichText::new("BG Light Color")
-               .size(self.theme.text_sizes.large)
-               .color(text_color);
+            let text =
+               RichText::new("BG3 Color").size(self.theme.text_sizes.large).color(text_color);
             ui.label(text);
 
             // Muted text
@@ -377,14 +408,6 @@ fn theme_colors(theme: &Theme, ui: &mut Ui) {
 
       ui.vertical(|ui| {
          ui.set_height(70.0);
-         ui.label("BG Dark");
-         let painter = ui.painter();
-         let pos = ui.min_rect().center();
-         painter.circle(pos, 15.0, theme.colors.bg_dark, stroke);
-      });
-
-      ui.vertical(|ui| {
-         ui.set_height(70.0);
          ui.label("BG");
          let painter = ui.painter();
          let pos = ui.min_rect().center();
@@ -393,10 +416,26 @@ fn theme_colors(theme: &Theme, ui: &mut Ui) {
 
       ui.vertical(|ui| {
          ui.set_height(70.0);
-         ui.label("BG Light");
+         ui.label("BG2");
          let painter = ui.painter();
          let pos = ui.min_rect().center();
-         painter.circle(pos, 15.0, theme.colors.bg_light, stroke);
+         painter.circle(pos, 15.0, theme.colors.bg2, stroke);
+      });
+
+      ui.vertical(|ui| {
+         ui.set_height(70.0);
+         ui.label("BG3");
+         let painter = ui.painter();
+         let pos = ui.min_rect().center();
+         painter.circle(pos, 15.0, theme.colors.bg3, stroke);
+      });
+
+      ui.vertical(|ui| {
+         ui.set_height(70.0);
+         ui.label("BG4");
+         let painter = ui.painter();
+         let pos = ui.min_rect().center();
+         painter.circle(pos, 15.0, theme.colors.bg4, stroke);
       });
 
       ui.vertical(|ui| {
@@ -645,7 +684,6 @@ fn tx_confirm(theme: &Theme, ui: &mut Ui) {
                      ui.add(
                         TextEdit::singleline(&mut fee)
                            .margin(Margin::same(10))
-                           .background_color(theme.colors.bg)
                            .desired_width(fee_width)
                            .font(FontId::proportional(theme.text_sizes.normal)),
                      );
@@ -665,7 +703,6 @@ fn tx_confirm(theme: &Theme, ui: &mut Ui) {
                         ui.add(
                            TextEdit::singleline(&mut gas_limit)
                               .margin(Margin::same(10))
-                              .background_color(theme.colors.bg)
                               .desired_width(gas_width)
                               .font(FontId::proportional(theme.text_sizes.normal)),
                         );

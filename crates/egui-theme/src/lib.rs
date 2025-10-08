@@ -16,6 +16,9 @@ use themes::*;
 pub enum ThemeKind {
    Dark,
 
+   /// WIP
+   Light,
+
    /// A custom theme
    Custom,
 }
@@ -24,12 +27,13 @@ impl ThemeKind {
    pub fn to_str(&self) -> &str {
       match self {
          ThemeKind::Dark => "Dark",
+         ThemeKind::Light => "Light",
          ThemeKind::Custom => "Custom",
       }
    }
 
    pub fn to_vec() -> Vec<Self> {
-      vec![Self::Dark]
+      vec![Self::Dark, Self::Light]
    }
 }
 
@@ -66,6 +70,7 @@ impl Theme {
    pub fn new(kind: ThemeKind) -> Self {
       let theme = match kind {
          ThemeKind::Dark => dark::theme(),
+         ThemeKind::Light => light::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       };
 
@@ -75,6 +80,7 @@ impl Theme {
    pub fn set_window_frame_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.window_frame = dark::window_frame(&self.colors),
+         ThemeKind::Light => self.window_frame = light::window_frame(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -82,6 +88,7 @@ impl Theme {
    pub fn set_frame1_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame1 = dark::frame1(&self.colors),
+         ThemeKind::Light => self.frame1 = light::frame1(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -89,6 +96,7 @@ impl Theme {
    pub fn set_frame2_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame2 = dark::frame2(&self.colors),
+         ThemeKind::Light => self.frame2 = light::frame2(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -99,25 +107,37 @@ impl Theme {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone)]
 pub struct ThemeColors {
-   /// Darkest BG color
+   /// Main BG color of the theme
    ///
-   /// This is usually the main bg color of the theme
-   pub bg_dark: Color32,
-
-   /// BG color
-   ///
-   /// A slight lighter shade of the bg_dark
+   /// This is usually the darkest color of the theme
    pub bg: Color32,
 
-   /// BG Light color
+   /// BG2 color
    ///
-   /// A lighter shade of the bg
-   pub bg_light: Color32,
+   /// A secondary bg color that is applied on top of the `bg` color
+   /// 
+   /// Usually this is the color of choice for a popup window or a base frame/container
+   /// 
+   /// Its a should be a lighter shade/color of the `bg` color.
+   pub bg2: Color32,
 
-   /// BG Light2 color
+   /// BG3 color
    ///
-   /// A lighter shade of the bg_light
-   pub bg_light2: Color32,
+   /// A third `bg` color that is applied on top of the `bg2` color
+   /// 
+   /// Usually this is the color of choice for a frame/container that is already inside a Ui that uses the `bg2` color
+   /// 
+   /// Its a should be a lighter shade/color of the `bg2` color.
+   pub bg3: Color32,
+
+   /// BG 4 color
+   ///
+   /// A fourth `bg` color that can be applied on top of the `bg3` color
+   /// 
+   /// Usually this is the color of choice for a frame/container that is already inside a Ui that uses the `bg3` color
+   /// 
+   /// Its a should be a lighter shade/color of the `bg3` color.
+   pub bg4: Color32,
 
    /// Main text color
    pub text: Color32,

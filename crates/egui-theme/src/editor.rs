@@ -1,5 +1,7 @@
 use egui::{
-   ecolor::HexColor, vec2, Align, Button, CollapsingHeader, Color32, ComboBox, Frame, Layout, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand, Slider, Stroke, StrokeKind, Ui, Vec2, Window
+   Align, Button, CollapsingHeader, Color32, ComboBox, DragValue, Frame, Layout, Popup,
+   PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand, Slider, Stroke,
+   StrokeKind, Ui, Vec2, Window, ecolor::HexColor, vec2,
 };
 
 use super::{Theme, hsla::Hsla, utils};
@@ -17,9 +19,10 @@ pub enum WidgetState {
 
 #[derive(Clone, PartialEq)]
 pub enum Color {
-   BgDark(Color32),
    Bg(Color32),
-   BgLight(Color32),
+   Bg2(Color32),
+   Bg3(Color32),
+   Bg4(Color32),
    Text(Color32),
    TextMuted(Color32),
    Highlight(Color32),
@@ -35,9 +38,10 @@ pub enum Color {
 impl Color {
    pub fn all_colors_from(theme: &ThemeColors) -> Vec<Color> {
       vec![
-         Color::BgDark(theme.bg_dark),
          Color::Bg(theme.bg),
-         Color::BgLight(theme.bg_light),
+         Color::Bg2(theme.bg2),
+         Color::Bg3(theme.bg3),
+         Color::Bg4(theme.bg4),
          Color::Text(theme.text),
          Color::TextMuted(theme.text_muted),
          Color::Highlight(theme.highlight),
@@ -53,9 +57,10 @@ impl Color {
 
    pub fn to_str(&self) -> &'static str {
       match self {
-         Color::BgDark(_) => "Bg Dark",
          Color::Bg(_) => "Bg",
-         Color::BgLight(_) => "Bg Light",
+         Color::Bg2(_) => "Bg2",
+         Color::Bg3(_) => "Bg3",
+         Color::Bg4(_) => "Bg4",
          Color::Text(_) => "Text",
          Color::TextMuted(_) => "Text Muted",
          Color::Highlight(_) => "Highlight",
@@ -71,9 +76,10 @@ impl Color {
 
    pub fn color32(&self) -> Color32 {
       match self {
-         Color::BgDark(color) => *color,
          Color::Bg(color) => *color,
-         Color::BgLight(color) => *color,
+         Color::Bg2(color) => *color,
+         Color::Bg3(color) => *color,
+         Color::Bg4(color) => *color,
          Color::Text(color) => *color,
          Color::TextMuted(color) => *color,
          Color::Highlight(color) => *color,
@@ -88,12 +94,14 @@ impl Color {
    }
 
    pub fn name_from(color: Color32, theme_colors: &ThemeColors) -> &'static str {
-      if color == theme_colors.bg_dark {
-         "Bg Dark"
-      } else if color == theme_colors.bg {
+      if color == theme_colors.bg {
          "Bg"
-      } else if color == theme_colors.bg_light {
-         "Bg Light"
+      } else if color == theme_colors.bg2 {
+         "Bg2"
+      } else if color == theme_colors.bg3 {
+         "Bg3"
+      } else if color == theme_colors.bg4 {
+         "Bg4"
       } else if color == theme_colors.text {
          "Text"
       } else if color == theme_colors.text_muted {
@@ -159,7 +167,7 @@ impl ThemeEditor {
       Self {
          open: false,
          widget_state: WidgetState::NonInteractive,
-         color: Color::BgDark(Color32::TRANSPARENT),
+         color: Color::Bg(Color32::TRANSPARENT),
          bg_color: Color32::from_rgba_premultiplied(32, 45, 70, 255),
          size: (300.0, 300.0),
       }
@@ -185,6 +193,7 @@ impl ThemeEditor {
             ui.set_min_width(self.size.0);
             ui.set_min_height(self.size.1);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.style_mut().visuals = super::themes::dark::theme().style.visuals.clone();
 
             new_theme = utils::change_theme(theme, ui);
 
@@ -220,17 +229,17 @@ impl ThemeEditor {
          });
 
          CollapsingHeader::new("Theme Colors").show(ui, |ui| {
-            ui.label("BG Dark");
-            hsla_edit_button("bg_dark1", ui, &mut theme.colors.bg_dark);
-
             ui.label("BG");
             hsla_edit_button("bg1", ui, &mut theme.colors.bg);
 
-            ui.label("BG Light");
-            hsla_edit_button("bg_light1", ui, &mut theme.colors.bg_light);
+            ui.label("BG2");
+            hsla_edit_button("bg2", ui, &mut theme.colors.bg2);
 
-            ui.label("BG Light 2");
-            hsla_edit_button("bg_light2", ui, &mut theme.colors.bg_light2);
+            ui.label("BG3");
+            hsla_edit_button("bg3", ui, &mut theme.colors.bg3);
+
+            ui.label("BG4");
+            hsla_edit_button("bg4", ui, &mut theme.colors.bg4);
 
             ui.label("Text");
             hsla_edit_button("text1", ui, &mut theme.colors.text);
@@ -553,6 +562,68 @@ impl ThemeEditor {
                "Button Frame",
             );
          });
+
+         CollapsingHeader::new("Tessellation").show(ui, |ui| {
+            self.tesellation_settings(theme, ui);
+         });
+      });
+   }
+
+   fn tesellation_settings(&mut self, theme: &Theme, ui: &mut Ui) {
+      let text_size = theme.text_sizes.normal;
+
+      let mut options = ui.ctx().tessellation_options(|options| options.clone());
+
+      let text = RichText::new("Feathering").size(text_size);
+
+      ui.checkbox(&mut options.feathering, text);
+
+      ui.add(
+         DragValue::new(&mut options.feathering_size_in_pixels)
+            .speed(0.1)
+            .range(0.0..=100.0),
+      );
+
+      let text = RichText::new("Coarse tessellation culling").size(text_size);
+      ui.checkbox(&mut options.coarse_tessellation_culling, text);
+
+      let text = RichText::new("Precomputed discs").size(text_size);
+      ui.checkbox(&mut options.prerasterized_discs, text);
+
+      let text = RichText::new("Round text to pixels").size(text_size);
+      ui.checkbox(&mut options.round_text_to_pixels, text);
+
+      let text = RichText::new("Round line segments to pixels").size(text_size);
+      ui.checkbox(&mut options.round_line_segments_to_pixels, text);
+
+      let text = RichText::new("Round rects to pixels").size(text_size);
+      ui.checkbox(&mut options.round_rects_to_pixels, text);
+
+      let text = RichText::new("Debug paint text rects").size(text_size);
+      ui.checkbox(&mut options.debug_paint_text_rects, text);
+
+      let text = RichText::new("Debug paint clip rects").size(text_size);
+      ui.checkbox(&mut options.debug_paint_clip_rects, text);
+
+      let text = RichText::new("Debug ignore clip rects").size(text_size);
+      ui.checkbox(&mut options.debug_ignore_clip_rects, text);
+
+      let text = RichText::new("Bezier tolerance").size(text_size);
+      ui.label(text);
+      ui.add(DragValue::new(&mut options.bezier_tolerance).speed(0.1).range(0.0..=1.0));
+
+      let text = RichText::new("Epsilon").size(text_size);
+      ui.label(text);
+      ui.add(DragValue::new(&mut options.epsilon).speed(0.1).range(0.0..=1.0));
+
+      let text = RichText::new("Parallel tessellation").size(text_size);
+      ui.checkbox(&mut options.parallel_tessellation, text);
+
+      let text = RichText::new("Validate meshes").size(text_size);
+      ui.checkbox(&mut options.validate_meshes, text);
+
+      ui.ctx().tessellation_options_mut(|options_mut| {
+         *options_mut = options;
       });
    }
 

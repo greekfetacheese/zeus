@@ -112,7 +112,7 @@ fn close_maximize_minimize(ui: &mut egui::Ui, theme: &Theme) {
    });
 
    let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-   utils::bg_color_on_hover(ui, theme.colors.bg_light2);
+   utils::bg_color_on_hover(ui, theme.colors.bg3);
 
    if is_maximized {
       let text = RichText::new("🗗").color(color).size(theme.text_sizes.large);

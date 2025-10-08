@@ -10,7 +10,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    frame.show(ui, |ui| {
       ui.vertical_centered(|ui| {
 
-         let selected_color = gui.theme.colors.bg_light2;
+         let selected_color = gui.theme.colors.bg4;
          utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
          utils::no_border_on_idle(ui);
 

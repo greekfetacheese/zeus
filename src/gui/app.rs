@@ -101,7 +101,7 @@ impl eframe::App for ZeusApp {
          }
 
          let theme = gui.theme.clone();
-         let bg_color = theme.colors.bg_dark;
+         let bg_color = theme.colors.bg;
          let panel_frame = Frame::new().fill(bg_color);
 
          window_frame(ctx, "Zeus", theme, |ui| {
