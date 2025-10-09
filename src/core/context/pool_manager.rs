@@ -978,7 +978,7 @@ fn default_batch_size_for_syncing_pools() -> usize {
 }
 
 fn default_concurrency() -> usize {
-   2
+   4
 }
 
 fn default_sync_v4_pools() -> bool {

@@ -702,6 +702,10 @@ impl SwapUi {
          return;
       }
 
+      if self.currency_in == self.currency_out {
+         return;
+      }
+
       // ETH -> WETH
       if self.currency_in.is_native() && self.currency_out.is_native_wrapped() {
          return;
