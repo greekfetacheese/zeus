@@ -3,15 +3,15 @@ name = "zeus-theme"
 authors = ["Michalis Molfetas"]
 version = "0.1.0"
 edition = "2024"
-description = "Theme selection & customization for egui"
+description = "Theme color styling for egui"
 readme = "readme.md"
-repository = "https://github.com/greekfetacheese/egui-theme"
+repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-theme"
 license = "MIT OR Apache-2.0"
-keywords = ["egui", "theme", "style"]
+keywords = ["egui", "ui", "themes", "style"]
 categories = ["gui"]
 
 [dependencies.egui]
-version = "=0.32.3"
+version = "0.32.3"
 
 [dependencies.palette]
 version = "0.7.6"
@@ -28,7 +28,7 @@ optional = true
 features = ["derive"]
 
 [dev-dependencies]
-eframe = "0.32.0"
+eframe = "0.32.3"
 
 
 

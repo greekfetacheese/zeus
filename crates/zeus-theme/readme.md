@@ -1,23 +1,19 @@
-# egui-Theme
+# zeus-theme
 
-# Theme selection & customization for egui
+# Theme color styling for egui
 
-Currently there are 4 themes to select:
+Currently there are 2 themes to use, `Dark` and `Light`.
+The `Light` theme is still a work in progress so it is not recommended to use it.
 
-- [Frappe](https://catppuccin.com)
-- [Latte](https://catppuccin.com)
-- [Tokyo Night](https://github.com/tokyo-night)
-- [Nord](https://www.nordtheme.com/)
-
-The theme coloring still needs work, Nord looks the best so far.
+## This crate is still being actively developed, there will be breaking changes either to some apis or to the theme specs.
 
 # Usage:
 
 ``` rust
 use egui::Context;
-use egui_theme::{Theme, ThemeKind};
+use zeus_theme::{Theme, ThemeKind};
 
-let theme = Theme::new(ThemeKind::Nord);
+let theme = Theme::new(ThemeKind::Dark);
 egui_ctx.set_style(theme.style.clone());
 
 ```
@@ -25,3 +21,10 @@ egui_ctx.set_style(theme.style.clone());
 # Feature Flags
 
 `serde` enables serialization.
+
+
+# Screenshots of the `Dark` theme from [zeus](https://github.com/greekfetacheese/zeus)
+
+![zeus-unknown](/crates/zeus-theme/screenshots/zeus-unknown.png)
+![zeus-transfer](/crates/zeus-theme/screenshots/zeus-transfer.png)
+![zeus-swap](/crates/zeus-theme/screenshots/zeus-swap.png)
