@@ -9,7 +9,7 @@ use crate::core::{
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
-use egui_theme::ThemeKind;
+use zeus_theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,

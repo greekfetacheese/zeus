@@ -2,7 +2,7 @@ use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, transaction::*, utils::RT};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use egui::{Align2, Button, ProgressBar, RichText, Spinner, Ui, Window, vec2};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::{Label, MultiLabel};
 
 use std::{

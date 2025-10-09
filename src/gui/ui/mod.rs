@@ -33,7 +33,7 @@ use crate::core::{
    utils::{truncate_address, truncate_hash},
 };
 use egui::{Align, Layout, RichText, Ui};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::Label;
 use zeus_eth::{
    alloy_primitives::{Address, TxHash},

@@ -1,5 +1,5 @@
 use eframe::egui::*;
-use egui_theme::{Theme, ThemeEditor, ThemeKind, utils, window::window_frame};
+use zeus_theme::{Theme, ThemeEditor, ThemeKind, utils, window::window_frame};
 
 const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet (Muted Text)";
 

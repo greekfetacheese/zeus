@@ -8,7 +8,7 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
    Sense, TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui_theme::{Theme, utils::frame_it};
+use zeus_theme::{Theme, utils::frame_it};
 use std::sync::Arc;
 use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 

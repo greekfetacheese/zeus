@@ -20,7 +20,7 @@ use zeus_eth::{
 };
 
 use super::sync::SyncPoolsUi;
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};

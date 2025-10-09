@@ -3,7 +3,7 @@ use egui_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, utils::truncate_symbol_or_name};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
 

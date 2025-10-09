@@ -18,7 +18,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
 

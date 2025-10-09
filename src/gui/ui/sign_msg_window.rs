@@ -2,7 +2,7 @@ use egui::{
    Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
    Window, vec2,
 };
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::Label;
 
 use super::{address, chain, contract_interact};

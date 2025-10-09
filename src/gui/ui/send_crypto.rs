@@ -17,7 +17,7 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::fetch_accounts_info;
-use egui_theme::Theme;
+use zeus_theme::Theme;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},

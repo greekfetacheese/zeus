@@ -4,7 +4,7 @@ use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};

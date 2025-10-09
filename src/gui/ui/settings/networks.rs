@@ -6,7 +6,7 @@ use eframe::egui::{
    Slider, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
 

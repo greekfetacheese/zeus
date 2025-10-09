@@ -1,7 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
 use eframe::egui::{Align2, Button, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use egui_theme::{Theme, utils};
+use zeus_theme::{Theme, utils};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let frame = gui.theme.frame1;

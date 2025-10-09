@@ -6,7 +6,7 @@ use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::ui::token_selection::TokenSelectionWindow;
 use egui::{Align, Button, Color32, FontId, Layout, Margin, RichText, Spinner, TextEdit, Ui, vec2};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::Label;
 use std::sync::Arc;
 use zeus_eth::{currency::Currency, utils::NumericValue};

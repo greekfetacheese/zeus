@@ -6,8 +6,8 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui::{Color32, Margin};
-use egui_theme::utils::{bg_color_on_hover, bg_color_on_idle};
-use egui_theme::Theme;
+use zeus_theme::utils::{bg_color_on_hover, bg_color_on_idle};
+use zeus_theme::Theme;
 use egui_widgets::SecureTextEdit;
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;

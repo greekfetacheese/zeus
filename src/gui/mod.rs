@@ -7,7 +7,7 @@ use ui::settings;
 
 use crate::assets::icons::Icons;
 use crate::core::context::ZeusCtx;
-use egui_theme::{Theme, ThemeEditor, ThemeKind};
+use zeus_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
 
 use crate::gui::ui::{

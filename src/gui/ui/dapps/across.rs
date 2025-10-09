@@ -14,7 +14,7 @@ use egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, RichText, Spinner, TextEdit, Ui,
    Window, vec2,
 };
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;

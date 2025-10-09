@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use crate::core::context::db::currencies::{TOKENS, TokenData};
-use egui_theme::utils::TINT_1;
+use zeus_theme::utils::TINT_1;
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;

@@ -26,7 +26,7 @@ use crate::{
    core::{ZeusCtx, utils::RT},
    gui::ui::dapps::uniswap::UniswapSettingsUi,
 };
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;

@@ -2,7 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, context::theme_kind_dir, utils::RT};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
-use egui_theme::{Theme, ThemeKind};
+use zeus_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
 use std::collections::HashSet;

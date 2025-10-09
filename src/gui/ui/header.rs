@@ -6,7 +6,7 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect},
 };
 use egui::{Button, RichText, Ui, vec2};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::Label;
 use std::sync::Arc;
 use zeus_eth::{

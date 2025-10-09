@@ -11,7 +11,7 @@ use crate::core::{Wallet, ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::{ComboBox, Label};
 use zeus_eth::{alloy_primitives::Address, currency::Currency, types::ChainId};
 

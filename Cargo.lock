@@ -2504,17 +2504,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-theme"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "palette",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "egui-wgpu"
 version = "0.32.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8997,7 +8986,6 @@ dependencies = [
  "bincode",
  "eframe",
  "egui",
- "egui-theme",
  "egui-widgets",
  "egui_extras",
  "either",
@@ -9026,6 +9014,7 @@ dependencies = [
  "warp",
  "wgpu",
  "zeus-eth",
+ "zeus-theme",
 ]
 
 [[package]]
@@ -9059,6 +9048,17 @@ dependencies = [
  "tracing",
  "uniswap_v3_math",
  "url",
+]
+
+[[package]]
+name = "zeus-theme"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "palette",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

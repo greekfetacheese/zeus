@@ -15,7 +15,7 @@ use crate::core::{
 use crate::gui::ui::dapps::uniswap::currencies_amount_and_value;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::simulate_position::{PositionResult, SimPositionConfig, simulate_position};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 
 use zeus_eth::{
    alloy_primitives::Address,

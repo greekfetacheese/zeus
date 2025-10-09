@@ -10,7 +10,7 @@ use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
-use egui_theme::{Theme, ThemeKind, window::window_frame};
+use zeus_theme::{Theme, ThemeKind, window::window_frame};
 use std::sync::Arc;
 
 pub struct ZeusApp {
@@ -106,7 +106,7 @@ impl eframe::App for ZeusApp {
 
          window_frame(ctx, "Zeus", theme, |ui| {
             #[cfg(feature = "dev")]
-            egui_theme::utils::apply_theme_changes(&mut gui.theme, ui);
+            zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
             egui::TopBottomPanel::top("top_panel")

@@ -4,7 +4,7 @@ use crate::gui::SHARED_GUI;
 use egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use egui_widgets::Label;
 use std::str::FromStr;
 use std::sync::Arc;

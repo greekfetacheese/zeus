@@ -4,7 +4,7 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use egui::{Align, Button, ComboBox, Frame, Grid, Layout, Margin, RichText, ScrollArea, Ui, vec2};
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

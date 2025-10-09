@@ -8,7 +8,7 @@ use egui::{
 };
 
 use anyhow::anyhow;
-use egui_theme::Theme;
+use zeus_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
