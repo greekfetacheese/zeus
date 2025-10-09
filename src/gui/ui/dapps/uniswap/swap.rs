@@ -8,11 +8,11 @@ use egui::{
 };
 
 use anyhow::anyhow;
-use zeus_theme::Theme;
 use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
+use zeus_theme::Theme;
 
 use crate::core::{
    Dapp, TransactionAnalysis, ZeusCtx,
@@ -268,6 +268,7 @@ pub struct SwapUi {
    pub pool_data_syncing: bool,
    pub syncing_pools: bool,
    pub getting_quote: bool,
+   pub sending_tx: bool,
    pub quote: Quote,
    pub protocol_version: ProtocolVersion,
 
@@ -293,6 +294,7 @@ impl SwapUi {
          pool_data_syncing: false,
          syncing_pools: false,
          getting_quote: false,
+         sending_tx: false,
          quote: Quote::default(),
          protocol_version: ProtocolVersion::V3,
          pool: None,
@@ -446,7 +448,7 @@ impl SwapUi {
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                if self.pool_data_syncing || self.syncing_pools {
-                  ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                }
             });
          });
@@ -623,6 +625,7 @@ impl SwapUi {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
+      let sending_tx = self.sending_tx;
       let valid_inputs = self.valid_inputs(ctx.clone());
       let has_swap_steps = !self.quote.swap_steps.is_empty();
       let has_balance = self.sufficient_balance(ctx.clone());
@@ -630,9 +633,9 @@ impl SwapUi {
       let action = self.action();
 
       let valid = if action.is_wrap() || action.is_unwrap() {
-         valid_inputs
+         valid_inputs && !sending_tx
       } else {
-         valid_inputs && has_swap_steps
+         valid_inputs && has_swap_steps && !sending_tx
       };
 
       let mut button_text = "Swap".to_string();
@@ -661,14 +664,13 @@ impl SwapUi {
       }
 
       let swap_button = Button::new(
-         RichText::new(button_text)
-            .size(theme.text_sizes.large)
-            .color(theme.colors.text),
+         RichText::new(button_text).size(theme.text_sizes.large).color(theme.colors.text),
       )
       .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
       ui.vertical_centered(|ui| {
          if ui.add_enabled(valid, swap_button).clicked() {
+            self.sending_tx = true;
             self.swap(ctx, settings);
          }
       });
@@ -1014,44 +1016,85 @@ impl SwapUi {
       });
    }
 
-   fn swap_details(&self, _ctx: ZeusCtx, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
-      // Slippage
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Slippage").size(theme.text_sizes.normal));
+   fn swap_details(&self, ctx: ZeusCtx, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
+      let frame = theme.frame2;
+      let text_size = theme.text_sizes.large;
+
+      frame.show(ui, |ui| {
+         // Slippage
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Slippage").size(text_size));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(RichText::new(format!("{:.1}%", settings.slippage_f64)).size(text_size));
+            });
          });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(
-               RichText::new(format!("{:.1}%", settings.slippage_f64))
-                  .size(theme.text_sizes.normal),
-            );
+         // Minimum Received
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Minimum Received").size(text_size));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
+               let amount_out_min =
+                  self.quote.amount_out.calc_slippage(slippage, self.currency_out.decimals());
+
+               if self.valid_amounts() && self.action().is_swap() {
+                  ui.label(
+                     RichText::new(format!(
+                        "{} {}",
+                        amount_out_min.formatted(),
+                        self.currency_out.symbol()
+                     ))
+                     .size(text_size),
+                  );
+               }
+            });
          });
-      });
 
-      // Minimum Received
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Minimum Received").size(theme.text_sizes.normal));
-         });
+         // Price Impact
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Price Impact").size(text_size));
+            });
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
-            let amount_out_min =
-               self.quote.amount_out.calc_slippage(slippage, self.currency_out.decimals());
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let price_impact = self.calc_price_impact(ctx.clone());
+               let color = if price_impact == 0.0 {
+                  theme.colors.text
+               } else if price_impact.is_sign_positive() {
+                  theme.colors.error
+               } else {
+                  theme.colors.success
+               };
 
-            if self.valid_amounts() && self.action().is_swap() {
                ui.label(
-                  RichText::new(format!(
-                     "{} {}",
-                     amount_out_min.formatted(),
-                     self.currency_out.symbol()
-                  ))
-                  .size(theme.text_sizes.normal),
+                  RichText::new(format!("{:.2}%", price_impact)).size(text_size).color(color),
                );
-            }
+            });
          });
       });
+   }
+
+   fn calc_price_impact(&self, ctx: ZeusCtx) -> f64 {
+      if !self.valid_amounts() || !self.action().is_swap() {
+         return 0.0;
+      }
+
+      // Currency in USD value
+      let amount: f64 = self.amount_in.parse().unwrap_or(0.0);
+      let amount_in_usd = ctx.get_currency_value_for_amount(amount, &self.currency_in);
+
+      // Currency out USD value
+      let amount_out: f64 = self.amount_out.parse().unwrap_or(0.0);
+      let amount_out_usd = ctx.get_currency_value_for_amount(amount_out, &self.currency_out);
+
+      let price_impact = (1.0 - (amount_out_usd.f64() / amount_in_usd.f64())) * 100.0;
+      price_impact
    }
 
    fn swap(&self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
@@ -1069,9 +1112,14 @@ impl SwapUi {
             });
 
             match wrap_eth(ctx.clone(), from, chain, amount_in.clone()).await {
-               Ok(_) => {}
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.sending_tx = false;
+                  });
+               }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
@@ -1094,9 +1142,14 @@ impl SwapUi {
             });
 
             match unwrap_weth(ctx.clone(), from, chain, amount_in.clone()).await {
-               Ok(_) => {}
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.sending_tx = false;
+                  });
+               }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
@@ -1138,11 +1191,15 @@ impl SwapUi {
          .await
          {
             Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.uniswap.swap_ui.sending_tx = false;
+               });
                tracing::info!("Transaction Sent");
             }
             Err(e) => {
                tracing::error!("Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
+                  gui.uniswap.swap_ui.sending_tx = false;
                   gui.notification.reset();
                   gui.loading_window.reset();
                   gui.tx_confirmation_window.reset(ctx);

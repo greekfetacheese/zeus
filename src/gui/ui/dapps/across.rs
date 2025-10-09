@@ -14,7 +14,6 @@ use egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, RichText, Spinner, TextEdit, Ui,
    Window, vec2,
 };
-use zeus_theme::Theme;
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use zeus_eth::currency::ERC20Token;
@@ -28,6 +27,7 @@ use zeus_eth::{
    types::{BSC, ChainId},
    utils::{NumericValue, address_book},
 };
+use zeus_theme::Theme;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,7 @@ pub struct AcrossBridge {
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
    pub balance_syncing: bool,
+   pub sending_tx: bool,
    /// API request in progress
    pub requesting: bool,
    /// time passed since last request
@@ -77,6 +78,7 @@ impl AcrossBridge {
          from_chain: ChainSelect::new("across_bridge_from_chain", 1),
          to_chain: ChainSelect::new("across_bridge_to_chain", 10),
          balance_syncing: false,
+         sending_tx: false,
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
@@ -296,11 +298,12 @@ impl AcrossBridge {
       recipient: String,
       ui: &mut Ui,
    ) {
+      let sending_tx = self.sending_tx;
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx.clone(), depositor);
       let has_entered_amount = !self.amount.is_empty();
-      let valid_inputs = valid_amount && valid_recipient && has_balance;
+      let valid_inputs = valid_amount && valid_recipient && has_balance && !sending_tx;
 
       let mut button_text = "Bridge".to_string();
 
@@ -324,9 +327,12 @@ impl AcrossBridge {
       let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
 
       if ui.add_enabled(valid_inputs, button).clicked() {
+         self.sending_tx = true;
+
          match self.send_transaction(ctx, recipient) {
             Ok(_) => {}
             Err(e) => {
+               self.sending_tx = false;
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while sending transaction", e.to_string());
@@ -628,11 +634,15 @@ impl AcrossBridge {
          .await
          {
             Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.across_bridge.sending_tx = false;
+               });
                tracing::info!("Bridge Transaction Sent");
             }
             Err(e) => {
                tracing::error!("Bridge Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
+                  gui.across_bridge.sending_tx = false;
                   gui.notification.reset();
                   gui.loading_window.reset();
                   gui.msg_window.open("Transaction Error", e.to_string());

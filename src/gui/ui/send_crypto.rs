@@ -42,6 +42,7 @@ pub struct SendCryptoUi {
    pub size: (f32, f32),
    pub pool_data_syncing: bool,
    pub syncing_balance: bool,
+   pub sending_tx: bool,
 }
 
 impl SendCryptoUi {
@@ -56,6 +57,7 @@ impl SendCryptoUi {
          size: (500.0, 500.0),
          pool_data_syncing: false,
          syncing_balance: false,
+         sending_tx: false,
       }
    }
 
@@ -245,14 +247,19 @@ impl SendCryptoUi {
       recipient: String,
       ui: &mut Ui,
    ) {
+      let sending_tx = self.sending_tx;
       let recipient_is_sender = self.recipient_is_sender(owner, &recipient);
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx.clone(), owner);
       let has_entered_amount = !self.amount.is_empty();
       let has_entered_recipient = !recipient.is_empty();
-      let valid_inputs =
-         valid_recipient && !recipient_is_sender && has_balance && has_entered_amount;
+
+      let valid_inputs = valid_recipient
+         && !recipient_is_sender
+         && has_balance
+         && has_entered_amount
+         && !sending_tx;
 
       let mut button_text = "Send".to_string();
 
@@ -276,9 +283,13 @@ impl SendCryptoUi {
       let send = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
 
       if ui.add_enabled(valid_inputs, send).clicked() {
+         self.sending_tx = true;
+
          match self.send_transaction(ctx, recipient) {
             Ok(_) => {}
             Err(e) => {
+               self.sending_tx = false;
+
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while sending transaction", e.to_string());
@@ -379,12 +390,14 @@ impl SendCryptoUi {
             {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
+                     gui.send_crypto.sending_tx = false;
                      gui.send_crypto.clear_amount();
                   });
                }
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
+                     gui.send_crypto.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());
@@ -404,12 +417,14 @@ impl SendCryptoUi {
             {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
+                     gui.send_crypto.sending_tx = false;
                      gui.send_crypto.clear_amount();
                   });
                }
                Err(e) => {
                   tracing::error!("Error sending transaction: {:?}", e);
                   SHARED_GUI.write(|gui| {
+                     gui.send_crypto.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
                      gui.msg_window.open("Transaction Error", e.to_string());

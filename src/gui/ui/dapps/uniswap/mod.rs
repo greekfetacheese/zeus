@@ -9,7 +9,7 @@ use pool::PoolsUi;
 use swap::SwapUi;
 use view_positions::ViewPositionsUi;
 
-use egui::{Align, Button, Frame, Layout, Margin, RichText, Slider, TextEdit, Ui, vec2};
+use egui::{Align, Button, Frame, Layout, RichText, Slider, TextEdit, Ui, vec2};
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
@@ -141,7 +141,9 @@ impl UniswapSettingsUi {
          return;
       }
 
-      Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
+      let frame = theme.frame1;
+
+      frame.show(ui, |ui| {
          ui.vertical_centered(|ui| {
             ui.spacing_mut().item_spacing = vec2(5.0, 0.0);
 
