@@ -284,7 +284,7 @@ impl TokenSelectionWindow {
 
       if let Ok(address) = Address::from_str(&query) {
          if currency.is_erc20() {
-            if let Some(token) = currency.erc20() {
+            if let Some(token) = currency.erc20_opt() {
                return token.address == address;
             }
          }

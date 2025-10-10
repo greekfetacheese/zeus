@@ -1231,7 +1231,7 @@ pub fn get_relevant_pools(
    let mut added_pools = HashSet::new();
 
    // Handle ETH/WETH
-   let weth = currency_in.to_weth();
+   let weth = Currency::wrapped_native(currency_in.chain_id());
 
    // If we are swapping between two "safe"
    // base currencies (e.g., DAI to USDC), we should avoid routing through

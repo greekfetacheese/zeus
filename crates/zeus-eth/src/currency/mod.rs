@@ -35,6 +35,14 @@ impl From<ERC20Token> for Currency {
 }
 
 impl Currency {
+   pub fn native(chain: u64) -> Self {
+      Self::Native(NativeCurrency::from(chain))
+   }
+
+   pub fn wrapped_native(chain: u64) -> Self {
+      Self::ERC20(ERC20Token::wrapped_native_token(chain))
+   }
+
    pub fn is_native(&self) -> bool {
       matches!(self, Self::Native(_))
    }
@@ -79,25 +87,17 @@ impl Currency {
    }
 
    /// Convert this currency to a wrapped native currency
-   /// eg. WETH
-   ///
-   /// Shortcut for [ERC20Token::wrapped_native_token]
+   /// 
+   /// For example if the chain_id is 1 this will become [ERC20Token::weth()]
    pub fn to_wrapped_native(&self) -> ERC20Token {
       ERC20Token::wrapped_native_token(self.chain_id())
-   }
-
-   /// Convert this currency to its wrapped native currency
-   ///
-   /// Same as [Self::to_wrapped_native] but returns a [Currency]
-   pub fn to_weth(&self) -> Currency {
-      Currency::from(self.to_wrapped_native())
    }
 
    /// Convert this currency to an [ERC20Token]
    ///
    /// If it's already an `ERC20Token`, we just return it
    ///
-   /// If it's a `NativeCurrency`, we convert it to it's `ERC20Token` version
+   /// If it's a `NativeCurrency`, it converts it's wrapped version
    /// for example ETH will become WETH
    pub fn to_erc20(&self) -> Cow<'_, ERC20Token> {
       match self {
@@ -108,9 +108,7 @@ impl Currency {
 
    /// Get the address of this Currency
    ///
-   /// If it's a `NativeCurrency`, we return [Address::ZERO]
-   ///
-   /// If it's an `ERC20Token`, we return it's address
+   /// If it's a `NativeCurrency`, it returns [Address::ZERO]
    pub fn address(&self) -> Address {
       if self.is_erc20() {
          self.to_erc20().address
@@ -120,7 +118,7 @@ impl Currency {
    }
 
    /// Get the ERC20 inside
-   pub fn erc20(&self) -> Option<&ERC20Token> {
+   pub fn erc20_opt(&self) -> Option<&ERC20Token> {
       match self {
          Self::ERC20(erc20) => Some(erc20),
          _ => None,
@@ -128,7 +126,7 @@ impl Currency {
    }
 
    /// Get the NativeCurrency inside
-   pub fn native(&self) -> Option<&NativeCurrency> {
+   pub fn native_opt(&self) -> Option<&NativeCurrency> {
       match self {
          Self::Native(native) => Some(native),
          _ => None,

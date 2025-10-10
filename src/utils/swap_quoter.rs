@@ -359,8 +359,9 @@ fn find_all_paths(
    let mut queue: VecDeque<Path> = VecDeque::new();
 
    // Handle ETH -> WETH equivalence by treating them as the same starting node
+   let weth = Currency::wrapped_native(start_currency.chain_id());
    let start_nodes = if start_currency.is_native() {
-      vec![start_currency.clone(), start_currency.to_weth()]
+      vec![start_currency.clone(), weth.clone()]
    } else {
       vec![start_currency]
    };
@@ -385,7 +386,7 @@ fn find_all_paths(
 
       // Handle ETH/WETH equivalence for the destination
       let is_end_node = if end_currency.is_native() {
-         *last_currency_in_path == end_currency || *last_currency_in_path == end_currency.to_weth()
+         *last_currency_in_path == end_currency || *last_currency_in_path == weth.clone()
       } else {
          *last_currency_in_path == end_currency
       };

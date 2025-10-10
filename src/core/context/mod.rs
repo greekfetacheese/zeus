@@ -612,7 +612,7 @@ impl ZeusCtx {
          let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
          self.get_token_price(&wrapped_token)
       } else {
-         let token = currency.erc20().unwrap();
+         let token = currency.erc20_opt().unwrap();
          self.get_token_price(token)
       }
    }
@@ -648,7 +648,7 @@ impl ZeusCtx {
       if currency.is_native() {
          self.get_eth_balance(chain, owner)
       } else {
-         let token = currency.erc20().unwrap();
+         let token = currency.erc20_opt().unwrap();
          self.get_token_balance(chain, owner, token.address)
       }
    }

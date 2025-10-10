@@ -152,8 +152,6 @@ pub async fn encode_swap(
    let mut inputs = Vec::new();
    let mut execute_params = SwapExecuteParams::new();
 
-   let weth_currency = currency_in.to_weth();
-
    if currency_in.is_native() {
       // Always set the tx value to the total input amount when dealing with native ETH.
       execute_params.set_value(amount_in);
@@ -162,7 +160,7 @@ pub async fn encode_swap(
       let amount_to_wrap: U256 = swap_steps
          .iter()
          // Compare against `weth_currency`, not the native `currency_in`.
-         .filter(|s| s.currency_in == weth_currency && !s.pool.dex_kind().is_uniswap_v4())
+         .filter(|s| s.currency_in.is_native_wrapped() && !s.pool.dex_kind().is_uniswap_v4())
          .map(|s| s.amount_in.wei())
          .sum();
 
@@ -219,6 +217,8 @@ pub async fn encode_swap(
    let mut router_eth_balance = U256::ZERO;
    let mut router_weth_balance = U256::ZERO;
 
+   let weth = Currency::wrapped_native(chain_id);
+
    for swap in &swap_steps {
       if swap.currency_in.is_native() && router_eth_balance >= swap.amount_in.wei() {
          router_eth_balance -= swap.amount_in.wei();
@@ -262,7 +262,7 @@ pub async fn encode_swap(
       // For V2/V3, the input currency should always be the WETH address, even if the user starts with ETH.
       // The WRAP_ETH command ensures the router has the WETH.
       let step_currency_in = if swap.currency_in.is_native() {
-         &weth_currency
+         &weth
       } else {
          &swap.currency_in
       };
