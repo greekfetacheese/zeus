@@ -2529,7 +2529,6 @@ version = "0.1.0"
 dependencies = [
  "egui",
  "secure-types",
- "zeroize",
 ]
 
 [[package]]
