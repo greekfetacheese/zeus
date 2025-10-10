@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/zeus-theme", "crates/zeus-eth", "crates/egui-widgets", "crates/tests", "crates/deploy"]
+members = ["crates/zeus-theme", "crates/zeus-eth", "crates/egui-widgets", "crates/deploy"]
 
 [package]
 name = "zeus"
