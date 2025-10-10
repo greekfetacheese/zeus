@@ -78,7 +78,7 @@ impl TryFrom<AnyUniswapPool> for UniswapV3Pool {
 impl UniswapV3Pool {
    /// Create a new Uniswap V3 Pool
    ///
-   /// Tokens are ordered by address
+   /// Tokens are ordered as token0 < token1
    pub fn new(chain_id: u64, address: Address, fee: u32, token0: ERC20Token, token1: ERC20Token, dex: DexKind) -> Self {
       let (token0, token1) = if token0.address < token1.address {
          (token0, token1)
@@ -129,7 +129,7 @@ impl UniswapV3Pool {
       ))
    }
 
-   pub async fn from<P, N>(
+   pub async fn from_components<P, N>(
       client: P,
       chain_id: u64,
       fee: u32,
@@ -180,47 +180,6 @@ impl UniswapV3Pool {
       }
 
       compressed >> 8
-   }
-
-   /// Test pool
-   pub fn usdt_uni() -> Self {
-      let usdt = ERC20Token::usdt();
-      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = ERC20Token {
-         chain_id: 1,
-         address: uni_addr,
-         decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
-         total_supply: U256::ZERO,
-      };
-
-      let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
-      UniswapV3Pool::new(1, pool_address, 3000, usdt, uni, DexKind::UniswapV3)
-   }
-
-   pub fn weth_usdc() -> Self {
-      let pool_address = address!("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640");
-      UniswapV3Pool::new(
-         1,
-         pool_address,
-         500,
-         ERC20Token::weth(),
-         ERC20Token::usdc(),
-         DexKind::UniswapV3,
-      )
-   }
-
-   pub fn weth_usdc_base() -> Self {
-      let pool_address = address!("0xd0b53D9277642d899DF5C87A3966A349A798F224");
-      UniswapV3Pool::new(
-         8453,
-         pool_address,
-         500,
-         ERC20Token::weth_base(),
-         ERC20Token::usdc_base(),
-         DexKind::UniswapV3,
-      )
    }
 }
 
@@ -447,6 +406,50 @@ impl UniswapPool for UniswapV3Pool {
       let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
       let quote_price = self.quote_price(base_price)?;
       Ok((base_price, quote_price))
+   }
+}
+
+// Well known pools for quick testing
+
+impl UniswapV3Pool {
+   pub fn usdt_uni() -> Self {
+      let usdt = ERC20Token::usdt();
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+
+      let pool_address = address!("3470447f3CecfFAc709D3e783A307790b0208d60");
+      UniswapV3Pool::new(1, pool_address, 3000, usdt, uni, DexKind::UniswapV3)
+   }
+
+   pub fn weth_usdc() -> Self {
+      let pool_address = address!("0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640");
+      UniswapV3Pool::new(
+         1,
+         pool_address,
+         500,
+         ERC20Token::weth(),
+         ERC20Token::usdc(),
+         DexKind::UniswapV3,
+      )
+   }
+
+   pub fn weth_usdc_base() -> Self {
+      let pool_address = address!("0xd0b53D9277642d899DF5C87A3966A349A798F224");
+      UniswapV3Pool::new(
+         8453,
+         pool_address,
+         500,
+         ERC20Token::weth_base(),
+         ERC20Token::usdc_base(),
+         DexKind::UniswapV3,
+      )
    }
 }
 

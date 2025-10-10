@@ -16,10 +16,8 @@ use serde::{Deserialize, Serialize};
 pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};
 
 pub mod consts;
-// pub mod quoter;
 pub mod state;
 pub mod sync;
-// pub mod universal_router_v2;
 pub mod v2;
 pub mod v3;
 pub mod v4;
@@ -107,26 +105,6 @@ impl From<u32> for FeeAmount {
          3000 => Self::MEDIUM,
          10000 => Self::HIGH,
          _ => Self::CUSTOM(fee),
-      }
-   }
-}
-
-/// A simple struct to identify a V2/V3/V4 pool
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct PoolID {
-   pub chain_id: u64,
-   /// For V4 this is zero
-   pub address: Address,
-   /// For V2/V3 this is zero
-   pub pool_id: B256,
-}
-
-impl PoolID {
-   pub fn new(chain_id: u64, address: Address, pool_id: B256) -> Self {
-      Self {
-         chain_id,
-         address,
-         pool_id,
       }
    }
 }

@@ -19,9 +19,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::utils::{address_book, get_logs_for};
 use anyhow::anyhow;
-use tracing::error;
+use tracing::{error, trace};
 
-/// Sync pools from the last checkpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
    pub chain_id: u64,
@@ -69,25 +68,25 @@ impl SyncResult {
 }
 
 /// Configuration for syncing pools
-///
-/// - `chain_id` The chain id to sync from
-///
-/// - `dex` Which dexes to sync pools from, use [DexKind::all()] to sync all dexes
-///
-/// - `concurrency` Do concurrent requests, set 1 for no concurrency
-///
-/// - `batch_size` The number of pools to sync in a single request
-///
-/// - `from_block` From which block to start syncing, If None it will start from the dex creation block
-///
-/// - `to_block` To which block to sync, If None it will sync to the latest block
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
+
+   /// The chain id to sync from
    pub chain_id: u64,
+
+   /// Which DEX to sync pools from, use [DexKind::all()] to sync all dexes
    pub dex: Vec<DexKind>,
+
+   /// Do concurrent requests, set 1 for no concurrency
    pub concurrency: usize,
+
+   /// The number of pools to costruct in a single request
    pub batch_size: usize,
+
+   /// From which block to start syncing, If None it will start from the dex creation block
    pub from_block: Option<u64>,
+
+   /// Up to which block to sync, If None it will sync to the latest block
    pub to_block: Option<u64>,
 }
 
@@ -123,7 +122,7 @@ where
 
    if chain != config.chain_id {
       anyhow::bail!(
-         "Chain ID mismatch, your Chain Id {}, but client returned: {}",
+         "Chain ID mismatch, your Chain Id is {}, but client returned: {}",
          config.chain_id,
          chain
       );
@@ -205,7 +204,7 @@ where
       dex.creation_block(chain_id)?
    };
 
-   tracing::trace!(
+   trace!(
       target: "zeus_eth::amm::sync",
       "Syncing pools for chain {} DEX: {} from block {}",
       chain_id,
@@ -223,7 +222,7 @@ where
    )
    .await?;
 
-   tracing::trace!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.as_str());
+   trace!(target: "zeus_eth::amm::sync", "Found {} logs for chain {} DEX: {}", logs.len(), chain_id, dex.as_str());
    let semaphore = Arc::new(Semaphore::new(concurrency));
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let pools = Arc::new(Mutex::new(Vec::new()));
@@ -238,7 +237,7 @@ where
          let _permit = semaphore.acquire().await?;
          let fetched_pools = sync_pools_from_log_batch(client, chain_id, dex, logs).await?;
          for pool in &fetched_pools {
-            tracing::trace!(target: "zeus_eth::amm::sync", "Synced pool for {}-{} ChainId: {}", pool.currency0().symbol(), pool.currency1().symbol(), chain_id);
+            trace!(target: "zeus_eth::amm::sync", "Synced pool for {}-{} ChainId: {}", pool.currency0().symbol(), pool.currency1().symbol(), chain_id);
          }
          pools.lock().await.extend(fetched_pools);
          Ok(())
@@ -255,7 +254,8 @@ where
 
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
    let checkpoint = Checkpoint::new(chain_id, synced_block, dex);
-   tracing::trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.as_str(), chain_id);
+   trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.as_str(), chain_id);
+   
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)
 }

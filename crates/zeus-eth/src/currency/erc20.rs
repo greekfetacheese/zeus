@@ -108,7 +108,7 @@ impl ERC20Token {
       Ok(tokens_erc20)
    }
 
-   pub fn from(
+   pub fn from_components(
       chain_id: u64,
       address: Address,
       symbol: String,
@@ -220,9 +220,10 @@ impl ERC20Token {
 
    /// Return a list of base tokens based on the chain id.
    ///
-   /// If the chain id is invalid, it fallbacks to [ChainId::Ethereum]
+   /// ## Panics
+   /// If the `chain_id` is not supported
    pub fn base_tokens(chain_id: u64) -> Vec<ERC20Token> {
-      let chain = ChainId::new(chain_id).unwrap_or(ChainId::Ethereum);
+      let chain = ChainId::new(chain_id).expect("ChainId not supported");
       match chain {
          ChainId::Ethereum => vec![
             ERC20Token::weth(),

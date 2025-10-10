@@ -64,7 +64,7 @@ impl Hash for UniswapV2Pool {
 }
 
 impl UniswapV2Pool {
-   /// Tokens are re-ordered as per the Uniswap protocol
+   /// Tokens are re-ordered as token0 < token1
    pub fn new(chain_id: u64, address: Address, token0: ERC20Token, token1: ERC20Token, dex: DexKind) -> Self {
       let (token0, token1) = if token0.address < token1.address {
          (token0, token1)
@@ -112,7 +112,7 @@ impl UniswapV2Pool {
    /// Create a new Uniswap V2 Pool from token0, token1 and the DEX
    ///
    /// Returns `None` if the pair does not exist
-   pub async fn from<P, N>(
+   pub async fn from_components<P, N>(
       client: P,
       chain_id: u64,
       token0: ERC20Token,
@@ -145,39 +145,6 @@ impl UniswapV2Pool {
 
    pub fn quote_token(&self) -> Cow<'_, ERC20Token> {
       self.quote_currency().to_erc20()
-   }
-
-   /// Test pool
-   pub fn weth_uni() -> Self {
-      let weth = ERC20Token::weth();
-      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = ERC20Token {
-         chain_id: 1,
-         address: uni_addr,
-         decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
-         total_supply: U256::ZERO,
-      };
-
-      let pool_address = address!("d3d2E2692501A5c9Ca623199D38826e513033a17");
-      UniswapV2Pool::new(1, pool_address, weth, uni, DexKind::UniswapV2)
-   }
-
-   pub fn weth_wbtc() -> Self {
-      let weth = ERC20Token::weth();
-      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
-      let wbtc = ERC20Token {
-         chain_id: 1,
-         address: wbtc,
-         decimals: 8,
-         symbol: "WBTC".to_string(),
-         name: "Wrapped BTC".to_string(),
-         total_supply: U256::ZERO,
-      };
-
-      let pool_address = address!("0xBb2b8038a1640196FbE3e38816F3e67Cba72D940");
-      UniswapV2Pool::new(1, pool_address, weth, wbtc, DexKind::UniswapV2)
    }
 }
 
@@ -447,6 +414,42 @@ impl UniswapPool for UniswapV2Pool {
       let base_price = get_base_token_price(client.clone(), chain_id, self.base_token().address, block).await?;
       let quote_price = self.quote_price(base_price)?;
       Ok((base_price, quote_price))
+   }
+}
+
+// Well known pools for quick testing
+
+impl UniswapV2Pool {
+   pub fn weth_uni() -> Self {
+      let weth = ERC20Token::weth();
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+
+      let pool_address = address!("d3d2E2692501A5c9Ca623199D38826e513033a17");
+      UniswapV2Pool::new(1, pool_address, weth, uni, DexKind::UniswapV2)
+   }
+
+   pub fn weth_wbtc() -> Self {
+      let weth = ERC20Token::weth();
+      let wbtc = address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599");
+      let wbtc = ERC20Token {
+         chain_id: 1,
+         address: wbtc,
+         decimals: 8,
+         symbol: "WBTC".to_string(),
+         name: "Wrapped BTC".to_string(),
+         total_supply: U256::ZERO,
+      };
+
+      let pool_address = address!("0xBb2b8038a1640196FbE3e38816F3e67Cba72D940");
+      UniswapV2Pool::new(1, pool_address, weth, wbtc, DexKind::UniswapV2)
    }
 }
 

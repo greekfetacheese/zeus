@@ -17,7 +17,7 @@ use zeus_eth::{
    alloy_primitives::{Address, B256},
    alloy_provider::Provider,
    amm::uniswap::{
-      AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, PoolID, UniswapPool, UniswapV2Pool,
+      AnyUniswapPool, DexKind, FEE_TIERS, FeeAmount, UniswapPool, UniswapV2Pool,
       UniswapV3Pool,
       state::{State, V3PoolState},
       sync::*,
@@ -32,6 +32,26 @@ const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
 
 // Timeout for pool sync in seconds (10 minutes)
 const POOL_SYNC_TIMEOUT: u64 = 600;
+
+/// A simple struct to identify a V2/V3/V4 pool
+#[derive(PartialEq, Eq, Hash)]
+pub struct PoolID {
+   pub chain_id: u64,
+   /// For V4 this is zero
+   pub address: Address,
+   /// For V2/V3 this is zero
+   pub pool_id: B256,
+}
+
+impl PoolID {
+   pub fn new(chain_id: u64, address: Address, pool_id: B256) -> Self {
+      Self {
+         chain_id,
+         address,
+         pool_id,
+      }
+   }
+}
 
 /// Thread-safe handle to the [PoolManager]
 #[derive(Clone, Serialize, Deserialize)]
@@ -576,7 +596,7 @@ impl PoolManagerHandle {
                let token_clone = token.clone();
                let base_token_clone = base_token.clone();
                async move {
-                  UniswapV2Pool::from(
+                  UniswapV2Pool::from_components(
                      client,
                      chain,
                      token_clone,

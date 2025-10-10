@@ -98,7 +98,7 @@ impl UniswapV4Pool {
       }
    }
 
-   pub fn from(
+   pub fn from_components(
       chain_id: u64,
       currency_a: Currency,
       currency_b: Currency,
@@ -129,154 +129,6 @@ impl UniswapV4Pool {
 
    fn hook_impacts_swap(&self) -> bool {
       super::has_swap_permissions(self.hooks)
-   }
-
-   // * Test pools
-   pub fn eth_uni() -> Self {
-      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = ERC20Token {
-         chain_id: 1,
-         address: uni_addr,
-         decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
-         total_supply: U256::ZERO,
-      };
-      let currency_a = Currency::from(uni);
-      let currency_b = Currency::from(NativeCurrency::from(1));
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn uni_usdc() -> Self {
-      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
-      let uni = ERC20Token {
-         chain_id: 1,
-         address: uni_addr,
-         decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
-         total_supply: U256::ZERO,
-      };
-      let currency_a = Currency::from(uni);
-      let currency_b = Currency::from(ERC20Token::usdc());
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn usdc_usdt() -> Self {
-      let currency_a = Currency::from(ERC20Token::usdc());
-      let currency_b = Currency::from(ERC20Token::usdt());
-      let fee = FeeAmount::CUSTOM(10); // 0.001%
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn eth_usdt() -> Self {
-      let currency_a = Currency::from(NativeCurrency::from(1));
-      let currency_b = Currency::from(ERC20Token::usdt());
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn link_usdc() -> Self {
-      let currency_a = Currency::from(ERC20Token::link());
-      let currency_b = Currency::from(ERC20Token::usdc());
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn usdc_wbtc() -> Self {
-      let currency_a = Currency::from(ERC20Token::usdc());
-      let currency_b = Currency::from(ERC20Token::wbtc());
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   pub fn wbtc_usdt() -> Self {
-      let currency_a = Currency::from(ERC20Token::usdt());
-      let currency_b = Currency::from(ERC20Token::wbtc());
-      let fee = FeeAmount::MEDIUM;
-
-      Self::from(
-         1,
-         currency_a,
-         currency_b,
-         fee,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
-   }
-
-   #[allow(dead_code)]
-   fn dsync_eth() -> Self {
-      let dync = ERC20Token {
-         chain_id: 1,
-         address: address!("0xf94e7d0710709388bCe3161C32B4eEA56d3f91CC"),
-         symbol: "DSYNC".to_string(),
-         name: "dSync".to_string(),
-         decimals: 18,
-         total_supply: U256::ZERO,
-      };
-
-      let eth = Currency::from(NativeCurrency::from(1));
-      let dsync = Currency::from(dync);
-
-      Self::from(
-         1,
-         eth,
-         dsync,
-         FeeAmount::HIGH,
-         DexKind::UniswapV4,
-         Address::ZERO,
-      )
    }
 }
 
@@ -606,6 +458,133 @@ impl UniswapPool for UniswapV4Pool {
    }
 }
 
+// Well known pools for quick testing
+
+impl UniswapV4Pool {
+   pub fn eth_uni() -> Self {
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+      let currency_a = Currency::from(uni);
+      let currency_b = Currency::from(NativeCurrency::from(1));
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn uni_usdc() -> Self {
+      let uni_addr = address!("1f9840a85d5aF5bf1D1762F925BDADdC4201F984");
+      let uni = ERC20Token {
+         chain_id: 1,
+         address: uni_addr,
+         decimals: 18,
+         symbol: "UNI".to_string(),
+         name: "Uniswap Token".to_string(),
+         total_supply: U256::ZERO,
+      };
+      let currency_a = Currency::from(uni);
+      let currency_b = Currency::from(ERC20Token::usdc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn usdc_usdt() -> Self {
+      let currency_a = Currency::from(ERC20Token::usdc());
+      let currency_b = Currency::from(ERC20Token::usdt());
+      let fee = FeeAmount::CUSTOM(10); // 0.001%
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn eth_usdt() -> Self {
+      let currency_a = Currency::from(NativeCurrency::from(1));
+      let currency_b = Currency::from(ERC20Token::usdt());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn link_usdc() -> Self {
+      let currency_a = Currency::from(ERC20Token::link());
+      let currency_b = Currency::from(ERC20Token::usdc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn usdc_wbtc() -> Self {
+      let currency_a = Currency::from(ERC20Token::usdc());
+      let currency_b = Currency::from(ERC20Token::wbtc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+
+   pub fn wbtc_usdt() -> Self {
+      let currency_a = Currency::from(ERC20Token::usdt());
+      let currency_b = Currency::from(ERC20Token::wbtc());
+      let fee = FeeAmount::MEDIUM;
+
+      Self::from_components(
+         1,
+         currency_a,
+         currency_b,
+         fee,
+         DexKind::UniswapV4,
+         Address::ZERO,
+      )
+   }
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -691,29 +670,6 @@ mod tests {
       let client = ProviderBuilder::new().connect_http(url);
 
       let mut pool = UniswapV4Pool::usdc_usdt();
-      pool.update_state(client.clone(), None).await.unwrap();
-      pool.compute_virtual_reserves().unwrap();
-
-      let (balance0, balance1) = pool.pool_balances();
-
-      eprintln!(
-         "{} {}",
-         pool.currency0().symbol(),
-         balance0.format_abbreviated()
-      );
-      eprintln!(
-         "{} {}",
-         pool.currency1().symbol(),
-         balance1.format_abbreviated()
-      );
-   }
-
-   #[tokio::test]
-   async fn compute_reserves_dsync_eth() {
-      let url = Url::parse("https://eth.merkle.io").unwrap();
-      let client = ProviderBuilder::new().connect_http(url);
-
-      let mut pool = UniswapV4Pool::dsync_eth();
       pool.update_state(client.clone(), None).await.unwrap();
       pool.compute_virtual_reserves().unwrap();
 

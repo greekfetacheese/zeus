@@ -115,9 +115,7 @@ pub struct V3PoolState {
    pub fee_growth_global_1_x128: U256,
    pub liquidity: u128,
    pub sqrt_price: U256,
-   /// Current Tick
    pub tick: i32,
-   /// Current wordPos
    pub word_pos: i16,
    pub tick_spacing: i32,
    pub tick_bitmap: HashMap<i16, U256>,

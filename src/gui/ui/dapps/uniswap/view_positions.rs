@@ -1346,7 +1346,7 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
             pool
          } else {
             let dex = DexKind::UniswapV3;
-            UniswapV3Pool::from(
+            UniswapV3Pool::from_components(
                client.clone(),
                chain.id(),
                position.fee,
