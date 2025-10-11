@@ -222,7 +222,7 @@ impl AcrossBridge {
                      );
 
                      if res.clicked() {
-                        recipient_selection.open();
+                        recipient_selection.open(ctx.clone());
                      }
                   });
                });

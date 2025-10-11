@@ -5,8 +5,7 @@ use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
-use egui::{Color32, Margin};
-use zeus_theme::utils::{bg_color_on_hover, bg_color_on_idle};
+use egui::Margin;
 use zeus_theme::Theme;
 use egui_widgets::SecureTextEdit;
 use ncrypt_me::{Argon2, Credentials};
@@ -42,7 +41,6 @@ impl VirtualKeyboard {
          return;
       }
 
-      // Get a mutable reference to the currently focused SecureString
       let target_str = match self.active_target {
          Some(InputField::Username) => &mut credentials.username,
          Some(InputField::Password) => &mut credentials.password,
@@ -230,8 +228,7 @@ impl CredentialsForm {
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = self.y_spacing;
          ui.spacing_mut().item_spacing.x = self.x_spacing;
-         bg_color_on_idle(ui, Color32::TRANSPARENT);
-         bg_color_on_hover(ui, Color32::TRANSPARENT);
+
          let ui_width = ui.available_width();
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 

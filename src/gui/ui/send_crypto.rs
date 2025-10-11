@@ -226,14 +226,14 @@ impl SendCryptoUi {
                               .font(FontId::proportional(theme.text_sizes.large)),
                         );
                         if res.clicked() {
-                           recipient_selection.open();
+                           recipient_selection.open(ctx.clone());
                         }
                      });
                   });
 
                   ui.add_space(10.0);
 
-                  self.send_button(ctx.clone(), theme, owner, recipient, ui);
+                  self.send_button(ctx, theme, owner, recipient, ui);
                });
             });
          });

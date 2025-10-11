@@ -4,16 +4,22 @@ use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
-use zeus_theme::Theme;
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
+use zeus_theme::Theme;
 
 pub struct RecipientSelectionWindow {
    open: bool,
    pub recipient: String,
    recipient_name: Option<String>,
    search_query: String,
+   wallets: Vec<WalletInfo>,
+   /// Wallet value by address
+   wallet_value: HashMap<Address, NumericValue>,
+   /// Chains that the wallet has balance on
+   wallet_chains: HashMap<Address, Vec<u64>>,
    size: (f32, f32),
 }
 
@@ -24,6 +30,9 @@ impl RecipientSelectionWindow {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
+         wallets: Vec::new(),
+         wallet_value: HashMap::new(),
+         wallet_chains: HashMap::new(),
          size: (500.0, 550.0),
       }
    }
@@ -32,12 +41,56 @@ impl RecipientSelectionWindow {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, ctx: ZeusCtx) {
       self.open = true;
+
+      let mut wallets = ctx.get_all_wallets_info();
+      let mut portfolios = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         for wallet in &wallets {
+            portfolios.push(ctx.get_portfolio(chain, wallet.address));
+         }
+      }
+
+      wallets.sort_by(|a, b| {
+         let wallet_a = a.address;
+         let wallet_b = b.address;
+
+         let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
+         let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+
+         // Sort in descending order (highest value first)
+         value_b
+            .f64()
+            .partial_cmp(&value_a.f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name().cmp(&b.name()))
+      });
+
+      let mut wallet_value = HashMap::new();
+      let mut wallet_chains = HashMap::new();
+
+      for wallet in &wallets {
+         let value = ctx.get_portfolio_value_all_chains(wallet.address);
+         wallet_value.insert(wallet.address, value);
+
+         let chains = ctx.get_chains_that_have_balance(wallet.address);
+         wallet_chains.insert(wallet.address, chains);
+      }
+
+      self.wallets = wallets;
+      self.wallet_value = wallet_value;
+      self.wallet_chains = wallet_chains;
    }
 
    pub fn close(&mut self) {
       self.open = false;
+      self.wallets = Vec::new();
+      self.wallets.shrink_to_fit();
+      self.wallet_value.clear();
+      self.wallet_value.shrink_to_fit();
+      self.wallet_chains.clear();
+      self.wallet_chains.shrink_to_fit();
    }
 
    pub fn reset(&mut self) {
@@ -67,12 +120,13 @@ impl RecipientSelectionWindow {
 
       contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
+
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
          self.recipient = contact.address;
          self.recipient_name = Some(contact.name);
          contacts_ui.add_contact.reset();
-         open = false;
+         self.close();
       }
 
       let title = RichText::new("Recipient").size(theme.text_sizes.heading);
@@ -112,7 +166,7 @@ impl RecipientSelectionWindow {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               let wallets = ctx.get_all_wallets_info();
+               let wallets = &self.wallets;
                let contacts = ctx.contacts();
 
                let query = self.search_query.clone();
@@ -163,10 +217,9 @@ impl RecipientSelectionWindow {
             });
          });
 
-      if close_window {
-         self.open = false;
-      } else {
-         self.open = open;
+      
+      if close_window || !open {
+         self.close();
       }
    }
 
@@ -178,35 +231,6 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let mut wallets = ctx.get_all_wallets_info();
-      let mut portfolios = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address));
-         }
-      }
-
-      wallets.sort_by(|a, b| {
-         let addr_a = a.address;
-         let addr_b = b.address;
-
-         // Find the portfolio for each wallet
-         let portfolio_a = portfolios.iter().find(|p| p.owner == addr_a);
-         let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
-
-         // Extract the portfolio value (or use a default if not found)
-         let value_a = portfolio_a.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
-         let value_b = portfolio_b.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
-
-         // Sort in descending order (highest value first)
-         // If values are equal, sort by name as a secondary criterion
-         value_b
-            .f64()
-            .partial_cmp(&value_a.f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name().cmp(&b.name()))
-      });
-
       ui.vertical_centered(|ui| {
          ui.label(RichText::new("Your Wallets").size(theme.text_sizes.large));
       });
@@ -220,10 +244,12 @@ impl RecipientSelectionWindow {
       let column1 = ui.available_width() * 0.33;
       let column2 = ui.available_width() * 0.20;
 
-      for wallet in &wallets {
+      let wallets = &self.wallets;
+
+      for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
-         let value = ctx.get_portfolio_value_all_chains(wallet.address);
-         let chains = ctx.get_chains_that_have_balance(wallet.address);
+         let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+         let chains = self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
 
          if valid_search {
             frame.show(ui, |ui| {
