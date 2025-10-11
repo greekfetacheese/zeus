@@ -26,8 +26,14 @@ const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
 const DEFAULT_SLIPPAGE: f64 = 0.5;
 
+const MIN_DEADLINE: u64 = 1; // minutes
+const MAX_DEADLINE: u64 = 60; // minutes
+
 const SLIPPAGE_TIP: &str =
    "Your transaction will revert if the price changes unfavorably by more than this percentage.";
+
+const DEADLINE_TIP: &str =
+   "The transaction will revert if it is pending for more than this time.";
 
 #[derive(Clone, Default, Copy, Debug, PartialEq)]
 pub enum ProtocolVersion {
@@ -89,6 +95,8 @@ pub struct UniswapSettingsUi {
    pub split_routing_enabled: bool,
    pub max_hops: usize,
    pub max_split_routes: usize,
+   /// Deadline in minutes
+   pub deadline: u64,
    pub mev_protect: bool,
    pub slippage: String,
    slippage_f64: f64,
@@ -109,6 +117,7 @@ impl UniswapSettingsUi {
          split_routing_enabled: false,
          max_hops: 4,
          max_split_routes: 5,
+         deadline: 5,
          mev_protect: true,
          slippage: "0.5".to_string(),
          slippage_f64: 0.5,
@@ -186,6 +195,20 @@ impl UniswapSettingsUi {
                if res.changed() {
                   self.slippage = self.slippage_f64.to_string();
                }
+            });
+
+            ui.add_space(15.0);
+
+            // Swap deadline
+            let text = RichText::new("Transaction Deadline (minutes)").size(theme.text_sizes.normal);
+            ui.label(text).on_hover_text(DEADLINE_TIP);
+            
+            ui.add_space(5.0);
+            ui.label(RichText::new(self.deadline.to_string()).size(theme.text_sizes.normal));
+
+            ui.add_space(5.0);
+            ui.allocate_ui(slider_size, |ui| {
+               ui.add(Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE).show_value(false));
             });
 
             ui.add_space(15.0);

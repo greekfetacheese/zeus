@@ -706,6 +706,7 @@ mod tests {
          currency_out.clone(),
          signer.clone(),
          alice.address,
+         5
       )
       .await?;
 

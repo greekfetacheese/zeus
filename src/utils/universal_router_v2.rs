@@ -138,6 +138,7 @@ pub async fn encode_swap(
    currency_out: Currency,
    secure_signer: SecureSigner,
    recipient: Address,
+   deadline: u64,
 ) -> Result<SwapExecuteParams, anyhow::Error> {
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
@@ -356,7 +357,8 @@ pub async fn encode_swap(
    // eprintln!("Command Bytes: {:?}", command_bytes);
 
    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
-   let deadline = now.as_secs() + 60;
+   let deadline_seconds = deadline * 60;
+   let deadline = now.as_secs() + deadline_seconds;
 
    let data = encode_execute_with_deadline(command_bytes, inputs, U256::from(deadline));
 

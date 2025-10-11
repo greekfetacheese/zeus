@@ -1174,6 +1174,7 @@ impl SwapUi {
       let swap_steps = self.quote.swap_steps.clone();
 
       let mev_protect = settings.mev_protect;
+      let deadline = settings.deadline;
       let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
 
       RT.spawn(async move {
@@ -1185,6 +1186,7 @@ impl SwapUi {
             chain,
             slippage,
             mev_protect,
+            deadline,
             from,
             SwapType::ExactInput,
             amount_in,
@@ -1304,6 +1306,7 @@ async fn swap(
    chain: ChainId,
    slippage: f64,
    mev_protect: bool,
+   deadline: u64,
    from: Address,
    swap_type: SwapType,
    amount_in: NumericValue,
@@ -1317,6 +1320,7 @@ async fn swap(
       chain,
       slippage,
       mev_protect,
+      deadline,
       from,
       swap_type,
       amount_in,
@@ -1788,6 +1792,7 @@ async fn swap_via_ur(
    chain: ChainId,
    slippage: f64,
    mev_protect: bool,
+   deadline: u64,
    signer_address: Address,
    swap_type: SwapType,
    amount_in: NumericValue,
@@ -1953,6 +1958,7 @@ async fn swap_via_ur(
       currency_out.clone(),
       signer.clone(),
       signer_address,
+      deadline
    )
    .await?;
 
@@ -2033,6 +2039,7 @@ async fn swap_via_ur(
       currency_out.clone(),
       signer,
       signer_address,
+      deadline
    )
    .await?;
 
