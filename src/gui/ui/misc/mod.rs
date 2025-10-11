@@ -4,7 +4,6 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::DexKind;
-use zeus_eth::currency::NativeCurrency;
 
 use crate::assets::icons::Icons;
 use crate::core::{Wallet, ZeusCtx, utils::RT};
@@ -445,7 +444,7 @@ impl PortfolioUi {
                let add_token =
                   Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
                if ui.add(add_token).clicked() {
-                  token_selection.open = true;
+                  token_selection.open(ctx.clone(), chain_id, owner);
                }
 
                let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
@@ -511,9 +510,8 @@ impl PortfolioUi {
                      ui.end_row();
 
                      // Token Rows
-                     let native_wrapped = tokens.iter().find(|c| c.is_native_wrapped());
-                     let tokens: Vec<_> = tokens.iter().filter(|c| c.is_erc20()).collect();
-                     let native_currency: Currency = NativeCurrency::from(chain_id).into();
+                     let native_wrapped = Currency::wrapped_native(chain_id);
+                     let native_currency = Currency::native(chain_id);
 
                      self.token(
                         theme,
@@ -522,6 +520,7 @@ impl PortfolioUi {
                         ui,
                         column_widths[0],
                      );
+
                      self.price_balance_value(
                         ctx.clone(),
                         theme,
@@ -531,6 +530,7 @@ impl PortfolioUi {
                         ui,
                         column_widths[0],
                      );
+
                      self.remove_currency(
                         ctx.clone(),
                         owner,
@@ -538,13 +538,16 @@ impl PortfolioUi {
                         ui,
                         column_widths[4],
                      );
+
                      ui.end_row();
 
-                     if let Some(wrapped) = native_wrapped {
+                     let wrapped_balance = ctx.get_currency_balance(chain_id, owner, &native_wrapped);
+
+                     if !wrapped_balance.is_zero() {
                         self.token(
                            theme,
                            icons.clone(),
-                           wrapped,
+                           &native_wrapped,
                            ui,
                            column_widths[0],
                         );
@@ -553,19 +556,18 @@ impl PortfolioUi {
                            theme,
                            chain_id,
                            owner,
-                           wrapped,
+                           &native_wrapped,
                            ui,
                            column_widths[0],
                         );
-                        self.remove_currency(ctx.clone(), owner, wrapped, ui, column_widths[4]);
+                        self.remove_currency(ctx.clone(), owner, &native_wrapped, ui, column_widths[4]);
                         ui.end_row();
                      }
 
                      for token in tokens {
-                        if token.is_native_wrapped() {
-                           continue;
-                        }
+
                         self.token(theme, icons.clone(), token, ui, column_widths[0]);
+
                         self.price_balance_value(
                            ctx.clone(),
                            theme,
@@ -575,23 +577,24 @@ impl PortfolioUi {
                            ui,
                            column_widths[0],
                         );
+
                         self.remove_currency(ctx.clone(), owner, token, ui, column_widths[4]);
+
                         ui.end_row();
                      }
                   });
             });
 
             // Token selection
-            let all_currencies = ctx.get_currencies(chain_id);
             token_selection.show(
                ctx.clone(),
                theme,
                icons.clone(),
                chain_id,
                owner,
-               &all_currencies,
                ui,
             );
+
             let currency = token_selection.get_currency().cloned();
 
             if let Some(currency) = currency {

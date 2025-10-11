@@ -162,6 +162,10 @@ impl Header {
                SHARED_GUI.write(|gui| {
                   let currency: Currency = NativeCurrency::from(new_chain.id()).into();
                   gui.send_crypto.set_currency(currency.clone());
+
+                  let owner = ctx.current_wallet_info().address;
+                  gui.token_selection.process_currencies(ctx, new_chain.id(), owner);
+
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
                   gui.uniswap.create_position_ui.default_currency0(new_chain.id());
@@ -186,6 +190,14 @@ impl Header {
          if clicked {
             ctx.write(|ctx| {
                ctx.current_wallet = self.wallet_select.wallet.clone();
+            });
+
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  let owner = ctx.current_wallet_info().address;
+                  let chain_id = ctx.chain().id();
+                  gui.token_selection.process_currencies(ctx, chain_id, owner);
+               });
             });
          }
       });

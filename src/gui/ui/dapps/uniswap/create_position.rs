@@ -505,7 +505,6 @@ impl CreatePositionUi {
    ) {
       let chain_id = ctx.chain().id();
       let owner = ctx.current_wallet_address();
-      let currencies = ctx.get_currencies(chain_id);
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          self.select_version(chain_id, theme, ui);
@@ -545,12 +544,12 @@ impl CreatePositionUi {
 
             if ui.add(button0).clicked() {
                token_selection.currency_direction = InOrOut::In;
-               token_selection.open = true;
+               token_selection.open(ctx.clone(), chain_id, owner);
             }
 
             if ui.add(button1).clicked() {
                token_selection.currency_direction = InOrOut::Out;
-               token_selection.open = true;
+               token_selection.open(ctx.clone(), chain_id, owner);
             }
          });
       });
@@ -622,7 +621,6 @@ impl CreatePositionUi {
          icons,
          chain_id,
          owner,
-         &currencies,
          ui,
       );
 

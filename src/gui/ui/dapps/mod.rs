@@ -9,7 +9,7 @@ use egui::{Align, Button, Color32, FontId, Layout, Margin, RichText, Spinner, Te
 use zeus_theme::Theme;
 use egui_widgets::Label;
 use std::sync::Arc;
-use zeus_eth::{currency::Currency, utils::NumericValue};
+use zeus_eth::{currency::Currency, alloy_primitives::Address, utils::NumericValue};
 
 /// Helper function to draw an amount field with optional currency selector and customizable balance/max logic.
 ///
@@ -18,6 +18,7 @@ use zeus_eth::{currency::Currency, utils::NumericValue};
 /// - `theme`: The current theme.
 /// - `icons`: Shared icons.
 /// - `label`: Optional text to display as a label above the amount field (e.g., "Sell" or "Buy").
+/// - `owner`: The address of the owner whose balance is to be displayed.
 /// - `currency`: The selected currency.
 /// - `amount`: Mutable reference to the amount string.
 /// - `token_selection`: Optional mutable reference to the token selection window for currency selection.
@@ -30,10 +31,11 @@ use zeus_eth::{currency::Currency, utils::NumericValue};
 ///
 /// Returns: If the amount field was changed.
 pub fn amount_field_with_currency_selector(
-   _ctx: ZeusCtx,
+   ctx: ZeusCtx,
    theme: &Theme,
    icons: Arc<Icons>,
    label: Option<String>,
+   owner: Address,
    currency: &Currency,
    amount: &mut String,
    token_selection: Option<&mut TokenSelectionWindow>,
@@ -118,7 +120,7 @@ pub fn amount_field_with_currency_selector(
 
          if ui.add(button).clicked() {
             if let Some(token_selection) = token_selection {
-               token_selection.open = true;
+               token_selection.open(ctx.clone(), currency.chain_id(), owner);
                if let Some(direction) = direction {
                   token_selection.currency_direction = direction;
                }

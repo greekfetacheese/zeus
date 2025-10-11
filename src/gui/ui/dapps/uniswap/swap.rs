@@ -421,7 +421,6 @@ impl SwapUi {
 
       let chain_id = ctx.chain().id();
       let owner = ctx.current_wallet_address();
-      let currencies = ctx.get_currencies(chain_id);
       let simulate_mode = settings.simulate_mode;
 
       if simulate_mode {
@@ -490,12 +489,14 @@ impl SwapUi {
          let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          let amount = self.amount_in.parse().unwrap_or(0.0);
          let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+
          frame.show(ui, |ui| {
             let changed = amount_field_with_currency_selector(
                ctx.clone(),
                theme,
                icons.clone(),
                Some(label),
+               owner,
                &self.currency_in,
                &mut self.amount_in,
                Some(token_selection),
@@ -532,6 +533,7 @@ impl SwapUi {
                theme,
                icons.clone(),
                Some(label),
+               owner,
                &self.currency_out,
                &mut self.amount_out,
                Some(token_selection),
@@ -550,7 +552,6 @@ impl SwapUi {
             icons,
             chain_id,
             owner,
-            &currencies,
             ui,
          );
 

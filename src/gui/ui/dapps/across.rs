@@ -171,6 +171,7 @@ impl AcrossBridge {
                      theme,
                      icons.clone(),
                      Some(label),
+                     owner,
                      &self.currency,
                      &mut self.amount,
                      None,

@@ -10,22 +10,21 @@ use crate::core::ZeusCtx;
 use crate::core::utils::{RT, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
-use zeus_theme::{Theme, utils};
 use zeus_eth::{
    alloy_primitives::Address,
    amm::uniswap::DexKind,
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
+use zeus_theme::{Theme, utils};
 
 /// A simple window that allows the user to select a token
-/// based on the a list of [Currency] we pass to it
 ///
 /// We can also use the search bar to search for a specific token either by its name or symbol.
 ///
 /// If a valid address is passed to the search bar, we can fetch the token from the blockchain if it exists
 pub struct TokenSelectionWindow {
-   pub open: bool,
+   open: bool,
    pub size: (f32, f32),
    pub search_query: String,
    pub selected_currency: Option<Currency>,
@@ -36,9 +35,6 @@ pub struct TokenSelectionWindow {
 
    /// Cached and sorted list of currencies with their balances.
    processed_currencies: Vec<(Currency, NumericValue)>,
-   /// The last owner address we processed the balances for.
-   last_owner_address: Option<Address>,
-   last_chain_id: Option<u64>,
 }
 
 impl TokenSelectionWindow {
@@ -51,9 +47,42 @@ impl TokenSelectionWindow {
          token_fetched: false,
          currency_direction: InOrOut::In,
          processed_currencies: Vec::new(),
-         last_owner_address: None,
-         last_chain_id: None,
       }
+   }
+
+   pub fn open(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+      self.open = true;
+      self.process_currencies(ctx, chain_id, owner);
+   }
+
+   pub fn reset(&mut self) {
+      *self = Self::new();
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+   }
+
+   pub fn process_currencies(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+      let currencies = ctx.get_currencies(chain_id);
+
+      let mut currencies_with_balances: Vec<(Currency, NumericValue)> = currencies
+         .iter()
+         .map(|currency| {
+            let balance = ctx.get_currency_balance(chain_id, owner, currency);
+            (currency.clone(), balance)
+         })
+         .collect();
+
+      currencies_with_balances
+         .sort_by(|a, b| b.1.f64().partial_cmp(&a.1.f64()).unwrap_or(std::cmp::Ordering::Equal));
+
+      self.processed_currencies = currencies_with_balances;
+   }
+
+   pub fn clear_processed_currencies(&mut self) {
+      self.processed_currencies.clear();
+      self.processed_currencies.shrink_to_fit();
    }
 
    pub fn set_currency_direction(&mut self, currency_direction: InOrOut) {
@@ -69,15 +98,6 @@ impl TokenSelectionWindow {
       self.selected_currency.as_ref()
    }
 
-   pub fn reset(&mut self) {
-      *self = Self::new();
-   }
-
-   pub fn clear_processed_currencies(&mut self) {
-      self.processed_currencies.clear();
-      self.processed_currencies.shrink_to_fit();
-   }
-
    /// Show This [TokenSelectionWindow]
    pub fn show(
       &mut self,
@@ -86,31 +106,11 @@ impl TokenSelectionWindow {
       icons: Arc<Icons>,
       chain_id: u64,
       owner: Address,
-      currencies: &[Currency],
       ui: &mut Ui,
    ) {
-      // Re-process the list only if the window was just opened or the owner/chain_id has changed.
-      if self.processed_currencies.is_empty()
-         || self.last_owner_address != Some(owner)
-         || self.last_chain_id != Some(chain_id)
-      {
-         let mut currencies_with_balances: Vec<(Currency, NumericValue)> = currencies
-            .iter()
-            .map(|currency| {
-               let balance = ctx.get_currency_balance(chain_id, owner, currency);
-               (currency.clone(), balance)
-            })
-            .collect();
-
-         currencies_with_balances
-            .sort_by(|a, b| b.1.f64().partial_cmp(&a.1.f64()).unwrap_or(std::cmp::Ordering::Equal));
-
-         self.processed_currencies = currencies_with_balances;
-         self.last_owner_address = Some(owner);
-      }
-
       let mut open = self.open;
       let mut close_window = false;
+
       Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
@@ -204,11 +204,8 @@ impl TokenSelectionWindow {
             );
          });
 
-      if close_window {
-         open = false;
-      }
-      self.open = open;
-      if !open {
+      if close_window || !open {
+         self.close();
          self.clear_processed_currencies();
       }
    }

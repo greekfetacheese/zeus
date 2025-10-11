@@ -127,7 +127,6 @@ impl SendCryptoUi {
                   let owner = ctx.current_wallet_address();
 
                   let chain = ctx.chain();
-                  let currencies = ctx.get_currencies(chain.id());
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
@@ -160,6 +159,7 @@ impl SendCryptoUi {
                         theme,
                         icons.clone(),
                         Some(label),
+                        owner,
                         &self.currency,
                         &mut self.amount,
                         Some(token_selection),
@@ -178,7 +178,6 @@ impl SendCryptoUi {
                      icons.clone(),
                      chain.id(),
                      owner,
-                     &currencies,
                      ui,
                   );
 
