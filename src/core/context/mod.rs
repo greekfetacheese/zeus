@@ -562,7 +562,7 @@ impl ZeusCtx {
 
       for portfolio in portfolios {
          let erc_tokens =
-            portfolio.tokens.iter().map(|c| c.to_erc20().into_owned()).collect::<Vec<_>>();
+            portfolio.tokens.iter().map(|token| token.clone()).collect::<Vec<_>>();
          tokens.extend(erc_tokens);
       }
       tokens
@@ -573,20 +573,15 @@ impl ZeusCtx {
       let mut portfolio = self.get_portfolio(chain, owner);
       let mut value = 0.0;
 
-      for currency in &portfolio.tokens {
-         if currency.is_native() {
-            continue;
-         }
+      for token in &portfolio.tokens {
 
-         let price = self.get_currency_price(currency).f64();
-         let balance = self.get_currency_balance(chain, owner, currency).f64();
+         let price = self.get_token_price(token).f64();
+         let balance = self.get_token_balance(chain, owner, token.address).f64();
          value += NumericValue::value(balance, price).f64()
       }
 
       let eth_balance = self.get_eth_balance(chain, owner);
-      let eth_price = self.get_currency_price(&Currency::from(ERC20Token::wrapped_native_token(
-         chain,
-      )));
+      let eth_price = self.get_currency_price(&Currency::wrapped_native(chain));
 
       let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
       value += eth_value.f64();
@@ -625,6 +620,17 @@ impl ZeusCtx {
    ) -> NumericValue {
       let price = self.get_currency_price(currency);
       let balance = self.get_currency_balance(chain, owner, currency);
+      NumericValue::value(balance.f64(), price.f64())
+   }
+
+   pub fn get_token_value_for_owner(
+      &self,
+      chain: u64,
+      owner: Address,
+      token: &ERC20Token,
+   ) -> NumericValue {
+      let price = self.get_token_price(token);
+      let balance = self.get_token_balance(chain, owner, token.address);
       NumericValue::value(balance.f64(), price.f64())
    }
 
@@ -715,7 +721,7 @@ impl ZeusCtx {
 
       let permit2 = address_book::permit2_contract(chain).unwrap();
       if permit2 == address {
-         return Some("Uniswap Protocol: Permit2".to_string());
+         return Some("Uniswap: Permit2".to_string());
       }
 
       let v4_pool_manager = address_book::uniswap_v4_pool_manager(chain).unwrap();
@@ -725,7 +731,7 @@ impl ZeusCtx {
 
       let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
       if ur_router_v2 == address {
-         return Some("Uniswap V4: Universal Router V2".to_string());
+         return Some("Uniswap: Universal Router V2".to_string());
       }
 
       let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();

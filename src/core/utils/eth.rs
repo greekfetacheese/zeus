@@ -24,7 +24,7 @@ use zeus_eth::{
    alloy_rpc_types::{BlockId, Log, TransactionReceipt},
    alloy_signer::Signature,
    amm::uniswap::{UniswapPool, UniswapV3Pool, uniswap_v3_math, v3::*},
-   currency::Currency,
+   currency::{Currency, ERC20Token},
    revm_utils::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, ForkFactory, Host,
       new_evm, revert_msg, simulate,
@@ -478,8 +478,8 @@ pub async fn collect_fees_position_v3(
    chain: ChainId,
    from: Address,
    mut position: V3Position,
-   token0: Currency,
-   token1: Currency,
+   token0: ERC20Token,
+   token1: ERC20Token,
 ) -> Result<(), anyhow::Error> {
    let client = ctx.get_client(chain.id()).await?;
    let nft_contract = uniswap_nft_position_manager(chain.id())?;
@@ -519,8 +519,8 @@ pub async fn collect_fees_position_v3(
    let updated_position =
       abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
 
-   let tokens_owed0 = NumericValue::format_wei(updated_position.tokens_owed0, token0.decimals());
-   let tokens_owed1 = NumericValue::format_wei(updated_position.tokens_owed1, token1.decimals());
+   let tokens_owed0 = NumericValue::format_wei(updated_position.tokens_owed0, token0.decimals);
+   let tokens_owed1 = NumericValue::format_wei(updated_position.tokens_owed1, token1.decimals);
 
    position.tokens_owed0 = tokens_owed0;
    position.tokens_owed1 = tokens_owed1;
@@ -533,10 +533,7 @@ pub async fn collect_fees_position_v3(
 
    ctx.save_v3_positions_db();
 
-   let tokens = vec![
-      token0.to_erc20().into_owned(),
-      token1.to_erc20().into_owned(),
-   ];
+   let tokens = vec![token0.clone(), token1.clone()];
 
    // update balances
    let ctx_clone = ctx.clone();
@@ -792,16 +789,14 @@ pub async fn decrease_liquidity_position_v3(
 
    ctx.save_v3_positions_db();
 
-   let currency0 = pool.currency0().clone();
-   let currency1 = pool.currency1().clone();
+   let token0 = pool.currency0().to_erc20().into_owned();
+   let token1 = pool.currency1().to_erc20().into_owned();
 
    // update balances
    let ctx_clone = ctx.clone();
+   let tokens = vec![token0.clone(), token1.clone()];
+
    RT.spawn(async move {
-      let tokens = vec![
-         currency0.to_erc20().into_owned(),
-         currency1.to_erc20().into_owned(),
-      ];
       let manager = ctx_clone.balance_manager();
       match manager
          .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
@@ -823,15 +818,10 @@ pub async fn decrease_liquidity_position_v3(
          }
       }
 
-      // Update the portfolio value
+      // Update the portfolio
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
-      if !portfolio.has_token(&currency0) {
-         portfolio.add_token(currency0);
-      }
-
-      if !portfolio.has_token(&currency1) {
-         portfolio.add_token(currency1);
-      }
+      portfolio.add_token(token0);
+      portfolio.add_token(token1);
 
       ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);
@@ -1202,13 +1192,14 @@ pub async fn increase_liquidity_position_v3(
 
    ctx.save_v3_positions_db();
 
+   let token0 = pool.currency0().to_erc20().into_owned();
+   let token1 = pool.currency1().to_erc20().into_owned();
+
    // update balances
    let ctx_clone = ctx.clone();
+   let tokens = vec![token0.clone(), token1.clone()];
+
    RT.spawn(async move {
-      let tokens = vec![
-         currency0.to_erc20().into_owned(),
-         currency1.to_erc20().into_owned(),
-      ];
       let manager = ctx_clone.balance_manager();
 
       match manager
@@ -1233,13 +1224,8 @@ pub async fn increase_liquidity_position_v3(
 
       // Update the portfolio value
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
-      if !portfolio.has_token(&currency0) {
-         portfolio.add_token(currency0);
-      }
-
-      if !portfolio.has_token(&currency1) {
-         portfolio.add_token(currency1);
-      }
+      portfolio.add_token(token0);
+      portfolio.add_token(token1);
 
       ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);
@@ -1601,14 +1587,14 @@ pub async fn mint_new_liquidity_position_v3(
       );
    }
 
+   let token0 = pool.currency0().to_erc20().into_owned();
+   let token1 = pool.currency1().to_erc20().into_owned();
+
    // update balances
    let ctx_clone = ctx.clone();
-   RT.spawn(async move {
-      let tokens = vec![
-         currency0.to_erc20().into_owned(),
-         currency1.to_erc20().into_owned(),
-      ];
+   let tokens = vec![token0.clone(), token1.clone()];
 
+   RT.spawn(async move {
       let manager = ctx_clone.balance_manager();
 
       match manager
@@ -1631,15 +1617,10 @@ pub async fn mint_new_liquidity_position_v3(
          }
       }
 
-      // Update the portfolio value
+      // Update the portfolio
       let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
-      if !portfolio.has_token(&currency0) {
-         portfolio.add_token(currency0);
-      }
-
-      if !portfolio.has_token(&currency1) {
-         portfolio.add_token(currency1);
-      }
+      portfolio.add_token(token0);
+      portfolio.add_token(token1);
 
       ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);

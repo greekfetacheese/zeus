@@ -546,14 +546,7 @@ impl SwapUi {
             )
          });
 
-         token_selection.show(
-            ctx.clone(),
-            theme,
-            icons,
-            chain_id,
-            owner,
-            ui,
-         );
+         token_selection.show(ctx.clone(), theme, icons, chain_id, owner, ui);
 
          let selected_currency = token_selection.get_currency().cloned();
          let direction = token_selection.get_currency_direction();
@@ -1958,7 +1951,7 @@ async fn swap_via_ur(
       currency_out.clone(),
       signer.clone(),
       signer_address,
-      deadline
+      deadline,
    )
    .await?;
 
@@ -2039,7 +2032,7 @@ async fn swap_via_ur(
       currency_out.clone(),
       signer,
       signer_address,
-      deadline
+      deadline,
    )
    .await?;
 
@@ -2149,12 +2142,14 @@ async fn swap_via_ur(
          }
       }
 
-      // Update the portfolio value
+      // Update the portfolio
       let mut portfolio = ctx.get_portfolio(chain.id(), signer_address);
-      if !portfolio.has_token(&currency_out) {
-         portfolio.add_token(currency_out);
+
+      if currency_out.is_erc20() {
+         portfolio.add_token(currency_out.to_erc20().into_owned());
          ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio));
       }
+
       ctx.calculate_portfolio_value(chain.id(), signer_address);
       ctx.save_balance_manager();
       ctx.save_portfolio_db();

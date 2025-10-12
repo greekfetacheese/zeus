@@ -124,7 +124,7 @@ impl BalanceManagerHandle {
 
          let task = RT.spawn(async move {
             for portfolio in &portfolios {
-               let tokens = portfolio.get_tokens();
+               let tokens = portfolio.tokens.clone();
 
                match manager
                   .update_tokens_balance(ctx.clone(), chain, portfolio.owner, tokens, false)

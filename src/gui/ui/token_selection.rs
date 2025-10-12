@@ -326,7 +326,7 @@ async fn get_erc20_token(
    let balance = manager.get_token_balance(chain, owner, token.address);
    if !balance.is_zero() {
       let mut portfolio = ctx.get_portfolio(chain, owner);
-      portfolio.add_token(currency.clone());
+      portfolio.add_token(token.clone());
       ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
    }
 

@@ -103,7 +103,7 @@ impl ComboBox {
       });
 
       let button_bottom = button_response.rect.bottom();
-      let screen_bottom = ui.ctx().screen_rect().bottom();
+      let screen_bottom = ui.ctx().content_rect().bottom();
 
       let space_below = screen_bottom - button_bottom;
 
@@ -229,7 +229,7 @@ fn combo_box_with_image_button(
 
       let popup_peek_height = 50.0;
       let above_or_below =
-         if response.rect.bottom() + popup_peek_height < ui.ctx().screen_rect().bottom() {
+         if response.rect.bottom() + popup_peek_height < ui.ctx().content_rect().bottom() {
             AboveOrBelow::Below
          } else {
             AboveOrBelow::Above

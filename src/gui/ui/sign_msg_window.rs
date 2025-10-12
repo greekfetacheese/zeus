@@ -205,7 +205,7 @@ fn permit2_single_approval(
             let text = format!("{} {}", amount, details.token.symbol);
             let icon = icons.token_icon_x32(details.token.address, details.token.chain_id, tint);
             let label = Label::new(
-               RichText::new(text).size(theme.text_sizes.normal),
+               RichText::new(text).size(theme.text_sizes.large),
                Some(icon),
             )
             .wrap();
@@ -221,7 +221,7 @@ fn permit2_single_approval(
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let expire = format_expiry(details.expiration);
-            let text = RichText::new(expire).size(theme.text_sizes.normal);
+            let text = RichText::new(expire).size(theme.text_sizes.large);
             ui.label(text);
          });
       });

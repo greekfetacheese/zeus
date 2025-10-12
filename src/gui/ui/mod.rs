@@ -32,7 +32,7 @@ use crate::core::{
    ZeusCtx,
    utils::{truncate_address, truncate_hash},
 };
-use egui::{Align, Layout, RichText, Ui};
+use egui::{Align, Layout, FontFamily, RichText, Ui};
 use zeus_theme::Theme;
 use egui_widgets::Label;
 use zeus_eth::{
@@ -43,6 +43,10 @@ use zeus_eth::{
 };
 
 use std::sync::Arc;
+
+pub fn inter_bold() -> FontFamily {
+   FontFamily::Name("inter_bold".into())
+}
 
 /// Show the transaction cost in a horizontal layout from left to right
 pub fn tx_cost(
@@ -67,7 +71,7 @@ pub fn tx_cost(
             eth.symbol,
             eth_cost_usd.format_abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+         ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
    });
 }
@@ -87,8 +91,8 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
          let link = format!("{}/tx/{}", explorer, tx_hash);
          ui.hyperlink_to(
             RichText::new(hash_str)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.info).strong(),
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info),
             link,
          );
       });
@@ -112,7 +116,7 @@ pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, u
             eth.symbol(),
             value_usd.format_abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.text_sizes.normal));
+         ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
    });
 }
@@ -146,8 +150,8 @@ pub fn contract_interact(
 
          ui.hyperlink_to(
             RichText::new(interact_to_name)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.info).strong(),
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info).family(inter_bold()),
             link,
          );
       });
@@ -182,8 +186,8 @@ pub fn address(
          let link = format!("{}/address/{}", explorer, address.to_string());
          ui.hyperlink_to(
             RichText::new(address_name)
-               .size(theme.text_sizes.normal)
-               .color(theme.colors.info).strong(),
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info).family(inter_bold()),
             link,
          );
       });
@@ -201,7 +205,7 @@ pub fn chain(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let icon = icons.chain_icon(chain.id(), tint);
          let label = Label::new(
-            RichText::new(chain.name()).size(theme.text_sizes.normal),
+            RichText::new(chain.name()).size(theme.text_sizes.large),
             Some(icon),
          )
          .image_on_left();

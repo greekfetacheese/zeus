@@ -1,4 +1,6 @@
-use crate::assets::icons::Icons;
+use egui::{FontData, FontDefinitions, FontFamily};
+
+use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::{
    ZeusCtx,
    context::load_theme_kind,
@@ -10,8 +12,8 @@ use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
-use zeus_theme::{Theme, ThemeKind, window::window_frame};
 use std::sync::Arc;
+use zeus_theme::{Theme, ThemeKind, window::window_frame};
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
@@ -22,6 +24,8 @@ impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
       let time = std::time::Instant::now();
       let egui_ctx = cc.egui_ctx.clone();
+
+      setup_fonts(&egui_ctx);
 
       let theme_kind = if let Ok(kind) = load_theme_kind() {
          kind
@@ -50,13 +54,13 @@ impl ZeusApp {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-          update::test_and_measure_rpcs(ctx_clone).await;
+         update::test_and_measure_rpcs(ctx_clone).await;
       });
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          if ctx_clone.vault_exists() {
-             update::on_startup(ctx_clone).await;
+            update::on_startup(ctx_clone).await;
          }
       });
 
@@ -157,4 +161,24 @@ impl eframe::App for ZeusApp {
          gui.fps_metrics.update(time.elapsed().as_nanos());
       });
    }
+}
+
+pub fn setup_fonts(ctx: &egui::Context) {
+    let mut fonts = FontDefinitions::default();
+
+    let inter_bold = FontData::from_static(INTER_BOLD_18);
+    fonts.font_data.insert(
+        "inter_bold".to_owned(),
+        Arc::new(inter_bold),
+    );
+
+    let mut newfam = std::collections::BTreeMap::new();
+    newfam.insert(
+        FontFamily::Name("inter_bold".into()),
+        vec!["inter_bold".to_owned()],
+    );
+    fonts.families.append(&mut newfam);
+
+
+    ctx.set_fonts(fonts);
 }

@@ -138,13 +138,16 @@ impl CollectFees {
                         gui.request_repaint();
                      });
 
+                     let token0 = pool.currency0().to_erc20().into_owned();
+                     let token1 = pool.currency1().to_erc20().into_owned();
+
                      match eth::collect_fees_position_v3(
                         ctx_clone,
                         chain,
                         owner,
                         position,
-                        pool.currency0.clone(),
-                        pool.currency1.clone(),
+                        token0,
+                        token1,
                      )
                      .await
                      {

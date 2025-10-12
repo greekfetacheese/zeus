@@ -296,7 +296,7 @@ impl<'a> SecureTextEdit<'a> {
          .or(ui.visuals().override_text_color)
          .unwrap_or_else(|| ui.visuals().widgets.inactive.text_color());
 
-      let row_height = ui.fonts(|f| f.row_height(&font_id));
+      let row_height = ui.fonts_mut(|f| f.row_height(&font_id));
       let available_width = (ui.available_width() - self.margin.sum().x).at_least(24.0); // Min width
       let desired_width = self.desired_width.unwrap_or_else(|| ui.spacing().text_edit_width);
       let wrap_width = if ui.layout().horizontal_justify() {
@@ -333,7 +333,7 @@ impl<'a> SecureTextEdit<'a> {
             )
          };
          job.halign = self.align.0[0];
-         ui.fonts(|f| f.layout_job(job))
+         ui.fonts_mut(|f| f.layout_job(job))
       });
 
       // --- Size & Allocation ---
@@ -861,7 +861,7 @@ fn secure_text_edit_events(
                )
             };
             job.halign = text_align_horizontal;
-            ui.fonts(|f| f.layout_job(job))
+            ui.fonts_mut(|f| f.layout_job(job))
          });
       }
 

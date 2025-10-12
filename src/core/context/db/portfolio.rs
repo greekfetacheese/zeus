@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::core::{context::data_dir, serde_hashmap};
 use zeus_eth::{
    alloy_primitives::Address,
-   currency::{Currency, ERC20Token},
+   currency::ERC20Token,
    utils::NumericValue,
 };
 
@@ -17,7 +17,7 @@ const FILE_NAME: &str = "portfolio.json";
 /// the user has to add them manually
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Portfolio {
-   pub tokens: Vec<Currency>,
+   pub tokens: Vec<ERC20Token>,
    pub chain_id: u64,
    pub owner: Address,
    pub value: NumericValue,
@@ -33,28 +33,19 @@ impl Portfolio {
       }
    }
 
-   pub fn add_token(&mut self, token: Currency) {
+   pub fn add_token(&mut self, token: ERC20Token) {
       if self.tokens.contains(&token) {
          return;
       }
       self.tokens.push(token);
    }
 
-   pub fn has_token(&self, token: &Currency) -> bool {
+   pub fn has_token(&self, token: &ERC20Token) -> bool {
       self.tokens.contains(token)
    }
 
-   pub fn remove_token(&mut self, token: &Currency) {
+   pub fn remove_token(&mut self, token: &ERC20Token) {
       self.tokens.retain(|t| t != token);
-   }
-
-   pub fn get_tokens(&self) -> Vec<ERC20Token> {
-      let mut tokens = Vec::new();
-      for token in &self.tokens {
-         let erc20 = token.to_erc20().into_owned();
-         tokens.push(erc20);
-      }
-      tokens
    }
 }
 
@@ -105,6 +96,6 @@ impl PortfolioDB {
 
    pub fn get_tokens(&self, chain_id: u64, owner: Address) -> Vec<ERC20Token> {
       let portfolio = self.get(chain_id, owner);
-      portfolio.get_tokens()
+      portfolio.tokens.clone()
    }
 }

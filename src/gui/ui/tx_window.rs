@@ -2,8 +2,8 @@ use egui::{
    Align, Align2, Button, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Vec2,
    Window, vec2,
 };
-use zeus_theme::Theme;
 use egui_widgets::Label;
+use zeus_theme::Theme;
 
 use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
@@ -161,7 +161,7 @@ impl TxConfirmationWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
-            Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
+            Frame::new().show(ui, |ui| {
                ui.vertical_centered(|ui| {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -232,8 +232,6 @@ impl TxConfirmationWindow {
                         self.show_all_decoded_events = true;
                      }
                   }
-
-                  ui.add_space(10.0);
 
                   // Tx details
                   ui.allocate_ui(frame_size, |ui| {
@@ -412,7 +410,7 @@ impl TxConfirmationWindow {
                         let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
                         let confirm =
-                           Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
+                           Button::new(RichText::new("Confirm").size(theme.text_sizes.large))
                               .min_size(button_size);
 
                         if ui.add_enabled(sufficient_balance, confirm).clicked() {
@@ -421,7 +419,7 @@ impl TxConfirmationWindow {
                         }
 
                         let reject =
-                           Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
+                           Button::new(RichText::new("Reject").size(theme.text_sizes.large))
                               .min_size(button_size);
 
                         if ui.add(reject).clicked() {
@@ -436,7 +434,7 @@ impl TxConfirmationWindow {
    }
 
    fn show_decoded_events_button(&self, theme: &Theme, ui: &mut Ui) -> bool {
-      let text = RichText::new("Show all decoded events").size(theme.text_sizes.normal);
+      let text = RichText::new("Show all decoded events").size(theme.text_sizes.large);
       let button = Button::new(text);
 
       ui.add(button).clicked()
@@ -491,7 +489,7 @@ impl TxConfirmationWindow {
                   for event in &analysis.decoded_events {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
-                           ui.label(RichText::new(event.name()).size(theme.text_sizes.very_large));
+                           ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
 
                            show_event(
                               ctx.clone(),
