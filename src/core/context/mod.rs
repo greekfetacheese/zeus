@@ -9,13 +9,13 @@ use crate::core::{
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use db::V3Position;
-use zeus_theme::ThemeKind;
 use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
 };
+use zeus_theme::ThemeKind;
 
 use zeus_eth::{
    alloy_primitives::Address,
@@ -561,8 +561,7 @@ impl ZeusCtx {
       let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
-         let erc_tokens =
-            portfolio.tokens.iter().map(|token| token.clone()).collect::<Vec<_>>();
+         let erc_tokens = portfolio.tokens.iter().map(|token| token.clone()).collect::<Vec<_>>();
          tokens.extend(erc_tokens);
       }
       tokens
@@ -574,7 +573,6 @@ impl ZeusCtx {
       let mut value = 0.0;
 
       for token in &portfolio.tokens {
-
          let price = self.get_token_price(token).f64();
          let balance = self.get_token_balance(chain, owner, token.address).f64();
          value += NumericValue::value(balance, price).f64()
@@ -820,21 +818,19 @@ impl ZeusCtx {
    pub async fn get_latest_block(&self) -> Result<Option<Block>, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();
-      let epoch = std::time::SystemTime::now()
-         .duration_since(std::time::UNIX_EPOCH)
-         .unwrap_or_default()
-         .as_millis();
-
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
       let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
+
       if let Some(block) = block {
          // time check
-         let elapsed = if epoch > block.timestamp as u128 {
-            epoch - block.timestamp as u128
+         let elapsed = if now > block.timestamp {
+            now - block.timestamp
          } else {
-            u128::MAX
+            tracing::warn!("System time is behind block timestamp");
+            u64::MAX
          };
 
-         if elapsed < block_time as u128 {
+         if elapsed < block_time {
             return Ok(Some(block));
          }
       }
