@@ -19,10 +19,11 @@ pub struct Label {
    selectable: Option<bool>,
    text_first: bool,
    selected: bool,
+   interactive: bool,
    fill_width: bool,
 }
 impl Label {
-   /// Create a new `LabelWithImage` with text and an optional image.
+   /// Create a new `Label` with text and an optional image.
    /// By default the image is shown after the text
    pub fn new(text: impl Into<WidgetText>, image: Option<Image<'static>>) -> Self {
       Self {
@@ -35,6 +36,7 @@ impl Label {
          selectable: None,
          text_first: true,
          selected: false,
+         interactive: true,
          fill_width: false,
       }
    }
@@ -55,6 +57,14 @@ impl Label {
    pub fn sense(mut self, sense: Sense) -> Self {
       self.sense = Some(sense);
       self.selectable = Some(false);
+      self
+   }
+
+   /// Make the label interactive
+   /// 
+   /// True by default, If false on hover/click there will be no bg color
+   pub fn interactive(mut self, interactive: bool) -> Self {
+      self.interactive = interactive;
       self
    }
 
@@ -230,7 +240,10 @@ impl Widget for Label {
          let fill = if self.selected {
             visuals.bg_fill
          } else if response.hovered() || response.has_focus() {
-            visuals.weak_bg_fill
+            match self.interactive {
+               true => visuals.weak_bg_fill,
+               false => Color32::TRANSPARENT,
+            }
          } else {
             Color32::TRANSPARENT
          };

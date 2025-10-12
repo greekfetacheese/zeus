@@ -1,22 +1,24 @@
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
-   TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
+   Sense, TextEdit, Ui, Window, emath::Vec2b, vec2,
 };
-
-use std::{str::FromStr, sync::Arc};
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::core::utils::{RT, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
+use std::{str::FromStr, sync::Arc};
+
 use zeus_eth::{
    alloy_primitives::Address,
    amm::uniswap::DexKind,
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
-use zeus_theme::{Theme, utils};
+
+use egui_widgets::Label;
+use zeus_theme::{Theme, utils::frame_it};
 
 /// A simple window that allows the user to select a token
 ///
@@ -34,7 +36,9 @@ pub struct TokenSelectionWindow {
    pub currency_direction: InOrOut,
 
    /// Cached and sorted list of currencies with their balances.
-   processed_currencies: Vec<(Currency, NumericValue)>,
+   ///
+   /// (Currency, Balance, Value)
+   processed_currencies: Vec<(Currency, NumericValue, NumericValue)>,
 }
 
 impl TokenSelectionWindow {
@@ -66,18 +70,19 @@ impl TokenSelectionWindow {
    pub fn process_currencies(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
       let currencies = ctx.get_currencies(chain_id);
 
-      let mut currencies_with_balances: Vec<(Currency, NumericValue)> = currencies
+      let mut currency_list: Vec<(Currency, NumericValue, NumericValue)> = currencies
          .iter()
          .map(|currency| {
             let balance = ctx.get_currency_balance(chain_id, owner, currency);
-            (currency.clone(), balance)
+            let value = ctx.get_currency_value_for_amount(balance.f64(), currency);
+            (currency.clone(), balance, value)
          })
          .collect();
 
-      currencies_with_balances
-         .sort_by(|a, b| b.1.f64().partial_cmp(&a.1.f64()).unwrap_or(std::cmp::Ordering::Equal));
+      currency_list
+         .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
 
-      self.processed_currencies = currencies_with_balances;
+      self.processed_currencies = currency_list;
    }
 
    pub fn clear_processed_currencies(&mut self) {
@@ -135,19 +140,6 @@ impl TokenSelectionWindow {
                ui.add_space(20.0);
             });
 
-            ui.horizontal(|ui| {
-               ui.set_width(ui_width * 0.9);
-
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.label(RichText::new("Asset").size(theme.text_sizes.large));
-               });
-
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  ui.label(RichText::new("Balance").size(theme.text_sizes.large));
-               });
-            });
-
-            ui.add_space(20.0);
             ui.vertical_centered(|ui| {
                self.get_token_on_valid_address(ctx, theme, chain_id, owner, &mut close_window, ui);
             });
@@ -155,49 +147,68 @@ impl TokenSelectionWindow {
             let filtered_list: Vec<_> = self
                .processed_currencies
                .iter()
-               .filter(|(currency, _)| self.valid_search(currency, &self.search_query))
+               .filter(|(currency, _, _)| self.valid_search(currency, &self.search_query))
                .collect();
 
             let num_rows = filtered_list.len();
-            let row_height = 40.0;
+            let row_height = 80.0;
             let tint = theme.image_tint_recommended;
+            let mut frame = theme.frame2.outer_margin(Margin::same(5));
+            let frame_visuals = theme.frame2_visuals;
 
             ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
                ui,
                row_height,
                num_rows,
                |ui, row_range| {
-                  ui.spacing_mut().item_spacing.y = 10.0;
-                  utils::no_border_on_idle(ui);
-                  utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
-
                   for row_index in row_range {
-                     if let Some((currency, balance)) = filtered_list.get(row_index) {
-                        let name = truncate_symbol_or_name(currency.name(), 20);
+                     if let Some((currency, balance, value)) = filtered_list.get(row_index) {
+                        let name = truncate_symbol_or_name(currency.name(), 25);
                         let symbol = truncate_symbol_or_name(currency.symbol(), 10);
-                        let text = format!("{} ({})", name, symbol);
+                        let text = format!("{}\n{}", name, symbol);
                         let icon = icons.currency_icon(currency, tint);
-                        let button = Button::image_and_text(
-                           icon,
-                           RichText::new(text).size(theme.text_sizes.normal),
-                        );
+                        let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+                        let label = Label::new(rich_text, Some(icon))
+                           .interactive(false)
+                           .wrap()
+                           .image_on_left();
 
-                        ui.horizontal(|ui| {
-                           ui.set_width(ui_width * 0.9);
+                        let res = frame_it(&mut frame, Some(frame_visuals), ui, |ui| {
+                           ui.horizontal(|ui| {
+                              ui.set_width(ui.available_width());
 
-                           if ui.add(button).clicked() {
-                              self.selected_currency = Some((*currency).clone());
-                              self.token_fetched = false;
-                              close_window = true;
-                           }
+                              ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                                 ui.set_width(ui.available_width() * 0.3);
+                                 ui.set_height(50.0);
+                                 ui.add(label);
+                              });
 
-                           ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                              ui.label(
-                                 RichText::new(balance.format_abbreviated())
-                                    .size(theme.text_sizes.normal),
-                              );
+                              ui.add_space(ui.available_width() * 0.7);
+
+                              if !balance.is_zero() {
+                                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                                    let value_text = format!("${}", value.format_abbreviated());
+
+                                    ui.vertical(|ui| {
+                                       ui.label(
+                                          RichText::new(value_text).size(theme.text_sizes.normal),
+                                       );
+
+                                       ui.label(
+                                          RichText::new(balance.format_abbreviated())
+                                             .size(theme.text_sizes.normal),
+                                       );
+                                    });
+                                 });
+                              }
                            });
                         });
+
+                        if res.interact(Sense::click()).clicked() {
+                           self.selected_currency = Some((*currency).clone());
+                           self.token_fetched = false;
+                           close_window = true;
+                        }
                      }
                   }
                },
