@@ -546,7 +546,14 @@ impl SwapUi {
             )
          });
 
-         token_selection.show(ctx.clone(), theme, icons, chain_id, owner, ui);
+         token_selection.show(
+            ctx.clone(),
+            theme,
+            icons.clone(),
+            chain_id,
+            owner,
+            ui,
+         );
 
          let selected_currency = token_selection.get_currency().cloned();
          let direction = token_selection.get_currency_direction();
@@ -570,7 +577,7 @@ impl SwapUi {
 
          if !simulate_mode {
             self.swap_button(ctx.clone(), theme, settings, ui);
-            self.swap_details(ctx, theme, settings, ui);
+            self.swap_details(ctx, theme, icons, settings, ui);
          }
       });
    }
@@ -975,29 +982,7 @@ impl SwapUi {
             )
          };
 
-         tracing::info!(
-            "Quote for {} {} -> {}",
-            amount_in.format_abbreviated(),
-            currency_in.symbol(),
-            currency_out.symbol()
-         );
-
-         let swap_steps = quote.swap_steps.clone();
          let amount_out = quote.amount_out.clone();
-
-         tracing::info!("Swap Steps Length: {}", swap_steps.len());
-
-         for swap in &swap_steps {
-            tracing::info!(
-               "Swap Step: {} {} -> {} {} {} ({})",
-               swap.amount_in.format_abbreviated(),
-               swap.currency_in.symbol(),
-               swap.amount_out.format_abbreviated(),
-               swap.currency_out.symbol(),
-               swap.pool.dex_kind().as_str(),
-               swap.pool.fee().fee()
-            );
-         }
 
          SHARED_GUI.write(|gui| {
             if !quote.amount_out.is_zero() {
@@ -1014,11 +999,52 @@ impl SwapUi {
       });
    }
 
-   fn swap_details(&self, ctx: ZeusCtx, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
+   fn swap_details(
+      &self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      settings: &UniswapSettingsUi,
+      ui: &mut Ui,
+   ) {
       let frame = theme.frame2;
       let text_size = theme.text_sizes.large;
+      let tint = theme.image_tint_recommended;
 
       frame.show(ui, |ui| {
+         // Routing
+         ui.horizontal(|ui| {
+            let text = RichText::new("Routing").size(text_size);
+            let info = icons.info(tint);
+            let label = Label::new(text, Some(info));
+
+            ui.add(label).on_hover_ui(|ui| {
+               ui.set_width(350.0);
+               ui.set_height(100.0);
+               ScrollArea::vertical().show(ui, |ui| {
+                  let swaps_len = self.quote.swap_steps.len();
+                  let text = format!("Total swaps {}", swaps_len);
+                  ui.label(RichText::new(text).size(theme.text_sizes.very_small));
+                  ui.add_space(5.0);
+
+                  for step in &self.quote.swap_steps {
+                     let text = format!(
+                        "{} {} -> {} {} ({}/{} {} {}%)",
+                        step.amount_in.format_abbreviated(),
+                        step.currency_in.symbol(),
+                        step.amount_out.format_abbreviated(),
+                        step.currency_out.symbol(),
+                        step.pool.currency0().symbol(),
+                        step.pool.currency1().symbol(),
+                        step.pool.dex_kind().version_str(),
+                        step.pool.fee().fee_percent()
+                     );
+                     ui.label(RichText::new(text).size(theme.text_sizes.very_small));
+                  }
+               });
+            });
+         });
+
          // Slippage
          ui.horizontal(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1259,6 +1285,8 @@ pub fn get_relevant_pools(
          continue;
       }
 
+      let is_base_pool = pool.currency0().is_base() && pool.currency1().is_base();
+
       // A pool is relevant if it contains either our starting or ending currency.
       let has_currency_in = pool.have(currency_in) || pool.have(&weth);
       let has_currency_out = pool.have(currency_out) || pool.have(&weth);
@@ -1267,7 +1295,7 @@ pub fn get_relevant_pools(
          let mut add_pool = false;
 
          if is_base_pair_swap {
-            if pool.currency0().is_base() && pool.currency1().is_base() {
+            if is_base_pool {
                add_pool = true;
             }
          } else if is_base_to_shit_token_swap {
@@ -1276,6 +1304,11 @@ pub fn get_relevant_pools(
             }
          } else if is_shit_token_to_base_swap {
             if pool.have(currency_in) {
+               add_pool = true;
+            }
+
+            // Also include base pools that have the currency out
+            if is_base_pool && pool.have(currency_out) {
                add_pool = true;
             }
          } else if is_shit_token_to_shit_token_swap {

@@ -120,7 +120,13 @@ pub fn get_quote(
    max_hops: usize,
 ) -> Quote {
    let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
+   #[cfg(feature = "dev")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
+
+   #[cfg(feature = "dev")]
+   for pool in &all_pools {
+      tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
+   }
 
    let all_paths = find_all_paths(
       ctx,
@@ -130,6 +136,7 @@ pub fn get_quote(
       max_hops,
    );
 
+   #[cfg(feature = "dev")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Paths Length: {}", all_paths.len());
 
    if all_paths.is_empty() {
@@ -147,6 +154,7 @@ pub fn get_quote(
       priority_fee,
    );
 
+   #[cfg(feature = "dev")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Evaluated Routes Length: {}", evaluated_routes.len());
 
    // Select the best route
@@ -178,6 +186,13 @@ pub fn get_quote_with_split_routing(
    max_split_routes: usize,
 ) -> Quote {
    let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
+   #[cfg(feature = "dev")]
+   tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
+
+   #[cfg(feature = "dev")]
+   for pool in &all_pools {
+      tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
+   }
 
    let all_paths = find_all_paths(
       ctx,
@@ -209,6 +224,7 @@ pub fn get_quote_with_split_routing(
       return Quote::default();
    }
 
+   #[cfg(feature = "dev")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter_split", "Found {} candidate routes for split routing.", top_routes.len());
 
    // distribute the input amount across the best routes.

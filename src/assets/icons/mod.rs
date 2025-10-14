@@ -222,6 +222,7 @@ pub struct MiscIcons {
    pub wallet_main_x24: TextureHandle,
    pub arrow_right_white_x24: TextureHandle,
    pub arrow_right_dark_x24: TextureHandle,
+   pub info: TextureHandle,
 }
 
 impl MiscIcons {
@@ -250,11 +251,14 @@ impl MiscIcons {
          24,
          24,
       )?;
+
       let arrow_right_dark_x24 = load_and_resize_image(
          include_bytes!("misc/arrow-right-dark.png"),
          24,
          24,
       )?;
+
+      let info = load_and_resize_image(include_bytes!("misc/info.png"), 14, 14)?;
 
       Ok(Self {
          red_circle: ctx.load_texture("red_circle", red_circle, texture_options),
@@ -282,6 +286,7 @@ impl MiscIcons {
             arrow_right_dark_x24,
             texture_options,
          ),
+         info: ctx.load_texture("info", info, texture_options),
       })
    }
 }
@@ -522,6 +527,13 @@ impl Icons {
       match tint {
          true => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()).tint(TINT_1),
          false => Image::new(&self.misc.arrow_right_dark_x24).sense(Sense::click()),
+      }
+   }
+
+   pub fn info(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.info).tint(TINT_1),
+         false => Image::new(&self.misc.info),
       }
    }
 }

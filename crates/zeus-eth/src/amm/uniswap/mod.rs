@@ -275,6 +275,16 @@ impl DexKind {
          DexKind::PancakeSwapV3 => "PancakeSwap V3",
       }
    }
+
+   pub fn version_str(&self) -> &'static str {
+      match self {
+         DexKind::UniswapV2 => "V2",
+         DexKind::UniswapV3 => "V3",
+         DexKind::UniswapV4 => "V4",
+         DexKind::PancakeSwapV2 => "V2",
+         DexKind::PancakeSwapV3 => "V3",
+      }
+   }
 }
 
 #[derive(Debug, Clone)]

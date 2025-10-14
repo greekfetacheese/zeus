@@ -10,3 +10,4 @@ hide.png https://icons8.com/icon/34226/hide
 wallet-light.png https://www.flaticon.com/free-icon-font/wallet_7653271
 wallet.png https://icons8.com/icons/set/wallet--os-windows
 arrow-right https://icons8.com/icon/7789/right
+info https://icons8.com/icon/21085/info
