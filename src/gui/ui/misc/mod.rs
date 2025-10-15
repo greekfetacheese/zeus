@@ -473,9 +473,12 @@ impl PortfolioUi {
                      ui.label(RichText::new(wallet_name).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
                      ui.label(
-                        RichText::new(format!("${}", portfolio.value.formatted()))
-                           .heading()
-                           .size(theme.text_sizes.heading + 4.0),
+                        RichText::new(format!(
+                           "${}",
+                           portfolio.value.abbreviated()
+                        ))
+                        .heading()
+                        .size(theme.text_sizes.heading + 4.0),
                      );
                   });
                });
@@ -676,13 +679,15 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal));
+         ui.label(RichText::new(balance.abbreviated()).size(theme.text_sizes.normal));
       });
 
       let value = ctx.get_currency_value_for_owner(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
+         ui.label(
+            RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal),
+         );
       });
    }
 
@@ -707,7 +712,7 @@ impl PortfolioUi {
 
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(RichText::new(balance.format_abbreviated()).size(theme.text_sizes.normal));
+         ui.label(RichText::new(balance.abbreviated()).size(theme.text_sizes.normal));
       });
 
       let value = ctx.get_token_value_for_owner(chain, owner, token);

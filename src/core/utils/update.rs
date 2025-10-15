@@ -419,7 +419,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
 
       let fee_str = format_units(U256::from(fee), "gwei")?;
       let fee_value = NumericValue::parse_to_gwei(&fee_str);
-      if fee_value.formatted() == "0" {
+      if fee_value.f64() == 0.0 {
          bail!(
             "Rpc returned bad data, Fee (Wei) {} For Chain: {}",
             fee,

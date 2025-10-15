@@ -308,10 +308,10 @@ impl Notification {
 
       ui.vertical_centered(|ui| {
          let symbol_in = params.input_currency.symbol();
-         let amount_in = params.amount_in.format_abbreviated();
+         let amount_in = params.amount_in.abbreviated();
 
          let symbol_out = params.output_currency.symbol();
-         let amount_out = params.received.format_abbreviated();
+         let amount_out = params.received.abbreviated();
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.text_sizes.large);
@@ -339,11 +339,11 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let from_chain: ChainId = params.origin_chain.into();
          let symbol_in = params.input_currency.symbol();
-         let amount_in = params.amount.format_abbreviated();
+         let amount_in = params.amount.abbreviated();
 
          let to_chain: ChainId = params.destination_chain.into();
          let symbol_out = params.output_currency.symbol();
-         let amount_out = params.received.format_abbreviated();
+         let amount_out = params.received.abbreviated();
 
          let text_in = format!("{} {}", amount_in, symbol_in);
          let text_in = RichText::new(text_in).size(theme.text_sizes.large);
@@ -385,8 +385,8 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let native: Currency = NativeCurrency::from(params.chain).into();
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
-         let eth_wrapped = params.eth_wrapped.format_abbreviated();
-         let weth_received = params.weth_received.format_abbreviated();
+         let eth_wrapped = params.eth_wrapped.abbreviated();
+         let weth_received = params.weth_received.abbreviated();
 
          let text = format!("{} {}", eth_wrapped, native.symbol());
          let text_amount = RichText::new(text).size(theme.text_sizes.large);
@@ -414,8 +414,8 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
          let native: Currency = NativeCurrency::from(params.chain).into();
-         let weth_unwrapped = params.weth_unwrapped.format_abbreviated();
-         let eth_received = params.eth_received.format_abbreviated();
+         let weth_unwrapped = params.weth_unwrapped.abbreviated();
+         let eth_received = params.eth_received.abbreviated();
 
          let text = format!("{} {}", weth_unwrapped, weth.symbol());
          let text_amount = RichText::new(text).size(theme.text_sizes.large);
@@ -443,9 +443,9 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let currency = &params.currency;
          let amount = if let Some(amount) = &params.real_amount_sent {
-            amount.format_abbreviated()
+            amount.abbreviated()
          } else {
-            params.amount.format_abbreviated()
+            params.amount.abbreviated()
          };
 
          let text = format!("{} {}", amount, currency.symbol());
@@ -482,7 +482,7 @@ impl Notification {
             let amount = if is_unlimited {
                "Unlimited".to_string()
             } else {
-               amount.format_abbreviated()
+               amount.abbreviated()
             };
 
             let show_usd_value = !is_unlimited && amount_usd.is_some();
@@ -494,7 +494,7 @@ impl Notification {
                   "{} {} ~ ${}",
                   amount,
                   token.symbol,
-                  amount_usd.format_abbreviated()
+                  amount_usd.abbreviated()
                ))
                .size(theme.text_sizes.normal)
             } else {

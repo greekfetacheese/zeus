@@ -167,7 +167,7 @@ pub async fn send_transaction(
          dapp,
          chain,
          tx_analysis.clone(),
-         priority_fee.formatted().clone(),
+         priority_fee.f64().to_string(),
          mev_protect,
       );
       gui.loading_window.reset();

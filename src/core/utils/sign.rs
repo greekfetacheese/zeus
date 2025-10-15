@@ -268,7 +268,7 @@ impl Permit2Details {
       if self.amount.wei() == U256::MAX {
          "Unlimited".to_string()
       } else {
-         self.amount.format_abbreviated()
+         self.amount.abbreviated()
       }
    }
 }

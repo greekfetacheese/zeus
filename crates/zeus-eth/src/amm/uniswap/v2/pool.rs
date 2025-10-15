@@ -480,14 +480,14 @@ mod tests {
       println!("=== V2 Swap Test ===");
       println!(
          "Ideal Output: {:.6} {}",
-         swap_result.ideal_amount_out.formatted(),
+         swap_result.ideal_amount_out.f64(),
          quote.symbol()
       );
       println!(
          "Swapped {} {} For {} {}",
-         amount_in.formatted(),
+         amount_in.f64(),
          base.symbol(),
-         swap_result.amount_out.formatted(),
+         swap_result.amount_out.f64(),
          quote.symbol()
       );
 

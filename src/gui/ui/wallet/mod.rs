@@ -269,7 +269,7 @@ impl WalletUi {
                         }
                      });
                      ui.label(
-                        RichText::new(format!("${}", value.formatted()))
+                        RichText::new(format!("${}", value.abbreviated()))
                            .size(theme.text_sizes.small),
                      );
                   });
@@ -732,7 +732,7 @@ impl DeleteWalletUi {
 
                let value = ctx.get_portfolio_value_all_chains(wallet.address);
                ui.label(
-                  RichText::new(format!("Value ${}", value.formatted()))
+                  RichText::new(format!("Value ${}", value.abbreviated()))
                      .size(theme.text_sizes.normal),
                );
 

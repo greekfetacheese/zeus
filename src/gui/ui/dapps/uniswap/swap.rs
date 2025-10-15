@@ -189,7 +189,7 @@ impl SimulateWindow {
                   let token0_balance = format!(
                      "{} {}",
                      token0.symbol(),
-                     token0_balance.format_abbreviated(),
+                     token0_balance.abbreviated(),
                   );
                   let text = RichText::new(token0_balance).size(theme.text_sizes.normal);
                   ui.label(text);
@@ -197,7 +197,7 @@ impl SimulateWindow {
                   let token1_balance = format!(
                      "{} {}",
                      token1.symbol(),
-                     token1_balance.format_abbreviated(),
+                     token1_balance.abbreviated(),
                   );
                   let text = RichText::new(token1_balance).size(theme.text_sizes.normal);
                   ui.label(text);
@@ -235,7 +235,7 @@ impl SimulateWindow {
                   let token0_balance = format!(
                      "{} {}",
                      token0.symbol(),
-                     token0_balance.format_abbreviated(),
+                     token0_balance.abbreviated(),
                   );
                   let text = RichText::new(token0_balance).size(theme.text_sizes.normal);
                   ui.label(text);
@@ -243,7 +243,7 @@ impl SimulateWindow {
                   let token1_balance = format!(
                      "{} {}",
                      token1.symbol(),
-                     token1_balance.format_abbreviated(),
+                     token1_balance.abbreviated(),
                   );
                   let text = RichText::new(token1_balance).size(theme.text_sizes.normal);
                   ui.label(text);
@@ -1030,9 +1030,9 @@ impl SwapUi {
                   for step in &self.quote.swap_steps {
                      let text = format!(
                         "{} {} -> {} {} ({}/{} {} {}%)",
-                        step.amount_in.format_abbreviated(),
+                        step.amount_in.abbreviated(),
                         step.currency_in.symbol(),
-                        step.amount_out.format_abbreviated(),
+                        step.amount_out.abbreviated(),
                         step.currency_out.symbol(),
                         step.pool.currency0().symbol(),
                         step.pool.currency1().symbol(),

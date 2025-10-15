@@ -374,20 +374,20 @@ mod tests {
 
       eprintln!(
          "Quote {} {} For {} {}",
-         amount_in.format_abbreviated(),
+         amount_in.abbreviated(),
          currency_in.symbol(),
          currency_out.symbol(),
-         amount_out.format_abbreviated()
+         amount_out.abbreviated()
       );
       eprintln!("Swap Steps Length: {}", swap_steps.len());
 
       for swap in &swap_steps {
          eprintln!(
             "Swap Step: {} (Wei: {}) {} -> {} (Wei: {}) {} {} ({})",
-            swap.amount_in.format_abbreviated(),
+            swap.amount_in.abbreviated(),
             swap.amount_in.wei(),
             swap.currency_in.symbol(),
-            swap.amount_out.format_abbreviated(),
+            swap.amount_out.abbreviated(),
             swap.amount_out.wei(),
             swap.currency_out.symbol(),
             swap.pool.dex_kind().as_str(),
@@ -495,13 +495,13 @@ mod tests {
       eprintln!(
          "{} Quote Amount: {}",
          currency_out.symbol(),
-         amount_out.format_abbreviated()
+         amount_out.abbreviated()
       );
 
       eprintln!(
          "{} Got from Swap: {}",
          currency_out.symbol(),
-         balance.format_abbreviated()
+         balance.abbreviated()
       );
 
       let auth = Authorization {

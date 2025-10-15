@@ -510,7 +510,7 @@ pub fn currencies_amount_and_value(
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, token0);
-                  let b_text = format!("(Balance: {})", balance.format_abbreviated());
+                  let b_text = format!("(Balance: {})", balance.abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = Label::new(text, None);
                   ui.add(label);
@@ -520,13 +520,13 @@ pub fn currencies_amount_and_value(
             // Currency 0 Amount & Value
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let value = NumericValue::value(amount0.f64(), price0_usd.f64());
-               let text = RichText::new(format!("(${})", value.format_abbreviated()))
+               let text = RichText::new(format!("(${})", value.abbreviated()))
                   .size(theme.text_sizes.normal);
                ui.label(text);
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount0.format_abbreviated()).size(theme.text_sizes.normal);
+               let text = RichText::new(amount0.abbreviated()).size(theme.text_sizes.normal);
                ui.label(text);
             });
          });
@@ -545,7 +545,7 @@ pub fn currencies_amount_and_value(
 
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let balance = ctx.get_currency_balance(chain, owner, token1);
-                  let b_text = format!("(Balance: {})", balance.format_abbreviated());
+                  let b_text = format!("(Balance: {})", balance.abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
                   let label = Label::new(text, None);
                   ui.add(label);
@@ -555,13 +555,13 @@ pub fn currencies_amount_and_value(
             // Currency B Amount & Value
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                let value = NumericValue::value(amount1.f64(), price1_usd.f64());
-               let text = RichText::new(format!("(${})", value.format_abbreviated()))
+               let text = RichText::new(format!("(${})", value.abbreviated()))
                   .size(theme.text_sizes.normal);
                ui.label(text);
 
                ui.add_space(5.0);
 
-               let text = RichText::new(amount1.format_abbreviated()).size(theme.text_sizes.normal);
+               let text = RichText::new(amount1.abbreviated()).size(theme.text_sizes.normal);
                ui.label(text);
             });
          });

@@ -279,7 +279,7 @@ fn _permit2_batch_approval_ui(
          let amount = if amount.wei() == U256::MAX {
             "Unlimited".to_string()
          } else {
-            amount.format_abbreviated()
+            amount.abbreviated()
          };
 
          let text = format!("{} {}", amount, token.symbol);

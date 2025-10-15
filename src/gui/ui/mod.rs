@@ -64,12 +64,12 @@ pub fn tx_cost(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let cost = eth_cost.format_abbreviated();
+         let cost = eth_cost.abbreviated();
          let text = format!(
-            "{} {} ~ ${:.4}",
+            "{:.10} {} ~ ${}",
             cost,
             eth.symbol,
-            eth_cost_usd.format_abbreviated()
+            eth_cost_usd.abbreviated()
          );
          ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
@@ -112,9 +112,9 @@ pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, u
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
          let text = format!(
             "{} {} ~ ${:4}",
-            value.format_abbreviated(),
+            value.abbreviated(),
             eth.symbol(),
-            value_usd.format_abbreviated()
+            value_usd.abbreviated()
          );
          ui.label(RichText::new(text).size(theme.text_sizes.large));
       });
@@ -229,9 +229,9 @@ pub fn eth_spent(
    let icon = icons.native_currency_icon_x24(chain, tint);
    let text = format!(
       "{} {} ≈ {}",
-      eth_spent.format_abbreviated(),
+      eth_spent.abbreviated(),
       native.symbol,
-      eth_spent_usd.format_abbreviated()
+      eth_spent_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.text_sizes.normal);
    ui.add(Label::new(text, Some(icon)).image_on_left());
@@ -251,9 +251,9 @@ pub fn eth_received(
    // let icon = icons.native_currency_icon_x24(chain);
    let text = format!(
       "{text} {} {} ≈ ${}",
-      eth_received.format_abbreviated(),
+      eth_received.abbreviated(),
       native.symbol,
-      eth_received_usd.format_abbreviated()
+      eth_received_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.text_sizes.large);
    ui.add(Label::new(text, None).image_on_left());

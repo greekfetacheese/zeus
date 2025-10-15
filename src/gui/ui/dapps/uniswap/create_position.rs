@@ -302,7 +302,7 @@ impl CreatePositionUi {
 
                         let amount0_text = format!(
                            "Amount0 in position: {} {}",
-                           result.amount0.format_abbreviated(),
+                           result.amount0.abbreviated(),
                            token0
                         );
                         let text = RichText::new(amount0_text).size(theme.text_sizes.normal);
@@ -310,7 +310,7 @@ impl CreatePositionUi {
 
                         let amount1_text = format!(
                            "Amount1 in position: {} {}",
-                           result.amount1.format_abbreviated(),
+                           result.amount1.abbreviated(),
                            token1
                         );
                         let text = RichText::new(amount1_text).size(theme.text_sizes.normal);
@@ -321,7 +321,7 @@ impl CreatePositionUi {
 
                         let text = RichText::new(format!(
                            "${}",
-                           result.total_volume_usd.format_abbreviated()
+                           result.total_volume_usd.abbreviated()
                         ))
                         .size(theme.text_sizes.normal);
                         ui.label(text);
@@ -331,14 +331,14 @@ impl CreatePositionUi {
 
                         let token0_earned = format!(
                            "{} (${}) {}",
-                           earned0.format_abbreviated(),
-                           earned0_usd.format_abbreviated(),
+                           earned0.abbreviated(),
+                           earned0_usd.abbreviated(),
                            token0
                         );
                         let token1_earned = format!(
                            "{} (${}) {}",
-                           earned1.format_abbreviated(),
-                           earned1_usd.format_abbreviated(),
+                           earned1.abbreviated(),
+                           earned1_usd.abbreviated(),
                            token1
                         );
                         let text = RichText::new(token0_earned).size(theme.text_sizes.normal);

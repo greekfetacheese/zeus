@@ -292,7 +292,7 @@ impl RecipientSelectionWindow {
                            }
                         });
                         ui.label(
-                           RichText::new(format!("${}", value.format_abbreviated()))
+                           RichText::new(format!("${}", value.abbreviated()))
                               .size(theme.text_sizes.normal),
                         );
                      });

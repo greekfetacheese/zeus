@@ -187,7 +187,7 @@ impl TokenSelectionWindow {
 
                               if !balance.is_zero() {
                                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                                    let value_text = format!("${}", value.format_abbreviated());
+                                    let value_text = format!("${}", value.abbreviated());
 
                                     ui.vertical(|ui| {
                                        ui.label(
@@ -195,7 +195,7 @@ impl TokenSelectionWindow {
                                        );
 
                                        ui.label(
-                                          RichText::new(balance.format_abbreviated())
+                                          RichText::new(balance.abbreviated())
                                              .size(theme.text_sizes.normal),
                                        );
                                     });

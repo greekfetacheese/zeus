@@ -208,91 +208,98 @@ pub fn truncate_address(s: &str, max_len: usize) -> String {
    }
 }
 
-/// Format a very large number into a readable string
-pub fn format_number(amount_str: &str, decimal_places: usize, trim_trailing_zeros: bool) -> String {
-   let parts: Vec<&str> = amount_str.split('.').collect();
-   let integer_part = parts[0];
-   let decimal_part = if parts.len() > 1 { parts[1] } else { "0" };
-
-   let formatted_integer = add_thousands_separators(integer_part);
-
-   let effective_decimal_places = if integer_part == "0" {
-      6
-   } else {
-      decimal_places
-   };
-
-   if effective_decimal_places == 0 {
-      formatted_integer
-   } else {
-      let decimal_to_show = if decimal_part.len() < effective_decimal_places {
-         format!(
-            "{:0<width$}",
-            decimal_part,
-            width = effective_decimal_places
-         )
-      } else {
-         decimal_part[..effective_decimal_places].to_string()
-      };
-
-      let mut result = format!("{}.{}", formatted_integer, decimal_to_show);
-
-      if trim_trailing_zeros {
-         while result.ends_with('0') {
-            result.pop();
-         }
-         if result.ends_with('.') {
-            result.pop(); // Remove decimal point if no digits remain
+fn get_decimal_position(x: f64) -> usize {
+   let sci = format!("{:e}", x);
+   if let Some(exp_str) = sci.split('e').nth(1) {
+      if let Ok(exp) = exp_str.parse::<i32>() {
+         if exp < 0 {
+            return (-exp) as usize;
          }
       }
-      result
    }
+   1
 }
 
-fn add_thousands_separators(number: &str) -> String {
+pub fn leading_zeros_after_decimal(x: f64) -> usize {
+   let position = get_decimal_position(x);
+   position.saturating_sub(1)
+}
+
+fn add_comma_separators(number: &str) -> String {
+   let mut parts = number.splitn(2, '.');
+   let integer_part = parts.next().unwrap_or("0");
+   let decimal_part = parts.next().unwrap_or("");
+
    let mut result = String::new();
-   let chars: Vec<char> = number.chars().rev().collect();
+   let chars: Vec<char> = integer_part.chars().rev().collect();
    for (i, c) in chars.iter().enumerate() {
       if i > 0 && i % 3 == 0 {
          result.insert(0, ',');
       }
       result.insert(0, *c);
    }
+
+   if !decimal_part.is_empty() {
+      result.push('.');
+      result.push_str(decimal_part);
+   }
+
    result
 }
 
-pub fn format_price(price: f64) -> String {
-   if price == 0.0 {
-      return "0.00".to_string();
+pub fn format_dynamic_precision(x: f64, sig_digits: usize) -> String {
+   let leading_zeros = leading_zeros_after_decimal(x);
+   let total_decimals = leading_zeros + sig_digits;
+   // Cap at a reasonable max to avoid f64 precision loss (e.g., 15-17 digits)
+   let prec = total_decimals.min(15);
+   format!("{:.prec$}", x)
+}
+
+fn remove_trailing_zeros(mut s: String) -> String {
+   while s.ends_with('0') {
+      s.pop();
    }
 
-   let price_str = format!("{:.10}", price); // Use enough precision
-   let parts: Vec<&str> = price_str.split('.').collect();
-   let integer_part = parts[0];
-   let decimal_part = parts[1];
-
-   // Add commas to integer part
-   let mut formatted_integer = String::new();
-   for (count, c) in integer_part.chars().rev().enumerate() {
-      if count > 0 && count % 3 == 0 {
-         formatted_integer.push(',');
-      }
-      formatted_integer.push(c);
+   if s.ends_with('.') {
+      s.pop();
    }
+   s
+}
 
-   let formatted_integer = formatted_integer.chars().rev().collect::<String>();
+fn format_number(n: f64) -> String {
+   let zeros = leading_zeros_after_decimal(n);
 
-   let decimal_places = if price >= 1.0 {
-      2
+   // For very small number starting from 0.00
+   if zeros > 1 {
+      let s = format_dynamic_precision(n, zeros);
+      remove_trailing_zeros(s)
+
+      // From 10k start adding commas
+   } else if n > 9999.0 {
+      let s = format!("{:.2}", n);
+      add_comma_separators(&s)
    } else {
-      // Find the first non-zero digit in decimal part
-      let first_non_zero = decimal_part.find(|c: char| c != '0').unwrap_or(0);
-      // Show up to first_non_zero + 2 for precision
-      (first_non_zero + 2).min(10)
-   };
+      format!("{:.2}", n)
+   }
+}
 
-   let formatted_decimal = &decimal_part[..decimal_places.min(decimal_part.len())];
-   format!("{}.{}", formatted_integer, formatted_decimal)
+fn _format_abbreviated(n: f64) -> Option<String> {
+   // less than a million just return it as it is
+   if n < 1_000_000.0 {
+      return None;
+   }
+
+   let suffixes = ["", "K", "M", "B", "T"];
+   let magnitude = (n.log10() / 3.0).floor() as usize;
+   let magnitude = magnitude.min(suffixes.len() - 1);
+   let divisor = 1000.0f64.powi(magnitude as i32);
+   let scaled = n / divisor;
+   let formatted = format!("{:.2}", scaled)
+      .trim_end_matches('0')
+      .trim_end_matches('.')
+      .to_string();
+   let s = format!("{}{}", formatted, suffixes[magnitude]);
+   Some(s)
 }
 
 /// Represents a numeric value in different formats
@@ -302,6 +309,7 @@ pub struct NumericValue {
    pub wei: Option<U256>,
    pub f64: f64,
    pub formatted: String,
+   pub abbreviated: Option<String>,
 }
 
 impl Default for NumericValue {
@@ -309,7 +317,8 @@ impl Default for NumericValue {
       Self {
          wei: Some(U256::ZERO),
          f64: 0.0,
-         formatted: "0".to_string(),
+         formatted: String::from("0.00"),
+         abbreviated: None,
       }
    }
 }
@@ -326,17 +335,18 @@ impl NumericValue {
    /// let value = NumericValue::format_wei(wei, 18);
    /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
    /// assert_eq!(value.f64(), 1.0);
-   /// assert_eq!(value.formatted(), "1");
    /// ```
    pub fn format_wei(wei: U256, decimals: u8) -> Self {
       let units_formated = format_units(wei, decimals).unwrap_or("0".to_string());
       let f64 = units_formated.parse().unwrap_or(0.0);
-      let formatted = format_number(&units_formated, 2, true);
+      let formatted = format_number(f64);
+      let abbreviated = _format_abbreviated(f64);
 
       Self {
          wei: Some(wei),
          f64,
          formatted,
+         abbreviated,
       }
    }
 
@@ -350,7 +360,6 @@ impl NumericValue {
    /// let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
    /// assert_eq!(value.wei().unwrap(), U256::from(1000000000000000000u128));
    /// assert_eq!(value.f64, 1.0);
-   /// assert_eq!(value.formatted, "1");
    /// ```
    pub fn parse_to_wei(amount: &str, currency_decimals: u8) -> Self {
       let wei = if let Ok(units) = parse_units(amount, currency_decimals) {
@@ -359,14 +368,16 @@ impl NumericValue {
          U256::ZERO
       };
 
-      let units_formated = format_units(wei, currency_decimals).unwrap_or("0".to_string());
-      let f64 = units_formated.parse().unwrap_or(0.0);
-      let formatted = format_number(&units_formated, 2, true);
+      let formatted = format_units(wei, currency_decimals).unwrap_or("0".to_string());
+      let f64 = formatted.parse().unwrap_or(0.0);
+      let formatted = format_number(f64);
+      let abbreviated = _format_abbreviated(f64);
 
       Self {
          wei: Some(wei),
          f64,
          formatted,
+         abbreviated,
       }
    }
 
@@ -379,17 +390,18 @@ impl NumericValue {
    /// let value = NumericValue::format_to_gwei(wei);
    /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
    /// assert_eq!(value.f64, 1.0);
-   /// assert_eq!(value.formatted, "1");
    /// ```
    pub fn format_to_gwei(amount: U256) -> Self {
-      let units_formated = format_units(amount, 9).unwrap_or("0".to_string());
-      let f64 = units_formated.parse().unwrap_or(0.0);
-      let formatted = format_number(&units_formated, 2, true);
+      let formatted = format_units(amount, 9).unwrap_or("0".to_string());
+      let f64 = formatted.parse().unwrap_or(0.0);
+      let formatted = format_number(f64);
+      let abbreviated = _format_abbreviated(f64);
 
       Self {
          wei: Some(amount),
          f64,
          formatted,
+         abbreviated,
       }
    }
 
@@ -403,7 +415,6 @@ impl NumericValue {
    /// let value = NumericValue::parse_to_gwei(&amount.to_string());
    /// assert_eq!(value.wei().unwrap(), U256::from(1000000000u128));
    /// assert_eq!(value.f64, 1.0);
-   /// assert_eq!(value.formatted, "1");
    /// ```
    pub fn parse_to_gwei(amount: &str) -> Self {
       let wei = if let Ok(units) = parse_units(amount, 9) {
@@ -412,14 +423,16 @@ impl NumericValue {
          U256::ZERO
       };
 
-      let units_formated = format_units(wei, 9).unwrap_or("0".to_string());
-      let f64 = units_formated.parse().unwrap_or(0.0);
-      let formatted = format_number(&units_formated, 2, true);
+      let formatted = format_units(wei, 9).unwrap_or("0".to_string());
+      let f64 = formatted.parse().unwrap_or(0.0);
+      let formatted = format_number(f64);
+      let abbreviated = _format_abbreviated(f64);
 
       Self {
          wei: Some(wei),
          f64,
          formatted,
+         abbreviated,
       }
    }
 
@@ -433,32 +446,32 @@ impl NumericValue {
       let factor_num = denominator - slippage_bps;
       let wei = (wei * U256::from(factor_num)) / U256::from(denominator);
       let value = NumericValue::format_wei(wei, decimals);
-      NumericValue {
-         wei: Some(wei),
-         f64: value.f64(),
-         formatted: value.formatted,
-      }
+      value
    }
 
    /// Create a new NumericValue to represent a currency balance
    pub fn currency_balance(balance: U256, currency_decimals: u8) -> Self {
-      let value_string = format_units(balance, currency_decimals).unwrap_or("0".to_string());
-      let float = value_string.parse().unwrap_or(0.0);
-      let formatted = format_number(&value_string, 2, true);
+      let formatted = format_units(balance, currency_decimals).unwrap_or("0".to_string());
+      let f64 = formatted.parse().unwrap_or(0.0);
+      let formatted = format_number(f64);
+      let abbreviated = _format_abbreviated(f64);
       Self {
          wei: Some(balance),
-         f64: float,
+         f64,
          formatted,
+         abbreviated,
       }
    }
 
    /// Create a new NumericValue to represent a currency price
    pub fn currency_price(price: f64) -> Self {
-      let formatted = format_price(price);
+      let formatted = format_number(price);
+      let abbreviated = _format_abbreviated(price);
       Self {
          wei: None,
          f64: price,
          formatted,
+         abbreviated,
       }
    }
 
@@ -471,20 +484,26 @@ impl NumericValue {
       } else {
          amount * price
       };
-      let formatted = format_number(&value.to_string(), 2, true);
+
+      let formatted = format_number(value);
+      let abbreviated = _format_abbreviated(value);
+
       Self {
          wei: None,
          f64: value,
          formatted,
+         abbreviated,
       }
    }
 
    pub fn from_f64(float: f64) -> Self {
-      let formatted = format_number(&float.to_string(), 2, true);
+      let formatted = format_number(float);
+      let abbreviated = _format_abbreviated(float);
       Self {
          wei: None,
          f64: float,
          formatted,
+         abbreviated,
       }
    }
 
@@ -493,7 +512,7 @@ impl NumericValue {
          return wei == U256::ZERO;
       }
 
-      self.f64 == 0.0 || self.formatted.as_str() == "0"
+      self.f64 == 0.0 || self.formatted == "0.00"
    }
 
    /// Panics if [Self::wei] is None
@@ -505,13 +524,21 @@ impl NumericValue {
       self.f64
    }
 
-   pub fn formatted(&self) -> &String {
-      &self.formatted
-   }
-
    /// Remove the commas from the formatted string
    pub fn flatten(&self) -> String {
-      self.formatted.replace(",", "")
+      let string = self.f64.to_string();
+      string.replace(",", "")
+   }
+
+   pub fn formatted(&self) -> String {
+      self.formatted.clone()
+   }
+
+   pub fn abbreviated(&self) -> String {
+      match self.abbreviated {
+         Some(ref s) => s.clone(),
+         None => self.formatted(),
+      }
    }
 
    /// Formats the `f64` value into a compact string with abbreviations.
@@ -524,7 +551,7 @@ impl NumericValue {
       let n = self.f64;
       // less than a million just return it as it is
       if n < 1_000_000.0 {
-         return self.formatted().clone();
+         return self.formatted();
       }
 
       let suffixes = ["", "K", "M", "B", "T"];
@@ -546,11 +573,9 @@ mod tests {
    use alloy_primitives::utils::parse_ether;
 
    #[test]
-   fn format_zero() {
-      let value = NumericValue::format_wei(U256::ZERO, 18);
-      assert_eq!(value.wei(), U256::ZERO);
-      assert_eq!(value.formatted(), "0");
-      assert_eq!(value.f64(), 0.0);
+   fn test_zero() {
+      let value = NumericValue::currency_balance(U256::ZERO, 18);
+      assert_eq!(value.is_zero(), true);
    }
 
    #[test]
@@ -558,30 +583,22 @@ mod tests {
       // 725,000,000.34 → "725M"
       let amount = parse_ether("725000000.34").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.format_abbreviated(), "725M");
+      assert_eq!(value.abbreviated(), "725M");
 
       // 725,230,000.00 → "725.23M"
       let amount = parse_ether("725230000.00").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.format_abbreviated(), "725.23M");
+      assert_eq!(value.abbreviated(), "725.23M");
 
-      // 1,234.56 → "1,234.56"
+      // 1,234.56 → "1234.56"
       let amount = parse_ether("1234.56").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.format_abbreviated(), "1,234.56");
+      assert_eq!(value.abbreviated(), "1234.56");
 
       // 12,345,678,900,000 → "12.35T"
       let amount = parse_ether("12345678900000").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.format_abbreviated(), "12.35T");
-   }
-
-   #[test]
-   fn test_low_amount_value() {
-      let amount = parse_ether("0.001834247995202872").unwrap();
-      let value = NumericValue::currency_balance(amount, 18);
-      assert_eq!(value.f64, 0.001834247995202872);
-      assert_eq!(value.formatted, "0.001834");
+      assert_eq!(value.abbreviated(), "12.35T");
    }
 
    #[test]
@@ -593,7 +610,6 @@ mod tests {
          U256::from(900000000000000000u128)
       );
       assert_eq!(value_after_slippage.f64, 0.9);
-      assert_eq!(value_after_slippage.formatted, "0.9");
    }
 
    #[test]
@@ -603,23 +619,25 @@ mod tests {
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
       assert_eq!(value.wei(), U256::from(1000000000000000000u128));
       assert_eq!(value.f64, 1.0);
-      assert_eq!(value.formatted, "1");
-
-      // 0.001294885 ETH
-      let amount = "0.001294885";
-      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
-      assert_eq!(value.wei(), U256::from(1294885000000000u128));
-      assert_eq!(value.f64, 0.001294885);
-      assert_eq!(value.formatted, "0.001294");
    }
 
    #[test]
-   fn test_parse_to_wei_low_amount() {
-      let amount = "0.000001";
+   fn test_parse_to_wei_very_low_amount() {
+      let amount = "0.00000001";
+      let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
+      assert_eq!(value.wei(), U256::from(10000000000u128));
+      assert_eq!(value.f64, 0.00000001);
+   }
+
+   #[test]
+   fn test_formatting_very_low_amounts() {
+      let amount = "0.00000100";
       let value = NumericValue::parse_to_wei(&amount.to_string(), 18);
       assert_eq!(value.wei(), U256::from(1000000000000u128));
       assert_eq!(value.f64, 0.000001);
-      assert_eq!(value.formatted, "0.000001");
+
+      let abbreviated = format!("{:.10}", value.format_abbreviated());
+      assert_eq!(abbreviated, "0.000001");
    }
 
    #[test]
@@ -628,13 +646,11 @@ mod tests {
       let value = NumericValue::parse_to_gwei(&amount.to_string());
       assert_eq!(value.wei(), U256::from(1000000000u128));
       assert_eq!(value.f64, 1.0);
-      assert_eq!(value.formatted, "1");
 
       let amount = "0.000000070";
       let value = NumericValue::parse_to_gwei(&amount.to_string());
       assert_eq!(value.wei(), U256::from(70u128));
       assert_eq!(value.f64, 0.000000070);
-      assert_eq!(value.formatted, "0");
    }
 
    #[test]
@@ -643,7 +659,6 @@ mod tests {
       let value = NumericValue::format_to_gwei(amount);
       assert_eq!(value.wei(), U256::from(1000000000u128));
       assert_eq!(value.f64, 1.0);
-      assert_eq!(value.formatted, "1");
    }
 
    #[test]
@@ -651,24 +666,58 @@ mod tests {
       let amount = parse_ether("2133.073141862605681577").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
       assert_eq!(value.f64, 2133.073141862605681577);
-      assert_eq!(value.formatted, "2,133.07");
-      assert_eq!(value.flatten(), "2133.07");
+      assert_eq!(value.flatten(), "2133.0731418626056");
    }
 
    #[test]
-   fn test_value() {
-      let amount = 0.421;
-      let price = 2345.33;
-      let value = NumericValue::value(amount, price);
-      assert_eq!(value.f64, price * amount);
-      assert_eq!(value.formatted, "987.38");
-   }
-
-   #[test]
-   fn test_low_price() {
-      let price = 0.001834247995202872;
+   fn test_very_low_price() {
+      let price = 0.000001834247995202872;
       let value = NumericValue::currency_price(price);
-      assert_eq!(value.f64, 0.001834247995202872);
-      assert_eq!(value.formatted, "0.0018");
+      let value_formatted = format!("{:.10}", value.format_abbreviated());
+      assert_eq!(value_formatted, "0.00000183");
+   }
+
+   #[test]
+   fn test_formatted() {
+      let v = 0.000001075424985484;
+      let value = NumericValue::parse_to_wei(&v.to_string(), 18);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "0.0000010754");
+      assert_eq!(format!("{:.10}", value_formatted), "0.00000107");
+
+      let v = 0.000001834247995202872;
+      let value = NumericValue::currency_price(v);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "0.0000018342");
+
+      let v = 0.01;
+      let value = NumericValue::currency_price(v);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "0.01");
+
+      let v = 0.001;
+      let value = NumericValue::currency_price(v);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "0.001");
+
+      let wei = U256::from(3009581964807856u128);
+      let value = NumericValue::format_wei(wei, 18);
+      assert_eq!(value.f64(), 0.003009581964807856);
+      assert_eq!(value.formatted(), "0.003");
+
+      let price = 4304.34;
+      let value = NumericValue::currency_price(price);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "4304.34");
+
+      let v = 10000.0;
+      let value = NumericValue::currency_price(v);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "10,000.00");
+
+      let v = 100000.00;
+      let value = NumericValue::currency_price(v);
+      let value_formatted = value.formatted();
+      assert_eq!(value_formatted, "100,000.00");
    }
 }

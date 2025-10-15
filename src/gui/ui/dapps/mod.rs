@@ -87,7 +87,7 @@ pub fn amount_field_with_currency_selector(
             };
 
             let balance = get_balance();
-            let text = RichText::new(balance.format_abbreviated())
+            let text = RichText::new(balance.abbreviated())
                .size(theme.text_sizes.normal)
                .color(theme.colors.text);
             let label = Label::new(text, Some(wallet_icon));
@@ -132,7 +132,7 @@ pub fn amount_field_with_currency_selector(
       ui.horizontal(|ui| {
          let value = get_value();
          ui.label(
-            RichText::new(format!("${}", value.format_abbreviated())).size(theme.text_sizes.normal),
+            RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal),
          );
       });
    });

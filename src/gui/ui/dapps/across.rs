@@ -260,7 +260,7 @@ impl AcrossBridge {
                let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
                inner_frame.show(ui, |ui| {
-                  let text = format!("Total Fee≈ ${}", total_fee.format_abbreviated());
+                  let text = format!("Total Fee≈ ${}", total_fee.abbreviated());
                   ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                   if self.requesting {

@@ -315,9 +315,9 @@ impl UniswapPool for UniswapV4Pool {
          self.base_currency().symbol(),
          self.fee().fee_percent(),
          self.currency0().symbol(),
-         amnt0.format_abbreviated(),
+         amnt0.abbreviated(),
          self.currency1().symbol(),
-         amnt1.format_abbreviated()
+         amnt1.abbreviated()
       );
       */
 
@@ -620,14 +620,14 @@ mod tests {
       println!("=== V4 Swap Test ===");
       println!(
          "Ideal Output: {:.6} {}",
-         swap_result.ideal_amount_out.formatted(),
+         swap_result.ideal_amount_out.f64(),
          quote.symbol()
       );
       println!(
          "Swapped {} {} For {} {}",
-         amount_in.formatted(),
+         amount_in.f64(),
          base.symbol(),
-         swap_result.amount_out.formatted(),
+         swap_result.amount_out.f64(),
          quote.symbol()
       );
       println!("With Price Impact: {:.4}%", swap_result.price_impact);
@@ -644,8 +644,8 @@ mod tests {
       let usdc_balance = pool.base_balance();
       let uni_balance = pool.quote_balance();
 
-      println!("USDC Balance: {}", usdc_balance.formatted());
-      println!("UNI Balance: {}", uni_balance.formatted());
+      println!("USDC Balance: {}", usdc_balance.f64());
+      println!("UNI Balance: {}", uni_balance.f64());
    }
 
    #[tokio::test]
@@ -660,8 +660,8 @@ mod tests {
       let eth_balance = pool.base_balance();
       let uni_balance = pool.quote_balance();
 
-      println!("ETH Balance: {}", eth_balance.formatted());
-      println!("UNI Balance: {}", uni_balance.formatted());
+      println!("ETH Balance: {}", eth_balance.f64());
+      println!("UNI Balance: {}", uni_balance.f64());
    }
 
    #[tokio::test]
@@ -678,12 +678,12 @@ mod tests {
       eprintln!(
          "{} {}",
          pool.currency0().symbol(),
-         balance0.format_abbreviated()
+         balance0.abbreviated()
       );
       eprintln!(
          "{} {}",
          pool.currency1().symbol(),
-         balance1.format_abbreviated()
+         balance1.abbreviated()
       );
    }
 
@@ -701,12 +701,12 @@ mod tests {
       eprintln!(
          "{} {}",
          pool.currency0().symbol(),
-         balance0.format_abbreviated()
+         balance0.abbreviated()
       );
       eprintln!(
          "{} {}",
          pool.currency1().symbol(),
-         balance1.format_abbreviated()
+         balance1.abbreviated()
       );
    }
 
@@ -729,7 +729,7 @@ mod tests {
       println!("{} Price: ${}", pool.quote_currency().symbol(), quote_price);
       println!("UNI in terms of ETH: {}", uni_in_eth);
       println!("ETH in terms of UNI: {}", eth_in_uni);
-      println!("ETH Liquidity: {}", eth_balance.formatted());
+      println!("ETH Liquidity: {}", eth_balance.f64());
    }
 
    #[test]
