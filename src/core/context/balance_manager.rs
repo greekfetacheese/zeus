@@ -68,7 +68,17 @@ impl BalanceManagerHandle {
    }
 
    pub fn concurrency(&self) -> usize {
-      self.read(|manager| manager.concurrency)
+      let concurrency = self.read(|manager| manager.concurrency);
+      if concurrency == 0 { 1 } else { concurrency }
+   }
+
+   pub fn batch_size(&self) -> usize {
+      let size = self.read(|manager| manager.batch_size);
+      if size == 0 {
+         default_batch_size()
+      } else {
+         size
+      }
    }
 
    pub fn max_retries(&self) -> usize {
@@ -79,19 +89,16 @@ impl BalanceManagerHandle {
       self.read(|manager| manager.retry_delay)
    }
 
-   pub fn batch_size(&self) -> usize {
-      self.read(|manager| manager.batch_size)
-   }
-
    pub async fn update_eth_balance_across_wallets_and_chains(&self, ctx: ZeusCtx) {
       let mut tasks = Vec::new();
+      let batch_size = self.batch_size();
+
       for chain in SUPPORTED_CHAINS {
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          let manager = self.clone();
          let ctx = ctx.clone();
 
          let owners = portfolios.iter().map(|p| p.owner).collect::<Vec<_>>();
-         let batch_size = std::cmp::max(1, self.batch_size());
 
          let task = RT.spawn(async move {
             for chunk in owners.chunks(batch_size) {
@@ -149,6 +156,8 @@ impl BalanceManagerHandle {
       }
    }
 
+   /// `retry_if_unchanged` true if we expect the balance to change,
+   /// for example after a tx
    pub async fn update_eth_balance(
       &self,
       ctx: ZeusCtx,
@@ -228,6 +237,8 @@ impl BalanceManagerHandle {
       Ok(())
    }
 
+   /// `retry_if_unchanged` true if we expect the balance to change,
+   /// for example after a swap involving the tokens
    pub async fn update_tokens_balance(
       &self,
       ctx: ZeusCtx,
@@ -243,7 +254,7 @@ impl BalanceManagerHandle {
          tokens.iter().map(|token| (token.address, token.clone())).collect();
 
       let mut tasks = Vec::new();
-      let batch_size = std::cmp::max(1, self.batch_size());
+      let batch_size = self.batch_size();
       let max_retries = self.max_retries();
       let retry_delay = self.retry_delay();
 
@@ -335,7 +346,10 @@ impl BalanceManagerHandle {
       }
 
       for task in tasks {
-         task.await.unwrap();
+         match task.await {
+            Ok(()) => (),
+            Err(e) => tracing::error!("Error updating token balance: {:?}", e),
+         }
       }
       Ok(())
    }
@@ -395,7 +409,7 @@ impl BalanceManagerHandle {
 }
 
 fn default_concurrency() -> usize {
-   1
+   2
 }
 
 fn default_max_retries() -> usize {

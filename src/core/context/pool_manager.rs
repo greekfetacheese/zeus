@@ -118,15 +118,30 @@ impl PoolManagerHandle {
    }
 
    pub fn concurrency(&self) -> usize {
-      self.read(|manager| manager.concurrency)
+      let concurrency = self.read(|manager| manager.concurrency);
+      if concurrency == 0 {
+         1
+      } else {
+         concurrency
+      }
    }
 
    pub fn batch_size_for_updating_pools_state(&self) -> usize {
-      self.read(|manager| manager.batch_size_for_updating_pool_state)
+     let size = self.read(|manager| manager.batch_size_for_updating_pool_state);
+     if size == 0 {
+        default_batch_size_for_updating_pool_state()
+     } else {
+        size
+     }
    }
 
    pub fn batch_size_for_syncing_pools(&self) -> usize {
-      self.read(|manager| manager.batch_size_for_syncing_pools)
+      let size = self.read(|manager| manager.batch_size_for_syncing_pools);
+      if size == 0 {
+         default_batch_size_for_syncing_pools()
+      } else {
+         size
+      }
    }
 
    pub fn do_we_sync_v4_pools(&self) -> bool {
@@ -989,7 +1004,7 @@ type CheckpointMap = HashMap<(u64, DexKind), Checkpoint>;
 /// Ignore chains for V4 pool historic sync
 type IgnoreChains = HashSet<u64>;
 
-fn default_batch_size() -> usize {
+fn default_batch_size_for_updating_pool_state() -> usize {
    20
 }
 
@@ -1035,7 +1050,7 @@ pub struct PoolManager {
    pub concurrency: usize,
 
    /// Batch size when syncing the pools state
-   #[serde(default = "default_batch_size")]
+   #[serde(default = "default_batch_size_for_updating_pool_state")]
    pub batch_size_for_updating_pool_state: usize,
 
    /// Batch size when syncing pools from logs
@@ -1058,7 +1073,7 @@ impl Default for PoolManager {
          v4_pool_last_sync: HashMap::new(),
          checkpoints: manager.checkpoints,
          concurrency: default_concurrency(),
-         batch_size_for_updating_pool_state: default_batch_size(),
+         batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
          batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),
          sync_v4_pools: default_sync_v4_pools(),
          ignore_chains: default_ignore_chains(),
