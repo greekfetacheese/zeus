@@ -1,6 +1,6 @@
 use crate::assets::icons::Icons;
 use crate::core::{
-   ZeusCtx,
+   ZeusCtx, data_dir,
    utils::{RT, estimate_tx_cost, eth},
 };
 use crate::gui::{
@@ -11,8 +11,8 @@ use crate::gui::{
 };
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, RichText, Spinner, TextEdit, Ui,
-   Window, vec2,
+   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Slider,
+   Spinner, TextEdit, Ui, Window, vec2,
 };
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
@@ -41,12 +41,45 @@ const TIME_BETWEEN_EACH_REQUEST: u64 = 2;
 /// Timeout for the dest chain block
 const BLOCK_TIMEOUT: u64 = 10;
 
+const SETTINGS_FILE: &str = "across_settings.json";
+
 type ChainPath = (u64, u64);
 
 #[derive(Debug, Default, Clone)]
 pub struct ApiResCache {
    pub res: ClientResponse,
    pub last_updated: Option<Instant>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct Settings {
+   api_url: String,
+   use_api: bool,
+   fee_to_pay: f64,
+}
+
+impl Default for Settings {
+   fn default() -> Self {
+      Self {
+         api_url: String::from("https://app.across.to/api/suggested-fees"),
+         use_api: true,
+         fee_to_pay: 0.1,
+      }
+   }
+}
+
+fn load_settings() -> Result<Settings, anyhow::Error> {
+   let dir = data_dir()?.join(SETTINGS_FILE);
+   let data = std::fs::read(dir)?;
+   let settings = serde_json::from_slice(&data)?;
+   Ok(settings)
+}
+
+fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
+   let data = serde_json::to_string(&settings)?;
+   let dir = data_dir()?.join(SETTINGS_FILE);
+   std::fs::write(dir, data)?;
+   Ok(())
 }
 
 /// A UI for bridging assets between chains using the Across protocol (https://across.to)
@@ -66,11 +99,14 @@ pub struct AcrossBridge {
    pub last_request_time: Option<Instant>,
    /// Cache API responses
    pub api_res_cache: HashMap<ChainPath, ApiResCache>,
+   settings: Settings,
+   pub settings_open: bool,
    pub size: (f32, f32),
 }
 
 impl AcrossBridge {
    pub fn new() -> Self {
+      let settings = load_settings().unwrap_or_default();
       Self {
          open: false,
          currency: NativeCurrency::from(1).into(),
@@ -82,6 +118,8 @@ impl AcrossBridge {
          requesting: false,
          last_request_time: None,
          api_res_cache: HashMap::new(),
+         settings,
+         settings_open: false,
          size: (450.0, 600.0),
       }
    }
@@ -115,6 +153,10 @@ impl AcrossBridge {
          return;
       }
 
+      if self.settings_open {
+         self.settings_window(theme, ui);
+      }
+
       recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let recipient_name = recipient_selection.get_recipient_name();
@@ -140,7 +182,23 @@ impl AcrossBridge {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
 
-               ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
+               ui.horizontal(|ui| {
+                  let size = vec2(ui.available_width(), 20.0);
+                  ui.allocate_ui(size, |ui| {
+                     ui.vertical_centered(|ui| {
+                        ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
+                     });
+                  });
+
+                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                     ui.spacing_mut().button_padding = vec2(10.0, 4.0);
+                     let text = RichText::new("Settings").size(theme.text_sizes.small);
+                     let button = Button::new(text);
+                     if ui.add(button).clicked() {
+                        self.settings_open = true;
+                     }
+                  });
+               });
 
                let inner_frame = theme.frame2;
 
@@ -380,19 +438,24 @@ impl AcrossBridge {
    /// Calculate the minimum amount to receive
    fn minimum_amount(&self) -> NumericValue {
       let scale = U256::from(10).pow(U256::from(self.currency.decimals()));
-      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals()).wei();
+      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let cache = self.api_res_cache.get(&(
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
       ));
+
       if cache.is_some() {
          let cache = cache.unwrap();
          let fee_pct = cache.res.suggested_fees.total_relay_fee.pct.clone();
          let fee_pct = U256::from_str(&fee_pct).unwrap_or_default();
-         let fee_amount = (input_amount * fee_pct) / scale;
-         let amount_after_fee = input_amount - fee_amount;
+         let fee_amount = (input_amount.wei() * fee_pct) / scale;
+         let amount_after_fee = input_amount.wei() - fee_amount;
 
          NumericValue::format_wei(amount_after_fee, self.currency.decimals())
+      } else if !self.settings.use_api {
+         let fee = self.settings.fee_to_pay;
+         let minimum = input_amount.calc_slippage(fee, self.currency.decimals());
+         minimum
       } else {
          NumericValue::default()
       }
@@ -431,12 +494,10 @@ impl AcrossBridge {
       depositor: Address,
       recipient: &str,
    ) -> bool {
-      // Don't request if already in progress
       if self.requesting {
          return false;
       }
 
-      // Don't request if inputs are invalid
       if !self.valid_inputs(ctx, depositor, recipient) {
          return false;
       }
@@ -455,15 +516,9 @@ impl AcrossBridge {
             if let Some(last_time) = self.last_request_time {
                let elapsed = now.duration_since(last_time).as_secs();
                if elapsed < TIME_BETWEEN_EACH_REQUEST {
-                  tracing::debug!(
-                     "Too soon since last request ({}s < {}s)",
-                     elapsed,
-                     TIME_BETWEEN_EACH_REQUEST
-                  );
                   return false;
                }
             }
-            tracing::debug!("No cache found, requesting");
             self.requesting = true;
             return true;
          }
@@ -472,7 +527,6 @@ impl AcrossBridge {
             if cache.res.origin_chain != self.from_chain.chain.id()
                || cache.res.destination_chain != self.to_chain.chain.id()
             {
-               tracing::debug!("Chain path changed, requesting");
                self.requesting = true;
                return true;
             }
@@ -481,39 +535,76 @@ impl AcrossBridge {
             if let Some(last_updated) = cache.last_updated {
                let elapsed = last_updated.elapsed().as_secs();
                if elapsed <= CACHE_EXPIRE {
-                  tracing::debug!(
-                     "Cache still valid ({}s <= {}s)",
-                     elapsed,
-                     CACHE_EXPIRE
-                  );
                   return false; // Cache is valid, no need to request
                }
                // Cache expired, check rate limit
                if let Some(last_time) = self.last_request_time {
                   let elapsed_since_last = now.duration_since(last_time).as_secs();
                   if elapsed_since_last < TIME_BETWEEN_EACH_REQUEST {
-                     tracing::debug!(
-                        "Cache expired but too soon since last request ({}s < {}s)",
-                        elapsed_since_last,
-                        TIME_BETWEEN_EACH_REQUEST
-                     );
                      return false;
                   }
                }
-               tracing::debug!(
-                  "Cache expired ({}s > {}s), requesting",
-                  elapsed,
-                  CACHE_EXPIRE
-               );
                self.requesting = true;
                return true;
             } else {
-               tracing::debug!("Cache exists but no last_updated, requesting");
                self.requesting = true;
                return true;
             }
          }
       }
+   }
+
+   fn settings_window(&mut self, theme: &Theme, ui: &mut Ui) {
+      let title = RichText::new("Settings").size(theme.text_sizes.heading);
+      Window::new(title)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Foreground)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(300.0);
+            ui.set_height(200.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            ui.horizontal(|ui| {
+               ui.label(RichText::new("API URL").size(theme.text_sizes.normal));
+               ui.add_space(10.0);
+               ui.text_edit_singleline(&mut self.settings.api_url);
+            });
+
+            ui.horizontal(|ui| {
+               ui.label(RichText::new("Use API").size(theme.text_sizes.normal));
+               ui.add_space(10.0);
+               ui.checkbox(&mut self.settings.use_api, "");
+            });
+
+            if !self.settings.use_api {
+               ui.label(RichText::new("Fee to pay %").size(theme.text_sizes.normal));
+               ui.add_space(10.0);
+               ui.add(Slider::new(
+                  &mut self.settings.fee_to_pay,
+                  0.01..=1.0,
+               ));
+            }
+
+            let button = Button::new(RichText::new("Save").size(theme.text_sizes.large))
+               .min_size(vec2(ui.available_width() * 0.8, 15.0));
+
+            let res = ui.vertical_centered(|ui| ui.add(button).clicked());
+
+            if res.inner {
+               let settings = self.settings.clone();
+               self.settings_open = false;
+               RT.spawn_blocking(move || match save_settings(settings) {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Error saving settings: {:?}", e);
+                  }
+               });
+            }
+         });
    }
 
    fn _sync_balance(&mut self, ctx: ZeusCtx, depositor: Address) {
@@ -541,6 +632,10 @@ impl AcrossBridge {
    }
 
    fn get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: &String) {
+      if !self.settings.use_api {
+         return;
+      }
+
       if !self.should_get_suggested_fees(ctx, depositor, recipient) {
          return;
       }
@@ -561,19 +656,13 @@ impl AcrossBridge {
    }
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
-      let cache = self
+      let cache_opt = self
          .api_res_cache
          .get(&(
             self.from_chain.chain.id(),
             self.to_chain.chain.id(),
          ))
          .cloned();
-
-      if cache.is_none() {
-         return Err(anyhow!(
-            "Failed to get suggested fees, try again later or increase the amount"
-         ));
-      }
 
       let from_chain = self.from_chain.chain;
       let to_chain = self.to_chain.chain;
@@ -584,18 +673,35 @@ impl AcrossBridge {
       let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
       let output_amount = self.minimum_amount();
 
+      if output_amount.is_zero() {
+         return Err(anyhow!("Output amount is zero"));
+      }
+
       let signer = ctx.get_current_wallet().key;
       let depositor = signer.address();
       let recipient = Address::from_str(&recipient)?;
 
-      let cache = cache.unwrap();
-      let relayer = cache.res.suggested_fees.exclusive_relayer;
-      let timestamp = u32::from_str(&cache.res.suggested_fees.timestamp).unwrap_or_default();
-      let exclusivity_deadline = cache.res.suggested_fees.exclusivity_deadline;
-
       // add a 5 minute deadline, because the fill deadline from the api is very high
       let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
       let deadline: u32 = (now.as_secs() + 300) as u32;
+
+      let (relayer, timestamp, exclusivity_deadline) = if self.settings.use_api {
+         match cache_opt {
+            Some(cache) => (
+               cache.res.suggested_fees.exclusive_relayer,
+               u32::from_str(&cache.res.suggested_fees.timestamp)?,
+               cache.res.suggested_fees.exclusivity_deadline,
+            ),
+            None => {
+               return Err(anyhow!(
+                  "Failed to get suggested fees, you may need to check the settings in case you changed them"
+               ));
+            }
+         }
+      } else {
+         let timestamp = now.as_secs() as u32 - 60;
+         (Address::ZERO, timestamp, 0)
+      };
 
       let deposit_args = DepositV3Args {
          depositor,
