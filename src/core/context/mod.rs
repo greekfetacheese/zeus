@@ -567,6 +567,11 @@ impl ZeusCtx {
       tokens
    }
 
+   pub fn portfolio_has_token(&self, chain: u64, owner: Address, token: Address) -> bool {
+      let portfolio = self.read(|ctx| ctx.portfolio_db.get(chain, owner));
+      portfolio.tokens.iter().any(|t| t.address == token)
+   }
+
    /// Calculate and update the portfolio value
    pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);

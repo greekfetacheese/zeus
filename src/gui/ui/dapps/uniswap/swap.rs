@@ -267,6 +267,7 @@ pub struct SwapUi {
    pub last_quote_updated: Option<Instant>,
    pub pool_data_syncing: bool,
    pub syncing_pools: bool,
+   pub balance_syncing: bool,
    pub getting_quote: bool,
    pub sending_tx: bool,
    pub quote: Quote,
@@ -293,6 +294,7 @@ impl SwapUi {
          last_quote_updated: None,
          pool_data_syncing: false,
          syncing_pools: false,
+         balance_syncing: false,
          getting_quote: false,
          sending_tx: false,
          quote: Quote::default(),
@@ -489,6 +491,7 @@ impl SwapUi {
          let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          let amount = self.amount_in.parse().unwrap_or(0.0);
          let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+         let balance_syncing = self.balance_syncing;
 
          frame.show(ui, |ui| {
             let changed = amount_field_with_currency_selector(
@@ -504,7 +507,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
-               false,
+               balance_syncing,
                ui,
             );
             amount_changed = changed;
@@ -541,7 +544,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
-               false,
+               balance_syncing,
                ui,
             )
          });
@@ -558,10 +561,11 @@ impl SwapUi {
          let selected_currency = token_selection.get_currency().cloned();
          let direction = token_selection.get_currency_direction();
          let changed_currency = selected_currency.is_some();
-         let should_get_quote = self.should_get_quote(changed_currency, amount_changed);
+         let should_get_quote = changed_currency || amount_changed;
 
          if let Some(currency) = selected_currency {
             self.replace_currency(direction, currency.clone());
+            self.update_currency_balance(ctx.clone(), currency);
             token_selection.reset();
          }
 
@@ -692,6 +696,67 @@ impl SwapUi {
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
       let amount = NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
       balance.wei() >= amount.wei()
+   }
+
+   fn update_currency_balance(&self, ctx: ZeusCtx, currency: Currency) {
+      RT.spawn(async move {
+         SHARED_GUI.write(|gui| {
+            gui.uniswap.swap_ui.balance_syncing = true;
+         });
+
+         let manager = ctx.balance_manager();
+         let owner = ctx.current_wallet_address();
+         let chain = currency.chain_id();
+
+         if currency.is_erc20() {
+            let token = currency.to_erc20().into_owned();
+
+            match manager
+               .update_tokens_balance(ctx.clone(), chain, owner, vec![token], false)
+               .await
+            {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.balance_syncing = false;
+                  });
+               }
+               Err(e) => {
+                  tracing::error!("Error updating token balance: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.balance_syncing = false;
+                  });
+               }
+            }
+         } else {
+            match manager.update_eth_balance(ctx.clone(), chain, vec![owner], false).await {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.balance_syncing = false;
+                  });
+               }
+               Err(e) => {
+                  tracing::error!("Error updating ETH balance: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.balance_syncing = false;
+                  });
+               }
+            }
+         }
+
+         if currency.is_erc20() {
+            let token = currency.to_erc20().into_owned();
+            if ctx.portfolio_has_token(chain, owner, token.address) {
+               let mut portfolio = ctx.get_portfolio(chain, owner);
+               portfolio.add_token(token);
+               ctx.write(|ctx| {
+                  ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+               });
+
+               ctx.calculate_portfolio_value(chain, owner);
+               ctx.save_portfolio_db();
+            }
+         }
+      });
    }
 
    fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, changed_currency: bool) {
@@ -884,10 +949,6 @@ impl SwapUi {
             gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
          });
       });
-   }
-
-   fn should_get_quote(&self, changed_currency: bool, changed_amount: bool) -> bool {
-      changed_amount || changed_currency
    }
 
    pub fn get_quote(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {

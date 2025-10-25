@@ -94,14 +94,13 @@ impl BalanceManagerHandle {
       let batch_size = self.batch_size();
 
       for chain in SUPPORTED_CHAINS {
-         let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+         let wallets: Vec<Address> = ctx.get_all_wallets_info().iter().map(|w| w.address).collect();
          let manager = self.clone();
          let ctx = ctx.clone();
 
-         let owners = portfolios.iter().map(|p| p.owner).collect::<Vec<_>>();
 
          let task = RT.spawn(async move {
-            for chunk in owners.chunks(batch_size) {
+            for chunk in wallets.chunks(batch_size) {
                match manager.update_eth_balance(ctx.clone(), chain, chunk.to_vec(), false).await {
                   Ok(_) => {}
                   Err(e) => {
