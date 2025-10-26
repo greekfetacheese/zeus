@@ -491,7 +491,7 @@ impl TransactionAnalysis {
       }
 
       // Single EOA Delegate
-      if self.decoded_events() == 1 && self.eoa_delegates_len() == 1 {
+      if self.eoa_delegates_len() == 1 {
          let params = self.eoa_delegates()[0].clone();
          return DecodedEvent::EOADelegate(params);
       }

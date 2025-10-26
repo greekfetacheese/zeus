@@ -311,7 +311,7 @@ impl LoadingWindow {
 
       Window::new("Loading")
          .title_bar(false)
-         .order(Order::Foreground)
+         .order(Order::Debug)
          .resizable(false)
          .anchor(self.anchor.0, self.anchor.1)
          .collapsible(false)

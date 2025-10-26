@@ -807,6 +807,9 @@ impl ZeusCtx {
          .await?;
 
       if code.is_empty() {
+         self.write(|ctx| {
+            ctx.smart_accounts.remove(chain, account);
+         });
          return Ok(());
       }
 

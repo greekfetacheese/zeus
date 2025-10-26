@@ -1,18 +1,24 @@
 use crate::assets::icons::Icons;
-use crate::core::utils::truncate_address;
+use crate::core::utils::{eth, truncate_address};
 use crate::core::{Wallet, ZeusCtx, utils::RT};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, WalletSelect},
+   ui::{ChainSelect, REFRESH, WalletSelect},
 };
-use egui::{Button, RichText, Ui, vec2};
-use zeus_theme::Theme;
+use egui::{
+   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui,
+   Window, vec2,
+};
 use egui_widgets::Label;
+use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{
+   alloy_primitives::Address,
    currency::{Currency, NativeCurrency},
    types::ChainId,
 };
+
+use zeus_theme::Theme;
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -20,19 +26,28 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 /// Show some of current state of Zeus like the current chain, wallet, etc.
 pub struct Header {
    open: bool,
+   size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
+   delegate_window_open: bool,
+   delegate_to: String,
+   syncing: bool,
 }
 
 impl Header {
    pub fn new() -> Self {
-      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(220.0, 20.0));
-      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(220.0, 20.0));
+      let size = (230.0, 200.0);
+      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(size.0, 20.0));
+      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(size.0, 20.0));
 
       Self {
          open: false,
+         size,
          chain_select,
          wallet_select,
+         delegate_window_open: false,
+         delegate_to: String::new(),
+         syncing: false,
       }
    }
 
@@ -69,6 +84,8 @@ impl Header {
       let wallet = ctx.current_wallet_info();
       let tint = theme.image_tint_recommended;
 
+      self.show_deleg_settings_window(ctx.clone(), theme, wallet.address, ui);
+
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -93,31 +110,47 @@ impl Header {
             // Wallet delegated status
             let deleg_addr = ctx.get_delegated_address(chain.id(), wallet.address);
             ui.horizontal(|ui| {
-               let text = RichText::new("Delegated").size(theme.text_sizes.normal);
+               ui.set_width(self.size.0);
 
-               let icon = match deleg_addr.is_some() {
-                  true => icons.green_circle(tint),
-                  false => icons.red_circle(tint),
-               };
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let text = match deleg_addr.is_some() {
+                     true => RichText::new("Delegated").size(theme.text_sizes.normal),
+                     false => RichText::new("Not delegated").size(theme.text_sizes.normal),
+                  };
 
-               let tip = if deleg_addr.is_some() {
-                  DELEGATE_TIP1
-               } else {
-                  DELEGATE_TIP2
-               };
+                  let icon = match deleg_addr.is_some() {
+                     true => icons.orange_circle(tint),
+                     false => icons.green_circle(tint),
+                  };
 
-               let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
+                  let tip = if deleg_addr.is_some() {
+                     DELEGATE_TIP1
+                  } else {
+                     DELEGATE_TIP2
+                  };
 
-               let label = Label::new(text, Some(icon));
-               ui.add(label).on_hover_text(tip_text);
+                  let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
+
+                  let label = Label::new(text, Some(icon));
+                  ui.add(label).on_hover_text(tip_text);
+               });
+
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  let text = RichText::new("Settings").size(theme.text_sizes.small);
+                  let button = Button::new(text);
+                  if ui.add(button).clicked() {
+                     self.delegate_window_open = true;
+                  }
+               });
             });
 
-            let show_deleg = if cfg!(feature = "dev") {
+            let _show_deleg = if cfg!(feature = "dev") {
                true
             } else {
                deleg_addr.is_some()
             };
 
+            /* 
             if show_deleg {
                ui.horizontal(|ui| {
                   let text = RichText::new("Delegated at").size(theme.text_sizes.normal);
@@ -136,6 +169,8 @@ impl Header {
                   ui.hyperlink_to(text, link);
                });
             }
+            */
+
          });
       });
    }
@@ -201,5 +236,208 @@ impl Header {
             });
          }
       });
+   }
+
+   fn show_deleg_settings_window(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      wallet: Address,
+      ui: &mut Ui,
+   ) {
+      let mut open = self.delegate_window_open;
+
+      let title = RichText::new("Delegation settings").size(theme.text_sizes.heading);
+      Window::new(title)
+         .open(&mut open)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Tooltip)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(300.0);
+            ui.set_height(200.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            let chain = ctx.chain();
+            let delegated = ctx.get_delegated_address(chain.id(), wallet);
+
+            ui.horizontal(|ui| {
+               let size = vec2(ui.available_width(), 20.0);
+
+               ui.allocate_ui(size, |ui| {
+                  ui.vertical_centered(|ui| {
+                     if let Some(delegated_adrress) = delegated {
+                        self.undelegate_ui(ctx.clone(), theme, wallet, delegated_adrress, ui);
+                     } else {
+                        self.delegate_ui(ctx.clone(), theme, wallet, ui);
+                     }
+                  });
+               });
+
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  self.refresh(ctx.clone(), theme, wallet, ui);
+               });
+            });
+         });
+
+      self.delegate_window_open = open;
+   }
+
+   fn refresh(&mut self, ctx: ZeusCtx, theme: &Theme, wallet: Address, ui: &mut Ui) {
+      ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+
+      let button = Button::new(RichText::new(REFRESH).size(theme.text_sizes.small));
+
+      if ui.add(button).clicked() {
+         self.syncing = true;
+         let ctx_clone = ctx.clone();
+         RT.spawn(async move {
+            match ctx_clone.check_smart_account_status(ctx.chain().id(), wallet).await {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.header.syncing = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window(
+                        "Error while checking smart account status",
+                        e.to_string(),
+                     );
+                     gui.header.syncing = false;
+                  });
+               }
+            }
+         });
+      }
+
+      if self.syncing {
+         ui.add(Spinner::new().size(14.0).color(theme.colors.info));
+      }
+   }
+
+   // TODO: Maybe ask for credentials before proceeding
+   fn delegate_ui(&mut self, ctx: ZeusCtx, theme: &Theme, wallet: Address, ui: &mut Ui) {
+      let text = RichText::new("Delegate to").size(theme.text_sizes.large);
+      ui.label(text);
+
+      let hint = RichText::new("Enter a smart contract address").size(theme.text_sizes.normal);
+      let text = TextEdit::singleline(&mut self.delegate_to)
+         .hint_text(hint)
+         .font(FontId::proportional(theme.text_sizes.normal))
+         .margin(Margin::same(10))
+         .desired_width(ui.available_width() * 0.7)
+         .min_size(vec2(ui.available_width() * 0.7, 25.0));
+
+      ui.add(text);
+
+      let text = RichText::new("Delegate").size(theme.text_sizes.large);
+      let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
+
+      let clicked = ui.add(button).clicked();
+
+      if clicked {
+         let delegate_to = self.delegate_to.clone();
+         let ctx_clone = ctx.clone();
+         let chain = ctx.chain();
+         RT.spawn(async move {
+            let delegate_address = match Address::from_str(&delegate_to) {
+               Ok(address) => address,
+               Err(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window(
+                        "Not a valid Ethereum address",
+                        delegate_to.clone(),
+                     );
+                  });
+                  return;
+               }
+            };
+
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
+               gui.header.delegate_window_open = false;
+               gui.request_repaint();
+            });
+
+            match eth::delegate_to(ctx_clone, chain, wallet, delegate_address).await {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.reset();
+                  });
+               }
+               Err(e) => {
+                  tracing::error!("Error delegating to {}: {:?}", delegate_to, e);
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Error while delegating", e.to_string());
+                     gui.loading_window.reset();
+                     gui.header.delegate_window_open = true;
+                     gui.notification.reset();
+                  });
+               }
+            }
+         });
+      }
+   }
+
+   fn undelegate_ui(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      wallet: Address,
+      delegated_address: Address,
+      ui: &mut Ui,
+   ) {
+      let text =
+         RichText::new("Currently delegated to").size(theme.text_sizes.normal);
+      ui.label(text);
+
+      let chain = ctx.chain();
+
+      let address_short = truncate_address(delegated_address.to_string());
+      let explorer = chain.block_explorer();
+      let link = format!(
+         "{}/address/{}",
+         explorer,
+         delegated_address.to_string()
+      );
+      let text = RichText::new(address_short)
+         .size(theme.text_sizes.normal)
+         .color(theme.colors.info);
+      ui.hyperlink_to(text, link);
+
+      let text = RichText::new("Undelegate").size(theme.text_sizes.normal);
+      let button = Button::new(text).min_size(vec2(100.0, 30.0));
+
+      let clicked = ui.add(button).clicked();
+      if clicked {
+         RT.spawn(async move {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
+               gui.header.delegate_window_open = false;
+               gui.request_repaint();
+            });
+
+            match eth::delegate_to(ctx.clone(), chain, wallet, Address::ZERO).await {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.loading_window.reset();
+                  });
+               }
+               Err(e) => {
+                  tracing::error!("Error delegating to {}: {:?}", Address::ZERO, e);
+                  SHARED_GUI.write(|gui| {
+                     gui.open_msg_window("Error while undelegating", e.to_string());
+                     gui.loading_window.reset();
+                     gui.header.delegate_window_open = true;
+                     gui.notification.reset();
+                  });
+               }
+            }
+         });
+      }
    }
 }

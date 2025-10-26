@@ -22,7 +22,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, Signed, TxKind, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Log, TransactionReceipt},
-   alloy_signer::Signature,
+   alloy_signer::{Signature, SignerSync},
    amm::uniswap::{UniswapPool, UniswapV3Pool, uniswap_v3_math, v3::*},
    currency::{Currency, ERC20Token},
    revm_utils::{
@@ -33,7 +33,90 @@ use zeus_eth::{
    utils::{NumericValue, address_book::uniswap_nft_position_manager},
 };
 
-use alloy_eips::eip7702::SignedAuthorization;
+use alloy_eips::eip7702::{Authorization, SignedAuthorization};
+use either::Either;
+
+pub async fn delegate_to(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   delegate_to: Address,
+) -> Result<(), anyhow::Error> {
+   let wallet = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
+   let client = ctx.get_zeus_client();
+
+   if !delegate_to.is_zero() {
+      let code = client
+         .request(chain.id(), |client| async move {
+            client.get_code_at(delegate_to).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      if code.is_empty() {
+         return Err(anyhow!(
+            "Code is empty, you can only delegate to a smart contract address"
+         ));
+      }
+   }
+
+   let address = wallet.address();
+
+   let nonce = client
+      .request(chain.id(), |client| async move {
+         let nonce = client.get_transaction_count(address).await.map_err(|e| anyhow!("{:?}", e));
+         Ok(nonce?)
+      })
+      .await?;
+
+   let auth_nonce = nonce + 1;
+
+   let auth = Authorization {
+      chain_id: U256::from(chain.id()),
+      address: delegate_to,
+      nonce: auth_nonce,
+   };
+
+   let signature = wallet.to_signer().sign_hash_sync(&auth.signature_hash())?;
+   let signed_authorization = auth.into_signed(signature);
+
+   let dapp = String::new();
+   let tx_analysis = None;
+   let mev_protect = false;
+   let call_data = Bytes::default();
+   let value = U256::ZERO;
+
+   let (receipt, _) = send_transaction(
+      ctx.clone(),
+      dapp,
+      tx_analysis,
+      chain,
+      mev_protect,
+      from,
+      from,
+      call_data,
+      value,
+      vec![signed_authorization],
+   )
+   .await?;
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction Failed"));
+   }
+
+   if delegate_to.is_zero() {
+      ctx.write(|ctx| {
+         ctx.smart_accounts.remove(chain.id(), from);
+      });
+   } else {
+      ctx.write(|ctx| {
+         ctx.smart_accounts.add(chain.id(), from, delegate_to);
+      });
+   }
+
+   ctx.save_smart_accounts();
+
+   Ok(())
+}
 
 pub async fn send_transaction(
    ctx: ZeusCtx,
@@ -122,6 +205,7 @@ pub async fn send_transaction(
             interact_to,
             call_data.clone(),
             value,
+            authorization_list.clone(),
          )?;
 
          tracing::info!(
@@ -391,6 +475,7 @@ pub fn simulate_transaction<DB>(
    interact_to: Address,
    call_data: Bytes,
    value: U256,
+   authorization_list: Vec<SignedAuthorization>,
 ) -> Result<ExecutionResult, anyhow::Error>
 where
    DB: Database + DatabaseCommit,
@@ -400,6 +485,11 @@ where
    evm.tx.kind = TxKind::Call(interact_to);
    evm.tx.data = call_data.clone();
    evm.tx.value = value;
+
+   if authorization_list.len() > 0 {
+      evm.tx.authorization_list = authorization_list.into_iter().map(Either::Left).collect();
+      evm.tx.tx_type = 4;
+   }
 
    let sim_res = evm
       .transact_commit(evm.tx.clone())
