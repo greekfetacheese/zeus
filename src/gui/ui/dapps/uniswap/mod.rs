@@ -1,13 +1,13 @@
-pub mod create_position;
+// pub mod create_position;
 pub mod pool;
 pub mod swap;
-pub mod view_positions;
+// pub mod view_positions;
 
-use create_position::CreatePositionUi;
+// use create_position::CreatePositionUi;
 use egui_widgets::Label;
 use pool::PoolsUi;
 use swap::SwapUi;
-use view_positions::ViewPositionsUi;
+// use view_positions::ViewPositionsUi;
 
 use egui::{Align, Button, Frame, Layout, RichText, Slider, TextEdit, Ui, vec2};
 use zeus_eth::alloy_primitives::Address;
@@ -18,9 +18,9 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, utils::RT};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
-use zeus_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
+use zeus_theme::Theme;
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -32,8 +32,7 @@ const MAX_DEADLINE: u64 = 60; // minutes
 const SLIPPAGE_TIP: &str =
    "Your transaction will revert if the price changes unfavorably by more than this percentage.";
 
-const DEADLINE_TIP: &str =
-   "The transaction will revert if it is pending for more than this time.";
+const DEADLINE_TIP: &str = "The transaction will revert if it is pending for more than this time.";
 
 #[derive(Clone, Default, Copy, Debug, PartialEq)]
 pub enum ProtocolVersion {
@@ -200,15 +199,18 @@ impl UniswapSettingsUi {
             ui.add_space(15.0);
 
             // Swap deadline
-            let text = RichText::new("Transaction Deadline (minutes)").size(theme.text_sizes.normal);
+            let text =
+               RichText::new("Transaction Deadline (minutes)").size(theme.text_sizes.normal);
             ui.label(text).on_hover_text(DEADLINE_TIP);
-            
+
             ui.add_space(5.0);
             ui.label(RichText::new(self.deadline.to_string()).size(theme.text_sizes.normal));
 
             ui.add_space(5.0);
             ui.allocate_ui(slider_size, |ui| {
-               ui.add(Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE).show_value(false));
+               ui.add(
+                  Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE).show_value(false),
+               );
             });
 
             ui.add_space(15.0);
@@ -326,8 +328,8 @@ pub struct UniswapUi {
    pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
    pub pools_ui: PoolsUi,
-   pub create_position_ui: CreatePositionUi,
-   pub view_positions_ui: ViewPositionsUi,
+   // pub create_position_ui: CreatePositionUi,
+   // pub view_positions_ui: ViewPositionsUi,
 }
 
 impl UniswapUi {
@@ -338,8 +340,8 @@ impl UniswapUi {
          settings: UniswapSettingsUi::new(),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
-         create_position_ui: CreatePositionUi::new(),
-         view_positions_ui: ViewPositionsUi::new(),
+         // create_position_ui: CreatePositionUi::new(),
+         // view_positions_ui: ViewPositionsUi::new(),
       }
    }
 
@@ -391,42 +393,43 @@ impl UniswapUi {
                ui.set_width(self.size.0);
                ui.spacing_mut().item_spacing.x = 10.0;
 
-               let enabled = if cfg!(feature = "dev") { true } else { false };
-
                let text = RichText::new("Swap").size(theme.text_sizes.large);
                let swap_button = Button::new(text);
                if ui.add(swap_button).clicked() {
                   self.swap_ui.open = true;
                   self.pools_ui.open = false;
-                  self.create_position_ui.open = false;
-                  self.view_positions_ui.open = false;
+                  // self.create_position_ui.open = false;
+                  // self.view_positions_ui.open = false;
                }
 
                let text = RichText::new("Pools").size(theme.text_sizes.large);
                let pools_button = Button::new(text);
-               if ui.add(pools_button).clicked() {
+               let enabled = if cfg!(feature = "dev") { true } else { false };
+               if ui.add_enabled(enabled, pools_button).clicked() {
                   self.pools_ui.open = true;
                   self.swap_ui.open = false;
-                  self.create_position_ui.open = false;
-                  self.view_positions_ui.open = false;
+                  // self.create_position_ui.open = false;
+                  // self.view_positions_ui.open = false;
                }
 
                let text = RichText::new("Create Position").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
+               let enabled = false;
+
                if ui.add_enabled(enabled, positions_button).clicked() {
-                  self.create_position_ui.open = true;
+                  // self.create_position_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
-                  self.view_positions_ui.open = false;
+                  // self.view_positions_ui.open = false;
                }
 
                let text = RichText::new("View Positions").size(theme.text_sizes.large);
                let positions_button = Button::new(text);
                if ui.add_enabled(enabled, positions_button).clicked() {
-                  self.view_positions_ui.open = true;
+                  // self.view_positions_ui.open = true;
                   self.swap_ui.open = false;
                   self.pools_ui.open = false;
-                  self.create_position_ui.open = false;
+                  // self.create_position_ui.open = false;
                }
 
                let text = RichText::new("⟲").size(theme.text_sizes.large);
@@ -436,6 +439,7 @@ impl UniswapUi {
                      self.swap_ui.refresh(ctx.clone(), &self.settings);
                   }
 
+                  /*
                   if self.view_positions_ui.open {
                      let owner = ctx.current_wallet_address();
                      let chain = ctx.chain();
@@ -444,6 +448,7 @@ impl UniswapUi {
                         self.view_positions_ui.sync_pool_state(ctx.clone(), owner, positions);
                      }
                   }
+                  */
                }
             });
          });
@@ -459,6 +464,7 @@ impl UniswapUi {
 
          self.pools_ui.show(ctx.clone(), theme, icons.clone(), ui);
 
+         /*
          self.create_position_ui.show(
             ctx.clone(),
             theme,
@@ -475,6 +481,7 @@ impl UniswapUi {
             &self.settings,
             ui,
          );
+         */
       });
    }
 }
