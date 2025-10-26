@@ -2,7 +2,6 @@ use super::ZeusCtx;
 use anyhow::anyhow;
 use lazy_static::lazy_static;
 use serde_json::Value;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use zeus_eth::{
    alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData},
@@ -62,30 +61,6 @@ pub fn estimate_tx_cost(
    (cost, cost_in_usd)
 }
 
-pub fn format_expiry(timestamp: u64) -> String {
-   let now = SystemTime::now();
-   let expiry_time = UNIX_EPOCH + Duration::from_secs(timestamp);
-
-   match expiry_time.duration_since(now) {
-      Ok(duration) => {
-         let secs = duration.as_secs();
-         if secs < 60 {
-            format!("{} seconds", secs)
-         } else if secs < 3600 {
-            format!("{} minutes", secs / 60)
-         } else if secs < 86400 {
-            format!("{} hours", secs / 3600)
-         } else if secs < 2_592_000 {
-            // ~30 days
-            format!("{} days", secs / 86400)
-         } else {
-            let months = secs / 2_592_000;
-            format!("{} months", months)
-         }
-      }
-      Err(_) => "Expired".to_string(),
-   }
-}
 
 pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
    if string.chars().count() > max_chars {
@@ -107,18 +82,4 @@ pub fn truncate_hash(hash: String) -> String {
    } else {
       hash
    }
-}
-
-/// In X days from now in UNIX time
-pub fn get_unix_time_in_days(days: u64) -> Result<u64, anyhow::Error> {
-   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-   Ok(now + 86400 * days)
-}
-
-/// In X minutes from now in UNIX time
-pub fn get_unix_time_in_minutes(minutes: u64) -> Result<u64, anyhow::Error> {
-   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-   Ok(now + 60 * minutes)
 }

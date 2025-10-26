@@ -15,22 +15,155 @@ use zeus_eth::{
 };
 
 use anyhow::anyhow;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// UNIX time in X days from now
-pub fn get_unix_time_from_days(days: u64) -> Result<u64, anyhow::Error> {
-   let now = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-   Ok(now + 86400 * days)
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TimeStamp {
+   Seconds(u64),
+   Millis(u64),
 }
 
-/// UNIX time in X minutes from now
-pub fn get_unix_time_from_minutes(minutes: u64) -> Result<u64, anyhow::Error> {
-   let now = SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
-
-   Ok(now + 60 * minutes)
+impl Default for TimeStamp {
+   fn default() -> Self {
+      TimeStamp::Seconds(0)
+   }
 }
+
+impl TimeStamp {
+   pub fn now_as_secs() -> Self {
+      TimeStamp::Seconds(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+   }
+
+   pub fn now_as_millis() -> Self {
+      TimeStamp::Millis(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
+   }
+
+   pub fn add(self, seconds: u64) -> Self {
+      match self {
+         TimeStamp::Seconds(s) => TimeStamp::Seconds(s + seconds),
+         TimeStamp::Millis(m) => TimeStamp::Millis(m + seconds * 1000),
+      }
+   }
+
+   pub fn sub(self, seconds: u64) -> Self {
+      match self {
+         TimeStamp::Seconds(s) => TimeStamp::Seconds(s - seconds),
+         TimeStamp::Millis(m) => TimeStamp::Millis(m - seconds * 1000),
+      }
+   }
+
+   pub fn timestamp(&self) -> u64 {
+      match self {
+         TimeStamp::Seconds(seconds) => *seconds,
+         TimeStamp::Millis(millis) => *millis,
+      }
+   }
+
+   pub fn cmp(&self, other: &Self) -> Ordering {
+      match (self, other) {
+         (TimeStamp::Seconds(a), TimeStamp::Seconds(b)) => a.cmp(b),
+         (TimeStamp::Millis(a), TimeStamp::Millis(b)) => a.cmp(b),
+         _ => Ordering::Equal,
+      }
+   }
+
+   pub fn to_relative(&self) -> String {
+      timestamp_to_relative_time(&self)
+   }
+
+   pub fn to_date_string(&self) -> String {
+      let dt_opt = match self {
+         TimeStamp::Seconds(seconds) => DateTime::<Utc>::from_timestamp_secs(*seconds as i64),
+         TimeStamp::Millis(millis) => DateTime::<Utc>::from_timestamp_millis(*millis as i64),
+      };
+
+      if let Some(dt) = dt_opt {
+         dt.format("%Y-%m-%d %H:%M:%S %Z").to_string()
+      } else {
+         format!("Invalid timestamp: {}", self.timestamp())
+      }
+   }
+
+   pub fn to_date(&self) -> DateTime<Utc> {
+      let opt = match self {
+         TimeStamp::Seconds(seconds) => DateTime::<Utc>::from_timestamp_secs(*seconds as i64),
+         TimeStamp::Millis(millis) => DateTime::<Utc>::from_timestamp_millis(*millis as i64),
+      };
+
+      match opt {
+         Some(dt) => dt,
+         None => DateTime::<Utc>::default(),
+      }
+   }
+}
+
+/// Convert a timestamp to relative time
+///
+/// Eg. X time ago, or in X time
+fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
+   let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+
+   let (now, timestamp) = match timestamp {
+      TimeStamp::Seconds(seconds) => (now.as_secs(), *seconds),
+      TimeStamp::Millis(millis) => (now.as_millis() as u64, *millis),
+   };
+
+   let elapsed_opt = if now > timestamp {
+      Some(now - timestamp)
+   } else {
+      None
+   };
+
+   let future_time_opt = if timestamp > now {
+      Some(timestamp - now)
+   } else {
+      None
+   };
+
+   if let Some(elapsed) = elapsed_opt {
+      if elapsed < 60 {
+         return format!("{} seconds ago", elapsed);
+      } else if elapsed < 3600 {
+         return format!("{} minutes ago", elapsed / 60);
+      } else if elapsed < 86400 {
+         return format!("{} hours ago", elapsed / 3600);
+      } else if elapsed < 604800 {
+         return format!("{} days ago", elapsed / 86400);
+      } else if elapsed < 2419200 {
+         return format!("{} weeks ago", elapsed / 604800);
+      } else if elapsed < 29030400 {
+         return format!("{} months ago", elapsed / 2419200);
+      } else if elapsed < 31536000 {
+         return format!("{} years ago", elapsed / 29030400);
+      }
+   }
+
+   if let Some(future_time) = future_time_opt {
+      if future_time < 60 {
+         return format!("in {} seconds", future_time);
+      } else if future_time < 3600 {
+         return format!("in {} minutes", future_time / 60);
+      } else if future_time < 86400 {
+         return format!("in {} hours", future_time / 3600);
+      } else if future_time < 604800 {
+         return format!("in {} days", future_time / 86400);
+      } else if future_time < 2419200 {
+         return format!("in {} weeks", future_time / 604800);
+      } else if future_time < 29030400 {
+         return format!("in {} months", future_time / 2419200);
+      } else if future_time < 31536000 {
+         return format!("in {} years", future_time / 29030400);
+      }
+   }
+
+   format!("Invalid timestamp")
+}
+
+
 
 /// Info for a token approval through the Permit2 contract
 #[derive(Clone)]

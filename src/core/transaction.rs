@@ -1,4 +1,5 @@
 use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
+use crate::utils::TimeStamp;
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
@@ -24,7 +25,7 @@ pub struct TransactionRich {
    pub success: bool,
    pub chain: u64,
    pub block: u64,
-   pub timestamp: u64,
+   pub timestamp: TimeStamp,
    pub value_sent: NumericValue,
    pub value_sent_usd: NumericValue,
    pub eth_received: NumericValue,
@@ -106,7 +107,7 @@ impl DecodedEvent {
       let spender = Address::ZERO;
       let amount = NumericValue::parse_to_wei("100", 18);
       let amount_usd = Some(NumericValue::value(amount.f64(), 1600.0));
-      let expiration = 0;
+      let expiration = TimeStamp::now_as_secs().add(600);
 
       let params = PermitParams {
          chain,
@@ -1507,7 +1508,7 @@ pub struct PermitParams {
    pub spender: Address,
    pub amount: NumericValue,
    pub amount_usd: Option<NumericValue>,
-   pub expiration: u64,
+   pub expiration: TimeStamp,
 }
 
 impl PermitParams {
@@ -1546,6 +1547,7 @@ impl PermitParams {
       let amount_usd =
          ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
       let expiration: u64 = decoded.expiration.to_string().parse()?;
+      let exp_timestamp = TimeStamp::Seconds(expiration);
 
       Ok(Self {
          chain,
@@ -1554,7 +1556,7 @@ impl PermitParams {
          spender,
          amount,
          amount_usd: Some(amount_usd),
-         expiration,
+         expiration: exp_timestamp,
       })
    }
 }

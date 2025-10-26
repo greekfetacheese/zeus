@@ -11,7 +11,7 @@ use crate::core::{
    TransactionRich, ZeusCtx,
    transaction::*,
    tx_analysis::TransactionAnalysis,
-   utils::{estimate_tx_cost, format_expiry},
+   utils::estimate_tx_cost,
 };
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -762,7 +762,7 @@ pub fn permit_event_ui(
    };
 
    let show_usd_value = !is_unlimited && params.amount_usd.is_some();
-   let expiration = format_expiry(params.expiration);
+   let expiration = params.expiration.to_relative();
 
    let tint = theme.image_tint_recommended;
    let icon = icons.currency_icon(&params.token, tint);

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use serde_json::Value;
 
-use super::{Permit2Details, swap_quoter::SwapStep};
+use super::{Permit2Details, TimeStamp, swap_quoter::SwapStep};
 use crate::core::ZeusCtx;
 use zeus_eth::{
    abi::uniswap::{universal_router_v2::*, v4::actions::*},
@@ -138,7 +138,7 @@ pub async fn encode_swap(
    currency_out: Currency,
    secure_signer: SecureSigner,
    recipient: Address,
-   deadline: u64,
+   deadline_in_minutes: u64,
 ) -> Result<SwapExecuteParams, anyhow::Error> {
    if swap_steps.is_empty() {
       return Err(anyhow!("No swap steps provided"));
@@ -356,11 +356,8 @@ pub async fn encode_swap(
    let command_bytes = Bytes::from(commands);
    // eprintln!("Command Bytes: {:?}", command_bytes);
 
-   let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
-   let deadline_seconds = deadline * 60;
-   let deadline = now.as_secs() + deadline_seconds;
-
-   let data = encode_execute_with_deadline(command_bytes, inputs, U256::from(deadline));
+   let deadline = TimeStamp::now_as_secs().add(deadline_in_minutes * 60);
+   let data = encode_execute_with_deadline(command_bytes, inputs, U256::from(deadline.timestamp()));
 
    execute_params.set_call_data(data);
 

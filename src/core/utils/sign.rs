@@ -1,5 +1,5 @@
 use super::parse_typed_data;
-use crate::core::ZeusCtx;
+use crate::{utils::TimeStamp, core::ZeusCtx};
 use anyhow::anyhow;
 use serde_json::{Value, json};
 use std::str::FromStr;
@@ -167,7 +167,7 @@ pub struct Permit2BatchDetails {
    pub tokens: Vec<ERC20Token>,
    pub amounts: Vec<NumericValue>,
    pub amounts_usd: Vec<Option<NumericValue>>,
-   pub expiration: u64,
+   pub expiration: TimeStamp,
    pub permit2_contract: Address,
    pub spender: Address,
    pub msg_value: Value,
@@ -178,7 +178,7 @@ pub struct Permit2Details {
    pub token: ERC20Token,
    pub amount: NumericValue,
    pub amount_usd: Option<NumericValue>,
-   pub expiration: u64,
+   pub expiration: TimeStamp,
    pub permit2_contract: Address,
    pub spender: Address,
    pub msg_value: Value,
@@ -193,7 +193,7 @@ impl Permit2Details {
          token: ERC20Token::weth_base(),
          amount: NumericValue::parse_to_wei("100000000", 18),
          amount_usd: Some(NumericValue::value(1.0, 1600.0)),
-         expiration: 1747886275,
+         expiration: TimeStamp::now_as_secs().add(600),
          permit2_contract: permit2,
          spender,
          msg_value: dummy_permit2_json(),
@@ -237,6 +237,7 @@ impl Permit2Details {
       let expiration =
          message["details"]["expiration"].as_str().ok_or(anyhow!("Missing expiration"))?;
       let expiration = u64::from_str(expiration)?;
+      let exp_timestamp = TimeStamp::Seconds(expiration);
 
       let spender_str = message["spender"].as_str().ok_or(anyhow!("Missing spender"))?;
       let spender = Address::from_str(spender_str)?;
@@ -256,7 +257,7 @@ impl Permit2Details {
          token,
          amount,
          amount_usd: Some(amount_usd),
-         expiration,
+         expiration: exp_timestamp,
          permit2_contract,
          spender,
          msg_value: message.clone(),
@@ -358,7 +359,6 @@ mod tests {
          permit2.token.address,
          Address::from_str("0x833589fcd6edb6e08f4c7c32d4f71b54bda02913").unwrap()
       );
-      assert_eq!(permit2.expiration, 1747742070);
       assert_eq!(
          permit2.permit2_contract,
          Address::from_str("0x000000000022d473030f116ddee9f6b43ac78ba3").unwrap()

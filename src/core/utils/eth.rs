@@ -6,9 +6,9 @@ use crate::{
       client::TIMEOUT_FOR_SENDING_TX,
       db::V3Position,
       transaction::*,
-      utils::{self, estimate_tx_cost, sign::SignMsgType, tx},
+      utils::{estimate_tx_cost, sign::SignMsgType, tx},
    },
-   utils::simulate::fetch_accounts_info,
+   utils::{TimeStamp, simulate::fetch_accounts_info},
 };
 use anyhow::{Context, anyhow};
 use serde_json::Value;
@@ -374,10 +374,7 @@ pub async fn send_transaction(
    let logs: Vec<Log> = receipt.logs().to_vec();
    let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
 
-   let timestamp = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .unwrap()
-      .as_secs();
+   let timestamp = TimeStamp::now_as_secs();
 
    let balance_after = client
       .request(chain.id(), |client| async move {
@@ -706,13 +703,13 @@ pub async fn decrease_liquidity_position_v3(
    let amount0_min_to_remove = amount0_to_remove.calc_slippage(slippage, pool.token0().decimals);
    let amount1_min_to_remove = amount1_to_remove.calc_slippage(slippage, pool.token1().decimals);
 
-   let deadline = utils::get_unix_time_in_minutes(1)?;
+   let deadline = TimeStamp::now_as_secs().add(60);
    let mut decrease_liquidity_params = INonfungiblePositionManager::DecreaseLiquidityParams {
       tokenId: position.id,
       liquidity: liquidity_to_remove,
       amount0Min: amount0_min_to_remove.wei(),
       amount1Min: amount1_min_to_remove.wei(),
-      deadline: U256::from(deadline),
+      deadline: U256::from(deadline.timestamp()),
    };
 
    let owner = from;
@@ -973,14 +970,14 @@ pub async fn increase_liquidity_position_v3(
    let amount0_min = amount0.calc_slippage(slippage, pool.currency0().decimals());
    let amount1_min = amount1.calc_slippage(slippage, pool.currency1().decimals());
 
-   let deadline = utils::get_unix_time_in_minutes(1)?;
+   let deadline = TimeStamp::now_as_secs().add(60);
    let mut increase_liquidity_params = INonfungiblePositionManager::IncreaseLiquidityParams {
       tokenId: position.id,
       amount0Desired: amount0.wei(),
       amount1Desired: amount1.wei(),
       amount0Min: amount0_min.wei(),
       amount1Min: amount1_min.wei(),
-      deadline: U256::from(deadline),
+      deadline: U256::from(deadline.timestamp()),
    };
 
    let owner = from;
@@ -1387,7 +1384,7 @@ pub async fn mint_new_liquidity_position_v3(
    let amount0_min = amount0.calc_slippage(slippage, pool.token0().decimals);
    let amount1_min = amount1.calc_slippage(slippage, pool.token1().decimals);
 
-   let deadline = utils::get_unix_time_in_minutes(1)?;
+   let deadline = TimeStamp::now_as_secs().add(60);
    let mint_params = INonfungiblePositionManager::MintParams {
       token0: pool.token0().address,
       token1: pool.token1().address,
@@ -1399,7 +1396,7 @@ pub async fn mint_new_liquidity_position_v3(
       amount0Min: amount0_min.wei(),
       amount1Min: amount1_min.wei(),
       recipient: from, // owner of the position
-      deadline: U256::from(deadline),
+      deadline: U256::from(deadline.timestamp()),
    };
 
    tracing::info!("Mint Params {:?}", mint_params);

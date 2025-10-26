@@ -7,7 +7,6 @@ use egui::{Align, Button, ComboBox, Frame, Grid, Layout, Margin, RichText, Scrol
 use zeus_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 
@@ -358,11 +357,10 @@ impl TxHistory {
                            });
 
                            // Age Column
-                           let age_text = format_age(tx.timestamp);
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[2]);
                               ui.label(
-                                 RichText::new(age_text)
+                                 RichText::new(tx.timestamp.to_relative())
                                     .size(theme.text_sizes.small)
                                     .color(theme.colors.text),
                               );
@@ -391,30 +389,5 @@ impl TxHistory {
                });
             });
       });
-   }
-}
-
-/// Formats a Unix timestamp into a relative age string.
-fn format_age(timestamp: u64) -> String {
-   let now = SystemTime::now();
-   let tx_time = UNIX_EPOCH + Duration::from_secs(timestamp);
-   match now.duration_since(tx_time) {
-      Ok(duration) => {
-         let secs = duration.as_secs();
-         if secs < 60 {
-            format!("{}s ago", secs)
-         } else if secs < 3600 {
-            format!("{}m ago", secs / 60)
-         } else if secs < 86400 {
-            format!("{}h ago", secs / 3600)
-         } else if secs < 2_592_000 {
-            // ~30 days
-            format!("{}d ago", secs / 86400)
-         } else {
-            let months = secs / 2_592_000;
-            format!("{}mo ago", months)
-         }
-      }
-      Err(_) => "Just now".to_string(),
    }
 }

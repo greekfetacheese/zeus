@@ -9,7 +9,7 @@ use super::{address, chain, contract_interact};
 use crate::assets::icons::Icons;
 use crate::core::{
    ZeusCtx,
-   utils::{format_expiry, sign::SignMsgType},
+   utils::sign::SignMsgType,
 };
 
 use regex::Regex;
@@ -220,7 +220,7 @@ fn permit2_single_approval(
          });
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let expire = format_expiry(details.expiration);
+            let expire = details.expiration.to_relative();
             let text = RichText::new(expire).size(theme.text_sizes.large);
             ui.label(text);
          });
@@ -300,7 +300,7 @@ fn _permit2_batch_approval_ui(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let expire = format_expiry(details.expiration);
+         let expire = details.expiration.to_relative();
          let text = RichText::new(expire).size(theme.text_sizes.normal);
          ui.label(text);
       });
@@ -425,7 +425,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(
       formatted,
       "  Expiration: {}",
-      format_expiry(details.expiration)
+      details.expiration.to_relative()
    )
    .unwrap();
    writeln!(

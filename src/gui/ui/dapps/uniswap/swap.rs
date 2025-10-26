@@ -448,7 +448,7 @@ impl SwapUi {
             }
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               if self.pool_data_syncing || self.syncing_pools {
+               if self.pool_data_syncing || self.syncing_pools || self.balance_syncing {
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                }
             });
@@ -491,7 +491,6 @@ impl SwapUi {
          let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          let amount = self.amount_in.parse().unwrap_or(0.0);
          let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
-         let balance_syncing = self.balance_syncing;
 
          frame.show(ui, |ui| {
             let changed = amount_field_with_currency_selector(
@@ -507,7 +506,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
-               balance_syncing,
+               false,
                ui,
             );
             amount_changed = changed;
@@ -544,7 +543,7 @@ impl SwapUi {
                balance,
                max_amount,
                value,
-               balance_syncing,
+               false,
                ui,
             )
          });
