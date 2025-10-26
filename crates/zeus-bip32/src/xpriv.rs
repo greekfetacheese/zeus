@@ -1,15 +1,11 @@
 use hmac::{Hmac, Mac};
+use k256::ecdsa::{SigningKey, VerifyingKey};
 use ripemd::{Digest, Ripemd160};
-use secure_types::Zeroize;
+use secure_types::{SecureArray, Zeroize};
 use sha2::{Sha256, Sha512};
-use zeus_eth::alloy_signer::k256::{
-   self,
-   ecdsa::{SigningKey, VerifyingKey},
-};
-use zeus_eth::utils::SecureSigner;
 
 use super::{
-   Bip32Error,
+   error::Bip32Error,
    path::{BIP32_HARDEN, DerivationPath},
    primitives::*,
 };
@@ -39,22 +35,29 @@ fn hmac_and_split(
 }
 
 /// Instantiate a root node using a custom HMAC key.
+///
+/// # Returns
+/// - `key` The private key
+/// - `xkey_info` The extended key info
 pub fn root_from_seed(
    data: &[u8],
    hint: Option<Hint>,
-) -> Result<(SecureSigner, XKeyInfo), Bip32Error> {
+) -> Result<(SecureArray<u8, 32>, XKeyInfo), Bip32Error> {
    if data.len() < 16 {
       return Err(Bip32Error::SeedTooShort);
    }
 
-   let (key, chain_code) = hmac_and_split(SEED, data)?;
+   let (mut key, chain_code) = hmac_and_split(SEED, data)?;
 
    if bool::from(key.is_zero()) {
       return Err(Bip32Error::InvalidKey);
    }
 
-   let signing_key = SigningKey::from(key);
-   let signer = SecureSigner::from(signing_key);
+   let mut bytes = key.to_bytes();
+   key.zeroize();
+
+   let sec_array =
+      SecureArray::from_slice_mut(bytes.as_mut()).map_err(|e| Bip32Error::Custom(e.to_string()))?;
 
    let key_info = XKeyInfo {
       depth: 0,
@@ -64,13 +67,13 @@ pub fn root_from_seed(
       hint: hint.unwrap_or(Hint::SegWit),
    };
 
-   Ok((signer, key_info))
+   Ok((sec_array, key_info))
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 /// A BIP32 eXtended Privkey
 pub struct SecureXPriv {
-   pub signer: SecureSigner,
+   pub key: SecureArray<u8, 32>,
    pub xkey_info: XKeyInfo,
 }
 
@@ -81,11 +84,24 @@ impl PartialEq for SecureXPriv {
 }
 
 impl SecureXPriv {
+   pub fn new(key: SecureArray<u8, 32>, xkey_info: XKeyInfo) -> Self {
+      Self { key, xkey_info }
+   }
+
    pub fn public_key(&self) -> XPub {
       XPub {
-         key: self.signer.verifying_key(),
+         key: self.verifying_key(),
          xkey_info: self.xkey_info.clone(),
       }
+   }
+
+   pub fn signing_key(&self) -> SigningKey {
+      self.key.unlock(|key| SigningKey::from_slice(key).unwrap())
+   }
+
+   pub fn verifying_key(&self) -> VerifyingKey {
+      let signing_key = self.signing_key();
+      *signing_key.verifying_key()
    }
 
    /// The fingerprint is the first 4 bytes of the HASH160 of the public key
@@ -116,7 +132,7 @@ impl SecureXPriv {
    fn derive_child(&self, index: u32) -> Result<Self, Bip32Error> {
       let hardened = index >= BIP32_HARDEN;
 
-      let key = self.signer.to_signing_key();
+      let key = self.signing_key();
 
       let mut data: Vec<u8> = vec![];
       if hardened {
@@ -139,13 +155,16 @@ impl SecureXPriv {
       let parent_key = k256::NonZeroScalar::from_repr(key.to_bytes()).unwrap();
       let mut tweaked = tweak.add(&parent_key);
 
-      let tweaked_key: k256::NonZeroScalar =
+      let mut tweaked_key: k256::NonZeroScalar =
          Option::from(k256::NonZeroScalar::new(tweaked)).ok_or(Bip32Error::BadTweak)?;
 
       tweaked.zeroize();
 
-      let new_key = SigningKey::from(tweaked_key);
-      let signer = SecureSigner::from(new_key);
+      let mut bytes = tweaked_key.to_bytes();
+      tweaked_key.zeroize();
+
+      let sec_array = SecureArray::from_slice_mut(bytes.as_mut())
+         .map_err(|e| Bip32Error::Custom(e.to_string()))?;
 
       let xkey_info = XKeyInfo {
          depth: self.xkey_info.depth + 1,
@@ -155,7 +174,10 @@ impl SecureXPriv {
          hint: self.xkey_info.hint,
       };
 
-      Ok(Self { signer, xkey_info })
+      Ok(Self {
+         key: sec_array,
+         xkey_info,
+      })
    }
 }
 

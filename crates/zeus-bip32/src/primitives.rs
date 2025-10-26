@@ -1,4 +1,4 @@
-use secure_types::SecureArray;
+use secure_types::{Error, SecureArray};
 
 /// We treat the bip32 xpub bip49 ypub and bip84 zpub convention as a hint regarding address type.
 /// Downstream crates are free to follow or ignore these hints when generating addresses from
@@ -47,7 +47,7 @@ pub struct ChainCode {
 }
 
 impl ChainCode {
-   pub fn from_slice_mut(slice: &mut [u8; 32]) -> Result<Self, anyhow::Error> {
+   pub fn from_slice_mut(slice: &mut [u8; 32]) -> Result<Self, Error> {
       let data = SecureArray::from_slice_mut(slice)?;
       Ok(Self { data })
    }

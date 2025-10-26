@@ -4,9 +4,9 @@ pub mod portfolio;
 pub use currencies::CurrencyDB;
 pub use portfolio::{Portfolio, PortfolioDB};
 
+use zeus_bip32::{BIP32_HARDEN, DerivationPath};
 use crate::core::{
    TransactionRich,
-   bip32::{BIP32_HARDEN, DerivationPath},
    context::data_dir,
    serde_hashmap,
 };

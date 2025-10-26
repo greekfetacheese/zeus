@@ -9008,8 +9008,23 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber 0.3.20",
  "warp",
+ "zeus-bip32",
  "zeus-eth",
  "zeus-theme",
+]
+
+[[package]]
+name = "zeus-bip32"
+version = "0.1.0"
+dependencies = [
+ "hmac",
+ "k256",
+ "ripemd",
+ "secure-types",
+ "serde",
+ "sha2 0.10.9",
+ "sha3",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

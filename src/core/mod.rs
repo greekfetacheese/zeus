@@ -1,4 +1,4 @@
-pub mod bip32;
+// pub mod bip32;
 pub mod context;
 pub mod transaction;
 pub mod tx_analysis;

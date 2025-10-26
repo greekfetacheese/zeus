@@ -1,4 +1,4 @@
-use super::Bip32Error;
+use super::error::Bip32Error;
 use std::{
    convert::TryFrom,
    iter::{FromIterator, IntoIterator},

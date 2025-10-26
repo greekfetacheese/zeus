@@ -7,9 +7,7 @@ use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, utils::SecureSigner};
 
-use crate::core::bip32::{path::*, primitives::XKeyInfo, xpriv::*};
-
-pub use crate::core::bip32::path::BIP32_HARDEN;
+use zeus_bip32::{path::*, primitives::XKeyInfo, xpriv::*};
 
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
@@ -315,7 +313,8 @@ impl SecureHDWallet {
       let mut bytes = [0u8; 64];
       rand::rngs::OsRng.fill_bytes(&mut bytes);
 
-      let (signer, key_info) = root_from_seed(&bytes, None).unwrap();
+      let (key, key_info) = root_from_seed(&bytes, None).unwrap();
+      let signer = SecureSigner::from(key);
 
       let master_wallet = Wallet {
          name: "Master Wallet".to_string(),
@@ -343,7 +342,7 @@ impl SecureHDWallet {
 
    /// Create a new `SecureHDWallet` from a seed
    pub fn new_from_seed(mut name: String, seed: SecureVec<u8>) -> Self {
-      let (signer, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
+      let (key, key_info) = seed.unlock_slice(|slice| root_from_seed(slice, None).unwrap());
 
       if name.is_empty() {
          name = "Master Wallet".to_string();
@@ -351,7 +350,7 @@ impl SecureHDWallet {
 
       let master_wallet = Wallet {
          name,
-         key: signer,
+         key: key.into(),
          xkey_info: Some(key_info),
       };
 
@@ -364,7 +363,7 @@ impl SecureHDWallet {
 
    pub fn master_to_xpriv(&self) -> SecureXPriv {
       SecureXPriv {
-         signer: self.master_wallet.key.clone(),
+         key: self.master_wallet.key.data(),
          xkey_info: self.master_wallet.xkey_info.clone().unwrap(),
       }
    }
@@ -377,11 +376,12 @@ impl SecureHDWallet {
       let child_path = base_path.extended(self.next_child_index + BIP32_HARDEN);
 
       let child = xpriv.derive_path(child_path.clone())?;
+      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
 
-      let address = child.signer.address();
+      let address = pkey.address();
       let child_wallet = Wallet {
          name: name.clone(),
-         key: child.signer,
+         key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
 
@@ -405,10 +405,11 @@ impl SecureHDWallet {
       let child_path = base_path.extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
+      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
 
       let wallet = Wallet {
          name: name.clone(),
-         key: child.signer,
+         key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
 
@@ -429,10 +430,11 @@ impl SecureHDWallet {
       let child_path = base_path.extended(index);
 
       let child = xpriv.derive_path(child_path.clone())?;
+      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
 
       let wallet = Wallet {
          name: name.clone(),
-         key: child.signer,
+         key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
 

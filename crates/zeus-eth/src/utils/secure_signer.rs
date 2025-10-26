@@ -19,6 +19,10 @@ impl SecureSigner {
       Self::from(signer)
    }
 
+   pub fn data(&self) -> SecureArray<u8, 32> {
+      self.data.clone()
+   }
+
    /// Return the signer's key in a SecureString
    pub fn key_string(&self) -> SecureString {
       let signer = self.to_signer();
@@ -65,13 +69,19 @@ impl SecureSigner {
    }
 }
 
+impl From<SecureArray<u8, 32>> for SecureSigner {
+   fn from(value: SecureArray<u8, 32>) -> Self {
+      let signer = value.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
+      let address = signer.address();
+      SecureSigner{address, data: value}
+   }
+}
+
 impl From<PrivateKeySigner> for SecureSigner {
    fn from(value: PrivateKeySigner) -> Self {
       let address = value.address();
       let mut key_bytes = value.to_bytes();
-      let data = SecureArray::from_slice(key_bytes.as_ref()).unwrap();
-      key_bytes.zeroize();
-      erase_signer(value);
+      let data = SecureArray::from_slice_mut(key_bytes.as_mut()).unwrap();
 
       SecureSigner { address, data }
    }
@@ -82,40 +92,12 @@ impl From<SigningKey> for SecureSigner {
       let mut bytes = value.to_bytes();
       let signer = PrivateKeySigner::from_slice(&bytes).unwrap();
       let address = signer.address();
-
-      let data = SecureArray::from_slice(bytes.as_ref()).unwrap();
-
-      bytes.zeroize();
-      erase_signing_key(value);
-      erase_signer(signer);
+      let data = SecureArray::from_slice_mut(bytes.as_mut()).unwrap();
 
       SecureSigner { address, data }
    }
 }
 
-pub fn erase_signing_key(mut key: SigningKey) {
-   unsafe {
-      let ptr: *mut SigningKey = &mut key;
-      let bytes: &mut [u8] = core::slice::from_raw_parts_mut(ptr as *mut u8, core::mem::size_of::<SigningKey>());
-      bytes.zeroize();
-   }
-}
-
-pub fn erase_signer(mut signer: PrivateKeySigner) {
-   unsafe {
-      let ptr: *mut PrivateKeySigner = &mut signer;
-      let bytes: &mut [u8] = core::slice::from_raw_parts_mut(ptr as *mut u8, core::mem::size_of::<PrivateKeySigner>());
-      bytes.zeroize();
-   }
-}
-
-pub fn erase_wallet(mut wallet: EthereumWallet) {
-   unsafe {
-      let ptr: *mut EthereumWallet = &mut wallet;
-      let bytes: &mut [u8] = std::slice::from_raw_parts_mut(ptr as *mut u8, std::mem::size_of::<EthereumWallet>());
-      bytes.zeroize();
-   }
-}
 
 #[cfg(test)]
 mod tests {

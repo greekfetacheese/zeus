@@ -1,18 +1,11 @@
-pub mod path;
-pub mod primitives;
-pub mod xpriv;
-
-use zeus_eth::alloy_signer::k256::{self, ecdsa};
-
 use thiserror::Error;
 
-pub use path::{BIP32_HARDEN, DerivationPath};
 
 #[derive(Debug, Error)]
 pub enum Bip32Error {
    /// Error bubbled up from the backend
    #[error("k256 error")]
-   BackendError(/*#[from]*/ ecdsa::Error),
+   BackendError(/*#[from]*/ k256::ecdsa::Error),
 
    /// Error bubbled up from the backend
    #[error("elliptic curve error")]
@@ -72,8 +65,8 @@ pub enum Bip32Error {
    Custom(String),
 }
 
-impl From<ecdsa::Error> for Bip32Error {
-   fn from(e: ecdsa::Error) -> Self {
+impl From<k256::ecdsa::Error> for Bip32Error {
+   fn from(e: k256::ecdsa::Error) -> Self {
       Self::BackendError(e)
    }
 }

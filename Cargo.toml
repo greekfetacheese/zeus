@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/zeus-theme", "crates/zeus-eth", "crates/egui-widgets", "crates/deploy"]
+members = ["crates/zeus-theme", "crates/zeus-eth", "crates/egui-widgets", "crates/deploy", "crates/zeus-bip32"]
 
 [package]
 name = "zeus"
@@ -21,6 +21,7 @@ image = "=0.25.6"
 
 
 # Zeus Crates
+zeus-bip32 = { path = "crates/zeus-bip32" }
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"]}
 
