@@ -1284,7 +1284,6 @@ async fn personal_sign(
 
    let sig_bytes = signature.as_bytes();
    let sig_hex = format!("0x{}", hex::encode(sig_bytes));
-   info!("Signature: {}", sig_hex);
 
    Ok(JsonRpcResponse::ok(
       Some(Value::String(sig_hex)),
