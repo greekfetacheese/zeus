@@ -1,10 +1,10 @@
 use egui::{FontData, FontDefinitions, FontFamily};
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::{ZeusCtx, context::load_theme_kind, utils::update};
+use crate::core::{ZeusCtx, context::load_theme_kind};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
-use crate::utils::RT;
+use crate::utils::{RT, state::{on_startup, test_and_measure_rpcs}};
 use eframe::{
    CreationContext,
    egui::{self, Frame},
@@ -51,13 +51,13 @@ impl ZeusApp {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         update::test_and_measure_rpcs(ctx_clone).await;
+         test_and_measure_rpcs(ctx_clone).await;
       });
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          if ctx_clone.vault_exists() {
-            update::on_startup(ctx_clone).await;
+            on_startup(ctx_clone).await;
          }
       });
 

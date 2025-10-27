@@ -1,7 +1,6 @@
 pub mod context;
 pub mod transaction;
 pub mod tx_analysis;
-pub mod utils;
 pub mod vault;
 pub mod wallet;
 

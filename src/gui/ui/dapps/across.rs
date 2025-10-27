@@ -1,15 +1,12 @@
 use crate::assets::icons::Icons;
-use crate::utils::{RT, estimate_tx_cost};
-use crate::core::{
-   ZeusCtx, data_dir,
-   utils::eth,
-};
+use crate::core::{ZeusCtx, data_dir};
 use crate::gui::{
    SHARED_GUI,
    ui::{
       ChainSelect, ContactsUi, RecipientSelectionWindow, dapps::amount_field_with_currency_selector,
    },
 };
+use crate::utils::{RT, tx::send_transaction, estimate_tx_cost};
 use anyhow::anyhow;
 use egui::{
    Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Slider,
@@ -842,7 +839,7 @@ async fn across_bridge(
    let mev_protect = false;
    let auth_list = Vec::new();
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
       None,

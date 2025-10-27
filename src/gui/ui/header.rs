@@ -1,11 +1,10 @@
 use crate::assets::icons::Icons;
-use crate::utils::{truncate_address, RT};
-use crate::core::utils::eth;
 use crate::core::{Wallet, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, REFRESH, WalletSelect},
 };
+use crate::utils::{RT, truncate_address, tx::delegate_to};
 use egui::{
    Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui,
    Window, vec2,
@@ -151,7 +150,7 @@ impl Header {
                deleg_addr.is_some()
             };
 
-            /* 
+            /*
             if show_deleg {
                ui.horizontal(|ui| {
                   let text = RichText::new("Delegated at").size(theme.text_sizes.normal);
@@ -171,7 +170,6 @@ impl Header {
                });
             }
             */
-
          });
       });
    }
@@ -204,8 +202,8 @@ impl Header {
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
-                 // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
-                 // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
+                  // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
+                  // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
                });
             });
          }
@@ -341,17 +339,17 @@ impl Header {
       let clicked = ui.add(button).clicked();
 
       if clicked {
-         let delegate_to = self.delegate_to.clone();
+         let delegate_to_addr = self.delegate_to.clone();
          let ctx_clone = ctx.clone();
          let chain = ctx.chain();
          RT.spawn(async move {
-            let delegate_address = match Address::from_str(&delegate_to) {
+            let delegate_address = match Address::from_str(&delegate_to_addr) {
                Ok(address) => address,
                Err(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window(
                         "Not a valid Ethereum address",
-                        delegate_to.clone(),
+                        delegate_to_addr.clone(),
                      );
                   });
                   return;
@@ -364,14 +362,13 @@ impl Header {
                gui.request_repaint();
             });
 
-            match eth::delegate_to(ctx_clone, chain, wallet, delegate_address).await {
+            match delegate_to(ctx_clone, chain, wallet, delegate_address).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                   });
                }
                Err(e) => {
-                  tracing::error!("Error delegating to {}: {:?}", delegate_to, e);
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while delegating", e.to_string());
                      gui.loading_window.reset();
@@ -392,8 +389,7 @@ impl Header {
       delegated_address: Address,
       ui: &mut Ui,
    ) {
-      let text =
-         RichText::new("Currently delegated to").size(theme.text_sizes.normal);
+      let text = RichText::new("Currently delegated to").size(theme.text_sizes.normal);
       ui.label(text);
 
       let chain = ctx.chain();
@@ -422,14 +418,13 @@ impl Header {
                gui.request_repaint();
             });
 
-            match eth::delegate_to(ctx.clone(), chain, wallet, Address::ZERO).await {
+            match delegate_to(ctx.clone(), chain, wallet, Address::ZERO).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                   });
                }
                Err(e) => {
-                  tracing::error!("Error delegating to {}: {:?}", Address::ZERO, e);
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while undelegating", e.to_string());
                      gui.loading_window.reset();

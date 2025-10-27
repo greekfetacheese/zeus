@@ -3,12 +3,11 @@ use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Windo
 use egui_widgets::Label;
 
 use crate::assets::Icons;
-use crate::utils::RT;
+use crate::utils::{RT, sign::SignMsgType};
 use crate::core::{
    TransactionAnalysis, ZeusCtx,
    currencies::TokenData,
    transaction::*,
-   utils::sign::SignMsgType,
 };
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 

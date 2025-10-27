@@ -2,9 +2,9 @@ use super::{
    BalanceManagerHandle, CurrencyDB, PoolManagerHandle, ZeusClient, misc::*,
    price_manager::PriceManagerHandle,
 };
-use crate::core::{
-   Vault, Wallet, WalletInfo, client::Rpc, serde_hashmap, utils::update::test_and_measure_rpcs,
-};
+
+use crate::utils::state::test_and_measure_rpcs;
+use crate::core::{Vault, Wallet, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
 use anyhow::anyhow;
 use ncrypt_me::Argon2;

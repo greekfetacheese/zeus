@@ -2,15 +2,13 @@ use egui::{
    Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
    Window, vec2,
 };
-use zeus_theme::Theme;
 use egui_widgets::Label;
+use zeus_theme::Theme;
 
 use super::{address, chain, contract_interact};
 use crate::assets::icons::Icons;
-use crate::core::{
-   ZeusCtx,
-   utils::sign::SignMsgType,
-};
+use crate::core::ZeusCtx;
+use crate::utils::sign::SignMsgType;
 
 use regex::Regex;
 use serde_json::{Value, to_string_pretty};
@@ -203,7 +201,11 @@ fn permit2_single_approval(
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = details.amount();
             let text = format!("{} {}", amount, details.token.symbol);
-            let icon = icons.token_icon_x32(details.token.address, details.token.chain_id, tint);
+            let icon = icons.token_icon_x32(
+               details.token.address,
+               details.token.chain_id,
+               tint,
+            );
             let label = Label::new(
                RichText::new(text).size(theme.text_sizes.large),
                Some(icon),

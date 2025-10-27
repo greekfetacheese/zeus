@@ -1395,3 +1395,772 @@ async fn sync_v3_positions(ctx: ZeusCtx, days: u64) -> Result<(), anyhow::Error>
 
    Ok(())
 }
+
+
+
+/// Collect fees on a V3 position
+pub async fn collect_fees_position_v3(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   mut position: V3Position,
+   token0: ERC20Token,
+   token1: ERC20Token,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let nft_contract = uniswap_nft_position_manager(chain.id())?;
+
+   let collect_fee_params =
+      abi::uniswap::nft_position::INonfungiblePositionManager::CollectParams {
+         tokenId: position.id,
+         recipient: from,
+         amount0Max: u128::MAX,
+         amount1Max: u128::MAX,
+      };
+
+   let call_data = abi::uniswap::nft_position::encode_collect(collect_fee_params);
+   let interact_to = nft_contract;
+   let value = U256::ZERO;
+   let mev_protect = false;
+   let auth_list = Vec::new();
+
+   let (receipt, _) = send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      None,
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+      auth_list,
+   )
+   .await?;
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction failed"));
+   }
+
+   let updated_position =
+      abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
+
+   let tokens_owed0 = NumericValue::format_wei(updated_position.tokens_owed0, token0.decimals);
+   let tokens_owed1 = NumericValue::format_wei(updated_position.tokens_owed1, token1.decimals);
+
+   position.tokens_owed0 = tokens_owed0;
+   position.tokens_owed1 = tokens_owed1;
+   position.fee_growth_inside0_last_x128 = updated_position.fee_growth_inside0_last_x128;
+   position.fee_growth_inside1_last_x128 = updated_position.fee_growth_inside1_last_x128;
+
+   ctx.write(|ctx| {
+      ctx.v3_positions_db.insert(chain.id(), position.owner, position);
+   });
+
+   ctx.save_v3_positions_db();
+
+   let tokens = vec![token0.clone(), token1.clone()];
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      let manager = ctx_clone.balance_manager();
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      if !portfolio.has_token(&token0) {
+         portfolio.add_token(token0);
+      }
+
+      if !portfolio.has_token(&token1) {
+         portfolio.add_token(token1);
+      }
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
+
+   Ok(())
+}
+
+
+/// Decrease liquidity on a V3 position
+pub async fn decrease_liquidity_position_v3(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   mut position: V3Position,
+   mut pool: UniswapV3Pool,
+   liquidity_to_remove: u128,
+   slippage: String,
+   mev_protect: bool,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let nft_contract = uniswap_nft_position_manager(chain.id())?;
+
+   let block_fut = client.get_block(BlockId::latest()).into_future();
+
+   pool.update_state(client.clone(), None).await?;
+
+   let sqrt_price_lower = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_lower)?;
+   let sqrt_price_upper = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_upper)?;
+
+   let state = pool.state().v3_state().unwrap();
+
+   let (amount0_to_remove, amount1_to_remove) = calculate_liquidity_amounts(
+      state.sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      liquidity_to_remove,
+   )?;
+
+   let slippage: f64 = slippage.parse().unwrap_or(0.5);
+
+   let amount0_to_remove = NumericValue::format_wei(amount0_to_remove, pool.token0().decimals);
+   let amount1_to_remove = NumericValue::format_wei(amount1_to_remove, pool.token1().decimals);
+
+   let amount0_min_to_remove = amount0_to_remove.calc_slippage(slippage, pool.token0().decimals);
+   let amount1_min_to_remove = amount1_to_remove.calc_slippage(slippage, pool.token1().decimals);
+
+   let deadline = TimeStamp::now_as_secs().add(60);
+   let mut decrease_liquidity_params = INonfungiblePositionManager::DecreaseLiquidityParams {
+      tokenId: position.id,
+      liquidity: liquidity_to_remove,
+      amount0Min: amount0_min_to_remove.wei(),
+      amount1Min: amount1_min_to_remove.wei(),
+      deadline: U256::from(deadline.timestamp()),
+   };
+
+   let owner = from;
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let block = block_fut.await?;
+
+   let eth_balance_after;
+   let sim_res;
+   let amount0_removed;
+   let amount1_removed;
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+
+      let now = Instant::now();
+      let (res, amount0, amount1) = simulate::decrease_liquidity(
+         &mut evm,
+         decrease_liquidity_params.clone(),
+         owner,
+         nft_contract,
+         true,
+      )?;
+
+      tracing::info!(
+         "Simulated Decrease Liquidity in {} ms",
+         now.elapsed().as_millis()
+      );
+
+      amount0_removed = NumericValue::format_wei(amount0, pool.token0().decimals);
+      amount1_removed = NumericValue::format_wei(amount1, pool.token1().decimals);
+      sim_res = res;
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let minimum_amount0_to_be_removed =
+      amount0_removed.calc_slippage(slippage, pool.token0().decimals);
+   let minimum_amount1_to_be_removed =
+      amount0_removed.calc_slippage(slippage, pool.token1().decimals);
+
+   let amount0_usd_to_be_removed =
+      ctx.get_currency_value_for_amount(amount0_removed.f64(), pool.currency0());
+
+   let amount1_usd_to_be_removed =
+      ctx.get_currency_value_for_amount(amount1_removed.f64(), pool.currency1());
+
+   let minimum_amount0_usd_to_be_removed = ctx.get_currency_value_for_amount(
+      minimum_amount0_to_be_removed.f64(),
+      pool.currency0(),
+   );
+
+   let minimum_amount1_usd_to_be_removed = ctx.get_currency_value_for_amount(
+      minimum_amount1_to_be_removed.f64(),
+      pool.currency1(),
+   );
+
+   decrease_liquidity_params.amount0Min = minimum_amount0_to_be_removed.wei();
+   decrease_liquidity_params.amount1Min = minimum_amount1_to_be_removed.wei();
+
+   let call_data = abi::uniswap::nft_position::encode_decrease_liquidity(decrease_liquidity_params);
+
+   let position_params = UniswapPositionParams {
+      position_operation: PositionOperation::DecreaseLiquidity,
+      currency0: pool.currency0.clone(),
+      currency1: pool.currency1.clone(),
+      amount0: amount0_removed.clone(),
+      amount1: amount1_removed.clone(),
+      amount0_usd: Some(amount0_usd_to_be_removed),
+      amount1_usd: Some(amount1_usd_to_be_removed),
+      min_amount0: Some(minimum_amount0_to_be_removed),
+      min_amount0_usd: Some(minimum_amount0_usd_to_be_removed),
+      min_amount1: Some(minimum_amount1_to_be_removed),
+      min_amount1_usd: Some(minimum_amount1_usd_to_be_removed),
+      sender: from,
+      recipient: None,
+   };
+
+   let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
+
+   let contract_interact = Some(true);
+   let interact_to = nft_contract;
+   let value = U256::ZERO;
+   let auth_list = Vec::new();
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      call_data.clone(),
+      value,
+      sim_res.logs().to_vec(),
+      sim_res.gas_used(),
+      eth_balance_before.wei(),
+      eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   let main_event = DecodedEvent::UniswapPositionOperation(position_params);
+   tx_analysis.set_main_event(main_event);
+
+   let (receipt, _) = send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      Some(tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+      auth_list,
+   )
+   .await?;
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction failed"));
+   }
+
+   let updated_position =
+      abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
+
+   // calculate the new amounts
+   let (new_amount0, new_amount1) = calculate_liquidity_amounts(
+      state.sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      updated_position.liquidity,
+   )?;
+
+   let new_amount0 = NumericValue::format_wei(new_amount0, pool.token0().decimals);
+   let new_amount1 = NumericValue::format_wei(new_amount1, pool.token1().decimals);
+
+   let tokens_owed0 = NumericValue::format_wei(
+      updated_position.tokens_owed0,
+      pool.token0().decimals,
+   );
+   let tokens_owed1 = NumericValue::format_wei(
+      updated_position.tokens_owed1,
+      pool.token1().decimals,
+   );
+
+   // update the position
+   position.amount0 = new_amount0;
+   position.amount1 = new_amount1;
+   position.tokens_owed0 = tokens_owed0;
+   position.tokens_owed1 = tokens_owed1;
+   position.fee_growth_inside0_last_x128 = updated_position.fee_growth_inside0_last_x128;
+   position.fee_growth_inside1_last_x128 = updated_position.fee_growth_inside1_last_x128;
+   position.liquidity = updated_position.liquidity;
+
+   ctx.write(|ctx| {
+      ctx.v3_positions_db.insert(chain.id(), owner, position);
+   });
+
+   ctx.save_v3_positions_db();
+
+   let token0 = pool.currency0().to_erc20().into_owned();
+   let token1 = pool.currency1().to_erc20().into_owned();
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   let tokens = vec![token0.clone(), token1.clone()];
+
+   RT.spawn(async move {
+      let manager = ctx_clone.balance_manager();
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
+
+      // Update the portfolio
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      portfolio.add_token(token0);
+      portfolio.add_token(token1);
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
+
+   Ok(())
+}
+
+
+
+/// Increase liquidity on a V3 position
+pub async fn increase_liquidity_position_v3(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   mut position: V3Position,
+   mut pool: UniswapV3Pool,
+   token0_deposit_amount: NumericValue,
+   slippage: String,
+   mev_protect: bool,
+) -> Result<(), anyhow::Error> {
+   let client = ctx.get_client(chain.id()).await?;
+   let nft_contract = uniswap_nft_position_manager(chain.id())?;
+
+   let token0 = pool.token0().into_owned();
+   let token1 = pool.token1().into_owned();
+
+   let block_fut = client.get_block(BlockId::latest()).into_future();
+   let token0_allowance_fut = token0.allowance(client.clone(), from, nft_contract);
+   let token1_allowance_fut = token1.allowance(client.clone(), from, nft_contract);
+
+   pool.update_state(client.clone(), None).await?;
+
+   let sqrt_price_lower = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_lower)?;
+   let sqrt_price_upper = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(position.tick_upper)?;
+
+   let state = pool.state().v3_state().unwrap();
+
+   let liquidity = calculate_liquidity_needed(
+      state.sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      token0_deposit_amount.wei(),
+      true,
+   )?;
+
+   let (amount0, amount1) = calculate_liquidity_amounts(
+      state.sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      liquidity,
+   )?;
+
+   let slippage: f64 = slippage.parse().unwrap_or(0.5);
+
+   let amount0 = NumericValue::format_wei(amount0, pool.currency0().decimals());
+   let amount1 = NumericValue::format_wei(amount1, pool.currency1().decimals());
+
+   let amount0_min = amount0.calc_slippage(slippage, pool.currency0().decimals());
+   let amount1_min = amount1.calc_slippage(slippage, pool.currency1().decimals());
+
+   let deadline = TimeStamp::now_as_secs().add(60);
+   let mut increase_liquidity_params = INonfungiblePositionManager::IncreaseLiquidityParams {
+      tokenId: position.id,
+      amount0Desired: amount0.wei(),
+      amount1Desired: amount1.wei(),
+      amount0Min: amount0_min.wei(),
+      amount1Min: amount1_min.wei(),
+      deadline: U256::from(deadline.timestamp()),
+   };
+
+   let owner = from;
+
+   let factory = ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, None);
+   let fork_db = factory.new_sandbox_fork();
+
+   let block = block_fut.await?;
+   let token0_allowance = token0_allowance_fut.await?;
+   let token1_allowance = token1_allowance_fut.await?;
+
+   // Simulate the transaction
+   let eth_balance_after;
+   let increase_liquidity_sim_res;
+   let amount0_minted;
+   let amount1_minted;
+   let mut approve_sim_res_a = None;
+   let mut approve_sim_res_b = None;
+
+   {
+      let mut evm = new_evm(chain, block.as_ref(), fork_db.clone());
+      if token0_allowance < amount0.wei() {
+         let res = simulate::approve_token(
+            &mut evm,
+            pool.token0().address,
+            owner,
+            nft_contract,
+            U256::MAX,
+         )?;
+
+         approve_sim_res_a = Some(res);
+      }
+
+      if token1_allowance < amount1.wei() {
+         let res = simulate::approve_token(
+            &mut evm,
+            pool.token1().address,
+            owner,
+            nft_contract,
+            U256::MAX,
+         )?;
+
+         approve_sim_res_b = Some(res);
+      }
+
+      let now = Instant::now();
+      let (res, _liquidity, amount0, amount1) = simulate::increase_liquidity(
+         &mut evm,
+         increase_liquidity_params.clone(),
+         owner,
+         nft_contract,
+         true,
+      )?;
+
+      tracing::info!(
+         "Simulated Increase Liquidity in {} ms",
+         now.elapsed().as_millis()
+      );
+
+      amount0_minted = NumericValue::format_wei(amount0, pool.token0().decimals);
+      amount1_minted = NumericValue::format_wei(amount1, pool.token1().decimals);
+      increase_liquidity_sim_res = res;
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let min_amount0_minted = amount0_minted.calc_slippage(slippage, pool.token0().decimals);
+   let min_amount1_minted = amount1_minted.calc_slippage(slippage, pool.token1().decimals);
+
+   increase_liquidity_params.amount0Desired = amount0_minted.wei();
+   increase_liquidity_params.amount1Desired = amount1_minted.wei();
+   increase_liquidity_params.amount0Min = min_amount0_minted.wei();
+   increase_liquidity_params.amount1Min = min_amount1_minted.wei();
+
+   let currency0 = pool.currency0().clone();
+   let currency1 = pool.currency1().clone();
+
+   let amount0_usd = ctx.get_currency_value_for_amount(amount0_minted.f64(), &currency0);
+   let amount1_usd = ctx.get_currency_value_for_amount(amount1_minted.f64(), &currency1);
+
+   let min_amount0_usd = ctx.get_currency_value_for_amount(min_amount0_minted.f64(), &currency0);
+   let min_amount1_usd = ctx.get_currency_value_for_amount(min_amount1_minted.f64(), &currency1);
+
+   let position_params = UniswapPositionParams {
+      position_operation: PositionOperation::AddLiquidity,
+      currency0: currency0.clone(),
+      currency1: currency1.clone(),
+      amount0: amount0_minted.clone(),
+      amount1: amount1_minted.clone(),
+      amount0_usd: Some(amount0_usd),
+      amount1_usd: Some(amount1_usd),
+      min_amount0: Some(amount0_min.clone()),
+      min_amount0_usd: Some(min_amount0_usd),
+      min_amount1: Some(amount1_min.clone()),
+      min_amount1_usd: Some(min_amount1_usd),
+      sender: from,
+      recipient: None,
+   };
+
+   let eth_balance_before = ctx.get_eth_balance(chain.id(), from);
+
+   // Handle one-time token approvals for the nft contract if needed
+   if token0_allowance < amount0.wei() {
+      let sim_res = approve_sim_res_a.unwrap();
+
+      let call_data = pool.token0().encode_approve(nft_contract, U256::MAX);
+      let interact_to = pool.token0().address;
+      let value = U256::ZERO;
+      let contract_interact = Some(true);
+      let amount = NumericValue::format_wei(U256::MAX, pool.token0().decimals);
+      let auth_list = Vec::new();
+
+      let params = TokenApproveParams {
+         token: vec![pool.token0().into_owned()],
+         amount: vec![amount],
+         amount_usd: vec![None],
+         owner: from,
+         spender: nft_contract,
+      };
+
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
+         interact_to,
+         contract_interact,
+         call_data.clone(),
+         value,
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
+         eth_balance_after,
+         auth_list.clone(),
+      )
+      .await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
+
+      let (receipt, _) = send_transaction(
+         ctx.clone(),
+         "".to_string(),
+         Some(tx_analysis),
+         chain,
+         mev_protect,
+         from,
+         interact_to,
+         call_data,
+         value,
+         auth_list.clone(),
+      )
+      .await?;
+
+      if !receipt.status() {
+         return Err(anyhow!("Token Approval Failed"));
+      }
+   }
+
+   if token1_allowance < amount1.wei() {
+      let sim_res = approve_sim_res_b.unwrap();
+
+      let call_data = pool.token1().encode_approve(nft_contract, U256::MAX);
+      let interact_to = pool.token1().address;
+      let value = U256::ZERO;
+      let contract_interact = Some(true);
+      let amount = NumericValue::format_wei(U256::MAX, pool.token1().decimals);
+      let auth_list = Vec::new();
+
+      let params = TokenApproveParams {
+         token: vec![pool.token1().into_owned()],
+         amount: vec![amount],
+         amount_usd: vec![None],
+         owner: from,
+         spender: nft_contract,
+      };
+
+      let mut tx_analysis = TransactionAnalysis::new(
+         ctx.clone(),
+         chain.id(),
+         from,
+         interact_to,
+         contract_interact,
+         call_data.clone(),
+         value,
+         sim_res.logs().to_vec(),
+         sim_res.gas_used(),
+         eth_balance_before.wei(),
+         eth_balance_after,
+         auth_list.clone(),
+      )
+      .await?;
+
+      let main_event = DecodedEvent::TokenApprove(params);
+      tx_analysis.set_main_event(main_event);
+
+      let (receipt, _) = send_transaction(
+         ctx.clone(),
+         "".to_string(),
+         Some(tx_analysis),
+         chain,
+         mev_protect,
+         from,
+         interact_to,
+         call_data,
+         value,
+         auth_list,
+      )
+      .await?;
+
+      if !receipt.status() {
+         return Err(anyhow!("Token Approval Failed"));
+      }
+   }
+
+   // Now proceed with the call
+
+   let call_data = abi::uniswap::nft_position::encode_increase_liquidity(increase_liquidity_params);
+   let contract_interact = Some(true);
+   let interact_to = nft_contract;
+   let value = U256::ZERO;
+   let auth_list = Vec::new();
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      call_data.clone(),
+      value.clone(),
+      increase_liquidity_sim_res.logs().to_vec(),
+      increase_liquidity_sim_res.gas_used(),
+      eth_balance_before.wei(),
+      eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   let main_event = DecodedEvent::UniswapPositionOperation(position_params);
+   tx_analysis.set_main_event(main_event);
+
+   let (receipt, _) = send_transaction(
+      ctx.clone(),
+      "".to_string(),
+      Some(tx_analysis),
+      chain,
+      mev_protect,
+      from,
+      interact_to,
+      call_data,
+      value,
+      auth_list,
+   )
+   .await?;
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction failed"));
+   }
+
+   let updated_position =
+      abi::uniswap::nft_position::positions(client.clone(), nft_contract, position.id).await?;
+
+   // calculate the new amounts
+   let (new_amount0, new_amount1) = calculate_liquidity_amounts(
+      state.sqrt_price,
+      sqrt_price_lower,
+      sqrt_price_upper,
+      updated_position.liquidity,
+   )?;
+
+   let amount0_minted = NumericValue::format_wei(new_amount0, pool.token0().decimals);
+   let amount1_minted = NumericValue::format_wei(new_amount1, pool.token1().decimals);
+   let tokens_owed0 = NumericValue::format_wei(
+      updated_position.tokens_owed0,
+      pool.token0().decimals,
+   );
+   let tokens_owed1 = NumericValue::format_wei(
+      updated_position.tokens_owed1,
+      pool.token1().decimals,
+   );
+
+   // update the position
+   position.amount0 = amount0_minted;
+   position.amount1 = amount1_minted;
+   position.tokens_owed0 = tokens_owed0;
+   position.tokens_owed1 = tokens_owed1;
+   position.fee_growth_inside0_last_x128 = updated_position.fee_growth_inside0_last_x128;
+   position.fee_growth_inside1_last_x128 = updated_position.fee_growth_inside1_last_x128;
+   position.liquidity = updated_position.liquidity;
+
+   ctx.write(|ctx| {
+      ctx.v3_positions_db.insert(chain.id(), owner, position);
+   });
+
+   ctx.save_v3_positions_db();
+
+   let token0 = pool.currency0().to_erc20().into_owned();
+   let token1 = pool.currency1().to_erc20().into_owned();
+
+   // update balances
+   let ctx_clone = ctx.clone();
+   let tokens = vec![token0.clone(), token1.clone()];
+
+   RT.spawn(async move {
+      let manager = ctx_clone.balance_manager();
+
+      match manager
+         .update_tokens_balance(ctx_clone.clone(), chain.id(), from, tokens, true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update balances: {}", e);
+         }
+      }
+
+      match manager
+         .update_eth_balance(ctx_clone.clone(), chain.id(), vec![from], true)
+         .await
+      {
+         Ok(_) => {}
+         Err(e) => {
+            tracing::error!("Failed to update ETH balance: {}", e);
+         }
+      }
+
+      // Update the portfolio value
+      let mut portfolio = ctx_clone.get_portfolio(chain.id(), from);
+      portfolio.add_token(token0);
+      portfolio.add_token(token1);
+
+      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.save_balance_manager();
+      ctx_clone.save_portfolio_db();
+   });
+
+   Ok(())
+}

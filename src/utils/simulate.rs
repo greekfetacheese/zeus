@@ -1,17 +1,63 @@
-use crate::utils::RT;
 use crate::core::ZeusCtx;
+use crate::utils::RT;
 
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},
+   alloy_primitives::{Address, TxKind, Bytes, KECCAK256_EMPTY, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
-   revm_utils::revm::state::{AccountInfo, Bytecode},
+   revm_utils::{
+      Database, DatabaseCommit, revert_msg, Evm2, ExecuteCommitEvm, ExecutionResult,
+      revm::state::{AccountInfo, Bytecode},
+   },
 };
+use alloy_eips::eip7702::SignedAuthorization;
+use either::Either;
 
 use anyhow::anyhow;
 use std::sync::Arc;
 use tokio::{sync::Mutex, task::JoinHandle};
+
+pub fn simulate_transaction<DB>(
+   evm: &mut Evm2<DB>,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+   authorization_list: Vec<SignedAuthorization>,
+) -> Result<ExecutionResult, anyhow::Error>
+where
+   DB: Database + DatabaseCommit,
+{
+   evm.tx.chain_id = Some(evm.cfg.chain_id);
+   evm.tx.caller = from;
+   evm.tx.kind = TxKind::Call(interact_to);
+   evm.tx.data = call_data.clone();
+   evm.tx.value = value;
+
+   if authorization_list.len() > 0 {
+      evm.tx.authorization_list = authorization_list.into_iter().map(Either::Left).collect();
+      evm.tx.tx_type = 4;
+   }
+
+   let sim_res = evm
+      .transact_commit(evm.tx.clone())
+      .map_err(|e| anyhow!("Simulation failed: {:?}", e))?;
+   let output = sim_res.output().unwrap_or_default();
+   let gas_used = sim_res.gas_used();
+
+   if !sim_res.is_success() {
+      let err = revert_msg(output);
+      tracing::error!(
+         "Simulation failed: {} \n Gas Used {}",
+         err,
+         gas_used
+      );
+      return Err(anyhow!("Failed to simulate transaction: {}", err));
+   }
+
+   Ok(sim_res)
+}
 
 #[derive(Clone, Debug)]
 pub struct AccountInfo2 {

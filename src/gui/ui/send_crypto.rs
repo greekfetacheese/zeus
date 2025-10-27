@@ -3,8 +3,8 @@ use eframe::egui::{Align2, Button, FontId, Frame, Margin, RichText, TextEdit, Ui
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::core::{utils::eth, DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx};
-use crate::utils::{RT, estimate_tx_cost};
+use crate::core::{DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx};
+use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -530,7 +530,7 @@ async fn send_eth(
    let call_data = Bytes::default();
    let auth_list = Vec::new();
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       dapp,
       None,
@@ -700,7 +700,7 @@ async fn send_token(
 
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       dapp,
       Some(tx_analysis),

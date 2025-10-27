@@ -1,7 +1,6 @@
 use crate::core::ZeusCtx;
-use crate::core::utils::eth;
 use crate::gui::SHARED_GUI;
-use crate::utils::RT;
+use crate::utils::{RT, sign::sign_message, tx::send_transaction};
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -1185,7 +1184,7 @@ async fn eth_sign_typed_data_v4(
    };
 
    let chain = ctx.chain();
-   let signature = match eth::sign_message(ctx, origin.clone(), chain, typed_data_value).await {
+   let signature = match sign_message(ctx, origin.clone(), chain, typed_data_value).await {
       Ok(signature) => signature,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1278,7 +1277,7 @@ async fn personal_sign(
 
    let msg = json!(full_message);
    let chain = ctx.chain();
-   let signature = match eth::sign_message(ctx, origin, chain, msg).await {
+   let signature = match sign_message(ctx, origin, chain, msg).await {
       Ok(sig) => sig,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1512,7 +1511,7 @@ async fn eth_send_transaction(
    let chain = ctx.chain();
    let auth_list = Vec::new();
 
-   let (receipt, tx_rich) = match eth::send_transaction(
+   let (receipt, tx_rich) = match send_transaction(
       ctx.clone(),
       origin.clone(),
       None,

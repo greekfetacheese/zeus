@@ -14,11 +14,15 @@ use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 use zeus_theme::Theme;
 
-use crate::utils::RT;
 use crate::core::{
    Dapp, TransactionAnalysis, ZeusCtx,
    transaction::{DecodedEvent, SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
-   utils::eth,
+};
+use crate::utils::{
+   RT,
+   sign::sign_message,
+   simulate::{fetch_accounts_info, simulate_transaction},
+   tx::send_transaction,
 };
 
 use crate::utils::{
@@ -1482,13 +1486,13 @@ pub async fn wrap_eth(
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
       let time = Instant::now();
-      sim_res = eth::simulate_transaction(
+      sim_res = simulate_transaction(
          &mut evm,
          from,
          interact_to,
          call_data.clone(),
          value,
-         vec![]
+         vec![],
       )?;
       tracing::info!(
          "Simulate Transaction took {} ms",
@@ -1559,7 +1563,7 @@ pub async fn wrap_eth(
 
    let mev_protect = false;
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
       Some(tx_analysis),
@@ -1656,13 +1660,13 @@ pub async fn unwrap_weth(
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
       let time = Instant::now();
-      sim_res = eth::simulate_transaction(
+      sim_res = simulate_transaction(
          &mut evm,
          from,
          interact_to,
          call_data.clone(),
          value,
-         vec![]
+         vec![],
       )?;
 
       tracing::info!(
@@ -1733,7 +1737,7 @@ pub async fn unwrap_weth(
 
    let mev_protect = false;
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       "".to_string(),
       Some(tx_analysis),
@@ -1853,7 +1857,7 @@ async fn handle_approve(
       let main_event = DecodedEvent::TokenApprove(params.clone());
       analysis.set_main_event(main_event);
 
-      let (receipt, _) = eth::send_transaction(
+      let (receipt, _) = send_transaction(
          ctx.clone(),
          dapp,
          Some(analysis),
@@ -2062,13 +2066,13 @@ async fn swap_via_ur(
 
       let time = Instant::now();
 
-      sim_res = eth::simulate_transaction(
+      sim_res = simulate_transaction(
          &mut evm,
          signer_address,
          router_addr,
          params.call_data.clone(),
          params.value,
-         vec![]
+         vec![],
       )?;
 
       tracing::info!(
@@ -2109,7 +2113,7 @@ async fn swap_via_ur(
    if let Some(permit2_details) = &permit2_details_opt {
       if permit2_details.needs_new_signature {
          let msg = permit2_details.msg.clone().ok_or(anyhow!("No permit message found"))?;
-         let _sig = eth::sign_message(ctx.clone(), "".to_string(), chain, msg).await?;
+         let _sig = sign_message(ctx.clone(), "".to_string(), chain, msg).await?;
       }
    }
 
@@ -2181,7 +2185,7 @@ async fn swap_via_ur(
    let dapp = "".to_string();
    let auth_list = Vec::new();
 
-   let (_, _) = eth::send_transaction(
+   let (_, _) = send_transaction(
       ctx.clone(),
       dapp,
       Some(swap_tx_analysis),
