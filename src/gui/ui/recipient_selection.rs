@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx, user::Contact};
+use crate::core::{WalletInfo, ZeusCtx, Contact};
 use crate::gui::ui::ContactsUi;
 use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,

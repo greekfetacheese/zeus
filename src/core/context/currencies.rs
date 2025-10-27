@@ -12,7 +12,7 @@ use zeus_eth::{
 use bincode::{Decode, Encode, config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "currencies.json";
-pub const TOKENS: &[u8] = include_bytes!("../../../../token_data.data");
+pub const TOKENS: &[u8] = include_bytes!("../../../token_data.data");
 
 #[derive(Clone, Encode, Decode)]
 pub struct TokenData {

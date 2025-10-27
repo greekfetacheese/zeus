@@ -5,7 +5,7 @@ use eframe::egui::{
    ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
 };
 
-use crate::core::context::db::currencies::{TOKENS, TokenData};
+use crate::core::context::currencies::{TOKENS, TokenData};
 use zeus_theme::utils::TINT_1;
 use image::imageops::FilterType;
 use std::collections::HashMap;

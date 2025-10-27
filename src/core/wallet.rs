@@ -376,7 +376,7 @@ impl SecureHDWallet {
       let child_path = base_path.extended(self.next_child_index + BIP32_HARDEN);
 
       let child = xpriv.derive_path(child_path.clone())?;
-      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
+      let pkey = child.key.unlock(|slice| PrivateKeySigner::from_slice(slice))?;
 
       let address = pkey.address();
       let child_wallet = Wallet {

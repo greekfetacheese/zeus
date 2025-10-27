@@ -5,7 +5,7 @@ use egui_widgets::Label;
 use crate::assets::Icons;
 use crate::core::{
    TransactionAnalysis, ZeusCtx,
-   context::db::currencies::TokenData,
+   currencies::TokenData,
    transaction::*,
    utils::{RT, sign::SignMsgType},
 };
