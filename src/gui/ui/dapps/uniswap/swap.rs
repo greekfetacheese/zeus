@@ -2113,7 +2113,7 @@ async fn swap_via_ur(
    if let Some(permit2_details) = &permit2_details_opt {
       if permit2_details.needs_new_signature {
          let msg = permit2_details.msg.clone().ok_or(anyhow!("No permit message found"))?;
-         let _sig = sign_message(ctx.clone(), "".to_string(), chain, msg).await?;
+         let _sig = sign_message(ctx.clone(), "".to_string(), chain, Some(msg), None).await?;
       }
    }
 

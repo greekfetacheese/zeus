@@ -147,6 +147,8 @@ impl RequestMethod {
    }
 }
 
+const SAFE_UNCONNECTED_METHODS: &[RequestMethod] = &[RequestMethod::ChainId];
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct StatusResponse {
    pub status: bool,
@@ -1184,7 +1186,7 @@ async fn eth_sign_typed_data_v4(
    };
 
    let chain = ctx.chain();
-   let signature = match sign_message(ctx, origin.clone(), chain, typed_data_value).await {
+   let signature = match sign_message(ctx, origin.clone(), chain, Some(typed_data_value), None).await {
       Ok(signature) => signature,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1264,20 +1266,10 @@ async fn personal_sign(
       }
    };
 
-   // Prefix for personal_sign: "\x19Ethereum Signed Message:\n<length>" + message
-   let prefix = format!(
-      "\x19Ethereum Signed Message:\n{}",
-      message_bytes.len()
-   );
-   let full_message = format!(
-      "{}{}",
-      prefix,
-      String::from_utf8_lossy(&message_bytes)
-   );
+   let full_message = String::from_utf8_lossy(&message_bytes).to_string();
 
-   let msg = json!(full_message);
    let chain = ctx.chain();
-   let signature = match sign_message(ctx, origin, chain, msg).await {
+   let signature = match sign_message(ctx, origin, chain, None, Some(full_message)).await {
       Ok(sig) => sig,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1292,6 +1284,7 @@ async fn personal_sign(
 
    let sig_bytes = signature.as_bytes();
    let sig_hex = format!("0x{}", hex::encode(sig_bytes));
+   info!("Signature: {}", sig_hex);
 
    Ok(JsonRpcResponse::ok(
       Some(Value::String(sig_hex)),
@@ -1720,6 +1713,8 @@ async fn handle_request(
             method.as_str()
          );
          return connect(ctx, origin, payload, method).await;
+      } else if SAFE_UNCONNECTED_METHODS.contains(&method) {
+         // do nothing for now
       } else {
          error!(
             "Dapp at origin '{}' is not connected and tried to call method '{}'.",

@@ -10,7 +10,6 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::utils::sign::SignMsgType;
 
-use regex::Regex;
 use serde_json::{Value, to_string_pretty};
 use std::fmt::Write;
 use std::sync::Arc;
@@ -332,56 +331,29 @@ fn _permit2_batch_approval_ui(
 }
 
 fn format_sign_data(msg: &SignMsgType, _chain: ChainId) -> String {
-   let typed_data = msg.typed_data();
+    if msg.is_permit2_single() {
+        return format_permit2_single_approval(msg);
+    }
 
-   if msg.is_permit2_single() {
-      format_permit2_single_approval(msg)
-   } else if typed_data.is_some() {
-      let typed = typed_data.as_ref().unwrap();
-      format_typed_data(typed)
-   } else {
-      // Try JSON first
-      let mut raw = msg.msg_value().to_string();
-      // Strip outer quotes
-      if raw.starts_with('"') && raw.ends_with('"') {
-         raw = raw[1..raw.len() - 1].to_string();
-      }
+    if let Some(typed) = msg.typed_data() {
+        return format_typed_data(&typed);
+    }
 
-      match serde_json::from_str::<Value>(&raw) {
-         Ok(value) if value.is_object() => match to_string_pretty(&value) {
-            Ok(pretty) => pretty,
-            Err(e) => {
-               tracing::error!(
-                  "Pretty JSON conversion failed, returning raw {}",
-                  e
-               );
-               raw
-            }
-         },
-         _ => {
-            // Try as escaped plain string (personal_sign)
-            let unescaped = unescape_ethereum_message(&raw);
-            if unescaped.starts_with("\u{19}Ethereum Signed Message:\n") {
-               format_plain_message(unescaped)
-            } else if raw.starts_with("0x") {
-               // Hex: line-break chunks
-               let mut hex_formatted = String::new();
-               for chunk in raw.as_bytes().chunks(66) {
-                  writeln!(
-                     hex_formatted,
-                     "{}",
-                     std::str::from_utf8(chunk).unwrap_or(&raw)
-                  )
-                  .unwrap();
-               }
-               hex_formatted
+    if let Some(msg_str) = msg.msg_string() {
+        return msg_str;
+    }
+
+    // Fallback
+    match msg.msg_value() {
+        Value::String(s) => s,
+        val => {
+            if val.is_object() {
+                to_string_pretty(&val).unwrap_or_else(|_| val.to_string())
             } else {
-               // Plain text: wrap
-               textwrap::fill(&raw, 80)
+                val.to_string()
             }
-         }
-      }
-   }
+        }
+    }
 }
 
 fn format_permit2_single_approval(msg: &SignMsgType) -> String {
@@ -514,137 +486,4 @@ fn format_typed_data(typed_data: &TypedData) -> String {
    }
 
    formatted
-}
-
-/// Basic unescaper for Ethereum personal_sign payloads.
-/// Handles common escapes: \n, \r, \t, \uXXXX (unicode).
-/// Assumes input is a string with literal escape sequences (e.g., "\\n", "\\u0019").
-fn unescape_ethereum_message(raw: &str) -> String {
-   // This function remains unchanged
-   let mut result = String::new();
-   let mut i = 0;
-   while i < raw.len() {
-      if raw.as_bytes()[i] == b'\\' {
-         i += 1;
-         if i >= raw.len() {
-            result.push('\\');
-            break;
-         }
-         match raw.as_bytes()[i] as char {
-            'n' => {
-               result.push('\n');
-               i += 1;
-            }
-            'r' => {
-               result.push('\r');
-               i += 1;
-            }
-            't' => {
-               result.push('\t');
-               i += 1;
-            }
-            'u' => {
-               // Parse \uXXXX
-               i += 1;
-               if i + 4 <= raw.len() {
-                  let hex_str = &raw[i..i + 4];
-                  if let Ok(code) = u32::from_str_radix(hex_str, 16) {
-                     if let Some(ch) = char::from_u32(code) {
-                        result.push(ch);
-                     } else {
-                        // Invalid unicode: push as-is
-                        result.push_str("\\u");
-                        result.push_str(hex_str);
-                     }
-                  } else {
-                     result.push_str("\\u");
-                     result.push_str(hex_str);
-                  }
-                  i += 4;
-                  continue;
-               } else {
-                  result.push_str("\\u");
-               }
-            }
-            c => {
-               result.push('\\');
-               result.push(c);
-               i += 1;
-            }
-         }
-      } else {
-         result.push(raw.as_bytes()[i] as char);
-         i += 1;
-      }
-   }
-   result
-}
-
-/// Formats plain messages (e.g., personal_sign) for readability.
-/// Detects Ethereum prefix and structures it with sections.
-fn format_plain_message(unescaped: String) -> String {
-   let mut formatted = String::new();
-   let lines: Vec<&str> = unescaped.split('\n').collect();
-   // Detect and handle prefix
-   if let Some(first_line) = lines.first() {
-      if first_line.starts_with("\u{19}Ethereum Signed Message:") {
-         // NEW: Properly parse and skip the length to extract the clean message
-         let prefix = "\u{19}Ethereum Signed Message:\n";
-         let prefix_len = prefix.len();
-         let remaining = &unescaped[prefix_len..];
-         // Parse length (sequence of digits)
-         let mut len_str = String::new();
-         let mut bytes_skipped = 0;
-         for ch in remaining.chars() {
-            if ch.is_ascii_digit() {
-               len_str.push(ch);
-               bytes_skipped += ch.len_utf8();
-            } else {
-               break;
-            }
-         }
-         let msg_len: usize = match len_str.parse() {
-            Ok(l) => l,
-            Err(_) => {
-               tracing::error!("Failed to parse message length");
-               return textwrap::fill(&unescaped, 80);
-            }
-         };
-         let msg_start = prefix_len + bytes_skipped;
-         if unescaped.len() - msg_start != msg_len {
-            tracing::error!("Message length mismatch");
-            return textwrap::fill(&unescaped, 80);
-         }
-         let message = &unescaped[msg_start..];
-         // Now process the clean message
-         let msg_lines: Vec<&str> = message.split('\n').collect();
-         // First line: App + action
-         if let Some(app_line) = msg_lines.first() {
-            writeln!(formatted, "{}", app_line.trim()).unwrap();
-            writeln!(formatted).unwrap();
-         }
-         // Params: URI, Version, etc. – treat as key: value
-         let param_re = Regex::new(r"(URI|Version|Chain ID|Nonce|Issued At): (.*)").unwrap();
-         let mut in_params = false;
-         for line in msg_lines.iter().skip(1) {
-            if param_re.is_match(line) {
-               in_params = true;
-               let caps = param_re.captures(line).unwrap();
-               let key = caps.get(1).unwrap().as_str();
-               let value = caps.get(2).unwrap().as_str();
-               writeln!(formatted, "{}: {}", key, value).unwrap();
-            } else if line.trim().is_empty() {
-               if in_params {
-                  break; // End of params
-               }
-            } else {
-               // Fallback: just add line
-               writeln!(formatted, "{}", line.trim()).unwrap();
-            }
-         }
-         return formatted;
-      }
-   }
-   // Fallback: Simple multiline with wrapping
-   textwrap::fill(&unescaped, 80)
 }

@@ -1,31 +1,30 @@
 use crate::gui::SHARED_GUI;
-use crate::{utils::TimeStamp, core::ZeusCtx};
+use crate::{core::ZeusCtx, utils::TimeStamp};
 use anyhow::anyhow;
 use serde_json::{Value, json};
 use std::str::FromStr;
 use std::time::Duration;
 use zeus_eth::{
-   types::ChainId,
    abi::permit::Permit2,
    alloy_dyn_abi::TypedData,
    alloy_primitives::{Address, U256},
    alloy_signer::{Signature, Signer},
    currency::{Currency, ERC20Token},
+   types::ChainId,
    utils::{NumericValue, SecureSigner, address_book, parse_typed_data},
 };
 
 const PERMIT_SINGLE: &str = "PermitSingle";
-
-
 
 /// Prompt the user to sign a message
 pub async fn sign_message(
    ctx: ZeusCtx,
    dapp: String,
    chain: ChainId,
-   msg: Value,
+   msg_value: Option<Value>,
+   msg_string: Option<String>,
 ) -> Result<Signature, anyhow::Error> {
-   let msg_type = SignMsgType::from_msg(ctx.clone(), chain.id(), msg).await;
+   let msg_type = SignMsgType::new(ctx.clone(), chain.id(), msg_value, msg_string).await?;
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
@@ -69,12 +68,11 @@ pub async fn sign_message(
    Ok(signature)
 }
 
-
 #[derive(Debug, Clone)]
 pub enum SignMsgType {
    Permit2(Permit2Details),
    Permit2Batch(Permit2BatchDetails),
-   PersonalSign(Value),
+   PersonalSign(String),
    Other(Value),
 }
 
@@ -83,18 +81,25 @@ impl SignMsgType {
       Self::Permit2(Permit2Details::dummy())
    }
 
-   pub async fn from_msg(ctx: ZeusCtx, chain: u64, msg: Value) -> Self {
-      let mut msg_type = Self::Other(msg.clone());
-
-      if let Ok(details) = Permit2Details::new(ctx, chain, msg).await {
-         msg_type = Self::Permit2(details);
+   pub async fn new(
+      ctx: ZeusCtx,
+      chain: u64,
+      msg_value: Option<Value>,
+      msg_string: Option<String>,
+   ) -> Result<Self, anyhow::Error> {
+      if let Some(string) = msg_string {
+         return Ok(Self::PersonalSign(string));
       }
 
-      msg_type
-   }
+      if let Some(value) = msg_value {
+         let mut msg_type = Self::Other(value.clone());
+         if let Ok(details) = Permit2Details::new(ctx, chain, value).await {
+            msg_type = Self::Permit2(details);
+         }
+         return Ok(msg_type);
+      }
 
-   pub fn from_message(message: String) -> Self {
-      Self::PersonalSign(json!(message))
+      return Err(anyhow!("No message found"));
    }
 
    pub fn is_known(&self) -> bool {
@@ -117,6 +122,13 @@ impl SignMsgType {
       matches!(self, Self::PersonalSign(_))
    }
 
+   pub fn msg_string(&self) -> Option<String> {
+      match self {
+         Self::PersonalSign(msg) => Some(msg.clone()),
+         _ => None,
+      }
+   }
+
    pub fn typed_data(&self) -> Option<TypedData> {
       match self {
          Self::Permit2(details) => match parse_typed_data(details.raw_msg.clone()) {
@@ -127,10 +139,7 @@ impl SignMsgType {
             Ok(data) => Some(data),
             Err(_) => None,
          },
-         Self::PersonalSign(msg) => match parse_typed_data(msg.clone()) {
-            Ok(data) => Some(data),
-            Err(_) => None,
-         },
+         Self::PersonalSign(_) => None,
          Self::Other(details) => match parse_typed_data(details.clone()) {
             Ok(data) => Some(data),
             Err(_) => None,
@@ -178,12 +187,12 @@ impl SignMsgType {
       }
    }
 
-   pub fn msg_value(&self) -> &Value {
+   pub fn msg_value(&self) -> Value {
       match self {
-         Self::Permit2(details) => &details.msg_value,
-         Self::Permit2Batch(details) => &details.msg_value,
-         Self::PersonalSign(msg) => &msg,
-         Self::Other(details) => &details,
+         Self::Permit2(details) => details.msg_value.clone(),
+         Self::Permit2Batch(details) => details.msg_value.clone(),
+         Self::PersonalSign(msg) => json!(msg),
+         Self::Other(details) => details.clone(),
       }
    }
 
@@ -408,7 +417,7 @@ mod tests {
    async fn test_permit2_details() {
       let ctx = ZeusCtx::new();
       let json = dummy_permit2_json();
-      let msg_type = SignMsgType::from_msg(ctx, 8453, json).await;
+      let msg_type = SignMsgType::new(ctx, 8453, Some(json), None).await.unwrap();
       let permit2 = msg_type.permit2_details();
 
       assert_eq!(
