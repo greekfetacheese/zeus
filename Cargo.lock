@@ -6361,15 +6361,14 @@ dependencies = [
 
 [[package]]
 name = "secure-types"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81c6f0d04c3c38882fa0db661f2d7d1c4539681a5ba90a36519965b4ab441ddb"
+checksum = "67c3869fe794a8dea8ae1f0ead68e46710118dc4c8c7883fb5855ab5d8d3a5da"
 dependencies = [
  "libc",
  "memsec",
  "serde",
  "thiserror 2.0.17",
- "windows-sys 0.45.0",
  "zeroize",
 ]
 
