@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::core::utils::RT;
+use crate::utils::RT;
 use crate::core::{
    PoolManagerHandle, ZeusCtx,
    context::{DEFAULT_POOL_MINIMUM_LIQUIDITY, data_dir},

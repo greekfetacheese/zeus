@@ -1,6 +1,7 @@
 use crate::assets::Icons;
 use zeus_bip32::BIP32_HARDEN;
-use crate::core::{DiscoveredWallets, Portfolio, SecureHDWallet, ZeusCtx, utils::RT};
+use crate::utils::RT;
+use crate::core::{DiscoveredWallets, Portfolio, SecureHDWallet, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner,

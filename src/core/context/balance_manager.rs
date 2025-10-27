@@ -1,4 +1,5 @@
-use crate::core::{ZeusCtx, context::data_dir, serde_hashmap, utils::RT};
+use crate::core::{ZeusCtx, context::data_dir, serde_hashmap};
+use crate::utils::RT;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 

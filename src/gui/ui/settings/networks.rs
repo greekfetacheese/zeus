@@ -1,5 +1,6 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, client::Rpc, utils::RT};
+use crate::utils::RT;
+use crate::core::{ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use eframe::egui::{
    Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,

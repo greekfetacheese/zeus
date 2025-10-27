@@ -1,4 +1,5 @@
-use crate::core::{ZeusCtx, utils::RT};
+use crate::utils::RT;
+use crate::core::ZeusCtx;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},

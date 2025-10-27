@@ -11,7 +11,8 @@ use tokio::{
 use tracing::{error, info, trace};
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
-use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap, utils::RT};
+use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap};
+use crate::utils::RT;
 use zeus_eth::{
    abi::zeus::ZeusStateView,
    alloy_primitives::{Address, B256},

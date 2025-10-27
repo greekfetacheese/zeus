@@ -1,5 +1,6 @@
 use super::transaction::*;
-use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
+use crate::core::{Dapp, ZeusCtx};
+use crate::utils::truncate_address;
 use alloy_eips::eip7702::SignedAuthorization;
 use serde::{Deserialize, Serialize};
 use zeus_eth::{

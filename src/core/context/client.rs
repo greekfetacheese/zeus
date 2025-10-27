@@ -1,4 +1,5 @@
-use crate::core::{ZeusCtx, context::data_dir, utils::RT};
+use crate::core::{ZeusCtx, context::data_dir};
+use crate::utils::RT;
 use zeus_eth::{
    abi::{weth9, zeus::ZeusStateView},
    alloy_primitives::Address,
@@ -1353,7 +1354,6 @@ async fn validate_v4_pools_check(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::core::utils::RT;
    use zeus_eth::alloy_provider::Provider;
 
    #[tokio::test]

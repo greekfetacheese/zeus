@@ -1,4 +1,3 @@
-use super::parse_typed_data;
 use crate::{utils::TimeStamp, core::ZeusCtx};
 use anyhow::anyhow;
 use serde_json::{Value, json};
@@ -9,7 +8,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_signer::{Signature, Signer},
    currency::{Currency, ERC20Token},
-   utils::{NumericValue, SecureSigner, address_book},
+   utils::{NumericValue, SecureSigner, address_book, parse_typed_data},
 };
 
 const PERMIT_SINGLE: &str = "PermitSingle";

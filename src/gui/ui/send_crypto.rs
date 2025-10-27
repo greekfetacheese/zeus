@@ -3,10 +3,8 @@ use eframe::egui::{Align2, Button, FontId, Frame, Margin, RichText, TextEdit, Ui
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::core::{
-   DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx,
-   utils::{RT, estimate_tx_cost, eth},
-};
+use crate::core::{utils::eth, DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx};
+use crate::utils::{RT, estimate_tx_cost};
 
 use crate::assets::icons::Icons;
 use crate::gui::{

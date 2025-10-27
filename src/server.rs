@@ -1,6 +1,7 @@
 use crate::core::ZeusCtx;
-use crate::core::utils::{RT, eth};
+use crate::core::utils::eth;
 use crate::gui::SHARED_GUI;
+use crate::utils::RT;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

@@ -1,4 +1,4 @@
-use super::{RT, tx::TxParams, update};
+use super::{tx::TxParams, update};
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use crate::{
    core::{
@@ -6,9 +6,9 @@ use crate::{
       client::TIMEOUT_FOR_SENDING_TX,
       misc::V3Position,
       transaction::*,
-      utils::{estimate_tx_cost, sign::SignMsgType, tx},
+      utils::{sign::SignMsgType, tx},
    },
-   utils::{TimeStamp, simulate::fetch_accounts_info},
+   utils::{misc::*, simulate::fetch_accounts_info},
 };
 use anyhow::{Context, anyhow};
 use serde_json::Value;

@@ -6,7 +6,8 @@ use std::sync::Arc;
 use zeus_eth::amm::uniswap::DexKind;
 
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, ZeusCtx, utils::RT};
+use crate::utils::RT;
+use crate::core::{Wallet, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 

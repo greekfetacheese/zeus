@@ -1,5 +1,6 @@
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, Vault, utils::RT};
+use crate::utils::RT;
+use crate::core::{ZeusCtx, Vault};
 use crate::gui::SHARED_GUI;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,

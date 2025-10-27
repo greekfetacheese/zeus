@@ -1,5 +1,5 @@
-use crate::core::{Dapp, ZeusCtx, utils::truncate_address};
-use crate::utils::TimeStamp;
+use crate::core::{Dapp, ZeusCtx};
+use crate::utils::{TimeStamp, truncate_address};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{

@@ -14,10 +14,11 @@ use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 use zeus_theme::Theme;
 
+use crate::utils::RT;
 use crate::core::{
    Dapp, TransactionAnalysis, ZeusCtx,
    transaction::{DecodedEvent, SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
-   utils::{RT, eth},
+   utils::eth,
 };
 
 use crate::utils::{

@@ -1,7 +1,7 @@
+use crate::utils::RT;
 use crate::core::{
    BaseFee, ZeusCtx,
    context::{Portfolio, price_manager::TOKEN_PRICE_UPDATE_INTERVAL},
-   utils::*,
 };
 use anyhow::{anyhow, bail};
 use std::collections::HashSet;
@@ -12,7 +12,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::DexKind,
-   currency::ERC20Token,
+   currency::{Currency, ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };

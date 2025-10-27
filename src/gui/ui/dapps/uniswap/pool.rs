@@ -2,7 +2,8 @@ use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, U
 use egui_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::truncate_symbol_or_name};
+use crate::utils::truncate_symbol_or_name;
+use crate::core::ZeusCtx;
 use zeus_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};

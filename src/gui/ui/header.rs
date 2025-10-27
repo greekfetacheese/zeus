@@ -1,6 +1,7 @@
 use crate::assets::icons::Icons;
-use crate::core::utils::{eth, truncate_address};
-use crate::core::{Wallet, ZeusCtx, utils::RT};
+use crate::utils::{truncate_address, RT};
+use crate::core::utils::eth;
+use crate::core::{Wallet, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, REFRESH, WalletSelect},

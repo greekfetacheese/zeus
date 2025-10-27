@@ -28,12 +28,9 @@ pub const GREEN_CHECK: &str = "✅";
 pub const REFRESH: &str = "⟲";
 
 use crate::assets::icons::Icons;
-use crate::core::{
-   ZeusCtx,
-   utils::{truncate_address, truncate_hash},
-};
-use egui::{Align, Layout, FontFamily, RichText, Ui};
-use zeus_theme::Theme;
+use crate::core::ZeusCtx;
+use crate::utils::{truncate_address, truncate_hash};
+use egui::{Align, FontFamily, Layout, RichText, Ui};
 use egui_widgets::Label;
 use zeus_eth::{
    alloy_primitives::{Address, TxHash},
@@ -41,6 +38,7 @@ use zeus_eth::{
    types::ChainId,
    utils::NumericValue,
 };
+use zeus_theme::Theme;
 
 use std::sync::Arc;
 
@@ -90,9 +88,7 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
          let explorer = chain.block_explorer();
          let link = format!("{}/tx/{}", explorer, tx_hash);
          ui.hyperlink_to(
-            RichText::new(hash_str)
-               .size(theme.text_sizes.large)
-               .color(theme.colors.info),
+            RichText::new(hash_str).size(theme.text_sizes.large).color(theme.colors.info),
             link,
          );
       });
@@ -151,7 +147,8 @@ pub fn contract_interact(
          ui.hyperlink_to(
             RichText::new(interact_to_name)
                .size(theme.text_sizes.large)
-               .color(theme.colors.info).family(inter_bold()),
+               .color(theme.colors.info)
+               .family(inter_bold()),
             link,
          );
       });
@@ -187,7 +184,8 @@ pub fn address(
          ui.hyperlink_to(
             RichText::new(address_name)
                .size(theme.text_sizes.large)
-               .color(theme.colors.info).family(inter_bold()),
+               .color(theme.colors.info)
+               .family(inter_bold()),
             link,
          );
       });

@@ -1,12 +1,9 @@
-use crate::core::{
-   TransactionRich, WalletInfo, ZeusCtx,
-   utils::{RT, truncate_address},
-};
+use crate::core::{TransactionRich, WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::utils::{RT, truncate_address};
 use egui::{Align, Button, ComboBox, Frame, Grid, Layout, Margin, RichText, ScrollArea, Ui, vec2};
-use zeus_theme::Theme;
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
-
+use zeus_theme::Theme;
 
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 

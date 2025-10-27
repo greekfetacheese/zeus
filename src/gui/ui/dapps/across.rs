@@ -1,7 +1,8 @@
 use crate::assets::icons::Icons;
+use crate::utils::{RT, estimate_tx_cost};
 use crate::core::{
    ZeusCtx, data_dir,
-   utils::{RT, estimate_tx_cost, eth},
+   utils::eth,
 };
 use crate::gui::{
    SHARED_GUI,

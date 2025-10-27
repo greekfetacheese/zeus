@@ -15,7 +15,8 @@ use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, utils::RT};
+use crate::utils::RT;
+use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use std::str::FromStr;

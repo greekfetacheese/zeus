@@ -1,13 +1,10 @@
 use egui::{FontData, FontDefinitions, FontFamily};
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::{
-   ZeusCtx,
-   context::load_theme_kind,
-   utils::{RT, update},
-};
+use crate::core::{ZeusCtx, context::load_theme_kind, utils::update};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
+use crate::utils::RT;
 use eframe::{
    CreationContext,
    egui::{self, Frame},
@@ -164,21 +161,17 @@ impl eframe::App for ZeusApp {
 }
 
 pub fn setup_fonts(ctx: &egui::Context) {
-    let mut fonts = FontDefinitions::default();
+   let mut fonts = FontDefinitions::default();
 
-    let inter_bold = FontData::from_static(INTER_BOLD_18);
-    fonts.font_data.insert(
-        "inter_bold".to_owned(),
-        Arc::new(inter_bold),
-    );
+   let inter_bold = FontData::from_static(INTER_BOLD_18);
+   fonts.font_data.insert("inter_bold".to_owned(), Arc::new(inter_bold));
 
-    let mut newfam = std::collections::BTreeMap::new();
-    newfam.insert(
-        FontFamily::Name("inter_bold".into()),
-        vec!["inter_bold".to_owned()],
-    );
-    fonts.families.append(&mut newfam);
+   let mut newfam = std::collections::BTreeMap::new();
+   newfam.insert(
+      FontFamily::Name("inter_bold".into()),
+      vec!["inter_bold".to_owned()],
+   );
+   fonts.families.append(&mut newfam);
 
-
-    ctx.set_fonts(fonts);
+   ctx.set_fonts(fonts);
 }

@@ -5,7 +5,7 @@ use eframe::egui::{
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::core::utils::{RT, truncate_symbol_or_name};
+use crate::utils::{RT, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use std::{str::FromStr, sync::Arc};
