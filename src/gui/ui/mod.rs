@@ -147,8 +147,7 @@ pub fn contract_interact(
          ui.hyperlink_to(
             RichText::new(interact_to_name)
                .size(theme.text_sizes.large)
-               .color(theme.colors.info)
-               .family(inter_bold()),
+               .color(theme.colors.info),
             link,
          );
       });
@@ -184,8 +183,7 @@ pub fn address(
          ui.hyperlink_to(
             RichText::new(address_name)
                .size(theme.text_sizes.large)
-               .color(theme.colors.info)
-               .family(inter_bold()),
+               .color(theme.colors.info),
             link,
          );
       });
