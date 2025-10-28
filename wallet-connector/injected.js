@@ -1,4 +1,4 @@
-const MAX_LISTENERS = 20;
+const MAX_LISTENERS = 100;
 
 class EventEmitter {
     constructor() {
