@@ -7,9 +7,12 @@ use serde_json::{Value, json};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tracing::{error, info};
-use warp::Filter;
+use warp::{Filter, Rejection, http::StatusCode};
 
+use std::num::NonZeroU32;
 use std::str::FromStr;
+use std::sync::Arc;
+
 use zeus_eth::{
    alloy_network::TransactionBuilder,
    alloy_primitives::{Address, Bytes, TxHash, U256, hex},
@@ -19,8 +22,44 @@ use zeus_eth::{
    types::ChainId,
 };
 
+use governor::{
+   Quota, RateLimiter,
+   clock::DefaultClock,
+   middleware::NoOpMiddleware,
+   state::{InMemoryState, direct::NotKeyed},
+};
+
+type RateLimiterType = Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock, NoOpMiddleware>>;
+
+fn global_rate_limit(
+   limiter: RateLimiterType,
+) -> impl Filter<Extract = (), Error = Rejection> + Clone {
+   warp::any()
+      .and_then(move || {
+         let limiter = limiter.clone();
+         async move {
+            match limiter.check() {
+               Ok(_) => Ok(()),
+               Err(_) => Err(warp::reject::custom(
+                  RateLimitRejection::RateLimited,
+               )),
+            }
+         }
+      })
+      .untuple_one()
+}
+
+#[derive(Debug)]
+enum RateLimitRejection {
+   RateLimited,
+}
+
+impl warp::reject::Reject for RateLimitRejection {}
+
 /// Default server port
 pub const SERVER_PORT: u16 = 65534;
+
+const RPS: u32 = 30;
 
 // EIP-1193 Error codes
 pub const USER_REJECTED_REQUEST: i32 = 4001;
@@ -1186,7 +1225,15 @@ async fn eth_sign_typed_data_v4(
    };
 
    let chain = ctx.chain();
-   let signature = match sign_message(ctx, origin.clone(), chain, Some(typed_data_value), None).await {
+   let signature = match sign_message(
+      ctx,
+      origin.clone(),
+      chain,
+      Some(typed_data_value),
+      None,
+   )
+   .await
+   {
       Ok(signature) => signature,
       Err(e) => {
          SHARED_GUI.write(|gui| {
@@ -1768,6 +1815,20 @@ async fn handle_request(
    }
 }
 
+async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, std::convert::Infallible> {
+   if let Some(_) = err.find::<RateLimitRejection>() {
+      Ok(warp::reply::with_status(
+         "Too Many Requests",
+         StatusCode::TOO_MANY_REQUESTS,
+      ))
+   } else {
+      Ok(warp::reply::with_status(
+         "Internal Server Error",
+         StatusCode::INTERNAL_SERVER_ERROR,
+      ))
+   }
+}
+
 // Handler for POST /api (JSON-RPC)
 async fn api_handler(ctx: ZeusCtx, body: ApiRequestBody) -> Result<impl warp::Reply, Infallible> {
    let origin = body.origin;
@@ -1782,6 +1843,9 @@ fn with_ctx(ctx: ZeusCtx) -> impl Filter<Extract = (ZeusCtx,), Error = Infallibl
 }
 
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
+   let quota = Quota::per_second(NonZeroU32::new(RPS).unwrap());
+   let limiter = Arc::new(RateLimiter::direct(quota));
+
    let cors = warp::cors()
       .allow_any_origin()
       .allow_methods(vec!["GET", "POST", "OPTIONS"])
@@ -1797,11 +1861,16 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
    let api_route = warp::path!("api")
       .and(warp::post())
       .and(with_ctx(ctx.clone()))
+      .and(global_rate_limit(limiter))
       .and(warp::body::json::<ApiRequestBody>())
       .and_then(api_handler);
 
    // Combine Routes
-   let routes = status_route.or(api_route).with(cors).with(warp::trace::request());
+   let routes = status_route
+      .or(api_route)
+      .with(cors)
+      .with(warp::trace::request())
+      .recover(handle_rejection);
 
    let port = ctx.server_port();
    let addr = SocketAddr::from(([127, 0, 0, 1], port));
