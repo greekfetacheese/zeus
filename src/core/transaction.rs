@@ -833,7 +833,8 @@ impl SwapParams {
          return Err(anyhow::anyhow!("V4 Pool not found in cache"));
       };
 
-      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_positive() {
+      // In V4 the negative amount is token amount we are selling
+      let (amount_in, currency_in, amount_out, currency_out) = if swap.amount0.is_negative() {
          (
             swap.amount0,
             pool.currency0().clone(),
@@ -849,8 +850,8 @@ impl SwapParams {
          )
       };
 
-      let amount_in = amount_in.to_string().parse::<U256>()?;
-      let amount_out = amount_out.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_in = amount_in.to_string().trim_start_matches('-').parse::<U256>()?;
+      let amount_out = amount_out.to_string().parse::<U256>()?;
 
       let amount_in = NumericValue::format_wei(amount_in, currency_in.decimals());
       let amount_out = NumericValue::format_wei(amount_out, currency_out.decimals());

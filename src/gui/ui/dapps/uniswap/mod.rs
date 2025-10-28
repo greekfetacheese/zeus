@@ -15,10 +15,10 @@ use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::utils::RT;
 use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
+use crate::utils::RT;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_theme::Theme;
@@ -277,30 +277,30 @@ impl UniswapSettingsUi {
                ui.add_space(10.0);
 
                let text = RichText::new("Swap on V2").size(theme.text_sizes.normal);
-               let swap_on_v2_before = self.swap_on_v2;
+               let v2_was_on = self.swap_on_v2;
                let v2_res = ui.checkbox(&mut self.swap_on_v2, text);
 
                ui.add_space(10.0);
 
                let text = RichText::new("Swap on V3").size(theme.text_sizes.normal);
-               let swap_on_v3_before = self.swap_on_v3;
+               let v3_was_on = self.swap_on_v3;
                let v3_res = ui.checkbox(&mut self.swap_on_v3, text);
 
                ui.add_space(10.0);
 
                let text = RichText::new("Swap on V4").size(theme.text_sizes.normal);
-               let swap_on_v4_before = self.swap_on_v4;
+               let v4_was_on = self.swap_on_v4;
                let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
 
                ui.add_space(15.0);
 
                if v2_res.changed() || v3_res.changed() || v4_res.changed() {
                   let ctx_clone = ctx.clone();
+                  let update_v2 = self.swap_on_v2 && !v2_was_on;
+                  let update_v3 = self.swap_on_v3 && !v3_was_on;
+                  let update_v4 = self.swap_on_v4 && !v4_was_on;
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
-                        let update_v2 = !swap_on_v2_before;
-                        let update_v3 = !swap_on_v3_before;
-                        let update_v4 = !swap_on_v4_before;
                         gui.uniswap
                            .swap_ui
                            .update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
