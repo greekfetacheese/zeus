@@ -108,7 +108,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
    println!(
       "Cost in USD: ${}",
-      cost_in_usd.format_abbreviated()
+      cost_in_usd.abbreviated()
    );
    std::io::stdout().flush().unwrap();
 

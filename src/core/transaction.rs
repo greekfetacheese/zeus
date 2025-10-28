@@ -105,7 +105,9 @@ impl DecodedEvent {
       let owner = Address::ZERO;
       let token = Currency::from(ERC20Token::weth());
       let spender = Address::ZERO;
-      let amount = NumericValue::parse_to_wei("100", 18);
+
+      let wei = U256::MAX - U256::from(1);
+      let amount = NumericValue::format_wei(wei, 18);
       let amount_usd = Some(NumericValue::value(amount.f64(), 1600.0));
       let expiration = TimeStamp::now_as_secs().add(600);
 

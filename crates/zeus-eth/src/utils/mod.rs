@@ -284,12 +284,19 @@ fn format_number(n: f64) -> String {
 }
 
 fn _format_abbreviated(n: f64) -> Option<String> {
-   // less than a million just return it as it is
    if n < 1_000_000.0 {
       return None;
    }
 
-   let suffixes = ["", "K", "M", "B", "T"];
+   let one_sextillion = 1_000_000_000_000_000_000_000.0;
+
+   // Just return unlimited for now, these numbers doesn't make sense anyway
+   if n > one_sextillion {
+     return Some(format!("Unlimited"));
+   }
+
+   // Up to sextillion 10^21
+   let suffixes = ["", "K", "M", "B", "T", "Q", "Q", "S"];
    let magnitude = (n.log10() / 3.0).floor() as usize;
    let magnitude = magnitude.min(suffixes.len() - 1);
    let divisor = 1000.0f64.powi(magnitude as i32);
@@ -540,31 +547,6 @@ impl NumericValue {
          None => self.formatted(),
       }
    }
-
-   /// Formats the `f64` value into a compact string with abbreviations.
-   /// Examples:
-   /// - 1,234.56 → "1234.56"
-   /// - 725,000,000.34 → "725M"
-   /// - 725,230,000.00 → "725.23M"
-   /// - 12,345,678,900,000 → "12.35T"
-   pub fn format_abbreviated(&self) -> String {
-      let n = self.f64;
-      // less than a million just return it as it is
-      if n < 1_000_000.0 {
-         return self.formatted();
-      }
-
-      let suffixes = ["", "K", "M", "B", "T"];
-      let magnitude = (n.log10() / 3.0).floor() as usize;
-      let magnitude = magnitude.min(suffixes.len() - 1);
-      let divisor = 1000.0f64.powi(magnitude as i32);
-      let scaled = n / divisor;
-      let formatted = format!("{:.2}", scaled)
-         .trim_end_matches('0')
-         .trim_end_matches('.')
-         .to_string();
-      format!("{}{}", formatted, suffixes[magnitude])
-   }
 }
 
 #[cfg(test)]
@@ -599,6 +581,18 @@ mod tests {
       let amount = parse_ether("12345678900000").unwrap();
       let value = NumericValue::currency_balance(amount, 18);
       assert_eq!(value.abbreviated(), "12.35T");
+
+      // 1 quadrillion → "1Q"
+      let one_quad = 1_000_000_000_000_000.0;
+      let amount = parse_ether(&one_quad.to_string()).unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.abbreviated(), "1Q");
+
+      // 2 Sextillion → "Unlimited"
+      let two_sextillion = 2_000_000_000_000_000_000_000.0;
+      let amount = parse_ether(&two_sextillion.to_string()).unwrap();
+      let value = NumericValue::currency_balance(amount, 18);
+      assert_eq!(value.abbreviated(), "Unlimited");
    }
 
    #[test]
@@ -636,7 +630,7 @@ mod tests {
       assert_eq!(value.wei(), U256::from(1000000000000u128));
       assert_eq!(value.f64, 0.000001);
 
-      let abbreviated = format!("{:.10}", value.format_abbreviated());
+      let abbreviated = format!("{:.10}", value.abbreviated());
       assert_eq!(abbreviated, "0.000001");
    }
 
@@ -673,7 +667,7 @@ mod tests {
    fn test_very_low_price() {
       let price = 0.000001834247995202872;
       let value = NumericValue::currency_price(price);
-      let value_formatted = format!("{:.10}", value.format_abbreviated());
+      let value_formatted = format!("{:.10}", value.abbreviated());
       assert_eq!(value_formatted, "0.00000183");
    }
 
