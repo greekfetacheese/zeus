@@ -3,9 +3,9 @@ use super::{
    price_manager::PriceManagerHandle,
 };
 
-use crate::utils::state::test_and_measure_rpcs;
 use crate::core::{Vault, Wallet, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
+use crate::utils::state::test_and_measure_rpcs;
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
@@ -16,9 +16,9 @@ use std::{
 use zeus_theme::ThemeKind;
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
-   alloy_rpc_types::BlockId,
+   alloy_rpc_types::{BlockId, Transaction, TransactionReceipt, TransactionRequest},
    amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
@@ -807,23 +807,272 @@ impl ZeusCtx {
       Ok(())
    }
 
-   pub async fn get_latest_block(&self) -> Result<Option<Block>, anyhow::Error> {
-      let chain = self.chain();
-      let block_time = chain.block_time_millis();
-      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-      let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
+   pub async fn get_receipt_by_hash(
+      &self,
+      hash: FixedBytes<32>,
+   ) -> Result<Option<TransactionReceipt>, anyhow::Error> {
+      let chain = self.chain().id();
 
-      if let Some(block) = block {
+      let receipt = self.read(|ctx| ctx.receipts.get(&(chain, hash)).cloned());
+
+      if let Some(receipt) = receipt {
+         return Ok(Some(receipt));
+      }
+
+      let client = self.get_zeus_client();
+      let receipt = client
+         .request(chain, |client| async move {
+            client.get_transaction_receipt(hash).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      if let Some(receipt) = &receipt {
+         self.write(|ctx| {
+            ctx.receipts.insert((chain, hash), receipt.clone());
+            let len = ctx.receipts.len();
+            if len >= 20 {
+               let oldest = ctx.receipts.iter().next().unwrap().0.clone();
+               ctx.receipts.remove(&oldest);
+            }
+         });
+      }
+
+      Ok(receipt)
+   }
+
+   pub async fn get_tx_by_hash(
+      &self,
+      hash: FixedBytes<32>,
+   ) -> Result<Option<Transaction>, anyhow::Error> {
+      let chain = self.chain().id();
+
+      let transaction = self.read(|ctx| ctx.transactions.get(&(chain, hash)).cloned());
+
+      if let Some(transaction) = transaction {
+         return Ok(Some(transaction));
+      }
+
+      let client = self.get_zeus_client();
+      let transaction = client
+         .request(chain, |client| async move {
+            client.get_transaction_by_hash(hash).await.map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      if let Some(transaction) = &transaction {
+         self.write(|ctx| {
+            ctx.transactions.insert((chain, hash), transaction.clone());
+            let len = ctx.transactions.len();
+            if len >= 20 {
+               let oldest = ctx.transactions.iter().next().unwrap().0.clone();
+               ctx.transactions.remove(&oldest);
+            }
+         });
+      }
+
+      Ok(transaction)
+   }
+
+   pub async fn get_storage(
+      &self,
+      block_id: BlockId,
+      address: Address,
+      slot: U256,
+   ) -> Result<U256, anyhow::Error> {
+      let chain = self.chain().id();
+
+      let block = if let Some(block) = block_id.as_u64() {
+         block
+      } else {
+         self.get_latest_block().await?.number
+      };
+
+      let storage = self.read(|ctx| ctx.storage.get(&(chain, block, address, slot)).cloned());
+
+      if let Some(storage) = storage {
+         return Ok(storage);
+      }
+
+      let client = self.get_zeus_client();
+      let storage = client
+         .request(chain, |client| async move {
+            client
+               .get_storage_at(address, slot)
+               .block_id(block_id)
+               .await
+               .map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      self.write(|ctx| {
+         ctx.storage.insert((chain, block, address, slot), storage.clone());
+         let len = ctx.storage.len();
+         if len >= 20 {
+            let oldest = ctx.storage.iter().next().unwrap().0.clone();
+            ctx.storage.remove(&oldest);
+         }
+      });
+
+      Ok(storage)
+   }
+
+   pub async fn get_code(
+      &self,
+      block_id: BlockId,
+      address: Address,
+   ) -> Result<Bytes, anyhow::Error> {
+      let chain = self.chain().id();
+
+      let block = if let Some(block) = block_id.as_u64() {
+         block
+      } else {
+         self.get_latest_block().await?.number
+      };
+
+      let code = self.read(|ctx| ctx.codes.get(&(chain, block, address)).cloned());
+
+      if let Some(code) = code {
+         return Ok(code);
+      }
+
+      let client = self.get_zeus_client();
+      let code = client
+         .request(chain, |client| async move {
+            client
+               .get_code_at(address)
+               .block_id(block_id)
+               .await
+               .map_err(|e| anyhow!("{:?}", e))
+         })
+         .await?;
+
+      self.write(|ctx| {
+         ctx.codes.insert((chain, block, address), code.clone());
+         let len = ctx.codes.len();
+         if len >= 20 {
+            let oldest = ctx.codes.iter().next().unwrap().0.clone();
+            ctx.codes.remove(&oldest);
+         }
+      });
+
+      Ok(code)
+   }
+
+   pub async fn estimate_gas(&self, tx: TransactionRequest) -> Result<u64, anyhow::Error> {
+      let chain = self.chain();
+      let res = self.read(|ctx| ctx.estimate_gas.get(&(chain.id(), tx.clone())).cloned());
+      let block_time = chain.block_time_millis();
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+
+      if let Some(res) = res {
          // time check
-         let elapsed = if now > block.timestamp {
-            now - block.timestamp
+         let old = res.timestamp;
+         let elapsed = if now > old {
+            now - old
          } else {
             tracing::warn!("System time is behind block timestamp");
             u64::MAX
          };
 
          if elapsed < block_time {
-            return Ok(Some(block));
+            return Ok(res.gas);
+         }
+      }
+
+      let client = self.get_zeus_client();
+      let gas = client
+         .request(chain.id(), |client| {
+            let tx = tx.clone();
+            async move { client.estimate_gas(tx).await.map_err(|e| anyhow!("{:?}", e)) }
+         })
+         .await?;
+
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+
+      self.write(|ctx| {
+         ctx.estimate_gas.insert(
+            (chain.id(), tx),
+            EstimateGas {
+               timestamp: now,
+               gas,
+            },
+         );
+         let len = ctx.estimate_gas.len();
+         if len >= 20 {
+            let oldest = ctx.estimate_gas.iter().next().unwrap().0.clone();
+            ctx.estimate_gas.remove(&oldest);
+         }
+      });
+
+      Ok(gas)
+   }
+
+   pub async fn get_eth_call(&self, tx: TransactionRequest) -> Result<EthCall, anyhow::Error> {
+      let chain = self.chain();
+      let block_time = chain.block_time_millis();
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let eth_call = self.read(|ctx| ctx.eth_calls.get(&(chain.id(), tx.clone())).cloned());
+
+      if let Some(eth_call) = eth_call {
+         // time check
+         let old = eth_call.timestamp;
+         let elapsed = if now > old {
+            now - old
+         } else {
+            tracing::warn!("System time is behind block timestamp");
+            u64::MAX
+         };
+
+         if elapsed < block_time {
+            return Ok(eth_call);
+         }
+      }
+
+      let z_client = self.get_zeus_client();
+      let result = z_client
+         .request(chain.id(), |client| {
+            let tx = tx.clone();
+            async move { client.call(tx).await.map_err(|e| anyhow!("{:?}", e)) }
+         })
+         .await?;
+
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+
+      let eth_call = EthCall {
+         timestamp: now,
+         result,
+      };
+
+      self.write(|ctx| {
+         ctx.eth_calls.insert((chain.id(), tx), eth_call.clone());
+         let len = ctx.eth_calls.len();
+         if len >= 20 {
+            let oldest = ctx.eth_calls.iter().next().unwrap().0.clone();
+            ctx.eth_calls.remove(&oldest);
+         }
+      });
+
+      Ok(eth_call)
+   }
+
+   pub async fn get_latest_block(&self) -> Result<Block, anyhow::Error> {
+      let chain = self.chain();
+      let block_time = chain.block_time_millis();
+      let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64;
+      let block = self.read(|ctx| ctx.latest_block.get(&chain.id()).cloned());
+
+      if let Some(block) = block {
+         // time check
+         let block_timestamp_ms = block.timestamp * 1000u64;
+         let elapsed = if now > block_timestamp_ms {
+            now - block_timestamp_ms
+         } else {
+            tracing::warn!("System time is behind block timestamp");
+            u64::MAX
+         };
+
+         if elapsed < block_time {
+            return Ok(block);
          }
       }
 
@@ -839,10 +1088,10 @@ impl ZeusCtx {
          self.write(|ctx| {
             ctx.latest_block.insert(chain.id(), block.clone());
          });
-         return Ok(Some(block));
+         return Ok(block);
       }
 
-      Ok(None)
+      Err(anyhow!("No block found"))
    }
 
    pub async fn test_and_measure_rpcs(&self) {
@@ -947,7 +1196,7 @@ impl SmartAccounts {
    }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Clone)]
 pub struct Block {
    pub number: u64,
    pub timestamp: u64,
@@ -957,6 +1206,18 @@ impl Block {
    pub fn new(number: u64, timestamp: u64) -> Self {
       Self { number, timestamp }
    }
+}
+
+#[derive(Clone)]
+pub struct EthCall {
+   pub timestamp: u64,
+   pub result: Bytes,
+}
+
+#[derive(Clone)]
+pub struct EstimateGas {
+   pub timestamp: u64,
+   pub gas: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -1068,6 +1329,12 @@ pub struct ZeusContext {
    pub on_startup_syncing: bool,
    pub base_fee: HashMap<u64, BaseFee>,
    pub latest_block: HashMap<u64, Block>,
+   pub eth_calls: HashMap<(u64, TransactionRequest), EthCall>,
+   pub estimate_gas: HashMap<(u64, TransactionRequest), EstimateGas>,
+   pub codes: HashMap<(u64, u64, Address), Bytes>,
+   pub storage: HashMap<(u64, u64, Address, U256), U256>,
+   pub transactions: HashMap<(u64, FixedBytes<32>), Transaction>,
+   pub receipts: HashMap<(u64, FixedBytes<32>), TransactionReceipt>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
    pub smart_accounts: SmartAccounts,
@@ -1178,8 +1445,14 @@ impl ZeusContext {
          data_syncing: false,
          dex_syncing: false,
          on_startup_syncing: false,
-         base_fee: HashMap::new(),
-         latest_block: HashMap::new(),
+         base_fee: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
+         latest_block: HashMap::with_capacity(SUPPORTED_CHAINS.len()),
+         eth_calls: HashMap::with_capacity(20),
+         estimate_gas: HashMap::with_capacity(20),
+         codes: HashMap::with_capacity(20),
+         storage: HashMap::with_capacity(20),
+         transactions: HashMap::with_capacity(20),
+         receipts: HashMap::with_capacity(20),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
          smart_accounts,

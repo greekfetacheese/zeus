@@ -59,7 +59,8 @@ impl warp::reject::Reject for RateLimitRejection {}
 /// Default server port
 pub const SERVER_PORT: u16 = 65534;
 
-const RPS: u32 = 30;
+const RPS: u32 = 200;
+const BURST: u32 = 500;
 
 // EIP-1193 Error codes
 pub const USER_REJECTED_REQUEST: i32 = 4001;
@@ -223,6 +224,15 @@ struct JsonRpcResponse {
 }
 
 impl JsonRpcResponse {
+   pub fn error_res(error: JsonRpcError, id: Value) -> Self {
+      Self {
+         jsonrpc: "2.0".to_string(),
+         id,
+         result: None,
+         error: Some(error),
+      }
+   }
+
    pub fn error(code: i32, payload_id: Value) -> Self {
       let error = JsonRpcError::from(code);
       Self {
@@ -252,6 +262,14 @@ struct JsonRpcError {
 }
 
 impl JsonRpcError {
+   pub fn new(code: i32, err: String, data: Option<Value>) -> Self {
+      Self {
+         code: code,
+         message: err,
+         data,
+      }
+   }
+
    pub fn from(code: i32) -> Self {
       match code {
          USER_REJECTED_REQUEST => Self::user_rejected_request(),
@@ -493,10 +511,8 @@ async fn block_number(
    ctx: ZeusCtx,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let block = ctx.get_latest_block().await;
-   let block_number = match block {
-      Ok(Some(block)) => block.number,
-      Ok(None) => 0,
+   let block = match ctx.get_latest_block().await {
+      Ok(block) => block,
       Err(e) => {
          error!("Error getting latest block: {:?}", e);
          return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
@@ -506,7 +522,7 @@ async fn block_number(
    let response = JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
       id: payload.id,
-      result: Some(json!(block_number)),
+      result: Some(json!(block.number)),
       error: None,
    };
 
@@ -673,24 +689,9 @@ async fn eth_get_storage_at(
       }
    };
 
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
-      Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::internal_error()),
-         });
-      }
-   };
-
-   let storage = match client.get_storage_at(address, slot).block_id(block).await {
+   let storage = match ctx.get_storage(block, address, slot).await {
       Ok(storage) => storage,
-      Err(e) => {
-         error!("Error getting storage: {:?}", e);
+      Err(_) => {
          return Ok(JsonRpcResponse {
             jsonrpc: "2.0".to_string(),
             id: payload.id,
@@ -795,30 +796,11 @@ async fn eth_get_code(
       }
    };
 
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
-      Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::internal_error()),
-         });
-      }
-   };
-
-   let code = match client.get_code_at(address).block_id(block).await {
+   let code = match ctx.get_code(block, address).await {
       Ok(code) => code,
       Err(e) => {
-         error!("Error getting code: {:?}", e);
-         return Ok(JsonRpcResponse {
-            jsonrpc: "2.0".to_string(),
-            id: payload.id,
-            result: None,
-            error: Some(JsonRpcError::internal_error()),
-         });
+         let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
+         return Ok(JsonRpcResponse::error_res(err, payload.id));
       }
    };
 
@@ -861,20 +843,11 @@ async fn eth_get_transaction_by_hash(
       }
    };
 
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
+   let tx = match ctx.get_tx_by_hash(hash).await {
+      Ok(tx) => tx,
       Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let tx = match client.get_transaction_by_hash(hash).await {
-      Ok(tx_opt) => tx_opt,
-      Err(e) => {
-         error!("Error fetching transaction by hash: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+         let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
+         return Ok(JsonRpcResponse::error_res(err, payload.id));
       }
    };
 
@@ -919,20 +892,11 @@ async fn eth_get_transaction_receipt(
       }
    };
 
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
+   let receipt = match ctx.get_receipt_by_hash(hash).await {
+      Ok(receipt) => receipt,
       Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
-   let receipt = match client.get_transaction_receipt(hash).await {
-      Ok(receipt_opt) => receipt_opt,
-      Err(e) => {
-         error!("Error fetching transaction receipt: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
+         let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
+         return Ok(JsonRpcResponse::error_res(err, payload.id));
       }
    };
 
@@ -1016,25 +980,19 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
       }
    };
 
-   let chain = ctx.chain().id();
-   let client = match ctx.get_client(chain).await {
-      Ok(client) => client,
-      Err(e) => {
-         error!("Error getting client: {:?}", e);
-         return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id));
-      }
-   };
-
    let from = ctx.current_wallet_address();
 
    let tx = TransactionRequest::default().with_from(from).with_to(to).with_input(calldata);
 
-   let output = match client.call(tx).await {
+   let output = match ctx.get_eth_call(tx).await {
       Ok(output) => output,
-      Err(_) => return Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id)),
+      Err(e) => {
+         let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
+         return Ok(JsonRpcResponse::error_res(err, payload.id));
+      }
    };
 
-   let result = hex::encode(output);
+   let result = hex::encode(output.result);
 
    let response = JsonRpcResponse {
       jsonrpc: "2.0".to_string(),
@@ -1186,10 +1144,8 @@ async fn estimate_gas(
    let gas = match client.estimate_gas(tx).await {
       Ok(output) => output,
       Err(e) => {
-         return {
-            error!("Error estimating gas: {:?}", e);
-            Ok(JsonRpcResponse::error(INTERNAL_ERROR, payload.id))
-         };
+         let err = JsonRpcError::new(INTERNAL_ERROR, e.to_string(), None);
+         return Ok(JsonRpcResponse::error_res(err, payload.id));
       }
    };
 
@@ -1843,7 +1799,8 @@ fn with_ctx(ctx: ZeusCtx) -> impl Filter<Extract = (ZeusCtx,), Error = Infallibl
 }
 
 pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> {
-   let quota = Quota::per_second(NonZeroU32::new(RPS).unwrap());
+   let quota =
+      Quota::per_second(NonZeroU32::new(RPS).unwrap()).allow_burst(NonZeroU32::new(BURST).unwrap());
    let limiter = Arc::new(RateLimiter::direct(quota));
 
    let cors = warp::cors()
