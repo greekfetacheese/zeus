@@ -1,6 +1,6 @@
 # <p align="center">Zeus</p>
 
-## <p align="center"><b>Ethereum and EVM compatible desktop wallet.</b></p>
+## <p align="center"><b>A truly seedless and decentralized self-custodial Ethereum wallet.</b></p>
 
 ![Screenshot](src/zeus-home.png)
  
@@ -36,14 +36,38 @@
 ---
 
 ## How Wallet management work in Zeus
-Zeus uses an hierarchical deterministic wallet which is derived from a username and a password, this operation is very time consuming
-and on most machines it may take 10-15 minutes to complete.
-After the creation of the HD wallet a `vault.data` file is created inside the `data` folder which contains the encrypted wallets and any saved contacts for faster access.
-The `vault.data` file is encrypted with the credentials you provided when creating the wallet, but it can be changed later.
-You can also import a wallet from a private key or a mnemonic phrase, but if you lose the `vault.data` file you will lose access to those wallets.
+Zeus is **seedless**, meaning that you don't need to have a seed phrase or a private key to access your wallet.
 
-To create a new wallet it is better to simple derive a new child wallet from the master wallet, this way you can have as much wallets
-you want under the same master wallet which can be recovered from the same username and password even if you lose the `vault.data` file.
+The first time you run Zeus you will be prompted to enter a **username** and a **password**. This will be used to derive your
+master wallet **(Hierarchical Deterministic Wallet)** and you can generate as many wallets under it as you want.
+
+You can also import an existing wallet by entering the mnemonic phrase or a private key, but these cannot be recovered
+if you lose your vault.
+
+It is very important that you don't forget your **username** and **password**, otherwise wallet recovery will be
+impossible.
+
+---
+
+## How the wallet recovery works
+Given that **username** and **password** a hash is generated using [Argon2Id](https://github.com/P-H-C/phc-winner-argon2) 
+with the following parameters:
+- **Salt:** SHA512 of the username
+- **Memory cost:** 8192 MB
+- **Iterations:** 96
+- **Parallelism:** 1
+- **Byte length:** 64 bytes
+
+These parameters are constants and will not change in the near future.
+
+Then a private key is derived based on the [BIP32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki) standard using the hash as the seed.
+This private key then is used as your master wallet.
+
+---
+
+## How safe this recovery method is?
+If we assume that the username and password have a decent entropy (at least 128bits 16+ characters) and the password is
+not ever **exposed** in past breaches, it is practically impossible for someone to brute force your wallet. 
 
 ---
 
