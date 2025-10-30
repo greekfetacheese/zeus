@@ -2,10 +2,13 @@ use crate::core::{Dapp, ZeusCtx};
 use crate::utils::{TimeStamp, truncate_address};
 use anyhow::anyhow;
 use std::str::FromStr;
+use zeus_eth::amm::uniswap::DexKind;
 use zeus_eth::{
    abi::{erc20, permit, protocols::across, uniswap, weth9},
    alloy_primitives::{Address, Bytes, Log, TxHash, U256},
-   amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV2Pool, UniswapV3Pool},
+   amm::uniswap::{
+      AnyUniswapPool, FeeAmount, State, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
+   },
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
@@ -673,7 +676,7 @@ impl SwapParams {
       let (swap_log, pool_address) = match uniswap::v2::pool::decode_swap_log(log) {
          Ok(decoded) => (decoded, log.address),
          Err(e) => {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                "Failed to decode V2 swap log {}",
                e
             ));
@@ -742,7 +745,7 @@ impl SwapParams {
       let (swap, pool_address) = match uniswap::v3::pool::decode_swap_log(log) {
          Ok(decoded) => (decoded, log.address),
          Err(e) => {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                "Failed to decode V3 swap log {}",
                e
             ));
@@ -818,7 +821,7 @@ impl SwapParams {
       let swap = match uniswap::v4::decode_swap_log(log) {
          Ok(decoded) => decoded,
          Err(e) => {
-            return Err(anyhow::anyhow!(
+            return Err(anyhow!(
                "Failed to decode V4 swap log {}",
                e
             ));
@@ -827,12 +830,65 @@ impl SwapParams {
 
       let cached = ctx.read(|ctx| ctx.pool_manager.get_v4_pool_from_id(chain, swap.id));
 
-      // If pool is not found in cache return err
-      // We cannot just fetch it like we do in v2/v3
       let pool = if let Some(pool) = cached {
-         pool
+         Some(pool)
       } else {
-         return Err(anyhow::anyhow!("V4 Pool not found in cache"));
+         // Best effort pool finding from all known tokens
+         let pool_id = swap.id;
+         let fee: u32 = swap.fee.try_into()?;
+         let pool_fee = FeeAmount::CUSTOM(fee);
+
+         let mut base_tokens = ERC20Token::base_tokens(chain);
+
+         // remove WETH since in V4 is not used
+         let weth = ERC20Token::wrapped_native_token(chain);
+         base_tokens.retain(|t| t.address != weth.address);
+
+         let mut base_currencies: Vec<Currency> =
+            base_tokens.iter().map(|t| Currency::from(t.clone())).collect();
+
+         // Add ETH native
+         let currency = Currency::from(NativeCurrency::from(chain));
+         base_currencies.push(currency);
+
+         let quote_currencies = ctx.get_currencies(chain);
+
+         let mut found_pool: Option<AnyUniswapPool> = None;
+         let mut break_outer = false;
+
+         for quote_currency in quote_currencies.iter() {
+            for base_currency in &base_currencies {
+               let pool = UniswapV4Pool::new(
+                  chain,
+                  pool_fee,
+                  DexKind::UniswapV4,
+                  base_currency.clone(),
+                  quote_currency.clone(),
+                  State::none(),
+                  Address::ZERO,
+               );
+
+               if pool.id() == pool_id {
+                  let pool_manager = ctx.pool_manager();
+                  pool_manager.add_pool(pool.clone());
+                  found_pool = Some(pool.into());
+                  break_outer = true;
+                  break;
+               }
+            }
+
+            match break_outer {
+               true => break,
+               false => continue,
+            }
+         }
+
+         found_pool
+      };
+
+      let pool = match pool {
+         Some(pool) => pool,
+         None => return Err(anyhow!("V4 Pool not found")),
       };
 
       // In V4 the negative amount is token amount we are selling
@@ -1001,11 +1057,11 @@ impl TransferParams {
       value: U256,
    ) -> Result<Self, anyhow::Error> {
       if call_data.len() != 0 {
-         return Err(anyhow::anyhow!("Not a native transfer"));
+         return Err(anyhow!("Not a native transfer"));
       }
 
       if from.is_zero() {
-         return Err(anyhow::anyhow!("Transfer from zero address"));
+         return Err(anyhow!("Transfer from zero address"));
       }
 
       let native: Currency = NativeCurrency::from_chain_id(chain)?.into();
@@ -1123,7 +1179,7 @@ impl WrapETHParams {
          decoded = Some(decoded_log);
       }
 
-      let decoded = decoded.ok_or(anyhow::anyhow!("Failed to decode deposit log"))?;
+      let decoded = decoded.ok_or(anyhow!("Failed to decode deposit log"))?;
 
       let currency = Currency::from(NativeCurrency::from(chain));
       let eth_wrapped = NumericValue::format_wei(decoded.wad, currency.decimals());
@@ -1162,7 +1218,7 @@ impl UnwrapWETHParams {
    ) -> Result<Self, anyhow::Error> {
       let selector = call_data.get(0..4).unwrap_or_default();
       if selector != weth9::withdraw_selector() {
-         return Err(anyhow::anyhow!("Call is not a WETH withdraw"));
+         return Err(anyhow!("Call is not a WETH withdraw"));
       }
 
       let mut decoded = None;
@@ -1174,7 +1230,7 @@ impl UnwrapWETHParams {
       }
 
       if decoded.is_none() {
-         return Err(anyhow::anyhow!("Failed to decode withdraw log"));
+         return Err(anyhow!("Failed to decode withdraw log"));
       }
 
       let decoded = decoded.unwrap();
@@ -1202,7 +1258,7 @@ impl UnwrapWETHParams {
       }
 
       if decoded.is_none() {
-         return Err(anyhow::anyhow!("Failed to decode withdraw log"));
+         return Err(anyhow!("Failed to decode withdraw log"));
       }
 
       let decoded = decoded.unwrap();
@@ -1289,7 +1345,7 @@ impl UniswapPositionParams {
       }
 
       if collect_fees_log.is_none() {
-         return Err(anyhow::anyhow!("Collect Fees log not found"));
+         return Err(anyhow!("Collect Fees log not found"));
       }
 
       let collect_fees = collect_fees_log.unwrap();
@@ -1363,11 +1419,11 @@ impl UniswapPositionParams {
       }
 
       if burn_log.is_none() {
-         return Err(anyhow::anyhow!("Burn log not found"));
+         return Err(anyhow!("Burn log not found"));
       }
 
       if decrease_liquidity_log.is_none() {
-         return Err(anyhow::anyhow!(
+         return Err(anyhow!(
             "Decrease Liquidity log not found"
          ));
       }
@@ -1442,11 +1498,11 @@ impl UniswapPositionParams {
       }
 
       if mint_log.is_none() {
-         return Err(anyhow::anyhow!("Mint log not found"));
+         return Err(anyhow!("Mint log not found"));
       }
 
       if add_liquidity_log.is_none() {
-         return Err(anyhow::anyhow!(
+         return Err(anyhow!(
             "Increase Liquidity log not found"
          ));
       }
