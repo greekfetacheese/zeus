@@ -1,21 +1,21 @@
 use crate::assets::Icons;
-use zeus_bip32::BIP32_HARDEN;
-use crate::utils::RT;
 use crate::core::{DiscoveredWallets, Portfolio, SecureHDWallet, ZeusCtx};
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, ui::REFRESH};
+use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner,
    TextEdit, Ui, Vec2, Window, vec2,
 };
-use zeus_theme::Theme;
 use egui_widgets::SecureTextEdit;
 use secure_types::SecureString;
+use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, NativeCurrency},
    types::SUPPORTED_CHAINS,
    utils::{NumericValue, batch, truncate_address},
 };
+use zeus_theme::Theme;
 
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};
@@ -327,6 +327,7 @@ impl AddWalletUi {
                   .add_wallet_ui
                   .discover_child_wallets_ui
                   .set_discovered_wallets(wallets);
+               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page = 0;
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.open = true;
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = false;
             });
@@ -525,6 +526,8 @@ pub struct DiscoverChildWallets {
    add_wallet_window: bool,
    index_to_add: u32,
    wallet_name: String,
+   current_page: usize,
+   items_per_page: usize,
    size: (f32, f32),
 }
 
@@ -540,6 +543,8 @@ impl DiscoverChildWallets {
          add_wallet_window: false,
          index_to_add: 0,
          wallet_name: String::new(),
+         current_page: 0,
+         items_per_page: 20,
          size: (600.0, 450.0),
       }
    }
@@ -589,76 +594,59 @@ impl DiscoverChildWallets {
                }
 
                let len = self.discovered_wallets.wallets.len();
-               let text = format!("Showing {} wallets", len);
+               let items_per_page = self.items_per_page;
+
+               let total_pages = if items_per_page == 0 {
+                  0
+               } else {
+                  (len + items_per_page - 1) / items_per_page
+               };
+
+               let start = self.current_page * items_per_page;
+               let end = (start + items_per_page).min(len);
+               let showing = end - start;
+               let text = if len == 0 {
+                  "No wallets found".to_string()
+               } else {
+                  format!(
+                     "Showing {} of {} wallets (Page {} of {})",
+                     showing,
+                     len,
+                     self.current_page + 1,
+                     total_pages
+                  )
+               };
+
                ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                let batch_size = self.discovered_wallets.batch_size;
 
                let text = format!("Generate next {} wallets", batch_size);
                let text = RichText::new(text).size(theme.text_sizes.normal);
-               if ui.add(Button::new(text)).clicked() {
-                  self.syncing = true;
-                  let ctx_clone = ctx.clone();
-                  let mut addresses = Vec::new();
-                  let concurrency = self.discovered_wallets.concurrency;
-                  let discovery_wallet = self.discovery_wallet.clone();
-                  let mut discovered_wallets = self.discovered_wallets.clone();
+               let gen_button = Button::new(text);
 
-                  RT.spawn(async move {
-                     for _ in 0..batch_size {
-                        let mut index = discovered_wallets.index;
-                        discovered_wallets.index += 1;
+               let refresh_button =
+                  Button::new(RichText::new(REFRESH).size(theme.text_sizes.normal));
 
-                        if index < BIP32_HARDEN {
-                           index += BIP32_HARDEN;
+               let size = vec2(ui.available_width() * 0.4, 45.0);
+
+               ui.vertical_centered(|ui| {
+                  ui.allocate_ui(size, |ui| {
+                     ui.horizontal(|ui| {
+                        if ui.add(gen_button).clicked() {
+                           self.generate_wallets(ctx.clone(), batch_size);
                         }
 
-                        if let Ok(wallet) = discovery_wallet.derive_child_at("".into(), index) {
-                           discovered_wallets.add_wallet(
-                              wallet.address(),
-                              wallet.derivation_path(),
-                              wallet.index(),
-                           );
-
-                           // Do not fetch the balance for already existing wallets
-                           if ctx_clone.wallet_exists(wallet.address()) {
-                              continue;
-                           }
-
-                           addresses.push(wallet.address());
+                        if ui.add(refresh_button).clicked() {
+                           self.refresh_balance(ctx.clone(), start, end);
                         }
-                     }
 
-                     SHARED_GUI.write(|gui| {
-                        gui.wallet_ui
-                           .add_wallet_ui
-                           .discover_child_wallets_ui
-                           .set_discovery_wallet(discovery_wallet);
-                        gui.wallet_ui
-                           .add_wallet_ui
-                           .discover_child_wallets_ui
-                           .set_discovered_wallets(discovered_wallets);
+                        if self.syncing {
+                           ui.add(Spinner::new().size(15.0));
+                        }
                      });
-
-                     match sync_wallets_balance(ctx_clone, addresses, concurrency).await {
-                        Ok(_) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
-                           });
-                        }
-                        Err(e) => {
-                           SHARED_GUI.write(|gui| {
-                              gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
-                           });
-                           tracing::error!("Error syncing wallets: {:?}", e);
-                        }
-                     }
                   });
-               }
-
-               if self.syncing {
-                  ui.add(Spinner::new().size(15.0));
-               }
+               });
 
                let column_widths = [
                   ui.available_width() * 0.20, // Derivation Path
@@ -704,9 +692,43 @@ impl DiscoverChildWallets {
                            theme,
                            icons.clone(),
                            &column_widths,
+                           start,
+                           end,
                            ui,
                         );
                      });
+               });
+
+               ui.add_space(10.0);
+
+               let size = vec2(ui.available_width() * 0.5, 45.0);
+
+               ui.vertical_centered(|ui| {
+                  ui.allocate_ui(size, |ui| {
+                     ui.horizontal(|ui| {
+                        ui.add_enabled_ui(self.current_page > 0, |ui| {
+                           let prev_text = RichText::new("Previous").size(theme.text_sizes.normal);
+                           if ui.add(Button::new(prev_text)).clicked() {
+                              self.current_page -= 1;
+                           }
+                        });
+
+                        let page_text = RichText::new(format!(
+                           "Page {} of {}",
+                           self.current_page + 1,
+                           total_pages
+                        ))
+                        .size(theme.text_sizes.normal);
+                     
+                        ui.label(page_text);
+                        ui.add_enabled_ui(self.current_page + 1 < total_pages, |ui| {
+                           let next_text = RichText::new("Next").size(theme.text_sizes.normal);
+                           if ui.add(Button::new(next_text)).clicked() {
+                              self.current_page += 1;
+                           }
+                        });
+                     });
+                  });
                });
             });
          });
@@ -732,17 +754,116 @@ impl DiscoverChildWallets {
       }
    }
 
+   fn refresh_balance(&mut self, ctx: ZeusCtx, start: usize, end: usize) {
+      let slice = &self.discovered_wallets.wallets[start..end];
+      let addresses = slice.iter().map(|w| w.address).collect::<Vec<_>>();
+
+      let concurrency = self.discovered_wallets.concurrency;
+      let ctx_clone = ctx.clone();
+      self.syncing = true;
+
+      RT.spawn(async move {
+         match sync_wallets_balance(ctx_clone.clone(), addresses, concurrency).await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Error syncing wallets: {:?}", e);
+            }
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
+         });
+      });
+   }
+
+   fn generate_wallets(&mut self, ctx: ZeusCtx, batch_size: usize) {
+      self.syncing = true;
+      let ctx_clone = ctx.clone();
+      let mut addresses = Vec::new();
+      let concurrency = self.discovered_wallets.concurrency;
+      let discovery_wallet = self.discovery_wallet.clone();
+      let mut discovered_wallets = self.discovered_wallets.clone();
+
+      RT.spawn(async move {
+         for _ in 0..batch_size {
+            let mut index = discovered_wallets.index;
+            discovered_wallets.index += 1;
+
+            if index < BIP32_HARDEN {
+               index += BIP32_HARDEN;
+            }
+
+            if let Ok(wallet) = discovery_wallet.derive_child_at("".into(), index) {
+               discovered_wallets.add_wallet(
+                  wallet.address(),
+                  wallet.derivation_path(),
+                  wallet.index(),
+               );
+
+               // Do not fetch the balance for already existing wallets
+               if ctx_clone.wallet_exists(wallet.address()) {
+                  continue;
+               }
+
+               addresses.push(wallet.address());
+            }
+         }
+
+         let discovered_wallets_len = discovered_wallets.wallets.len();
+
+         SHARED_GUI.write(|gui| {
+            gui.wallet_ui
+               .add_wallet_ui
+               .discover_child_wallets_ui
+               .set_discovery_wallet(discovery_wallet);
+            gui.wallet_ui
+               .add_wallet_ui
+               .discover_child_wallets_ui
+               .set_discovered_wallets(discovered_wallets);
+
+            let items_per_page =
+               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.items_per_page;
+
+            let total_pages = if items_per_page == 0 {
+               0
+            } else {
+               (discovered_wallets_len + items_per_page - 1) / items_per_page
+            };
+
+            gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page =
+               total_pages.saturating_sub(1);
+         });
+
+         match sync_wallets_balance(ctx_clone, addresses, concurrency).await {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
+               });
+            }
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
+               });
+               tracing::error!("Error syncing wallets: {:?}", e);
+            }
+         }
+      });
+   }
+
    fn show_wallets(
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
       icons: Arc<Icons>,
       column_widths: &[f32],
+      start: usize,
+      end: usize,
       ui: &mut Ui,
    ) {
       let tint = theme.image_tint_recommended;
 
-      for child in self.discovered_wallets.wallets.iter() {
+      let slice = &self.discovered_wallets.wallets[start..end];
+      for child in slice.iter() {
          // If child already exists it will displayed as disabled in the Ui
          let exists = self.hd_wallet.contains_child(child.address);
 
@@ -785,9 +906,7 @@ impl DiscoverChildWallets {
                      let explorer = current_chain.block_explorer();
                      let link = format!("{}/address/{}", explorer, address);
                      ui.hyperlink_to(
-                        RichText::new(text)
-                           .size(theme.text_sizes.small)
-                           .color(theme.colors.info),
+                        RichText::new(text).size(theme.text_sizes.small).color(theme.colors.info),
                         link,
                      );
                   });

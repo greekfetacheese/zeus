@@ -259,7 +259,7 @@ fn default_concurrency() -> usize {
 }
 
 fn default_batch_size() -> usize {
-   30
+   20
 }
 
 /// Discovered wallets that derived from a `SecureHDWallet`
