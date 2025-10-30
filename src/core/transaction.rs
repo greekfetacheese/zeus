@@ -1,5 +1,5 @@
 use crate::core::{Dapp, ZeusCtx};
-use crate::utils::{TimeStamp, truncate_address};
+use crate::utils::{RT, TimeStamp, truncate_address};
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::amm::uniswap::DexKind;
@@ -571,7 +571,12 @@ impl BridgeParams {
          ctx.write(|ctx| {
             ctx.currency_db.insert_currency(origin_chain, Currency::from(token.clone()))
          });
-         ctx.save_currency_db();
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+         });
+
          token
       };
 
@@ -584,10 +589,16 @@ impl BridgeParams {
                ERC20Token::new(client, decoded.output_token, dest_chain).await
             })
             .await?;
+
          ctx.write(|ctx| {
             ctx.currency_db.insert_currency(dest_chain, Currency::from(token.clone()))
          });
-         ctx.save_currency_db();
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+         });
+
          token
       };
 
@@ -676,10 +687,7 @@ impl SwapParams {
       let (swap_log, pool_address) = match uniswap::v2::pool::decode_swap_log(log) {
          Ok(decoded) => (decoded, log.address),
          Err(e) => {
-            return Err(anyhow!(
-               "Failed to decode V2 swap log {}",
-               e
-            ));
+            return Err(anyhow!("Failed to decode V2 swap log {}", e));
          }
       };
 
@@ -698,6 +706,13 @@ impl SwapParams {
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+            ctx_clone.save_pool_manager();
+         });
+
          pool
       };
 
@@ -745,10 +760,7 @@ impl SwapParams {
       let (swap, pool_address) = match uniswap::v3::pool::decode_swap_log(log) {
          Ok(decoded) => (decoded, log.address),
          Err(e) => {
-            return Err(anyhow!(
-               "Failed to decode V3 swap log {}",
-               e
-            ));
+            return Err(anyhow!("Failed to decode V3 swap log {}", e));
          }
       };
 
@@ -767,6 +779,13 @@ impl SwapParams {
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+            ctx_clone.save_pool_manager();
+         });
+
          pool
       };
 
@@ -821,10 +840,7 @@ impl SwapParams {
       let swap = match uniswap::v4::decode_swap_log(log) {
          Ok(decoded) => decoded,
          Err(e) => {
-            return Err(anyhow!(
-               "Failed to decode V4 swap log {}",
-               e
-            ));
+            return Err(anyhow!("Failed to decode V4 swap log {}", e));
          }
       };
 
@@ -871,6 +887,12 @@ impl SwapParams {
                if pool.id() == pool_id {
                   let pool_manager = ctx.pool_manager();
                   pool_manager.add_pool(pool.clone());
+
+                  let ctx_clone = ctx.clone();
+                  RT.spawn_blocking(move || {
+                     ctx_clone.save_pool_manager();
+                  });
+
                   found_pool = Some(pool.into());
                   break_outer = true;
                   break;
@@ -1009,6 +1031,12 @@ impl TransferParams {
             })
             .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+         });
+
          token
       };
 
@@ -1141,6 +1169,12 @@ impl TokenApproveParams {
             })
             .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+         });
+
          token
       };
 
@@ -1366,6 +1400,13 @@ impl UniswapPositionParams {
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+            ctx_clone.save_pool_manager();
+         });
+
          pool
       };
 
@@ -1423,9 +1464,7 @@ impl UniswapPositionParams {
       }
 
       if decrease_liquidity_log.is_none() {
-         return Err(anyhow!(
-            "Decrease Liquidity log not found"
-         ));
+         return Err(anyhow!("Decrease Liquidity log not found"));
       }
 
       let burn = burn_log.unwrap();
@@ -1446,6 +1485,13 @@ impl UniswapPositionParams {
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+            ctx_clone.save_pool_manager();
+         });
+
          pool
       };
 
@@ -1502,9 +1548,7 @@ impl UniswapPositionParams {
       }
 
       if add_liquidity_log.is_none() {
-         return Err(anyhow!(
-            "Increase Liquidity log not found"
-         ));
+         return Err(anyhow!("Increase Liquidity log not found"));
       }
 
       let mint = mint_log.unwrap();
@@ -1524,6 +1568,13 @@ impl UniswapPositionParams {
          ctx.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+            ctx_clone.save_pool_manager();
+         });
+
          pool
       };
 
@@ -1596,6 +1647,12 @@ impl PermitParams {
             })
             .await?;
          ctx.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
+
+         let ctx_clone = ctx.clone();
+         RT.spawn_blocking(move || {
+            ctx_clone.save_currency_db();
+         });
+         
          token
       };
 

@@ -388,58 +388,45 @@ impl ZeusCtx {
    }
 
    pub fn save_balance_manager(&self) {
-      self.read(|ctx| match ctx.balance_manager.save() {
+      let manager = self.balance_manager();
+      match manager.save() {
          Ok(_) => {
             tracing::trace!("Balance Manager saved");
          }
-         Err(e) => {
-            tracing::error!("Error saving Balance Manager: {:?}", e);
-         }
-      })
+         Err(e) => tracing::error!("Error saving Balance Manager: {:?}", e),
+      }
    }
 
    pub fn save_v3_positions_db(&self) {
-      self.read(|ctx| match ctx.v3_positions_db.save() {
-         Ok(_) => {
-            tracing::trace!("V3PositionsDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving V3 Positions DB: {:?}", e);
-         }
-      })
+      let db = self.read(|ctx| ctx.v3_positions_db.clone());
+      match db.save() {
+         Ok(_) => tracing::trace!("V3PositionsDB saved"),
+         Err(e) => tracing::error!("Error saving V3 Positions DB: {:?}", e),
+      }
    }
 
    pub fn save_currency_db(&self) {
-      self.read(|ctx| match ctx.currency_db.save() {
-         Ok(_) => {
-            tracing::trace!("CurrencyDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving CurrencyDB: {:?}", e);
-         }
-      })
+      let db = self.read(|ctx| ctx.currency_db.clone());
+      match db.save() {
+         Ok(_) => tracing::trace!("CurrencyDB saved"),
+         Err(e) => tracing::error!("Error saving CurrencyDB: {:?}", e),
+      }
    }
 
    pub fn save_portfolio_db(&self) {
-      self.read(|ctx| match ctx.portfolio_db.save() {
-         Ok(_) => {
-            tracing::trace!("PortfolioDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving PortfolioDB: {:?}", e);
-         }
-      })
+      let db = self.read(|ctx| ctx.portfolio_db.clone());
+      match db.save() {
+         Ok(_) => tracing::trace!("PortfolioDB saved"),
+         Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
+      }
    }
 
    pub fn save_zeus_client(&self) {
-      self.read(|ctx| match ctx.client.save_to_file() {
-         Ok(_) => {
-            tracing::trace!("ZeusClient saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving ZeusClient: {:?}", e);
-         }
-      })
+      let client = self.get_zeus_client();
+      match client.save_to_file() {
+         Ok(_) => tracing::trace!("ZeusClient saved"),
+         Err(e) => tracing::error!("Error saving ZeusClient: {:?}", e),
+      }
    }
 
    pub fn save_pool_manager(&self) {
@@ -461,25 +448,19 @@ impl ZeusCtx {
    }
 
    pub fn save_tx_db(&self) {
-      self.read(|ctx| match ctx.tx_db.save() {
-         Ok(_) => {
-            tracing::trace!("TxDB saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving TxDB: {:?}", e);
-         }
-      })
+      let db = self.read(|ctx| ctx.tx_db.clone());
+      match db.save() {
+         Ok(_) => tracing::trace!("TxDB saved"),
+         Err(e) => tracing::error!("Error saving TxDB: {:?}", e),
+      }
    }
 
    pub fn save_smart_accounts(&self) {
-      self.read(|ctx| match ctx.smart_accounts.save_to_file() {
-         Ok(_) => {
-            tracing::trace!("Smart Accounts saved");
-         }
-         Err(e) => {
-            tracing::error!("Error saving Smart Accounts: {:?}", e);
-         }
-      })
+      let accounts = self.read(|ctx| ctx.smart_accounts.clone());
+      match accounts.save_to_file() {
+         Ok(_) => tracing::trace!("Smart Accounts saved"),
+         Err(e) => tracing::error!("Error saving Smart Accounts: {:?}", e),
+      }
    }
 
    pub fn save_all(&self) {
