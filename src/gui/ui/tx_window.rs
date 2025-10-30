@@ -183,14 +183,16 @@ impl TxConfirmationWindow {
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
                   let mut open = self.show_all_decoded_events;
 
-                  let should_open = self.show_all_decoded_events(
+                  let should_open = show_all_decoded_events(
                      &mut open,
                      ctx.clone(),
+                     self.chain,
                      theme,
                      icons.clone(),
                      analysis,
                      frame_size,
                      frame,
+                     self.size,
                      ui,
                   );
 
@@ -223,7 +225,7 @@ impl TxConfirmationWindow {
                            .color(theme.colors.warning),
                      );
 
-                     let clicked = self.show_decoded_events_button(theme, ui);
+                     let clicked = show_decoded_events_button(theme, ui);
                      if clicked {
                         self.show_all_decoded_events = true;
                      }
@@ -296,7 +298,7 @@ impl TxConfirmationWindow {
 
                   // Give the option to see all the decoded events
                   if !main_event.is_other() {
-                     let clicked = self.show_decoded_events_button(theme, ui);
+                     let clicked = show_decoded_events_button(theme, ui);
                      if clicked {
                         self.show_all_decoded_events = true;
                      }
@@ -429,86 +431,17 @@ impl TxConfirmationWindow {
          });
    }
 
-   fn show_decoded_events_button(&self, theme: &Theme, ui: &mut Ui) -> bool {
-      let text = RichText::new("Show all decoded events").size(theme.text_sizes.large);
-      let button = Button::new(text);
-
-      ui.add(button).clicked()
-   }
-
    fn sufficient_balance(&self, ctx: ZeusCtx, eth_spent: U256, sender: Address) -> bool {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
-   }
-
-   fn show_all_decoded_events(
-      &self,
-      open: &mut bool,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      analysis: &TransactionAnalysis,
-      frame_size: Vec2,
-      frame: Frame,
-      ui: &mut Ui,
-   ) -> bool {
-      let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
-
-      Window::new(title)
-         .open(open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Tooltip)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               let width = self.size.0 + 50.0;
-               ui.set_width(width);
-               ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-
-               let all_events = analysis.total_events();
-               let known_events = analysis.known_events;
-
-               let text = format!(
-                  "Decoded {} out of {} total events",
-                  known_events, all_events
-               );
-               ui.label(RichText::new(text).size(theme.text_sizes.very_large));
-
-               ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
-                  ui.set_width(width);
-
-                  for event in &analysis.decoded_events {
-                     ui.allocate_ui(frame_size, |ui| {
-                        frame.show(ui, |ui| {
-                           ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
-
-                           show_event(
-                              ctx.clone(),
-                              self.chain,
-                              theme,
-                              icons.clone(),
-                              event,
-                              ui,
-                           );
-                        });
-                     });
-                  }
-               });
-            });
-         });
-
-      *open
    }
 }
 
 /// A window to show details for a transaction that has been sent to the network
 pub struct TxWindow {
    open: bool,
+   show_all_decoded_events: bool,
    tx: Option<TransactionRich>,
    size: (f32, f32),
 }
@@ -517,6 +450,7 @@ impl TxWindow {
    pub fn new() -> Self {
       Self {
          open: false,
+         show_all_decoded_events: false,
          tx: None,
          size: (550.0, 400.0),
       }
@@ -577,37 +511,32 @@ impl TxWindow {
                   let main_event = &tx.main_event;
                   let chain_id: ChainId = tx.chain.into();
 
-                  /*
-                  // Show ETH sent
-                  if !tx.value_sent.is_zero()
-                     && !tx.analysis.is_wrap_eth()
-                     && !tx.analysis.is_swap()
-                  {
-                     ui.add(Label::new(
-                        RichText::new("You spent").size(theme.text_sizes.large),
-                        None,
-                     ));
+                  let frame = theme.frame2;
+                  let frame_size = vec2(ui.available_width() * 0.95, 45.0);
+                  let mut open = self.show_all_decoded_events;
 
-                     eth_spent(
-                        tx.chain,
-                        tx.value_sent.clone(),
-                        tx.value_sent_usd.clone(),
-                        theme,
-                        icons.clone(),
-                        ui,
-                     );
-                  }
-                  */
+                  let should_open = show_all_decoded_events(
+                     &mut open,
+                     ctx.clone(),
+                     chain_id,
+                     theme,
+                     icons.clone(),
+                     &tx.analysis,
+                     frame_size,
+                     frame,
+                     self.size,
+                     ui,
+                  );
+
+                  self.show_all_decoded_events = should_open;
 
                   let frame_size = vec2(ui.available_width() * 0.9, 45.0);
                   let frame = theme.frame2;
 
-                  // Action Name
-                  ui.label(
-                     RichText::new(main_event.name()).size(theme.text_sizes.very_large).strong(),
-                  );
-
-                  if !main_event.is_other() {
+                  if !main_event.is_other() && tx.success {
+                     ui.label(
+                        RichText::new(main_event.name()).size(theme.text_sizes.very_large).strong(),
+                     );
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
                            show_event(
@@ -623,27 +552,18 @@ impl TxWindow {
                   }
 
                   // Tx Action is unknown
-                  if main_event.is_other() {
-                     ui.label(RichText::new("Decoded Events").size(theme.text_sizes.large));
+                  if main_event.is_other() && tx.success {
+                     let clicked = show_decoded_events_button(theme, ui);
+                     if clicked {
+                        self.show_all_decoded_events = true;
+                     }
+                  }
 
-                     ScrollArea::vertical().max_height(self.size.1 / 2.0).show(ui, |ui| {
-                        ui.set_width(self.size.0);
-
-                        for event in &tx.analysis.decoded_events {
-                           ui.allocate_ui(frame_size, |ui| {
-                              frame.show(ui, |ui| {
-                                 show_event(
-                                    ctx.clone(),
-                                    chain_id,
-                                    theme,
-                                    icons.clone(),
-                                    event,
-                                    ui,
-                                 );
-                              });
-                           });
-                        }
-                     });
+                  if !tx.success {
+                     let text = "Transaction failed";
+                     ui.label(
+                        RichText::new(text).size(theme.text_sizes.large).color(theme.colors.error),
+                     );
                   }
 
                   ui.allocate_ui(frame_size, |ui| {
@@ -703,6 +623,76 @@ impl TxWindow {
             });
          });
    }
+}
+
+fn show_decoded_events_button(theme: &Theme, ui: &mut Ui) -> bool {
+   let text = RichText::new("Show all decoded events").size(theme.text_sizes.large);
+   let button = Button::new(text);
+   ui.add(button).clicked()
+}
+
+fn show_all_decoded_events(
+   open: &mut bool,
+   ctx: ZeusCtx,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   analysis: &TransactionAnalysis,
+   frame_size: Vec2,
+   frame: Frame,
+   window_size: (f32, f32),
+   ui: &mut Ui,
+) -> bool {
+   let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
+
+   Window::new(title)
+      .open(open)
+      .resizable(false)
+      .collapsible(false)
+      .order(Order::Tooltip)
+      .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
+      .frame(Frame::window(ui.style()))
+      .show(ui.ctx(), |ui| {
+         ui.vertical_centered(|ui| {
+            let width = window_size.0 + 50.0;
+            ui.set_width(width);
+            ui.set_height(window_size.1);
+            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+            let all_events = analysis.total_events();
+            let known_events = analysis.known_events;
+
+            let text = format!(
+               "Decoded {} out of {} total events",
+               known_events, all_events
+            );
+            ui.label(RichText::new(text).size(theme.text_sizes.very_large));
+
+            ScrollArea::vertical().max_height(window_size.1).show(ui, |ui| {
+               ui.set_width(width);
+
+               for event in &analysis.decoded_events {
+                  ui.allocate_ui(frame_size, |ui| {
+                     frame.show(ui, |ui| {
+                        ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
+
+                        show_event(
+                           ctx.clone(),
+                           chain,
+                           theme,
+                           icons.clone(),
+                           event,
+                           ui,
+                        );
+                     });
+                  });
+               }
+            });
+         });
+      });
+
+   *open
 }
 
 pub fn eoa_delegate_event_ui(
