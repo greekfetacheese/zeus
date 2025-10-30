@@ -1,16 +1,16 @@
 use crate::assets::icons::Icons;
-use crate::utils::RT;
-use crate::core::{ZeusCtx, Vault};
+use crate::core::{Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui::Margin;
-use zeus_theme::Theme;
-use egui_widgets::SecureTextEdit;
+use egui_widgets::{Label, SecureTextEdit};
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;
+use zeus_theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InputField {
@@ -543,7 +543,7 @@ impl RecoverHDWallet {
 
       ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
       ui.label(
-         RichText::new("Recover an HD wallet from the credentials").size(theme.text_sizes.large),
+         RichText::new("Recover an HD wallet from your credentials").size(theme.text_sizes.large),
       );
 
       // Credentials input
@@ -661,16 +661,33 @@ impl RecoverHDWallet {
       ui.vertical_centered(|ui| {
 
          let tip1 = "You just created a new Hierarchical Deterministic (HD) wallet";
-         let tip2 = "This wallet can always be recovered with the same credentials, even if you lose your Vault";
+         let tip2 = "This wallet can always be recovered with the same credentials even if you lose your Vault";
          let tip3 = "A Vault has been created with the credentials you just used for faster access to your wallets and contacts";
          let tip4 = "If you want to create new wallets, it is recommended to derive them from the HD wallet you just created";
          let tip5 = "You can import wallets from a seed phrase or a private key, but those can be lost forever if you lose your Vault";
 
-         ui.label(RichText::new(tip1).size(theme.text_sizes.normal));
-         ui.label(RichText::new(tip2).size(theme.text_sizes.normal));
-         ui.label(RichText::new(tip3).size(theme.text_sizes.normal));
-         ui.label(RichText::new(tip4).size(theme.text_sizes.normal));
-         ui.label(RichText::new(tip5).size(theme.text_sizes.normal));
+         let warning = "Make sure to never forget your credentials, it is the only way to recover your wallet";
+
+         let text1 = RichText::new(tip1).size(theme.text_sizes.large);
+         let text2 = RichText::new(tip2).size(theme.text_sizes.large);
+         let text3 = RichText::new(tip3).size(theme.text_sizes.large);
+         let text4 = RichText::new(tip4).size(theme.text_sizes.large);
+         let text5 = RichText::new(tip5).size(theme.text_sizes.large);
+         let warning_text = RichText::new(warning).size(theme.text_sizes.very_large).color(theme.colors.warning);
+
+         let label1 = Label::new(text1, None).wrap();
+         let label2 = Label::new(text2, None).wrap();
+         let label3 = Label::new(text3, None).wrap();
+         let label4 = Label::new(text4, None).wrap();
+         let label5 = Label::new(text5, None).wrap();
+         let label_warning = Label::new(warning_text, None).wrap();
+
+         ui.add(label1);
+         ui.add(label2);
+         ui.add(label3);
+         ui.add(label4);
+         ui.add(label5);
+         ui.add(label_warning);
 
          let ok_button = Button::new(RichText::new("Ok").size(theme.text_sizes.large))
             .min_size(vec2(ui.available_width() * 0.25, 25.0));

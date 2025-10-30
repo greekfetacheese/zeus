@@ -4,12 +4,16 @@ use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::{ZeusCtx, context::load_theme_kind};
 use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
-use crate::utils::{RT, state::{on_startup, test_and_measure_rpcs}};
+use crate::utils::{
+   RT,
+   state::{on_startup, test_and_measure_rpcs},
+};
 use eframe::{
    CreationContext,
    egui::{self, Frame},
 };
 use std::sync::Arc;
+use std::time::Duration;
 use zeus_theme::{Theme, ThemeKind, window::window_frame};
 
 pub struct ZeusApp {
@@ -51,13 +55,18 @@ impl ZeusApp {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         test_and_measure_rpcs(ctx_clone).await;
+          test_and_measure_rpcs(ctx_clone).await;
       });
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         if ctx_clone.vault_exists() {
-            on_startup(ctx_clone).await;
+         loop {
+            if ctx_clone.vault_exists() {
+               tracing::info!("Vault exists, starting syncing");
+               on_startup(ctx_clone).await;
+               break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
          }
       });
 
