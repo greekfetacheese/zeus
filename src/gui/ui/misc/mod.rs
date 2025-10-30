@@ -6,10 +6,10 @@ use std::sync::Arc;
 use zeus_eth::amm::uniswap::DexKind;
 
 use crate::assets::icons::Icons;
-use crate::utils::RT;
 use crate::core::{Wallet, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
+use crate::utils::RT;
 
 use egui_widgets::{ComboBox, Label};
 use zeus_eth::{
@@ -474,12 +474,9 @@ impl PortfolioUi {
                      ui.label(RichText::new(wallet_name).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
                      ui.label(
-                        RichText::new(format!(
-                           "${}",
-                           portfolio.value.abbreviated()
-                        ))
-                        .heading()
-                        .size(theme.text_sizes.heading + 4.0),
+                        RichText::new(format!("${}", portfolio.value.abbreviated()))
+                           .heading()
+                           .size(theme.text_sizes.heading + 4.0),
                      );
                   });
                });
@@ -517,7 +514,6 @@ impl PortfolioUi {
 
                      ui.end_row();
 
-                     let native_wrapped = ERC20Token::wrapped_native_token(chain_id);
                      let native_currency = Currency::native(chain_id);
 
                      // Show the native currency first
@@ -541,41 +537,6 @@ impl PortfolioUi {
                      );
 
                      ui.end_row();
-
-                     // Show the Wrapped native next if there is a balance
-
-                     let wrapped_balance =
-                        ctx.get_token_balance(chain_id, owner, native_wrapped.address);
-
-                     if !wrapped_balance.is_zero() {
-                        self.token(
-                           theme,
-                           icons.clone(),
-                           &native_wrapped,
-                           ui,
-                           column_widths[0],
-                        );
-
-                        self.price_balance_value_token(
-                           ctx.clone(),
-                           theme,
-                           chain_id,
-                           owner,
-                           &native_wrapped,
-                           ui,
-                           column_widths[0],
-                        );
-
-                        self.remove_token(
-                           ctx.clone(),
-                           owner,
-                           &native_wrapped,
-                           ui,
-                           column_widths[4],
-                        );
-
-                        ui.end_row();
-                     }
 
                      // Show the rest of the tokens
 
@@ -686,9 +647,7 @@ impl PortfolioUi {
       let value = ctx.get_currency_value_for_owner(chain, owner, currency);
       ui.horizontal(|ui| {
          ui.set_width(width);
-         ui.label(
-            RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal),
-         );
+         ui.label(RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal));
       });
    }
 

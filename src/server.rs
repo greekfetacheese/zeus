@@ -1417,32 +1417,71 @@ async fn eth_send_transaction(
       }
    };
 
-   let (data_str, from_str, _gas_hex, to_str, value_hex) = match (
-      object.get("data"),
-      object.get("from"),
-      object.get("gas"),
-      object.get("to"),
-      object.get("value"),
-   ) {
-      (
-         Some(Value::String(data)),
-         Some(Value::String(from)),
-         Some(Value::String(gas)),
-         Some(Value::String(to)),
-         Some(Value::String(value)),
-      ) => (data, from, gas, to, value),
+   let data_str = match object.get("data") {
+      Some(Value::String(data)) => data.clone(),
       _ => {
-         return {
-            error!(
-               "Invalid params for eth_sendTransaction, from, to, gas, data, and value are not strings {:#?}",
-               object
-            );
-            Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-         };
+         error!(
+            "Invalid params for eth_sendTransaction, data is not a string {:#?}",
+            object
+         );
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
       }
    };
 
-   let call_data = match Bytes::from_str(data_str) {
+   let from_str = match object.get("from") {
+      Some(Value::String(from)) => from.clone(),
+      _ => {
+         error!(
+            "Invalid params for eth_sendTransaction, from is not a string {:#?}",
+            object
+         );
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let to_str = match object.get("to") {
+      Some(Value::String(to)) => to.clone(),
+      _ => {
+         error!(
+            "Invalid params for eth_sendTransaction, to is not a string {:#?}",
+            object
+         );
+         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+      }
+   };
+
+   let value = match object.get("value") {
+      Some(Value::String(s)) => {
+         if s.starts_with("0x") {
+            let hex_val = &s[2..];
+            match U256::from_str_radix(hex_val, 16) {
+               Ok(v) => v,
+               Err(_) => {
+                  error!(
+                     "Invalid params for eth_sendTransaction, value is not valid hex {:#?}",
+                     s
+                  );
+                  return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+               }
+            }
+         } else {
+            match U256::from_str_radix(s, 10) {
+               Ok(v) => v,
+               Err(_) => {
+                  error!(
+                     "Invalid params for eth_sendTransaction, value is not valid decimal {:#?}",
+                     s
+                  );
+                  return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
+               }
+            }
+         }
+      }
+      Some(Value::Number(n)) => n.as_u64().map_or(U256::ZERO, U256::from),
+      _ => U256::ZERO,
+   };
+
+   let call_data = match Bytes::from_str(&data_str) {
       Ok(data) => data,
       Err(_) => {
          return {
@@ -1455,7 +1494,7 @@ async fn eth_send_transaction(
       }
    };
 
-   let from = match Address::from_str(from_str) {
+   let from = match Address::from_str(&from_str) {
       Ok(from) => from,
       Err(_) => {
          return {
@@ -1468,7 +1507,7 @@ async fn eth_send_transaction(
       }
    };
 
-   let transact_to = match Address::from_str(to_str) {
+   let transact_to = match Address::from_str(&to_str) {
       Ok(to) => to,
       Err(_) => {
          return {
@@ -1478,28 +1517,6 @@ async fn eth_send_transaction(
             );
             Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
          };
-      }
-   };
-
-   let value = match value_hex.strip_prefix("0x") {
-      Some(hex_val) => match U256::from_str_radix(hex_val, 16) {
-         Ok(value) => value,
-         Err(_) => {
-            return {
-               error!(
-                  "Invalid params for eth_sendTransaction, String is not a valid U256 value {:#?}",
-                  value_hex
-               );
-               Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id))
-            };
-         }
-      },
-      None => {
-         error!(
-            "Invalid params for eth_sendTransaction, String is not a valid U256 value {:#?}",
-            value_hex
-         );
-         return Ok(JsonRpcResponse::error(INVALID_PARAMS, payload.id));
       }
    };
 
@@ -1690,6 +1707,7 @@ async fn handle_request(
       }
    };
 
+   #[cfg(feature = "dev")]
    info!(
       "Received request '{}' from dapp: {}",
       method.as_str(),
