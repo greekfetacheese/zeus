@@ -40,7 +40,7 @@ impl SecureSigner {
    pub fn is_erased(&self) -> bool {
       self
          .data
-         .unlock(|slice| slice.iter().all(|byte| *byte == 0))
+         .unlock(|slice| slice.iter().all(|byte| byte == &0))
    }
 
    pub fn address(&self) -> Address {
