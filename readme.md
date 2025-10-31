@@ -71,6 +71,15 @@ not ever **exposed** in past breaches, it is practically impossible for someone 
 
 ---
 
+## Connecting to dapps
+It is possible to connect Zeus to dapps through the [wallet-connector](https://github.com/greekfetacheese/zeus/tree/main/wallet-connector) extension, for chromium based browsers (Chrome, Brave etc.).
+
+Currently the extension is not listed in the Chrome Web Store, so you will need to install it manually.
+
+## Installing the extension
+1. Download the wallet-connector.zip from the latest [release](https://github.com/greekfetacheese/zeus/releases)
+2. You can use this [guide](https://bashvlas.com/blog/install-chrome-extension-in-developer-mode) on how to install the extension in developer mode.
+
 
 ## Features
 
