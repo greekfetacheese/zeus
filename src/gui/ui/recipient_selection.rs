@@ -85,12 +85,6 @@ impl RecipientSelectionWindow {
 
    pub fn close(&mut self) {
       self.open = false;
-      self.wallets = Vec::new();
-      self.wallets.shrink_to_fit();
-      self.wallet_value.clear();
-      self.wallet_value.shrink_to_fit();
-      self.wallet_chains.clear();
-      self.wallet_chains.shrink_to_fit();
    }
 
    pub fn reset(&mut self) {

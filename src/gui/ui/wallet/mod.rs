@@ -2,16 +2,16 @@ pub mod add;
 pub use add::AddWalletUi;
 
 use crate::assets::icons::Icons;
-use crate::utils::RT;
 use crate::core::{Wallet, WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
+use crate::utils::RT;
 use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
    Sense, TextEdit, Ui, Vec2, Window, vec2,
 };
+use std::{collections::HashMap, sync::Arc};
+use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_theme::{Theme, utils::frame_it};
-use std::sync::Arc;
-use zeus_eth::{types::SUPPORTED_CHAINS, utils::NumericValue};
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -24,6 +24,11 @@ pub struct WalletUi {
    search_query: String,
    export_key_ui: ExportKeyUi,
    delete_wallet_ui: DeleteWalletUi,
+   wallets: Vec<WalletInfo>,
+   /// Wallet value by address
+   wallet_value: HashMap<Address, NumericValue>,
+   /// Chains that the wallet has balance on
+   wallet_chains: HashMap<Address, Vec<u64>>,
    size: (f32, f32),
 }
 
@@ -39,6 +44,9 @@ impl WalletUi {
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
          delete_wallet_ui: DeleteWalletUi::new(),
+         wallets: Vec::new(),
+         wallet_value: HashMap::new(),
+         wallet_chains: HashMap::new(),
          size: (550.0, 600.0),
       }
    }
@@ -47,8 +55,46 @@ impl WalletUi {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, ctx: ZeusCtx) {
       self.open = true;
+
+      let mut wallets = ctx.get_all_wallets_info();
+      let mut portfolios = Vec::new();
+      for chain in SUPPORTED_CHAINS {
+         for wallet in &wallets {
+            portfolios.push(ctx.get_portfolio(chain, wallet.address));
+         }
+      }
+
+      wallets.sort_by(|a, b| {
+         let wallet_a = a.address;
+         let wallet_b = b.address;
+
+         let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
+         let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+
+         // Sort in descending order (highest value first)
+         value_b
+            .f64()
+            .partial_cmp(&value_a.f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name().cmp(&b.name()))
+      });
+
+      let mut wallet_value = HashMap::new();
+      let mut wallet_chains = HashMap::new();
+
+      for wallet in &wallets {
+         let value = ctx.get_portfolio_value_all_chains(wallet.address);
+         wallet_value.insert(wallet.address, value);
+
+         let chains = ctx.get_chains_that_have_balance(wallet.address);
+         wallet_chains.insert(wallet.address, chains);
+      }
+
+      self.wallets = wallets;
+      self.wallet_value = wallet_value;
+      self.wallet_chains = wallet_chains;
    }
 
    pub fn close(&mut self) {
@@ -75,35 +121,6 @@ impl WalletUi {
          return;
       }
 
-      let mut wallets = ctx.get_all_wallets_info();
-      let current_wallet = ctx.current_wallet_info();
-      let mut portfolios = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address));
-         }
-      }
-
-      wallets.sort_by(|a, b| {
-         let addr_a = a.address;
-         let addr_b = b.address;
-
-         // Find the portfolio for each wallet
-         let portfolio_a = portfolios.iter().find(|p| p.owner == addr_a);
-         let portfolio_b = portfolios.iter().find(|p| p.owner == addr_b);
-
-         // Extract the portfolio value (or use a default if not found)
-         let value_a = portfolio_a.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
-         let value_b = portfolio_b.map(|p| p.value.clone()).unwrap_or(NumericValue::default());
-
-         // highest value first
-         value_b
-            .f64()
-            .partial_cmp(&value_a.f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name().cmp(&b.name()))
-      });
-
       let frame = theme.frame1;
       Window::new("wallet_main_ui")
          .title_bar(false)
@@ -129,6 +146,8 @@ impl WalletUi {
                   self.add_wallet_ui.open_main_ui();
                }
 
+               let current_wallet = ctx.current_wallet_info();
+
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
                self.wallet(
@@ -153,6 +172,8 @@ impl WalletUi {
                      .min_size(vec2(ui.available_width() * 0.7, 20.0)),
                );
                ui.add_space(8.0);
+
+               let wallets = self.wallets.clone();
 
                // Wallet list
                ScrollArea::vertical().show(ui, |ui| {
@@ -261,8 +282,11 @@ impl WalletUi {
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                   ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
                   ui.vertical(|ui| {
-                     let chains = ctx.get_chains_that_have_balance(wallet.address);
-                     let value = ctx.get_portfolio_value_all_chains(wallet.address);
+                     let value =
+                        self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+                     let chains =
+                        self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
+                        
                      ui.horizontal(|ui| {
                         for chain in chains {
                            let icon = icons.chain_icon_x16(chain, tint);

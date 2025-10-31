@@ -5,6 +5,7 @@ use zeus_theme::{Theme, utils};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let frame = gui.theme.frame1;
+   let ctx = gui.ctx.clone();
    ui.set_width(140.0);
 
    frame.show(ui, |ui| {
@@ -106,7 +107,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          };
 
          if ui.add(wallets).clicked() {
-            gui.wallet_ui.open();
+            gui.wallet_ui.open(ctx);
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();

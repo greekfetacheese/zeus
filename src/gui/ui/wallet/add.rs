@@ -604,13 +604,13 @@ impl DiscoverChildWallets {
 
                let start = self.current_page * items_per_page;
                let end = (start + items_per_page).min(len);
-               let showing = end - start;
                let text = if len == 0 {
                   "No wallets found".to_string()
                } else {
                   format!(
-                     "Showing {} of {} wallets (Page {} of {})",
-                     showing,
+                     "Showing {}-{} of {} wallets (Page {} of {})",
+                     start + 1,
+                     end,
                      len,
                      self.current_page + 1,
                      total_pages
@@ -809,8 +809,6 @@ impl DiscoverChildWallets {
             }
          }
 
-         let discovered_wallets_len = discovered_wallets.wallets.len();
-
          SHARED_GUI.write(|gui| {
             gui.wallet_ui
                .add_wallet_ui
@@ -821,17 +819,6 @@ impl DiscoverChildWallets {
                .discover_child_wallets_ui
                .set_discovered_wallets(discovered_wallets);
 
-            let items_per_page =
-               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.items_per_page;
-
-            let total_pages = if items_per_page == 0 {
-               0
-            } else {
-               (discovered_wallets_len + items_per_page - 1) / items_per_page
-            };
-
-            gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page =
-               total_pages.saturating_sub(1);
          });
 
          match sync_wallets_balance(ctx_clone, addresses, concurrency).await {
