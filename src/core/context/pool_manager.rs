@@ -121,7 +121,7 @@ impl PoolManagerHandle {
    pub fn concurrency(&self) -> usize {
       let concurrency = self.read(|manager| manager.concurrency);
       if concurrency == 0 {
-         1
+         default_concurrency()
       } else {
          concurrency
       }

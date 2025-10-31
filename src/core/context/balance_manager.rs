@@ -83,11 +83,21 @@ impl BalanceManagerHandle {
    }
 
    pub fn max_retries(&self) -> usize {
-      self.read(|manager| manager.max_retries)
+     let retries = self.read(|manager| manager.max_retries);
+     if retries == 0 {
+        default_max_retries()
+     } else {
+        retries
+     }
    }
 
    pub fn retry_delay(&self) -> u64 {
-      self.read(|manager| manager.retry_delay)
+      let delay = self.read(|manager| manager.retry_delay);
+      if delay == 0 {
+         default_retry_delay()
+      } else {
+         delay
+      }
    }
 
    pub async fn update_eth_balance_across_wallets_and_chains(&self, ctx: ZeusCtx) {
@@ -424,7 +434,7 @@ fn default_batch_size() -> usize {
    10
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct BalanceManager {
    /// Eth Balances (or any native currency for evm compatable chains)
    #[serde(with = "serde_hashmap")]
@@ -445,6 +455,19 @@ pub struct BalanceManager {
 
    #[serde(default = "default_batch_size")]
    pub batch_size: usize,
+}
+
+impl Default for BalanceManager {
+   fn default() -> Self {
+      Self {
+         eth_balances: HashMap::new(),
+         token_balances: HashMap::new(),
+         concurrency: default_concurrency(),
+         max_retries: default_max_retries(),
+         retry_delay: default_retry_delay(),
+         batch_size: default_batch_size(),
+      }
+   }
 }
 
 #[cfg(test)]
