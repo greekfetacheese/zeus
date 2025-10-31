@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{Vault, ZeusCtx};
+use crate::core::{M_COST, Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{
@@ -10,6 +10,7 @@ use egui_widgets::{Label, SecureTextEdit};
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;
+use std::time::Instant;
 use zeus_theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -484,6 +485,46 @@ impl UnlockVault {
    }
 }
 
+struct SystemMemory {
+   total: u64,
+   available: u64,
+   last_time_checked: Instant,
+}
+
+impl SystemMemory {
+   pub fn new() -> Self {
+      let mut sys = sysinfo::System::new();
+      sys.refresh_all();
+      let total = sys.total_memory();
+      let available = sys.available_memory();
+      Self {
+         total,
+         available,
+         last_time_checked: Instant::now(),
+      }
+   }
+
+   fn update(&mut self) {
+      let now = Instant::now();
+      if now.duration_since(self.last_time_checked).as_secs() > 1 {
+         let mut sys = sysinfo::System::new();
+         sys.refresh_all();
+
+         self.total = sys.total_memory();
+         self.available = sys.available_memory();
+         self.last_time_checked = Instant::now();
+      }
+   }
+
+   fn total_gb(&self) -> f64 {
+      self.total as f64 / 1024f64 / 1024f64 / 1024f64
+   }
+
+   fn available_gb(&self) -> f64 {
+      self.available as f64 / 1024f64 / 1024f64 / 1024f64
+   }
+}
+
 /// Recover an HD wallet from the credentials and create a Vault
 pub struct RecoverHDWallet {
    credentials_form: CredentialsForm,
@@ -492,6 +533,7 @@ pub struct RecoverHDWallet {
    recover_button_clicked: bool,
    show_recover_wallet: bool,
    show_tips: bool,
+   memory: SystemMemory,
    pub size: (f32, f32),
 }
 
@@ -504,6 +546,7 @@ impl RecoverHDWallet {
          recover_button_clicked: false,
          show_recover_wallet: false,
          show_tips: false,
+         memory: SystemMemory::new(),
          size: (550.0, 350.0),
       }
    }
@@ -512,6 +555,8 @@ impl RecoverHDWallet {
       if ctx.vault_exists() {
          return;
       }
+
+      self.memory.update();
 
       Window::new("Recover_HD_Wallet_Ui_main")
          .title_bar(false)
@@ -526,6 +571,45 @@ impl RecoverHDWallet {
                ui.add_space(10.0);
                ui.spacing_mut().item_spacing.y = 15.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               let m_cost_bytes = M_COST as u64 * 1024;
+               let m_cost_gb = m_cost_bytes as f64 / 1_000_000_000.0;
+
+               // Maybe also consider swap as free memory?
+               let mem_avail = self.memory.available > m_cost_bytes;
+               let meets_min_mem = self.memory.total > m_cost_bytes;
+
+               if !mem_avail && meets_min_mem {
+                  let text1 = format!(
+                     "You need at least {:.2} GB of free RAM to recover your wallet",
+                     m_cost_gb
+                  );
+
+                  let text2 = format!(
+                     "You currently have {:.2} GB of free RAM",
+                     self.memory.available_gb()
+                  );
+
+                  ui.label(
+                     RichText::new(text1).size(theme.text_sizes.normal).color(theme.colors.warning),
+                  );
+                  ui.label(
+                     RichText::new(text2).size(theme.text_sizes.normal).color(theme.colors.warning),
+                  );
+               }
+
+               if !meets_min_mem {
+                  let text = format!(
+                     "Your system doesn't meet the minimum requirements,\n
+                  detected {:.2} GB of RAM, need {:.2} GB",
+                     self.memory.total_gb(),
+                     m_cost_gb
+                  );
+
+                  ui.label(
+                     RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning),
+                  );
+               }
 
                self.credentials_input(theme, icons, ui);
                self.recover_hd_wallet(ctx.clone(), theme, ui);
