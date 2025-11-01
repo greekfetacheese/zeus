@@ -5,24 +5,23 @@ use zeus_eth::{
    alloy_primitives::{Address, Signature, U256},
    alloy_signer::Signer,
    currency::{Currency, ERC20Token, NativeCurrency},
-   utils::{SecureSigner, NumericValue, address_book, generate_permit2_json_value, parse_typed_data},
+   utils::{
+      NumericValue, SecureSigner, address_book, generate_permit2_json_value, parse_typed_data,
+   },
 };
 
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
-use lazy_static::lazy_static;
 use tokio::runtime::Runtime;
-
 
 lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
 }
-
-
 
 /// Estimate the cost for a transaction
 ///
@@ -48,7 +47,6 @@ pub fn estimate_tx_cost(
    (cost, cost_in_usd)
 }
 
-
 pub fn truncate_symbol_or_name(string: &str, max_chars: usize) -> String {
    if string.chars().count() > max_chars {
       // Take the first `max_chars` characters and collect them into a new String
@@ -70,7 +68,6 @@ pub fn truncate_hash(hash: String) -> String {
       hash
    }
 }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimeStamp {
@@ -260,12 +257,27 @@ impl Permit2Details {
       });
 
       let (data, allowance) = tokio::try_join!(data_fut, allowance_fut)?;
+
       let permit2_contract_need_approval = allowance < amount;
 
       let current_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
       let expired = u64::try_from(data.expiration)? < current_time;
       let needs_new_signature = U256::from(data.amount) < amount || expired;
+
+      #[cfg(feature = "dev")]
+      {
+         tracing::info!("AllowanceReturn {:?}", data);
+         tracing::info!("Permit2 Expired: {}", expired);
+         tracing::info!(
+            "Permit2 Contract Needs Approval: {}",
+            permit2_contract_need_approval
+         );
+         tracing::info!(
+            "Permit2 Needs New Signature: {}",
+            needs_new_signature
+         );
+      }
 
       let expiration = U256::from(current_time + 30 * 24 * 60 * 60); // 30 days
       let sig_deadline = U256::from(current_time + 30 * 60); // 30 minutes

@@ -370,7 +370,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(formatted, "  Version: 2").unwrap();
    writeln!(
       formatted,
-      "  Chain: {} (Ethereum)",
+      "  Chain: {}",
       details.token.chain_id
    )
    .unwrap();

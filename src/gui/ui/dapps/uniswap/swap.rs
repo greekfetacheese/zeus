@@ -1907,9 +1907,9 @@ async fn swap_via_ur(
          .map_err(|e| anyhow!("{:?}", e))
    });
 
-   let token = currency_in.to_erc20().into_owned();
-   let token_balance_fut = client.request(chain.id(), |client| {
-      let token = token.clone();
+   let token_out = currency_out.to_erc20().into_owned();
+   let token_out_balance_fut = client.request(chain.id(), |client| {
+      let token = token_out.clone();
       async move { token.balance_of(client.clone(), signer_address, None).await }
    });
 
@@ -2096,7 +2096,7 @@ async fn swap_via_ur(
    }
 
    let token_out_balance_before = if currency_out.is_erc20() {
-      token_balance_fut.await?
+      token_out_balance_fut.await?
    } else {
       eth_balance_before
    };

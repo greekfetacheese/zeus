@@ -278,7 +278,7 @@ pub fn encode_v3_swap_exact_in(
    amount_out_minimum: U256,
    path: Vec<Address>,
    fees: Vec<U24>,
-   permit2: bool,
+   payer_is_user: bool,
 ) -> Result<Bytes, anyhow::Error> {
    let path = encode_v3_path(path, fees);
    let data = V3SwapExactIn {
@@ -286,7 +286,7 @@ pub fn encode_v3_swap_exact_in(
       amountIn: amount_in,
       amountOutMinimum: amount_out_minimum,
       path,
-      permit2,
+      permit2: payer_is_user,
    }
    .abi_encode_params()
    .into();
@@ -318,14 +318,14 @@ pub fn encode_v2_swap_exact_in(
    amount_in: U256,
    amount_out_minimum: U256,
    path: Vec<Address>,
-   permit2: bool,
+   payer_is_user: bool,
 ) -> Result<Bytes, anyhow::Error> {
    let data = V2SwapExactIn {
       recipient,
       amountIn: amount_in,
       amountOutMinimum: amount_out_minimum,
       path,
-      permit2,
+      permit2: payer_is_user,
    }
    .abi_encode_params()
    .into();

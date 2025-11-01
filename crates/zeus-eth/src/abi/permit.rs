@@ -56,6 +56,7 @@ sol! {
           uint256 sigDeadline;
       }
 
+        #[derive(Debug)]
         function allowance(address user, address token, address spender)
         external
         view

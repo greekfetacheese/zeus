@@ -1,7 +1,10 @@
 use anyhow::anyhow;
 use serde_json::Value;
 
-use super::{misc::{Permit2Details, TimeStamp}, swap_quoter::SwapStep};
+use super::{
+   misc::{Permit2Details, TimeStamp},
+   swap_quoter::SwapStep,
+};
 use crate::core::ZeusCtx;
 use zeus_eth::{
    abi::uniswap::{universal_router_v2::*, v4::actions::*},
@@ -104,7 +107,6 @@ impl SwapExecuteParams {
    }
 }
 
-
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum SwapType {
    /// Indicates that the swap is based on an exact input amount.
@@ -173,7 +175,6 @@ pub async fn encode_swap(
    }
 
    // Handle Permit2 approvals
-   let mut first_step_uses_permit2 = false;
    if currency_in.is_erc20() {
       let token_in = currency_in.to_erc20();
 
@@ -193,8 +194,6 @@ pub async fn encode_swap(
       };
 
       if permit_details.needs_new_signature {
-         first_step_uses_permit2 = true;
-
          let signature = permit_details.sign(&secure_signer).await?;
 
          let permit_input = encode_permit2_permit(
@@ -212,6 +211,18 @@ pub async fn encode_swap(
       }
 
       execute_params.set_permit2_details(Some(permit_details));
+   }
+
+   let first_step_uses_permit2 = currency_in.is_erc20();
+   if first_step_uses_permit2 {
+      let transfer_from_input = encode_permit2_transfer_from(
+         currency_in.to_erc20().address,
+         router_addr,
+         amount_in,
+      );
+
+      commands.push(Commands::PERMIT2_TRANSFER_FROM as u8);
+      inputs.push(transfer_from_input);
    }
 
    // Router ETH and WETH balances after the swaps
@@ -237,18 +248,22 @@ pub async fn encode_swap(
          router_weth_balance += swap.amount_out.wei();
       }
 
-      /*
-      eprintln!("|=== Swap Step ===|");
-      eprintln!(
-         "Swap Step: {} {} -> {} {} {} ({})",
-         swap.amount_in.format_abbreviated(),
+      #[cfg(feature = "dev")]
+      {
+      tracing::info!("|=== Swap Step ===|");
+      tracing::info!(
+         "Swap Step: {} {} -> {} {} {} ({}) {} {}",
+         swap.amount_in.abbreviated(),
          swap.currency_in.symbol(),
-         swap.amount_out.format_abbreviated(),
+         swap.amount_out.abbreviated(),
          swap.currency_out.symbol(),
          swap.pool.dex_kind().as_str(),
-         swap.pool.fee().fee_percent()
+         swap.pool.fee().fee_percent(),
+         swap.pool.address(),
+         swap.pool.id(),
       );
-      */
+   }
+      
 
       // A step uses initial funds ONLY if its input is the main currency_in for the entire trade.
       let uses_initial_funds = swap.currency_in == currency_in;
@@ -256,6 +271,7 @@ pub async fn encode_swap(
       // All intermediate swaps send funds back to the router.
       // The final output is handled by SWEEP or UNWRAP_WETH at the end.
       let recipient_addr = router_addr;
+      let payer_is_user = uses_initial_funds && !first_step_uses_permit2;
 
       // Slippage is only enforced at the very end.
       let step_amount_out_min = U256::ZERO;
@@ -275,7 +291,7 @@ pub async fn encode_swap(
             swap.amount_in.wei(),
             step_amount_out_min,
             path,
-            uses_initial_funds && first_step_uses_permit2,
+            payer_is_user,
          )?;
          commands.push(Commands::V2_SWAP_EXACT_IN as u8);
          inputs.push(input);
@@ -290,7 +306,7 @@ pub async fn encode_swap(
             step_amount_out_min,
             path,
             fees,
-            uses_initial_funds && first_step_uses_permit2,
+            payer_is_user,
          )?;
          commands.push(Commands::V3_SWAP_EXACT_IN as u8);
          inputs.push(input);
@@ -305,7 +321,7 @@ pub async fn encode_swap(
             swap.amount_in.wei(),
             step_amount_out_min,
             router_addr,
-            uses_initial_funds,
+            payer_is_user,
          )?;
          commands.push(Commands::V4_SWAP as u8);
          inputs.push(input);
@@ -317,6 +333,7 @@ pub async fn encode_swap(
 
    let mut should_sweep = true;
    let amount_to_sweep = amount_out_min;
+   tracing::info!("Amount to sweep {}", amount_to_sweep);
 
    // Handle native ETH output
 
@@ -346,7 +363,7 @@ pub async fn encode_swap(
          amountMin: amount_to_sweep,
       };
 
-      // eprintln!("Sweep Params: {:?}", sweep_params);
+      tracing::info!("Sweep Params: {:?}", sweep_params);
 
       let data = sweep_params.abi_encode_params().into();
       commands.push(Commands::SWEEP as u8);
@@ -357,7 +374,11 @@ pub async fn encode_swap(
    // eprintln!("Command Bytes: {:?}", command_bytes);
 
    let deadline = TimeStamp::now_as_secs().add(deadline_in_minutes * 60);
-   let data = encode_execute_with_deadline(command_bytes, inputs, U256::from(deadline.timestamp()));
+   let data = encode_execute_with_deadline(
+      command_bytes,
+      inputs,
+      U256::from(deadline.timestamp()),
+   );
 
    execute_params.set_call_data(data);
 
@@ -372,7 +393,7 @@ fn encode_v4_internal_actions(
    amount_in: U256,
    amount_out_min: U256,
    router_addr: Address,
-   uses_initial_funds: bool,
+   payer_is_user: bool,
 ) -> Result<Bytes, anyhow::Error> {
    let (swap_action, swap_input) = encode_v4_swap_single_command_input(
       pool,
@@ -386,7 +407,7 @@ fn encode_v4_internal_actions(
    let settle = SettleParams {
       currency: currency_in.address(),
       amount: amount_in,
-      payerIsUser: uses_initial_funds, // True if funds come from user, false if from UR's balance in V4
+      payerIsUser: payer_is_user,
    };
 
    let settle_action = Actions::SETTLE(settle);
