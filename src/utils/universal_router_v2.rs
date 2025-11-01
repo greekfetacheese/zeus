@@ -333,7 +333,6 @@ pub async fn encode_swap(
 
    let mut should_sweep = true;
    let amount_to_sweep = amount_out_min;
-   tracing::info!("Amount to sweep {}", amount_to_sweep);
 
    // Handle native ETH output
 
@@ -363,6 +362,7 @@ pub async fn encode_swap(
          amountMin: amount_to_sweep,
       };
 
+      #[cfg(feature = "dev")]
       tracing::info!("Sweep Params: {:?}", sweep_params);
 
       let data = sweep_params.abi_encode_params().into();
