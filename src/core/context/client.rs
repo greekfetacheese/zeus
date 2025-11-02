@@ -1,7 +1,7 @@
 use crate::core::{ZeusCtx, context::data_dir};
 use crate::utils::RT;
 use zeus_eth::{
-   abi::{weth9, zeus::ZeusStateView},
+   abi::{weth9, zeus::ZeusStateViewV2::{V3Pool, V4Pool}},
    alloy_primitives::Address,
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag},
@@ -1194,7 +1194,7 @@ async fn v3_pool_state_check(
          if pools.len() == batch_size {
             break;
          }
-         pools.push(ZeusStateView::V3Pool {
+         pools.push(V3Pool {
             addr: pool.address(),
             tokenA: pool.currency0().address(),
             tokenB: pool.currency1().address(),
@@ -1259,7 +1259,7 @@ async fn v4_pool_state_check(
          if pools.len() == batch_size {
             break;
          }
-         let p = ZeusStateView::V4Pool {
+         let p = V4Pool {
             pool: pool.id(),
             tickSpacing: pool.fee().tick_spacing(),
          };

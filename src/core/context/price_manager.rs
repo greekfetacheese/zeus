@@ -11,7 +11,7 @@ use crate::core::{
 };
 use zeus_eth::{
    alloy_primitives::{Address, B256},
-   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, ERC20Token},
    utils::{NumericValue, price_feed::get_base_token_price},
 };
@@ -188,9 +188,8 @@ impl PriceManagerHandle {
          }
       }
 
-      let dexes = DexKind::main_dexes(chain);
       match pool_manager
-         .sync_pools_for_tokens(ctx.clone(), tokens_without_pool.clone(), dexes)
+         .sync_pools_for_tokens(ctx.clone(), chain, tokens_without_pool.clone())
          .await
       {
          Ok(_) => {}

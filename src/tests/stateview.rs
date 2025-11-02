@@ -2,8 +2,8 @@
 mod tests {
    use crate::core::ZeusCtx;
 
-   use zeus_eth::utils::address_book::{uniswap_v4_stateview, zeus_stateview};
-   use zeus_eth::{abi::zeus::ZeusStateView, amm::uniswap::UniswapPool};
+   use zeus_eth::utils::address_book::{uniswap_v4_stateview, zeus_stateview_v2};
+   use zeus_eth::{abi::zeus::ZeusStateViewV2, amm::uniswap::UniswapPool};
    use zeus_eth::{
       alloy_primitives::{TxKind, U256},
       alloy_sol_types::SolCall,
@@ -85,7 +85,7 @@ mod tests {
             if pools.len() == 20 {
                break;
             }
-            let p = ZeusStateView::V3Pool {
+            let p = ZeusStateViewV2::V3Pool {
                addr: pool.address(),
                tokenA: pool.currency0().address(),
                tokenB: pool.currency1().address(),
@@ -137,7 +137,7 @@ mod tests {
       let ctx = ZeusCtx::new();
 
       let chain = 1;
-      let contract_address = zeus_stateview(chain).unwrap();
+      let contract_address = zeus_stateview_v2(chain).unwrap();
       let pool_manager = ctx.pool_manager();
       let all_pools = pool_manager.get_v3_pools_for_chain(chain);
 
@@ -147,7 +147,7 @@ mod tests {
          if pools.len() == 20 {
             break;
          }
-         let p = ZeusStateView::V3Pool {
+         let p = ZeusStateViewV2::V3Pool {
             addr: pool.address(),
             tokenA: pool.currency0().address(),
             tokenB: pool.currency1().address(),
@@ -161,7 +161,7 @@ mod tests {
       let fork_db = fork_factory.new_sandbox_fork();
       let mut evm = new_evm(chain.into(), None, fork_db);
 
-      let data = ZeusStateView::getV3PoolStateCall {
+      let data = ZeusStateViewV2::getV3PoolStateCall {
          pools: pools.clone(),
       }
       .abi_encode();
@@ -179,7 +179,7 @@ mod tests {
       let ctx = ZeusCtx::new();
 
       let chain = 1;
-      let contract_address = zeus_stateview(chain).unwrap();
+      let contract_address = zeus_stateview_v2(chain).unwrap();
       let uni_stateview = uniswap_v4_stateview(chain).unwrap();
       let pool_manager = ctx.pool_manager();
       let all_pools = pool_manager.get_v4_pools_for_chain(chain);
@@ -191,7 +191,7 @@ mod tests {
             break;
          }
 
-         let p = ZeusStateView::V4Pool {
+         let p = ZeusStateViewV2::V4Pool {
             pool: pool.id(),
             tickSpacing: pool.fee().tick_spacing(),
          };
@@ -204,7 +204,7 @@ mod tests {
       let fork_db = fork_factory.new_sandbox_fork();
       let mut evm = new_evm(chain.into(), None, fork_db);
 
-      let data = ZeusStateView::getV4PoolStateCall {
+      let data = ZeusStateViewV2::getV4PoolStateCall {
          pools: pools,
          stateView: uni_stateview,
       }

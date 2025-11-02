@@ -12,7 +12,6 @@ use std::{str::FromStr, sync::Arc};
 
 use zeus_eth::{
    alloy_primitives::Address,
-   amm::uniswap::DexKind,
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
@@ -350,10 +349,9 @@ async fn get_erc20_token(
       });
 
       let pool_manager = ctx_clone.pool_manager();
-      let dex = DexKind::main_dexes(chain);
 
       match pool_manager
-         .sync_pools_for_tokens(ctx_clone.clone(), vec![token_clone.clone()], dex)
+         .sync_pools_for_tokens(ctx_clone.clone(), chain, vec![token_clone.clone()])
          .await
       {
          Ok(_) => {

@@ -6,7 +6,7 @@ pub fn vitalik() -> Address {
    address!("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045")
 }
 
-pub fn zeus_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
+pub fn zeus_stateview_v1(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
    match chain {
       ChainId::Ethereum => Ok(address!("0xa2377ec17cB3dBBFF82A1fFE9D3E29D9ea990f9B")),
@@ -14,6 +14,17 @@ pub fn zeus_stateview(chain_id: u64) -> Result<Address, anyhow::Error> {
       ChainId::BinanceSmartChain => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
       ChainId::Base => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
       ChainId::Arbitrum => Ok(address!("0x443e22658d645C30629acf24552e80823fDb85e8")),
+   }
+}
+
+pub fn zeus_stateview_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0xBB7b2f9A196B898f14Dc6c40A536231037973e39")),
+      ChainId::Optimism => Ok(address!("0x66d0e59D5EE42B1cA87ea080B2055879316fcCA8")),
+      ChainId::BinanceSmartChain => Ok(address!("0x74921DE7fD31Bc1a0DADdba5a2154CB9F1439676")),
+      ChainId::Base => Ok(address!("0xc4f89b0458EaA6bA83DA18970134dA37b284f004")),
+      ChainId::Arbitrum => Ok(address!("0xa2377ec17cB3dBBFF82A1fFE9D3E29D9ea990f9B")),
    }
 }
 

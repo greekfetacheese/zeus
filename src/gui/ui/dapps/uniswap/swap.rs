@@ -37,7 +37,7 @@ use zeus_eth::{
    alloy_primitives::{U256, address},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
    revm_utils::{ForkDB, ForkFactory, Host, new_evm, simulate},
    utils::{NumericValue, address_book},
@@ -809,9 +809,8 @@ impl SwapUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         let dex = DexKind::main_dexes(chain_id);
 
-         match pool_manager.sync_pools_for_tokens(ctx_clone.clone(), tokens, dex).await {
+         match pool_manager.sync_pools_for_tokens(ctx_clone.clone(), chain_id, tokens).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to sync pools: {}", e);

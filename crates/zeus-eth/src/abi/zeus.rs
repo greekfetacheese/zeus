@@ -66,7 +66,7 @@ sol! {
 
 sol! {
     #[sol(rpc)]
-    contract ZeusStateView {
+    contract ZeusStateViewV2 {
 
         function getETHBalance(address[] memory owners) external view returns (ETHBalance[] memory) {}
         function getERC20Balance(address[] memory tokens, address owner) external view returns (ERC20Balance[] memory) {}
@@ -77,7 +77,20 @@ sol! {
         function getV2Reserves(address[] memory pools) external view returns (V2PoolReserves[] memory) {}
         function getV3PoolState(V3Pool[] memory pools) external view returns (V3PoolData[] memory) {}
         function getV4PoolState(V4Pool[] memory pools, address stateView) external view returns (V4PoolData[] memory) {}
-
+        function getPoolsState(
+        address[] memory v2pools,
+        V3Pool[] memory v3pools,
+        V4Pool[] memory v4pools,
+        address stateView
+    ) external view returns (PoolsState memory) {}
+        function getPools(
+        address v2factory,
+        address v3factory,
+        address stateView,
+        bytes32[] memory v4pools,
+        address[] memory baseTokens,
+        address quoteToken
+    ) external view returns (Pools memory) {}
 
     /// Response of the `getETHBalance` function
     struct ETHBalance {
@@ -101,6 +114,7 @@ sol! {
     }
 
     /// Response of the `getV3Pools` function
+    #[derive(Debug)]
     struct V3Pool {
         address addr;
         address tokenA;
@@ -108,8 +122,16 @@ sol! {
         uint24 fee;
     }
 
-    /// Response of the `getV2Reserves` function
+    /// Response of the `getV2Pools` function
     #[derive(Debug)]
+    struct V2Pool {
+        address addr;
+        address tokenA;
+        address tokenB;
+    }
+
+    /// Response of the `getV2Reserves` function
+    #[derive(Default, Debug)]
     struct V2PoolReserves {
         address pool;
         uint112 reserve0;
@@ -118,7 +140,7 @@ sol! {
     }
 
     /// Response of the `getV3PoolState` function
-    #[derive(Debug)]
+    #[derive(Default, Debug)]
     struct V3PoolData {
         address pool;
         uint256 tokenABalance;
@@ -144,7 +166,7 @@ sol! {
     }
 
     /// Response of the `getV4PoolState` function
-    #[derive(Debug)]
+    #[derive(Default, Debug)]
     struct V4PoolData {
         bytes32 pool;
         uint256 feeGrowthGlobal0;
@@ -158,6 +180,22 @@ sol! {
         int16 wordPos;
         int128 liquidityNet;
         uint128 liquidityGross;
+    }
+
+    /// Response of the `getPoolsState` function
+    #[derive(Default, Debug)]
+    struct PoolsState {
+        V2PoolReserves[] v2Reserves;
+        V3PoolData[] v3PoolsData;
+        V4PoolData[] v4PoolsData;
+    }
+
+    /// Response of the `getPools` function
+    #[derive(Debug)]
+    struct Pools {
+        V2Pool[] v2Pools;
+        V3Pool[] v3Pools;
+        bytes32[] v4Pools;
     }
     }
 }

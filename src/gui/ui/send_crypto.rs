@@ -21,7 +21,6 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   amm::uniswap::DexKind,
    currency::{Currency, NativeCurrency},
    revm_utils::{ForkFactory, Host, new_evm, simulate},
    types::ChainId,
@@ -459,14 +458,13 @@ fn value(
       if pools.is_empty() {
          let token = currency.to_erc20().into_owned();
          let manager = ctx.pool_manager();
-         let dexes = DexKind::main_dexes(chain_id);
 
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
                gui.send_crypto.pool_data_syncing = true;
             });
 
-            match manager.sync_pools_for_tokens(ctx.clone(), vec![token], dexes).await {
+            match manager.sync_pools_for_tokens(ctx.clone(), chain_id, vec![token]).await {
                Ok(_) => {}
                Err(e) => {
                   tracing::error!("Error getting pools: {:?}", e);

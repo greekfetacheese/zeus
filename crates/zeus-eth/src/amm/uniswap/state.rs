@@ -1,5 +1,5 @@
 use super::{AnyUniswapPool, UniswapPool};
-use crate::abi::zeus::ZeusStateView;
+use crate::abi::zeus::ZeusStateViewV2::*;
 use crate::utils::batch;
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, U256, aliases::I24};
@@ -86,8 +86,8 @@ pub struct PoolReserves {
    pub block: u64,
 }
 
-impl From<ZeusStateView::V2PoolReserves> for PoolReserves {
-   fn from(value: ZeusStateView::V2PoolReserves) -> Self {
+impl From<V2PoolReserves> for PoolReserves {
+   fn from(value: V2PoolReserves) -> Self {
       let reserve0 = U256::from(value.reserve0);
       let reserve1 = U256::from(value.reserve1);
       Self {
@@ -133,7 +133,7 @@ pub struct TickInfo {
 
 impl V3PoolState {
    pub fn new(
-      pool_data: ZeusStateView::V3PoolData,
+      pool_data: V3PoolData,
       tick_spacing: I24,
       _block: Option<BlockId>,
    ) -> Result<Self, anyhow::Error> {
@@ -168,7 +168,7 @@ impl V3PoolState {
       })
    }
 
-   pub fn for_v4(pool: &impl UniswapPool, data: ZeusStateView::V4PoolData) -> Result<Self, anyhow::Error> {
+   pub fn for_v4(pool: &impl UniswapPool, data: V4PoolData) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(data.wordPos, data.tickBitmap);
 
@@ -225,7 +225,7 @@ pub async fn get_v3_pool_state<P, N>(
    client: P,
    pool: &impl UniswapPool,
    block: Option<BlockId>,
-) -> Result<(State, ZeusStateView::V3PoolData), anyhow::Error>
+) -> Result<(State, V3PoolData), anyhow::Error>
 where
    P: Provider<N> + Clone + 'static,
    N: Network,
@@ -238,7 +238,7 @@ where
    let tick_spacing = pool.fee().tick_spacing();
    let token0 = pool.currency0().address();
    let token1 = pool.currency1().address();
-   let pool2 = ZeusStateView::V3Pool {
+   let pool2 = V3Pool {
       addr: address,
       tokenA: token0,
       tokenB: token1,
@@ -268,7 +268,7 @@ where
       return Err(anyhow::anyhow!("Pool is not v4"));
    }
 
-   let pool_data = ZeusStateView::V4Pool {
+   let pool_data = V4Pool {
       pool: pool.id(),
       tickSpacing: pool.fee().tick_spacing(),
    };
@@ -338,7 +338,7 @@ where
 
    for pool in &pools {
       if pool.dex_kind().is_v3() && pool.chain_id() == chain_id {
-         v3_pool_info.push(ZeusStateView::V3Pool {
+         v3_pool_info.push(V3Pool {
             addr: pool.address(),
             tokenA: pool.currency0().address(),
             tokenB: pool.currency1().address(),
@@ -378,7 +378,7 @@ where
 
    for pool in &pools {
       if pool.dex_kind().is_v4() && pool.chain_id() == chain_id {
-         v4_pool_info.push(ZeusStateView::V4Pool {
+         v4_pool_info.push(V4Pool {
             pool: pool.id(),
             tickSpacing: pool.fee().tick_spacing(),
          });

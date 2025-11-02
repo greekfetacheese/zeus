@@ -8,7 +8,6 @@ use zeus_eth::{
    alloy_primitives::U256,
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   amm::uniswap::DexKind,
    currency::{Currency, ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
@@ -386,10 +385,9 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          let base_tokens = ERC20Token::base_tokens(chain);
          tokens.extend(base_tokens);
 
-         let dexes = DexKind::main_dexes(chain);
          let pool_manager = ctx.pool_manager();
 
-         match pool_manager.sync_pools_for_tokens(ctx.clone(), tokens, dexes).await {
+         match pool_manager.sync_pools_for_tokens(ctx.clone(), chain, tokens).await {
             Ok(_) => {}
             Err(e) => tracing::error!(
                "Failed to sync pools for chain_id {} {}",

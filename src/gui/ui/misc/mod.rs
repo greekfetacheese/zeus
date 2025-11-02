@@ -3,7 +3,6 @@ use eframe::egui::{
    Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
-use zeus_eth::amm::uniswap::DexKind;
 
 use crate::assets::icons::Icons;
 use crate::core::{Wallet, ZeusCtx};
@@ -707,9 +706,8 @@ impl PortfolioUi {
 
          // Update the pool state that includes these tokens
          let pool_manager = ctx.pool_manager();
-         let dex = DexKind::main_dexes(chain);
 
-         match pool_manager.sync_pools_for_tokens(ctx.clone(), tokens.clone(), dex).await {
+         match pool_manager.sync_pools_for_tokens(ctx.clone(), chain, tokens.clone()).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Error syncing pools: {:?}", e),
          }
@@ -783,11 +781,10 @@ impl PortfolioUi {
 
       let manager = ctx.pool_manager();
       let ctx_clone = ctx.clone();
-      let dex_kinds = DexKind::main_dexes(chain_id);
       self.show_spinner = true;
       RT.spawn(async move {
          match manager
-            .sync_pools_for_tokens(ctx_clone.clone(), vec![token.clone()], dex_kinds)
+            .sync_pools_for_tokens(ctx_clone.clone(), chain_id, vec![token.clone()])
             .await
          {
             Ok(_) => {
