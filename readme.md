@@ -88,7 +88,7 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
 - **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
 - **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
-- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments)).
+- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Zeus Router](https://github.com/greekfetacheese/zeus-router-v1/blob/master/src/ZeusRouter.sol)).
 - **Transaction Simulations:** Zeus run local EVM simulations using [revm](https://github.com/bluealloy/revm) to verify transactions before you submit them, what you see on the screen is what you will get.
 - **MEV Protect:** For transactions that are vulnerable to MEV by default Zeus uses mev-protect rpc endpoints (ETH mainnet only).
 
@@ -101,9 +101,15 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 ---
 
+## About Zeus Router
+Contract passes all the tests and I cannot see any obvious exploits that swap router's usually have, but it is not **audited**.
+It uses Permit2 signature approvals and for every swap Zeus approves the exact amount in it needs to swap so after the swap transaction
+no active approvals are left.
+
+
 ## Security
 - **Strong encryption:** Zeus uses the [Argon2Id](https://github.com/P-H-C/phc-winner-argon2) as a KDF and [xChaCha20Poly1305](https://en.wikipedia.org/wiki/ChaCha20-Poly1305) as the encryption algorithm to derive the master wallet and encrypt the `Vault`.
-- **No private key leaks:** Zeus uses [secure-types](https://github.com/greekfetacheese/secure-types) to handle private keys and other sensintive data in-memory. This makes it extremely hard for an attacker/malware to extract any private keys. (Unlike browser extension wallets)
+- **No private key leaks:** Zeus uses [secure-types](https://github.com/greekfetacheese/secure-types) to handle private keys and other sensintive data in-memory. This makes it extremely hard for an attacker/malware to extract any private keys.
 - **No telemetry:** Zeus does not need neither communicates with any third-party server, everything you do stays local on your computer.
 
 ## Bugs/Issues
