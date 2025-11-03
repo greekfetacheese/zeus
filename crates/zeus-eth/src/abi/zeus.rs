@@ -1,5 +1,6 @@
-use alloy_primitives::{Address, Bytes, U256};
-use alloy_sol_types::{SolCall, sol};
+use alloy_primitives::{Address, Signature, Bytes, U256, aliases::{U48, U160}};
+use alloy_sol_types::{SolCall, SolValue, sol};
+use super::permit::Permit2::{PermitSingle, PermitDetails};
 
 sol! {
     contract ZeusDelegate {
@@ -60,6 +61,86 @@ sol! {
     struct UnwrapWETH {
         uint256 amountMin;
     }
+    }
+
+}
+
+sol! {
+    contract ZeusRouter {
+
+    function zSwap(ZParams calldata params) public payable;
+
+   address public immutable WETH;
+   address public immutable PERMIT2;
+   address public immutable V4_POOL_MANAGER;
+   address public immutable UNISWAP_V3_FACTORY;
+   address public immutable PANCAKE_SWAP_V3_FACTORY;
+
+
+    struct DeployParams {
+        address weth;
+        address permit2;
+        address v4PoolManager;
+        address uniswapV3Factory;
+        address pancakeSwapV3Factory;
+    }
+
+
+    struct ZParams {
+    bytes commands;
+    bytes[] inputs;
+    address currencyOut;
+    uint256 amountMin;
+    uint256 deadline;
+}
+
+    struct Permit2Permit {
+        PermitSingle permitSingle;
+        bytes signature;
+    }
+
+    struct V2V3SwapParams {
+        uint256 amountIn;
+        address tokenIn;
+        address tokenOut;
+        address pool;
+        uint poolVariant;
+        address recipient;
+        uint24 fee;
+        bool permit2;
+    }
+
+    struct V4SwapParams {
+        address currencyIn;
+        address currencyOut;
+        uint256 amountIn;
+        uint24 fee;
+        int24 tickSpacing;
+        bool zeroForOne;
+        address hooks;
+        bytes hookData;
+        address recipient;
+        bool permit2;
+    }
+
+    struct WrapETH {
+    address recipient;
+    uint256 amount;
+    }
+
+    struct WrapAllETH {
+    address recipient;
+    }
+
+    struct UnwrapWETH {
+    address recipient;
+    }
+
+    struct Sweep {
+    address currency;
+    address recipient;
+    }
+
     }
 
 }
@@ -218,4 +299,35 @@ pub fn encode_z_swap(
    }
    .abi_encode();
    data.into()
+}
+
+pub fn encode_permit2_permit(
+   token: Address,
+   amount: U256,
+   expiration: U256,
+   nonce: U48,
+   spender: Address,
+   sig_deadline: U256,
+   signature: Signature,
+) -> Bytes {
+   let amount = U160::from(amount);
+   let expiration = U48::from(expiration);
+
+   let permit_details = PermitDetails {
+      token,
+      amount,
+      expiration,
+      nonce,
+   };
+
+   let permit_single = PermitSingle {
+      details: permit_details,
+      spender,
+      sigDeadline: sig_deadline,
+   };
+
+   let sig_bytes = Bytes::from(signature.as_bytes());
+   let encoded_args = (permit_single, sig_bytes).abi_encode();
+
+   encoded_args.into()
 }

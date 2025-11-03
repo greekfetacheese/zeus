@@ -702,6 +702,13 @@ impl ZeusCtx {
          return Some("Uniswap: Universal Router V2".to_string());
       }
 
+      let zeus_router = address_book::zeus_router(chain);
+      if let Ok(addr) = zeus_router {
+         if addr == address {
+            return Some("Zeus Router".to_string());
+         }
+      }
+
       let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
       if nft_position_manager == address {
          return Some("Uniswap V3: NFT Position Manager".to_string());

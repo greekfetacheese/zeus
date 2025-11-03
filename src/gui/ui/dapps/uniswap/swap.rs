@@ -29,7 +29,7 @@ use crate::utils::{
    Permit2Details,
    simulate::*,
    swap_quoter::*,
-   universal_router_v2::{SwapType, encode_swap},
+   zeus_router::encode_swap,
 };
 
 use zeus_eth::{
@@ -1271,7 +1271,6 @@ impl SwapUi {
             mev_protect,
             deadline,
             from,
-            SwapType::ExactInput,
             amount_in,
             amount_out,
             currency_in,
@@ -1398,21 +1397,19 @@ async fn swap(
    mev_protect: bool,
    deadline: u64,
    from: Address,
-   swap_type: SwapType,
    amount_in: NumericValue,
    _amount_out: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
    swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
 ) -> Result<(), anyhow::Error> {
-   swap_via_ur(
+   swap_via_zeus_router(
       ctx,
       chain,
       slippage,
       mev_protect,
       deadline,
       from,
-      swap_type,
       amount_in,
       currency_in,
       currency_out,
@@ -1879,14 +1876,13 @@ async fn handle_approve(
 }
 
 /// Execute a swap through the Universal Router
-async fn swap_via_ur(
+async fn swap_via_zeus_router(
    ctx: ZeusCtx,
    chain: ChainId,
    slippage: f64,
    mev_protect: bool,
    deadline: u64,
    signer_address: Address,
-   swap_type: SwapType,
    amount_in: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
@@ -1924,7 +1920,7 @@ async fn swap_via_ur(
 
    // Prefetch account and storage info
 
-   let router_addr = address_book::universal_router_v2(chain.id())?;
+   let router_addr = address_book::zeus_router(chain.id())?;
    let permit2_addr = address_book::permit2_contract(chain.id())?;
    let first_pool = &swap_steps.first().unwrap().pool;
    let last_pool = &swap_steps.last().unwrap().pool;
@@ -2039,17 +2035,15 @@ async fn swap_via_ur(
 
    let params = encode_swap(
       ctx.clone(),
+      Some(router_addr),
       permit2_details_opt.clone(),
       chain.id(),
       swap_steps.clone(),
-      swap_type,
       amount_in.wei(),
       U256::ZERO,
-      slippage,
       currency_in.clone(),
       currency_out.clone(),
       signer.clone(),
-      signer_address,
       deadline,
    )
    .await?;
@@ -2121,17 +2115,15 @@ async fn swap_via_ur(
    // Build the call data again with the real_amount_out and slippage applied
    let execute_params = encode_swap(
       ctx.clone(),
+      Some(router_addr),
       permit2_details_opt,
       chain.id(),
       swap_steps.clone(),
-      swap_type,
       amount_in.wei(),
       amount_out_min.wei(),
-      slippage,
       currency_in.clone(),
       currency_out.clone(),
       signer,
-      signer_address,
       deadline,
    )
    .await?;

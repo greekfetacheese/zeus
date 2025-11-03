@@ -113,7 +113,7 @@ impl UniswapSettingsUi {
          open: false,
          swap_on_v2: true,
          swap_on_v3: true,
-         swap_on_v4: false,
+         swap_on_v4: true,
          split_routing_enabled: false,
          max_hops: 4,
          max_split_routes: 5,

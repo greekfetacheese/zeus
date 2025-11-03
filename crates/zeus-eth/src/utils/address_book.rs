@@ -28,6 +28,17 @@ pub fn zeus_stateview_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
    }
 }
 
+pub fn zeus_router(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0xD8537916f38da373d4b269b53EBB20D7222CEB78")),
+      ChainId::Optimism => Ok(address!("0xBB7b2f9A196B898f14Dc6c40A536231037973e39")),
+      ChainId::BinanceSmartChain => bail!("Zeus Router does not exist on BSC"),
+      ChainId::Base => Ok(address!("0xe2A0aD87f91dC1A3D862BF5046f1b29D4034A046")),
+      ChainId::Arbitrum => Ok(address!("0x7950E1f239Bd79279a352C49f4Ed29514368A1a0")),
+   }
+}
+
 /// https://docs.uniswap.org/contracts/v3/reference/deployments/
 ///
 /// Returns the Permit2 contract address for the given chain id.
