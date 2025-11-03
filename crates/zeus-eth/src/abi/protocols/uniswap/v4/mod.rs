@@ -5,6 +5,7 @@ use alloy_primitives::LogData;
 use alloy_sol_types::{SolEvent, sol};
 
 pub use IPoolManager::{Initialize, Swap};
+pub use actions::PoolKey;
 
 sol! {
 

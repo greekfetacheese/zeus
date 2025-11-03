@@ -12,7 +12,7 @@ use crate::amm::uniswap::{
    v3::{calculate_price, calculate_swap, calculate_swap_mut},
 };
 
-use crate::abi::uniswap::universal_router_v2::PoolKey;
+use crate::abi::uniswap::v4::PoolKey;
 use crate::currency::{Currency, ERC20Token, NativeCurrency};
 use crate::utils::{NumericValue, price_feed::get_base_token_price};
 use uniswap_v3_math::sqrt_price_math::Q96;

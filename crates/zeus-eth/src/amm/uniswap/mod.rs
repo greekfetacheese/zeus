@@ -10,7 +10,7 @@ use anyhow::bail;
 use alloy_contract::private::{Network, Provider};
 use alloy_rpc_types::BlockId;
 
-use crate::abi::uniswap::universal_router_v2::PoolKey;
+use crate::abi::uniswap::v4::PoolKey;
 use serde::{Deserialize, Serialize};
 
 pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};

@@ -287,7 +287,6 @@ pub async fn encode_swap(
    );
 
    let command_bytes = Bytes::from(commands);
-   eprintln!("Command Bytes: {:?}", command_bytes);
 
    let timestamp = TimeStamp::now_as_secs().add(deadline_in_minutes * 60);
    let deadline = U256::from(timestamp.timestamp());

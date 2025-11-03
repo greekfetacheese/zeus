@@ -1,9 +1,28 @@
-use super::super::universal_router_v2::{PathKey, PoolKey};
 use alloy_sol_types::sol;
 
 sol! {
 
     type Currency is address;
+
+    interface IHooks {}
+
+    #[derive(Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    struct PoolKey {
+        address currency0;
+        address currency1;
+        uint24 fee;
+        int24 tickSpacing;
+        address hooks;
+    }
+
+    #[derive(Debug, Default, PartialEq, Eq)]
+    struct PathKey {
+        address intermediateCurrency;
+        uint24 fee;
+        int24 tickSpacing;
+        IHooks hooks;
+        bytes hookData;
+    }
 
     #[derive(Debug, Default, PartialEq, Eq)]
     struct IncreaseLiquidityParams {

@@ -230,14 +230,6 @@ impl TransactionAnalysis {
          selector_str = "Approve".to_string();
       }
 
-      if selector == uniswap::universal_router_v2::execute_call_selector() {
-         selector_str = "Execute".to_string();
-      }
-
-      if selector == uniswap::universal_router_v2::execute_with_deadline_call_selector() {
-         selector_str = "Execute".to_string();
-      }
-
       if selector == uniswap::nft_position::collect_call_selector() {
          selector_str = "Collect".to_string();
       }
