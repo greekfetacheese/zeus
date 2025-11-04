@@ -28,10 +28,13 @@ const PROVIDER_DATA_FILE: &str = "providers.json";
 pub const CLIENT_SELECTION_TIMEOUT: u64 = 30;
 
 /// Default timeout for sending a transaction or using an MEV protect rpc
-pub const TIMEOUT_FOR_SENDING_TX: u64 = 60;
+pub const CLIENT_TIMEOUT_FOR_SENDING_TX: u64 = 60;
 
-/// Default client request timeout
-const REQUEST_TIMEOUT: u64 = 10;
+/// Default request timeout
+const REQUEST_TIMEOUT: u64 = 15;
+
+/// Default client timeout
+const CLIENT_TIMEOUT: u64 = 5;
 
 /// 3 Days in seconds
 const THREE_DAYS: u64 = 259_200;
@@ -639,7 +642,7 @@ impl ZeusClient {
 
       let throttle = throttle_layer(CLIENT_RPS);
 
-      get_client(&rpc.url, retry, throttle, REQUEST_TIMEOUT).await
+      get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT).await
    }
 
    pub async fn connect_with_timeout(
@@ -714,7 +717,7 @@ impl ZeusClient {
             continue;
          }
 
-         let c = match self.connect_with_timeout(rpc, TIMEOUT_FOR_SENDING_TX).await {
+         let c = match self.connect_with_timeout(rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await {
             Ok(client) => client,
             Err(e) => {
                tracing::error!(
@@ -925,7 +928,7 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    );
 
    let throttle = throttle_layer(CLIENT_RPS);
-   let client = get_client(&rpc.url, retry, throttle, TIMEOUT_FOR_SENDING_TX).await?;
+   let client = get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
    let chain = rpc.chain_id;
 
    let time = std::time::Instant::now();

@@ -1,5 +1,5 @@
 use crate::utils::state::get_base_fee;
-use crate::core::{TransactionAnalysis, TransactionRich, ZeusCtx, client::TIMEOUT_FOR_SENDING_TX};
+use crate::core::{TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -303,7 +303,7 @@ pub async fn send_transaction(
 
    let z_client = ctx.get_zeus_client();
    let rpc = z_client.get_best_rpc(chain.id()).ok_or(anyhow!("No available RPC found"))?;
-   let tx_client = z_client.connect_with_timeout(&rpc, TIMEOUT_FOR_SENDING_TX).await?;
+   let tx_client = z_client.connect_with_timeout(&rpc, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
 
    // If needed use MEV protect client, if not found prompt the user to continue
    let new_client = if chain.is_ethereum() && mev_protect {
@@ -540,7 +540,7 @@ where
    let receipt = client
       .send_tx_envelope(tx_envelope)
       .await?
-      .with_timeout(Some(Duration::from_secs(TIMEOUT_FOR_SENDING_TX)))
+      .with_timeout(Some(Duration::from_secs(CLIENT_TIMEOUT_FOR_SENDING_TX)))
       .get_receipt()
       .await?;
    tracing::info!(
