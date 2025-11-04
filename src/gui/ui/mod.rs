@@ -26,6 +26,7 @@ pub use wallet::WalletUi;
 
 pub const GREEN_CHECK: &str = "✅";
 pub const REFRESH: &str = "⟲";
+pub const EXTERNAL_LINK: &str = "↗";
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;

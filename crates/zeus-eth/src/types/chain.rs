@@ -159,9 +159,9 @@ impl ChainId {
    pub fn block_explorer(&self) -> &str {
       match self {
          ChainId::Ethereum => "https://etherscan.io",
-         ChainId::Optimism => "https://optimistic.etherscan.io/",
+         ChainId::Optimism => "https://optimistic.etherscan.io",
          ChainId::BinanceSmartChain => "https://bscscan.com",
-         ChainId::Base => "https://basescan.org/",
+         ChainId::Base => "https://basescan.org",
          ChainId::Arbitrum => "https://arbiscan.io",
       }
    }

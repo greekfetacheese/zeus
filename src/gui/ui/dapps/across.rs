@@ -3,13 +3,14 @@ use crate::core::{ZeusCtx, data_dir};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ChainSelect, ContactsUi, RecipientSelectionWindow, dapps::amount_field_with_currency_selector,
+      ChainSelect, ContactsUi, EXTERNAL_LINK, RecipientSelectionWindow,
+      dapps::amount_field_with_currency_selector,
    },
 };
-use crate::utils::{RT, tx::send_transaction, estimate_tx_cost};
+use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Grid, Layout, Margin, Order, RichText, Slider,
+   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, Slider,
    Spinner, TextEdit, Ui, Window, vec2,
 };
 use std::time::Duration;
@@ -105,12 +106,15 @@ pub struct AcrossBridge {
 impl AcrossBridge {
    pub fn new() -> Self {
       let settings = load_settings().unwrap_or_default();
+      let from_chain = ChainSelect::new("across_bridge_from_chain", 1).size(vec2(180.0, 25.0));
+      let to_chain = ChainSelect::new("across_bridge_to_chain", 10).size(vec2(180.0, 25.0));
+
       Self {
          open: false,
          currency: NativeCurrency::from(1).into(),
          amount: String::new(),
-         from_chain: ChainSelect::new("across_bridge_from_chain", 1),
-         to_chain: ChainSelect::new("across_bridge_to_chain", 10),
+         from_chain,
+         to_chain,
          balance_syncing: false,
          sending_tx: false,
          requesting: false,
@@ -240,8 +244,6 @@ impl AcrossBridge {
                   );
                });
 
-               ui.add_space(10.0);
-
                // Recipient
                inner_frame.show(ui, |ui| {
                   ui.horizontal(|ui| {
@@ -252,15 +254,27 @@ impl AcrossBridge {
                         if let Some(name) = &recipient_name {
                            ui.label(
                               RichText::new(name)
-                                 .size(theme.text_sizes.normal)
+                                 .size(theme.text_sizes.large)
                                  .color(theme.colors.info),
                            );
                         } else {
                            ui.label(
                               RichText::new("Unknown Address")
-                                 .size(theme.text_sizes.normal)
+                                 .size(theme.text_sizes.large)
                                  .color(theme.colors.error),
                            );
+                        }
+
+                        ui.add_space(5.0);
+
+                        let chain = self.to_chain.chain;
+                        let block_explorer = chain.block_explorer();
+                        let link = format!("{}/address/{}", block_explorer, recipient);
+                        let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
+                        let button = Button::new(text).small();
+                        if ui.add(button).clicked() {
+                           let url = OpenUrl::new_tab(link);
+                           ui.ctx().open_url(url);
                         }
                      }
                   });
@@ -284,32 +298,36 @@ impl AcrossBridge {
                   });
                });
 
-               ui.add_space(10.0);
+               let size = vec2(ui.available_width() * 0.83, 25.0);
 
                // From Chain
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     Grid::new("across_bridge_from_chain").spacing(vec2(5.0, 0.0)).show(ui, |ui| {
-                        ui.label(RichText::new("From").size(theme.text_sizes.large));
-                        self.from_chain.show(BSC, theme, icons.clone(), ui);
-                        ui.end_row();
-                     });
-                  });
 
-                  ui.add_space(10.0);
+                  ui.allocate_ui(size, |ui| {
+                     ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                           // From Chain
+                           self.from_chain.show(BSC, theme, icons.clone(), ui);
 
-                  // To Chain
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     Grid::new("across_bridge_to_chain").spacing(vec2(5.0, 0.0)).show(ui, |ui| {
-                        ui.label(RichText::new("To").size(theme.text_sizes.large));
-                        self.to_chain.show(BSC, theme, icons.clone(), ui);
-                        ui.end_row();
+                           ui.add_space(5.0);
+
+                           let tint = theme.image_tint_recommended;
+                           let icon = match theme.dark_mode {
+                              true => icons.arrow_right_white_x24(tint),
+                              false => icons.arrow_right_dark_x24(tint),
+                           };
+
+                           ui.add(icon);
+
+                           ui.add_space(5.0);
+
+                           // To Chain
+                           self.to_chain.show(BSC, theme, icons.clone(), ui);
+                        });
                      });
                   });
                });
-
-               ui.add_space(10.0);
 
                let network_fee = self.cost(ctx.clone()).1;
                let bridge_fee = self.bridge_fee(ctx.clone());

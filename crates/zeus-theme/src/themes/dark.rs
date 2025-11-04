@@ -136,7 +136,7 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
       override_text_color: Some(colors.text),
       widgets,
       selection: Selection {
-         bg_fill: colors.bg3, // affects selected text color, combox selected item bg
+         bg_fill: colors.bg4, // affects selected text color, combox selected item bg
          stroke: Stroke::new(1.0, colors.highlight), // also affects TextEdit border color when active
       },
       hyperlink_color: colors.info,

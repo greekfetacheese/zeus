@@ -2,11 +2,11 @@ use crate::assets::icons::Icons;
 use crate::core::{Wallet, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, REFRESH, WalletSelect},
+   ui::{ChainSelect, REFRESH, EXTERNAL_LINK, WalletSelect},
 };
 use crate::utils::{RT, truncate_address, tx::delegate_to};
 use egui::{
-   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui,
+   Align, Align2, OpenUrl, Button, FontId, Frame, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui,
    Window, vec2,
 };
 use egui_widgets::Label;
@@ -104,6 +104,17 @@ impl Header {
                let button = Button::selectable(false, address_text);
                if ui.add(button).clicked() {
                   ui.ctx().copy_text(wallet.address.to_string());
+               }
+
+               ui.add_space(5.0);
+
+               let block_explorer = chain.block_explorer();
+               let link = format!("{}/address/{}", block_explorer, wallet.address);
+               let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
+               let button = Button::new(text).small();
+               if ui.add(button).clicked() {
+                  let url = OpenUrl::new_tab(link);
+                  ui.ctx().open_url(url);
                }
             });
 

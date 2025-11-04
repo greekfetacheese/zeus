@@ -1,4 +1,6 @@
-use eframe::egui::{Align2, Button, FontId, Frame, Margin, RichText, TextEdit, Ui, Window, vec2};
+use eframe::egui::{
+   Align2, Button, FontId, Frame, Margin, OpenUrl, RichText, TextEdit, Ui, Window, vec2,
+};
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -10,7 +12,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
+      ContactsUi, EXTERNAL_LINK, RecipientSelectionWindow, TokenSelectionWindow,
       dapps::amount_field_with_currency_selector,
    },
 };
@@ -194,18 +196,33 @@ impl SendCryptoUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      ui.horizontal(|ui| {
-                        ui.label(RichText::new("Recipient  ").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
+                        ui.add_space(10.0);
+
                         if !recipient.is_empty() {
                            if let Some(name) = &recipient_name {
                               ui.label(
-                                 RichText::new(name.clone()).size(theme.text_sizes.normal).strong(),
+                                 RichText::new(name.clone())
+                                    .size(theme.text_sizes.large)
+                                    .color(theme.colors.info),
                               );
                            } else {
                               ui.label(
                                  RichText::new("Unknown Address")
-                                    .size(theme.text_sizes.normal)
+                                    .size(theme.text_sizes.large)
                                     .color(theme.colors.error),
                               );
+                           }
+
+                           ui.add_space(5.0);
+
+                           let block_explorer = chain.block_explorer();
+                           let link = format!("{}/address/{}", block_explorer, recipient);
+                           let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
+                           let button = Button::new(text).small();
+                           if ui.add(button).clicked() {
+                              let url = OpenUrl::new_tab(link);
+                              ui.ctx().open_url(url);
                            }
                         }
                      });
