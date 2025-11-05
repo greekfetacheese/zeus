@@ -44,6 +44,7 @@ pub const fn harden_index(index: u32) -> u32 {
 #[derive(Default, Debug, Clone, Eq, PartialEq)]
 pub struct DerivationPath(Vec<u32>);
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for DerivationPath {
    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
    where
@@ -53,6 +54,7 @@ impl serde::Serialize for DerivationPath {
    }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for DerivationPath {
    fn deserialize<D>(deserializer: D) -> Result<DerivationPath, D::Error>
    where

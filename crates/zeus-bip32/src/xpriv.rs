@@ -70,7 +70,8 @@ pub fn root_from_seed(
    Ok((sec_array, key_info))
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 /// A BIP32 eXtended Privkey
 pub struct SecureXPriv {
    pub key: SecureArray<u8, 32>,

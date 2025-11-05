@@ -3,7 +3,8 @@ use secure_types::{Error, SecureArray};
 /// We treat the bip32 xpub bip49 ypub and bip84 zpub convention as a hint regarding address type.
 /// Downstream crates are free to follow or ignore these hints when generating addresses from
 /// extended keys.
-#[derive(Eq, PartialEq, Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum Hint {
    /// Standard Bip32 hint
    Legacy,
@@ -14,7 +15,8 @@ pub enum Hint {
 }
 
 /// A 4-byte key fingerprint
-#[derive(Eq, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Eq, PartialEq, Clone, Copy)]
 pub struct KeyFingerprint(pub [u8; 4]);
 
 impl From<[u8; 4]> for KeyFingerprint {
@@ -41,7 +43,8 @@ impl std::fmt::Debug for KeyFingerprint {
 }
 
 /// A 32-byte chain code
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct ChainCode {
    pub data: SecureArray<u8, 32>,
 }
@@ -62,7 +65,8 @@ impl PartialEq for ChainCode {
 }
 
 /// Info associated with an extended key
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Clone)]
 pub struct XKeyInfo {
    /// The key depth in the HD tree
    pub depth: u8,
