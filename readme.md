@@ -88,7 +88,7 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 - **Crypto Transactions:** Send ETH and ERC-20 tokens.
 - **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
 - **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
-- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Zeus Router](https://github.com/greekfetacheese/zeus-router-v1/blob/master/src/ZeusRouter.sol)).
+- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments)).
 - **Transaction Simulations:** Zeus run local EVM simulations using [revm](https://github.com/bluealloy/revm) to verify transactions before you submit them, what you see on the screen is what you will get.
 - **MEV Protect:** For transactions that are vulnerable to MEV by default Zeus uses mev-protect rpc endpoints (ETH mainnet only).
 
@@ -100,11 +100,6 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
  You can of course bring your own endpoints and disable the default ones
 
 ---
-
-## About Zeus Router
-Contract passes all the tests and I cannot see any obvious exploits that swap router's usually have, but it is not **audited**.
-It uses Permit2 signature approvals and for every swap Zeus approves the exact amount in it needs to swap so after the swap transaction
-no active approvals are left.
 
 
 ## Security

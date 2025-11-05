@@ -6,7 +6,6 @@ use alloy_sol_types::{SolCall, SolValue, sol};
 
 use super::v4::actions::*;
 use crate::abi::permit::Permit2;
-pub use IV4Router::{PathKey, PoolKey};
 
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 sol! {
