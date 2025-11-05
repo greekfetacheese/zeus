@@ -1,0 +1,46 @@
+[package]
+name = "zeus-wallet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies.zeus-bip32]
+path = "../zeus-bip32"
+
+[dependencies.k256]
+version = "=0.13.4"
+
+[dependencies.sha3]
+version = "=0.10.8"
+
+[dependencies.rand]
+version = "=0.8"
+
+[dependencies.alloy-signer-local]
+version = "=1.0.41"
+features = ["mnemonic"]
+
+[dependencies.alloy-network]
+version = "=1.0.41"
+
+[dependencies.alloy-primitives]
+version = "=1.4.1"
+
+[dependencies.secure-types]
+version = "0.2"
+
+[dependencies.ncrypt-me]
+version = "0.1"
+
+[dependencies.anyhow]
+version = "=1.0.99"
+
+[dependencies.serde]
+version = "=1.0.228"
+features = ["derive"]
+optional = true
+
+[features]
+serde = ["dep:serde", "secure-types/serde"]
+
+[dev-dependencies]
+serde_json = "=1.0.145"

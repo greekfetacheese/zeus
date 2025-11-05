@@ -5,6 +5,7 @@ use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 use secure_types::{SecureBytes, SecureString};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
+use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
 
 pub const VAULT_FILE: &str = "vault.data";
 
@@ -116,8 +117,26 @@ impl Vault {
    }
 
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
-      let seed = derive_seed(&self.credentials)?;
-      let hd_wallet = SecureHDWallet::new_from_seed(name, seed);
+      let m_cost = if cfg!(feature = "dev") {
+         DEV_M_COST
+      } else {
+         M_COST
+      };
+
+      let t_cost = if cfg!(feature = "dev") {
+         DEV_T_COST
+      } else {
+         T_COST
+      };
+
+      let p_cost = if cfg!(feature = "dev") {
+         DEV_P_COST
+      } else {
+         P_COST
+      };
+
+      let seed = derive_seed(&self.credentials, m_cost, t_cost, p_cost)?;
+      let hd_wallet = SecureHDWallet::new_from_seed(Some(name), seed);
       self.hd_wallet = hd_wallet;
       Ok(())
    }
@@ -222,7 +241,7 @@ impl Vault {
       }
 
       let wallet = if from_key {
-         Wallet::new_from_key(name, key)?
+         Wallet::new_from_key_str(name, key)?
       } else {
          Wallet::new_from_mnemonic(name, key)?
       };

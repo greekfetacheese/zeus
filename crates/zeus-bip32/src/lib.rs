@@ -1,3 +1,5 @@
+#![doc = include_str!("../readme.md")]
+
 pub mod error;
 pub mod primitives;
 pub mod xpriv;

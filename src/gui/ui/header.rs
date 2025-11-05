@@ -1,5 +1,6 @@
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, ZeusCtx};
+use zeus_wallet::Wallet;
+use crate::core::ZeusCtx;
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, REFRESH, EXTERNAL_LINK, WalletSelect},

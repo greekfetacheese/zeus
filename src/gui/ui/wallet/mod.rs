@@ -1,8 +1,9 @@
 pub mod add;
 pub use add::AddWalletUi;
 
+use zeus_wallet::Wallet;
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, WalletInfo, ZeusCtx};
+use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::RT;
 use eframe::egui::{

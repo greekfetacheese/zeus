@@ -3,7 +3,8 @@ use super::{
    price_manager::PriceManagerHandle,
 };
 
-use crate::core::{Vault, Wallet, WalletInfo, client::Rpc, serde_hashmap};
+use zeus_wallet::Wallet;
+use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
 use crate::utils::state::test_and_measure_rpcs;
 use anyhow::anyhow;
@@ -251,7 +252,8 @@ impl ZeusCtx {
    }
 
    pub fn current_wallet_info(&self) -> WalletInfo {
-      self.read(|ctx| ctx.current_wallet.to_wallet_info())
+      let wallet = self.read(|ctx| ctx.current_wallet.clone());
+      WalletInfo::from_wallet(&wallet)
    }
 
    pub fn current_wallet_address(&self) -> Address {
@@ -271,7 +273,7 @@ impl ZeusCtx {
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
             if wallet.address() == address {
-               info = Some(wallet.to_wallet_info());
+               info = Some(WalletInfo::from_wallet(&wallet));
                break;
             }
          }
@@ -283,7 +285,7 @@ impl ZeusCtx {
       let mut info = Vec::new();
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
-            info.push(wallet.to_wallet_info());
+            info.push(WalletInfo::from_wallet(&wallet));
          }
       });
       info

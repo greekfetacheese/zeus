@@ -4,6 +4,7 @@ mod tests {
    use crate::gui::ui::dapps::uniswap::swap::get_relevant_pools;
 
    use crate::utils::{swap_quoter::*, universal_router_v2::*};
+   use zeus_wallet::SecureKey;
 
    use zeus_eth::{
       alloy_primitives::{TxKind, U256},
@@ -12,7 +13,7 @@ mod tests {
       amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV4Pool},
       currency::{Currency, ERC20Token, NativeCurrency},
       revm_utils::*,
-      utils::{NumericValue, SecureSigner, address_book},
+      utils::{NumericValue, address_book},
    };
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -691,7 +692,7 @@ mod tests {
       };
 
       let alice = DummyAccount::new(AccountType::EOA, eth_balance);
-      let signer = SecureSigner::from(alice.key.clone());
+      let signer = SecureKey::from(alice.key.clone());
 
       let swap_params = encode_swap(
          ctx.clone(),

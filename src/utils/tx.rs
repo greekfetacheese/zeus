@@ -17,12 +17,13 @@ use zeus_eth::{
    alloy_signer::SignerSync,
    revm_utils::{ForkFactory, Host, new_evm},
    types::ChainId,
-   utils::{NumericValue, SecureSigner},
+   utils::NumericValue,
 };
+use zeus_wallet::SecureKey;
 
 #[derive(Clone)]
 pub struct TxParams {
-   pub signer: SecureSigner,
+   pub signer: SecureKey,
    pub transcact_to: Address,
    pub nonce: u64,
    pub value: U256,
@@ -37,7 +38,7 @@ pub struct TxParams {
 
 impl TxParams {
    pub fn new(
-      signer: SecureSigner,
+      signer: SecureKey,
       transcact_to: Address,
       nonce: u64,
       value: U256,

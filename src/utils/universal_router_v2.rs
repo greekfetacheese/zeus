@@ -12,8 +12,9 @@ use zeus_eth::{
    alloy_sol_types::SolValue,
    amm::uniswap::{UniswapPool, v4::Actions},
    currency::Currency,
-   utils::{NumericValue, SecureSigner, address_book},
+   utils::{NumericValue, address_book},
 };
+use zeus_wallet::SecureKey;
 
 // https://docs.uniswap.org/contracts/universal-router/technical-reference
 #[allow(non_camel_case_types)]
@@ -138,7 +139,7 @@ pub async fn encode_swap(
    slippage: f64,
    currency_in: Currency,
    currency_out: Currency,
-   secure_signer: SecureSigner,
+   secure_signer: SecureKey,
    recipient: Address,
    deadline_in_minutes: u64,
 ) -> Result<SwapExecuteParams, anyhow::Error> {

@@ -1,5 +1,6 @@
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, Portfolio, SecureHDWallet, ZeusCtx};
+use zeus_wallet::SecureHDWallet;
+use crate::core::{DiscoveredWallets, Portfolio, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{

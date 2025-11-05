@@ -3,9 +3,6 @@ pub mod batch;
 pub mod block;
 pub mod client;
 pub mod price_feed;
-pub mod secure_signer;
-
-pub use secure_signer::*;
 
 use alloy_contract::private::{Network, Provider};
 use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};

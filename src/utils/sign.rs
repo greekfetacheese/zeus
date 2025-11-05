@@ -11,8 +11,9 @@ use zeus_eth::{
    alloy_signer::{Signature, Signer},
    currency::{Currency, ERC20Token},
    types::ChainId,
-   utils::{NumericValue, SecureSigner, address_book, parse_typed_data},
+   utils::{NumericValue, address_book, parse_typed_data},
 };
+use zeus_wallet::SecureKey;
 
 const PERMIT_SINGLE: &str = "PermitSingle";
 
@@ -147,7 +148,7 @@ impl SignMsgType {
       }
    }
 
-   pub async fn sign(&self, signer: &SecureSigner) -> Result<Signature, anyhow::Error> {
+   pub async fn sign(&self, signer: &SecureKey) -> Result<Signature, anyhow::Error> {
       match self {
          Self::Permit2(_) => {
             let typed = match self.typed_data() {

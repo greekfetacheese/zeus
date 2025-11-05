@@ -3,9 +3,9 @@ use eframe::egui::{
    Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
-
+use zeus_wallet::Wallet;
 use crate::assets::icons::Icons;
-use crate::core::{Wallet, ZeusCtx};
+use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::TokenSelectionWindow;
 use crate::utils::RT;

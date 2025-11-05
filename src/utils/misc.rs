@@ -1,12 +1,13 @@
 use crate::core::ZeusCtx;
 
+use zeus_wallet::SecureKey;
 use zeus_eth::{
    abi::permit::{Permit2::allowanceReturn, allowance},
    alloy_primitives::{Address, Signature, U256},
    alloy_signer::Signer,
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::{
-      NumericValue, SecureSigner, address_book, generate_permit2_json_value, parse_typed_data,
+      NumericValue, address_book, generate_permit2_json_value, parse_typed_data,
    },
 };
 
@@ -308,7 +309,7 @@ impl Permit2Details {
       })
    }
 
-   pub async fn sign(&self, signer: &SecureSigner) -> Result<Signature, anyhow::Error> {
+   pub async fn sign(&self, signer: &SecureKey) -> Result<Signature, anyhow::Error> {
       let typed = if let Some(msg) = &self.msg {
          parse_typed_data(msg.clone())?
       } else {
