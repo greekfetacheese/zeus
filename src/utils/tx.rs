@@ -515,15 +515,15 @@ pub async fn delegate_to(
 
    if delegate_to.is_zero() {
       ctx.write(|ctx| {
-         ctx.smart_accounts.remove(chain.id(), from);
+         ctx.delegated_wallets.remove(chain.id(), from);
       });
    } else {
       ctx.write(|ctx| {
-         ctx.smart_accounts.add(chain.id(), from, delegate_to);
+         ctx.delegated_wallets.add(chain.id(), from, delegate_to);
       });
    }
 
-   ctx.save_smart_accounts();
+   ctx.save_delegated_wallets();
 
    Ok(())
 }

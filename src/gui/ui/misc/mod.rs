@@ -432,7 +432,8 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.current_wallet_address();
+      let wallet_info = ctx.current_wallet_info();
+      let owner = wallet_info.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
       let tokens = &portfolio.tokens;
 
@@ -469,8 +470,7 @@ impl PortfolioUi {
                .fill(ui.style().visuals.extreme_bg_color)
                .show(ui, |ui| {
                   ui.vertical_centered(|ui| {
-                     let wallet_name = ctx.current_wallet_name();
-                     ui.label(RichText::new(wallet_name).size(theme.text_sizes.very_large));
+                     ui.label(RichText::new(wallet_info.name()).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
                      ui.label(
                         RichText::new(format!("${}", portfolio.value.abbreviated()))

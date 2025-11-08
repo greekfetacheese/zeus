@@ -3,7 +3,6 @@ use super::{
    price_manager::PriceManagerHandle,
 };
 
-use zeus_wallet::Wallet;
 use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
 use crate::utils::state::test_and_measure_rpcs;
@@ -15,12 +14,13 @@ use std::{
    sync::{Arc, RwLock},
 };
 use zeus_theme::ThemeKind;
+use zeus_wallet::Wallet;
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Transaction, TransactionReceipt, TransactionRequest},
-   amm::uniswap::{AnyUniswapPool, DexKind, UniswapPool},
+   amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, address_book, client::RpcClient},
@@ -33,12 +33,12 @@ const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
-const SMART_ACCOUNTS_FILE: &str = "smart_accounts.json";
+const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
-const SMART_ACCOUNT_CHECK_TIMEOUT: u64 = 600;
+const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -61,8 +61,8 @@ pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
-pub fn smart_accounts_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(SMART_ACCOUNTS_FILE);
+pub fn delegated_wallets_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(DELEGATED_WALLETS_FILE);
    Ok(dir)
 }
 
@@ -189,10 +189,6 @@ impl ZeusCtx {
       self.read(|ctx| ctx.save_vault_in_progress)
    }
 
-   pub fn wallet_discovery_in_progress(&self) -> bool {
-      self.read(|ctx| ctx.wallet_discovery_in_progress)
-   }
-
    pub fn tx_confirm_window_open(&self) -> bool {
       self.read(|ctx| ctx.tx_confirm_window_open)
    }
@@ -226,10 +222,6 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.clone())
    }
 
-   pub fn get_master_wallet(&self) -> Wallet {
-      self.read(|ctx| ctx.vault.get_master_wallet())
-   }
-
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
       self.read(|ctx| {
@@ -252,16 +244,8 @@ impl ZeusCtx {
    }
 
    pub fn current_wallet_info(&self) -> WalletInfo {
-      let wallet = self.read(|ctx| ctx.current_wallet.clone());
-      WalletInfo::from_wallet(&wallet)
-   }
-
-   pub fn current_wallet_address(&self) -> Address {
-      self.read(|ctx| ctx.current_wallet.address())
-   }
-
-   pub fn current_wallet_name(&self) -> String {
-      self.read(|ctx| ctx.current_wallet.name_with_id())
+      let wallet = self.read(|ctx| WalletInfo::from_wallet(&ctx.current_wallet));
+      wallet
    }
 
    pub fn wallet_exists(&self, address: Address) -> bool {
@@ -457,11 +441,11 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_smart_accounts(&self) {
-      let accounts = self.read(|ctx| ctx.smart_accounts.clone());
-      match accounts.save_to_file() {
+   pub fn save_delegated_wallets(&self) {
+      let wallets = self.read(|ctx| ctx.delegated_wallets.clone());
+      match wallets.save_to_file() {
          Ok(_) => tracing::trace!("Smart Accounts saved"),
-         Err(e) => tracing::error!("Error saving Smart Accounts: {:?}", e),
+         Err(e) => tracing::error!("Error saving delegated wallets: {:?}", e),
       }
    }
 
@@ -474,7 +458,7 @@ impl ZeusCtx {
       self.save_v3_positions_db();
       self.save_pool_manager();
       self.save_price_manager();
-      self.save_smart_accounts();
+      self.save_delegated_wallets();
    }
 
    /// Return the chains which the owner has balance in
@@ -641,17 +625,6 @@ impl ZeusCtx {
       Some(base_value.f64() >= DEFAULT_POOL_MINIMUM_LIQUIDITY)
    }
 
-   pub fn get_pool(
-      &self,
-      chain: u64,
-      fee: u32,
-      dex: DexKind,
-      currency_a: &Currency,
-      currency_b: &Currency,
-   ) -> Option<AnyUniswapPool> {
-      self.read(|ctx| ctx.pool_manager.get_pool(chain, dex, fee, currency_a, currency_b))
-   }
-
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
       self.read(|ctx| ctx.base_fee.get(&chain).cloned())
    }
@@ -723,6 +696,7 @@ impl ZeusCtx {
          }
       }
 
+      #[cfg(feature = "dev")]
       if address == address_book::vitalik() {
          return Some("Vitalik".to_string());
       }
@@ -760,15 +734,15 @@ impl ZeusCtx {
       self.read(|ctx| ctx.connected_dapps.is_connected(dapp))
    }
 
-   pub fn should_check_smart_account_status(&self, chain: u64, account: Address) -> bool {
-      self.read(|ctx| ctx.smart_accounts.should_check(chain, account))
+   pub fn should_check_delegated_wallet_status(&self, chain: u64, account: Address) -> bool {
+      self.read(|ctx| ctx.delegated_wallets.should_check(chain, account))
    }
 
    pub fn get_delegated_address(&self, chain: u64, account: Address) -> Option<Address> {
-      self.read(|ctx| ctx.smart_accounts.get(chain, account))
+      self.read(|ctx| ctx.delegated_wallets.get(chain, account))
    }
 
-   pub async fn check_smart_account_status(
+   pub async fn check_delegated_wallet_status(
       &self,
       chain: u64,
       account: Address,
@@ -782,7 +756,7 @@ impl ZeusCtx {
 
       if code.is_empty() {
          self.write(|ctx| {
-            ctx.smart_accounts.remove(chain, account);
+            ctx.delegated_wallets.remove(chain, account);
          });
          return Ok(());
       }
@@ -791,7 +765,7 @@ impl ZeusCtx {
       let delegated_address = Address::from_slice(&addr_slice);
 
       self.write(|ctx| {
-         ctx.smart_accounts.add(chain, account, delegated_address);
+         ctx.delegated_wallets.add(chain, account, delegated_address);
       });
 
       Ok(())
@@ -1128,9 +1102,9 @@ impl ConnectedDapps {
    }
 }
 
-/// Holds addresses that are upgraded to smart accounts
+/// Holds addresses that are delegated to a smart contract
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SmartAccounts {
+pub struct DelegatedWallets {
    #[serde(with = "serde_hashmap")]
    /// Map of (chain, account) to delegated address
    pub map: HashMap<(u64, Address), Address>,
@@ -1139,7 +1113,7 @@ pub struct SmartAccounts {
    pub last_check: HashMap<(u64, Address), u64>,
 }
 
-impl SmartAccounts {
+impl DelegatedWallets {
    pub fn new() -> Self {
       Self {
          map: HashMap::new(),
@@ -1148,7 +1122,7 @@ impl SmartAccounts {
    }
 
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = smart_accounts_dir()?;
+      let dir = delegated_wallets_dir()?;
       let data = std::fs::read(dir)?;
       let smart_accounts = serde_json::from_slice(&data)?;
       Ok(smart_accounts)
@@ -1156,7 +1130,7 @@ impl SmartAccounts {
 
    pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
       let data = serde_json::to_string(self)?;
-      let dir = smart_accounts_dir()?;
+      let dir = delegated_wallets_dir()?;
       std::fs::write(dir, data)?;
       Ok(())
    }
@@ -1178,7 +1152,7 @@ impl SmartAccounts {
 
       let last_check = last_check.unwrap();
       let time_passed = now.saturating_sub(last_check);
-      time_passed > SMART_ACCOUNT_CHECK_TIMEOUT
+      time_passed > DELEGATE_WALLET_CHECK_TIMEOUT
    }
 
    pub fn get(&self, chain: u64, account: Address) -> Option<Address> {
@@ -1327,7 +1301,7 @@ pub struct ZeusContext {
    pub receipts: HashMap<(u64, FixedBytes<32>), TransactionReceipt>,
    pub priority_fee: PriorityFee,
    pub connected_dapps: ConnectedDapps,
-   pub smart_accounts: SmartAccounts,
+   pub delegated_wallets: DelegatedWallets,
    pub server_port: u16,
    pub tx_confirm_window_open: bool,
    pub sign_msg_window_open: bool,
@@ -1407,11 +1381,11 @@ impl ZeusContext {
          }
       };
 
-      let smart_accounts = match SmartAccounts::load_from_file() {
+      let delegated_wallets = match DelegatedWallets::load_from_file() {
          Ok(accounts) => accounts,
          Err(e) => {
-            tracing::error!("Failed to load smart accounts: {:?}", e);
-            SmartAccounts::new()
+            tracing::error!("Failed to load delegated wallets: {:?}", e);
+            DelegatedWallets::new()
          }
       };
 
@@ -1445,7 +1419,7 @@ impl ZeusContext {
          receipts: HashMap::with_capacity(20),
          priority_fee,
          connected_dapps: ConnectedDapps::default(),
-         smart_accounts,
+         delegated_wallets,
          server_port: SERVER_PORT,
          tx_confirm_window_open: false,
          sign_msg_window_open: false,

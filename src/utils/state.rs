@@ -187,8 +187,8 @@ async fn check_smart_account_status(ctx: ZeusCtx) {
 
       let task = RT.spawn(async move {
          for account in &accounts {
-            if ctx.should_check_smart_account_status(chain, account.address) {
-               match ctx.check_smart_account_status(chain, account.address).await {
+            if ctx.should_check_delegated_wallet_status(chain, account.address) {
+               match ctx.check_delegated_wallet_status(chain, account.address).await {
                   Ok(_) => {}
                   Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
                }
@@ -271,7 +271,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
          }
 
          check_smart_account_status(ctx.clone()).await;
-         ctx.save_smart_accounts();
+         ctx.save_delegated_wallets();
          ctx.save_portfolio_db();
          ctx.save_price_manager();
          ctx.save_balance_manager();

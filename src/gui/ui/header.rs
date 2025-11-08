@@ -306,7 +306,7 @@ impl Header {
          self.syncing = true;
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            match ctx_clone.check_smart_account_status(ctx.chain().id(), wallet).await {
+            match ctx_clone.check_delegated_wallet_status(ctx.chain().id(), wallet).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.header.syncing = false;
