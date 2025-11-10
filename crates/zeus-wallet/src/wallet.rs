@@ -4,7 +4,7 @@ use alloy_signer_local::{
    LocalSignerError, MnemonicBuilder, PrivateKeySigner, coins_bip39::English,
 };
 use anyhow::anyhow;
-use ncrypt_me::{Argon2, Credentials};
+use argon2_rs::Argon2;
 use rand::RngCore;
 use secure_types::{SecureString, SecureVec, Zeroize};
 use sha3::{Digest, Sha3_512};
@@ -13,18 +13,18 @@ use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
 
-/// Derive the seed from the given [Credentials]
+/// Derive the seed from the given username and password
 pub fn derive_seed(
-   credentials: &Credentials,
+   username: &SecureString,
+   password: &SecureString,
    m_cost: u32,
    t_cost: u32,
    p_cost: u32,
 ) -> Result<SecureVec<u8>, anyhow::Error> {
-   credentials.is_valid()?;
 
    let mut hasher = Sha3_512::new();
 
-   credentials.username.unlock_str(|username| {
+   username.unlock_str(|username| {
       hasher.update(username.as_bytes());
    });
 
@@ -34,16 +34,18 @@ pub fn derive_seed(
 
    let argon2 = Argon2::new(m_cost, t_cost, p_cost);
 
-   let seed = argon2.hash_password(&credentials.password, username_hash)?;
+   let seed = password.unlock_str(|password| argon2.hash_password(password, username_hash))?;
+   let secure_seed = SecureVec::from_vec(seed)?;
+
    // Should never happen but if seed is not 64 bytes, return an error
    // I prefer not to panic here
-   if seed.len() != 64 {
+   if secure_seed.len() != 64 {
       return Err(anyhow!(
          "Seed is not 64 bytes long, this is a bug"
       ));
    }
 
-   Ok(seed)
+   Ok(secure_seed)
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -376,11 +378,10 @@ mod tests {
    fn test_hd_wallet_creation() {
       let username = SecureString::from("username");
       let password = SecureString::from("password");
-      let confirm_password = SecureString::from("password");
 
-      let credentials = Credentials::new(username, password, confirm_password);
       let seed = derive_seed(
-         &credentials,
+         &username,
+         &password,
          TEST_M_COST,
          TEST_T_COST,
          TEST_P_COST,

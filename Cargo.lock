@@ -886,6 +886,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "argon2-rs"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "813189d46fd831b5ce8a5c8f67c75f8f8e2b2e705c498f9229a7b0f05d94cc08"
+dependencies = [
+ "argon2-sys",
+ "bincode",
+ "thiserror 2.0.17",
+ "zeroize",
+]
+
+[[package]]
 name = "argon2-sys"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4415,14 +4427,13 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.1.21"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e15fdaa518ab8789ad0966db76dc0d17d7e712b19c3814d5cdc8c1766a886025"
+checksum = "28c1610bcf30abd039dab83871ceb0a1e0ddfd9d15293284e956f6249879bc60"
 dependencies = [
- "argon2-sys",
+ "argon2-rs",
  "bincode",
  "chacha20poly1305",
- "libc",
  "secure-types",
  "thiserror 2.0.17",
  "zeroize",
@@ -8929,9 +8940,9 @@ dependencies = [
 
 [[package]]
 name = "zeroize"
-version = "1.8.1"
+version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ced3678a2879b30306d323f4542626697a464a97c0a07c9aebf7ebca65cd4dde"
+checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 dependencies = [
  "zeroize_derive",
 ]
@@ -9091,8 +9102,8 @@ dependencies = [
  "alloy-primitives",
  "alloy-signer-local",
  "anyhow",
+ "argon2-rs",
  "k256",
- "ncrypt-me",
  "rand 0.8.5",
  "secure-types",
  "serde",

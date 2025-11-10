@@ -117,6 +117,8 @@ impl Vault {
    }
 
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
+      self.credentials.is_valid()?;
+      
       let m_cost = if cfg!(feature = "dev") {
          DEV_M_COST
       } else {
@@ -135,7 +137,10 @@ impl Vault {
          P_COST
       };
 
-      let seed = derive_seed(&self.credentials, m_cost, t_cost, p_cost)?;
+      let username = &self.credentials.username;
+      let password = &self.credentials.password;
+
+      let seed = derive_seed(username, password, m_cost, t_cost, p_cost)?;
       let hd_wallet = SecureHDWallet::new_from_seed(Some(name), seed);
       self.hd_wallet = hd_wallet;
       Ok(())

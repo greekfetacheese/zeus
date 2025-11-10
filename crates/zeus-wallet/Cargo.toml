@@ -28,7 +28,7 @@ version = "=1.4.1"
 [dependencies.secure-types]
 version = "0.2"
 
-[dependencies.ncrypt-me]
+[dependencies.argon2-rs]
 version = "0.1"
 
 [dependencies.anyhow]
