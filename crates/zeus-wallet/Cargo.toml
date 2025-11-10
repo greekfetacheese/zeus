@@ -1,5 +1,11 @@
 [package]
 name = "zeus-wallet"
+description = "Generate Hierarchical Deterministic Wallets (BIP32) from a username and password"
+readme = "readme.md"
+repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-wallet"
+keywords = ["bip32", "crypto", "derivation"]
+categories = ["cryptography"]
+license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2024"
 
@@ -30,6 +36,7 @@ version = "0.2"
 
 [dependencies.argon2-rs]
 version = "0.1"
+features = ["zeroize"]
 
 [dependencies.anyhow]
 version = "=1.0.99"
