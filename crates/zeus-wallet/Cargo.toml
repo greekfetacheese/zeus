@@ -10,6 +10,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies.zeus-bip32]
+version = "0.1.0"
 path = "../zeus-bip32"
 
 [dependencies.k256]
