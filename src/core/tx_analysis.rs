@@ -491,6 +491,7 @@ impl TransactionAnalysis {
 
       // Single Swap
       if self.swaps_len() == 1 {
+         let erc20_transfers = self.erc20_transfers();
          let mut params = self.swaps()[0].clone();
 
          // Handle ETH/WETH abstraction
@@ -502,6 +503,20 @@ impl TransactionAnalysis {
 
          if params.output_currency.is_native_wrapped() && self.weth_unwraps_len() == 1 {
             params.output_currency = NativeCurrency::from(self.chain).into();
+         }
+
+         if params.output_currency.is_erc20() {
+            for transfer in erc20_transfers.iter() {
+               if transfer.currency.address() == params.output_currency.address() {
+                  if !transfer.recipient == self.sender {
+                     continue;
+                  }
+                  params.received = transfer.amount.clone();
+                  params.received_usd = transfer.amount_usd.clone();
+                  params.recipient = Some(transfer.recipient);
+                  break;
+               }
+            }
          }
 
          return DecodedEvent::SwapToken(params);

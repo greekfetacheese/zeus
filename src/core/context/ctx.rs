@@ -5,7 +5,7 @@ use super::{
 
 use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
-use crate::utils::state::test_and_measure_rpcs;
+use crate::utils::{RT, state::test_and_measure_rpcs};
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
@@ -20,8 +20,11 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Transaction, TransactionReceipt, TransactionRequest},
-   amm::uniswap::{AnyUniswapPool, UniswapPool},
-   currency::{Currency, erc20::ERC20Token},
+   amm::uniswap::{
+      AnyUniswapPool, DexKind, FeeAmount, State, UniswapPool, UniswapV2Pool, UniswapV3Pool,
+      UniswapV4Pool,
+   },
+   currency::{Currency, NativeCurrency, erc20::ERC20Token},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, address_book, client::RpcClient},
 };
@@ -704,6 +707,170 @@ impl ZeusCtx {
       None
    }
 
+   pub async fn get_v2_pool(
+      &self,
+      chain: u64,
+      address: Address,
+   ) -> Result<AnyUniswapPool, anyhow::Error> {
+      let z_client = self.get_zeus_client();
+      let cached = self.read(|ctx| ctx.pool_manager.get_v2_pool_from_address(chain, address));
+
+      if let Some(pool) = cached {
+         return Ok(pool);
+      } else {
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV2Pool::from_address(client, chain, address).await
+            })
+            .await?;
+         let pool = AnyUniswapPool::from_pool(pool);
+         self.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx = self.clone();
+         RT.spawn_blocking(move || {
+            ctx.save_currency_db();
+            ctx.save_pool_manager();
+         });
+
+         return Ok(pool);
+      };
+   }
+
+   pub async fn get_v3_pool(
+      &self,
+      chain: u64,
+      address: Address,
+   ) -> Result<AnyUniswapPool, anyhow::Error> {
+      let z_client = self.get_zeus_client();
+      let cached = self.read(|ctx| ctx.pool_manager.get_v3_pool_from_address(chain, address));
+
+      if let Some(pool) = cached {
+         return Ok(pool);
+      } else {
+         let pool = z_client
+            .request(chain, |client| async move {
+               UniswapV3Pool::from_address(client, chain, address).await
+            })
+            .await?;
+         let pool = AnyUniswapPool::from_pool(pool);
+         self.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+
+         let ctx = self.clone();
+         RT.spawn_blocking(move || {
+            ctx.save_currency_db();
+            ctx.save_pool_manager();
+         });
+
+         return Ok(pool);
+      };
+   }
+
+   pub async fn get_v4_pool(
+      &self,
+      chain: u64,
+      fee: u32,
+      expected_id: FixedBytes<32>,
+   ) -> Result<AnyUniswapPool, anyhow::Error> {
+      let cached = self.read(|ctx| ctx.pool_manager.get_v4_pool_from_id(chain, expected_id));
+
+      let pool = if let Some(pool) = cached {
+         return Ok(pool);
+      } else {
+         // Best effort pool finding from all known tokens
+         let pool_fee = FeeAmount::CUSTOM(fee);
+
+         let mut base_tokens = ERC20Token::base_tokens(chain);
+
+         // remove WETH since in V4 is not used
+         let weth = ERC20Token::wrapped_native_token(chain);
+         base_tokens.retain(|t| t.address != weth.address);
+
+         let mut base_currencies: Vec<Currency> =
+            base_tokens.iter().map(|t| Currency::from(t.clone())).collect();
+
+         // Add ETH native
+         let currency = Currency::from(NativeCurrency::from(chain));
+         base_currencies.push(currency);
+
+         let quote_currencies = self.get_currencies(chain);
+
+         let mut found_pool: Option<AnyUniswapPool> = None;
+         let mut break_outer = false;
+
+         for quote_currency in quote_currencies.iter() {
+            for base_currency in &base_currencies {
+               let pool = UniswapV4Pool::new(
+                  chain,
+                  pool_fee,
+                  DexKind::UniswapV4,
+                  base_currency.clone(),
+                  quote_currency.clone(),
+                  State::none(),
+                  Address::ZERO,
+               );
+
+               if pool.id() == expected_id {
+                  let pool_manager = self.pool_manager();
+                  pool_manager.add_pool(pool.clone());
+
+                  let ctx = self.clone();
+                  RT.spawn_blocking(move || {
+                     ctx.save_pool_manager();
+                  });
+
+                  found_pool = Some(pool.into());
+                  break_outer = true;
+                  break;
+               }
+            }
+
+            match break_outer {
+               true => break,
+               false => continue,
+            }
+         }
+
+         found_pool
+      };
+
+      match pool {
+         Some(pool) => return Ok(pool),
+         None => return Err(anyhow!("V4 Pool not found")),
+      };
+   }
+
+   pub async fn get_token(
+      &self,
+      chain: u64,
+      address: Address,
+   ) -> Result<ERC20Token, anyhow::Error> {
+      let cached = self.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
+
+      if let Some(token) = cached {
+         return Ok(token);
+      } else {
+         let z_client = self.get_zeus_client();
+
+         let token = z_client
+            .request(chain, |client| async move {
+               ERC20Token::new(client, address, chain).await
+            })
+            .await?;
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
+
+         let ctx = self.clone();
+         RT.spawn_blocking(move || {
+            ctx.save_currency_db();
+         });
+
+         return Ok(token);
+      };
+   }
+
    pub fn get_connected_dapps(&self) -> Vec<String> {
       self.read(|ctx| ctx.connected_dapps.connected_dapps())
    }
@@ -1277,8 +1444,6 @@ pub struct ZeusContext {
    /// Loaded Vault
    vault: Vault,
    pub save_vault_in_progress: bool,
-   pub wallet_discovery_in_progress: bool,
-
    pub vault_exists: bool,
    pub vault_unlocked: bool,
    pub currency_db: CurrencyDB,
@@ -1396,7 +1561,6 @@ impl ZeusContext {
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          vault: Vault::default(),
          save_vault_in_progress: false,
-         wallet_discovery_in_progress: false,
          vault_exists,
          vault_unlocked: false,
          currency_db,
