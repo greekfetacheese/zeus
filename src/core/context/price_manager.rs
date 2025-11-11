@@ -3,12 +3,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::utils::RT;
 use crate::core::{
    PoolManagerHandle, ZeusCtx,
    context::{DEFAULT_POOL_MINIMUM_LIQUIDITY, data_dir},
    serde_hashmap,
 };
+use crate::utils::RT;
 use zeus_eth::{
    alloy_primitives::{Address, B256},
    amm::uniswap::{AnyUniswapPool, UniswapPool},
@@ -99,6 +99,12 @@ impl PriceManagerHandle {
    ) -> Result<(), anyhow::Error> {
       if self.should_update_base_token_prices(chain) {
          self.update_base_token_prices(ctx.clone(), chain).await?;
+      }
+
+      if tokens.len() == 1 {
+         if tokens[0].is_base() {
+            return Ok(());
+         }
       }
 
       // Find any tokens that do not have a good pool
