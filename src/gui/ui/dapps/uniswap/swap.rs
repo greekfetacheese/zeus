@@ -1,5 +1,5 @@
 use super::UniswapSettingsUi;
-use crate::gui::ui::dapps::{amount_field_with_currency_selector, uniswap::ProtocolVersion};
+use crate::gui::ui::dapps::{AmountFieldWithCurrencySelect, uniswap::ProtocolVersion};
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
@@ -26,12 +26,7 @@ use crate::utils::{
    tx::send_transaction,
 };
 
-use crate::utils::{
-   Permit2Details,
-   simulate::*,
-   swap_quoter::*,
-   universal_router_v2::encode_swap,
-};
+use crate::utils::{Permit2Details, simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
 
 use zeus_eth::{
    abi,
@@ -261,12 +256,12 @@ impl SimulateWindow {
 
 /// A Swap UI for a DEX like Uniswap
 pub struct SwapUi {
-   pub open: bool,
+   open: bool,
    pub size: (f32, f32),
    pub currency_in: Currency,
    pub currency_out: Currency,
-   pub amount_in: String,
-   pub amount_out: String,
+   pub amount_in_field: AmountFieldWithCurrencySelect,
+   pub amount_out_field: AmountFieldWithCurrencySelect,
    /// Last time pool state was updated
    pub last_pool_state_updated: Option<Instant>,
    /// Last time quote was updated
@@ -294,8 +289,8 @@ impl SwapUi {
          size: (450.0, 700.0),
          currency_in,
          currency_out,
-         amount_in: "".to_string(),
-         amount_out: "".to_string(),
+         amount_in_field: AmountFieldWithCurrencySelect::new(),
+         amount_out_field: AmountFieldWithCurrencySelect::new(),
          last_pool_state_updated: None,
          last_quote_updated: None,
          pool_data_syncing: false,
@@ -308,6 +303,20 @@ impl SwapUi {
          pool: None,
          simulate_window: SimulateWindow::new(),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.open = false;
+      self.amount_in_field.reset();
+      self.amount_out_field.reset();
    }
 
    /// Replace the currency_in or currency_out based on the direction
@@ -335,7 +344,10 @@ impl SwapUi {
 
    fn swap_currencies(&mut self) {
       std::mem::swap(&mut self.currency_in, &mut self.currency_out);
-      std::mem::swap(&mut self.amount_in, &mut self.amount_out);
+      std::mem::swap(
+         &mut self.amount_in_field.amount,
+         &mut self.amount_out_field.amount,
+      );
    }
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -495,24 +507,24 @@ impl SwapUi {
          let label = String::from("Sell");
          let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
          let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-         let amount = self.amount_in.parse().unwrap_or(0.0);
+         let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
          let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
 
          frame.show(ui, |ui| {
-            let changed = amount_field_with_currency_selector(
+            let changed = self.amount_in_field.show(
                ctx.clone(),
                theme,
                icons.clone(),
                Some(label),
                owner,
                &self.currency_in,
-               &mut self.amount_in,
                Some(token_selection),
                Some(InOrOut::In),
                balance,
                max_amount,
                value,
                false,
+               true,
                ui,
             );
             amount_changed = changed;
@@ -533,22 +545,22 @@ impl SwapUi {
          let label = String::from("Buy");
          let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
          let max_amount = || NumericValue::default();
-         let amount = self.amount_out.parse().unwrap_or(0.0);
+         let amount = self.amount_out_field.amount.parse().unwrap_or(0.0);
          let value = || ctx.get_currency_value_for_amount(amount, &self.currency_out);
          frame.show(ui, |ui| {
-            amount_field_with_currency_selector(
+            self.amount_out_field.show(
                ctx.clone(),
                theme,
                icons.clone(),
                Some(label),
                owner,
                &self.currency_out,
-               &mut self.amount_out,
                Some(token_selection),
                Some(InOrOut::Out),
                balance,
                max_amount,
                value,
+               false,
                false,
                ui,
             )
@@ -612,14 +624,16 @@ impl SwapUi {
       ui: &mut Ui,
    ) {
       let got_pool = self.pool.is_some();
-      let enabled = !self.amount_in.is_empty() && got_pool;
+      let enabled = !self.amount_in_field.amount.is_empty() && got_pool;
       let button = Button::new(RichText::new("Simulate").size(theme.text_sizes.large))
          .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
       if ui.add_enabled(enabled, button).clicked() {
          if let Some(pool) = &mut self.pool {
-            let amount_in =
-               NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
+            let amount_in = NumericValue::parse_to_wei(
+               &self.amount_in_field.amount,
+               self.currency_in.decimals(),
+            );
             pool.simulate_swap_mut(&self.currency_in, amount_in.wei()).unwrap_or_default();
             self.simulate_window.set_pool_after(Some(pool.clone()));
 
@@ -639,7 +653,7 @@ impl SwapUi {
       let valid_inputs = self.valid_inputs(ctx.clone());
       let has_swap_steps = !self.quote.swap_steps.is_empty();
       let has_balance = self.sufficient_balance(ctx.clone());
-      let has_entered_amount = !self.amount_in.is_empty();
+      let has_entered_amount = !self.amount_in_field.amount.is_empty();
       let action = self.action();
 
       let valid = if action.is_wrap() || action.is_unwrap() {
@@ -691,15 +705,18 @@ impl SwapUi {
    }
 
    fn valid_amounts(&self) -> bool {
-      let amount_in = self.amount_in.parse().unwrap_or(0.0);
-      let amount_out = self.amount_out.parse().unwrap_or(0.0);
+      let amount_in = self.amount_in_field.amount.parse().unwrap_or(0.0);
+      let amount_out = self.amount_out_field.amount.parse().unwrap_or(0.0);
       amount_in > 0.0 && amount_out > 0.0
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
       let sender = ctx.current_wallet_info().address;
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
-      let amount = NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
+      let amount = NumericValue::parse_to_wei(
+         &self.amount_in_field.amount,
+         self.currency_in.decimals(),
+      );
       balance.wei() >= amount.wei()
    }
 
@@ -810,7 +827,6 @@ impl SwapUi {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-
          match pool_manager.sync_pools_for_tokens(ctx_clone.clone(), chain_id, tokens).await {
             Ok(_) => {}
             Err(e) => {
@@ -958,26 +974,31 @@ impl SwapUi {
    pub fn get_quote(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
       if settings.simulate_mode {
          if let Some(pool) = &self.pool {
-            let amount_in =
-               NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
+            let amount_in = NumericValue::parse_to_wei(
+               &self.amount_in_field.amount,
+               self.currency_in.decimals(),
+            );
             let amount_out =
                pool.simulate_swap(&self.currency_in, amount_in.wei()).unwrap_or_default();
             let amount = NumericValue::format_wei(amount_out, self.currency_out.decimals());
-            self.amount_out = amount.flatten();
+            self.amount_out_field.amount = amount.flatten();
             return;
          }
       }
 
       let action = self.action();
       if action == Action::WrapETH || action == Action::UnwrapWETH {
-         self.amount_out = self.amount_in.clone();
+         self.amount_out_field.amount = self.amount_in_field.amount.clone();
          return;
       }
 
-      let amount_in = NumericValue::parse_to_wei(&self.amount_in, self.currency_in.decimals());
+      let amount_in = NumericValue::parse_to_wei(
+         &self.amount_in_field.amount,
+         self.currency_in.decimals(),
+      );
 
       if amount_in.is_zero() {
-         self.amount_out = String::new();
+         self.amount_out_field.amount = String::new();
          return;
       }
 
@@ -1051,13 +1072,13 @@ impl SwapUi {
 
          SHARED_GUI.write(|gui| {
             if !quote.amount_out.is_zero() {
-               gui.uniswap.swap_ui.amount_out = amount_out.flatten();
+               gui.uniswap.swap_ui.amount_out_field.amount = amount_out.flatten();
 
                gui.uniswap.swap_ui.getting_quote = false;
                gui.uniswap.swap_ui.quote = quote;
             } else {
                gui.uniswap.swap_ui.quote = Quote::default();
-               gui.uniswap.swap_ui.amount_out = String::new();
+               gui.uniswap.swap_ui.amount_out_field.amount = String::new();
                gui.uniswap.swap_ui.getting_quote = false;
             }
          });
@@ -1175,11 +1196,11 @@ impl SwapUi {
       }
 
       // Currency in USD value
-      let amount: f64 = self.amount_in.parse().unwrap_or(0.0);
+      let amount: f64 = self.amount_in_field.amount.parse().unwrap_or(0.0);
       let amount_in_usd = ctx.get_currency_value_for_amount(amount, &self.currency_in);
 
       // Currency out USD value
-      let amount_out: f64 = self.amount_out.parse().unwrap_or(0.0);
+      let amount_out: f64 = self.amount_out_field.amount.parse().unwrap_or(0.0);
       let amount_out_usd = ctx.get_currency_value_for_amount(amount_out, &self.currency_out);
 
       let price_impact = (1.0 - (amount_out_usd.f64() / amount_in_usd.f64())) * 100.0;
@@ -1192,7 +1213,7 @@ impl SwapUi {
       let chain = ctx.chain();
 
       if action.is_wrap() {
-         let amount_in = self.amount_in.clone();
+         let amount_in = self.amount_in_field.amount.clone();
          let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
@@ -1222,7 +1243,7 @@ impl SwapUi {
       }
 
       if action.is_unwrap() {
-         let amount_in = self.amount_in.clone();
+         let amount_in = self.amount_in_field.amount.clone();
          let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
@@ -2109,7 +2130,14 @@ async fn swap_via_ur(
    if let Some(permit2_details) = &permit2_details_opt {
       if permit2_details.needs_new_signature {
          let msg = permit2_details.msg.clone().ok_or(anyhow!("No permit message found"))?;
-         let _sig = sign_message(ctx.clone(), "".to_string(), chain, Some(msg), None).await?;
+         let _sig = sign_message(
+            ctx.clone(),
+            "".to_string(),
+            chain,
+            Some(msg),
+            None,
+         )
+         .await?;
       }
    }
 

@@ -354,6 +354,8 @@ impl UniswapUi {
    pub fn close(&mut self) {
       self.open = false;
       self.settings.close();
+      self.swap_ui.amount_in_field.reset();
+      self.swap_ui.amount_out_field.reset();
    }
 
    pub fn is_open(&self) -> bool {
@@ -397,7 +399,7 @@ impl UniswapUi {
                let text = RichText::new("Swap").size(theme.text_sizes.large);
                let swap_button = Button::new(text);
                if ui.add(swap_button).clicked() {
-                  self.swap_ui.open = true;
+                  self.swap_ui.open();
                   self.pools_ui.open = false;
                   // self.create_position_ui.open = false;
                   // self.view_positions_ui.open = false;
@@ -408,7 +410,7 @@ impl UniswapUi {
                let enabled = if cfg!(feature = "dev") { true } else { false };
                if ui.add_enabled(enabled, pools_button).clicked() {
                   self.pools_ui.open = true;
-                  self.swap_ui.open = false;
+                  self.swap_ui.close();
                   // self.create_position_ui.open = false;
                   // self.view_positions_ui.open = false;
                }
@@ -419,7 +421,7 @@ impl UniswapUi {
 
                if ui.add_enabled(enabled, positions_button).clicked() {
                   // self.create_position_ui.open = true;
-                  self.swap_ui.open = false;
+                  self.swap_ui.close();
                   self.pools_ui.open = false;
                   // self.view_positions_ui.open = false;
                }
@@ -428,7 +430,7 @@ impl UniswapUi {
                let positions_button = Button::new(text);
                if ui.add_enabled(enabled, positions_button).clicked() {
                   // self.view_positions_ui.open = true;
-                  self.swap_ui.open = false;
+                  self.swap_ui.close();
                   self.pools_ui.open = false;
                   // self.create_position_ui.open = false;
                }
@@ -436,7 +438,7 @@ impl UniswapUi {
                let text = RichText::new("⟲").size(theme.text_sizes.large);
                let refresh_button = Button::new(text);
                if ui.add(refresh_button).clicked() {
-                  if self.swap_ui.open {
+                  if self.swap_ui.is_open() {
                      self.swap_ui.refresh(ctx.clone(), &self.settings);
                   }
 

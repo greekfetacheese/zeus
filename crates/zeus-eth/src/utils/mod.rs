@@ -453,6 +453,14 @@ impl NumericValue {
       value
    }
 
+   /// Calculate the new amount based on the given percentage
+   pub fn calc_percent(&self, percent: f64, decimals: u8) -> Self {
+      let wei = self.wei();
+      let wei = (wei * U256::from(percent)) / U256::from(100.0);
+      let value = NumericValue::format_wei(wei, decimals);
+      value
+   }
+
    /// Create a new NumericValue to represent a currency balance
    pub fn currency_balance(balance: U256, currency_decimals: u8) -> Self {
       let formatted = format_units(balance, currency_decimals).unwrap_or("0".to_string());

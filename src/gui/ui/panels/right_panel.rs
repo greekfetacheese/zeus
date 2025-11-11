@@ -5,7 +5,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let theme = &gui.theme;
    let ctx = gui.ctx.clone();
 
-   let swap_ui_open = gui.uniswap.swap_ui.open;
+   let swap_ui_open = gui.uniswap.swap_ui.is_open();
    // let view_positions_open = gui.uniswap.view_positions_ui.open;
    let view_positions_open = false;
 

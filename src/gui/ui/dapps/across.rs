@@ -4,7 +4,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ChainSelect, ContactsUi, EXTERNAL_LINK, RecipientSelectionWindow,
-      dapps::amount_field_with_currency_selector,
+      dapps::AmountFieldWithCurrencySelect,
    },
 };
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
@@ -87,7 +87,7 @@ fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
 pub struct AcrossBridge {
    open: bool,
    pub currency: Currency,
-   pub amount: String,
+   pub amount_field: AmountFieldWithCurrencySelect,
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
    pub balance_syncing: bool,
@@ -112,7 +112,7 @@ impl AcrossBridge {
       Self {
          open: false,
          currency: NativeCurrency::from(1).into(),
-         amount: String::new(),
+         amount_field: AmountFieldWithCurrencySelect::new(),
          from_chain,
          to_chain,
          balance_syncing: false,
@@ -136,6 +136,7 @@ impl AcrossBridge {
 
    pub fn close(&mut self) {
       self.open = false;
+      self.amount_field.reset();
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -220,26 +221,26 @@ impl AcrossBridge {
                      NumericValue::default()
                   }
                };
-               let amount = self.amount.parse().unwrap_or(0.0);
+               let amount = self.amount_field.amount.parse().unwrap_or(0.0);
                let value = || ctx.get_currency_value_for_amount(amount, &self.currency);
 
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
 
-                  amount_field_with_currency_selector(
+                  self.amount_field.show(
                      ctx.clone(),
                      theme,
                      icons.clone(),
                      Some(label),
                      owner,
                      &self.currency,
-                     &mut self.amount,
                      None,
                      None,
                      balance_fn,
                      max_amount,
                      value,
                      false,
+                     true,
                      ui,
                   );
                });
@@ -377,7 +378,7 @@ impl AcrossBridge {
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx.clone(), depositor);
-      let has_entered_amount = !self.amount.is_empty();
+      let has_entered_amount = !self.amount_field.amount.is_empty();
       let valid_inputs = valid_amount && valid_recipient && has_balance && !sending_tx;
 
       let mut button_text = "Bridge".to_string();
@@ -420,7 +421,10 @@ impl AcrossBridge {
 
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
       let balance = ctx.get_eth_balance(self.from_chain.chain.id(), depositor);
-      let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
+      let amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
       balance.wei() >= amount.wei()
    }
 
@@ -437,7 +441,10 @@ impl AcrossBridge {
 
    /// Input amount - Minimum amount
    fn bridge_fee(&self, ctx: ZeusCtx) -> NumericValue {
-      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
+      let input_amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
       if input_amount.is_zero() {
          return NumericValue::default();
       }
@@ -454,7 +461,10 @@ impl AcrossBridge {
    /// Calculate the minimum amount to receive
    fn minimum_amount(&self) -> NumericValue {
       let scale = U256::from(10).pow(U256::from(self.currency.decimals()));
-      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
+      let input_amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
       let cache = self.api_res_cache.get(&(
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
@@ -494,7 +504,7 @@ impl AcrossBridge {
    }
 
    fn valid_amount(&self) -> bool {
-      let amount = self.amount.parse().unwrap_or(0.0);
+      let amount = self.amount_field.amount.parse().unwrap_or(0.0);
       amount > 0.0
    }
 
@@ -660,7 +670,10 @@ impl AcrossBridge {
       let to_chain = self.to_chain.chain;
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
-      let amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
+      let amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
       request_suggested_fees(
          from_chain.id(),
          to_chain.id(),
@@ -686,7 +699,10 @@ impl AcrossBridge {
       // Despite we are bridging from native to native, we still need to use the wrapped token in the call
       let input_token = ERC20Token::wrapped_native_token(from_chain.id());
       let output_token = ERC20Token::wrapped_native_token(to_chain.id());
-      let input_amount = NumericValue::parse_to_wei(&self.amount, self.currency.decimals());
+      let input_amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
       let output_amount = self.minimum_amount();
 
       if output_amount.is_zero() {
@@ -759,6 +775,7 @@ impl AcrossBridge {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.across_bridge.sending_tx = false;
+                  gui.across_bridge.amount_field.reset();
                });
                tracing::info!("Bridge Transaction Sent");
             }
@@ -766,6 +783,7 @@ impl AcrossBridge {
                tracing::error!("Bridge Transaction Error: {:?}", e);
                SHARED_GUI.write(|gui| {
                   gui.across_bridge.sending_tx = false;
+                  gui.across_bridge.amount_field.reset();
                   gui.notification.reset();
                   gui.loading_window.reset();
                   gui.msg_window.open("Transaction Error", e.to_string());
