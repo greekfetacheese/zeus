@@ -2,8 +2,12 @@ use eframe::egui::{
    Align2, Button, FontId, Frame, Margin, OpenUrl, RichText, TextEdit, Ui, Window, vec2,
 };
 
-use std::str::FromStr;
-use std::sync::Arc;
+use std::{
+   collections::HashMap,
+   str::FromStr,
+   sync::Arc,
+   time::{Duration, Instant},
+};
 
 use crate::core::{DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx};
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
@@ -31,6 +35,8 @@ use zeus_eth::{
 
 use anyhow::anyhow;
 
+const POOL_UPDATE_TIMEOUT: u64 = 60;
+
 pub struct SendCryptoUi {
    open: bool,
    pub currency: Currency,
@@ -39,9 +45,10 @@ pub struct SendCryptoUi {
    pub recipient_name: Option<String>,
    pub search_query: String,
    pub size: (f32, f32),
-   pub pool_data_syncing: bool,
+   pub price_syncing: bool,
    pub syncing_balance: bool,
    pub sending_tx: bool,
+   last_price_update: HashMap<Address, Instant>,
 }
 
 impl SendCryptoUi {
@@ -54,9 +61,10 @@ impl SendCryptoUi {
          recipient_name: None,
          search_query: String::new(),
          size: (500.0, 500.0),
-         pool_data_syncing: false,
+         price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
+         last_price_update: HashMap::new(),
       }
    }
 
@@ -148,9 +156,18 @@ impl SendCryptoUi {
                   };
 
                   let amount = self.amount.clone();
-                  let data_syncing = self.pool_data_syncing;
                   let currency = self.currency.clone();
-                  let value = || value(ctx.clone(), currency, owner, amount, data_syncing);
+                  let data_syncing = self.price_syncing || self.syncing_balance;
+                  let should_calculate_price = self.should_calculate_price(&currency);
+
+                  let value = || {
+                     value(
+                        ctx.clone(),
+                        currency,
+                        amount,
+                        should_calculate_price,
+                     )
+                  };
 
                   inner_frame.show(ui, |ui| {
                      amount_field_with_currency_selector(
@@ -250,6 +267,19 @@ impl SendCryptoUi {
                });
             });
          });
+   }
+
+   fn should_calculate_price(&self, currency: &Currency) -> bool {
+      let now = Instant::now();
+      let last_updated = self.last_price_update.get(&currency.address()).cloned();
+      if last_updated.is_none() {
+         return true;
+      }
+
+      let last_updated = last_updated.unwrap();
+      let timeout = Duration::from_secs(POOL_UPDATE_TIMEOUT);
+      let time_passed = now.duration_since(last_updated);
+      time_passed > timeout
    }
 
    fn send_button(
@@ -453,9 +483,8 @@ impl SendCryptoUi {
 fn value(
    ctx: ZeusCtx,
    currency: Currency,
-   owner: Address,
    amount: String,
-   pool_data_syncing: bool,
+   should_fetch_price: bool,
 ) -> NumericValue {
    let price = ctx.get_currency_price(&currency);
    let amount = amount.parse().unwrap_or(0.0);
@@ -463,66 +492,38 @@ fn value(
    if price.f64() != 0.0 {
       return NumericValue::value(amount, price.f64());
    } else {
-      // no pool data available to calculate the price
-
-      if pool_data_syncing {
-         return NumericValue::default();
-      }
-
-      let pools = ctx.write(|ctx| ctx.pool_manager.get_pools_that_have_currency(&currency));
-      let chain_id = ctx.chain().id();
-
-      if pools.is_empty() {
-         let token = currency.to_erc20().into_owned();
-         let manager = ctx.pool_manager();
+      if should_fetch_price {
+         let price_manager = ctx.price_manager();
+         let pool_manager = ctx.pool_manager();
+         let chain = currency.chain_id();
 
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
-               gui.send_crypto.pool_data_syncing = true;
+               gui.send_crypto.price_syncing = true;
+               gui.send_crypto.last_price_update.insert(currency.address(), Instant::now());
             });
 
-            match manager.sync_pools_for_tokens(ctx.clone(), chain_id, vec![token]).await {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Error getting pools: {:?}", e);
+            match price_manager
+               .calculate_prices(
+                  ctx,
+                  chain,
+                  pool_manager,
+                  vec![currency.to_erc20().into_owned()],
+               )
+               .await
+            {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.send_crypto.price_syncing = false;
+                  });
                }
-            };
-
-            let pools = manager.get_pools_that_have_currency(&currency);
-            match manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
-               Ok(_) => {}
                Err(e) => {
-                  tracing::error!("Error updating pool state: {:?}", e);
-               }
-            }
-
-            SHARED_GUI.write(|gui| {
-               gui.send_crypto.pool_data_syncing = false;
-            });
-
-            RT.spawn_blocking(move || {
-               ctx.calculate_portfolio_value(chain_id, owner);
-               ctx.save_pool_manager();
-               ctx.save_portfolio_db();
-            });
-         });
-      } else {
-         RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
-               gui.send_crypto.pool_data_syncing = true;
-            });
-
-            let manager = ctx.pool_manager();
-            let pools = manager.get_pools_that_have_currency(&currency);
-            match manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Error updating pool state: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.send_crypto.price_syncing = false;
+                  });
+                  tracing::error!("Error calculating price: {:?}", e);
                }
             }
-            SHARED_GUI.write(|gui| {
-               gui.send_crypto.pool_data_syncing = false;
-            });
          });
       }
 
