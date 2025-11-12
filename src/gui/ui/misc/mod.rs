@@ -6,8 +6,7 @@ use std::sync::Arc;
 use zeus_wallet::Wallet;
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::gui::SHARED_GUI;
-use crate::gui::ui::TokenSelectionWindow;
+use crate::gui::{ui::{REFRESH, TokenSelectionWindow}, SHARED_GUI};
 use crate::utils::RT;
 
 use egui_widgets::{ComboBox, Label};
@@ -452,7 +451,7 @@ impl PortfolioUi {
                   token_selection.open(ctx.clone(), chain_id, owner);
                }
 
-               let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
+               let refresh = Button::new(RichText::new(REFRESH).size(theme.text_sizes.normal));
                if ui.add(refresh).clicked() {
                   self.refresh(owner, ctx.clone());
                }

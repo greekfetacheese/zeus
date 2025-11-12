@@ -143,6 +143,7 @@ impl eframe::App for ZeusApp {
                   }
                });
 
+             
             if gui.should_show_right_panel() {
                // Paint the Ui that belongs to the left panel
                egui::SidePanel::right("right_panel")
@@ -156,6 +157,7 @@ impl eframe::App for ZeusApp {
                      }
                   });
             }
+            
 
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {

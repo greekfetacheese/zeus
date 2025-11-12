@@ -4,8 +4,8 @@ use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
 use egui::{
-   Align, Button, Color32, ComboBox, Frame, Grid, Id, Layout, RichText, ScrollArea, Spinner, Ui,
-   Window, vec2,
+   Align, Button, Color32, ComboBox, Frame, Grid, Id, Layout, RichText, ScrollArea, Ui, Window,
+   vec2,
 };
 
 use anyhow::anyhow;
@@ -458,19 +458,13 @@ impl SwapUi {
             ui.label(text);
          }
 
-         ui.horizontal(|ui| {
-            if simulate_mode {
+         if simulate_mode {
+            ui.horizontal(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   self.select_version(theme, ui);
                });
-            }
-
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               if self.pool_data_syncing || self.syncing_pools || self.balance_syncing {
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-               }
             });
-         });
+         }
 
          if simulate_mode {
             let manager = ctx.pool_manager();
@@ -1098,6 +1092,7 @@ impl SwapUi {
       let tint = theme.image_tint_recommended;
 
       frame.show(ui, |ui| {
+         ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
          // Routing
          ui.horizontal(|ui| {
             let text = RichText::new("Routing").size(text_size);

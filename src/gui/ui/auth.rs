@@ -22,16 +22,16 @@ pub enum InputField {
 
 pub struct VirtualKeyboard {
    pub open: bool,
-   active_target: Option<InputField>,
+   active_target: InputField,
    shift_active: bool,
    caps_lock_active: bool,
 }
 
 impl VirtualKeyboard {
-   pub fn new() -> Self {
+   pub fn new(open: bool) -> Self {
       Self {
-         open: false,
-         active_target: None,
+         open,
+         active_target: InputField::Username,
          shift_active: false,
          caps_lock_active: false,
       }
@@ -43,10 +43,9 @@ impl VirtualKeyboard {
       }
 
       let target_str = match self.active_target {
-         Some(InputField::Username) => &mut credentials.username,
-         Some(InputField::Password) => &mut credentials.password,
-         Some(InputField::ConfirmPassword) => &mut credentials.confirm_password,
-         None => return, // Don't render if no field is targeted
+         InputField::Username => &mut credentials.username,
+         InputField::Password => &mut credentials.password,
+         InputField::ConfirmPassword => &mut credentials.confirm_password,
       };
 
       // Define the keyboard layout
@@ -191,7 +190,7 @@ impl CredentialsForm {
          hide_password: true,
          y_spacing: 15.0,
          x_spacing: 10.0,
-         virtual_keyboard: VirtualKeyboard::new(),
+         virtual_keyboard: VirtualKeyboard::new(true),
       }
    }
 
@@ -233,7 +232,7 @@ impl CredentialsForm {
          let ui_width = ui.available_width();
          let text_edit_size = vec2(ui_width * 0.6, 20.0);
 
-         // --- Username Field ---
+         // Username Field
          ui.label(RichText::new("Username").size(theme.text_sizes.large));
          self.credentials.username.unlock_mut(|username| {
             let text_edit = SecureTextEdit::singleline(username)
@@ -248,7 +247,7 @@ impl CredentialsForm {
 
                   if text_edit.show(ui).response.gained_focus() {
                      self.virtual_keyboard.open = true;
-                     self.virtual_keyboard.active_target = Some(InputField::Username);
+                     self.virtual_keyboard.active_target = InputField::Username;
                   }
 
                   let icon = if self.hide_username {
@@ -271,7 +270,7 @@ impl CredentialsForm {
             });
          });
 
-         // --- Password Field ---
+         // Password Field
          ui.label(RichText::new("Password").size(theme.text_sizes.large));
          self.credentials.password.unlock_mut(|password| {
             let text_edit = SecureTextEdit::singleline(password)
@@ -286,7 +285,7 @@ impl CredentialsForm {
 
                   if text_edit.show(ui).response.gained_focus() {
                      self.virtual_keyboard.open = true;
-                     self.virtual_keyboard.active_target = Some(InputField::Password);
+                     self.virtual_keyboard.active_target = InputField::Password;
                   }
 
                   let icon = if self.hide_password {
@@ -309,7 +308,7 @@ impl CredentialsForm {
             });
          });
 
-         // --- Confirm Password Field ---
+         // Confirm Password Field
          if self.confrim_password {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
             self.credentials.confirm_password.unlock_mut(|confirm_password| {
@@ -325,7 +324,7 @@ impl CredentialsForm {
 
                      if text_edit.show(ui).response.gained_focus() {
                         self.virtual_keyboard.open = true;
-                        self.virtual_keyboard.active_target = Some(InputField::ConfirmPassword);
+                        self.virtual_keyboard.active_target = InputField::ConfirmPassword;
                      }
 
                      let icon = if self.hide_password {
@@ -535,6 +534,7 @@ pub struct RecoverHDWallet {
    show_tips: bool,
    memory: SystemMemory,
    pub size: (f32, f32),
+   size2: (f32, f32),
 }
 
 impl RecoverHDWallet {
@@ -548,6 +548,7 @@ impl RecoverHDWallet {
          show_tips: false,
          memory: SystemMemory::new(),
          size: (550.0, 350.0),
+         size2: (350.0, 250.0),
       }
    }
 
@@ -556,66 +557,48 @@ impl RecoverHDWallet {
          return;
       }
 
+      self.credentials_input(theme, icons, ui);
+      self.recover_hd_wallet(ctx.clone(), theme, ui);
+      self.show_tips(ctx, theme, ui);
+   }
+
+   fn show_requirements_warning(&mut self, theme: &Theme, ui: &mut Ui) {
       self.memory.update();
 
-      Window::new("Recover_HD_Wallet_Ui_main")
-         .title_bar(false)
-         .movable(false)
-         .resizable(false)
-         .frame(Frame::window(ui.style()))
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(self.size.0, self.size.1));
+      ui.add_space(10.0);
 
-            ui.vertical_centered(|ui| {
-               ui.add_space(10.0);
-               ui.spacing_mut().item_spacing.y = 15.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      let m_cost_bytes = M_COST as u64 * 1024;
+      let m_cost_gb = m_cost_bytes as f64 / 1_000_000_000.0;
 
-               let m_cost_bytes = M_COST as u64 * 1024;
-               let m_cost_gb = m_cost_bytes as f64 / 1_000_000_000.0;
+      // Maybe also consider swap as free memory?
+      let mem_avail = self.memory.available > m_cost_bytes;
+      let meets_min_mem = self.memory.total > m_cost_bytes;
 
-               // Maybe also consider swap as free memory?
-               let mem_avail = self.memory.available > m_cost_bytes;
-               let meets_min_mem = self.memory.total > m_cost_bytes;
+      if !mem_avail && meets_min_mem {
+         let text1 = format!(
+            "You need at least {:.2} GB of free RAM to recover your wallet",
+            m_cost_gb
+         );
 
-               if !mem_avail && meets_min_mem {
-                  let text1 = format!(
-                     "You need at least {:.2} GB of free RAM to recover your wallet",
-                     m_cost_gb
-                  );
+         let text2 = format!(
+            "You currently have {:.2} GB of free RAM",
+            self.memory.available_gb()
+         );
 
-                  let text2 = format!(
-                     "You currently have {:.2} GB of free RAM",
-                     self.memory.available_gb()
-                  );
+         ui.label(RichText::new(text1).size(theme.text_sizes.normal).color(theme.colors.warning));
+         ui.label(RichText::new(text2).size(theme.text_sizes.normal).color(theme.colors.warning));
+      }
 
-                  ui.label(
-                     RichText::new(text1).size(theme.text_sizes.normal).color(theme.colors.warning),
-                  );
-                  ui.label(
-                     RichText::new(text2).size(theme.text_sizes.normal).color(theme.colors.warning),
-                  );
-               }
-
-               if !meets_min_mem {
-                  let text = format!(
-                     "Your system doesn't meet the minimum requirements,\n
+      if !meets_min_mem {
+         let text = format!(
+            "Your system doesn't meet the minimum requirements,\n
                   detected {:.2} GB of RAM, need {:.2} GB",
-                     self.memory.total_gb(),
-                     m_cost_gb
-                  );
+            self.memory.total_gb(),
+            m_cost_gb
+         );
 
-                  ui.label(
-                     RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning),
-                  );
-               }
-
-               self.credentials_input(theme, icons, ui);
-               self.recover_hd_wallet(ctx.clone(), theme, ui);
-               self.show_tips(ctx, theme, ui);
-            });
-         });
+         ui.label(RichText::new(text).size(theme.text_sizes.normal).color(theme.colors.warning));
+      }
    }
 
    fn credentials_input(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -623,35 +606,52 @@ impl RecoverHDWallet {
          return;
       }
 
-      let ui_width = ui.available_width();
+      Window::new("Recover_HD_Wallet_credentials_input")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .frame(Frame::window(ui.style()))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+            ui.spacing_mut().item_spacing.y = 15.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
-      ui.label(
-         RichText::new("Recover an HD wallet from your credentials").size(theme.text_sizes.large),
-      );
+            ui.vertical_centered(|ui| {
+               self.show_requirements_warning(theme, ui);
 
-      // Credentials input
-      self.credentials_form.show(theme, icons, ui);
+               let ui_width = ui.available_width();
 
-      let next_button = Button::new(RichText::new("Next").size(theme.text_sizes.large))
-         .min_size(vec2(ui_width * 0.25, 25.0));
+               ui.label(RichText::new("No vault was found").size(theme.text_sizes.heading));
+               ui.label(
+                  RichText::new("Recover your wallet from your credentials")
+                     .size(theme.text_sizes.large),
+               );
 
-      if ui.add(next_button).clicked() {
-         let credentials = self.credentials_form.credentials.clone();
-         RT.spawn_blocking(move || match credentials.is_valid() {
-            Ok(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.recover_wallet_ui.credentials_input = false;
-                  gui.recover_wallet_ui.show_recover_wallet = true;
-               });
-            }
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window("Credentials Error", e.to_string());
-               });
-            }
+               // Credentials input
+               self.credentials_form.show(theme, icons, ui);
+
+               let next_button = Button::new(RichText::new("Next").size(theme.text_sizes.large))
+                  .min_size(vec2(ui_width * 0.25, 25.0));
+
+               if ui.add(next_button).clicked() {
+                  let credentials = self.credentials_form.credentials.clone();
+                  RT.spawn_blocking(move || match credentials.is_valid() {
+                     Ok(_) => {
+                        SHARED_GUI.write(|gui| {
+                           gui.recover_wallet_ui.credentials_input = false;
+                           gui.recover_wallet_ui.show_recover_wallet = true;
+                        });
+                     }
+                     Err(e) => {
+                        SHARED_GUI.write(|gui| {
+                           gui.open_msg_window("Credentials Error", e.to_string());
+                        });
+                     }
+                  });
+               }
+            });
          });
-      }
    }
 
    fn recover_hd_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
@@ -659,88 +659,115 @@ impl RecoverHDWallet {
          return;
       }
 
-      ui.vertical_centered(|ui| {
-         ui.label(RichText::new("Wallet Name").size(theme.text_sizes.heading));
+      Window::new("Recover_HD_Wallet_wallet_name")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .frame(Frame::window(ui.style()))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(self.size2.0, self.size2.1));
+            ui.spacing_mut().item_spacing.y = 15.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         TextEdit::singleline(&mut self.wallet_name)
-            .font(FontId::proportional(theme.text_sizes.normal))
-            .margin(Margin::same(10))
-            .min_size(vec2(ui.available_width() * 0.9, 25.0))
-            .show(ui);
+            ui.vertical_centered(|ui| {
+               self.show_requirements_warning(theme, ui);
 
-         let recover_button = Button::new(RichText::new("Recover").size(theme.text_sizes.large))
-            .min_size(vec2(ui.available_width() * 0.9, 25.0));
+               ui.label(RichText::new("Wallet Name").size(theme.text_sizes.heading));
 
-         if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
-            self.recover_button_clicked = true;
-            let mut vault = ctx.get_vault();
-            let name = self.wallet_name.clone();
-            let credentials = self.credentials_form.credentials.clone();
+               TextEdit::singleline(&mut self.wallet_name)
+                  .font(FontId::proportional(theme.text_sizes.normal))
+                  .margin(Margin::same(10))
+                  .min_size(vec2(ui.available_width() * 0.9, 25.0))
+                  .show(ui);
 
-            RT.spawn_blocking(move || {
-               SHARED_GUI.write(|gui| {
-                  gui.loading_window.new_size((300.0, 150.0));
-                  gui.loading_window
-                     .open("Recovering Wallet... (This will take a couple of minutes)");
-               });
+               let recover_button =
+                  Button::new(RichText::new("Recover").size(theme.text_sizes.large))
+                     .min_size(vec2(ui.available_width() * 0.9, 25.0));
 
-               vault.set_credentials(credentials);
+               if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
+                  self.recover_button_clicked = true;
+                  let mut vault = ctx.get_vault();
+                  let name = self.wallet_name.clone();
+                  let credentials = self.credentials_form.credentials.clone();
 
-               match vault.recover_hd_wallet(name) {
-                  Ok(_) => {}
-                  Err(e) => {
+                  RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
-                        gui.loading_window.reset();
-                        gui.open_msg_window("Failed to recover wallet", e.to_string());
+                        gui.loading_window.new_size((300.0, 150.0));
+                        gui.loading_window.open(
+                           "Recovering Wallet... (Grab a coffee this will take 10-15 minutes)",
+                        );
                      });
-                     return;
-                  }
-               };
 
-               let params = if cfg!(feature = "dev") {
-                  Some(Argon2::very_fast())
-               } else {
-                  Some(Argon2::balanced())
-               };
+                     vault.set_credentials(credentials);
 
-               SHARED_GUI.write(|gui| {
-                  gui.loading_window.open("Encrypting Vault...");
-               });
+                     match vault.recover_hd_wallet(name) {
+                        Ok(_) => {}
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.loading_window.reset();
+                              gui.open_msg_window("Failed to recover wallet", e.to_string());
+                           });
+                           return;
+                        }
+                     };
 
-               // Encrypt the vault
-               match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
-                  Ok(_) => {
+                     let params = if cfg!(feature = "dev") {
+                        Some(Argon2::very_fast())
+                     } else {
+                        Some(Argon2::balanced())
+                     };
+
                      SHARED_GUI.write(|gui| {
-                        gui.recover_wallet_ui.show_recover_wallet = false;
-                        gui.recover_wallet_ui.show_tips = true;
-                        gui.recover_wallet_ui.credentials_form.erase();
-
-                        gui.loading_window.reset();
+                        gui.loading_window.open("Encrypting Vault...");
                      });
 
-                     ctx.write(|ctx| {
-                        ctx.current_wallet = vault.get_master_wallet();
-                     });
+                     // Encrypt the vault
+                     match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
+                        Ok(_) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.recover_wallet_ui.show_recover_wallet = false;
+                              gui.recover_wallet_ui.show_tips = true;
+                              gui.recover_wallet_ui.credentials_form.erase();
 
-                     ctx.set_vault(vault);
-                  }
-                  Err(e) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.open_msg_window("Failed to create vault", e.to_string());
-                        gui.loading_window.reset();
-                     });
-                     return;
-                  }
-               };
+                              gui.loading_window.reset();
+                           });
+
+                           ctx.write(|ctx| {
+                              ctx.current_wallet = vault.get_master_wallet();
+                           });
+
+                           ctx.set_vault(vault);
+                        }
+                        Err(e) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.open_msg_window("Failed to create vault", e.to_string());
+                              gui.loading_window.reset();
+                           });
+                           return;
+                        }
+                     };
+                  });
+               }
             });
-         }
-      });
+         });
    }
 
    fn show_tips(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.show_tips {
          return;
       }
+
+      Window::new("Recover_HD_Wallet_wallet_name")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .frame(Frame::window(ui.style()))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .show(ui.ctx(), |ui| {
+            ui.set_min_size(vec2(self.size.0, self.size.1));
+            ui.spacing_mut().item_spacing.y = 15.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
       ui.vertical_centered(|ui| {
 
@@ -795,5 +822,6 @@ impl RecoverHDWallet {
          }
 
       });
+   });
    }
 }
