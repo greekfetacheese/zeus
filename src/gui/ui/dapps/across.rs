@@ -10,7 +10,7 @@ use crate::gui::{
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Button, Color32, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, Slider,
+   Align, Align2, Button, CursorIcon, Color32, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, Slider,
    Spinner, TextEdit, Ui, Window, vec2,
 };
 use std::time::Duration;
@@ -194,10 +194,15 @@ impl AcrossBridge {
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     ui.spacing_mut().button_padding = vec2(10.0, 4.0);
-                     let text = RichText::new("Settings").size(theme.text_sizes.small);
-                     let button = Button::new(text);
-                     if ui.add(button).clicked() {
+                     let tint = theme.image_tint_recommended;
+                     let icon = match theme.dark_mode {
+                        true => icons.gear_white_x24(tint),
+                        false => icons.gear_dark_x24(tint),
+                     };
+
+                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                     if res.clicked() {
                         self.settings_open = true;
                      }
                   });
@@ -205,7 +210,7 @@ impl AcrossBridge {
 
                let inner_frame = theme.frame2;
 
-               let label = String::from("Send");
+               let label = String::from("Amount");
                let owner = ctx.current_wallet_info().address;
                let balance_fn = || ctx.get_currency_balance(from_chain, owner, &self.currency);
 
@@ -581,16 +586,16 @@ impl AcrossBridge {
    }
 
    fn settings_window(&mut self, theme: &Theme, ui: &mut Ui) {
-      let title = RichText::new("Settings").size(theme.text_sizes.heading);
-      Window::new(title)
+      Window::new("Across Settings")
+         .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
-            ui.set_height(200.0);
+            ui.set_width(350.0);
+            ui.set_height(150.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 

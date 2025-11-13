@@ -1,13 +1,13 @@
+use crate::assets::icons::Icons;
+use crate::core::ZeusCtx;
+use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
+use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Button, Color32, Frame, Grid, Layout, Order, RichText, ScrollArea, Sense,
-   Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, Color32, CursorIcon, Frame, Grid, Layout, Order, RichText, ScrollArea,
+   Sense, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::sync::Arc;
 use zeus_wallet::Wallet;
-use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
-use crate::gui::{ui::{REFRESH, TokenSelectionWindow}, SHARED_GUI};
-use crate::utils::RT;
 
 use egui_widgets::{ComboBox, Label};
 use zeus_eth::{
@@ -451,13 +451,20 @@ impl PortfolioUi {
                   token_selection.open(ctx.clone(), chain_id, owner);
                }
 
-               let refresh = Button::new(RichText::new(REFRESH).size(theme.text_sizes.normal));
-               if ui.add(refresh).clicked() {
-                  self.refresh(owner, ctx.clone());
-               }
+               let tint = theme.image_tint_recommended;
+               let icon = match theme.dark_mode {
+                  true => icons.refresh_white_x28(tint),
+                  false => icons.refresh_dark_x28(tint),
+               };
 
-               if self.show_spinner {
-                  ui.add(Spinner::new().size(17.0).color(Color32::WHITE));
+               if !self.show_spinner {
+                  let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if res.clicked() {
+                     self.refresh(owner, ctx.clone());
+                  }
+               } else {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                }
             });
          });

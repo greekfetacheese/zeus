@@ -1,14 +1,13 @@
 use crate::assets::icons::Icons;
-use zeus_wallet::Wallet;
 use crate::core::ZeusCtx;
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, REFRESH, EXTERNAL_LINK, WalletSelect},
+   ui::{ChainSelect, EXTERNAL_LINK, WalletSelect},
 };
 use crate::utils::{RT, truncate_address, tx::delegate_to};
 use egui::{
-   Align, Align2, OpenUrl, Button, FontId, Frame, Layout, Margin, Order, RichText, Spinner, TextEdit, Ui,
-   Window, vec2,
+   Align, Align2, Button, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
+   Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui_widgets::Label;
 use std::str::FromStr;
@@ -18,6 +17,7 @@ use zeus_eth::{
    currency::{Currency, NativeCurrency},
    types::ChainId,
 };
+use zeus_wallet::Wallet;
 
 use zeus_theme::Theme;
 
@@ -85,7 +85,13 @@ impl Header {
       let wallet = ctx.current_wallet_info();
       let tint = theme.image_tint_recommended;
 
-      self.show_deleg_settings_window(ctx.clone(), theme, wallet.address, ui);
+      self.show_deleg_settings_window(
+         ctx.clone(),
+         theme,
+         icons.clone(),
+         wallet.address,
+         ui,
+      );
 
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
@@ -148,9 +154,14 @@ impl Header {
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let text = RichText::new("Settings").size(theme.text_sizes.small);
-                  let button = Button::new(text);
-                  if ui.add(button).clicked() {
+                  let icon = match theme.dark_mode {
+                     true => icons.gear_white_x24(tint),
+                     false => icons.gear_dark_x24(tint),
+                  };
+
+                  let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if res.clicked() {
                      self.delegate_window_open = true;
                   }
                });
@@ -253,21 +264,24 @@ impl Header {
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
+      icons: Arc<Icons>,
       wallet: Address,
       ui: &mut Ui,
    ) {
-      let mut open = self.delegate_window_open;
+      if !self.delegate_window_open {
+         return;
+      }
 
-      let title = RichText::new("Delegation settings").size(theme.text_sizes.heading);
-      Window::new(title)
-         .open(&mut open)
+      Window::new("Delegation_settings")
+         .title_bar(false)
+         .movable(false)
          .resizable(false)
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(300.0);
+            ui.set_width(350.0);
             ui.set_height(200.0);
             ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -285,48 +299,64 @@ impl Header {
                      } else {
                         self.delegate_ui(ctx.clone(), theme, wallet, ui);
                      }
+
+                     let text = RichText::new("Close").size(theme.text_sizes.normal);
+                     if ui.add(Button::new(text)).clicked() {
+                        self.delegate_window_open = false;
+                     }
                   });
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  self.refresh(ctx.clone(), theme, wallet, ui);
+                  self.refresh(ctx.clone(), theme, icons, wallet, ui);
                });
             });
          });
-
-      self.delegate_window_open = open;
    }
 
-   fn refresh(&mut self, ctx: ZeusCtx, theme: &Theme, wallet: Address, ui: &mut Ui) {
+   fn refresh(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      wallet: Address,
+      ui: &mut Ui,
+   ) {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
-      let button = Button::new(RichText::new(REFRESH).size(theme.text_sizes.small));
+      let tint = theme.image_tint_recommended;
+      let icon = match theme.dark_mode {
+         true => icons.refresh_white_x22(tint),
+         false => icons.refresh_dark_x22(tint),
+      };
 
-      if ui.add(button).clicked() {
-         self.syncing = true;
-         let ctx_clone = ctx.clone();
-         RT.spawn(async move {
-            match ctx_clone.check_delegated_wallet_status(ctx.chain().id(), wallet).await {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.header.syncing = false;
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(
-                        "Error while checking smart account status",
-                        e.to_string(),
-                     );
-                     gui.header.syncing = false;
-                  });
-               }
-            }
-         });
-      }
+      if !self.syncing {
+         let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
-      if self.syncing {
-         ui.add(Spinner::new().size(14.0).color(theme.colors.info));
+         if res.clicked() {
+            self.syncing = true;
+            let ctx_clone = ctx.clone();
+            RT.spawn(async move {
+               match ctx_clone.check_delegated_wallet_status(ctx.chain().id(), wallet).await {
+                  Ok(_) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.header.syncing = false;
+                     });
+                  }
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window(
+                           "Error while checking smart account status",
+                           e.to_string(),
+                        );
+                        gui.header.syncing = false;
+                     });
+                  }
+               }
+            });
+         }
+      } else {
+         ui.add(Spinner::new().size(17.0).color(theme.colors.text));
       }
    }
 
@@ -335,18 +365,20 @@ impl Header {
       let text = RichText::new("Delegate to").size(theme.text_sizes.large);
       ui.label(text);
 
-      let hint = RichText::new("Enter a smart contract address").size(theme.text_sizes.normal);
+      let hint = RichText::new("Enter a smart contract address")
+         .color(theme.colors.text_muted)
+         .size(theme.text_sizes.normal);
+
       let text = TextEdit::singleline(&mut self.delegate_to)
          .hint_text(hint)
          .font(FontId::proportional(theme.text_sizes.normal))
          .margin(Margin::same(10))
-         .desired_width(ui.available_width() * 0.7)
-         .min_size(vec2(ui.available_width() * 0.7, 25.0));
+         .desired_width(ui.available_width() * 0.8);
 
       ui.add(text);
 
       let text = RichText::new("Delegate").size(theme.text_sizes.large);
-      let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
+      let button = Button::new(text);
 
       let clicked = ui.add(button).clicked();
 

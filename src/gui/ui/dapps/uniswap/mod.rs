@@ -374,8 +374,8 @@ impl UniswapUi {
                   }
 
                   let icon = match theme.dark_mode {
-                     true => icons.refresh_white_x24(tint),
-                     false => icons.refresh_dark_x24(tint),
+                     true => icons.refresh_white_x22(tint),
+                     false => icons.refresh_dark_x22(tint),
                   };
 
                   let syncing = self.swap_ui.pool_data_syncing

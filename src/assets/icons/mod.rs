@@ -6,11 +6,11 @@ use eframe::egui::{
 };
 
 use crate::core::context::currencies::{TOKENS, TokenData};
-use zeus_theme::utils::TINT_1;
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
+use zeus_theme::utils::TINT_1;
 
 use bincode::{config::standard, decode_from_slice};
 
@@ -224,8 +224,10 @@ pub struct MiscIcons {
    pub arrow_right_dark_x24: TextureHandle,
    pub gear_white_x24: TextureHandle,
    pub gear_dark_x24: TextureHandle,
-   pub refresh_white_x24: TextureHandle,
-   pub refresh_dark_x24: TextureHandle,
+   pub refresh_white_x22: TextureHandle,
+   pub refresh_dark_x22: TextureHandle,
+   pub refresh_white_x28: TextureHandle,
+   pub refresh_dark_x28: TextureHandle,
    pub info: TextureHandle,
 }
 
@@ -264,8 +266,14 @@ impl MiscIcons {
 
       let gear_white_x24 = load_and_resize_image(include_bytes!("misc/gear-white.png"), 26, 26)?;
       let gear_dark_x24 = load_and_resize_image(include_bytes!("misc/gear-dark.png"), 24, 24)?;
-      let refresh_white_x24 = load_and_resize_image(include_bytes!("misc/refresh-white.png"), 22, 22)?;
-      let refresh_dark_x24 = load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 22, 22)?;
+      let refresh_white_x22 =
+         load_and_resize_image(include_bytes!("misc/refresh-white.png"), 22, 22)?;
+      let refresh_dark_x22 =
+         load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 22, 22)?;
+      let refresh_white_x28 =
+         load_and_resize_image(include_bytes!("misc/refresh-white.png"), 28, 28)?;
+      let refresh_dark_x28 =
+         load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 28, 28)?;
 
       let info = load_and_resize_image(include_bytes!("misc/info.png"), 14, 14)?;
 
@@ -297,8 +305,26 @@ impl MiscIcons {
          ),
          gear_white_x24: ctx.load_texture("gear_white_x24", gear_white_x24, texture_options),
          gear_dark_x24: ctx.load_texture("gear_dark_x24", gear_dark_x24, texture_options),
-         refresh_white_x24: ctx.load_texture("refresh_white_x24", refresh_white_x24, texture_options),
-         refresh_dark_x24: ctx.load_texture("refresh_dark_x24", refresh_dark_x24, texture_options),
+         refresh_white_x22: ctx.load_texture(
+            "refresh_white_x22",
+            refresh_white_x22,
+            texture_options,
+         ),
+         refresh_dark_x22: ctx.load_texture(
+            "refresh_dark_x22",
+            refresh_dark_x22,
+            texture_options,
+         ),
+         refresh_white_x28: ctx.load_texture(
+            "refresh_white_x28",
+            refresh_white_x28,
+            texture_options,
+         ),
+         refresh_dark_x28: ctx.load_texture(
+            "refresh_dark_x28",
+            refresh_dark_x28,
+            texture_options,
+         ),
          info: ctx.load_texture("info", info, texture_options),
       })
    }
@@ -559,17 +585,31 @@ impl Icons {
       }
    }
 
-   pub fn refresh_dark_x24(&self, tint: bool) -> Image<'static> {
+   pub fn refresh_dark_x22(&self, tint: bool) -> Image<'static> {
       match tint {
-         true => Image::new(&self.misc.refresh_dark_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_dark_x24).sense(Sense::click()),
+         true => Image::new(&self.misc.refresh_dark_x22).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.refresh_dark_x22).sense(Sense::click()),
       }
    }
 
-   pub fn refresh_white_x24(&self, tint: bool) -> Image<'static> {
+   pub fn refresh_white_x22(&self, tint: bool) -> Image<'static> {
       match tint {
-         true => Image::new(&self.misc.refresh_white_x24).sense(Sense::click()).tint(TINT_1),
-         false => Image::new(&self.misc.refresh_white_x24).sense(Sense::click()),
+         true => Image::new(&self.misc.refresh_white_x22).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.refresh_white_x22).sense(Sense::click()),
+      }
+   }
+
+   pub fn refresh_white_x28(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.refresh_white_x28).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.refresh_white_x28).sense(Sense::click()),
+      }
+   }
+
+   pub fn refresh_dark_x28(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.refresh_dark_x28).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.refresh_dark_x28).sense(Sense::click()),
       }
    }
 
