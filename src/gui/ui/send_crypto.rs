@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align2, Button, FontId, Frame, Margin, OpenUrl, RichText, TextEdit, Ui, Window, vec2,
+   Align2, Button, FontId, CursorIcon, Frame, Margin, OpenUrl, RichText, TextEdit, Ui, Window, vec2,
 };
 
 use std::{
@@ -16,7 +16,7 @@ use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ContactsUi, EXTERNAL_LINK, RecipientSelectionWindow, TokenSelectionWindow,
+      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       dapps::AmountFieldWithCurrencySelect,
    },
 };
@@ -232,9 +232,15 @@ impl SendCryptoUi {
 
                            let block_explorer = chain.block_explorer();
                            let link = format!("{}/address/{}", block_explorer, recipient);
-                           let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
-                           let button = Button::new(text).small();
-                           if ui.add(button).clicked() {
+                           let tint = theme.image_tint_recommended;
+                           let icon = match theme.dark_mode {
+                              true => icons.external_link_white_x18(tint),
+                              false => icons.external_link_dark_x18(tint),
+                           };
+
+                           let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                           if res.clicked() {
                               let url = OpenUrl::new_tab(link);
                               ui.ctx().open_url(url);
                            }

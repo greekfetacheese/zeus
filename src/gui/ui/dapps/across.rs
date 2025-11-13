@@ -3,15 +3,15 @@ use crate::core::{ZeusCtx, data_dir};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      ChainSelect, ContactsUi, EXTERNAL_LINK, RecipientSelectionWindow,
+      ChainSelect, ContactsUi, RecipientSelectionWindow,
       dapps::AmountFieldWithCurrencySelect,
    },
 };
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Button, CursorIcon, Color32, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText, Slider,
-   Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Color32, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
+   RichText, Slider, Spinner, TextEdit, Ui, Window, vec2,
 };
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
@@ -170,6 +170,7 @@ impl AcrossBridge {
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
       let frame = theme.frame1;
+      let tint = theme.image_tint_recommended;
 
       Window::new("across_bridge_ui")
          .title_bar(false)
@@ -194,7 +195,6 @@ impl AcrossBridge {
                   });
 
                   ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                     let tint = theme.image_tint_recommended;
                      let icon = match theme.dark_mode {
                         true => icons.gear_white_x24(tint),
                         false => icons.gear_dark_x24(tint),
@@ -276,9 +276,14 @@ impl AcrossBridge {
                         let chain = self.to_chain.chain;
                         let block_explorer = chain.block_explorer();
                         let link = format!("{}/address/{}", block_explorer, recipient);
-                        let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
-                        let button = Button::new(text).small();
-                        if ui.add(button).clicked() {
+                        let icon = match theme.dark_mode {
+                           true => icons.external_link_white_x18(tint),
+                           false => icons.external_link_dark_x18(tint),
+                        };
+
+                        let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                        if res.clicked() {
                            let url = OpenUrl::new_tab(link);
                            ui.ctx().open_url(url);
                         }

@@ -2,7 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, EXTERNAL_LINK, WalletSelect},
+   ui::{ChainSelect, WalletSelect},
 };
 use crate::utils::{RT, truncate_address, tx::delegate_to};
 use egui::{
@@ -117,9 +117,14 @@ impl Header {
 
                let block_explorer = chain.block_explorer();
                let link = format!("{}/address/{}", block_explorer, wallet.address);
-               let text = RichText::new(EXTERNAL_LINK).size(theme.text_sizes.small);
-               let button = Button::new(text).small();
-               if ui.add(button).clicked() {
+               let icon = match theme.dark_mode {
+                  true => icons.external_link_white_x18(tint),
+                  false => icons.external_link_dark_x18(tint),
+               };
+
+               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+               if res.clicked() {
                   let url = OpenUrl::new_tab(link);
                   ui.ctx().open_url(url);
                }

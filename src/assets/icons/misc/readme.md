@@ -13,3 +13,4 @@ arrow-right https://icons8.com/icon/7789/right
 gear https://icons8.com/icon/uVgsZ6Ybur44/settings
 refresh https://icons8.com/icons/set/refresh--technique-line
 info https://icons8.com/icon/21085/info
+external-link https://icons8.com/icons/set/external-link--technique-line
