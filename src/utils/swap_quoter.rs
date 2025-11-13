@@ -358,6 +358,11 @@ fn find_all_paths(
    // Adjacency list: Currency -> Vec<(NeighborCurrency, Pool)>
    let mut adj: HashMap<Currency, Vec<(Currency, Arc<AnyUniswapPool>)>> = HashMap::new();
    for pool in all_pools {
+      // ! Avoid ERC20/ERC20 pairs for V4 pools as these swaps dont work with UniversalRouter
+      if pool.dex_kind().is_v4() && pool.currency0().is_erc20() && pool.currency1().is_erc20() {
+         continue;
+      }
+
       let has_liquidity = ctx.pool_has_sufficient_liquidity(pool).unwrap_or(false);
 
       if !has_liquidity {
