@@ -1,7 +1,10 @@
 use crate::core::{ZeusCtx, context::data_dir};
 use crate::utils::RT;
 use zeus_eth::{
-   abi::{weth9, zeus::ZeusStateViewV2::{V3Pool, V4Pool}},
+   abi::{
+      weth9,
+      zeus::ZeusStateViewV2::{V3Pool, V4Pool},
+   },
    alloy_primitives::Address,
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, BlockNumberOrTag},
@@ -67,14 +70,17 @@ const ERC20_INFO_BATCH: usize = 30;
 /// Batch size for fetching V3 pools
 const VALIDATE_V4_POOLS_BATCH: usize = 60;
 
+/// Batch size for fetching the state of V2/V3/V4 pools
+const POOL_STATE_UPDATE_BATCH: usize = 40;
+
 /// Batch size for fetching V2 pool reserves
 const V2_POOL_RESERVES_BATCH: usize = 50;
 
 /// Batch size for fetching V3 pool state
-const V3_POOL_STATE_BATCH: usize = 20;
+const V3_POOL_STATE_BATCH: usize = 40;
 
 /// Batch size for fetching V4 pool state
-const V4_POOL_STATE_BATCH: usize = 25;
+const V4_POOL_STATE_BATCH: usize = 45;
 
 /// A default value for the block range to query for logs
 ///
@@ -116,6 +122,9 @@ pub struct RpcCheck {
    /// Recommended batch size for fetching ERC20 info
    pub erc20_info_batch: usize,
 
+   /// Recommended batch size for fetching the state for V2/V3/V4 pools
+   pub pool_state_update_batch: usize,
+
    /// Recommended batch size for fetching V3 pools
    pub validate_v4_pools_batch: usize,
 
@@ -146,6 +155,7 @@ impl Default for RpcCheck {
          erc20_balance_batch: ERC20_BALANCE_BATCH,
          erc20_info_batch: ERC20_INFO_BATCH,
          validate_v4_pools_batch: VALIDATE_V4_POOLS_BATCH,
+         pool_state_update_batch: POOL_STATE_UPDATE_BATCH,
          v2_pool_reserves_batch: V2_POOL_RESERVES_BATCH,
          v3_pool_state_batch: V3_POOL_STATE_BATCH,
          v4_pool_state_batch: V4_POOL_STATE_BATCH,
@@ -850,9 +860,11 @@ impl ZeusClient {
                best_idx = Some(idx);
             }
          }
+
          let Some(idx) = best_idx else {
             return None;
          };
+         
          rpcs[idx].last_used = now_ms;
          let rpc = rpcs[idx].clone();
          Some(rpc)
@@ -928,7 +940,13 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    );
 
    let throttle = throttle_layer(CLIENT_RPS);
-   let client = get_client(&rpc.url, retry, throttle, CLIENT_TIMEOUT_FOR_SENDING_TX).await?;
+   let client = get_client(
+      &rpc.url,
+      retry,
+      throttle,
+      CLIENT_TIMEOUT_FOR_SENDING_TX,
+   )
+   .await?;
    let chain = rpc.chain_id;
 
    let time = std::time::Instant::now();
@@ -1018,6 +1036,13 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
       let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
       let mut guard = result.lock().unwrap();
       guard.last_check = Some(now);
+   }
+
+   // V3 state batch calls are the most expensive in terms of gas
+   // So will use this as a reference for the pool state update batch
+   {
+      let mut guard = result.lock().unwrap();
+      guard.pool_state_update_batch = guard.v3_pool_state_batch;
    }
 
    let guard = result.lock().unwrap();

@@ -144,7 +144,7 @@ mod tests {
       let mut pools = Vec::new();
 
       for pool in all_pools {
-         if pools.len() == 20 {
+         if pools.len() == 40 {
             break;
          }
          let p = ZeusStateViewV2::V3Pool {
@@ -187,7 +187,7 @@ mod tests {
       let mut pools = Vec::new();
 
       for pool in all_pools {
-         if pools.len() == 20 {
+         if pools.len() == 40 {
             break;
          }
 
@@ -206,6 +206,94 @@ mod tests {
 
       let data = ZeusStateViewV2::getV4PoolStateCall {
          pools: pools,
+         stateView: uni_stateview,
+      }
+      .abi_encode();
+
+      evm.tx.data = data.into();
+      evm.tx.kind = TxKind::Call(contract_address);
+
+      let res = evm.transact_commit(evm.tx.clone()).unwrap();
+      println!("Gas used: {}", res.gas_used());
+      println!("Success: {}", res.is_success());
+   }
+
+   #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+   async fn test_pool_state_update_gas_used() {
+      let ctx = ZeusCtx::new();
+
+      let chain = 1;
+      let contract_address = zeus_stateview_v2(chain).unwrap();
+      let uni_stateview = uniswap_v4_stateview(chain).unwrap();
+      let pool_manager = ctx.pool_manager();
+      let all_pools = pool_manager.get_pools_for_chain(chain);
+
+      let mut v2_pools = Vec::new();
+      let mut v3_pools = Vec::new();
+      let mut v4_pools = Vec::new();
+      let mut all_pools_len = 0;
+
+      for pool in all_pools {
+         if all_pools_len == 40 {
+            break;
+         }
+
+         if pool.dex_kind().is_v2() {
+            if v2_pools.len() == 10 {
+               continue;
+            }
+
+            v2_pools.push(pool.address());
+            all_pools_len += 1;
+         }
+
+         if pool.dex_kind().is_v3() {
+            if v3_pools.len() == 15 {
+               continue;
+            }
+
+            let p = ZeusStateViewV2::V3Pool {
+               addr: pool.address(),
+               tokenA: pool.currency0().address(),
+               tokenB: pool.currency1().address(),
+               fee: pool.fee().fee_u24(),
+            };
+
+            v3_pools.push(p);
+            all_pools_len += 1;
+         }
+
+         if pool.dex_kind().is_v4() {
+            if v4_pools.len() == 15 {
+               continue;
+            }
+
+            let p = ZeusStateViewV2::V4Pool {
+               pool: pool.id(),
+               tickSpacing: pool.fee().tick_spacing(),
+            };
+
+            v4_pools.push(p);
+            all_pools_len += 1;
+         }
+      }
+
+      let client = ctx.get_client(chain).await.unwrap();
+      let fork_factory = ForkFactory::new_sandbox_factory(client.clone(), chain, None, None);
+      let fork_db = fork_factory.new_sandbox_fork();
+      let mut evm = new_evm(chain.into(), None, fork_db);
+
+      eprintln!(
+         "Fetching pool state for {} v2pools {} v3pools {} v4pools",
+         v2_pools.len(),
+         v3_pools.len(),
+         v4_pools.len()
+      );
+
+      let data = ZeusStateViewV2::getPoolsStateCall {
+         v2pools: v2_pools,
+         v3pools: v3_pools,
+         v4pools: v4_pools,
          stateView: uni_stateview,
       }
       .abi_encode();

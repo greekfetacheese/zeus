@@ -414,7 +414,7 @@ impl SwapUi {
          settings.swap_on_v3,
          settings.swap_on_v4,
       );
-      self.sync_pools(ctx.clone(), settings, true);
+      self.sync_pools(ctx.clone(), settings, false);
    }
 
    pub fn show(
@@ -580,7 +580,9 @@ impl SwapUi {
             token_selection.reset();
          }
 
-         self.sync_pools(ctx.clone(), settings, changed_currency);
+         if changed_currency {
+            self.sync_pools(ctx.clone(), settings, true);
+         }
 
          if should_get_quote {
             self.get_quote(ctx.clone(), settings);
@@ -775,12 +777,8 @@ impl SwapUi {
       });
    }
 
-   fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, changed_currency: bool) {
+   fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, update_pool_state: bool) {
       if self.syncing_pools {
-         return;
-      }
-
-      if !changed_currency {
          return;
       }
 
@@ -830,31 +828,35 @@ impl SwapUi {
 
          SHARED_GUI.write(|gui| {
             gui.uniswap.swap_ui.syncing_pools = false;
-            gui.uniswap.swap_ui.pool_data_syncing = true;
          });
 
-         let pools = get_relevant_pools(
-            ctx_clone.clone(),
-            swap_on_v2,
-            swap_on_v3,
-            swap_on_v4,
-            &currency_in,
-            &currency_out,
-         );
+         if update_pool_state {
+            SHARED_GUI.write(|gui| {
+               gui.uniswap.swap_ui.pool_data_syncing = true;
+            });
 
-         match pool_manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
-            Ok(_) => {
-               // tracing::info!("Updated pool state for token: {}", token.symbol);
-               SHARED_GUI.write(|gui| {
-                  gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
-                  gui.uniswap.swap_ui.pool_data_syncing = false;
-               });
-            }
-            Err(_e) => {
-               // tracing::error!("Error updating pool state: {:?}", e);
-               SHARED_GUI.write(|gui| {
-                  gui.uniswap.swap_ui.pool_data_syncing = false;
-               });
+            let pools = get_relevant_pools(
+               ctx_clone.clone(),
+               swap_on_v2,
+               swap_on_v3,
+               swap_on_v4,
+               &currency_in,
+               &currency_out,
+            );
+
+            match pool_manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
+                     gui.uniswap.swap_ui.pool_data_syncing = false;
+                  });
+               }
+               Err(_e) => {
+                  // tracing::error!("Error updating pool state: {:?}", e);
+                  SHARED_GUI.write(|gui| {
+                     gui.uniswap.swap_ui.pool_data_syncing = false;
+                  });
+               }
             }
          }
 

@@ -1233,7 +1233,6 @@ async fn batch_update_state(
    let mut v2_pools = Vec::new();
    let mut v3_pools = Vec::new();
    let mut v4_pools = Vec::new();
-   let pools_len = pools.len();
 
    for pool in &pools {
       if pool.dex_kind().is_v2() {
@@ -1286,132 +1285,80 @@ async fn batch_update_state(
    #[cfg(feature = "dev")]
    let time = Instant::now();
 
-   let pools_state = if pools_len <= batch_size {
-      zeus_client
-         .request(chain, |client| {
-            let all_v2_addresses = all_v2_addresses.clone();
-            let all_v3_pool_info = all_v3_pool_info.clone();
-            let all_v4_pool_info = all_v4_pool_info.clone();
-            async move {
-               batch::get_pools_state(
-                  client.clone(),
-                  chain,
-                  all_v2_addresses,
-                  all_v3_pool_info,
-                  all_v4_pool_info,
-                  state_view.clone(),
-               )
-               .await
-            }
-         })
-         .await?
-   } else {
-      // Process in concurrent batches, chunking each pool type proportionally
-      // so each batch includes slices from all 3 types of pools.
-      let total_pools = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
-      let num_batches = (total_pools + batch_size - 1) / batch_size;
+   let batches = get_batches(
+      batch_size,
+      all_v2_addresses,
+      all_v3_pool_info,
+      all_v4_pool_info,
+   );
 
-      let chunk_size_v2 = (all_v2_addresses.len() + num_batches - 1) / num_batches;
-      let chunk_size_v3 = (all_v3_pool_info.len() + num_batches - 1) / num_batches;
-      let chunk_size_v4 = (all_v4_pool_info.len() + num_batches - 1) / num_batches;
+   let mut tasks: Vec<JoinHandle<Result<PoolsState, anyhow::Error>>> = Vec::new();
+   let semaphore = Arc::new(Semaphore::new(concurrency));
 
-      let mut tasks: Vec<JoinHandle<Result<PoolsState, anyhow::Error>>> = Vec::new();
-      let semaphore = Arc::new(Semaphore::new(concurrency));
+   for batch in &batches {
+      let semaphore = semaphore.clone();
+      let zeus_client = zeus_client.clone();
+      let v2_chunk = batch.v2_pools.clone();
+      let v3_chunk = batch.v3_pools.clone();
+      let v4_chunk = batch.v4_pools.clone();
 
-      for i in 0..num_batches {
-         // Safe chunking for v2: avoid panic on start >= len
-         let len_v2 = all_v2_addresses.len();
-         let start_v2 = i * chunk_size_v2;
-         let v2_chunk = if start_v2 >= len_v2 {
-            Vec::new()
-         } else {
-            let end_v2 = std::cmp::min(start_v2 + chunk_size_v2, len_v2);
-            all_v2_addresses[start_v2..end_v2].to_vec()
-         };
+      let task = RT.spawn(async move {
+         let _permit = semaphore.acquire().await?;
+         let res = zeus_client
+            .request(chain, move |client| {
+               let v2_chunk = v2_chunk.clone();
+               let v3_chunk = v3_chunk.clone();
+               let v4_chunk = v4_chunk.clone();
+               async move {
+                  batch::get_pools_state(
+                     client.clone(),
+                     chain,
+                     v2_chunk,
+                     v3_chunk,
+                     v4_chunk,
+                     state_view,
+                  )
+                  .await
+               }
+            })
+            .await?;
 
-         // Safe chunking for v3
-         let len_v3 = all_v3_pool_info.len();
-         let start_v3 = i * chunk_size_v3;
-         let v3_chunk = if start_v3 >= len_v3 {
-            Vec::new()
-         } else {
-            let end_v3 = std::cmp::min(start_v3 + chunk_size_v3, len_v3);
-            all_v3_pool_info[start_v3..end_v3].to_vec()
-         };
+         Ok(res)
+      });
+      tasks.push(task);
+   }
 
-         // Safe chunking for v4
-         let len_v4 = all_v4_pool_info.len();
-         let start_v4 = i * chunk_size_v4;
-         let v4_chunk = if start_v4 >= len_v4 {
-            Vec::new()
-         } else {
-            let end_v4 = std::cmp::min(start_v4 + chunk_size_v4, len_v4);
-            all_v4_pool_info[start_v4..end_v4].to_vec()
-         };
+   let mut results = Vec::new();
 
-         let semaphore = semaphore.clone();
-         let zeus_client = zeus_client.clone();
+   for task in tasks {
+      let res = match task.await {
+         Ok(res) => res,
+         Err(e) => {
+            tracing::error!("Error updating pool state: {:?}", e);
+            continue;
+         }
+      };
 
-         let task = RT.spawn(async move {
-            let _permit = semaphore.acquire().await?;
-            let res = zeus_client
-               .request(chain, move |client| {
-                  let v2_chunk = v2_chunk.clone();
-                  let v3_chunk = v3_chunk.clone();
-                  let v4_chunk = v4_chunk.clone();
-                  async move {
-                     batch::get_pools_state(
-                        client.clone(),
-                        chain,
-                        v2_chunk,
-                        v3_chunk,
-                        v4_chunk,
-                        state_view,
-                     )
-                     .await
-                  }
-               })
-               .await?;
-
-            Ok(res)
-         });
-         tasks.push(task);
-      }
-
-      let mut results = Vec::new();
-
-      for task in tasks {
-         let res = match task.await {
-            Ok(res) => res,
-            Err(e) => {
-               tracing::error!("Error in updating pool state: {:?}", e);
-               continue;
-            }
-         };
-
-         match res {
-            Ok(res) => results.push(res),
-            Err(e) => {
-               tracing::error!("Error in updating pool state: {:?}", e);
-               continue;
-            }
+      match res {
+         Ok(res) => results.push(res),
+         Err(e) => {
+            tracing::error!("Error updating pool state: {:?}", e);
+            continue;
          }
       }
+   }
 
-      let mut pool_state = PoolsState::default();
+   let mut pool_state = PoolsState::default();
 
-      for state in results {
-         pool_state.v2Reserves.extend(state.v2Reserves);
-         pool_state.v3PoolsData.extend(state.v3PoolsData);
-         pool_state.v4PoolsData.extend(state.v4PoolsData);
-      }
+   for state in results {
+      pool_state.v2Reserves.extend(state.v2Reserves);
+      pool_state.v3PoolsData.extend(state.v3PoolsData);
+      pool_state.v4PoolsData.extend(state.v4PoolsData);
+   }
 
-      pool_state
-   };
-
-   let v2_reserves = &pools_state.v2Reserves;
-   let v3_pool_state = &pools_state.v3PoolsData;
-   let v4_pool_state = &pools_state.v4PoolsData;
+   let v2_reserves = &pool_state.v2Reserves;
+   let v3_pool_state = &pool_state.v3PoolsData;
+   let v4_pool_state = &pool_state.v4PoolsData;
 
    for pool in v2_pools.iter_mut() {
       for data in v2_reserves {
@@ -1471,6 +1418,79 @@ async fn batch_update_state(
    pools.extend(v4_pools);
 
    Ok(pools)
+}
+
+struct Batch {
+   v2_pools: Vec<Address>,
+   v3_pools: Vec<V3Pool>,
+   v4_pools: Vec<V4Pool>,
+}
+
+fn get_batches(
+   batch_size: usize,
+   all_v2_addresses: Vec<Address>,
+   all_v3_pool_info: Vec<V3Pool>,
+   all_v4_pool_info: Vec<V4Pool>,
+) -> Vec<Batch> {
+   let total_len = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
+
+   if total_len <= batch_size {
+      return vec![Batch {
+         v2_pools: all_v2_addresses,
+         v3_pools: all_v3_pool_info,
+         v4_pools: all_v4_pool_info,
+      }];
+   }
+
+   // Process in concurrent batches, chunking each pool type proportionally
+   // so each batch includes slices from all 3 types of pools.
+   let total_pools = all_v2_addresses.len() + all_v3_pool_info.len() + all_v4_pool_info.len();
+   let num_batches = (total_pools + batch_size - 1) / batch_size;
+
+   let chunk_size_v2 = (all_v2_addresses.len() + num_batches - 1) / num_batches;
+   let chunk_size_v3 = (all_v3_pool_info.len() + num_batches - 1) / num_batches;
+   let chunk_size_v4 = (all_v4_pool_info.len() + num_batches - 1) / num_batches;
+
+   let mut batches = Vec::new();
+
+   for i in 0..num_batches {
+      let len_v2 = all_v2_addresses.len();
+      let start_v2 = i * chunk_size_v2;
+      let v2_chunk = if start_v2 >= len_v2 {
+         Vec::new()
+      } else {
+         let end_v2 = std::cmp::min(start_v2 + chunk_size_v2, len_v2);
+         all_v2_addresses[start_v2..end_v2].to_vec()
+      };
+
+      let len_v3 = all_v3_pool_info.len();
+      let start_v3 = i * chunk_size_v3;
+      let v3_chunk = if start_v3 >= len_v3 {
+         Vec::new()
+      } else {
+         let end_v3 = std::cmp::min(start_v3 + chunk_size_v3, len_v3);
+         all_v3_pool_info[start_v3..end_v3].to_vec()
+      };
+
+      let len_v4 = all_v4_pool_info.len();
+      let start_v4 = i * chunk_size_v4;
+      let v4_chunk = if start_v4 >= len_v4 {
+         Vec::new()
+      } else {
+         let end_v4 = std::cmp::min(start_v4 + chunk_size_v4, len_v4);
+         all_v4_pool_info[start_v4..end_v4].to_vec()
+      };
+
+      let batch = Batch {
+         v2_pools: v2_chunk,
+         v3_pools: v3_chunk,
+         v4_pools: v4_chunk,
+      };
+
+      batches.push(batch);
+   }
+
+   batches
 }
 
 #[cfg(test)]
