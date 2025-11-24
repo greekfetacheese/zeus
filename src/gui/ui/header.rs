@@ -1,15 +1,17 @@
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
 use crate::utils::{RT, truncate_address, tx::delegate_to};
 use egui::{
-   Align, Align2, Button, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order, RichText,
-   Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl,
+   Order, RichText, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui_widgets::Label;
+use image::Luma;
+use qrcode::QrCode;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{
@@ -30,6 +32,7 @@ pub struct Header {
    size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
+   qrcode_window: QRCodeWindow,
    delegate_window_open: bool,
    delegate_to: String,
    syncing: bool,
@@ -46,6 +49,7 @@ impl Header {
          size,
          chain_select,
          wallet_select,
+         qrcode_window: QRCodeWindow::new(),
          delegate_window_open: false,
          delegate_to: String::new(),
          syncing: false,
@@ -93,6 +97,8 @@ impl Header {
          ui,
       );
 
+      self.qrcode_window.show(theme, ui);
+
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -115,6 +121,21 @@ impl Header {
 
                ui.add_space(5.0);
 
+               // QR Code
+               let icon = match theme.dark_mode {
+                  true => icons.qrcode_white_x18(tint),
+                  false => icons.qrcode_dark_x18(tint),
+               };
+
+               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+               if res.clicked() {
+                  self.qrcode_window.open(wallet.clone());
+               }
+
+               ui.add_space(10.0);
+
+               // Block explorer link
                let block_explorer = chain.block_explorer();
                let link = format!("{}/address/{}", block_explorer, wallet.address);
                let icon = match theme.dark_mode {
@@ -171,33 +192,6 @@ impl Header {
                   }
                });
             });
-
-            let _show_deleg = if cfg!(feature = "dev") {
-               true
-            } else {
-               deleg_addr.is_some()
-            };
-
-            /*
-            if show_deleg {
-               ui.horizontal(|ui| {
-                  let text = RichText::new("Delegated at").size(theme.text_sizes.normal);
-                  ui.label(text);
-
-                  ui.add_space(5.0);
-
-                  let address = deleg_addr.unwrap_or_default();
-                  let address_short = truncate_address(address.to_string());
-                  let explorer = chain.block_explorer();
-                  let link = format!("{}/address/{}", explorer, address.to_string());
-                  let text = RichText::new(address_short)
-                     .size(theme.text_sizes.normal)
-                     .color(theme.colors.info);
-
-                  ui.hyperlink_to(text, link);
-               });
-            }
-            */
          });
       });
    }
@@ -485,4 +479,139 @@ impl Header {
          });
       }
    }
+}
+
+pub struct QRCodeWindow {
+   open: bool,
+   wallet: Option<WalletInfo>,
+   image: Option<Image<'static>>,
+   error: Option<String>,
+   size: (f32, f32),
+}
+
+impl QRCodeWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         wallet: None,
+         image: None,
+         error: None,
+         size: (400.0, 400.0),
+      }
+   }
+
+   pub fn open(&mut self, wallet: WalletInfo) {
+      let png_bytes_res = address_to_qr_png(&wallet.address.to_string());
+
+      let (image, error) = if let Ok(png_bytes) = png_bytes_res {
+         let uri = format!("bytes://receive-{}.png", &wallet.address);
+         (
+            Some(Image::new(ImageSource::Bytes {
+               uri: uri.into(),
+               bytes: png_bytes.into(),
+            })),
+            None,
+         )
+      } else {
+         (
+            None,
+            Some(format!(
+               "Failed to generate QR Code: {}",
+               png_bytes_res.unwrap_err()
+            )),
+         )
+      };
+      self.open = true;
+      self.wallet = Some(wallet);
+      self.image = image;
+      self.error = error;
+   }
+
+   pub fn reset(&mut self) {
+      *self = Self::new();
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("QR Code Window")
+         .title_bar(false)
+         .movable(false)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Tooltip)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(10.0, 8.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               if self.wallet.is_none() {
+                  ui.label(RichText::new("Loading...").size(theme.text_sizes.normal));
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  self.close_button(theme, ui);
+                  return;
+               }
+
+               if self.error.is_some() {
+                  ui.label(
+                     RichText::new(self.error.as_ref().unwrap()).size(theme.text_sizes.large),
+                  );
+                  self.close_button(theme, ui);
+                  return;
+               }
+
+               // Wallet Info
+               if let Some(wallet) = self.wallet.as_ref() {
+                  let text = RichText::new("Wallet Name").size(theme.text_sizes.large);
+                  ui.label(text);
+                  ui.label(RichText::new(wallet.name().as_str()).size(theme.text_sizes.normal));
+
+                  let text = RichText::new("Address").size(theme.text_sizes.large);
+                  ui.label(text);
+                  ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
+               }
+
+               ui.add_space(10.0);
+
+               // QR Code
+               if let Some(image) = self.image.clone() {
+                  ui.add(image);
+               }
+
+               ui.add_space(10.0);
+
+               self.close_button(theme, ui);
+            });
+         });
+   }
+
+   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
+      let text = RichText::new("Close").size(theme.text_sizes.normal);
+      if ui.add(Button::new(text)).clicked() {
+         self.reset();
+      }
+   }
+}
+
+fn address_to_qr_png(address: &str) -> Result<Vec<u8>, anyhow::Error> {
+   let code = QrCode::with_error_correction_level(address.as_bytes(), qrcode::EcLevel::H)?;
+   let image = code
+      .render::<Luma<u8>>()
+      .min_dimensions(512, 512)
+      .max_dimensions(512, 512)
+      .build();
+
+   let mut bytes: Vec<u8> = Vec::new();
+   image.write_to(
+      &mut std::io::Cursor::new(&mut bytes),
+      image::ImageFormat::Png,
+   )?;
+   Ok(bytes)
 }

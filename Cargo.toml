@@ -63,6 +63,7 @@ governor = { version = "0.10.1", features = ["jitter"] }
 
 
 # Misc
+qrcode = "=0.14.1"
 sysinfo = "=0.37.2"
 chrono = "0.4.42"
 either = "=1.15.0"

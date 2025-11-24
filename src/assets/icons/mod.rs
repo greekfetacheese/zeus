@@ -230,6 +230,8 @@ pub struct MiscIcons {
    pub refresh_dark_x28: TextureHandle,
    pub external_link_white_x18: TextureHandle,
    pub external_link_dark_x18: TextureHandle,
+   pub qrcode_white_x18: TextureHandle,
+   pub qrcode_dark_x18: TextureHandle,
    pub info: TextureHandle,
 }
 
@@ -281,6 +283,11 @@ impl MiscIcons {
          load_and_resize_image(include_bytes!("misc/external-link-white.png"), 18, 18)?;
       let external_link_dark_x18 =
          load_and_resize_image(include_bytes!("misc/external-link-dark.png"), 18, 18)?;
+
+         let qrcode_white_x18 =
+         load_and_resize_image(include_bytes!("misc/qr-code-white.png"), 18, 18)?;
+      let qrcode_dark_x18 =
+         load_and_resize_image(include_bytes!("misc/qr-code-dark.png"), 18, 18)?;
 
       let info = load_and_resize_image(include_bytes!("misc/info.png"), 14, 14)?;
 
@@ -342,6 +349,8 @@ impl MiscIcons {
             external_link_dark_x18,
             texture_options,
          ),
+         qrcode_white_x18: ctx.load_texture("qrcode_white_x18", qrcode_white_x18, texture_options),
+         qrcode_dark_x18: ctx.load_texture("qrcode_dark_x18", qrcode_dark_x18, texture_options),
          info: ctx.load_texture("info", info, texture_options),
       })
    }
@@ -641,6 +650,20 @@ impl Icons {
       match tint {
          true => Image::new(&self.misc.external_link_dark_x18).sense(Sense::click()).tint(TINT_1),
          false => Image::new(&self.misc.external_link_dark_x18).sense(Sense::click()),
+      }
+   }
+
+   pub fn qrcode_white_x18(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.qrcode_white_x18).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.qrcode_white_x18).sense(Sense::click()),
+      }
+   }
+
+   pub fn qrcode_dark_x18(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.qrcode_dark_x18).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.qrcode_dark_x18).sense(Sense::click()),
       }
    }
 
