@@ -1,15 +1,15 @@
 use crate::assets::icons::Icons;
-use crate::utils::RT;
 use crate::core::{ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
+use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Button, Color32, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea,
-   Slider, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Button, Color32, CursorIcon, FontId, Grid, Layout, Margin, Order, RichText,
+   ScrollArea, Slider, Spinner, TextEdit, Ui, Window, vec2,
 };
 use egui::Frame;
-use zeus_theme::Theme;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
+use zeus_theme::Theme;
 
 pub struct NetworkSettings {
    open: bool,
@@ -82,29 +82,35 @@ impl NetworkSettings {
 
                ui.add_space(30.0);
 
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                   let add_network =
                      Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
                   if ui.add(add_network).clicked() {
                      self.add_rpc = true;
                   }
 
-                  let refresh = Button::new(RichText::new("⟲").size(theme.text_sizes.normal));
-                  if ui.add(refresh).clicked() {
-                     self.refreshing = true;
-                     let ctx = ctx.clone();
-                     RT.spawn(async move {
-                        let z_client = ctx.get_zeus_client();
-                        z_client.run_rpc_checks(ctx.clone()).await;
-                        z_client.sort_by_fastest();
-                        SHARED_GUI.write(|gui| {
-                           gui.settings.network.refreshing = false;
-                        });
-                     });
-                  }
+                  let icon = match theme.dark_mode {
+                     true => icons.refresh_white_x28(tint),
+                     false => icons.refresh_dark_x28(tint),
+                  };
 
-                  if self.refreshing {
-                     ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
+                  if !self.refreshing {
+                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                     if res.clicked() {
+                        let ctx = ctx.clone();
+                        self.refreshing = true;
+                        RT.spawn(async move {
+                           let z_client = ctx.get_zeus_client();
+                           z_client.run_rpc_checks(ctx.clone()).await;
+                           z_client.sort_by_fastest();
+                           SHARED_GUI.write(|gui| {
+                              gui.settings.network.refreshing = false;
+                           });
+                        });
+                     }
+                  } else {
+                     ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                   }
                });
             });
