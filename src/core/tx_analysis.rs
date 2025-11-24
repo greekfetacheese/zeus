@@ -459,6 +459,12 @@ impl TransactionAnalysis {
          return DecodedEvent::TokenApprove(params);
       }
 
+      // Single Permit Approval
+      if self.decoded_events() == 1 && self.permits_len() == 1 {
+         let params = self.permits()[0].clone();
+         return DecodedEvent::Permit(params);
+      }
+
       // Single Wrap ETH
       if self.decoded_events() == 1 && self.eth_wraps_len() == 1 {
          let params = self.eth_wraps()[0].clone();

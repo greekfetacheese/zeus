@@ -10,6 +10,8 @@ sol! {
     #[sol(rpc)]
     contract Permit2 {
 
+      event Approval(address indexed owner, address indexed token, address indexed spender, uint160 amount, uint48 expiration);
+
       struct AllowanceTransferDetails {
         // the owner of the token
         address from;
@@ -165,5 +167,10 @@ pub fn encode_permit2_permit_single(
 
 pub fn decode_permit_log(log: &LogData) -> Result<Permit2::Permit, anyhow::Error> {
    let decoded = Permit2::Permit::decode_raw_log(log.topics(), &log.data)?;
+   Ok(decoded)
+}
+
+pub fn decode_approval_log(log: &LogData) -> Result<Permit2::Approval, anyhow::Error> {
+   let decoded = Permit2::Approval::decode_raw_log(log.topics(), &log.data)?;
    Ok(decoded)
 }

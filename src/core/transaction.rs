@@ -112,6 +112,7 @@ impl DecodedEvent {
       let expiration = TimeStamp::now_as_secs().add(600);
 
       let params = PermitParams {
+         event_name: "Permit".to_string(),
          chain,
          owner,
          token,
@@ -336,7 +337,7 @@ impl DecodedEvent {
       } else if self.is_eoa_delegate() {
          return "Wallet Delegation".to_string();
       } else if self.is_permit() {
-         return "Permit".to_string();
+         return self.permit_params().event_name.clone();
       } else {
          return "Unknown interaction".to_string();
       }
@@ -1340,8 +1341,10 @@ impl UniswapPositionParams {
    }
 }
 
+/// Represents both the Permit & Approval event of the Permit2 contract
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermitParams {
+   pub event_name: String,
    pub chain: u64,
    pub owner: Address,
    pub token: Currency,
@@ -1353,36 +1356,91 @@ pub struct PermitParams {
 
 impl PermitParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
-      let mut decoded = None;
+      let mut decoded_permit = None;
+      let mut decoded_approval = None;
+      let mut name = String::new();
+
       if let Ok(decoded_log) = permit::decode_permit_log(log) {
-         decoded = Some(decoded_log);
+         decoded_permit = Some(decoded_log);
+         name = "Permit".to_string();
       }
 
-      if decoded.is_none() {
-         return Err(anyhow!("Failed to decode permit log"));
+      if let Ok(decoded_log) = permit::decode_approval_log(log) {
+         decoded_approval = Some(decoded_log);
+         name = "Permit Approval".to_string();
       }
 
-      let decoded = decoded.unwrap();
-      let token_addr = decoded.token;
+      if decoded_permit.is_none() && decoded_approval.is_none() {
+         return Err(anyhow!("Failed to decode log"));
+      }
 
-      let token = ctx.get_token(chain, token_addr).await?;
+      let token_addr = match &decoded_permit {
+         Some(decoded) => decoded.token,
+         None => decoded_approval.as_ref().unwrap().token,
+      };
 
-      let token = Currency::from(token);
-      let spender = decoded.spender;
-      let owner = decoded.owner;
-      let amount = NumericValue::format_wei(U256::from(decoded.amount), token.decimals());
+      let spender = match &decoded_permit {
+         Some(decoded) => decoded.spender,
+         None => decoded_approval.as_ref().unwrap().spender,
+      };
+
+      let owner = match &decoded_permit {
+         Some(decoded) => decoded.owner,
+         None => decoded_approval.as_ref().unwrap().owner,
+      };
+
+      let amount = match &decoded_permit {
+         Some(decoded) => U256::from(decoded.amount),
+         None => U256::from(decoded_approval.as_ref().unwrap().amount),
+      };
+
+      let expiration = match &decoded_permit {
+         Some(decoded) => decoded.expiration,
+         None => decoded_approval.as_ref().unwrap().expiration,
+      };
+
+      let erc_token = ctx.get_token(chain, token_addr).await?;
+
+      let token = Currency::from(erc_token.clone());
+      let amount = NumericValue::format_wei(amount, token.decimals());
+
       let amount_usd =
          ctx.get_currency_value_for_amount(amount.f64(), &Currency::from(token.clone()));
-      let expiration: u64 = decoded.expiration.to_string().parse()?;
+
+      let actual_amount_usd = if amount_usd.is_zero() {
+         let price_manager = ctx.price_manager();
+         let pool_manager = ctx.pool_manager();
+
+         match price_manager
+            .calculate_prices(ctx.clone(), chain, pool_manager, vec![erc_token])
+            .await
+         {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!(
+                  "Error calculating price for token {}: {:?}",
+                  token.symbol(),
+                  e
+               );
+            }
+         }
+
+         ctx.get_currency_value_for_amount(amount.f64(), &token)
+      } else {
+         amount_usd
+      };
+
+      let expiration: u64 = expiration.to_string().parse()?;
       let exp_timestamp = TimeStamp::Seconds(expiration);
 
       Ok(Self {
+         event_name: name,
          chain,
          owner,
          token,
          spender,
          amount,
-         amount_usd: Some(amount_usd),
+         amount_usd: Some(actual_amount_usd),
          expiration: exp_timestamp,
       })
    }
