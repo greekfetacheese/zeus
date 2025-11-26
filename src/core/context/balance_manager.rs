@@ -52,6 +52,15 @@ impl BalanceManagerHandle {
       Ok(())
    }
 
+   pub fn reset_default_settings(&self) {
+      self.write(|manager| {
+         manager.concurrency = default_concurrency();
+         manager.batch_size = default_batch_size();
+         manager.max_retries = default_max_retries();
+         manager.retry_delay = default_retry_delay();
+      });
+   }
+
    pub fn set_concurrency(&self, concurrency: usize) {
       self.write(|manager| manager.concurrency = concurrency);
    }

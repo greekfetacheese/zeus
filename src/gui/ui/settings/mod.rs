@@ -1,14 +1,14 @@
 use crate::assets::icons::Icons;
-use crate::utils::RT;
 use crate::core::{ZeusCtx, context::theme_kind_dir};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
+use crate::utils::RT;
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
-use zeus_theme::{Theme, ThemeKind};
 use egui_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
 use std::collections::HashSet;
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
+use zeus_theme::{Theme, ThemeKind};
 
 pub mod contacts;
 pub mod networks;
@@ -16,16 +16,17 @@ pub mod networks;
 pub use contacts::ContactsUi;
 pub use networks::NetworkSettings;
 
-const MIN_M_COST: u32 = 128_000;
+const MIN_M_COST: u32 = 1024_000;
 const MIN_T_COST: u32 = 8;
 const MIN_P_COST: u32 = 1;
 
 const MAX_M_COST: u32 = 8192_000;
 const MAX_T_COST: u32 = 2048;
-const MAX_P_COST: u32 = 4;
+const MAX_P_COST: u32 = 1;
 
 const DEV_M_MIN_COST: u32 = 16_000;
 const DEV_T_MIN_COST: u32 = 3;
+const DEV_P_MAX_COST: u32 = 4;
 
 const M_COST_TIP: &str =
     "How much memory the Argon2 algorithm uses. Higher values are more secure but way slower, make sure the memory cost does not exceed your computer RAM.
@@ -428,6 +429,12 @@ impl EncryptionSettings {
                MIN_T_COST
             };
 
+            let max_p_cost = if cfg!(feature = "dev") {
+               DEV_P_MAX_COST
+            } else {
+               MAX_P_COST
+            };
+
             ui.vertical_centered(|ui| {
                ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
                   .on_hover_text(M_COST_TIP);
@@ -458,7 +465,7 @@ impl EncryptionSettings {
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
                      &mut self.argon_params.p_cost,
-                     MIN_P_COST..=MAX_P_COST,
+                     MIN_P_COST..=max_p_cost,
                   ));
                });
 
@@ -549,6 +556,27 @@ impl GeneralSettings {
       self.open
    }
 
+   fn reset_settings(&mut self, ctx: ZeusCtx) {
+      let pool_manager = ctx.pool_manager();
+      let balance_manager = ctx.balance_manager();
+      pool_manager.reset_default_settings();
+      balance_manager.reset_default_settings();
+
+      self.sync_v4_pools_on_startup = pool_manager.do_we_sync_v4_pools();
+      self.concurrency_for_syncing_balances = balance_manager.concurrency();
+      self.concurrency_for_syncing_pools = pool_manager.concurrency();
+      self.batch_size_for_syncing_balances = balance_manager.batch_size();
+      self.batch_size_for_updating_pools_state = pool_manager.batch_size_for_updating_pools_state();
+      self.batch_size_for_syncing_pools = pool_manager.batch_size_for_syncing_pools();
+      self.ignore_chains = pool_manager.ignore_chains();
+
+      let ctx = ctx.clone();
+      RT.spawn_blocking(move || {
+         ctx.save_pool_manager();
+         ctx.save_balance_manager();
+      });
+   }
+
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
@@ -572,6 +600,11 @@ impl GeneralSettings {
 
                   let header = RichText::new("Pool Manager").size(theme.text_sizes.very_large);
                   ui.label(header);
+
+                  let text = RichText::new("Reset Settings").size(theme.text_sizes.normal);
+                  if ui.add(Button::new(text)).clicked() {
+                     self.reset_settings(ctx.clone());
+                  }
 
                   let text =
                      RichText::new("Sync V4 Pools on startup").size(theme.text_sizes.normal);

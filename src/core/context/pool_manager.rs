@@ -121,6 +121,16 @@ impl PoolManagerHandle {
       Ok(())
    }
 
+   pub fn reset_default_settings(&self) {
+      self.write(|manager| {
+         manager.concurrency = default_concurrency();
+         manager.batch_size_for_updating_pool_state = default_batch_size_for_updating_pool_state();
+         manager.batch_size_for_syncing_pools = default_batch_size_for_syncing_pools();
+         manager.sync_v4_pools = default_sync_v4_pools();
+         manager.ignore_chains = default_ignore_chains();
+      });
+   }
+
    pub fn concurrency(&self) -> usize {
       let concurrency = self.read(|manager| manager.concurrency);
       if concurrency == 0 {
