@@ -28,9 +28,9 @@ zeus-eth = { path = "crates/zeus-eth" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"]}
 
 # Alloy
-alloy-consensus = "=1.0.41"
-alloy-signer-local = {version = "=1.0.41", features = ["mnemonic"]}
-alloy-eips = "=1.0.41"
+alloy-consensus = "=1.1.2"
+alloy-signer-local = {version = "=1.1.2", features = ["mnemonic"]}
+alloy-eips = "=1.1.2"
 alloy-sol-types = {version = "=1.4.1", features = ["json"]}
 
 

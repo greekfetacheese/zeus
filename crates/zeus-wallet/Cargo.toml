@@ -23,11 +23,11 @@ version = "=0.10.8"
 version = "=0.8"
 
 [dependencies.alloy-signer-local]
-version = "=1.0.41"
+version = "=1.1.2"
 features = ["mnemonic"]
 
 [dependencies.alloy-network]
-version = "=1.0.41"
+version = "=1.1.2"
 
 [dependencies.alloy-primitives]
 version = "=1.4.1"

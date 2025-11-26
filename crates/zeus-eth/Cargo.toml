@@ -8,18 +8,18 @@ edition = "2024"
 alloy-sol-types = {version = "=1.4.1", features = ["json"]}
 alloy-dyn-abi = {version = "=1.4.1", features = ["eip712"]}
 alloy-primitives = "=1.4.1"
-alloy-signer-local = "=1.0.41"
-alloy-signer = {version = "=1.0.41", features = ["eip712"]}
+alloy-signer-local = "=1.1.2"
+alloy-signer = {version = "=1.1.2", features = ["eip712"]}
 
-alloy-rpc-types = "=1.0.41"
-alloy-json-rpc = "=1.0.41"
-alloy-contract = "=1.0.41"
-alloy-network = "=1.0.41"
-alloy-provider = {version = "=1.0.41", features = ["ws"]}
-alloy-transport = {version = "=1.0.41", features = ["throttle"]}
-alloy-rpc-client = {version = "=1.0.41", features = ["reqwest"]}
+alloy-rpc-types = "=1.1.2"
+alloy-json-rpc = "=1.1.2"
+alloy-contract = "=1.1.2"
+alloy-network = "=1.1.2"
+alloy-provider = {version = "=1.1.2", features = ["ws"]}
+alloy-transport = {version = "=1.1.2", features = ["throttle"]}
+alloy-rpc-client = {version = "=1.1.2", features = ["reqwest"]}
 
-revm = { version = "=29.0.1", features = [
+revm = { version = "=33.1.0", features = [
     "std",
     "optional_block_gas_limit",
     "optional_no_base_fee",
@@ -27,7 +27,7 @@ revm = { version = "=29.0.1", features = [
     "optional_eip3607",
 ] }
 
-op-revm = "=10.1.0"
+op-revm = "=14.1.0"
 
 rayon = "=1.11.0"
 tokio = {version = "=1.47.1", features = ["rt-multi-thread"]}
