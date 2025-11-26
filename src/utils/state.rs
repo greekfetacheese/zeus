@@ -461,7 +461,7 @@ pub async fn check_for_updates() -> Result<UpdateInfo, anyhow::Error> {
 
    let releases: Vec<Release> = ReleaseList::configure()
       .repo_owner("greekfetacheese")
-      .repo_name("zeus-test-update")
+      .repo_name("zeus")
       .build()?
       .fetch()?;
 
