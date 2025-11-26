@@ -147,7 +147,7 @@ impl ChainId {
    /// Block gas limit
    pub fn block_gas_limit(&self) -> u64 {
       match self {
-         ChainId::Ethereum => 45_000_000,
+         ChainId::Ethereum => 60_000_000,
          ChainId::Optimism => 60_000_000,
          ChainId::BinanceSmartChain => 140_000_000,
          ChainId::Base => 264_000_000,
