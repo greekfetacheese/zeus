@@ -655,14 +655,31 @@ pub fn restart_app() {
 }
 
 #[cfg(windows)]
-pub fn restart_app() -> ! {
+pub fn restart_app() {
+   use std::thread;
    use std::os::windows::process::CommandExt;
 
    let current_dir = std::env::current_dir().unwrap();
    let exe = current_dir.join("zeus-gui");
    tracing::info!("Current executable: {}", exe.display());
 
-   let _ = std::process::Command::new(&exe).creation_flags(0x00000008).spawn();
+   for _ in 0..3 {
+      match std::process::Command::new(&exe).creation_flags(0x00000008).spawn() {
+         Ok(_) => {
+            tracing::info!("Restart successful!");
+            std::process::exit(0);
+         }
+         Err(e) => {
+            tracing::warn!("Restart failed: {}", e);
+            thread::sleep(Duration::from_millis(300));
+         }
+      }
+   }
 
-   std::process::exit(0);
+   RT.spawn_blocking(move || {
+      SHARED_GUI.write(|gui| {
+         gui.update_window.auto_restart_failed();
+         gui.request_repaint();
+      });
+   });
 }
