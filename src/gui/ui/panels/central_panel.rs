@@ -17,7 +17,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.msg_window.show(theme, ui);
 
-   gui.loading_window.show(ui);
+   gui.loading_window.show(theme, ui);
 
    gui.sign_msg_window.show(ctx.clone(), theme, icons.clone(), ui);
 
@@ -64,6 +64,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
    gui.tx_history.show(ctx.clone(), theme, ui);
+   gui.update_window.show(theme, ui);
 
    #[cfg(feature = "dev")]
    gui.dev.show(ctx.clone(), theme, icons, ui);

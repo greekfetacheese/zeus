@@ -7,13 +7,13 @@ use ui::settings;
 
 use crate::assets::icons::Icons;
 use crate::core::context::ZeusCtx;
-use zeus_theme::{Theme, ThemeEditor, ThemeKind};
 use lazy_static::lazy_static;
+use zeus_theme::{Theme, ThemeEditor, ThemeKind};
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
-   TxConfirmationWindow, TxWindow, UnlockVault, WalletUi,
+   TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
    misc::dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
@@ -86,6 +86,7 @@ pub struct GUI {
    pub fps_metrics: FPSMetrics,
    pub connected_dapps: ConnectedDappsUi,
    pub notification: Notification,
+   pub update_window: UpdateWindow,
    pub dev: DevUi,
 }
 
@@ -110,6 +111,7 @@ impl GUI {
       let sign_msg_window = SignMsgWindow::new();
       let connected_dapps = ConnectedDappsUi::new();
       let notification = Notification::new();
+      let update_window = UpdateWindow::new();
 
       Self {
          egui_ctx,
@@ -139,6 +141,7 @@ impl GUI {
          fps_metrics: FPSMetrics::new(),
          connected_dapps,
          notification,
+         update_window,
          dev: DevUi::new(),
       }
    }

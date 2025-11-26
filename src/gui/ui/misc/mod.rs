@@ -1,12 +1,18 @@
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
-use crate::utils::RT;
-use eframe::egui::{
-   Align, Align2, Button, Color32, CursorIcon, Frame, Grid, Layout, Order, RichText, ScrollArea,
-   Sense, Spinner, Ui, Vec2, Window, vec2,
+use crate::utils::{
+   RT,
+   state::{UpdateInfo, restart_app, update_zeus},
 };
-use std::sync::Arc;
+use eframe::egui::{
+   Align, Align2, Button, CursorIcon, Frame, Grid, Layout, Order, RichText, ScrollArea, Sense,
+   Spinner, Ui, Vec2, Window, vec2,
+};
+use std::{
+   sync::Arc,
+   time::{SystemTime, UNIX_EPOCH},
+};
 use zeus_wallet::Wallet;
 
 use egui_widgets::{ComboBox, Label};
@@ -270,6 +276,188 @@ impl ConfirmWindow {
    }
 }
 
+/// Window to prompt the user to update Zeus version
+pub struct UpdateWindow {
+   open: bool,
+   info: UpdateInfo,
+   update_completed: bool,
+   auto_restart_failed: bool,
+   restart_in: u64,
+   pub size: (f32, f32),
+}
+
+impl UpdateWindow {
+   pub fn new() -> Self {
+      Self {
+         open: false,
+         info: Default::default(),
+         update_completed: false,
+         auto_restart_failed: false,
+         restart_in: 0,
+         size: (400.0, 150.0),
+      }
+   }
+
+   pub fn open(&mut self, info: UpdateInfo) {
+      self.open = true;
+      self.info = info;
+   }
+
+   pub fn update_completed(&mut self, timestamp: u64) {
+      self.update_completed = true;
+      self.restart_in = timestamp;
+   }
+
+   pub fn auto_restart_failed(&mut self) {
+      self.auto_restart_failed = true;
+      self.update_completed = false;
+   }
+
+   pub fn reset(&mut self) {
+      self.open = false;
+      self.info = Default::default();
+   }
+
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
+      Window::new("Update Zeus")
+         .title_bar(false)
+         .resizable(false)
+         .order(Order::Tooltip)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+         .collapsible(false)
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+               if self.update_completed {
+                  self.update_completed_ui(theme, ui);
+                  return;
+               }
+
+               if self.auto_restart_failed {
+                  self.auto_restart_failed_ui(theme, ui);
+                  return;
+               }
+
+               let text = "A new version of Zeus is available!";
+               ui.label(RichText::new(text).size(theme.text_sizes.large));
+
+               let text = "Would you like to update now?";
+               ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+               let text = RichText::new("Update Now").size(theme.text_sizes.normal);
+               let update_button = Button::new(text);
+
+               let text = RichText::new("Later").size(theme.text_sizes.normal);
+               let later_button = Button::new(text);
+
+               let size = vec2(ui.available_width() * 0.45, 25.0);
+               ui.allocate_ui(size, |ui| {
+                  ui.horizontal(|ui| {
+                     if ui.add(update_button).clicked() {
+                        let info = self.info.clone();
+
+                        RT.spawn(async move {
+                           SHARED_GUI.write(|gui| {
+                              gui.loading_window.open("Download progress: 0%");
+                           });
+
+                           match update_zeus(
+                              &info.download_url.unwrap(),
+                              &info.asset_name.unwrap(),
+                           )
+                           .await
+                           {
+                              Ok(_) => {
+                                 let now =
+                                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                                 let finish_on = now + 5;
+                                 SHARED_GUI.write(|gui| {
+                                    gui.loading_window.reset();
+                                    gui.update_window.update_completed(finish_on);
+                                 });
+                                 tracing::info!("Update successful!");
+                              }
+                              Err(e) => {
+                                 SHARED_GUI.write(|gui| {
+                                    gui.loading_window.reset();
+                                    gui.msg_window.open(
+                                       "Update Error".to_string(),
+                                       format!("Failed to update: {:?}", e),
+                                    );
+                                 });
+                              }
+                           }
+                        });
+                     }
+
+                     if ui.add(later_button).clicked() {
+                        self.reset();
+                     }
+                  });
+               });
+            });
+         });
+   }
+
+   fn auto_restart_failed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+
+      let text = RichText::new("Auto restart failed!").size(theme.text_sizes.large);
+      ui.label(text);
+
+      let text = RichText::new("Please start Zeus manually").size(theme.text_sizes.normal);
+      ui.label(text);
+
+      let text = RichText::new("Exit").size(theme.text_sizes.normal);
+      if ui.add(Button::new(text)).clicked() {
+         std::process::exit(0);
+      }
+   }
+
+   fn update_completed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+      ui.add(Spinner::new().size(0.0).color(theme.frame1.fill));
+
+      let text = RichText::new("Update completed!").size(theme.text_sizes.large);
+      ui.label(text);
+
+      let current_unix = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+      let restart_in = if current_unix < self.restart_in {
+         self.restart_in - current_unix
+      } else {
+         0
+      };
+
+      let text = if restart_in == 0 {
+         "Restarting now...".to_owned()
+      } else {
+         format!(
+            "Restart in {} second{}",
+            restart_in,
+            if restart_in == 1 { "" } else { "s" }
+         )
+      };
+
+      ui.label(RichText::new(text).size(theme.text_sizes.normal));
+
+      if restart_in == 0 {
+         restart_app();
+      }
+
+      let text = RichText::new("Restart now").size(theme.text_sizes.normal);
+      if ui.add(Button::new(text)).clicked() {
+         restart_app();
+      }
+   }
+}
+
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    open: bool,
@@ -303,7 +491,7 @@ impl LoadingWindow {
       self.size = size;
    }
 
-   pub fn show(&mut self, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -319,7 +507,7 @@ impl LoadingWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
             ui.vertical_centered(|ui| {
-               ui.add(Spinner::new().size(50.0).color(Color32::WHITE));
+               ui.add(Spinner::new().size(50.0).color(theme.colors.text));
                ui.label(RichText::new(&self.msg).size(17.0));
             });
          });

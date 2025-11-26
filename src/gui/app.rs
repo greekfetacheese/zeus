@@ -6,7 +6,7 @@ use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use crate::utils::{
    RT,
-   state::{on_startup, test_and_measure_rpcs},
+   state::{on_startup, check_for_updates, test_and_measure_rpcs},
 };
 use eframe::{
    CreationContext,
@@ -23,6 +23,24 @@ pub struct ZeusApp {
 
 impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
+       
+      RT.spawn(async move {
+         let info = match check_for_updates().await {
+            Ok(info) => info,
+            Err(e) => {
+               tracing::error!("Failed to check for updates: {:?}", e);
+               Default::default()
+            }
+         };
+
+         if info.available {
+            SHARED_GUI.write(|gui| {
+               gui.update_window.open(info);
+            });
+         }
+      });
+      
+
       let time = std::time::Instant::now();
       let egui_ctx = cc.egui_ctx.clone();
 
@@ -55,7 +73,7 @@ impl ZeusApp {
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
-          test_and_measure_rpcs(ctx_clone).await;
+         test_and_measure_rpcs(ctx_clone).await;
       });
 
       let ctx_clone = ctx.clone();

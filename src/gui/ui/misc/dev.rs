@@ -3,13 +3,10 @@ use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Windo
 use egui_widgets::Label;
 
 use crate::assets::Icons;
-use crate::utils::{RT, sign::SignMsgType};
-use crate::core::{
-   TransactionAnalysis, ZeusCtx,
-   currencies::TokenData,
-   transaction::*,
-};
+use crate::core::{TransactionAnalysis, ZeusCtx, currencies::TokenData, transaction::*};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
+use crate::utils::state::UpdateInfo;
+use crate::utils::{RT, sign::SignMsgType};
 
 use zeus_eth::{
    alloy_primitives::Address,
@@ -20,10 +17,10 @@ use zeus_eth::{
 };
 
 use super::sync::SyncPoolsUi;
-use zeus_theme::Theme;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use zeus_theme::Theme;
 
 pub struct DevUi {
    pub open: bool,
@@ -359,10 +356,22 @@ impl UiTesting {
          let text_size = theme.text_sizes.normal;
 
          ScrollArea::vertical().show(ui, |ui| {
-
-            let button = Button::new(RichText::new("Icon Window").size(text_size)).min_size(button_size);
+            let button =
+               Button::new(RichText::new("Icon Window").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
                self.icon_window_open = true;
+            }
+
+            let button =
+               Button::new(RichText::new("Update Window").size(text_size)).min_size(button_size);
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let mut info = UpdateInfo::default();
+                     info.available = true;
+                     gui.update_window.open(info);
+                  });
+               });
             }
 
             let button =
@@ -768,12 +777,18 @@ impl UiTesting {
 
             let time = std::time::Instant::now();
             let weth_with_tint = icons.token_icon_x32(weth.address, weth.chain_id, true);
-            tracing::info!("Token Icon With Tint took {} μs", time.elapsed().as_micros());
+            tracing::info!(
+               "Token Icon With Tint took {} μs",
+               time.elapsed().as_micros()
+            );
 
             let time = std::time::Instant::now();
             let weth_without_tint = icons.token_icon_x32(weth.address, weth.chain_id, false);
-            tracing::info!("Token Icon Without Tint took {} μs", time.elapsed().as_micros());
-            
+            tracing::info!(
+               "Token Icon Without Tint took {} μs",
+               time.elapsed().as_micros()
+            );
+
             let dai_with_tint = icons.token_icon_x32(dai.address, dai.chain_id, true);
             let dai_without_tint = icons.token_icon_x32(dai.address, dai.chain_id, false);
 
@@ -790,6 +805,6 @@ impl UiTesting {
             ui.add(label);
          });
 
-         self.icon_window_open = open;
+      self.icon_window_open = open;
    }
 }
