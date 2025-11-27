@@ -495,9 +495,11 @@ impl PoolManagerHandle {
       #[cfg(feature = "dev")]
       {
          let symbols = tokens.iter().map(|t| t.symbol.clone()).collect::<Vec<_>>();
+         let addresses = tokens.iter().map(|t| t.address.to_string()).collect::<Vec<_>>();
          info!(
-            "Syncing pools for {} Chain {}",
+            "Syncing pools for {} {} Chain {}",
             symbols.join(", "),
+            addresses.join(", "),
             chain
          );
       }

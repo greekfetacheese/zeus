@@ -672,7 +672,7 @@ impl SwapUi {
          button_text = format!("Unwrap {}", self.currency_in.symbol());
       }
 
-      if valid_inputs && action.is_swap() && !has_swap_steps {
+      if has_entered_amount && action.is_swap() && !has_swap_steps {
          button_text = "No Routes Found".to_string();
       }
 
@@ -1342,17 +1342,17 @@ pub fn get_relevant_pools(
    // a non-base token (e.g., PEPE).
    let is_base_pair_swap = currency_in.is_base() && currency_out.is_base();
 
-   // If we are swapping from base to a shit token we only include pools
-   // that have currency out
-   let is_base_to_shit_token_swap = currency_in.is_base() && !currency_out.is_base();
+   // If we are swapping from base to a quote token we only include pools
+   // that have currency out and base pools
+   let is_base_to_quote_swap = currency_in.is_base() && !currency_out.is_base();
 
-   // If we are swapping from a shit token to base we only include pools
-   // that have currency in
-   let is_shit_token_to_base_swap = !currency_in.is_base() && currency_out.is_base();
+   // If we are swapping from a quote token to base we only include pools
+   // that have currency in and base pools
+   let is_quote_to_base_swap = !currency_in.is_base() && currency_out.is_base();
 
-   // If we are swapping from a shit token to a shit token we only include pools
+   // If we are swapping from a qupte token to a quote token we only include pools
    // that have currency in or currency out
-   let is_shit_token_to_shit_token_swap = !currency_in.is_base() && !currency_out.is_base();
+   let is_quote_to_quote_swap = !currency_in.is_base() && !currency_out.is_base();
 
    for pool in all_pools {
       if (!swap_on_v2 && pool.dex_kind().is_v2())
@@ -1380,11 +1380,15 @@ pub fn get_relevant_pools(
             if is_base_pool {
                add_pool = true;
             }
-         } else if is_base_to_shit_token_swap {
+         } else if is_base_to_quote_swap {
             if pool.have(currency_out) {
                add_pool = true;
             }
-         } else if is_shit_token_to_base_swap {
+
+            if is_base_pool {
+               add_pool = true;
+            }
+         } else if is_quote_to_base_swap {
             if pool.have(currency_in) {
                add_pool = true;
             }
@@ -1393,7 +1397,7 @@ pub fn get_relevant_pools(
             if is_base_pool && pool.have(currency_out) {
                add_pool = true;
             }
-         } else if is_shit_token_to_shit_token_swap {
+         } else if is_quote_to_quote_swap {
             if pool.have(currency_in) || pool.have(currency_out) {
                add_pool = true;
             }
