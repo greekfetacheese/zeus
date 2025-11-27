@@ -283,13 +283,12 @@ impl Default for ZeusClient {
       let not_mev_protect = false;
       let mev_protect = true;
 
-      let url1 = "wss://eth.merkle.io";
-      let url2 = "wss://ethereum-rpc.publicnode.com";
-      let url3 = "wss://mainnet.gateway.tenderly.co";
-      let url4 = "https://reth-ethereum.ithaca.xyz/rpc";
-      let url5 = "https://rpc.payload.de";
-      let url6 = "https://eth.merkle.io";
-      let url7 = "https://ethereum-rpc.publicnode.com";
+      let url1 = "wss://ethereum-rpc.publicnode.com";
+      let url2 = "wss://mainnet.gateway.tenderly.co";
+      let url3 = "https://reth-ethereum.ithaca.xyz/rpc";
+      let url4 = "https://rpc.payload.de";
+      let url5 = "https://ethereum-rpc.publicnode.com";
+      let url6 = "https://eth.blockrazor.xyz";
 
       let mev_url = "https://rpc.mevblocker.io";
       let mev_url2 = "https://rpc.flashbots.net/fast";
@@ -303,7 +302,6 @@ impl Default for ZeusClient {
             Rpc::new(url4, 1, true, true, not_mev_protect),
             Rpc::new(url5, 1, true, true, not_mev_protect),
             Rpc::new(url6, 1, true, true, not_mev_protect),
-            Rpc::new(url7, 1, true, true, not_mev_protect),
             Rpc::new(mev_url, 1, true, true, mev_protect),
             Rpc::new(mev_url2, 1, true, true, mev_protect),
          ],
