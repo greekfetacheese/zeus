@@ -6,7 +6,7 @@ members = ["crates/zeus-theme", "crates/zeus-eth", "crates/egui-widgets", "crate
 name = "zeus"
 authors = ["Michalis Molfetas"]
 description = "A truly seedless and decentralized self-custodial Ethereum wallet"
-version = "0.7.2"
+version = "0.7.21"
 edition = "2024"
 default-run = "zeus"
 
