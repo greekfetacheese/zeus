@@ -8,7 +8,7 @@ use crate::gui::ui::token_selection::TokenSelectionWindow;
 use egui::{
    Align, Button, Color32, FontId, Layout, Margin, RichText, Slider, Spinner, TextEdit, Ui, vec2,
 };
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
 use zeus_theme::Theme;

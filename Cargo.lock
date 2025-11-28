@@ -2614,14 +2614,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui-widgets"
-version = "0.1.0"
-dependencies = [
- "egui",
- "secure-types",
-]
-
-[[package]]
 name = "egui-winit"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9245,7 +9237,6 @@ dependencies = [
  "chrono",
  "eframe",
  "egui",
- "egui-widgets",
  "egui_extras",
  "either",
  "futures",
@@ -9279,6 +9270,7 @@ dependencies = [
  "zeus-eth",
  "zeus-theme",
  "zeus-wallet",
+ "zeus-widgets",
  "zip",
 ]
 
@@ -9356,6 +9348,14 @@ dependencies = [
  "serde_json",
  "sha3",
  "zeus-bip32",
+]
+
+[[package]]
+name = "zeus-widgets"
+version = "0.1.0"
+dependencies = [
+ "egui",
+ "secure-types",
 ]
 
 [[package]]

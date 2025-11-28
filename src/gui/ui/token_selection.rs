@@ -16,7 +16,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use zeus_theme::{Theme, utils::frame_it};
 
 /// A simple window that allows the user to select a token

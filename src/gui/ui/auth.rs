@@ -6,7 +6,7 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui::Margin;
-use egui_widgets::{Label, SecureTextEdit};
+use zeus_widgets::{Label, SecureTextEdit};
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;

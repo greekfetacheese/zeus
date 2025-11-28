@@ -4,7 +4,7 @@ use crate::core::{DecodedEvent, TransactionRich, transaction::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
 use egui::{Align2, Button, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use zeus_theme::Theme;
-use egui_widgets::{Label, MultiLabel};
+use zeus_widgets::{Label, MultiLabel};
 
 use std::{
    sync::Arc,

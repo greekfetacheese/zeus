@@ -6,7 +6,7 @@ use egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
 use zeus_theme::Theme;
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;

@@ -1,5 +1,5 @@
 use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, Ui, vec2};
-use egui_widgets::{ComboBox, Label};
+use zeus_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
 use crate::utils::truncate_symbol_or_name;

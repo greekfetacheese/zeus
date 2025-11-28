@@ -1,6 +1,6 @@
 use bincode::{config::standard, decode_from_slice, encode_to_vec};
 use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use egui_widgets::Label;
+use zeus_widgets::Label;
 
 use crate::assets::Icons;
 use crate::core::{TransactionAnalysis, ZeusCtx, currencies::TokenData, transaction::*};

@@ -9,7 +9,7 @@ use egui::{
    Align, Align2, Button, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl,
    Order, RichText, Spinner, TextEdit, Ui, Window, vec2,
 };
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use image::Luma;
 use qrcode::QrCode;
 use std::str::FromStr;

@@ -7,7 +7,7 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner,
    TextEdit, Ui, Vec2, Window, vec2,
 };
-use egui_widgets::SecureTextEdit;
+use zeus_widgets::SecureTextEdit;
 use secure_types::SecureString;
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{

@@ -3,7 +3,7 @@ use crate::core::{ZeusCtx, context::theme_kind_dir};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::RT;
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
-use egui_widgets::{ComboBox, Label};
+use zeus_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
 use std::collections::HashSet;
 use std::sync::Arc;

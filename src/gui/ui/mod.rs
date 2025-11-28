@@ -32,7 +32,7 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::utils::{truncate_address, truncate_hash};
 use egui::{Align, FontFamily, Layout, RichText, Ui};
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use zeus_eth::{
    alloy_primitives::{Address, TxHash},
    currency::{Currency, NativeCurrency},

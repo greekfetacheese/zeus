@@ -4,7 +4,7 @@ pub mod swap;
 // pub mod view_positions;
 
 // use create_position::CreatePositionUi;
-use egui_widgets::Label;
+use zeus_widgets::Label;
 use pool::PoolsUi;
 use swap::SwapUi;
 // use view_positions::ViewPositionsUi;

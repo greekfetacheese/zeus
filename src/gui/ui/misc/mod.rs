@@ -15,7 +15,7 @@ use std::{
 };
 use zeus_wallet::Wallet;
 
-use egui_widgets::{ComboBox, Label};
+use zeus_widgets::{ComboBox, Label};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
