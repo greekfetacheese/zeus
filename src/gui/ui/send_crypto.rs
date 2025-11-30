@@ -305,6 +305,7 @@ impl SendCryptoUi {
          && !recipient_is_sender
          && has_balance
          && has_entered_amount
+         && valid_amount
          && !sending_tx;
 
       let mut button_text = "Send".to_string();
