@@ -233,6 +233,8 @@ pub struct MiscIcons {
    pub qrcode_white_x18: TextureHandle,
    pub qrcode_dark_x18: TextureHandle,
    pub info: TextureHandle,
+   pub server_green: TextureHandle,
+   pub server_red: TextureHandle,
 }
 
 impl MiscIcons {
@@ -242,6 +244,9 @@ impl MiscIcons {
       let red_circle = load_image(include_bytes!("misc/x16/red-circle.png"))?;
       let green_circle = load_image(include_bytes!("misc/x16/green-circle.png"))?;
       let orange_circle = load_image(include_bytes!("misc/x16/orange-circle.png"))?;
+
+      let server_green = load_and_resize_image(include_bytes!("misc/server-green.png"), 24, 24)?;
+      let server_red = load_and_resize_image(include_bytes!("misc/server-red.png"), 24, 24)?;
 
       let swap = load_image(include_bytes!("misc/x24/swap.png"))?;
 
@@ -352,6 +357,8 @@ impl MiscIcons {
          qrcode_white_x18: ctx.load_texture("qrcode_white_x18", qrcode_white_x18, texture_options),
          qrcode_dark_x18: ctx.load_texture("qrcode_dark_x18", qrcode_dark_x18, texture_options),
          info: ctx.load_texture("info", info, texture_options),
+         server_green: ctx.load_texture("server_green", server_green, texture_options),
+         server_red: ctx.load_texture("server_red", server_red, texture_options),
       })
    }
 }
@@ -671,6 +678,20 @@ impl Icons {
       match tint {
          true => Image::new(&self.misc.info).tint(TINT_1),
          false => Image::new(&self.misc.info),
+      }
+   }
+
+   pub fn server_green(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.server_green).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.server_green).sense(Sense::click()),
+      }
+   }
+
+   pub fn server_red(&self, tint: bool) -> Image<'static> {
+      match tint {
+         true => Image::new(&self.misc.server_red).sense(Sense::click()).tint(TINT_1),
+         false => Image::new(&self.misc.server_red).sense(Sense::click()),
       }
    }
 }

@@ -141,6 +141,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault_unlocked)
    }
 
+   pub fn server_running(&self) -> bool {
+      self.read(|ctx| ctx.server_running)
+   }
+
    /// Encrypt and save the vault
    ///
    /// If `new_vault` is None, the current vault will be encrypted
@@ -1468,6 +1472,7 @@ pub struct ZeusContext {
    pub connected_dapps: ConnectedDapps,
    pub delegated_wallets: DelegatedWallets,
    pub server_port: u16,
+   pub server_running: bool,
    pub tx_confirm_window_open: bool,
    pub sign_msg_window_open: bool,
 }
@@ -1585,6 +1590,7 @@ impl ZeusContext {
          connected_dapps: ConnectedDapps::default(),
          delegated_wallets,
          server_port: SERVER_PORT,
+         server_running: false,
          tx_confirm_window_open: false,
          sign_msg_window_open: false,
       }

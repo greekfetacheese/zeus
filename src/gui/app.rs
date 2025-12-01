@@ -6,7 +6,7 @@ use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use crate::utils::{
    RT,
-   state::{on_startup, check_for_updates, test_and_measure_rpcs},
+   state::{check_for_updates, on_startup, test_and_measure_rpcs},
 };
 use eframe::{
    CreationContext,
@@ -23,7 +23,6 @@ pub struct ZeusApp {
 
 impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
-       
       RT.spawn(async move {
          let info = match check_for_updates().await {
             Ok(info) => info,
@@ -39,7 +38,6 @@ impl ZeusApp {
             });
          }
       });
-      
 
       let time = std::time::Instant::now();
       let egui_ctx = cc.egui_ctx.clone();
@@ -148,6 +146,16 @@ impl eframe::App for ZeusApp {
                   }
                });
 
+            // Paint the Ui that belongs to the bottom panel
+            egui::TopBottomPanel::bottom("bottom_panel")
+               .max_height(24.0)
+               .resizable(false)
+               .show_separator_line(false)
+               .frame(panel_frame)
+               .show_inside(ui, |ui| {
+                  gui.show_bottom_panel(ui);
+               });
+
             // Paint the Ui that belongs to the left panel
             egui::SidePanel::left("left_panel")
                .min_width(150.0)
@@ -161,7 +169,6 @@ impl eframe::App for ZeusApp {
                   }
                });
 
-             
             if gui.should_show_right_panel() {
                // Paint the Ui that belongs to the left panel
                egui::SidePanel::right("right_panel")
@@ -175,7 +182,6 @@ impl eframe::App for ZeusApp {
                      }
                   });
             }
-            
 
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {

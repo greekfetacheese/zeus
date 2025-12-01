@@ -1849,9 +1849,22 @@ pub async fn run_server(ctx: ZeusCtx) -> Result<(), Box<dyn std::error::Error>> 
 
    let port = ctx.server_port();
    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+
+   let listener = match tokio::net::TcpListener::bind(addr).await {
+      Ok(l) => l,
+      Err(e) => {
+         error!("Cannot bind to {}: {}", addr, e);
+         return Err(e.into());
+      }
+   };
+
+   ctx.write(|ctx| ctx.server_running = true);
    info!("Zeus (warp) RPC server listening on {}", addr);
 
-   warp::serve(routes).run(addr).await;
+   warp::serve(routes).incoming(listener).run().await;
+
+   ctx.write(|ctx| ctx.server_running = false);
+   info!("Zeus (warp) RPC server stopped");
 
    Ok(())
 }

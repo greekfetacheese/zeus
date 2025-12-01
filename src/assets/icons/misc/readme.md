@@ -15,3 +15,4 @@ refresh https://icons8.com/icons/set/refresh--technique-line
 info https://icons8.com/icon/21085/info
 external-link https://icons8.com/icons/set/external-link--technique-line
 qr-code https://icons8.com/icon/zAuwqxIJZ6bc/qr-code
+server https://icons8.com/icon/2531UhVbXzEz/server
