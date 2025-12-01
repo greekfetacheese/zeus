@@ -7,7 +7,7 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
+   Align, Align2, Button, Frame, FontId, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
    Sense, TextEdit, Ui, Vec2, Window, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
@@ -122,13 +122,12 @@ impl WalletUi {
          return;
       }
 
-      let frame = theme.frame1;
       Window::new("wallet_main_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(frame)
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

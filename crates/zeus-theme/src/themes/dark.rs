@@ -1,7 +1,6 @@
 use super::super::{TextSizes, Theme, FrameVisuals, ThemeColors, ThemeKind};
 use egui::{
-   Color32, CornerRadius, Frame, Margin, Shadow, Stroke, Style, Visuals,
-   style::{Selection, WidgetVisuals, Widgets},
+   Color32, CornerRadius, Frame, Margin, Shadow, Spacing, Stroke, Style, Visuals, style::{Selection, WidgetVisuals, Widgets}
 };
 
 // Background
@@ -84,7 +83,7 @@ pub fn frame1(colors: &ThemeColors) -> Frame {
       corner_radius: CornerRadius::same(6),
       inner_margin: Margin::same(12),
       fill: colors.bg2,
-      stroke: Stroke::new(1.0, colors.border),
+      stroke: Stroke::new(0.0, colors.border),
       shadow: Shadow::NONE,
       ..Default::default()
    }
@@ -123,9 +122,15 @@ pub fn frame2_visuals(colors: &ThemeColors) -> FrameVisuals {
 fn style() -> Style {
    let widgets = widgets(colors());
    let visuals = visuals(widgets, &colors());
+   let spacing = Spacing {
+      window_margin: Margin::same(10),
+      ..Default::default()
+   };
+
    Style {
       visuals,
       animation_time: 0.3,
+      spacing,
       ..Default::default()
    }
 }
@@ -153,7 +158,7 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
          color: Color32::from_rgba_premultiplied(0, 0, 0, 255),
       },
       window_fill: colors.bg2,
-      window_stroke: Stroke::new(1.0, colors.border),
+      window_stroke: Stroke::NONE,
       panel_fill: colors.bg,
       ..Default::default()
    }

@@ -51,7 +51,7 @@ impl ImportWallet {
       let mut is_open = self.open;
       let mut clicked = false;
 
-      Window::new(RichText::new("Import Wallet").size(theme.text_sizes.large))
+      Window::new(RichText::new("Import Wallet").size(theme.text_sizes.heading))
          .open(&mut is_open)
          .order(Order::Foreground)
          .resizable(false)
@@ -249,7 +249,7 @@ impl AddWalletUi {
       let mut clicked2 = false;
       let mut clicked3 = false;
 
-      Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.large))
+      Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -267,7 +267,7 @@ impl AddWalletUi {
 
                // Derive a new child wallet from the master wallet
                let button =
-                  Button::new(RichText::new("Add a new Child Wallet").size(theme.text_sizes.large))
+                  Button::new(RichText::new("Derive from Master Wallet").size(theme.text_sizes.large))
                      .corner_radius(5)
                      .min_size(size);
 
@@ -287,7 +287,7 @@ impl AddWalletUi {
 
                // From seed phrase
                let button = Button::new(
-                  RichText::new("Import from a  Seed Phrase").size(theme.text_sizes.large),
+                  RichText::new("Import from a Seed Phrase").size(theme.text_sizes.large),
                )
                .corner_radius(5)
                .min_size(size);

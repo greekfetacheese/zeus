@@ -110,13 +110,12 @@ impl SendCryptoUi {
          return;
       }
 
-      let frame = theme.frame1;
       Window::new("send_crypto_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 30.0))
-         .frame(frame)
+         .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {

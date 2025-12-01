@@ -502,7 +502,7 @@ impl UniswapUi {
          .title_bar(false)
          .movable(false)
          .resizable(false)
-         .frame(theme.frame1)
+         .frame(Frame::window(ui.style()))
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
