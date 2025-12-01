@@ -709,11 +709,8 @@ impl SwapUi {
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
       let sender = ctx.current_wallet_info().address;
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
-      let amount = NumericValue::parse_to_wei(
-         &self.amount_in_field.amount,
-         self.currency_in.decimals(),
-      );
-      balance.wei() >= amount.wei()
+      let amount = self.amount_in_field.amount_wei;
+      balance.wei() >= amount
    }
 
    fn update_currency_balance(&self, ctx: ZeusCtx, currency: Currency) {
@@ -988,15 +985,14 @@ impl SwapUi {
          return;
       }
 
-      let amount_in = NumericValue::parse_to_wei(
-         &self.amount_in_field.amount,
-         self.currency_in.decimals(),
-      );
+      let amount_in = self.amount_in_field.amount_wei;
 
       if amount_in.is_zero() {
          self.amount_out_field.amount = String::new();
          return;
       }
+
+      let amount_in = NumericValue::format_wei(amount_in, self.currency_in.decimals());
 
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();

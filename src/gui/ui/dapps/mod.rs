@@ -10,12 +10,13 @@ use egui::{
 };
 use zeus_widgets::Label;
 use std::sync::Arc;
-use zeus_eth::{alloy_primitives::Address, currency::Currency, utils::NumericValue};
+use zeus_eth::{alloy_primitives::{U256, Address}, currency::Currency, utils::NumericValue};
 use zeus_theme::Theme;
 
 pub struct AmountFieldWithCurrencySelect {
    pub amount_percent: f64,
    pub amount: String,
+   pub amount_wei: U256
 }
 
 impl AmountFieldWithCurrencySelect {
@@ -23,6 +24,7 @@ impl AmountFieldWithCurrencySelect {
       Self {
          amount_percent: 0.0,
          amount: String::new(),
+         amount_wei: U256::ZERO
       }
    }
 
@@ -103,12 +105,16 @@ impl AmountFieldWithCurrencySelect {
 
                   if res.inner.changed() {
                      if self.amount_percent == 100.0 {
-                        self.amount = get_max_amount().f64().to_string();
+                        let max_amount = get_max_amount();
+
+                        self.amount = max_amount.f64().to_string();
+                        self.amount_wei = max_amount.wei();
                         amount_changed = true;
                      } else {
                         let new_amount =
                            balance.calc_percent(self.amount_percent, currency.decimals());
                         self.amount = new_amount.f64().to_string();
+                        self.amount_wei = new_amount.wei();
                         amount_changed = true;
                      }
                   }

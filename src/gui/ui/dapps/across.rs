@@ -431,11 +431,8 @@ impl AcrossBridge {
 
    fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
       let balance = ctx.get_eth_balance(self.from_chain.chain.id(), depositor);
-      let amount = NumericValue::parse_to_wei(
-         &self.amount_field.amount,
-         self.currency.decimals(),
-      );
-      balance.wei() >= amount.wei()
+      let amount = self.amount_field.amount_wei;
+      balance.wei() >= amount
    }
 
    /// Estimated cost of the transaction
@@ -471,10 +468,9 @@ impl AcrossBridge {
    /// Calculate the minimum amount to receive
    fn minimum_amount(&self) -> NumericValue {
       let scale = U256::from(10).pow(U256::from(self.currency.decimals()));
-      let input_amount = NumericValue::parse_to_wei(
-         &self.amount_field.amount,
-         self.currency.decimals(),
-      );
+      let input_amount = self.amount_field.amount_wei;
+      let input_amount = NumericValue::format_wei(input_amount, self.currency.decimals());
+
       let cache = self.api_res_cache.get(&(
          self.from_chain.chain.id(),
          self.to_chain.chain.id(),
