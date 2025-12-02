@@ -253,9 +253,9 @@ impl SendCryptoUi {
                         let res = ui.add(
                            TextEdit::singleline(&mut recipient_selection.recipient)
                               .hint_text(hint)
-                              .min_size(vec2(ui.available_width() * 0.9, 25.0))
+                              .min_size(vec2(ui.available_width(), 25.0))
                               .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.large)),
+                              .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open(ctx.clone());
