@@ -1,15 +1,15 @@
 use crate::assets::icons::Icons;
-use crate::utils::RT;
-use crate::core::{ZeusCtx, Contact};
+use crate::core::{Contact, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::utils::RT;
 use egui::{
    Align2, Button, FontId, Frame, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Window, vec2,
 };
-use zeus_theme::Theme;
-use zeus_widgets::Label;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
+use zeus_theme::Theme;
+use zeus_widgets::Label;
 
 pub struct AddContact {
    open: bool,
@@ -24,7 +24,7 @@ impl AddContact {
          open: false,
          contact: Contact::default(),
          contact_added: false,
-         size: (450.0, 350.0),
+         size: (450.0, 250.0),
       }
    }
 
@@ -157,7 +157,7 @@ impl DeleteContact {
       Self {
          open: false,
          contact_to_delete: Contact::default(),
-         size: (450.0, 350.0),
+         size: (450.0, 180.0),
       }
    }
 
@@ -188,7 +188,7 @@ impl DeleteContact {
                   RichText::new("Are you sure you want to delete this contact?")
                      .size(theme.text_sizes.large),
                );
-               ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.normal));
+               ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.large));
                ui.label(
                   RichText::new(contact_to_delete.address.to_string())
                      .size(theme.text_sizes.normal),
@@ -365,6 +365,7 @@ impl EditContact {
 pub struct ContactsUi {
    open: bool,
    main_ui: bool,
+   search_query: String,
    pub add_contact: AddContact,
    delete_contact: DeleteContact,
    edit_contact: EditContact,
@@ -376,10 +377,11 @@ impl ContactsUi {
       Self {
          open: false,
          main_ui: true,
+         search_query: String::new(),
          add_contact: AddContact::new(),
          delete_contact: DeleteContact::new(),
          edit_contact: EditContact::new(),
-         size: (500.0, 350.0),
+         size: (500.0, 550.0),
       }
    }
 
@@ -432,41 +434,66 @@ impl ContactsUi {
                   self.add_contact.open = true;
                }
 
-               ui.add_space(30.0);
+               ui.add_space(20.0);
 
                if contacts.is_empty() {
                   ui.label(RichText::new("No contacts found").size(theme.text_sizes.large));
                   return;
                }
 
+               // Search bar
+               let hint = RichText::new("Search contacts or enter an address")
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text_muted);
+
+               ui.add(
+                  TextEdit::singleline(&mut self.search_query)
+                     .hint_text(hint)
+                     .min_size(vec2(ui.available_width() * 0.80, 25.0))
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.text_sizes.normal)),
+               );
+
+               ui.add_space(15.0);
+
                ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
                   ui.set_width(self.size.0);
 
                   let frame = theme.frame2;
                   for contact in &contacts {
+                     let valid = valid_contact_search(contact, &self.search_query);
+
+                     if !valid {
+                        continue;
+                     }
+
                      frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width() * 0.7);
+                        ui.set_width(ui.available_width());
 
                         // Name
-                        let text = RichText::new(&contact.name).size(theme.text_sizes.normal);
-                        let label = Label::new(text, None).wrap();
-                        ui.add(label);
+                        ui.horizontal(|ui| {
+                           let text = RichText::new(&contact.name).size(theme.text_sizes.large);
+                           let label = Label::new(text, None).wrap();
+                           ui.add(label);
+                        });
 
                         // Address
-                        let chain = ctx.chain();
-                        let explorer = chain.block_explorer();
-                        let link = format!("{}/address/{}", explorer, &contact.address);
-                        ui.hyperlink_to(
-                           RichText::new(contact.address_short(10, 10))
-                              .size(theme.text_sizes.normal)
-                              .color(theme.colors.info),
-                           link,
-                        );
+                        ui.horizontal(|ui| {
+                           let chain = ctx.chain();
+                           let explorer = chain.block_explorer();
+                           let link = format!("{}/address/{}", explorer, &contact.address);
+                           ui.hyperlink_to(
+                              RichText::new(&contact.address)
+                                 .size(theme.text_sizes.small)
+                                 .color(theme.colors.info),
+                              link,
+                           );
+                        });
 
                         let size = vec2(ui.available_width() * 0.30, 40.0);
                         ui.allocate_ui(size, |ui| {
                            ui.horizontal(|ui| {
-                              let text = RichText::new("Edit").size(theme.text_sizes.small);
+                              let text = RichText::new("Edit").size(theme.text_sizes.normal);
                               let edit_button = Button::new(text);
                               if ui.add(edit_button).clicked() {
                                  self.edit_contact.open = true;
@@ -474,7 +501,7 @@ impl ContactsUi {
                                  self.edit_contact.old_contact = contact.clone();
                               }
 
-                              let text = RichText::new("Delete").size(theme.text_sizes.small);
+                              let text = RichText::new("Delete").size(theme.text_sizes.normal);
                               let delete_button = Button::new(text);
                               if ui.add(delete_button).clicked() {
                                  self.delete_contact.open = true;
@@ -483,11 +510,21 @@ impl ContactsUi {
                            });
                         });
                      });
-                     ui.add_space(10.0);
+                     ui.add_space(5.0);
                   }
                });
             });
          });
       self.open = open;
    }
+}
+
+fn valid_contact_search(contact: &Contact, query: &str) -> bool {
+   let query = query.to_lowercase();
+
+   if query.is_empty() {
+      return true;
+   }
+
+   contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
 }
