@@ -21,10 +21,3 @@ egui_ctx.set_style(theme.style.clone());
 # Feature Flags
 
 `serde` enables serialization.
-
-
-# Screenshots of the `Dark` theme from [zeus](https://github.com/greekfetacheese/zeus)
-
-![zeus-unknown](/crates/zeus-theme/screenshots/zeus-unknown.png)
-![zeus-transfer](/crates/zeus-theme/screenshots/zeus-transfer.png)
-![zeus-swap](/crates/zeus-theme/screenshots/zeus-swap.png)
