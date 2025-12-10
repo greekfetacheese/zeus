@@ -6,12 +6,16 @@ use alloy_signer_local::{
 use anyhow::anyhow;
 use argon2_rs::Argon2;
 use rand::RngCore;
-use secure_types::{SecureString, SecureVec, Zeroize};
+use secure_types::{SecureArray, SecureString, SecureVec, Zeroize};
 use sha3::{Digest, Sha3_512};
 use std::str::FromStr;
 use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
+
+use super::zk;
+
+pub type ZkAddress = String;
 
 /// Derive the seed from the given username and password
 pub fn derive_seed(
@@ -21,7 +25,6 @@ pub fn derive_seed(
    t_cost: u32,
    p_cost: u32,
 ) -> Result<SecureVec<u8>, anyhow::Error> {
-
    let mut hasher = Sha3_512::new();
 
    username.unlock_str(|username| {
@@ -71,6 +74,27 @@ impl Wallet {
          key,
          xkey_info,
       }
+   }
+
+   /// Returns the private key + ChainCode as a 64-byte SecureArray
+   pub fn full_key(&self) -> Result<SecureArray<u8, 64>, anyhow::Error> {
+      if self.xkey_info.is_none() {
+         return Err(anyhow!("XKeyInfo is missing"));
+      }
+
+      let info = self.xkey_info.as_ref().unwrap();
+
+      let key = self.key.key();
+      let chain_code = info.chain_code.data.clone();
+
+      let mut bytes = [0u8; 64];
+
+      key.unlock(|slice| bytes[..32].copy_from_slice(slice));
+      chain_code.unlock(|slice| bytes[32..].copy_from_slice(slice));
+
+      let full_key = SecureArray::from_slice_mut(&mut bytes)?;
+
+      Ok(full_key)
    }
 
    pub fn name_with_id(&self) -> String {
