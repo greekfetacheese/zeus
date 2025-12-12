@@ -97,6 +97,15 @@ impl Wallet {
       Ok(full_key)
    }
 
+   /// Return the zkAddress of the wallet
+   pub fn zk_address(&self) -> Result<ZkAddress, anyhow::Error> {
+      let full_key = self.full_key()?;
+      let data = zk::generate_address_data(full_key, 0, None)?;
+
+      let address = zk::encode_address(&data)?;
+      Ok(address)
+   }
+
    pub fn name_with_id(&self) -> String {
       let id = if self.is_master() {
          "(Master)"

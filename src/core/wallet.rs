@@ -1,5 +1,5 @@
 use zeus_eth::alloy_primitives::Address;
-use zeus_wallet::Wallet;
+use zeus_wallet::{Wallet, ZkAddress};
 
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
@@ -15,6 +15,7 @@ pub const DEV_P_COST: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalletInfo {
    pub address: Address,
+   pub zk_address: Option<ZkAddress>,
    name: String,
    pub is_master: bool,
    pub is_child: bool,
@@ -25,6 +26,7 @@ impl WalletInfo {
    pub fn from_wallet(wallet: &Wallet) -> Self {
       Self {
          address: wallet.address(),
+         zk_address: wallet.zk_address().ok(),
          name: wallet.name.clone(),
          is_master: wallet.is_master(),
          is_child: wallet.is_child(),
@@ -63,4 +65,15 @@ impl WalletInfo {
          &self.address.to_string()[36..]
       )
    }
+
+   pub fn zk_address_truncated(&self) -> String {
+      match &self.zk_address {
+         Some(zk_address) => format!(
+            "{}...{}",
+            &zk_address[..6],
+            &zk_address[121..]
+         ),
+         None => "zkAddress not available".to_string(),
+      }
+}
 }
