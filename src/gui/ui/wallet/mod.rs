@@ -430,13 +430,20 @@ impl WalletUi {
                      match ctx.encrypt_and_save_vault(Some(new_vault), None) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
+                              
+                              // Update header
                               if is_current {
                                  gui.header.set_current_wallet(new_wallet);
                               }
 
+                              // Calculate the wallets again
+                              gui.wallet_ui.open(ctx.clone());
+
+                              // Reset state
                               gui.wallet_ui.rename_wallet = false;
                               gui.wallet_ui.new_wallet_name.clear();
                               gui.wallet_ui.wallet_to_rename = None;
+
                               gui.open_msg_window("Success", "");
                               gui.request_repaint();
                            });
