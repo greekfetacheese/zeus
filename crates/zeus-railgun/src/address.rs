@@ -13,7 +13,6 @@ use num_bigint::BigUint;
 use secure_types::{SecureArray, Zeroize};
 use sha2::Sha512;
 use std::str::FromStr;
-use zeus_bip32::ChainCode;
 
 const GEN_X_HEX: &str = "023343e3445b673d38bcba38f25645adb494b1255b1162bb40f41a59f4d4b45e";
 const GEN_Y_HEX: &str = "0c19139cb84c680a6e14116da06056174a0cfa121e6e5c2450f87d64fc000001";
@@ -26,6 +25,7 @@ const CURVE_SEED: &[u8] = b"babyjubjub seed";
 const ADDRESS_VERSION: u8 = 1;
 
 type Key = SecureArray<u8, 32>;
+type ChainCode = SecureArray<u8, 32>;
 type Key64 = SecureArray<u8, 64>;
 
 #[derive(Clone, Copy)]
@@ -152,7 +152,7 @@ fn derive_private_key(seed: &[u8], path: &str) -> Result<Key, anyhow::Error> {
       current_key.unlock(|slice| data.extend_from_slice(slice));
       data.extend_from_slice(&index_bytes);
 
-      let (key, chain_code) = current_chain_code.data.unlock(|code| {
+      let (key, chain_code) = current_chain_code.unlock(|code| {
          let (new_key, new_code) = hmac_sha512(code, &data);
          (new_key, new_code)
       });
@@ -367,14 +367,8 @@ pub fn encode_address(data: &AddressData) -> Result<String, anyhow::Error> {
 
 #[cfg(test)]
 mod test {
-   use super::super::wallet::*;
    use super::*;
    use bip39::{Language, Mnemonic};
-   use secure_types::SecureString;
-
-   const TEST_M_COST: u32 = 16_000;
-   const TEST_T_COST: u32 = 5;
-   const TEST_P_COST: u32 = 4;
 
    #[test]
    fn test_with_mnemonic() {
@@ -390,66 +384,5 @@ mod test {
       let encoded_address = encode_address(&address_data).unwrap();
       eprintln!("Encoded Address: {}", encoded_address);
       assert_eq!(encoded_address, expected_address);
-   }
-
-   #[test]
-   fn test_with_derived_seed() {
-      let username = SecureString::from("username");
-      let password = SecureString::from("password");
-
-      let seed = derive_seed(
-         &username,
-         &password,
-         TEST_M_COST,
-         TEST_T_COST,
-         TEST_P_COST,
-      )
-      .unwrap();
-
-      let mut hd_wallet = SecureHDWallet::new_from_seed(None, seed.clone());
-      eprintln!(
-         "Master Wallet Address: {}",
-         hd_wallet.master_wallet.address()
-      );
-
-      let seed = hd_wallet.master_wallet.full_key().unwrap();
-      let address_data = generate_address_data(seed, 0, None).unwrap();
-
-      let master_expected = "0zk1qy4rnzwghzj2m88a8pqx0cudc7w7nvlyah6tvhtqfp379t3xav7qdrv7j6fe3z53ll5cu54qjtn5ql34u2m5ztyufcx07dtx6zg9d7gj97wpkmpxc0rrqymd3jc";
-
-      let encoded_address = encode_address(&address_data).unwrap();
-      eprintln!("Master Wallet Zk Address: {}", encoded_address);
-      // assert_eq!(encoded_address, master_expected);
-
-      for i in 0..10 {
-         let name = format!("Child Wallet {}", i);
-         hd_wallet.derive_child(name).unwrap();
-      }
-
-      let expected_0 = "0zk1qy34hw3cqaafq4ylvvchxzjjt37f8affcavahmxvydglnaa2gapelrv7j6fe3z53lanpv5peal7kwmlll40244zszp74pyetmy8hg899trnf6xmptqvv6n2xwxw";
-      let expected_1 = "0zk1qy4f2ycf7g9jthn3fhekek0sye3dlzvzcwagashe4hyhc7trh7xhrrv7j6fe3z53llhj9yqqh6ullwmds86scyw8dcpy5mny2898wnxvvulyww83yy6skhawdw7";
-      let expected_2 = "0zk1qyyhz7knm4navzekzdadz0x8el6saf4wtwfcz4hs9yxef6n0msp5frv7j6fe3z53lu0gf4hgty42f34ksq3xsq5vpwdk7qruhpzwd39f86nz5r2ghz3yg56h3ls";
-      let expected_3 = "0zk1qyqx3m02q5a55w2qgvt37dpzka5yxpy9ha06jf0xrrevrrcdrkau9rv7j6fe3z53l78f73hn5ny2ch8kweftaxchx76mnyhc69pnrszh9n0ca75ezknawyvq9rn";
-      let expected_4 = "0zk1qy46nvy7cqxehelf5su3jcyqaj942um9rjlphpf5qqw8lxdf900ttrv7j6fe3z53lls5vrj4zdlkhus0zr2sgfhv5qk7luxguhdw0pmd5p66ndmucxvrklmda9p";
-      let expected_5 = "0zk1qy8w58huge97muh9kl4d6lf0xsavd9ff8wfll5pr5uj6tmqjv5cj3rv7j6fe3z53l7k56p30tnhmkqr7hqtggugqswkaam64wl397aqum9l939un7j9ny3hd95a";
-      let expected_6 = "0zk1qyvrncnd5c3pnv2lk6u5jtmsh2zx8ehl29nr8q2uz70uf4mtwc7h3rv7j6fe3z53luszhkqheevavqk4f5amntn4euy9n82kkfvpx3lqzdgzqlqulxufylm2ueg";
-      let expected_7 = "0zk1qyf0dh2mp58zhaadl5tmjlpl6jrfdau3lym8l0lwcxcgamvlyk7xmrv7j6fe3z53lapnnefjlf7xmw5gnn8k2apyjz8aqxw84wkv705actxsjzxm59wy5hpsw5k";
-      let expected_8 = "0zk1qyrat05cljv7hwps45yfrmndwj57pj3ay32qs7cwe3erm7ejfwdwhrv7j6fe3z53llpqh2w05smu5wt2ltkv6sfkykqqgq2rpa9zs7m2qcfujk09ugxzwhtp2mx";
-      let expected_9 = "0zk1qykd5lmlm4h6sayhvlykz9qusrc8pkalkzhexrz8u60l888jsfetnrv7j6fe3z53lu2t9jl0d3m95rpmwmzzfduvzxtlw7k209h0cma3u56qsc0ghcej20pfmeg";
-
-      let expected_vec = vec![
-         expected_0, expected_1, expected_2, expected_3, expected_4, expected_5, expected_6,
-         expected_7, expected_8, expected_9,
-      ];
-
-      for (i, child) in hd_wallet.children.iter().enumerate() {
-         let seed = child.full_key().unwrap();
-         let expected = expected_vec[i];
-
-         let data = generate_address_data(seed, 0, None).unwrap();
-         let encoded_address = encode_address(&data).unwrap();
-         eprintln!("{} Zk Address: {}", child.name, encoded_address);
-         // assert_eq!(encoded_address, expected);
-      }
    }
 }

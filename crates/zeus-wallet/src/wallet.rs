@@ -13,7 +13,6 @@ use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
 
-use super::zk;
 
 pub type ZkAddress = String;
 
@@ -97,6 +96,7 @@ impl Wallet {
       Ok(full_key)
    }
 
+   /* 
    /// Return the zkAddress of the wallet
    pub fn zk_address(&self) -> Result<ZkAddress, anyhow::Error> {
       let full_key = self.full_key()?;
@@ -105,6 +105,7 @@ impl Wallet {
       let address = zk::encode_address(&data)?;
       Ok(address)
    }
+   */
 
    pub fn name_with_id(&self) -> String {
       let id = if self.is_master() {

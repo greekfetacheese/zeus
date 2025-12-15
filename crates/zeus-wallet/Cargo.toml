@@ -13,55 +13,6 @@ edition = "2024"
 version = "0.1.0"
 path = "../zeus-bip32"
 
-[dependencies.bech32]
-version = "0.9"
-
-[dependencies.hex]
-version = "=0.4.3"
-
-[dependencies.sha2]
-version = "0.10.9"
-
-[dependencies.hmac]
-version = "0.12.1"
-
-[dependencies.jubjub]
-version = "0.10.0"
-
-#[dependencies.bls12_381]
-#version = "0.8.0"
-#features = ["zeroize"]
-
-[dependencies.ark-ed-on-bn254]
-version = "0.5.0"
-
-#[dependencies.ark-ec]
-#version = "0.5.0"
-
-[dependencies.blake2]
-version = "0.10.6"
-
-#[dependencies.blake]
-#version = "2"
-
-[dependencies.curve25519-dalek]
-version = "4"
-
-[dependencies.num-bigint]
-version = "0.4"
-
-#[dependencies.num-traits]
-#version = "0.2"
-
-[dependencies.ark-ff]
-version = "0.5.0"
-
-[dependencies.ark-bn254]
-version = "0.5.0"
-
-[dependencies.light-poseidon]
-version = "0.4.0"
-
 [dependencies.k256]
 version = "=0.13.4"
 

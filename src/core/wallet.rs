@@ -26,7 +26,7 @@ impl WalletInfo {
    pub fn from_wallet(wallet: &Wallet) -> Self {
       Self {
          address: wallet.address(),
-         zk_address: wallet.zk_address().ok(),
+         zk_address: None,
          name: wallet.name.clone(),
          is_master: wallet.is_master(),
          is_child: wallet.is_child(),
