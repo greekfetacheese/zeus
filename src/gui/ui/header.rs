@@ -4,14 +4,11 @@ use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use crate::utils::{RT, truncate_address, tx::delegate_to};
+use crate::utils::{RT, data_to_qr, truncate_address, tx::delegate_to};
 use egui::{
    Align, Align2, Button, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl,
    Order, RichText, Spinner, TextEdit, Ui, Window, vec2,
 };
-use zeus_widgets::Label;
-use image::Luma;
-use qrcode::QrCode;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{
@@ -20,6 +17,7 @@ use zeus_eth::{
    types::ChainId,
 };
 use zeus_wallet::Wallet;
+use zeus_widgets::Label;
 
 use zeus_theme::Theme;
 
@@ -501,7 +499,7 @@ impl QRCodeWindow {
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {
-      let png_bytes_res = address_to_qr_png(&wallet.address.to_string());
+      let png_bytes_res = data_to_qr(&wallet.address.to_string().as_str());
 
       let (image, error) = if let Ok(png_bytes) = png_bytes_res {
          let uri = format!("bytes://receive-{}.png", &wallet.address);
@@ -553,7 +551,7 @@ impl QRCodeWindow {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                if self.wallet.is_none() {
-                  ui.label(RichText::new("Loading...").size(theme.text_sizes.normal));
+                  ui.label(RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal));
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                   self.close_button(theme, ui);
                   return;
@@ -598,20 +596,4 @@ impl QRCodeWindow {
          self.reset();
       }
    }
-}
-
-fn address_to_qr_png(address: &str) -> Result<Vec<u8>, anyhow::Error> {
-   let code = QrCode::with_error_correction_level(address.as_bytes(), qrcode::EcLevel::H)?;
-   let image = code
-      .render::<Luma<u8>>()
-      .min_dimensions(512, 512)
-      .max_dimensions(512, 512)
-      .build();
-
-   let mut bytes: Vec<u8> = Vec::new();
-   image.write_to(
-      &mut std::io::Cursor::new(&mut bytes),
-      image::ImageFormat::Png,
-   )?;
-   Ok(bytes)
 }

@@ -1,18 +1,18 @@
 pub mod add;
 pub use add::AddWalletUi;
 
-use zeus_wallet::Wallet;
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
-use crate::utils::RT;
+use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
-   Align, Align2, Button, Frame, FontId, Id, Label, Layout, Margin, Order, RichText, ScrollArea,
-   Sense, TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, Button, FontId, Frame, Id, Image, ImageSource, Label, Layout, Margin, Order,
+   RichText, ScrollArea, Sense, TextEdit, Ui, Vec2, Window, load::Bytes, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_theme::{Theme, utils::frame_it};
+use zeus_wallet::Wallet;
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -240,9 +240,7 @@ impl WalletUi {
                let export_key = Button::new(RichText::new("Export").size(theme.text_sizes.small));
                if ui.add_enabled(enabled, export_key).clicked() {
                   let wallet = ctx.get_wallet(wallet.address);
-                  self.export_key_ui.open = true;
-                  self.export_key_ui.set_wallet_to_export(wallet);
-                  self.export_key_ui.credentials_form.open = true;
+                  self.export_key_ui.open(ctx.clone(), wallet);
                }
 
                ui.add_space(8.0);
@@ -286,7 +284,7 @@ impl WalletUi {
                         self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
                      let chains =
                         self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
-                        
+
                      ui.horizontal(|ui| {
                         for chain in chains {
                            let icon = icons.chain_icon_x16(chain, tint);
@@ -430,7 +428,6 @@ impl WalletUi {
                      match ctx.encrypt_and_save_vault(Some(new_vault), None) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
-                              
                               // Update header
                               if is_current {
                                  gui.header.set_current_wallet(new_wallet);
@@ -480,6 +477,8 @@ pub struct ExportKeyUi {
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_export: Option<Wallet>,
+   image_uri: Option<String>,
+   image_error: Option<String>,
    show_key: bool,
    size: (f32, f32),
 }
@@ -491,12 +490,39 @@ impl ExportKeyUi {
          credentials_form: CredentialsForm::new(),
          verified_credentials: false,
          wallet_to_export: None,
+         image_uri: None,
+         image_error: None,
          show_key: false,
-         size: (550.0, 350.0),
+         size: (400.0, 400.0),
       }
    }
 
-   fn set_wallet_to_export(&mut self, wallet: Option<Wallet>) {
+   fn open(&mut self, ctx: ZeusCtx, wallet: Option<Wallet>) {
+      if let Some(wallet) = &wallet {
+         let key_hex = wallet.key_string();
+         let png_bytes_res = key_hex.unlock_str(|key| data_to_qr(key));
+
+         match png_bytes_res {
+            Ok(png_bytes) => {
+               ctx.set_qr_image_data(png_bytes);
+
+               let uri = format!(
+                  "bytes://key-{}.png",
+                  &wallet.address().to_string()
+               );
+
+               self.image_uri = Some(uri);
+               self.image_error = None;
+            }
+            Err(e) => {
+               self.image_uri = None;
+               self.image_error = Some(format!("Failed to generate QR Code: {}", e));
+            }
+         }
+      }
+
+      self.open = true;
+      self.credentials_form.open = true;
       self.wallet_to_export = wallet;
    }
 
@@ -506,26 +532,25 @@ impl ExportKeyUi {
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
-      self.show_key(theme, ui);
+      self.show_key(ctx, theme, ui);
    }
 
-   fn show_key(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn show_key(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.show_key || !self.verified_credentials {
          return;
       }
 
       let title = RichText::new("Success").size(theme.text_sizes.heading);
-      let mut open = self.open;
 
       Window::new(title)
-         .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_min_size(vec2(100.0, 150.0));
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
@@ -540,19 +565,38 @@ impl ExportKeyUi {
                   if ui.add(Button::new(text)).clicked() {
                      ui.ctx().copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
                   }
+
+                  if self.image_error.is_some() {
+                     ui.label(
+                        RichText::new(self.image_error.as_ref().unwrap())
+                           .size(theme.text_sizes.large),
+                     );
+                  }
+
+                  if let Some(image_uri) = self.image_uri.clone() {
+                     let data = ctx.qr_image_data();
+                     let image = Image::new(ImageSource::Bytes {
+                        uri: image_uri.into(),
+                        bytes: Bytes::Shared(data),
+                     });
+                     ui.add(image);
+                  }
                } else {
                   ui.label(
                      RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
                   );
                }
+
+               let text = RichText::new("Close").size(theme.text_sizes.normal);
+               if ui.add(Button::new(text)).clicked() {
+                  if let Some(image_uri) = &self.image_uri {
+                     ui.ctx().forget_image(image_uri);
+                  }
+                  self.reset();
+                  ctx.erase_qr_image_data();
+               }
             });
          });
-
-      self.open = open;
-
-      if !self.open {
-         self.reset();
-      }
    }
 
    fn verify_credentials_ui(

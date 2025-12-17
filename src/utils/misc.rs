@@ -1,19 +1,20 @@
 use crate::core::ZeusCtx;
 
-use zeus_wallet::SecureKey;
+use secure_types::Zeroize;
 use zeus_eth::{
    abi::permit::{Permit2::allowanceReturn, allowance},
    alloy_primitives::{Address, Signature, U256},
    alloy_signer::Signer,
    currency::{Currency, ERC20Token, NativeCurrency},
-   utils::{
-      NumericValue, address_book, generate_permit2_json_value, parse_typed_data,
-   },
+   utils::{NumericValue, address_book, generate_permit2_json_value, parse_typed_data},
 };
+use zeus_wallet::SecureKey;
 
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
+use image::{ImageBuffer, ImageFormat, Luma};
 use lazy_static::lazy_static;
+use qrcodegen_no_heap::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -22,6 +23,58 @@ use tokio::runtime::Runtime;
 
 lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
+}
+
+pub fn data_to_qr(data: &str) -> Result<Vec<u8>, anyhow::Error> {
+   let mut tempbuffer = vec![0u8; Version::MAX.buffer_len()];
+   let mut outbuffer = vec![0u8; Version::MAX.buffer_len()];
+   let qr = QrCode::encode_text(
+      data,
+      &mut tempbuffer,
+      &mut outbuffer,
+      QrCodeEcc::High,
+      Version::MIN,
+      Version::MAX,
+      None,
+      true,
+   )
+   .map_err(|e| anyhow!("QR code encoding failed: {:?}", e))?;
+
+   let size = qr.size() as u32;
+   let module_px = ((512f32 / size as f32).ceil() as u32).max(1);
+   let img_size = size * module_px;
+
+   // Create white image buffer
+   let mut img: ImageBuffer<Luma<u8>, Vec<u8>> = ImageBuffer::new(img_size, img_size);
+   for pixel in img.pixels_mut() {
+      *pixel = Luma([255u8]); // White background
+   }
+
+   for y in 0..size {
+      for x in 0..size {
+         if qr.get_module(x as i32, y as i32) {
+            let px = Luma([0u8]); // Black
+            for dy in 0..module_px {
+               for dx in 0..module_px {
+                  *img.get_pixel_mut(x * module_px + dx, y * module_px + dy) = px;
+               }
+            }
+         }
+      }
+   }
+
+   let mut png_bytes = Vec::new();
+   img.write_to(
+      &mut std::io::Cursor::new(&mut png_bytes),
+      ImageFormat::Png,
+   )?;
+
+   let mut img_buf = img.into_vec();
+   img_buf.zeroize();
+   tempbuffer.zeroize();
+   outbuffer.zeroize();
+
+   Ok(png_bytes)
 }
 
 /// Estimate the cost for a transaction

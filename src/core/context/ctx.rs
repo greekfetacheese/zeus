@@ -16,6 +16,7 @@ use std::{
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
 
+use secure_types::Zeroize;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
@@ -111,6 +112,28 @@ impl ZeusCtx {
    /// Exclusive mutable access to the context
    pub fn write<R>(&self, writer: impl FnOnce(&mut ZeusContext) -> R) -> R {
       writer(&mut self.0.write().unwrap())
+   }
+
+   pub fn qr_image_data(&self) -> Arc<[u8]> {
+      self.read(|ctx| ctx.qr_image_data.clone())
+   }
+
+   pub fn set_qr_image_data(&self, data: Vec<u8>) {
+      self.erase_qr_image_data();
+      self.write(|ctx| {
+         ctx.qr_image_data = data.into();
+      });
+   }
+
+   pub fn erase_qr_image_data(&self) {
+      self.write(|ctx| {
+         if let Some(data) = Arc::get_mut(&mut ctx.qr_image_data) {
+            data.zeroize();
+            tracing::info!("QR Image data zeroized");
+         } else {
+            tracing::warn!("QR Image data zeroize failed");
+         }
+      });
    }
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
@@ -1475,6 +1498,8 @@ pub struct ZeusContext {
    pub server_running: bool,
    pub tx_confirm_window_open: bool,
    pub sign_msg_window_open: bool,
+   /// Private Key Qr Code
+   pub qr_image_data: Arc<[u8]>,
 }
 
 impl ZeusContext {
@@ -1593,6 +1618,7 @@ impl ZeusContext {
          server_running: false,
          tx_confirm_window_open: false,
          sign_msg_window_open: false,
+         qr_image_data: Arc::new([0u8; 0]),
       }
    }
 

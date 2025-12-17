@@ -5667,13 +5667,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "qrcode"
-version = "0.14.1"
+name = "qrcodegen-no-heap"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
-dependencies = [
- "image",
-]
+checksum = "d0e2c0bf8be8a1c4a4f48973dabf26943f05da2bfc2d3180aae62409dbba6f0c"
 
 [[package]]
 name = "quanta"
@@ -9266,7 +9263,7 @@ dependencies = [
  "image",
  "lazy_static",
  "ncrypt-me",
- "qrcode",
+ "qrcodegen-no-heap",
  "rand 0.8.5",
  "rayon",
  "reqwest",
