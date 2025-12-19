@@ -6,7 +6,7 @@ use egui::{
    text_selection::{self, CCursorRange},
    vec2,
 };
-use secure_types::SecureString;
+use secure_types::{SecureString, Zeroize};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default)]
@@ -627,12 +627,12 @@ fn secure_text_edit_events(
       events_filtered.sort_by_key(|e| !matches!(e, Event::Ime(_)));
    }
 
-   for event in &events_filtered {
+   for event in events_filtered {
       let current_char_len_before_event = secure_text.char_len();
       let mut text_mutated_this_event = false;
 
       // Pass current_galley to on_event. If it modifies cursor_range, it uses current_galley.
-      if cursor_range.on_event(os, event, &current_galley, id) {
+      if cursor_range.on_event(os, &event, &current_galley, id) {
          state.last_interaction_time = ui.input(|i| i.time);
          continue;
       }
@@ -641,7 +641,7 @@ fn secure_text_edit_events(
          // For now don't allow copy/cut on any text
          Event::Copy => None,
          Event::Cut => None,
-         Event::Paste(text_to_paste) => {
+         Event::Paste(mut text_to_paste) => {
             if !text_to_paste.is_empty() {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
@@ -649,7 +649,7 @@ fn secure_text_edit_events(
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
-               let final_text_to_paste = if text_to_paste.chars().count() > space_available {
+               let mut final_text_to_paste = if text_to_paste.chars().count() > space_available {
                   text_to_paste.chars().take(space_available).collect::<String>()
                } else {
                   text_to_paste.clone()
@@ -660,12 +660,15 @@ fn secure_text_edit_events(
                   secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_paste);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true; // Mark mutation
+
+               text_to_paste.zeroize();
+               final_text_to_paste.zeroize();
                Some(text::CCursorRange::one(current_ccursor))
             } else {
                None
             }
          }
-         Event::Text(text_to_insert) => {
+         Event::Text(mut text_to_insert) => {
             if !text_to_insert.is_empty() && text_to_insert != "\n" && text_to_insert != "\r" {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
@@ -673,7 +676,7 @@ fn secure_text_edit_events(
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
-               let final_text_to_insert = if text_to_insert.chars().count() > space_available {
+               let mut final_text_to_insert = if text_to_insert.chars().count() > space_available {
                   text_to_insert.chars().take(space_available).collect::<String>()
                } else {
                   text_to_insert.clone()
@@ -684,6 +687,9 @@ fn secure_text_edit_events(
                   secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_insert);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true;
+
+               text_to_insert.zeroize();
+               final_text_to_insert.zeroize();
                Some(text::CCursorRange::one(current_ccursor))
             } else {
                None
@@ -806,23 +812,25 @@ fn secure_text_edit_events(
                   state.ime_cursor_range = cursor_range;
                   None
                }
-               ImeEvent::Preedit(preedit_text) => {
+               ImeEvent::Preedit(mut preedit_text) => {
                   let [min_ime, max_ime] = state.ime_cursor_range.sorted_cursors(); // Use IME's original range for delete
                   secure_text.delete_text_char_range(min_ime.index..max_ime.index);
                   let mut c = min_ime; // Insert at start of IME original selection
-                  let inserted = secure_text.insert_text_at_char_idx(c.index, preedit_text);
+                  let inserted = secure_text.insert_text_at_char_idx(c.index, &preedit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
+                  preedit_text.zeroize();
                   Some(text::CCursorRange::two(min_ime, c))
                }
-               ImeEvent::Commit(commit_text) => {
+               ImeEvent::Commit(mut commit_text) => {
                   state.ime_enabled = false; // IME done
                   let [min_commit, max_commit] = cursor_range.sorted_cursors();
                   secure_text.delete_text_char_range(min_commit.index..max_commit.index);
                   let mut c = min_commit;
-                  let inserted = secure_text.insert_text_at_char_idx(c.index, commit_text);
+                  let inserted = secure_text.insert_text_at_char_idx(c.index, &commit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
+                  commit_text.zeroize();
                   Some(text::CCursorRange::one(c))
                }
                ImeEvent::Disabled => {
