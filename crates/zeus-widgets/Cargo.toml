@@ -1,6 +1,6 @@
 [package]
 name = "zeus-widgets"
-version = "0.1.0"
+version = "0.2.0"
 readme = "readme.md"
 description = "A collection of widgets for egui"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-widgets"
