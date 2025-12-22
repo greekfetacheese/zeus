@@ -1,34 +1,98 @@
 use super::{Theme, utils};
-use egui::{
-   self, Button, CentralPanel, Color32, Rect, RichText, UiBuilder, ViewportCommand, vec2,
-};
+use egui::*;
 
-/// A frame for the App's Native window
-pub fn window_frame(
-   ctx: &egui::Context,
-   title: &str,
-   theme: Theme,
-   add_contents: impl FnOnce(&mut egui::Ui),
-) {
-   CentralPanel::default().frame(theme.window_frame).show(ctx, |ui| {
+pub struct WindowCtx {
+   pub frame: Frame,
+   pub title: String,
+   pub bar_height: f32,
+   pub title_text_size: f32,
+   pub title_text_color: Color32,
+   pub line_stroke: Stroke,
+   pub button_text_size: f32,
+   pub button_text_color: Color32,
+   pub on_hover_color: Color32,
+   pub close_on_hover_color: Color32,
+}
+
+impl WindowCtx {
+   pub fn new(title: &str, bar_height: f32, theme: &Theme) -> Self {
+      let frame = theme.window_frame;
+      let title_text_size = theme.text_sizes.heading;
+      let title_text_color = theme.colors.text;
+      let line_stroke = theme.style.visuals.widgets.noninteractive.bg_stroke;
+      let button_text_size = theme.text_sizes.large;
+      let button_text_color = theme.colors.text;
+      let on_hover_color = theme.colors.bg3;
+      let close_on_hover_color = theme.colors.error;
+
+      Self {
+         frame,
+         title: title.to_owned(),
+         bar_height,
+         title_text_size,
+         title_text_color,
+         line_stroke,
+         button_text_size,
+         button_text_color,
+         on_hover_color,
+         close_on_hover_color,
+      }
+   }
+
+   pub fn with_frame(mut self, frame: Frame) -> Self {
+      self.frame = frame;
+      self
+   }
+
+   pub fn with_line_stroke(mut self, stroke: Stroke) -> Self {
+      self.line_stroke = stroke;
+      self
+   }
+
+   pub fn with_title_text_size(mut self, size: f32) -> Self {
+      self.title_text_size = size;
+      self
+   }
+
+   pub fn with_title_text_color(mut self, color: Color32) -> Self {
+      self.title_text_color = color;
+      self
+   }
+
+   pub fn with_button_text_color(mut self, color: Color32) -> Self {
+      self.button_text_color = color;
+      self
+   }
+
+   pub fn with_on_hover_color(mut self, color: Color32) -> Self {
+      self.on_hover_color = color;
+      self
+   }
+
+   pub fn with_close_on_hover_color(mut self, color: Color32) -> Self {
+      self.close_on_hover_color = color;
+      self
+   }
+}
+
+pub fn window_frame(ctx: &Context, window_ctx: WindowCtx, add_contents: impl FnOnce(&mut Ui)) {
+   CentralPanel::default().frame(window_ctx.frame).show(ctx, |ui| {
       let app_rect = ui.max_rect();
 
-      let title_bar_height = 32.0;
       let title_bar_rect = {
          let mut rect = app_rect;
-         rect.max.y = rect.min.y + title_bar_height;
+         rect.max.y = window_ctx.bar_height;
          rect
       };
 
-      title_bar_ui(ui, &theme, title_bar_rect, title);
+      title_bar_ui(ui, &window_ctx, title_bar_rect);
 
-      // Add the contents:
+      // Add the contents
       let content_rect = {
          let mut rect = app_rect;
-         rect.min.y = title_bar_rect.max.y;
+         rect.min.y = window_ctx.bar_height;
          rect
-      }
-      .shrink(4.0);
+      };
 
       let ui_builder = UiBuilder::default().max_rect(content_rect).style(ctx.style().clone());
       let mut content_ui = ui.new_child(ui_builder);
@@ -36,9 +100,7 @@ pub fn window_frame(
    });
 }
 
-fn title_bar_ui(ui: &mut egui::Ui, theme: &Theme, title_bar_rect: Rect, title: &str) {
-   use egui::*;
-
+fn title_bar_ui(ui: &mut Ui, window: &WindowCtx, title_bar_rect: Rect) {
    let painter = ui.painter();
 
    let title_bar_response = ui.interact(
@@ -47,16 +109,13 @@ fn title_bar_ui(ui: &mut egui::Ui, theme: &Theme, title_bar_rect: Rect, title: &
       Sense::click_and_drag(),
    );
 
-   let title_size = theme.text_sizes.heading;
-   let title_color = theme.colors.text;
-
    // Paint the title:
    painter.text(
       title_bar_rect.center(),
       Align2::CENTER_CENTER,
-      title,
-      FontId::proportional(title_size),
-      title_color,
+      window.title.clone(),
+      FontId::proportional(window.title_text_size),
+      window.title_text_color,
    );
 
    // Paint the line under the title:
@@ -65,7 +124,7 @@ fn title_bar_ui(ui: &mut egui::Ui, theme: &Theme, title_bar_rect: Rect, title: &
          title_bar_rect.left_bottom() + vec2(1.0, 0.0),
          title_bar_rect.right_bottom() + vec2(-1.0, 0.0),
       ],
-      ui.visuals().widgets.noninteractive.bg_stroke,
+      window.line_stroke,
    );
 
    // Interact with the title bar (drag to move window):
@@ -78,65 +137,61 @@ fn title_bar_ui(ui: &mut egui::Ui, theme: &Theme, title_bar_rect: Rect, title: &
       ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
    }
 
-   let ui_builder = UiBuilder::default().max_rect(title_bar_rect).style(theme.style.clone());
+   let ui_builder = UiBuilder::default().max_rect(title_bar_rect).style(ui.style().clone());
+   let layout = Layout::right_to_left(Align::Center);
 
    ui.scope_builder(ui_builder, |ui| {
-      ui.with_layout(
-         egui::Layout::right_to_left(egui::Align::Center),
-         |ui| {
-            ui.add_space(5.0);
-            close_maximize_minimize(ui, &theme);
-         },
-      );
+      ui.with_layout(layout, |ui| {
+         close_maximize_minimize(ui, &window);
+      });
    });
 }
 
 /// Show some close/maximize/minimize buttons for the native window.
-fn close_maximize_minimize(ui: &mut egui::Ui, theme: &Theme) {
+fn close_maximize_minimize(ui: &mut Ui, window: &WindowCtx) {
+   ui.spacing_mut().button_padding = vec2(0.0, 0.0);
+   ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+
    utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
    utils::no_border(ui);
-   ui.style_mut().visuals.widgets.hovered.expansion = 5.0;
 
-   let button_size = vec2(20.0, 15.0);
-   let color = theme.colors.text;
+   ui.style_mut().visuals.widgets.inactive.expansion = 0.0;
+   ui.style_mut().visuals.widgets.hovered.expansion = 0.0;
+   ui.style_mut().visuals.widgets.active.expansion = 0.0;
+   ui.style_mut().visuals.widgets.inactive.corner_radius = CornerRadius::ZERO;
+   ui.style_mut().visuals.widgets.hovered.corner_radius = CornerRadius::ZERO;
+   ui.style_mut().visuals.widgets.active.corner_radius = CornerRadius::ZERO;
 
-   ui.scope(|ui| {
-      utils::bg_color_on_hover(ui, theme.colors.error);
-      let text = RichText::new("❌").color(color).size(theme.text_sizes.large);
-      let close_button = Button::new(text).min_size(button_size);
-      let close_response = ui.add(close_button);
+   let button_size = vec2(45.0, window.bar_height);
+   let text_size = window.button_text_size;
+   let text_color = window.button_text_color;
 
-      if close_response.clicked() {
-         ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-      }
-   });
+   let add_title_button = |ui: &mut Ui, text: &str, hover_color: Color32| -> bool {
+      ui.scope(|ui| {
+         utils::bg_color_on_hover(ui, hover_color);
+         let rich_text = RichText::new(text).color(text_color).size(text_size);
+         let button = Button::new(rich_text).min_size(button_size);
 
-   let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
-   utils::bg_color_on_hover(ui, theme.colors.bg3);
+         ui.add_sized(button_size, button).clicked()
+      })
+      .inner
+   };
 
-   if is_maximized {
-      let text = RichText::new("🗗").color(color).size(theme.text_sizes.large);
-      let maximized_button = Button::new(text).min_size(button_size);
-      let maximized_response = ui.add(maximized_button);
-
-      if maximized_response.clicked() {
-         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(false));
-      }
-   } else {
-      let text = RichText::new("🗗").color(color).size(theme.text_sizes.large);
-      let maximized_button = Button::new(text).min_size(button_size);
-      let maximized_response = ui.add(maximized_button);
-
-      if maximized_response.clicked() {
-         ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(true));
-      }
+   // Close Button
+   if add_title_button(ui, "❌", window.close_on_hover_color) {
+      ui.ctx().send_viewport_cmd(ViewportCommand::Close);
    }
 
-   let text = RichText::new("🗕").color(color).size(theme.text_sizes.large);
-   let minimized_button = Button::new(text).min_size(button_size);
-   let minimized_response = ui.add(minimized_button);
+   let is_maximized = ui.input(|i| i.viewport().maximized.unwrap_or(false));
 
-   if minimized_response.clicked() {
+   // Maximize/Restore
+   let max_icon = if is_maximized { "🗗" } else { "🗖" };
+   if add_title_button(ui, max_icon, window.on_hover_color) {
+      ui.ctx().send_viewport_cmd(ViewportCommand::Maximized(!is_maximized));
+   }
+
+   // Minimize
+   if add_title_button(ui, "🗕", window.on_hover_color) {
       ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
    }
 }

@@ -1,4 +1,4 @@
-use egui::{FontData, FontDefinitions, FontFamily};
+use egui::*;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::{ZeusCtx, context::load_theme_kind};
@@ -14,7 +14,7 @@ use eframe::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-use zeus_theme::{Theme, ThemeKind, window::window_frame};
+use zeus_theme::{Theme, ThemeKind, window::*};
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
@@ -126,11 +126,11 @@ impl eframe::App for ZeusApp {
             self.style_has_been_set = true;
          }
 
-         let theme = gui.theme.clone();
-         let bg_color = theme.colors.bg;
+         let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
+         let bg_color = gui.theme.colors.bg;
          let panel_frame = Frame::new().fill(bg_color);
 
-         window_frame(ctx, "Zeus", theme, |ui| {
+         window_frame(ctx, window, |ui| {
             #[cfg(feature = "dev")]
             zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
@@ -161,6 +161,7 @@ impl eframe::App for ZeusApp {
                .min_width(150.0)
                .max_width(150.0)
                .resizable(false)
+               .frame(panel_frame)
                .show_separator_line(true)
                .show_inside(ui, |ui| {
                   if gui.ctx.vault_unlocked() {

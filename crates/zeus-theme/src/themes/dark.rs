@@ -70,9 +70,9 @@ fn text_sizes() -> TextSizes {
 
 pub fn window_frame(colors: &ThemeColors) -> Frame {
    Frame {
-      corner_radius: CornerRadius::same(6),
-      fill: colors.bg,
-      stroke: Stroke::new(1.0, colors.bg),
+      fill: colors.bg4,
+      inner_margin: Margin::ZERO,
+      outer_margin: Margin::ZERO,
       ..Default::default()
    }
 }
@@ -81,7 +81,7 @@ pub fn window_frame(colors: &ThemeColors) -> Frame {
 pub fn frame1(colors: &ThemeColors) -> Frame {
    Frame {
       corner_radius: CornerRadius::same(6),
-      inner_margin: Margin::same(12),
+      inner_margin: Margin::same(10),
       fill: colors.bg2,
       stroke: Stroke::new(0.0, colors.border),
       shadow: Shadow::NONE,

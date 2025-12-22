@@ -1,6 +1,9 @@
 use eframe::egui::*;
 use std::sync::Arc;
-use zeus_theme::{Theme, ThemeEditor, ThemeKind, utils, window::window_frame};
+use zeus_theme::{
+   Theme, ThemeEditor, ThemeKind, utils,
+   window::{WindowCtx, window_frame},
+};
 
 const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet (Muted Text)";
 const INTER_BOLD_18: &[u8] = include_bytes!("../../../src/assets/Inter_18pt-Bold.ttf");
@@ -54,7 +57,7 @@ impl DemoApp {
       let editor = ThemeEditor::new();
       cc.egui_ctx.set_style(theme.style.clone());
 
-      setup_fonts(&cc.egui_ctx);
+      // setup_fonts(&cc.egui_ctx);
 
       Self {
          set_theme: false,
@@ -78,12 +81,13 @@ impl eframe::App for DemoApp {
    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
       let theme2 = self.theme.clone();
 
-      window_frame(ctx, "egui Theme Demo", theme2, |ui| {
+      let window = WindowCtx::new("egui Theme Demo", 35.0, &theme2)
+         .with_line_stroke(Stroke::new(0.0, theme2.colors.text));
+
+      window_frame(ctx, window, |ui| {
          utils::apply_theme_changes(&mut self.theme, ui);
 
          self.left_panel(ui);
-
-         ui.add_space(50.0);
          self.central_panel(ui);
       });
    }
@@ -114,7 +118,6 @@ impl DemoApp {
          }
 
          ScrollArea::vertical().show(ui, |ui| {
-            ui.set_width(ui.available_width());
             ui.vertical_centered(|ui| {
                ui.add_space(50.0);
 
@@ -122,8 +125,6 @@ impl DemoApp {
                ui.label(text);
 
                ui.add_space(20.0);
-
-               theme_colors(&self.theme, ui);
 
                self.text_sizes(ui);
 
@@ -151,53 +152,53 @@ impl DemoApp {
    }
 
    fn left_panel(&mut self, ui: &mut Ui) {
+      let bg_color = self.theme.colors.bg;
+      let frame = Frame::new().fill(bg_color);
+
       egui::SidePanel::left("left_panel")
          .min_width(150.0)
          .max_width(150.0)
          .resizable(false)
          .show_separator_line(false)
+         .frame(frame)
          .show_inside(ui, |ui| {
             utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
             utils::no_border_on_idle(ui);
             ui.set_width(140.0);
 
-            let frame = self.theme.frame1;
+            ui.vertical_centered(|ui| {
+               let text_size = self.theme.text_sizes.normal;
+               let button_size = vec2(100.0, 50.0);
 
-            frame.show(ui, |ui| {
-               ui.vertical_centered(|ui| {
-                  let text_size = self.theme.text_sizes.normal;
-                  let button_size = vec2(100.0, 50.0);
+               let home_text = RichText::new("Home").size(text_size);
+               let home_button = Button::new(home_text).min_size(button_size);
+               ui.add(home_button);
 
-                  let home_text = RichText::new("Home").size(text_size);
-                  let home_button = Button::new(home_text).min_size(button_size);
-                  ui.add(home_button);
+               let settings_text = RichText::new("Settings").size(text_size);
+               let settings_button = Button::new(settings_text).min_size(button_size);
+               ui.add(settings_button);
 
-                  let settings_text = RichText::new("Settings").size(text_size);
-                  let settings_button = Button::new(settings_text).min_size(button_size);
-                  ui.add(settings_button);
+               let editor_text = RichText::new("Toggle Editor").size(text_size);
+               let editor_button = Button::new(editor_text).min_size(button_size);
+               if ui.add(editor_button).clicked() {
+                  self.editor.open = !self.editor.open;
+               }
 
-                  let editor_text = RichText::new("Toggle Editor").size(text_size);
-                  let editor_button = Button::new(editor_text).min_size(button_size);
-                  if ui.add(editor_button).clicked() {
-                     self.editor.open = !self.editor.open;
-                  }
+               let text = RichText::new("Tx Window").size(text_size);
+               let button = Button::new(text).min_size(button_size);
+               if ui.add(button).clicked() {
+                  self.tx_confirm_window_open = !self.tx_confirm_window_open;
+               }
 
-                  let text = RichText::new("Tx Window").size(text_size);
-                  let button = Button::new(text).min_size(button_size);
-                  if ui.add(button).clicked() {
-                     self.tx_confirm_window_open = !self.tx_confirm_window_open;
-                  }
+               let text = RichText::new("Recipient Window").size(text_size);
+               let button = Button::new(text).min_size(button_size);
+               if ui.add(button).clicked() {
+                  self.recipient_window_open = !self.recipient_window_open;
+               }
 
-                  let text = RichText::new("Recipient Window").size(text_size);
-                  let button = Button::new(text).min_size(button_size);
-                  if ui.add(button).clicked() {
-                     self.recipient_window_open = !self.recipient_window_open;
-                  }
-
-                  let about_text = RichText::new("About").size(text_size);
-                  let about_button = Button::new(about_text).min_size(button_size);
-                  ui.add(about_button);
-               });
+               let about_text = RichText::new("About").size(text_size);
+               let about_button = Button::new(about_text).min_size(button_size);
+               ui.add(about_button);
             });
          });
    }
@@ -397,11 +398,11 @@ fn recipient_selection(theme: &Theme, ui: &mut Ui) {
    });
 }
 
-fn theme_colors(theme: &Theme, ui: &mut Ui) {
+fn _theme_colors(theme: &Theme, ui: &mut Ui) {
    let layout = Layout::left_to_right(Align::Min).with_main_wrap(true);
 
    ui.with_layout(layout, |ui| {
-      ui.spacing_mut().item_spacing = vec2(10.0, 10.0);
+      ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
 
       let stroke_color = match theme.dark_mode {
          true => Color32::WHITE,
@@ -564,7 +565,7 @@ fn recipient_window(theme: &Theme, ui: &mut Ui) {
 fn tx_confirm(theme: &Theme, ui: &mut Ui) {
    let frame = theme.frame2.outer_margin(Margin::same(0));
    let text_size = theme.text_sizes.large;
-   let font_bold = FontFamily::Name("inter_bold".into());
+   // let font_bold = FontFamily::Name("inter_bold".into());
 
    Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
       ui.vertical_centered(|ui| {
@@ -623,8 +624,7 @@ fn tx_confirm(theme: &Theme, ui: &mut Ui) {
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let text =
-                     RichText::new("Mike").size(text_size).color(theme.colors.info).family(font_bold.clone());
+                  let text = RichText::new("Mike").size(text_size).color(theme.colors.info);
                   ui.hyperlink_to(text, "https://www.google.com");
                });
             });
@@ -638,8 +638,7 @@ fn tx_confirm(theme: &Theme, ui: &mut Ui) {
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                   let text = RichText::new("Uniswap: Universal Router V2")
                      .size(text_size)
-                     .color(theme.colors.info)
-                     .family(font_bold);
+                     .color(theme.colors.info);
                   ui.hyperlink_to(
                      text,
                      "https://basescan.org/address/0x6fF5693b99212Da76ad316178A184AB56D299b43",
@@ -753,28 +752,23 @@ fn tx_confirm(theme: &Theme, ui: &mut Ui) {
    });
 }
 
-
 pub fn setup_fonts(ctx: &egui::Context) {
-    // Start with defaults to keep built-in fonts.
-    let mut fonts = FontDefinitions::default();
+   // Start with defaults to keep built-in fonts.
+   let mut fonts = FontDefinitions::default();
 
-    let font = FontData::from_static(INTER_BOLD_18);
-    fonts.font_data.insert(
-        "inter_bold".to_owned(),
-        Arc::new(font),
-    );
+   let font = FontData::from_static(INTER_BOLD_18);
+   fonts.font_data.insert("inter_bold".to_owned(), Arc::new(font));
 
-    // Bind the font to the custom named family (this is the key step missing from add_font).
-    let mut newfam = std::collections::BTreeMap::new();
-    newfam.insert(
-        FontFamily::Name("inter_bold".into()),
-        vec!["inter_bold".to_owned()],
-    );
-    fonts.families.append(&mut newfam);
+   // Bind the font to the custom named family (this is the key step missing from add_font).
+   let mut newfam = std::collections::BTreeMap::new();
+   newfam.insert(
+      FontFamily::Name("inter_bold".into()),
+      vec!["inter_bold".to_owned()],
+   );
+   fonts.families.append(&mut newfam);
 
-
-    // Apply once.
-    ctx.set_fonts(fonts);
+   // Apply once.
+   ctx.set_fonts(fonts);
 }
 
 fn main() -> eframe::Result {
