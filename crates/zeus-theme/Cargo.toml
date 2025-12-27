@@ -30,7 +30,7 @@ features = ["derive"]
 [dev-dependencies]
 eframe = "=0.33.0"
 secure-types = "0.2"
-zeus-widgets = { path = "../zeus-widgets" }
+zeus-widgets = { path = "../zeus-widgets", features = ["secure-types"] }
 
 
 

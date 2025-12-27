@@ -448,14 +448,14 @@ impl DemoApp {
             ui.add(Slider::new(&mut self.min_value, 0.0..=100.0));
          });
 
-         let text = RichText::new("Secure Text Edit").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Text Edit with SecureString (Multiline)").size(self.theme.text_sizes.normal);
          ui.label(text);
 
          let hint = RichText::new("Write something")
             .size(self.theme.text_sizes.normal)
             .color(self.theme.colors.text_muted);
          ui.add(
-            SecureTextEdit::singleline(&mut self.string_value)
+            SecureTextEdit::multiline(&mut self.string_value)
                .visuals(text_edit_visuals)
                .hint_text(hint.clone())
                .margin(Margin::same(10))
@@ -463,7 +463,7 @@ impl DemoApp {
                .font(FontId::proportional(self.theme.text_sizes.normal)),
          );
 
-         let text = RichText::new("Nomrmal Text Edit").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal);
          ui.label(text);
 
          ui.add(

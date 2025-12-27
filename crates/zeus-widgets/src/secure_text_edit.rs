@@ -3,12 +3,79 @@ use egui::{
    ImeEvent, Key, KeyboardShortcut, Margin, Modifiers, NumExt, Response, Sense, Shape,
    TextWrapMode, Ui, Vec2, Widget, WidgetInfo, WidgetText, epaint, output,
    text::{self, LayoutJob},
-   text_selection::{self, CCursorRange},
+   text_selection::{self, CCursorRange, text_cursor_state::byte_index_from_char_index},
    vec2,
 };
-use secure_types::{SecureString, Zeroize};
+
 use std::sync::Arc;
 use zeus_theme::TextEditVisuals;
+
+#[cfg(feature = "secure-types")]
+use secure_types::{SecureString, Zeroize};
+
+pub trait TextBuffer {
+   fn is_secure(&self) -> bool;
+   fn insert_text_at_char_idx(&mut self, char_idx: usize, text_to_insert: &str) -> usize;
+   fn delete_text_char_range(&mut self, char_range: core::ops::Range<usize>);
+   fn char_len(&self) -> usize;
+   fn to_string(&self) -> String;
+}
+
+#[cfg(feature = "secure-types")]
+impl TextBuffer for SecureString {
+   fn is_secure(&self) -> bool {
+      true
+   }
+
+   fn insert_text_at_char_idx(&mut self, char_idx: usize, text_to_insert: &str) -> usize {
+      self.insert_text_at_char_idx(char_idx, text_to_insert)
+   }
+
+   fn delete_text_char_range(&mut self, char_range: core::ops::Range<usize>) {
+      self.delete_text_char_range(char_range)
+   }
+
+   fn char_len(&self) -> usize {
+      self.char_len()
+   }
+
+   fn to_string(&self) -> String {
+      self.unlock_str(|s| s.to_string())
+   }
+}
+
+impl TextBuffer for String {
+   fn is_secure(&self) -> bool {
+      false
+   }
+
+   fn insert_text_at_char_idx(&mut self, char_idx: usize, text_to_insert: &str) -> usize {
+      let byte_idx = byte_index_from_char_index(self.as_str(), char_idx);
+      self.insert_str(byte_idx, text_to_insert);
+
+      text_to_insert.chars().count()
+   }
+
+   fn delete_text_char_range(&mut self, char_range: core::ops::Range<usize>) {
+      assert!(
+         char_range.start <= char_range.end,
+         "start must be <= end, but got {char_range:?}"
+      );
+
+      let byte_start = byte_index_from_char_index(self.as_str(), char_range.start);
+      let byte_end = byte_index_from_char_index(self.as_str(), char_range.end);
+
+      self.drain(byte_start..byte_end);
+   }
+
+   fn char_len(&self) -> usize {
+      self.chars().count()
+   }
+
+   fn to_string(&self) -> String {
+      self.to_owned()
+   }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct SecureTextEditState {
@@ -35,9 +102,12 @@ pub struct SecureTextEditOutput {
    pub cursor_range: Option<CCursorRange>,
 }
 
-/// A widget for editing text that is secured by a [`SecureString`].
+/// A widget for editing text.
 ///
-/// This widget is identical to [`egui::TextEdit`], but it uses a [`SecureString`] instead of a [`std::string::String`].
+/// This widget is identical to [`egui::TextEdit`], but it uses a custom [`TextBuffer`]
+/// that can take either a [`SecureString`] or a [`String`].
+///
+/// To use it with a [`SecureString`], the feature `secure-types` must be enabled.
 ///
 /// ## Notes
 ///
@@ -47,7 +117,7 @@ pub struct SecureTextEditOutput {
 /// Otherwise egui will make copies of that text and some of the copied allocations will stay in memory.
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct SecureTextEdit<'a> {
-   text: &'a mut SecureString,
+   text: &'a mut dyn TextBuffer,
    visuals: Option<TextEditVisuals>,
    hint_text: WidgetText,
    id: Option<Id>,
@@ -72,7 +142,7 @@ pub struct SecureTextEdit<'a> {
 }
 
 impl<'a> SecureTextEdit<'a> {
-   pub fn singleline(text: &'a mut SecureString) -> Self {
+   pub fn singleline(text: &'a mut dyn TextBuffer) -> Self {
       Self {
          text,
          visuals: None,
@@ -104,7 +174,7 @@ impl<'a> SecureTextEdit<'a> {
       }
    }
 
-   pub fn multiline(text: &'a mut SecureString) -> Self {
+   pub fn multiline(text: &'a mut dyn TextBuffer) -> Self {
       Self {
          text,
          visuals: None,
@@ -328,35 +398,35 @@ impl<'a> SecureTextEdit<'a> {
       };
 
       // --- Layout Galley ---
-      let galley: Arc<Galley> = self.text.unlock_str(|text_slice| {
-         let display_text_cow = if self.password {
-            // Generate '●' string based on actual char count
-            std::borrow::Cow::<'_, str>::Owned(
-               std::iter::repeat(epaint::text::PASSWORD_REPLACEMENT_CHAR)
-                  .take(text_slice.chars().count())
-                  .collect::<String>(),
-            )
-         } else {
-            std::borrow::Cow::Owned(text_slice.to_string()) // !
-         };
 
-         let mut job = if self.multiline {
-            LayoutJob::simple(
-               (*display_text_cow).to_owned(),
-               font_id.clone(),
-               text_color,
-               wrap_width,
-            )
-         } else {
-            LayoutJob::simple_singleline(
-               (*display_text_cow).to_owned(),
-               font_id.clone(),
-               text_color,
-            )
-         };
-         job.halign = self.align.0[0];
-         ui.fonts_mut(|f| f.layout_job(job))
-      });
+      let display_text_cow = if self.password {
+         // Generate '●' string based on actual char count
+         std::borrow::Cow::<'_, str>::Owned(
+            std::iter::repeat(epaint::text::PASSWORD_REPLACEMENT_CHAR)
+               .take(self.text.char_len())
+               .collect::<String>(),
+         )
+      } else {
+         std::borrow::Cow::Owned(self.text.to_string()) // !
+      };
+
+      let mut job = if self.multiline {
+         LayoutJob::simple(
+            (*display_text_cow).to_owned(),
+            font_id.clone(),
+            text_color,
+            wrap_width,
+         )
+      } else {
+         LayoutJob::simple_singleline(
+            (*display_text_cow).to_owned(),
+            font_id.clone(),
+            text_color,
+         )
+      };
+
+      job.halign = self.align.0[0];
+      let galley: Arc<Galley> = ui.fonts_mut(|f| f.layout_job(job));
 
       // --- Size & Allocation ---
       let desired_inner_width = if self.clip_text && !self.multiline {
@@ -628,7 +698,7 @@ impl<'a> Widget for SecureTextEdit<'a> {
 fn secure_text_edit_events(
    ui: &Ui,
    state: &mut SecureTextEditState,
-   secure_text: &mut SecureString,
+   text: &mut dyn TextBuffer,
    initial_galley: &Arc<Galley>,
    id: Id,
    multiline: bool,
@@ -653,7 +723,7 @@ fn secure_text_edit_events(
    }
 
    for event in events_filtered {
-      let current_char_len_before_event = secure_text.char_len();
+      let current_char_len_before_event = text.char_len();
       let mut text_mutated_this_event = false;
 
       // Pass current_galley to on_event. If it modifies cursor_range, it uses current_galley.
@@ -670,7 +740,7 @@ fn secure_text_edit_events(
             if !text_to_paste.is_empty() {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               secure_text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index..max.index);
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
@@ -682,12 +752,16 @@ fn secure_text_edit_events(
 
                let mut current_ccursor = min;
                let chars_inserted =
-                  secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_paste);
+                  text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_paste);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true; // Mark mutation
 
-               text_to_paste.zeroize();
-               final_text_to_paste.zeroize();
+               #[cfg(feature = "secure-types")]
+               {
+                  text_to_paste.zeroize();
+                  final_text_to_paste.zeroize();
+               }
+
                Some(text::CCursorRange::one(current_ccursor))
             } else {
                None
@@ -697,7 +771,7 @@ fn secure_text_edit_events(
             if !text_to_insert.is_empty() && text_to_insert != "\n" && text_to_insert != "\r" {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               secure_text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index..max.index);
 
                let space_available = char_limit
                   .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
@@ -709,12 +783,15 @@ fn secure_text_edit_events(
 
                let mut current_ccursor = min;
                let chars_inserted =
-                  secure_text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_insert);
+                  text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_insert);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true;
 
-               text_to_insert.zeroize();
-               final_text_to_insert.zeroize();
+               #[cfg(feature = "secure-types")]
+               {
+                  text_to_insert.zeroize();
+                  final_text_to_insert.zeroize();
+               }
                Some(text::CCursorRange::one(current_ccursor))
             } else {
                None
@@ -732,7 +809,7 @@ fn secure_text_edit_events(
             if multiline {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               secure_text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index..max.index);
 
                let current_len_after_delete =
                   current_char_len_before_event.saturating_sub(selection_char_len);
@@ -740,8 +817,7 @@ fn secure_text_edit_events(
 
                if space_available > 0 {
                   let mut current_ccursor = min;
-                  let chars_inserted =
-                     secure_text.insert_text_at_char_idx(current_ccursor.index, "\n");
+                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index, "\n");
                   current_ccursor.index += chars_inserted;
                   text_mutated_this_event = true; // Mark mutation
                   Some(text::CCursorRange::one(current_ccursor))
@@ -764,13 +840,13 @@ fn secure_text_edit_events(
             if min == max {
                // No selection
                if min.index > 0 {
-                  secure_text.delete_text_char_range(min.index - 1..min.index);
+                  text.delete_text_char_range(min.index - 1..min.index);
                   new_cursor_idx = min.index - 1;
                   text_mutated_this_event = true;
                }
             } else {
                // Selection exists
-               secure_text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index..max.index);
                // new_cursor_idx is already min.ccursor.index
                text_mutated_this_event = true;
             }
@@ -792,11 +868,11 @@ fn secure_text_edit_events(
             if min == max {
                if min.index < current_char_len_before_event {
                   // Before deleting
-                  secure_text.delete_text_char_range(min.index..min.index + 1);
+                  text.delete_text_char_range(min.index..min.index + 1);
                   text_mutated_this_event = true;
                }
             } else {
-               secure_text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index..max.index);
                text_mutated_this_event = true;
             }
             if text_mutated_this_event {
@@ -818,8 +894,7 @@ fn secure_text_edit_events(
                let space_available = char_limit.saturating_sub(current_char_len_before_event);
                if space_available > 0 {
                   // Enough for at least '\t'
-                  let chars_inserted =
-                     secure_text.insert_text_at_char_idx(current_ccursor.index, "\t");
+                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index, "\t");
                   current_ccursor.index += chars_inserted;
                   text_mutated_this_event = true;
                }
@@ -839,23 +914,29 @@ fn secure_text_edit_events(
                }
                ImeEvent::Preedit(mut preedit_text) => {
                   let [min_ime, max_ime] = state.ime_cursor_range.sorted_cursors(); // Use IME's original range for delete
-                  secure_text.delete_text_char_range(min_ime.index..max_ime.index);
+                  text.delete_text_char_range(min_ime.index..max_ime.index);
                   let mut c = min_ime; // Insert at start of IME original selection
-                  let inserted = secure_text.insert_text_at_char_idx(c.index, &preedit_text);
+                  let inserted = text.insert_text_at_char_idx(c.index, &preedit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
+
+                  #[cfg(feature = "secure-types")]
                   preedit_text.zeroize();
+
                   Some(text::CCursorRange::two(min_ime, c))
                }
                ImeEvent::Commit(mut commit_text) => {
                   state.ime_enabled = false; // IME done
                   let [min_commit, max_commit] = cursor_range.sorted_cursors();
-                  secure_text.delete_text_char_range(min_commit.index..max_commit.index);
+                  text.delete_text_char_range(min_commit.index..max_commit.index);
                   let mut c = min_commit;
-                  let inserted = secure_text.insert_text_at_char_idx(c.index, &commit_text);
+                  let inserted = text.insert_text_at_char_idx(c.index, &commit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
+                  
+                  #[cfg(feature = "secure-types")]
                   commit_text.zeroize();
+
                   Some(text::CCursorRange::one(c))
                }
                ImeEvent::Disabled => {
@@ -871,31 +952,32 @@ fn secure_text_edit_events(
          text_changed_in_total = true;
 
          // --- Re-layout galley ---
-         current_galley = secure_text.unlock_str(|text_slice| {
-            let display_text_for_layout = if password {
-               std::iter::repeat(epaint::text::PASSWORD_REPLACEMENT_CHAR)
-                  .take(text_slice.chars().count())
-                  .collect::<String>()
-            } else {
-               text_slice.to_owned() // !
-            };
-            let mut job = if multiline {
-               LayoutJob::simple(
-                  display_text_for_layout,
-                  font_id.clone(),
-                  text_color,
-                  wrap_width,
-               )
-            } else {
-               LayoutJob::simple_singleline(
-                  display_text_for_layout,
-                  font_id.clone(),
-                  text_color,
-               )
-            };
-            job.halign = text_align_horizontal;
-            ui.fonts_mut(|f| f.layout_job(job))
-         });
+
+         let display_text_for_layout = if password {
+            std::iter::repeat(epaint::text::PASSWORD_REPLACEMENT_CHAR)
+               .take(text.char_len())
+               .collect::<String>()
+         } else {
+            text.to_string() // !
+         };
+
+         let mut job = if multiline {
+            LayoutJob::simple(
+               display_text_for_layout,
+               font_id.clone(),
+               text_color,
+               wrap_width,
+            )
+         } else {
+            LayoutJob::simple_singleline(
+               display_text_for_layout,
+               font_id.clone(),
+               text_color,
+            )
+         };
+
+         job.halign = text_align_horizontal;
+         current_galley = ui.fonts_mut(|f| f.layout_job(job));
       }
 
       // Set the final state.cursor using the most up-to-date cursor_range

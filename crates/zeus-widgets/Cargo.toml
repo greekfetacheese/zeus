@@ -19,3 +19,7 @@ path = "../zeus-theme"
 
 [dependencies.secure-types]
 version = "0.2"
+optional = true
+
+[features]
+secure-types = ["dep:secure-types"]
