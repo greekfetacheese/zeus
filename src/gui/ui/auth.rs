@@ -6,12 +6,12 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
 };
 use egui::Margin;
-use zeus_widgets::{Label, SecureTextEdit};
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;
 use std::time::Instant;
-use zeus_theme::Theme;
+use zeus_theme::{OverlayManager, Theme};
+use zeus_widgets::{Label, SecureTextEdit};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InputField {
@@ -171,6 +171,7 @@ impl VirtualKeyboard {
 
 pub struct CredentialsForm {
    pub open: bool,
+   overlay: OverlayManager,
    pub confrim_password: bool,
    pub credentials: Credentials,
    pub hide_username: bool,
@@ -181,9 +182,10 @@ pub struct CredentialsForm {
 }
 
 impl CredentialsForm {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          confrim_password: false,
          credentials: Credentials::new_with_capacity(1024).unwrap(),
          hide_username: false,
@@ -194,7 +196,21 @@ impl CredentialsForm {
       }
    }
 
-   pub fn open(mut self, open: bool) -> Self {
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
+   pub fn with_open(mut self, open: bool) -> Self {
       self.open = open;
       self
    }
@@ -361,9 +377,9 @@ pub struct UnlockVault {
 }
 
 impl UnlockVault {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
-         credentials_form: CredentialsForm::new().open(true),
+         credentials_form: CredentialsForm::new(overlay).with_open(true),
          size: (550.0, 350.0),
       }
    }
@@ -538,9 +554,9 @@ pub struct RecoverHDWallet {
 }
 
 impl RecoverHDWallet {
-   pub fn new() -> Self {
+   pub fn new(ovelay: OverlayManager) -> Self {
       Self {
-         credentials_form: CredentialsForm::new().open(true).confirm_password(true),
+         credentials_form: CredentialsForm::new(ovelay).with_open(true).confirm_password(true),
          wallet_name: String::new(),
          credentials_input: true,
          recover_button_clicked: false,

@@ -1,7 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
 use eframe::egui::{Align2, Button, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use zeus_theme::{Theme, utils};
+use zeus_theme::{OverlayManager, Theme, utils};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -194,21 +194,25 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
 pub struct ConnectedDappsUi {
    open: bool,
+   overlay: OverlayManager,
    pub size: (f32, f32),
 }
 
 impl ConnectedDappsUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          size: (300.0, 400.0),
       }
    }
 
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -268,6 +272,8 @@ impl ConnectedDappsUi {
             });
          });
 
-      self.open = open;
+      if !open {
+         self.close();
+      }
    }
 }

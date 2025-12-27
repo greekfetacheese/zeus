@@ -2,8 +2,8 @@ use egui::{
    Align, Align2, Button, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Vec2,
    Window, vec2,
 };
+use zeus_theme::{Theme, OverlayManager};
 use zeus_widgets::Label;
-use zeus_theme::Theme;
 
 use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
@@ -20,7 +20,8 @@ use std::sync::Arc;
 
 pub struct TxConfirmationWindow {
    open: bool,
-   show_all_decoded_events: bool,
+   overlay: OverlayManager,
+   decoded_events: DecodedEvents,
    /// True to confirm, false to reject
    confirmed_or_rejected: Option<bool>,
    dapp: String,
@@ -42,10 +43,11 @@ pub struct TxConfirmationWindow {
 }
 
 impl TxConfirmationWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         show_all_decoded_events: false,
+         overlay: overlay.clone(),
+         decoded_events: DecodedEvents::new(overlay),
          confirmed_or_rejected: None,
          dapp: String::new(),
          chain: ChainId::default(),
@@ -68,22 +70,17 @@ impl TxConfirmationWindow {
    }
 
    pub fn reset(&mut self, ctx: ZeusCtx) {
-      ctx.set_tx_confirm_window_open(false);
-      *self = Self::new();
+      self.close(ctx);
+      *self = Self::new(self.overlay.clone());
    }
 
    pub fn close(&mut self, ctx: ZeusCtx) {
+      self.overlay.window_closed();
       ctx.set_tx_confirm_window_open(false);
       self.open = false;
    }
 
    /// Open this [TxConfirmationWindow]
-   ///
-   /// - `dapp` dapp name, if not just pass an empty string
-   /// - `chain` the chain id to be used
-   /// - `tx` is the transaction to be confirmed
-   /// - `priority_fee` set a starting value for the priority fee
-   /// - `mev_protect` whether we use an MEV protect endpoint or not
    pub fn open(
       &mut self,
       ctx: ZeusCtx,
@@ -93,6 +90,7 @@ impl TxConfirmationWindow {
       priority_fee: String,
       mev_protect: bool,
    ) {
+      self.overlay.window_opened();
       ctx.set_tx_confirm_window_open(true);
 
       let native = NativeCurrency::from(chain.id());
@@ -181,10 +179,8 @@ impl TxConfirmationWindow {
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
-                  let mut open = self.show_all_decoded_events;
 
-                  let should_open = show_all_decoded_events(
-                     &mut open,
+                  self.decoded_events.show(
                      ctx.clone(),
                      self.chain,
                      theme,
@@ -195,8 +191,6 @@ impl TxConfirmationWindow {
                      self.size,
                      ui,
                   );
-
-                  self.show_all_decoded_events = should_open;
 
                   // Action Name
                   ui.label(RichText::new(main_event.name()).size(theme.text_sizes.heading));
@@ -227,7 +221,7 @@ impl TxConfirmationWindow {
 
                      let clicked = show_decoded_events_button(theme, ui);
                      if clicked {
-                        self.show_all_decoded_events = true;
+                        self.decoded_events.open();
                      }
                   }
 
@@ -300,7 +294,7 @@ impl TxConfirmationWindow {
                   if !main_event.is_other() {
                      let clicked = show_decoded_events_button(theme, ui);
                      if clicked {
-                        self.show_all_decoded_events = true;
+                        self.decoded_events.open();
                      }
                   }
 
@@ -441,16 +435,18 @@ impl TxConfirmationWindow {
 /// A window to show details for a transaction that has been sent to the network
 pub struct TxWindow {
    open: bool,
-   show_all_decoded_events: bool,
+   overlay: OverlayManager,
+   decoded_events: DecodedEvents,
    tx: Option<TransactionRich>,
    size: (f32, f32),
 }
 
 impl TxWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         show_all_decoded_events: false,
+         overlay: overlay.clone(),
+         decoded_events: DecodedEvents::new(overlay),
          tx: None,
          size: (550.0, 400.0),
       }
@@ -461,12 +457,14 @@ impl TxWindow {
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
       self.tx = None;
    }
 
    /// Show this [TxWindow]
    pub fn open(&mut self, tx: Option<TransactionRich>) {
+      self.overlay.window_opened();
       self.tx = tx;
       self.open = true;
    }
@@ -513,10 +511,8 @@ impl TxWindow {
 
                   let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
-                  let mut open = self.show_all_decoded_events;
 
-                  let should_open = show_all_decoded_events(
-                     &mut open,
+                  self.decoded_events.show(
                      ctx.clone(),
                      chain_id,
                      theme,
@@ -527,8 +523,6 @@ impl TxWindow {
                      self.size,
                      ui,
                   );
-
-                  self.show_all_decoded_events = should_open;
 
                   let frame_size = vec2(ui.available_width() * 0.9, 45.0);
                   let frame = theme.frame2;
@@ -555,7 +549,7 @@ impl TxWindow {
                   if main_event.is_other() && tx.success {
                      let clicked = show_decoded_events_button(theme, ui);
                      if clicked {
-                        self.show_all_decoded_events = true;
+                        self.decoded_events.open();
                      }
                   }
 
@@ -631,68 +625,103 @@ fn show_decoded_events_button(theme: &Theme, ui: &mut Ui) -> bool {
    ui.add(button).clicked()
 }
 
-fn show_all_decoded_events(
-   open: &mut bool,
-   ctx: ZeusCtx,
-   chain: ChainId,
-   theme: &Theme,
-   icons: Arc<Icons>,
-   analysis: &TransactionAnalysis,
-   frame_size: Vec2,
-   frame: Frame,
-   window_size: (f32, f32),
-   ui: &mut Ui,
-) -> bool {
-   let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
+pub struct DecodedEvents {
+   open: bool,
+   overlay: OverlayManager,
+}
 
-   Window::new(title)
-      .open(open)
-      .resizable(false)
-      .collapsible(false)
-      .order(Order::Tooltip)
-      .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
-      .frame(Frame::window(ui.style()))
-      .show(ui.ctx(), |ui| {
-         ui.vertical_centered(|ui| {
-            let width = window_size.0 + 50.0;
-            ui.set_width(width);
-            ui.set_height(window_size.1);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+impl DecodedEvents {
+   pub fn new(overlay: OverlayManager) -> Self {
+      Self {
+         open: false,
+         overlay,
+      }
+   }
 
-            let all_events = analysis.total_events();
-            let known_events = analysis.known_events;
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
 
-            let text = format!(
-               "Decoded {} out of {} total events",
-               known_events, all_events
-            );
-            ui.label(RichText::new(text).size(theme.text_sizes.very_large));
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
 
-            ScrollArea::vertical().max_height(window_size.1).show(ui, |ui| {
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
+   fn show(
+      &mut self,
+      ctx: ZeusCtx,
+      chain: ChainId,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      analysis: &TransactionAnalysis,
+      frame_size: Vec2,
+      frame: Frame,
+      window_size: (f32, f32),
+      ui: &mut Ui,
+   ) {
+      if !self.open {
+         return;
+      }
+      
+      let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
+      let mut open = self.open;
+
+      Window::new(title)
+         .open(&mut open)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Tooltip)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
+         .frame(Frame::window(ui.style()))
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               let width = window_size.0 + 50.0;
                ui.set_width(width);
+               ui.set_height(window_size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               for event in &analysis.decoded_events {
-                  ui.allocate_ui(frame_size, |ui| {
-                     frame.show(ui, |ui| {
-                        ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
+               let all_events = analysis.total_events();
+               let known_events = analysis.known_events;
 
-                        show_event(
-                           ctx.clone(),
-                           chain,
-                           theme,
-                           icons.clone(),
-                           event,
-                           ui,
-                        );
+               let text = format!(
+                  "Decoded {} out of {} total events",
+                  known_events, all_events
+               );
+               ui.label(RichText::new(text).size(theme.text_sizes.very_large));
+
+               ScrollArea::vertical().max_height(window_size.1).show(ui, |ui| {
+                  ui.set_width(width);
+
+                  for event in &analysis.decoded_events {
+                     ui.allocate_ui(frame_size, |ui| {
+                        frame.show(ui, |ui| {
+                           ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
+
+                           show_event(
+                              ctx.clone(),
+                              chain,
+                              theme,
+                              icons.clone(),
+                              event,
+                              ui,
+                           );
+                        });
                      });
-                  });
-               }
+                  }
+               });
             });
          });
-      });
 
-   *open
+      if !open {
+         self.close();
+      }
+   }
 }
 
 pub fn eoa_delegate_event_ui(

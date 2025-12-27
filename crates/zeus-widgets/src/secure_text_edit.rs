@@ -8,6 +8,7 @@ use egui::{
 };
 use secure_types::{SecureString, Zeroize};
 use std::sync::Arc;
+use zeus_theme::TextEditVisuals;
 
 #[derive(Clone, Debug, Default)]
 pub struct SecureTextEditState {
@@ -47,6 +48,7 @@ pub struct SecureTextEditOutput {
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 pub struct SecureTextEdit<'a> {
    text: &'a mut SecureString,
+   visuals: Option<TextEditVisuals>,
    hint_text: WidgetText,
    id: Option<Id>,
    id_salt: Option<Id>,
@@ -73,6 +75,7 @@ impl<'a> SecureTextEdit<'a> {
    pub fn singleline(text: &'a mut SecureString) -> Self {
       Self {
          text,
+         visuals: None,
          hint_text: Default::default(),
          id: None,
          id_salt: None,
@@ -104,6 +107,7 @@ impl<'a> SecureTextEdit<'a> {
    pub fn multiline(text: &'a mut SecureString) -> Self {
       Self {
          text,
+         visuals: None,
          hint_text: Default::default(),
          id: None,
          id_salt: None,
@@ -130,6 +134,11 @@ impl<'a> SecureTextEdit<'a> {
          return_key: Some(KeyboardShortcut::new(Modifiers::NONE, Key::Enter)),
          background_color: None,
       }
+   }
+
+   pub fn visuals(mut self, visuals: TextEditVisuals) -> Self {
+      self.visuals = Some(visuals);
+      self
    }
 
    pub fn id(mut self, id: Id) -> Self {
@@ -246,40 +255,51 @@ impl<'a> SecureTextEdit<'a> {
    pub fn show(self, ui: &mut Ui) -> SecureTextEditOutput {
       let frame = self.frame;
       let where_to_put_background = ui.painter().add(Shape::Noop);
-      let background_color = self.background_color.unwrap_or(ui.visuals().extreme_bg_color);
+      let background_color =
+         self.visuals.as_ref().map(|v| v.bg).unwrap_or(ui.visuals().extreme_bg_color);
       let is_interactive = self.interactive;
 
-      let output = self.show_content(ui);
+      let (output, text_edit_visuals) = self.show_content(ui);
 
       let outer_rect_for_frame = output.response.rect;
       if frame {
          let visuals = ui.style().interact(&output.response);
          let frame_rect = outer_rect_for_frame.expand(visuals.expansion);
+         let corner = text_edit_visuals
+            .as_ref()
+            .map(|v| v.corner_radius)
+            .unwrap_or(visuals.corner_radius);
+
          let shape = if is_interactive {
-            if output.response.has_focus() {
+            if output.response.has_focus() || output.response.hovered() {
+               let border =
+                  text_edit_visuals.as_ref().map(|v| v.border_open).unwrap_or(visuals.bg_stroke);
                epaint::RectShape::new(
                   frame_rect,
-                  visuals.corner_radius,
+                  corner,
                   background_color,
-                  ui.visuals().selection.stroke,
+                  border,
                   epaint::StrokeKind::Inside,
                )
             } else {
+               let border =
+                  text_edit_visuals.as_ref().map(|v| v.border).unwrap_or(visuals.bg_stroke);
                epaint::RectShape::new(
                   frame_rect,
-                  visuals.corner_radius,
+                  corner,
                   background_color,
-                  visuals.bg_stroke,
+                  border,
                   epaint::StrokeKind::Inside,
                )
             }
          } else {
             // Not interactive
             let visuals = &ui.style().visuals.widgets.inactive;
+            let border = text_edit_visuals.as_ref().map(|v| v.border).unwrap_or(visuals.bg_stroke);
             epaint::RectShape::stroke(
                frame_rect,
-               visuals.corner_radius,
-               visuals.bg_stroke,
+               corner,
+               border,
                epaint::StrokeKind::Inside,
             )
          };
@@ -289,12 +309,14 @@ impl<'a> SecureTextEdit<'a> {
    }
 
    #[allow(clippy::too_many_lines)]
-   fn show_content(self, ui: &mut Ui) -> SecureTextEditOutput {
+   fn show_content(mut self, ui: &mut Ui) -> (SecureTextEditOutput, Option<TextEditVisuals>) {
       let font_id = self.font_selection.resolve(ui.style());
-      let text_color = self
-         .text_color
-         .or(ui.visuals().override_text_color)
+      let text_color = ui
+         .visuals()
+         .override_text_color
          .unwrap_or_else(|| ui.visuals().widgets.inactive.text_color());
+
+      let text_color = self.visuals.map(|v| v.text).unwrap_or(text_color);
 
       let row_height = ui.fonts_mut(|f| f.row_height(&font_id));
       let available_width = (ui.available_width() - self.margin.sum().x).at_least(24.0); // Min width
@@ -585,11 +607,14 @@ impl<'a> SecureTextEdit<'a> {
          )
       });
 
-      SecureTextEditOutput {
+      let output = SecureTextEditOutput {
          response,
          state,
          cursor_range: cursor_range_after_events,
-      }
+      };
+
+      let visuals = self.visuals.take();
+      (output, visuals)
    }
 }
 

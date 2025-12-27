@@ -9,10 +9,11 @@ use eframe::egui::{
 use egui::Frame;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
-use zeus_theme::Theme;
+use zeus_theme::{Theme, OverlayManager};
 
 pub struct NetworkSettings {
    open: bool,
+   overlay: OverlayManager,
    refreshing: bool,
    add_rpc: bool,
    #[allow(dead_code)]
@@ -25,9 +26,10 @@ pub struct NetworkSettings {
 }
 
 impl NetworkSettings {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          refreshing: false,
          add_rpc: false,
          change_server_port: false,
@@ -38,12 +40,28 @@ impl NetworkSettings {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
+   }
+
+   pub fn open_add_rpc(&mut self) {
+      self.overlay.window_opened();
+      self.add_rpc = true;
+   }
+
+   pub fn close_add_rpc(&mut self) {
+      self.overlay.window_closed();
+      self.add_rpc = false;
    }
 
    fn valid_url(&self) -> bool {
@@ -54,6 +72,10 @@ impl NetworkSettings {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let tint = theme.image_tint_recommended;
 
       self.add_rpc(ctx.clone(), theme, ui);
@@ -62,6 +84,7 @@ impl NetworkSettings {
       Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
+         .order(Order::Foreground)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
@@ -86,7 +109,7 @@ impl NetworkSettings {
                   let add_network =
                      Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
                   if ui.add(add_network).clicked() {
-                     self.add_rpc = true;
+                     self.open_add_rpc();
                   }
 
                   let icon = match theme.dark_mode {
@@ -250,7 +273,10 @@ impl NetworkSettings {
                });
             });
          });
-      self.open = open;
+
+      if !open {
+         self.close();
+      }
    }
 
    fn _change_server_port(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
@@ -290,11 +316,15 @@ impl NetworkSettings {
    }
 
    pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.add_rpc {
+         return;
+      }
+
       let mut open = self.add_rpc;
 
       Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
          .open(&mut open)
-         .order(Order::Foreground)
+         .order(Order::Tooltip)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -339,7 +369,10 @@ impl NetworkSettings {
                }
             });
          });
-      self.add_rpc = open;
+
+      if !open {
+         self.close_add_rpc();
+      }
    }
 }
 
@@ -402,7 +435,7 @@ fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
       SHARED_GUI.write(|gui| {
          gui.open_msg_window("Success!", "RPC added successfully");
          gui.settings.network.url_to_add.clear();
-         gui.settings.network.add_rpc = false;
+         gui.settings.network.close_add_rpc();
          gui.settings.network.refreshing = false;
       });
    });

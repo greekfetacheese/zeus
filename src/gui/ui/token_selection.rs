@@ -17,7 +17,7 @@ use zeus_eth::{
 };
 
 use zeus_widgets::Label;
-use zeus_theme::{Theme, utils::frame_it};
+use zeus_theme::{Theme, OverlayManager, utils::frame_it};
 
 /// A simple window that allows the user to select a token
 ///
@@ -26,6 +26,7 @@ use zeus_theme::{Theme, utils::frame_it};
 /// If a valid address is passed to the search bar, we can fetch the token from the blockchain if it exists
 pub struct TokenSelectionWindow {
    open: bool,
+   overlay: OverlayManager,
    pub size: (f32, f32),
    pub search_query: String,
    pub selected_currency: Option<Currency>,
@@ -41,9 +42,10 @@ pub struct TokenSelectionWindow {
 }
 
 impl TokenSelectionWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          size: (550.0, 500.0),
          search_query: String::new(),
          selected_currency: None,
@@ -54,15 +56,22 @@ impl TokenSelectionWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+      self.overlay.window_opened();
       self.open = true;
       self.process_currencies(ctx, chain_id, owner);
    }
 
    pub fn reset(&mut self) {
-      *self = Self::new();
+      self.close();
+      self.search_query.clear();
+      self.selected_currency = None;
+      self.token_fetched = false;
+      self.currency_direction = InOrOut::In;
+      self.processed_currencies = Vec::new();
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -113,6 +122,11 @@ impl TokenSelectionWindow {
       ui: &mut Ui,
    ) {
       let mut open = self.open;
+
+      if !open {
+         return;
+      }
+      
       let mut close_window = false;
 
       Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))

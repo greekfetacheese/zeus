@@ -8,28 +8,42 @@ use egui::{
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
-use zeus_theme::Theme;
+use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Label;
 
 pub struct AddContact {
    open: bool,
+   overlay: OverlayManager,
    contact: Contact,
    contact_added: bool,
    size: (f32, f32),
 }
 
 impl AddContact {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          contact: Contact::default(),
          contact_added: false,
          size: (450.0, 250.0),
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self) {
+      self.overlay.window_opened();
+      // self.overlay.paint_foreground();
       self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      // self.overlay.paint_background();
+      self.open = false;
    }
 
    pub fn contact_added(&self) -> bool {
@@ -37,7 +51,7 @@ impl AddContact {
    }
 
    pub fn reset(&mut self) {
-      self.open = false;
+      self.close();
       self.contact_added = false;
       self.contact = Contact::default();
    }
@@ -48,6 +62,9 @@ impl AddContact {
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let mut open = self.open;
+      if !open {
+         return;
+      }
 
       Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -109,7 +126,7 @@ impl AddContact {
                      match ctx.add_contact(new_contact.clone()) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
-                              gui.settings.contacts_ui.add_contact.open = false;
+                              // gui.settings.contacts_ui.add_contact.close();
                               gui.settings.contacts_ui.add_contact.contact_added = true;
                               if reset_on_success {
                                  gui.settings.contacts_ui.add_contact.reset();
@@ -142,27 +159,48 @@ impl AddContact {
                }
             });
          });
-      self.open = open;
+
+      if !open {
+         self.close();
+      }
    }
 }
 
 struct DeleteContact {
    open: bool,
+   overlay: OverlayManager,
    contact_to_delete: Contact,
    size: (f32, f32),
 }
 
 impl DeleteContact {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          contact_to_delete: Contact::default(),
          size: (450.0, 180.0),
       }
    }
 
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      // self.overlay.paint_foreground();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      // self.overlay.paint_background();
+      self.open = false;
+   }
+
    fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
+
+      if !open {
+         return;
+      }
 
       let mut should_close = false;
 
@@ -225,33 +263,52 @@ impl DeleteContact {
          });
 
       if should_close {
-         self.contact_to_delete = Contact::default();
-         self.open = false;
-      } else {
-         self.open = open;
+         self.close();
+      }
+
+      if !open {
+         self.close();
       }
    }
 }
 
 struct EditContact {
    open: bool,
+   overlay: OverlayManager,
    contact_to_edit: Contact,
    old_contact: Contact,
    size: (f32, f32),
 }
 
 impl EditContact {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          contact_to_edit: Contact::default(),
          old_contact: Contact::default(),
          size: (450.0, 350.0),
       }
    }
 
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      // self.overlay.paint_foreground();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      // self.overlay.paint_background();
+      self.open = false;
+   }
+
    fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
+
+      if !open {
+         return;
+      }
 
       Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -317,7 +374,7 @@ impl EditContact {
                      SHARED_GUI.write(|gui| {
                         gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
                         gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
-                        gui.settings.contacts_ui.edit_contact.open = false;
+                        gui.settings.contacts_ui.edit_contact.close();
                      });
 
                      ctx.write_vault(|vault| {
@@ -358,12 +415,15 @@ impl EditContact {
             });
          });
 
-      self.open = open;
+      if !open {
+         self.close();
+      }
    }
 }
 
 pub struct ContactsUi {
    open: bool,
+   overlay: OverlayManager,
    main_ui: bool,
    search_query: String,
    pub add_contact: AddContact,
@@ -373,23 +433,26 @@ pub struct ContactsUi {
 }
 
 impl ContactsUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay: overlay.clone(),
          main_ui: true,
          search_query: String::new(),
-         add_contact: AddContact::new(),
-         delete_contact: DeleteContact::new(),
-         edit_contact: EditContact::new(),
+         add_contact: AddContact::new(overlay.clone()),
+         delete_contact: DeleteContact::new(overlay.clone()),
+         edit_contact: EditContact::new(overlay),
          size: (500.0, 550.0),
       }
    }
 
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -431,7 +494,7 @@ impl ContactsUi {
                let text = RichText::new("Add Contact").size(theme.text_sizes.normal);
                let button = Button::new(text);
                if ui.add(button).clicked() {
-                  self.add_contact.open = true;
+                  self.add_contact.open();
                }
 
                ui.add_space(20.0);
@@ -496,7 +559,7 @@ impl ContactsUi {
                               let text = RichText::new("Edit").size(theme.text_sizes.normal);
                               let edit_button = Button::new(text);
                               if ui.add(edit_button).clicked() {
-                                 self.edit_contact.open = true;
+                                 self.edit_contact.open();
                                  self.edit_contact.contact_to_edit = contact.clone();
                                  self.edit_contact.old_contact = contact.clone();
                               }
@@ -504,7 +567,7 @@ impl ContactsUi {
                               let text = RichText::new("Delete").size(theme.text_sizes.normal);
                               let delete_button = Button::new(text);
                               if ui.add(delete_button).clicked() {
-                                 self.delete_contact.open = true;
+                                 self.delete_contact.open();
                                  self.delete_contact.contact_to_delete = contact.clone();
                               }
                            });
@@ -515,7 +578,10 @@ impl ContactsUi {
                });
             });
          });
-      self.open = open;
+
+      if !open {
+         self.close();
+      }
    }
 }
 

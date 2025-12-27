@@ -1,5 +1,6 @@
 use crate::gui::GUI;
 use eframe::egui::{Frame, RichText, Ui, Window, vec2};
+use zeus_theme::OverlayManager;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -83,15 +84,17 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
 pub struct FPSMetrics {
    pub open: bool,
+   overlay: OverlayManager,
    pub max_fps: f64,
    pub time_ms: f64,
    pub time_ns: u128,
 }
 
 impl FPSMetrics {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          max_fps: 0.0,
          time_ms: 0.0,
          time_ns: 0,
@@ -122,11 +125,31 @@ impl FPSMetrics {
          .movable(true)
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(150.0);
-            ui.set_height(100.0);
+            ui.set_width(170.0);
+            ui.set_height(130.0);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+
+               let counter = self.overlay.counter();
+               let text = format!("Overlay Counter: {}", counter);
+               let text = RichText::new(text).size(14.0);
+               ui.label(text);
+
+               let order = self.overlay.order();
+               let text = format!("Order: {}", order.short_debug_format());
+               let text = RichText::new(text).size(14.0);
+               ui.label(text);
+               
+               let order = self.overlay.recommended_order();
+               let text = format!("Recommended Order: {}", order.short_debug_format());
+               let text = RichText::new(text).size(14.0);
+               ui.label(text);
+
+               let alpha = self.overlay.calculate_alpha();
+               let text = format!("Overlay Alpha: {}", alpha);
+               let text = RichText::new(text).size(14.0);
+               ui.label(text);
 
                let max_fps = RichText::new(format!("Max FPS: {:.2}", self.max_fps)).size(14.0);
                ui.label(max_fps);

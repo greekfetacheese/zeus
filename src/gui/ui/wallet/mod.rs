@@ -11,12 +11,13 @@ use eframe::egui::{
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
-use zeus_theme::{Theme, utils::frame_it};
+use zeus_theme::{OverlayManager, Theme, utils::frame_it};
 use zeus_wallet::Wallet;
 
 /// Ui to manage the wallets
 pub struct WalletUi {
    open: bool,
+   overlay: OverlayManager,
    main_ui: bool,
    rename_wallet: bool,
    new_wallet_name: String,
@@ -34,17 +35,18 @@ pub struct WalletUi {
 }
 
 impl WalletUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay: overlay.clone(),
          main_ui: true,
          rename_wallet: false,
          new_wallet_name: String::new(),
          wallet_to_rename: None,
-         add_wallet_ui: AddWalletUi::new(),
+         add_wallet_ui: AddWalletUi::new(overlay.clone()),
          search_query: String::new(),
-         export_key_ui: ExportKeyUi::new(),
-         delete_wallet_ui: DeleteWalletUi::new(),
+         export_key_ui: ExportKeyUi::new(overlay.clone()),
+         delete_wallet_ui: DeleteWalletUi::new(overlay),
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
@@ -54,6 +56,19 @@ impl WalletUi {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   pub fn open_rename_wallet(&mut self, wallet: Option<Wallet>) {
+      self.overlay.window_opened();
+      self.rename_wallet = true;
+      self.wallet_to_rename = wallet;
+   }
+
+   pub fn close_rename_wallet(&mut self) {
+      self.overlay.window_closed();
+      self.rename_wallet = false;
+      self.wallet_to_rename = None;
+      self.new_wallet_name.clear();
    }
 
    pub fn open(&mut self, ctx: ZeusCtx) {
@@ -143,7 +158,6 @@ impl WalletUi {
                   .clicked()
                {
                   self.add_wallet_ui.open();
-                  self.add_wallet_ui.open_main_ui();
                }
 
                let current_wallet = ctx.current_wallet_info();
@@ -250,8 +264,7 @@ impl WalletUi {
                   Button::new(RichText::new("Rename").size(theme.text_sizes.small));
                if ui.add(rename_wallet).clicked() {
                   let wallet_opt = ctx.get_wallet(wallet.address);
-                  self.rename_wallet = true;
-                  self.wallet_to_rename = wallet_opt;
+                  self.open_rename_wallet(wallet_opt);
                }
 
                ui.add_space(8.0);
@@ -261,7 +274,7 @@ impl WalletUi {
                   Button::new(RichText::new("Delete").size(theme.text_sizes.small));
                if ui.add_enabled(enabled, delete_wallet).clicked() {
                   self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
-                  self.delete_wallet_ui.credentials_form.open = true;
+                  self.delete_wallet_ui.open();
                }
             });
 
@@ -317,6 +330,10 @@ impl WalletUi {
    }
 
    fn rename_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.rename_wallet {
+         return;
+      }
+
       let mut open = self.rename_wallet;
 
       let title = RichText::new("Rename Wallet").size(theme.text_sizes.heading);
@@ -437,9 +454,7 @@ impl WalletUi {
                               gui.wallet_ui.open(ctx.clone());
 
                               // Reset state
-                              gui.wallet_ui.rename_wallet = false;
-                              gui.wallet_ui.new_wallet_name.clear();
-                              gui.wallet_ui.wallet_to_rename = None;
+                              gui.wallet_ui.close_rename_wallet();
 
                               gui.open_msg_window("Success", "");
                               gui.request_repaint();
@@ -464,16 +479,15 @@ impl WalletUi {
             });
          });
 
-      self.rename_wallet = open;
-      if !self.rename_wallet {
-         self.new_wallet_name.clear();
-         self.wallet_to_rename = None;
+      if !open {
+         self.close_rename_wallet();
       }
    }
 }
 
 pub struct ExportKeyUi {
    open: bool,
+   overlay: OverlayManager,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_export: Option<Wallet>,
@@ -484,10 +498,11 @@ pub struct ExportKeyUi {
 }
 
 impl ExportKeyUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new(),
+         overlay: overlay.clone(),
+         credentials_form: CredentialsForm::new(overlay),
          verified_credentials: false,
          wallet_to_export: None,
          image_uri: None,
@@ -521,13 +536,20 @@ impl ExportKeyUi {
          }
       }
 
+      self.overlay.window_opened();
       self.open = true;
       self.credentials_form.open = true;
       self.wallet_to_export = wallet;
    }
 
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
    fn reset(&mut self) {
-      *self = Self::new();
+      self.close();
+      *self = Self::new(self.overlay.clone());
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -606,6 +628,10 @@ impl ExportKeyUi {
       icons: Arc<Icons>,
       ui: &mut Ui,
    ) {
+      if !self.credentials_form.open || !self.open {
+         return;
+      }
+
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -666,8 +692,8 @@ impl ExportKeyUi {
          });
       }
 
-      self.credentials_form.open = open;
-      if !self.credentials_form.open {
+      if !open {
+         self.close();
          self.credentials_form.erase();
       }
    }
@@ -675,6 +701,7 @@ impl ExportKeyUi {
 
 pub struct DeleteWalletUi {
    open: bool,
+   overlay: OverlayManager,
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_delete: Option<WalletInfo>,
@@ -682,14 +709,35 @@ pub struct DeleteWalletUi {
 }
 
 impl DeleteWalletUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         credentials_form: CredentialsForm::new(),
+         overlay: overlay.clone(),
+         credentials_form: CredentialsForm::new(overlay),
          verified_credentials: false,
          wallet_to_delete: None,
          size: (550.0, 350.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+      self.credentials_form.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
+   pub fn reset(&mut self) {
+      self.close();
+      *self = Self::new(self.overlay.clone());
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -704,6 +752,10 @@ impl DeleteWalletUi {
       icons: Arc<Icons>,
       ui: &mut Ui,
    ) {
+      if !self.credentials_form.open || !self.open {
+         return;
+      }
+
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
@@ -766,16 +818,17 @@ impl DeleteWalletUi {
          });
       }
 
-      self.credentials_form.open = open;
-      if !self.credentials_form.open {
+      if !open {
+         self.close();
          self.credentials_form.erase();
       }
    }
 
    fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      if !self.verified_credentials {
+      if !self.verified_credentials || !self.open {
          return;
       }
+
       let mut open = self.open;
       let mut clicked = false;
 
@@ -783,6 +836,7 @@ impl DeleteWalletUi {
       if wallet.is_none() {
          return;
       }
+
       let wallet = wallet.unwrap();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
@@ -851,6 +905,9 @@ impl DeleteWalletUi {
                      gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                      gui.open_msg_window("Wallet Deleted", "");
+                     // Calculate the wallets again
+                     ctx.set_vault(new_vault);
+                     gui.wallet_ui.open(ctx.clone());
                   });
                }
                Err(e) => {
@@ -861,10 +918,11 @@ impl DeleteWalletUi {
                   return;
                }
             };
-
-            ctx.set_vault(new_vault);
          });
       }
-      self.open = open;
+
+      if !open {
+         self.reset();
+      }
    }
 }

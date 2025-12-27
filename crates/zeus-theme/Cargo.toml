@@ -11,7 +11,7 @@ keywords = ["egui", "ui", "themes", "style"]
 categories = ["gui"]
 
 [dependencies.egui]
-version = "=0.33.0"
+version = "0.33.0"
 
 [dependencies.palette]
 version = "0.7.6"
@@ -29,6 +29,8 @@ features = ["derive"]
 
 [dev-dependencies]
 eframe = "=0.33.0"
+secure-types = "0.2"
+zeus-widgets = { path = "../zeus-widgets" }
 
 
 

@@ -17,9 +17,12 @@ pub struct WindowCtx {
 impl WindowCtx {
    pub fn new(title: &str, bar_height: f32, theme: &Theme) -> Self {
       let frame = theme.window_frame;
+     // let color = theme.overlay_manager.overlay_color(frame.fill);
+     // let frame = frame.fill(color);
+
       let title_text_size = theme.text_sizes.heading;
       let title_text_color = theme.colors.text;
-      let line_stroke = theme.style.visuals.widgets.noninteractive.bg_stroke;
+      let line_stroke = Stroke::new(1.0, theme.colors.border);
       let button_text_size = theme.text_sizes.large;
       let button_text_color = theme.colors.text;
       let on_hover_color = theme.colors.bg3;
@@ -119,10 +122,11 @@ fn title_bar_ui(ui: &mut Ui, window: &WindowCtx, title_bar_rect: Rect) {
    );
 
    // Paint the line under the title:
+   let y = title_bar_rect.bottom() - window.line_stroke.width / 2.0;
    painter.line_segment(
       [
-         title_bar_rect.left_bottom() + vec2(1.0, 0.0),
-         title_bar_rect.right_bottom() + vec2(-1.0, 0.0),
+         pos2(title_bar_rect.left() + 1.0, y),
+         pos2(title_bar_rect.right() - 1.0, y),
       ],
       window.line_stroke,
    );

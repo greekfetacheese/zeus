@@ -24,7 +24,7 @@ use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::RT;
 use std::str::FromStr;
 use std::sync::Arc;
-use zeus_theme::Theme;
+use zeus_theme::{Theme, OverlayManager};
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -92,6 +92,7 @@ impl ProtocolVersion {
 #[derive(Clone)]
 pub struct UniswapSettingsUi {
    open: bool,
+   overlay: OverlayManager,
    pub swap_on_v2: bool,
    pub swap_on_v3: bool,
    pub swap_on_v4: bool,
@@ -111,9 +112,10 @@ pub struct UniswapSettingsUi {
 }
 
 impl UniswapSettingsUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          swap_on_v2: true,
          swap_on_v3: true,
          swap_on_v4: true,
@@ -130,10 +132,12 @@ impl UniswapSettingsUi {
    }
 
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -301,11 +305,11 @@ pub struct UniswapUi {
 }
 
 impl UniswapUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
          size: (500.0, 900.0),
-         settings: UniswapSettingsUi::new(),
+         settings: UniswapSettingsUi::new(overlay),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
          // create_position_ui: CreatePositionUi::new(),

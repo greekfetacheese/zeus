@@ -9345,8 +9345,10 @@ dependencies = [
  "eframe",
  "egui",
  "palette",
+ "secure-types",
  "serde",
  "serde_json",
+ "zeus-widgets",
 ]
 
 [[package]]
@@ -9375,6 +9377,7 @@ version = "0.2.0"
 dependencies = [
  "egui",
  "secure-types",
+ "zeus-theme",
 ]
 
 [[package]]

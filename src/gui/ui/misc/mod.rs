@@ -15,13 +15,13 @@ use std::{
 };
 use zeus_wallet::Wallet;
 
-use zeus_widgets::{ComboBox, Label};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
    types::ChainId,
 };
-use zeus_theme::Theme;
+use zeus_theme::{OverlayManager, Theme};
+use zeus_widgets::{ComboBox, Label};
 
 pub mod dev;
 pub mod sync;
@@ -189,7 +189,8 @@ impl WalletSelect {
 
 /// A Window to prompt the user to confirm an action
 pub struct ConfirmWindow {
-   pub open: bool,
+   open: bool,
+   overlay: OverlayManager,
    pub confirm: Option<bool>,
    pub msg: String,
    pub msg2: Option<String>,
@@ -197,9 +198,10 @@ pub struct ConfirmWindow {
 }
 
 impl ConfirmWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          confirm: None,
          msg: String::new(),
          msg2: None,
@@ -207,9 +209,19 @@ impl ConfirmWindow {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self, msg: impl Into<String>) {
+      self.overlay.window_opened();
       self.open = true;
       self.msg = msg.into();
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
    }
 
    pub fn set_msg2(&mut self, msg: impl Into<String>) {
@@ -221,9 +233,9 @@ impl ConfirmWindow {
    }
 
    pub fn reset(&mut self) {
-      self.open = false;
+      self.close();
       self.msg.clear();
-      self.msg2.take();
+      self.msg2 = None;
       self.confirm = None;
    }
 
@@ -258,7 +270,7 @@ impl ConfirmWindow {
                   ))
                   .clicked()
                {
-                  self.open = false;
+                  self.close();
                   self.confirm = Some(true);
                }
 
@@ -268,7 +280,7 @@ impl ConfirmWindow {
                   ))
                   .clicked()
                {
-                  self.open = false;
+                  self.close();
                   self.confirm = Some(false);
                }
             });
@@ -279,6 +291,7 @@ impl ConfirmWindow {
 /// Window to prompt the user to update Zeus version
 pub struct UpdateWindow {
    open: bool,
+   overlay: OverlayManager,
    info: UpdateInfo,
    update_completed: bool,
    auto_restart_failed: bool,
@@ -287,9 +300,10 @@ pub struct UpdateWindow {
 }
 
 impl UpdateWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          info: Default::default(),
          update_completed: false,
          auto_restart_failed: false,
@@ -299,6 +313,7 @@ impl UpdateWindow {
    }
 
    pub fn open(&mut self, info: UpdateInfo) {
+      self.overlay.window_opened();
       self.open = true;
       self.info = info;
    }
@@ -314,6 +329,7 @@ impl UpdateWindow {
    }
 
    pub fn reset(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
       self.info = Default::default();
    }
@@ -409,7 +425,6 @@ impl UpdateWindow {
    }
 
    fn auto_restart_failed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-
       let text = RichText::new("Auto restart failed!").size(theme.text_sizes.large);
       ui.label(text);
 
@@ -461,27 +476,35 @@ impl UpdateWindow {
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    open: bool,
+   overlay: OverlayManager,
    pub msg: String,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
 
 impl LoadingWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          msg: String::new(),
          size: (200.0, 100.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self, msg: impl Into<String>) {
+      self.overlay.window_opened();
       self.open = true;
       self.msg = msg.into();
    }
 
    pub fn reset(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
       self.msg = String::new();
       self.size = (200.0, 100.0);
@@ -517,16 +540,18 @@ impl LoadingWindow {
 /// Simple window diplaying a message, for example an error
 #[derive(Default)]
 pub struct MsgWindow {
-   pub open: bool,
+   open: bool,
+   overlay: OverlayManager,
    pub title: String,
    pub message: String,
    pub size: (f32, f32),
 }
 
 impl MsgWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          title: String::new(),
          message: String::new(),
          size: (300.0, 100.0),
@@ -535,15 +560,17 @@ impl MsgWindow {
 
    /// Open the window with this title and message
    pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
+      self.overlay.window_opened();
+     // self.overlay.paint_tooltip();
       self.open = true;
       self.title = title.into();
       self.message = msg.into();
    }
 
    pub fn reset(&mut self) {
+      self.overlay.window_closed();
+     // self.overlay.paint_background();
       self.open = false;
-      self.title.clear();
-      self.message.clear();
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -574,7 +601,7 @@ impl MsgWindow {
                let ok_button =
                   Button::new(RichText::new("OK").size(theme.text_sizes.normal)).min_size(size);
                if ui.add(ok_button).clicked() {
-                  self.open = false;
+                  self.reset();
                }
             });
          });

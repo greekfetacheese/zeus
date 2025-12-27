@@ -1,5 +1,4 @@
 use crate::assets::Icons;
-use zeus_wallet::SecureHDWallet;
 use crate::core::{DiscoveredWallets, Portfolio, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
@@ -7,7 +6,6 @@ use eframe::egui::{
    Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner,
    TextEdit, Ui, Vec2, Window, vec2,
 };
-use zeus_widgets::SecureTextEdit;
 use secure_types::SecureString;
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
@@ -16,7 +14,9 @@ use zeus_eth::{
    types::SUPPORTED_CHAINS,
    utils::{NumericValue, batch, truncate_address},
 };
-use zeus_theme::Theme;
+use zeus_theme::{OverlayManager, Theme};
+use zeus_wallet::SecureHDWallet;
+use zeus_widgets::SecureTextEdit;
 
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};
@@ -29,6 +29,7 @@ enum ImportWalletType {
 
 pub struct ImportWallet {
    open: bool,
+   overlay: OverlayManager,
    import_key_or_phrase: ImportWalletType,
    key_or_phrase: SecureString,
    wallet_name: String,
@@ -36,9 +37,10 @@ pub struct ImportWallet {
 }
 
 impl ImportWallet {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          import_key_or_phrase: ImportWalletType::PrivateKey,
          key_or_phrase: SecureString::from(""),
          wallet_name: String::new(),
@@ -46,7 +48,25 @@ impl ImportWallet {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
    fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let was_open = self.open;
       let mut is_open = self.open;
       let mut clicked = false;
@@ -175,12 +195,15 @@ impl ImportWallet {
          });
       }
 
-      self.open = is_open;
+      if !is_open {
+         self.close();
+      }
+
       if was_open && !self.open {
          self.key_or_phrase.erase();
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
-               gui.wallet_ui.add_wallet_ui.main_ui = true;
+               gui.wallet_ui.add_wallet_ui.open();
             });
          });
       }
@@ -189,27 +212,24 @@ impl ImportWallet {
 
 pub struct AddWalletUi {
    open: bool,
-   main_ui: bool,
+   overlay: OverlayManager,
    import_wallet: ImportWallet,
    discover_child_wallets_ui: DiscoverChildWallets,
    #[allow(dead_code)]
    generate_wallet: bool,
-   #[allow(dead_code)]
-   derive_child_wallet: bool,
    #[allow(dead_code)]
    wallet_name: String,
    size: (f32, f32),
 }
 
 impl AddWalletUi {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         main_ui: true,
-         import_wallet: ImportWallet::new(),
-         discover_child_wallets_ui: DiscoverChildWallets::new(),
+         overlay: overlay.clone(),
+         import_wallet: ImportWallet::new(overlay.clone()),
+         discover_child_wallets_ui: DiscoverChildWallets::new(overlay),
          generate_wallet: false,
-         derive_child_wallet: false,
          wallet_name: String::new(),
          size: (450.0, 250.0),
       }
@@ -219,23 +239,17 @@ impl AddWalletUi {
       self.open
    }
 
-   pub fn is_main_ui_open(&self) -> bool {
-      self.main_ui
-   }
-
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
-   pub fn open_main_ui(&mut self) {
-      self.main_ui = true;
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
       self.main_ui(ctx.clone(), theme, ui);
       self.import_wallet.show(ctx.clone(), theme, ui);
       self.discover_child_wallets_ui.show(ctx.clone(), theme, icons, ui);
@@ -244,10 +258,14 @@ impl AddWalletUi {
    }
 
    fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.main_ui;
-      let mut clicked1 = false;
-      let mut clicked2 = false;
-      let mut clicked3 = false;
+      if !self.open {
+         return;
+      }
+
+      let mut open = self.open;
+      let mut derive_clicked = false;
+      let mut import_from_pk_clicked = false;
+      let mut import_from_seed_clicked = false;
 
       Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -266,13 +284,14 @@ impl AddWalletUi {
                let size = vec2(ui.available_width() * 0.9, 50.0);
 
                // Derive a new child wallet from the master wallet
-               let button =
-                  Button::new(RichText::new("Derive from Master Wallet").size(theme.text_sizes.large))
-                     .corner_radius(5)
-                     .min_size(size);
+               let button = Button::new(
+                  RichText::new("Derive from Master Wallet").size(theme.text_sizes.large),
+               )
+               .corner_radius(5)
+               .min_size(size);
 
                if ui.add(button).clicked() {
-                  clicked1 = true;
+                  derive_clicked = true;
                }
 
                // From private key
@@ -282,7 +301,7 @@ impl AddWalletUi {
                .corner_radius(5)
                .min_size(size);
                if ui.add(button).clicked() {
-                  clicked2 = true;
+                  import_from_pk_clicked = true;
                }
 
                // From seed phrase
@@ -292,13 +311,14 @@ impl AddWalletUi {
                .corner_radius(5)
                .min_size(size);
                if ui.add(button).clicked() {
-                  clicked3 = true;
+                  import_from_seed_clicked = true;
                }
             });
          });
 
-      if clicked1 {
+      if derive_clicked {
          open = false;
+         self.discover_child_wallets_ui.open();
 
          let vault = ctx.get_vault();
 
@@ -335,103 +355,28 @@ impl AddWalletUi {
          });
       }
 
-      if clicked2 {
-         self.import_wallet.open = true;
+      if import_from_pk_clicked {
+         self.import_wallet.open();
          self.import_wallet.import_key_or_phrase = ImportWalletType::PrivateKey;
          open = false;
       }
 
-      if clicked3 {
-         self.import_wallet.open = true;
+      if import_from_seed_clicked {
+         self.import_wallet.open();
          self.import_wallet.import_key_or_phrase = ImportWalletType::MnemonicPhrase;
          open = false;
       }
 
-      self.main_ui = open;
-   }
-
-   fn _derive_child_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.derive_child_wallet;
-      let mut clicked = false;
-
-      Window::new(RichText::new("Derive Child Wallet").size(theme.text_sizes.large))
-         .open(&mut open)
-         .order(Order::Foreground)
-         .resizable(false)
-         .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
-
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let size = vec2(ui.available_width() * 0.5, 20.0);
-               ui.add_space(20.0);
-
-               // Wallet Name
-               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
-               ui.add(
-                  TextEdit::singleline(&mut self.wallet_name)
-                     .font(FontId::proportional(theme.text_sizes.normal))
-                     .margin(Margin::same(10))
-                     .min_size(size),
-               );
-
-               let button = Button::new(RichText::new("Create").size(theme.text_sizes.normal));
-               if ui.add(button).clicked() {
-                  clicked = true;
-               }
-            });
-         });
-
-      if clicked {
-         let wallet_name = self.wallet_name.clone();
-
-         RT.spawn_blocking(move || {
-            let mut new_vault = ctx.get_vault();
-
-            match new_vault.derive_child_wallet(wallet_name) {
-               Ok(_) => {}
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to create wallet", e.to_string());
-                  });
-                  return;
-               }
-            }
-
-            SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Encrypting vault...");
-            });
-
-            // Encrypt the vault
-            match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
-               Ok(_) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.wallet_ui.add_wallet_ui.wallet_name.clear();
-                     gui.open_msg_window("Wallet generated successfully", "");
-                  });
-               }
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.loading_window.reset();
-                     gui.open_msg_window("Failed to encrypt vault", e.to_string());
-                  });
-                  return;
-               }
-            };
-
-            ctx.set_vault(new_vault);
-         });
+      if !open {
+         self.close();
       }
-      self.derive_child_wallet = open;
    }
 
    fn _generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.generate_wallet {
+         return;
+      }
+
       let mut open = self.generate_wallet;
       let mut clicked = false;
       Window::new(RichText::new("Generate Wallet").size(theme.text_sizes.large))
@@ -518,6 +463,7 @@ impl AddWalletUi {
 /// If the user generates a lot of wallets the Ui can lag
 pub struct DiscoverChildWallets {
    open: bool,
+   overlay: OverlayManager,
    hd_wallet: SecureHDWallet,
    /// A clone of the HD Wallet just to discover wallets
    discovery_wallet: SecureHDWallet,
@@ -533,9 +479,10 @@ pub struct DiscoverChildWallets {
 }
 
 impl DiscoverChildWallets {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          hd_wallet: SecureHDWallet::random(),
          discovery_wallet: SecureHDWallet::random(),
          discovered_wallets: DiscoveredWallets::new(),
@@ -548,6 +495,20 @@ impl DiscoverChildWallets {
          items_per_page: 20,
          size: (600.0, 450.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
    }
 
    fn set_discovered_wallets(&mut self, discovered_wallets: DiscoveredWallets) {
@@ -563,10 +524,15 @@ impl DiscoverChildWallets {
    }
 
    fn reset(&mut self) {
-      *self = Self::new();
+      self.close();
+      *self = Self::new(self.overlay.clone());
    }
 
    fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       self.add_wallet(ctx.clone(), theme, ui);
 
       let was_open = self.open;
@@ -720,7 +686,7 @@ impl DiscoverChildWallets {
                            total_pages
                         ))
                         .size(theme.text_sizes.normal);
-                     
+
                         ui.label(page_text);
                         ui.add_enabled_ui(self.current_page + 1 < total_pages, |ui| {
                            let next_text = RichText::new("Next").size(theme.text_sizes.normal);
@@ -734,7 +700,10 @@ impl DiscoverChildWallets {
             });
          });
 
-      self.open = is_open;
+      if !is_open {
+         self.close();
+      }
+
       if was_open && !self.open {
          let wallets = self.discovered_wallets.clone();
          RT.spawn_blocking(move || {
@@ -748,7 +717,7 @@ impl DiscoverChildWallets {
             }
 
             SHARED_GUI.write(|gui| {
-               gui.wallet_ui.add_wallet_ui.main_ui = true;
+               gui.wallet_ui.add_wallet_ui.open();
             });
          });
          self.reset();
@@ -819,7 +788,6 @@ impl DiscoverChildWallets {
                .add_wallet_ui
                .discover_child_wallets_ui
                .set_discovered_wallets(discovered_wallets);
-
          });
 
          match sync_wallets_balance(ctx_clone, addresses, concurrency).await {

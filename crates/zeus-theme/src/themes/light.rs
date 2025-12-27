@@ -1,4 +1,4 @@
-use super::super::{TextSizes, Theme, FrameVisuals, ThemeColors, ThemeKind};
+use super::super::{TextSizes, Theme, OverlayManager, FrameVisuals, visuals::*, ThemeColors, ThemeKind};
 use egui::{
    Color32, CornerRadius, Frame, Margin, Shadow, Stroke, Style, Visuals,
    style::{Selection, WidgetVisuals, Widgets},
@@ -32,6 +32,7 @@ const INFO: Color32 = Color32::from_rgba_premultiplied(111, 47, 206, 255);
 pub fn theme() -> Theme {
    Theme {
       dark_mode: false,
+      overlay_manager: OverlayManager::new(),
       image_tint_recommended: false,
       kind: ThemeKind::Light,
       style: style(),
@@ -48,6 +49,18 @@ pub fn theme() -> Theme {
 /// Return the theme colors for this theme
 fn colors() -> ThemeColors {
    ThemeColors {
+      button_visuals_1: button_visuals_1(),
+      button_visuals_2: button_visuals_1(),
+      button_visuals_3: button_visuals_1(),
+      label_visuals_1: label_visuals_1(),
+      label_visuals_2: label_visuals_1(),
+      label_visuals_3: label_visuals_1(),
+      combo_box_visuals_1: combo_box_visuals_1(),
+      combo_box_visuals_2: combo_box_visuals_1(),
+      combo_box_visuals_3: combo_box_visuals_1(),
+      text_edit_visuals_1: text_edit_visuals_1(),
+      text_edit_visuals_2: text_edit_visuals_1(),
+      text_edit_visuals_3: text_edit_visuals_1(),
       bg: BG,
       bg2: BG2,
       bg3: BG3,
@@ -117,6 +130,59 @@ pub fn frame2_visuals(colors: &ThemeColors) -> FrameVisuals {
       bg_on_click: colors.bg4,
       border_on_hover: (0.0, colors.border),
       border_on_click: (0.0, colors.border),
+   }
+}
+
+pub fn button_visuals_1() -> ButtonVisuals {
+   ButtonVisuals {
+      text: TEXT,
+      bg: BG3,
+      bg_hover: BG4,
+      bg_click: BG3,
+      bg_selected: BG4,
+      border: Stroke::NONE,
+      border_hover: Stroke::NONE,
+      border_click: Stroke::NONE,
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow {
+         offset: (0, 0).into(),
+         blur: 6,
+         spread: 1,
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 200),
+      },
+   }
+}
+
+pub fn label_visuals_1() -> ButtonVisuals {
+   ButtonVisuals {
+      bg: Color32::TRANSPARENT,
+      ..button_visuals_1()
+   }
+}
+
+pub fn combo_box_visuals_1() -> ComboBoxVisuals {
+   ComboBoxVisuals {
+      bg: BG3,
+      icon: TEXT,
+      bg_hover: BG4,
+      bg_open: BG3,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, BORDER),
+      border_open: Stroke::new(1.0, BORDER),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
+pub fn text_edit_visuals_1() -> TextEditVisuals {
+   TextEditVisuals {
+      text: TEXT,
+      bg: BG3,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, BORDER),
+      border_open: Stroke::new(1.0, BORDER),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
    }
 }
 

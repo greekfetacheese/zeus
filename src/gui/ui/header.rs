@@ -19,7 +19,7 @@ use zeus_eth::{
 use zeus_wallet::Wallet;
 use zeus_widgets::Label;
 
-use zeus_theme::Theme;
+use zeus_theme::{OverlayManager, Theme};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -27,6 +27,7 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 /// Show some of current state of Zeus like the current chain, wallet, etc.
 pub struct Header {
    open: bool,
+   overlay: OverlayManager,
    size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
@@ -37,17 +38,18 @@ pub struct Header {
 }
 
 impl Header {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       let size = (230.0, 200.0);
       let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(size.0, 20.0));
       let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(size.0, 20.0));
 
       Self {
          open: false,
+         overlay: overlay.clone(),
          size,
          chain_select,
          wallet_select,
-         qrcode_window: QRCodeWindow::new(),
+         qrcode_window: QRCodeWindow::new(overlay),
          delegate_window_open: false,
          delegate_to: String::new(),
          syncing: false,
@@ -64,6 +66,16 @@ impl Header {
 
    pub fn close(&mut self) {
       self.open = false;
+   }
+
+   pub fn open_delegate_window(&mut self) {
+      self.overlay.window_opened();
+      self.delegate_window_open = true;
+   }
+
+   pub fn close_delegate_window(&mut self) {
+      self.overlay.window_closed();
+      self.delegate_window_open = false;
    }
 
    pub fn set_current_wallet(&mut self, wallet: Wallet) {
@@ -186,7 +198,7 @@ impl Header {
                   let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
                   if res.clicked() {
-                     self.delegate_window_open = true;
+                     self.open_delegate_window();
                   }
                });
             });
@@ -299,7 +311,7 @@ impl Header {
 
                      let text = RichText::new("Close").size(theme.text_sizes.normal);
                      if ui.add(Button::new(text)).clicked() {
-                        self.delegate_window_open = false;
+                        self.close_delegate_window();
                      }
                   });
                });
@@ -399,7 +411,7 @@ impl Header {
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
-               gui.header.delegate_window_open = false;
+               gui.header.close_delegate_window();
                gui.request_repaint();
             });
 
@@ -413,7 +425,7 @@ impl Header {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while delegating", e.to_string());
                      gui.loading_window.reset();
-                     gui.header.delegate_window_open = true;
+                     gui.header.open_delegate_window();
                      gui.notification.reset();
                   });
                }
@@ -455,7 +467,7 @@ impl Header {
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
-               gui.header.delegate_window_open = false;
+               gui.header.close_delegate_window();
                gui.request_repaint();
             });
 
@@ -469,7 +481,7 @@ impl Header {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while undelegating", e.to_string());
                      gui.loading_window.reset();
-                     gui.header.delegate_window_open = true;
+                     gui.header.open_delegate_window();
                      gui.notification.reset();
                   });
                }
@@ -481,6 +493,7 @@ impl Header {
 
 pub struct QRCodeWindow {
    open: bool,
+   overlay: OverlayManager,
    wallet: Option<WalletInfo>,
    image: Option<Image<'static>>,
    error: Option<String>,
@@ -488,14 +501,19 @@ pub struct QRCodeWindow {
 }
 
 impl QRCodeWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          wallet: None,
          image: None,
          error: None,
          size: (400.0, 400.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {
@@ -519,14 +537,21 @@ impl QRCodeWindow {
             )),
          )
       };
+      self.overlay.window_opened();
       self.open = true;
       self.wallet = Some(wallet);
       self.image = image;
       self.error = error;
    }
 
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
+   }
+
    pub fn reset(&mut self) {
-      *self = Self::new();
+      self.close();
+      *self = Self::new(self.overlay.clone());
    }
 
    pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -551,7 +576,9 @@ impl QRCodeWindow {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                if self.wallet.is_none() {
-                  ui.label(RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal));
+                  ui.label(
+                     RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
+                  );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
                   self.close_button(theme, ui);
                   return;

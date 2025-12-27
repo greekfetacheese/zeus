@@ -13,5 +13,9 @@ edition = "2024"
 [dependencies.egui]
 version = "0.33.0"
 
+[dependencies.zeus-theme]
+version = "0.2"
+path = "../zeus-theme"
+
 [dependencies.secure-types]
 version = "0.2"

@@ -1,6 +1,9 @@
-use super::super::{TextSizes, Theme, FrameVisuals, ThemeColors, ThemeKind};
+use super::super::{
+   FrameVisuals, TextSizes, Theme, OverlayManager, ThemeColors, ThemeKind, visuals::*,
+};
 use egui::{
-   Color32, CornerRadius, Frame, Margin, Shadow, Spacing, Stroke, Style, Visuals, style::{Selection, WidgetVisuals, Widgets}
+   Color32, CornerRadius, Frame, Margin, Shadow, Spacing, Stroke, Style, Visuals,
+   style::{Selection, WidgetVisuals, Widgets},
 };
 
 // Background
@@ -31,6 +34,7 @@ const INFO: Color32 = Color32::from_rgba_premultiplied(195, 153, 255, 255);
 pub fn theme() -> Theme {
    Theme {
       dark_mode: true,
+      overlay_manager: OverlayManager::new(),
       image_tint_recommended: true,
       kind: ThemeKind::Dark,
       style: style(),
@@ -47,6 +51,18 @@ pub fn theme() -> Theme {
 /// Return the theme colors for this theme
 fn colors() -> ThemeColors {
    ThemeColors {
+      button_visuals_1: button_visuals_1(),
+      button_visuals_2: button_visuals_2(),
+      button_visuals_3: button_visuals_3(),
+      label_visuals_1: label_visuals_1(),
+      label_visuals_2: label_visuals_2(),
+      label_visuals_3: label_visuals_3(),
+      combo_box_visuals_1: combo_box_visuals_1(),
+      combo_box_visuals_2: combo_box_visuals_1(),
+      combo_box_visuals_3: combo_box_visuals_3(),
+      text_edit_visuals_1: text_edit_visuals_1(),
+      text_edit_visuals_2: text_edit_visuals_2(),
+      text_edit_visuals_3: text_edit_visuals_3(),
       bg: BG,
       bg2: BG2,
       bg3: BG3,
@@ -119,6 +135,146 @@ pub fn frame2_visuals(colors: &ThemeColors) -> FrameVisuals {
    }
 }
 
+/// Button visuals on BG1
+pub fn button_visuals_1() -> ButtonVisuals {
+   ButtonVisuals {
+      text: TEXT,
+      bg: BG3,
+      bg_hover: BG4,
+      bg_click: BG3,
+      bg_selected: BG4,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, Color32::TRANSPARENT),
+      border_click: Stroke::new(1.0, Color32::TRANSPARENT),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow {
+         offset: (0, 0).into(),
+         blur: 6,
+         spread: 1,
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 115),
+      },
+   }
+}
+
+/// Button visuals on BG2
+pub fn button_visuals_2() -> ButtonVisuals {
+   ButtonVisuals {
+      border: Stroke::new(1.0, Color32::TRANSPARENT),
+      shadow: Shadow {
+         offset: (0, 0).into(),
+         blur: 17,
+         spread: 1,
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 79),
+      },
+      ..button_visuals_1()
+   }
+}
+
+/// Button visuals on BG3
+pub fn button_visuals_3() -> ButtonVisuals {
+   ButtonVisuals {
+      text: TEXT,
+      bg: BG4,
+      bg_hover: BG3,
+      bg_click: BG4,
+      bg_selected: BG3,
+      border: Stroke::new(1.0, BORDER),
+      ..button_visuals_2()
+   }
+}
+
+pub fn combo_box_visuals_1() -> ComboBoxVisuals {
+   ComboBoxVisuals {
+      bg: BG3,
+      icon: TEXT,
+      bg_hover: BG4,
+      bg_open: BG3,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, BORDER),
+      border_open: Stroke::new(1.0, BORDER),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
+pub fn combo_box_visuals_2() -> ComboBoxVisuals {
+   combo_box_visuals_1()
+}
+
+pub fn combo_box_visuals_3() -> ComboBoxVisuals {
+   ComboBoxVisuals {
+      bg: BG4,
+      icon: TEXT,
+      bg_hover: BG3,
+      bg_open: BG2,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, BORDER),
+      border_open: Stroke::new(1.0, BORDER),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
+
+pub fn label_visuals_1() -> ButtonVisuals {
+   ButtonVisuals {
+      bg: Color32::TRANSPARENT,
+      border: Stroke::new(1.0, Color32::TRANSPARENT),
+      ..button_visuals_1()
+   }
+}
+
+pub fn label_visuals_2() -> ButtonVisuals {
+   ButtonVisuals {
+      ..label_visuals_1()
+   }
+}
+
+pub fn label_visuals_3() -> ButtonVisuals {
+   ButtonVisuals {
+      bg_hover: BG4,
+      bg_click: BG3,
+      bg_selected: BG4,
+      ..label_visuals_2()
+   }
+}
+
+pub fn text_edit_visuals_1() -> TextEditVisuals {
+   TextEditVisuals {
+      text: TEXT,
+      bg: BG2,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, HIGHLIGHT),
+      border_open: Stroke::new(1.0, HIGHLIGHT),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
+pub fn text_edit_visuals_2() -> TextEditVisuals {
+   TextEditVisuals {
+      text: TEXT,
+      bg: BG2,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, HIGHLIGHT),
+      border_open: Stroke::new(1.0, HIGHLIGHT),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
+pub fn text_edit_visuals_3() -> TextEditVisuals {
+   TextEditVisuals {
+      text: TEXT,
+      bg: BG2,
+      border: Stroke::new(1.0, BORDER),
+      border_hover: Stroke::new(1.0, HIGHLIGHT),
+      border_open: Stroke::new(1.0, HIGHLIGHT),
+      corner_radius: CornerRadius::same(6),
+      shadow: Shadow::NONE,
+   }
+}
+
 fn style() -> Style {
    let widgets = widgets(colors());
    let visuals = visuals(widgets, &colors());
@@ -151,14 +307,9 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
       warn_fg_color: colors.warning,
       error_fg_color: colors.error,
       window_corner_radius: CornerRadius::same(6),
-      window_shadow: Shadow {
-         offset: (0, 0).into(),
-         blur: 12,
-         spread: 1,
-         color: Color32::from_rgba_premultiplied(0, 0, 0, 255),
-      },
+      window_shadow: Shadow::NONE,
       window_fill: colors.bg2,
-      window_stroke: Stroke::NONE,
+      window_stroke: Stroke::new(1.0, colors.border),
       panel_fill: colors.bg,
       ..Default::default()
    }
@@ -175,7 +326,7 @@ fn widgets(colors: ThemeColors) -> Widgets {
    };
 
    let mut non_interactive_base = base_visuals.clone();
-   non_interactive_base.bg_stroke.width = 0.0;
+   non_interactive_base.bg_stroke.width = 1.0;
 
    // Set inactive bg to border color
    // Because widgets like sliders dont get a border and it will not distinguish

@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use ui::settings;
 
 use crate::assets::icons::Icons;
-use crate::core::context::ZeusCtx;
+use crate::core::context::{ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
 use zeus_theme::{Theme, ThemeEditor, ThemeKind};
 
@@ -93,25 +93,30 @@ pub struct GUI {
 impl GUI {
    pub fn new(icons: Arc<Icons>, theme: Theme, egui_ctx: Context) -> Self {
       let ctx = ZeusCtx::new();
+      let overlay_manager = theme.overlay_manager.clone();
 
-      let token_selection = ui::TokenSelectionWindow::new();
-      let recipient_selection = ui::RecipientSelectionWindow::new();
+      let token_selection = ui::TokenSelectionWindow::new(overlay_manager.clone());
+      let recipient_selection = ui::RecipientSelectionWindow::new(overlay_manager.clone());
       let send_crypto = ui::SendCryptoUi::new();
       let across_bridge = ui::dapps::across::AcrossBridge::new();
-      let header = Header::new();
+      let header = Header::new(overlay_manager.clone());
 
-      let msg_window = ui::MsgWindow::new();
-      let loading_window = ui::LoadingWindow::new();
-      let confirm_window = ui::misc::ConfirmWindow::new();
-      let tx_confirmation_window = TxConfirmationWindow::new();
-      let tx_window = TxWindow::new();
-      let wallet_ui = ui::WalletUi::new();
-      let settings = settings::SettingsUi::new(ctx.clone());
+      let msg_window = ui::MsgWindow::new(overlay_manager.clone());
+      let loading_window = ui::LoadingWindow::new(overlay_manager.clone());
+      let confirm_window = ui::misc::ConfirmWindow::new(overlay_manager.clone());
+      let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
+      let tx_window = TxWindow::new(overlay_manager.clone());
+      let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
+      let settings = settings::SettingsUi::new(ctx.clone(), overlay_manager.clone());
       let tx_history = ui::tx_history::TxHistory::new();
-      let sign_msg_window = SignMsgWindow::new();
-      let connected_dapps = ConnectedDappsUi::new();
+      let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
+      let connected_dapps = ConnectedDappsUi::new(overlay_manager.clone());
       let notification = Notification::new();
-      let update_window = UpdateWindow::new();
+      let update_window = UpdateWindow::new(overlay_manager.clone());
+      let fps_metrics = FPSMetrics::new(overlay_manager.clone());
+      let uniswap = UniswapUi::new(overlay_manager.clone());
+      let unlock_vault_ui = UnlockVault::new(overlay_manager.clone());
+      let recover_wallet_ui = RecoverHDWallet::new(overlay_manager);
 
       Self {
          egui_ctx,
@@ -123,10 +128,10 @@ impl GUI {
          token_selection,
          recipient_selection,
          wallet_ui,
-         uniswap: UniswapUi::new(),
+         uniswap,
          across_bridge,
-         unlock_vault_ui: UnlockVault::new(),
-         recover_wallet_ui: RecoverHDWallet::new(),
+         unlock_vault_ui,
+         recover_wallet_ui,
          portofolio: PortfolioUi::new(),
          send_crypto,
          msg_window,
@@ -138,7 +143,7 @@ impl GUI {
          tx_confirmation_window,
          tx_window,
          sign_msg_window,
-         fps_metrics: FPSMetrics::new(),
+         fps_metrics,
          connected_dapps,
          notification,
          update_window,
@@ -182,10 +187,15 @@ impl GUI {
 impl Default for GUI {
    fn default() -> Self {
       let icons = Arc::new(Icons::default());
-      GUI::new(
-         icons,
-         Theme::new(ThemeKind::Dark),
-         Context::default(),
-      )
+
+      let theme_kind = if let Ok(kind) = load_theme_kind() {
+         kind
+      } else {
+         ThemeKind::Dark
+      };
+
+      let theme = Theme::new(theme_kind);
+
+      GUI::new(icons, theme, Context::default())
    }
 }

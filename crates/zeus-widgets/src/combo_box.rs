@@ -5,10 +5,12 @@ use egui::{
    epaint::{RectShape, Shape, StrokeKind},
    style::WidgetVisuals,
 };
+use zeus_theme::ComboBoxVisuals;
 
 #[must_use = "You should call .show_ui()"]
 pub struct ComboBox {
    id_salt: Id,
+   visuals: Option<ComboBoxVisuals>,
    label: Option<WidgetText>,
    selected_item: Label,
    width: Option<f32>,
@@ -22,6 +24,7 @@ impl ComboBox {
    pub fn new(id_salt: impl std::hash::Hash, selected_item: Label) -> Self {
       Self {
          id_salt: Id::new(id_salt),
+         visuals: None,
          label: None,
          selected_item,
          width: None,
@@ -30,6 +33,11 @@ impl ComboBox {
          wrap_mode: None,
          close_behavior: None,
       }
+   }
+
+   pub fn visuals(mut self, visuals: ComboBoxVisuals) -> Self {
+      self.visuals = Some(visuals);
+      self
    }
 
    pub fn label(mut self, label: impl Into<WidgetText>) -> Self {
@@ -85,6 +93,7 @@ impl ComboBox {
          ui,
          button_id,
          is_popup_open,
+         self.visuals.as_ref(),
          &self.selected_item,
          self.icon,
          self.wrap_mode,
@@ -146,6 +155,7 @@ fn combo_box_with_image_button(
    ui: &mut Ui,
    _id: Id,
    is_popup_open: bool,
+   combo_box_visuals: Option<&ComboBoxVisuals>,
    selected_item: &Label,
    icon_painter: Option<Box<dyn FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow)>>,
    wrap_mode_override: Option<TextWrapMode>,
@@ -202,11 +212,21 @@ fn combo_box_with_image_button(
 
       // Paint background
       let background_rect = rect.expand(visuals.expansion);
+      let corner = combo_box_visuals.map(|v| v.corner_radius).unwrap_or(visuals.corner_radius);
+      
+      let fill = combo_box_visuals
+         .map(|v| v.bg_from_res(&response))
+         .unwrap_or(visuals.weak_bg_fill);
+
+      let stroke = combo_box_visuals
+         .map(|v| v.border_from_res(&response))
+         .unwrap_or(visuals.bg_stroke);
+
       ui.painter().add(RectShape::new(
          background_rect,
-         visuals.corner_radius,
-         visuals.weak_bg_fill,
-         visuals.bg_stroke,
+         corner,
+         fill,
+         stroke,
          StrokeKind::Inside,
       ));
 
@@ -245,7 +265,13 @@ fn combo_box_with_image_button(
             above_or_below,
          );
       } else {
-         paint_default_icon(ui.painter(), icon_rect, &visuals, above_or_below);
+         paint_default_icon(
+            ui.painter(),
+            icon_rect,
+            combo_box_visuals,
+            &visuals,
+            above_or_below,
+         );
       }
    }
 
@@ -255,6 +281,7 @@ fn combo_box_with_image_button(
 fn paint_default_icon(
    painter: &Painter,
    rect: Rect,
+   combo_box_visuals: Option<&ComboBoxVisuals>,
    visuals: &WidgetVisuals,
    above_or_below: AboveOrBelow,
 ) {
@@ -268,9 +295,6 @@ fn paint_default_icon(
       AboveOrBelow::Below => vec![rect.left_top(), rect.right_top(), rect.center_bottom()],
    };
 
-   painter.add(Shape::convex_polygon(
-      points,
-      visuals.fg_stroke.color,
-      Stroke::NONE,
-   ));
+   let fill = combo_box_visuals.map(|v| v.icon).unwrap_or(visuals.fg_stroke.color);
+   painter.add(Shape::convex_polygon(points, fill, Stroke::NONE));
 }

@@ -1,11 +1,14 @@
 use egui::{
-   Align, Button, CollapsingHeader, Color32, ComboBox, DragValue, Frame, Layout, Popup,
-   PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand, Slider, Stroke,
-   StrokeKind, Ui, Vec2, Window, ecolor::HexColor, vec2,
+   Align, Button, CollapsingHeader, Color32, ComboBox, CornerRadius, DragValue, Frame, Layout,
+   Margin, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand,
+   Shadow, Slider, Stroke, StrokeKind, Ui, Vec2, Window,
+   color_picker::{Alpha, color_edit_button_srgba},
+   ecolor::HexColor,
+   vec2,
 };
 
 use super::{Theme, hsla::Hsla, utils};
-use crate::ThemeColors;
+use crate::{ButtonVisuals, ComboBoxVisuals, TextEditVisuals, ThemeColors};
 
 /// Identify which state of the widget we should edit
 #[derive(Clone, PartialEq)]
@@ -213,6 +216,7 @@ impl ThemeEditor {
    pub fn ui(&mut self, theme: &mut Theme, ui: &mut Ui) {
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = 10.0;
+         let colors = theme.colors.clone();
 
          CollapsingHeader::new("Theme Frames").show(ui, |ui| {
             CollapsingHeader::new("Native Window Frame").show(ui, |ui| {
@@ -225,6 +229,100 @@ impl ThemeEditor {
 
             CollapsingHeader::new("Frame 2").show(ui, |ui| {
                self.frame_settings(&mut theme.frame2, ui);
+            });
+         });
+
+         CollapsingHeader::new("Custom Widgets Visuals").show(ui, |ui| {
+            CollapsingHeader::new("Button").show(ui, |ui| {
+               CollapsingHeader::new("Button Visuals 1").show(ui, |ui| {
+                  self.button_visuals(colors, &mut theme.colors.button_visuals_1, ui);
+               });
+
+               CollapsingHeader::new("Button Visuals 2").show(ui, |ui| {
+                  self.button_visuals(colors, &mut theme.colors.button_visuals_2, ui);
+               });
+
+               CollapsingHeader::new("Button Visuals 3").show(ui, |ui| {
+                  self.button_visuals(colors, &mut theme.colors.button_visuals_3, ui);
+               });
+            });
+
+            CollapsingHeader::new("Label").show(ui, |ui| {
+               CollapsingHeader::new("Label Visuals 1").show(ui, |ui| {
+                  self.button_visuals(
+                     colors,
+                     &mut theme.colors.label_visuals_1,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Label Visuals 2").show(ui, |ui| {
+                  self.button_visuals(
+                     colors,
+                     &mut theme.colors.label_visuals_2,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Label Visuals 3").show(ui, |ui| {
+                  self.button_visuals(
+                     colors,
+                     &mut theme.colors.label_visuals_3,
+                     ui,
+                  );
+               });
+            });
+
+            CollapsingHeader::new("Combo Box").show(ui, |ui| {
+               CollapsingHeader::new("Combo Box Visuals 1").show(ui, |ui| {
+                  self.combo_box_visuals(
+                     colors,
+                     &mut theme.colors.combo_box_visuals_1,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Combo Box Visuals 2").show(ui, |ui| {
+                  self.combo_box_visuals(
+                     colors,
+                     &mut theme.colors.combo_box_visuals_2,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Combo Box Visuals 3").show(ui, |ui| {
+                  self.combo_box_visuals(
+                     colors,
+                     &mut theme.colors.combo_box_visuals_3,
+                     ui,
+                  );
+               });
+            });
+
+            CollapsingHeader::new("Text Edit").show(ui, |ui| {
+               CollapsingHeader::new("Text Edit Visuals 1").show(ui, |ui| {
+                  self.text_edit_visuals(
+                     colors,
+                     &mut theme.colors.text_edit_visuals_1,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Text Edit Visuals 2").show(ui, |ui| {
+                  self.text_edit_visuals(
+                     colors,
+                     &mut theme.colors.text_edit_visuals_2,
+                     ui,
+                  );
+               });
+
+               CollapsingHeader::new("Text Edit Visuals 3").show(ui, |ui| {
+                  self.text_edit_visuals(
+                     colors,
+                     &mut theme.colors.text_edit_visuals_3,
+                     ui,
+                  );
+               });
             });
          });
 
@@ -367,77 +465,10 @@ impl ThemeEditor {
 
          CollapsingHeader::new("Window Visuals").show(ui, |ui| {
             ui.label("Window Rounding");
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_corner_radius.nw,
-                  0..=35,
-               )
-               .text("Top Left"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_corner_radius.ne,
-                  0..=35,
-               )
-               .text("Top Right"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_corner_radius.sw,
-                  0..=35,
-               )
-               .text("Bottom Left"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_corner_radius.se,
-                  0..=35,
-               )
-               .text("Bottom Right"),
-            );
+            edit_corner_radius(&mut theme.style.visuals.window_corner_radius, ui);
 
             ui.label("Window Shadow");
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_shadow.offset[0],
-                  -100..=100,
-               )
-               .text("Offset X"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_shadow.offset[1],
-                  -100..=100,
-               )
-               .text("Offset Y"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_shadow.blur,
-                  0..=100,
-               )
-               .text("Blur"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_shadow.spread,
-                  0..=100,
-               )
-               .text("Spread"),
-            );
-
-            ui.label("Shadow Color");
-            hsla_edit_button(
-               "window_shadow_color1",
-               ui,
-               &mut theme.style.visuals.window_shadow.color,
-            );
+            edit_shadow(&mut theme.style.visuals.window_shadow, ui);
 
             ui.label("Window Fill Color");
             hsla_edit_button(
@@ -447,19 +478,7 @@ impl ThemeEditor {
             );
 
             ui.label("Window Stroke Color");
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.window_stroke.width,
-                  0.0..=10.0,
-               )
-               .text("Stroke Width"),
-            );
-
-            hsla_edit_button(
-               "window_stroke_color1",
-               ui,
-               &mut theme.style.visuals.window_stroke.color,
-            );
+            edit_stroke(&mut theme.style.visuals.window_stroke, ui);
 
             ui.label("Window Highlight Topmost");
             ui.checkbox(
@@ -469,77 +488,11 @@ impl ThemeEditor {
          });
 
          CollapsingHeader::new("Popup Shadow").show(ui, |ui| {
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.popup_shadow.offset[0],
-                  -100..=100,
-               )
-               .text("Offset X"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.popup_shadow.offset[1],
-                  -100..=100,
-               )
-               .text("Offset Y"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.popup_shadow.blur,
-                  0..=100,
-               )
-               .text("Blur"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.popup_shadow.spread,
-                  0..=100,
-               )
-               .text("Spread"),
-            );
-
-            hsla_edit_button(
-               "popup_shadow_color1",
-               ui,
-               &mut theme.style.visuals.popup_shadow.color,
-            );
+            edit_shadow(&mut theme.style.visuals.popup_shadow, ui);
          });
 
          CollapsingHeader::new("Menu Rounding").show(ui, |ui| {
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.menu_corner_radius.nw,
-                  0..=35,
-               )
-               .text("Top Left"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.menu_corner_radius.ne,
-                  0..=35,
-               )
-               .text("Top Right"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.menu_corner_radius.sw,
-                  0..=35,
-               )
-               .text("Bottom Left"),
-            );
-
-            ui.add(
-               Slider::new(
-                  &mut theme.style.visuals.menu_corner_radius.se,
-                  0..=35,
-               )
-               .text("Bottom Right"),
-            );
+            edit_corner_radius(&mut theme.style.visuals.menu_corner_radius, ui);
          });
 
          CollapsingHeader::new("Widget Visuals").show(ui, |ui| {
@@ -627,6 +580,314 @@ impl ThemeEditor {
       });
    }
 
+   fn button_visuals(&mut self, colors: ThemeColors, visuals: &mut ButtonVisuals, ui: &mut Ui) {
+      let text = RichText::new("Button Visuals");
+      ui.label(text);
+
+      ui.label("Text Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("1", visuals.text, &colors, ui);
+         if let Some(color) = color {
+            visuals.text = color.color32();
+         }
+
+         hsla_edit_button("text1", ui, &mut visuals.text);
+      });
+
+      ui.label("Background Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("2", visuals.bg, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg = color.color32();
+         }
+
+         hsla_edit_button("bg1", ui, &mut visuals.bg);
+      });
+
+      ui.label("Background Hover Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("3", visuals.bg_hover, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg_hover = color.color32();
+         }
+
+         hsla_edit_button("bg_hover1", ui, &mut visuals.bg_hover);
+      });
+
+      ui.label("Background Click Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("4", visuals.bg_click, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg_click = color.color32();
+         }
+
+         hsla_edit_button("bg_click1", ui, &mut visuals.bg_click);
+      });
+
+      ui.label("Background Selected");
+      ui.horizontal(|ui| {
+         let color = self.color_select("5", visuals.bg_selected, &colors, ui);
+
+         if let Some(color) = color {
+            visuals.bg_selected = color.color32();
+         }
+
+         hsla_edit_button("bg_selected1", ui, &mut visuals.bg_selected);
+      });
+
+      ui.label("Border Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("6", visuals.border.color, &colors, ui);
+
+         if let Some(color) = color {
+            visuals.border.color = color.color32();
+         }
+
+         hsla_edit_button("border1", ui, &mut visuals.border.color);
+      });
+
+      ui.label("Border Hover Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("7", visuals.border_hover.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_hover.color = color.color32();
+         }
+
+         hsla_edit_button(
+            "border_hover1",
+            ui,
+            &mut visuals.border_hover.color,
+         );
+      });
+
+      ui.label("Border Click Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("8", visuals.border_click.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_click.color = color.color32();
+         }
+
+         hsla_edit_button(
+            "border_click1",
+            ui,
+            &mut visuals.border_click.color,
+         );
+      });
+
+      //  ui.label("Corner Radius");
+      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+
+      ui.label("Shadow");
+      ui.horizontal(|ui| {
+         let color = self.color_select("9", visuals.shadow.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.shadow.color = color.color32();
+         }
+
+         /*
+         hsla_edit_button(
+            "shadow_color1",
+            ui,
+            &mut colors.button_visuals.shadow.color,
+         );
+         */
+
+         color_edit_button_srgba(
+            ui,
+            &mut visuals.shadow.color,
+            Alpha::BlendOrAdditive,
+         );
+      });
+
+      ui.label("Shadow Offset");
+      ui.add(Slider::new(&mut visuals.shadow.offset[0], -100..=100).text("Offset X"));
+      ui.add(Slider::new(&mut visuals.shadow.offset[1], -100..=100).text("Offset Y"));
+
+      ui.label("Shadow Blur");
+      ui.add(Slider::new(&mut visuals.shadow.blur, 0..=100).text("Blur"));
+
+      ui.label("Shadow Spread");
+      ui.add(Slider::new(&mut visuals.shadow.spread, 0..=100).text("Spread"));
+   }
+
+   fn combo_box_visuals(
+      &mut self,
+      colors: ThemeColors,
+      visuals: &mut ComboBoxVisuals,
+      ui: &mut Ui,
+   ) {
+      ui.label("Background Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("2", visuals.bg, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg = color.color32();
+         }
+
+         hsla_edit_button("bg1", ui, &mut visuals.bg);
+      });
+
+      ui.label("Background Hover Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("3", visuals.bg_hover, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg_hover = color.color32();
+         }
+
+         hsla_edit_button("bg_hover1", ui, &mut visuals.bg_hover);
+      });
+
+      ui.label("Border Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("4", visuals.border.color, &colors, ui);
+
+         if let Some(color) = color {
+            visuals.border.color = color.color32();
+         }
+
+         hsla_edit_button("border1", ui, &mut visuals.border.color);
+      });
+
+      ui.label("Border Hover Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("5", visuals.border_hover.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_hover.color = color.color32();
+         }
+
+         hsla_edit_button(
+            "border_hover1",
+            ui,
+            &mut visuals.border_hover.color,
+         );
+      });
+
+      ui.label("Border Open Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("6", visuals.border_open.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_open.color = color.color32();
+         }
+
+         hsla_edit_button("border_open1", ui, &mut visuals.border_open.color);
+      });
+
+      //  ui.label("Corner Radius");
+      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+
+      ui.label("Shadow");
+      ui.horizontal(|ui| {
+         let color = self.color_select("9", visuals.shadow.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.shadow.color = color.color32();
+         }
+
+         color_edit_button_srgba(
+            ui,
+            &mut visuals.shadow.color,
+            Alpha::BlendOrAdditive,
+         );
+      });
+
+      ui.label("Shadow Offset");
+      ui.add(Slider::new(&mut visuals.shadow.offset[0], -100..=100).text("Offset X"));
+      ui.add(Slider::new(&mut visuals.shadow.offset[1], -100..=100).text("Offset Y"));
+
+      ui.label("Shadow Blur");
+      ui.add(Slider::new(&mut visuals.shadow.blur, 0..=100).text("Blur"));
+
+      ui.label("Shadow Spread");
+      ui.add(Slider::new(&mut visuals.shadow.spread, 0..=100).text("Spread"));
+   }
+
+   fn text_edit_visuals(
+      &mut self,
+      colors: ThemeColors,
+      visuals: &mut TextEditVisuals,
+      ui: &mut Ui,
+   ) {
+      ui.label("Text Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("1", visuals.text, &colors, ui);
+         if let Some(color) = color {
+            visuals.text = color.color32();
+         }
+
+         hsla_edit_button("text1", ui, &mut visuals.text);
+      });
+
+      ui.label("Background Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("2", visuals.bg, &colors, ui);
+         if let Some(color) = color {
+            visuals.bg = color.color32();
+         }
+
+         hsla_edit_button("bg1", ui, &mut visuals.bg);
+      });
+
+      ui.label("Border Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("3", visuals.border.color, &colors, ui);
+
+         if let Some(color) = color {
+            visuals.border.color = color.color32();
+         }
+
+         hsla_edit_button("border1", ui, &mut visuals.border.color);
+      });
+
+      ui.label("Border Hover Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("4", visuals.border_hover.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_hover.color = color.color32();
+         }
+
+         hsla_edit_button(
+            "border_hover1",
+            ui,
+            &mut visuals.border_hover.color,
+         );
+      });
+
+      ui.label("Border Open Color");
+      ui.horizontal(|ui| {
+         let color = self.color_select("5", visuals.border_open.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.border_open.color = color.color32();
+         }
+
+         hsla_edit_button("border_open1", ui, &mut visuals.border_open.color);
+      });
+
+      //  ui.label("Corner Radius");
+      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+
+      ui.label("Shadow");
+      ui.horizontal(|ui| {
+         let color = self.color_select("6", visuals.shadow.color, &colors, ui);
+         if let Some(color) = color {
+            visuals.shadow.color = color.color32();
+         }
+
+         color_edit_button_srgba(
+            ui,
+            &mut visuals.shadow.color,
+            Alpha::BlendOrAdditive,
+         );
+      });
+
+      ui.label("Shadow Offset");
+      ui.add(Slider::new(&mut visuals.shadow.offset[0], -100..=100).text("Offset X"));
+      ui.add(Slider::new(&mut visuals.shadow.offset[1], -100..=100).text("Offset Y"));
+
+      ui.label("Shadow Blur");
+      ui.add(Slider::new(&mut visuals.shadow.blur, 0..=100).text("Blur"));
+
+      ui.label("Shadow Spread");
+      ui.add(Slider::new(&mut visuals.shadow.spread, 0..=100).text("Spread"));
+   }
+
    fn widget_settings(&mut self, theme: &mut Theme, ui: &mut Ui) {
       self.select_widget_state(ui);
 
@@ -695,10 +956,7 @@ impl ThemeEditor {
       });
 
       ui.label("Rounding");
-      ui.add(Slider::new(&mut widget_visuals.corner_radius.nw, 0..=255).text("Top Left"));
-      ui.add(Slider::new(&mut widget_visuals.corner_radius.ne, 0..=255).text("Top Right"));
-      ui.add(Slider::new(&mut widget_visuals.corner_radius.sw, 0..=255).text("Bottom Left"));
-      ui.add(Slider::new(&mut widget_visuals.corner_radius.se, 0..=255).text("Bottom Right"));
+      edit_corner_radius(&mut widget_visuals.corner_radius, ui);
 
       ui.label("Foreground Stroke Width");
       ui.add(Slider::new(
@@ -733,39 +991,23 @@ impl ThemeEditor {
    fn frame_settings(&mut self, frame: &mut Frame, ui: &mut Ui) {
       CollapsingHeader::new("Inner & Outter Margin").show(ui, |ui| {
          ui.label("Inner Margin");
-         ui.add(Slider::new(&mut frame.inner_margin.top, 0..=127).text("Top"));
-         ui.add(Slider::new(&mut frame.inner_margin.bottom, 0..=127).text("Bottom"));
-         ui.add(Slider::new(&mut frame.inner_margin.left, 0..=127).text("Left"));
-         ui.add(Slider::new(&mut frame.inner_margin.right, 0..=127).text("Right"));
+         edit_margin(&mut frame.inner_margin, ui);
 
          ui.label("Outter Margin");
-         ui.add(Slider::new(&mut frame.outer_margin.top, 0..=127).text("Top"));
-         ui.add(Slider::new(&mut frame.outer_margin.bottom, 0..=127).text("Bottom"));
-         ui.add(Slider::new(&mut frame.outer_margin.left, 0..=127).text("Left"));
-         ui.add(Slider::new(&mut frame.outer_margin.right, 0..=127).text("Right"));
+         edit_margin(&mut frame.outer_margin, ui);
       });
 
       ui.label("Rounding");
-      ui.add(Slider::new(&mut frame.corner_radius.nw, 0..=255).text("Top Left"));
-      ui.add(Slider::new(&mut frame.corner_radius.ne, 0..=255).text("Top Right"));
-      ui.add(Slider::new(&mut frame.corner_radius.sw, 0..=255).text("Bottom Left"));
-      ui.add(Slider::new(&mut frame.corner_radius.se, 0..=255).text("Bottom Right"));
+      edit_corner_radius(&mut frame.corner_radius, ui);
 
       ui.label("Shadow");
-      ui.add(Slider::new(&mut frame.shadow.offset[0], -128..=127).text("Offset X"));
-      ui.add(Slider::new(&mut frame.shadow.offset[1], -128..=127).text("Offset Y"));
-      ui.add(Slider::new(&mut frame.shadow.blur, 0..=255).text("Blur"));
-      ui.add(Slider::new(&mut frame.shadow.spread, 0..=255).text("Spread"));
-
-      ui.label("Shadow Color");
-      hsla_edit_button("shadow_color1", ui, &mut frame.shadow.color);
+      edit_shadow(&mut frame.shadow, ui);
 
       ui.label("Fill Color");
       hsla_edit_button("fill_color1", ui, &mut frame.fill);
 
       ui.label("Stroke Width & Color");
-      ui.add(Slider::new(&mut frame.stroke.width, 0.0..=100.0).text("Stroke Width"));
-      hsla_edit_button("stroke_color1", ui, &mut frame.stroke.color);
+      edit_stroke(&mut frame.stroke, ui);
    }
 
    fn select_widget_state(&mut self, ui: &mut Ui) {
@@ -809,6 +1051,37 @@ impl ThemeEditor {
       });
       selected_color
    }
+}
+
+fn edit_stroke(stroke: &mut Stroke, ui: &mut Ui) {
+   ui.add(Slider::new(&mut stroke.width, 0.0..=100.0).text("Stroke Width"));
+
+   ui.label("Stroke Color");
+   color_edit_button_srgba(ui, &mut stroke.color, Alpha::BlendOrAdditive);
+}
+
+fn edit_margin(margin: &mut Margin, ui: &mut Ui) {
+   ui.add(Slider::new(&mut margin.top, 0..=127).text("Top"));
+   ui.add(Slider::new(&mut margin.bottom, 0..=127).text("Bottom"));
+   ui.add(Slider::new(&mut margin.left, 0..=127).text("Left"));
+   ui.add(Slider::new(&mut margin.right, 0..=127).text("Right"));
+}
+
+fn edit_corner_radius(corner_radius: &mut CornerRadius, ui: &mut Ui) {
+   ui.add(Slider::new(&mut corner_radius.nw, 0..=255).text("Top Left"));
+   ui.add(Slider::new(&mut corner_radius.ne, 0..=255).text("Top Right"));
+   ui.add(Slider::new(&mut corner_radius.sw, 0..=255).text("Bottom Left"));
+   ui.add(Slider::new(&mut corner_radius.se, 0..=255).text("Bottom Right"));
+}
+
+fn edit_shadow(shadow: &mut Shadow, ui: &mut Ui) {
+   ui.add(Slider::new(&mut shadow.offset[0], -128..=127).text("Offset X"));
+   ui.add(Slider::new(&mut shadow.offset[1], -128..=127).text("Offset Y"));
+   ui.add(Slider::new(&mut shadow.blur, 0..=255).text("Blur"));
+   ui.add(Slider::new(&mut shadow.spread, 0..=255).text("Spread"));
+
+   ui.label("Shadow Color");
+   color_edit_button_srgba(ui, &mut shadow.color, Alpha::BlendOrAdditive);
 }
 
 pub fn hsla_edit_button(id: &str, ui: &mut Ui, color32: &mut Color32) -> Response {

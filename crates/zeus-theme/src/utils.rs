@@ -1,5 +1,5 @@
-use super::{Theme, FrameVisuals, ThemeKind};
-use egui::{Color32, Frame, Sense, Response, ComboBox, Stroke, Ui};
+use super::{FrameVisuals, Theme, ThemeKind};
+use egui::{Color32, ComboBox, Frame, Response, Sense, Stroke, Ui};
 
 // Tint/Overlay colors, useful for example if you want to slightly darken an image on the fly
 
@@ -30,7 +30,7 @@ pub fn apply_theme_changes(theme: &mut Theme, ui: &mut Ui) {
    theme.set_window_frame_colors();
    theme.set_frame1_colors();
    theme.set_frame2_colors();
-   
+
    ui.style_mut().visuals = theme.style.visuals.clone();
 }
 

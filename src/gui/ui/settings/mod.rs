@@ -3,12 +3,12 @@ use crate::core::{ZeusCtx, context::theme_kind_dir};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::RT;
 use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
-use zeus_widgets::{ComboBox, Label};
 use ncrypt_me::Argon2;
 use std::collections::HashSet;
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
-use zeus_theme::{Theme, ThemeKind};
+use zeus_theme::{OverlayManager, Theme, ThemeKind};
+use zeus_widgets::{ComboBox, Label};
 
 pub mod contacts;
 pub mod networks;
@@ -40,15 +40,31 @@ You should keep this number as low as possible, best value for maximum security 
 
 pub struct ThemeSettings {
    open: bool,
+   overlay: OverlayManager,
    size: (f32, f32),
 }
 
 impl ThemeSettings {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          size: (400.0, 120.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
    }
 
    fn show(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -92,7 +108,7 @@ impl ThemeSettings {
                let text = RichText::new("Save").size(theme.text_sizes.normal);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.7, 35.0));
                if ui.add(button).clicked() {
-                  self.open = false;
+                  self.close();
 
                   RT.spawn_blocking(move || {
                      let dir = match theme_kind_dir() {
@@ -128,6 +144,8 @@ impl ThemeSettings {
 
 pub struct SettingsUi {
    open: bool,
+   #[allow(dead_code)]
+   overlay: OverlayManager,
    general: GeneralSettings,
    pub encryption: EncryptionSettings,
    network: NetworkSettings,
@@ -139,15 +157,16 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: ZeusCtx) -> Self {
+   pub fn new(ctx: ZeusCtx, overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         general: GeneralSettings::new(ctx),
-         encryption: EncryptionSettings::new(),
-         network: NetworkSettings::new(),
-         theme: ThemeSettings::new(),
-         contacts_ui: ContactsUi::new(),
-         credentials_form: CredentialsForm::new(),
+         overlay: overlay.clone(),
+         general: GeneralSettings::new(ctx, overlay.clone()),
+         encryption: EncryptionSettings::new(overlay.clone()),
+         network: NetworkSettings::new(overlay.clone()),
+         theme: ThemeSettings::new(overlay.clone()),
+         contacts_ui: ContactsUi::new(overlay.clone()),
+         credentials_form: CredentialsForm::new(overlay),
          verified_credentials: false,
          size: (550.0, 350.0),
       }
@@ -202,7 +221,7 @@ impl SettingsUi {
                .corner_radius(5)
                .min_size(size);
                if ui.add(credentials).clicked() {
-                  self.credentials_form.open = true;
+                  self.credentials_form.open();
                }
 
                let encryption_settings =
@@ -210,7 +229,7 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(encryption_settings).clicked() {
-                  self.encryption.open = true;
+                  self.encryption.open();
                }
 
                let contacts = Button::new(RichText::new("Contacts").size(theme.text_sizes.large))
@@ -233,7 +252,7 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(general).clicked() {
-                  self.general.open = true;
+                  self.general.open();
                }
 
                let theme =
@@ -241,7 +260,7 @@ impl SettingsUi {
                      .corner_radius(5)
                      .min_size(size);
                if ui.add(theme).clicked() {
-                  self.theme.open = true;
+                  self.theme.open();
                }
             });
          });
@@ -260,7 +279,11 @@ impl SettingsUi {
          "Verify Your Credentials"
       };
 
-      let mut open = self.credentials_form.open;
+      let mut open = self.credentials_form.is_open();
+
+      if !open {
+         return;
+      }
 
       Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
@@ -345,7 +368,7 @@ impl SettingsUi {
                                  gui.settings.credentials_form.erase();
                                  gui.loading_window.reset();
                                  gui.settings.verified_credentials = false;
-                                 gui.settings.credentials_form.open = false;
+                                 gui.settings.credentials_form.close();
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
                               ctx.set_vault(new_vault);
@@ -370,7 +393,7 @@ impl SettingsUi {
       // If the window was open and now we closed it
       if self.credentials_form.open && !open {
          self.credentials_form.erase();
-         self.credentials_form.open = false;
+         self.credentials_form.close();
          self.verified_credentials = false;
       }
    }
@@ -378,17 +401,33 @@ impl SettingsUi {
 
 pub struct EncryptionSettings {
    open: bool,
+   overlay: OverlayManager,
    argon_params: Argon2,
    pub size: (f32, f32),
 }
 
 impl EncryptionSettings {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          argon_params: Argon2::balanced(),
          size: (450.0, 350.0),
       }
+   }
+
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   pub fn open(&mut self) {
+      self.overlay.window_opened();
+      self.open = true;
+   }
+
+   pub fn close(&mut self) {
+      self.overlay.window_closed();
+      self.open = false;
    }
 
    pub fn set_argon2(&mut self, argon_params: Argon2) {
@@ -480,7 +519,10 @@ impl EncryptionSettings {
                }
             });
          });
-      self.open = open;
+
+      if !open {
+         self.close();
+      }
    }
 
    fn save(&self, ctx: ZeusCtx) {
@@ -497,7 +539,7 @@ impl EncryptionSettings {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
                   gui.open_msg_window("Encryption settings have been updated", "");
-                  gui.settings.encryption.open = false;
+                  gui.settings.encryption.close();
                   gui.settings.encryption.argon_params = new_params;
                });
             }
@@ -517,6 +559,7 @@ impl EncryptionSettings {
 
 pub struct GeneralSettings {
    open: bool,
+   overlay: OverlayManager,
    sync_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
    concurrency_for_syncing_pools: usize,
@@ -528,11 +571,12 @@ pub struct GeneralSettings {
 }
 
 impl GeneralSettings {
-   pub fn new(ctx: ZeusCtx) -> Self {
+   pub fn new(ctx: ZeusCtx, overlay: OverlayManager) -> Self {
       let pool_manager = ctx.pool_manager();
       let balance_manager = ctx.balance_manager();
       Self {
          open: false,
+         overlay,
          sync_v4_pools_on_startup: pool_manager.do_we_sync_v4_pools(),
          concurrency_for_syncing_balances: balance_manager.concurrency(),
          concurrency_for_syncing_pools: pool_manager.concurrency(),
@@ -545,10 +589,12 @@ impl GeneralSettings {
    }
 
    pub fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -578,6 +624,10 @@ impl GeneralSettings {
    }
 
    pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let mut open = self.open;
 
       let title = RichText::new("General Settings").size(theme.text_sizes.heading);
@@ -682,10 +732,12 @@ impl GeneralSettings {
                });
             });
          });
+
       let closed = self.open && !open;
-      self.open = open;
+      // self.open = open;
 
       if closed {
+         self.close();
          self.save_settings(ctx);
       }
    }

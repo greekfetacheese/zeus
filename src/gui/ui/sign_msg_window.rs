@@ -2,8 +2,8 @@ use egui::{
    Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
    Window, vec2,
 };
+use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Label;
-use zeus_theme::Theme;
 
 use super::{address, chain, contract_interact};
 use crate::assets::icons::Icons;
@@ -21,6 +21,7 @@ use zeus_eth::{
 
 pub struct SignMsgWindow {
    open: bool,
+   overlay: OverlayManager,
    dapp: String,
    chain: ChainId,
    msg: Option<SignMsgType>,
@@ -30,9 +31,10 @@ pub struct SignMsgWindow {
 }
 
 impl SignMsgWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          dapp: String::new(),
          chain: ChainId::default(),
          msg: None,
@@ -47,6 +49,7 @@ impl SignMsgWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx, dapp: String, chain: u64, msg: SignMsgType) {
+      self.overlay.window_opened();
       ctx.set_sign_msg_window_open(true);
       self.dapp = dapp;
       self.chain = chain.into();
@@ -57,11 +60,12 @@ impl SignMsgWindow {
    }
 
    pub fn reset(&mut self, ctx: ZeusCtx) {
-      ctx.set_sign_msg_window_open(false);
-      *self = Self::new();
+      self.close(ctx);
+      *self = Self::new(self.overlay.clone());
    }
 
    pub fn close(&mut self, ctx: ZeusCtx) {
+      self.overlay.window_closed();
       ctx.set_sign_msg_window_open(false);
       self.open = false;
    }
@@ -331,29 +335,29 @@ fn _permit2_batch_approval_ui(
 }
 
 fn format_sign_data(msg: &SignMsgType, _chain: ChainId) -> String {
-    if msg.is_permit2_single() {
-        return format_permit2_single_approval(msg);
-    }
+   if msg.is_permit2_single() {
+      return format_permit2_single_approval(msg);
+   }
 
-    if let Some(typed) = msg.typed_data() {
-        return format_typed_data(&typed);
-    }
+   if let Some(typed) = msg.typed_data() {
+      return format_typed_data(&typed);
+   }
 
-    if let Some(msg_str) = msg.msg_string() {
-        return msg_str;
-    }
+   if let Some(msg_str) = msg.msg_string() {
+      return msg_str;
+   }
 
-    // Fallback
-    match msg.msg_value() {
-        Value::String(s) => s,
-        val => {
-            if val.is_object() {
-                to_string_pretty(&val).unwrap_or_else(|_| val.to_string())
-            } else {
-                val.to_string()
-            }
-        }
-    }
+   // Fallback
+   match msg.msg_value() {
+      Value::String(s) => s,
+      val => {
+         if val.is_object() {
+            to_string_pretty(&val).unwrap_or_else(|_| val.to_string())
+         } else {
+            val.to_string()
+         }
+      }
+   }
 }
 
 fn format_permit2_single_approval(msg: &SignMsgType) -> String {
@@ -368,12 +372,7 @@ fn format_permit2_single_approval(msg: &SignMsgType) -> String {
    writeln!(formatted, "Domain:").unwrap();
    writeln!(formatted, "  Name: {}", "Uniswap Permit2").unwrap();
    writeln!(formatted, "  Version: 2").unwrap();
-   writeln!(
-      formatted,
-      "  Chain: {}",
-      details.token.chain_id
-   )
-   .unwrap();
+   writeln!(formatted, "  Chain: {}", details.token.chain_id).unwrap();
    writeln!(
       formatted,
       "  Verifying Contract: {}",

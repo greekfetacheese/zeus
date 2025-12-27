@@ -9,10 +9,15 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
-use zeus_theme::{Theme, utils::frame_it};
+use zeus_theme::{
+   Theme,
+   OverlayManager,
+   utils::frame_it,
+};
 
 pub struct RecipientSelectionWindow {
    open: bool,
+   overlay: OverlayManager,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
    pub recipient: String,
@@ -27,9 +32,10 @@ pub struct RecipientSelectionWindow {
 }
 
 impl RecipientSelectionWindow {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         overlay,
          contacts_tab_open: true,
          wallets_tab_open: false,
          recipient: String::new(),
@@ -47,6 +53,7 @@ impl RecipientSelectionWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx) {
+      self.overlay.window_opened();
       self.open = true;
 
       let mut wallets = ctx.get_all_wallets_info();
@@ -89,6 +96,7 @@ impl RecipientSelectionWindow {
    }
 
    pub fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -115,6 +123,10 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let mut open = self.open;
+      if !open {
+         return;
+      }
+
       let mut close_window = false;
 
       contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
@@ -129,7 +141,7 @@ impl RecipientSelectionWindow {
       }
 
       let title = RichText::new("Recipient").size(theme.text_sizes.heading);
-      Window::new(title)
+      let _window_res = Window::new(title)
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -221,6 +233,17 @@ impl RecipientSelectionWindow {
                }
             });
          });
+
+      /*
+      if let Some(inner) = window_res {
+         let window_rect = inner.response.rect;
+
+         if contacts_ui.add_contact.is_open() {
+            let tint = self.overlay.tint_1();
+            self.overlay.paint_overlay_at(ui.ctx(), window_rect, Order::Foreground, tint);
+         }
+      }
+      */
 
       if close_window || !open {
          self.close();

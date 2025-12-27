@@ -1,7 +1,7 @@
 use egui::*;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::{ZeusCtx, context::load_theme_kind};
+use crate::core::ZeusCtx;
 use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use crate::utils::{
@@ -14,7 +14,7 @@ use eframe::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-use zeus_theme::{Theme, ThemeKind, window::*};
+use zeus_theme::window::*;
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
@@ -23,6 +23,28 @@ pub struct ZeusApp {
 
 impl ZeusApp {
    pub fn new(cc: &CreationContext) -> Self {
+      let time = std::time::Instant::now();
+      let egui_ctx = cc.egui_ctx.clone();
+
+      setup_fonts(&egui_ctx);
+
+      let icons = Icons::new(&cc.egui_ctx).unwrap();
+      let icons = Arc::new(icons);
+
+      SHARED_GUI.write(|shared_gui| {
+         shared_gui.icons = icons.clone();
+         shared_gui.egui_ctx = egui_ctx.clone();
+      });
+
+      let theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());
+      let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
+      egui_ctx.set_style(theme.style.clone());
+
+      tracing::info!(
+         "ZeusApp loaded in {}ms",
+         time.elapsed().as_millis()
+      );
+
       RT.spawn(async move {
          let info = match check_for_updates().await {
             Ok(info) => info,
@@ -38,36 +60,6 @@ impl ZeusApp {
             });
          }
       });
-
-      let time = std::time::Instant::now();
-      let egui_ctx = cc.egui_ctx.clone();
-
-      setup_fonts(&egui_ctx);
-
-      let theme_kind = if let Ok(kind) = load_theme_kind() {
-         kind
-      } else {
-         ThemeKind::Dark
-      };
-
-      let theme = Theme::new(theme_kind);
-      egui_ctx.set_style(theme.style.clone());
-
-      let icons = Icons::new(&cc.egui_ctx).unwrap();
-      let icons = Arc::new(icons);
-
-      SHARED_GUI.write(|shared_gui| {
-         shared_gui.icons = icons.clone();
-         shared_gui.theme = theme.clone();
-         shared_gui.egui_ctx = egui_ctx;
-      });
-
-      let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
-
-      tracing::info!(
-         "ZeusApp loaded in {}ms",
-         time.elapsed().as_millis()
-      );
 
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
@@ -127,8 +119,9 @@ impl eframe::App for ZeusApp {
          }
 
          let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
-         let bg_color = gui.theme.colors.bg;
-         let panel_frame = Frame::new().fill(bg_color);
+         let color = gui.theme.colors.bg;
+         let panel_frame = Frame::new().fill(color);
+         gui.theme.overlay_manager.paint_overlay(ctx, true);
 
          window_frame(ctx, window, |ui| {
             #[cfg(feature = "dev")]
@@ -162,7 +155,7 @@ impl eframe::App for ZeusApp {
                .max_width(150.0)
                .resizable(false)
                .frame(panel_frame)
-               .show_separator_line(true)
+               .show_separator_line(false)
                .show_inside(ui, |ui| {
                   if gui.ctx.vault_unlocked() {
                      ui.add_space(40.0);
@@ -175,7 +168,7 @@ impl eframe::App for ZeusApp {
                egui::SidePanel::right("right_panel")
                   .min_width(150.0)
                   .resizable(false)
-                  .show_separator_line(true)
+                  .show_separator_line(false)
                   .frame(panel_frame)
                   .show_inside(ui, |ui| {
                      if gui.ctx.vault_unlocked() {

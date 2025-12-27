@@ -5,12 +5,14 @@ use egui::{
    style::WidgetVisuals,
    text::LayoutJob,
 };
+use zeus_theme::LabelVisuals;
 use std::sync::Arc;
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 #[derive(Clone)]
 pub struct Label {
    text: WidgetText,
+   visuals: Option<LabelVisuals>,
    pub(crate) image: Option<Image<'static>>,
    spacing: f32,
    expansion: Option<f32>,
@@ -28,6 +30,7 @@ impl Label {
    pub fn new(text: impl Into<WidgetText>, image: Option<Image<'static>>) -> Self {
       Self {
          text: text.into(),
+         visuals: None,
          image,
          spacing: 6.0,
          expansion: None,
@@ -41,12 +44,19 @@ impl Label {
       }
    }
 
+   /// Set the visuals of the label
+   pub fn visuals(mut self, visuals: LabelVisuals) -> Self {
+      self.visuals = Some(visuals);
+      self
+   }
+
    /// Set the space between the text and the image.
    pub fn spacing(mut self, spacing: f32) -> Self {
       self.spacing = spacing;
       self
    }
 
+   /// Expand the bg color on hover
    pub fn expand(mut self, expansion: Option<f32>) -> Self {
       self.expansion = expansion;
       self
@@ -184,7 +194,7 @@ impl Label {
             self.text_first,
          );
 
-         let text_color = button_visuals.text_color();
+         let text_color = self.visuals.as_ref().map(|v| v.text).unwrap_or(button_visuals.text_color());
          ui.painter().add(TextShape::new(
             text_pos,
             galley.clone(),
@@ -231,34 +241,31 @@ impl Widget for Label {
 
       // Paint
       if ui.is_rect_visible(rect) {
-         let mut visuals = ui.style().interact_selectable(&response, self.selected);
-
-         if self.selected {
-            visuals.weak_bg_fill = visuals.bg_fill;
-         }
+         let visuals = ui.style().interact_selectable(&response, self.selected);
 
          let fill = if self.selected {
-            visuals.bg_fill
+            self.visuals.as_ref().map(|v| v.bg_selected).unwrap_or(visuals.bg_fill)
          } else if response.hovered() || response.has_focus() {
             match self.interactive {
-               true => visuals.weak_bg_fill,
+               true => self.visuals.as_ref().map(|v| v.bg_hover).unwrap_or(visuals.weak_bg_fill),
                false => Color32::TRANSPARENT,
             }
          } else {
-            Color32::TRANSPARENT
+            self.visuals.as_ref().map(|v| v.bg).unwrap_or(Color32::TRANSPARENT)
          };
 
          let stroke = if self.selected || response.hovered() || response.has_focus() {
-            visuals.bg_stroke
+            self.visuals.as_ref().map(|v| v.border_hover).unwrap_or(visuals.bg_stroke)
          } else {
-            Stroke::NONE
+            self.visuals.as_ref().map(|v| v.border).unwrap_or(Stroke::NONE)
          };
 
          let expansion = self.expansion.unwrap_or(visuals.expansion);
+         let corner = self.visuals.as_ref().map(|v| v.corner_radius).unwrap_or(visuals.corner_radius);
          let background_rect = rect.expand(expansion);
          ui.painter().add(RectShape::new(
             background_rect,
-            visuals.corner_radius,
+            corner,
             fill,
             stroke,
             StrokeKind::Inside,
@@ -274,7 +281,7 @@ impl Widget for Label {
             self.text_first,
          );
 
-         let text_color = visuals.text_color();
+         let text_color = self.visuals.as_ref().map(|v| v.text).unwrap_or(visuals.text_color());
          ui.painter().add(TextShape::new(
             text_pos,
             galley.clone(),
