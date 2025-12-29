@@ -5,18 +5,20 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::ui::token_selection::TokenSelectionWindow;
-use egui::{
-   Align, FontId, Layout, Margin, RichText, Slider, Spinner, Ui, vec2,
-};
-use zeus_widgets::{SecureTextEdit, Button, Label};
+use egui::{Align, FontId, Layout, Margin, RichText, Slider, Spinner, Ui, vec2};
 use std::sync::Arc;
-use zeus_eth::{alloy_primitives::{U256, Address}, currency::Currency, utils::NumericValue};
+use zeus_eth::{
+   alloy_primitives::{Address, U256},
+   currency::Currency,
+   utils::NumericValue,
+};
 use zeus_theme::Theme;
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 pub struct AmountFieldWithCurrencySelect {
    pub amount_percent: f64,
    pub amount: String,
-   pub amount_wei: U256
+   pub amount_wei: U256,
 }
 
 impl AmountFieldWithCurrencySelect {
@@ -24,7 +26,7 @@ impl AmountFieldWithCurrencySelect {
       Self {
          amount_percent: 0.0,
          amount: String::new(),
-         amount_wei: U256::ZERO
+         amount_wei: U256::ZERO,
       }
    }
 
@@ -126,7 +128,8 @@ impl AmountFieldWithCurrencySelect {
          ui.horizontal(|ui| {
             ui.vertical(|ui| {
                let visuals = theme.text_edit_visuals();
-               let hint = RichText::new("0").color(theme.colors.text_muted).size(theme.text_sizes.heading);
+               let hint =
+                  RichText::new("0").color(theme.colors.text_muted).size(theme.text_sizes.heading);
 
                let amount_input = SecureTextEdit::singleline(&mut self.amount)
                   .visuals(visuals)
@@ -139,6 +142,9 @@ impl AmountFieldWithCurrencySelect {
                let res = ui.add(amount_input);
                if res.changed() {
                   amount_changed = true;
+                  let new_amount_wei =
+                     NumericValue::parse_to_wei(&self.amount, currency.decimals());
+                  self.amount_wei = new_amount_wei.wei();
                }
 
                // USD Value
@@ -157,7 +163,9 @@ impl AmountFieldWithCurrencySelect {
                let icon = icons.currency_icon(currency, tint);
                let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
                let width = ui.available_width() * 0.5;
-               let button = Button::image_and_text(icon, button_text).visuals(visuals).min_size(vec2(width, 40.0));
+               let button = Button::image_and_text(icon, button_text)
+                  .visuals(visuals)
+                  .min_size(vec2(width, 40.0));
 
                if ui.add(button).clicked() {
                   if let Some(token_selection) = token_selection {

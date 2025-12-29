@@ -1228,8 +1228,8 @@ impl SwapUi {
       let chain = ctx.chain();
 
       if action.is_wrap() {
-         let amount_in = self.amount_in_field.amount.clone();
-         let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
+         let amount_in = self.amount_in_field.amount_wei;
+         let amount_in = NumericValue::format_wei(amount_in, self.currency_in.decimals());
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
@@ -1258,8 +1258,8 @@ impl SwapUi {
       }
 
       if action.is_unwrap() {
-         let amount_in = self.amount_in_field.amount.clone();
-         let amount_in = NumericValue::parse_to_wei(&amount_in, self.currency_in.decimals());
+         let amount_in = self.amount_in_field.amount_wei;
+         let amount_in = NumericValue::format_wei(amount_in, self.currency_in.decimals());
          RT.spawn(async move {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
