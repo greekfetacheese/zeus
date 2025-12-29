@@ -267,6 +267,7 @@ fn default_batch_size() -> usize {
 pub struct DiscoveredWallets {
    #[serde(with = "serde_hashmap")]
    pub balances: HashMap<(u64, Address), U256>,
+   pub master_wallet_address: Option<Address>,
    pub wallets: Vec<DiscoveredWallet>,
    /// Current index, starting from [BIP32_HARDEN]
    pub index: u32,
@@ -278,16 +279,13 @@ pub struct DiscoveredWallets {
    pub batch_size: usize,
 }
 
-impl Default for DiscoveredWallets {
-   fn default() -> Self {
-      Self::new()
-   }
-}
+
 
 impl DiscoveredWallets {
    pub fn new() -> Self {
       Self {
          balances: HashMap::new(),
+         master_wallet_address: None,
          wallets: Vec::new(),
          index: BIP32_HARDEN,
          concurrency: default_concurrency(),

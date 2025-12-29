@@ -73,6 +73,10 @@ impl Vault {
       }
    }
 
+   pub fn master_wallet_address(&self) -> Address {
+      self.hd_wallet.master_wallet.address()
+   }
+
    pub fn get_master_wallet(&self) -> Wallet {
       self.hd_wallet.master_wallet.clone()
    }
@@ -118,7 +122,7 @@ impl Vault {
 
    pub fn recover_hd_wallet(&mut self, name: String) -> Result<(), anyhow::Error> {
       self.credentials.is_valid()?;
-      
+
       let m_cost = if cfg!(feature = "dev") {
          DEV_M_COST
       } else {
@@ -140,8 +144,10 @@ impl Vault {
       let username = &self.credentials.username;
       let password = &self.credentials.password;
 
+      let name = if name.is_empty() { None } else { Some(name) };
+
       let seed = derive_seed(username, password, m_cost, t_cost, p_cost)?;
-      let hd_wallet = SecureHDWallet::new_from_seed(Some(name), seed);
+      let hd_wallet = SecureHDWallet::new_from_seed(name, seed);
       self.hd_wallet = hd_wallet;
       Ok(())
    }

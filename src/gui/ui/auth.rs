@@ -2,7 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::{M_COST, Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align, Align2, FontId, Frame, Layout, RichText, Ui, Window, vec2};
+use eframe::egui::{Align, Align2, FontId, Layout, RichText, Ui, Window, vec2};
 use egui::Margin;
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
@@ -130,7 +130,8 @@ impl VirtualKeyboard {
             }
             // Spacebar
             ui.horizontal(|ui| {
-               let button = Button::new(" ").visuals(button_visuals).min_size(vec2(30.0 * 5.0, 30.0));
+               let button =
+                  Button::new(" ").visuals(button_visuals).min_size(vec2(30.0 * 5.0, 30.0));
                if ui.add(button).clicked() {
                   target_str.push_str(" ");
                }
@@ -633,11 +634,13 @@ impl RecoverHDWallet {
          return;
       }
 
+      let frame = theme.frame1;
+
       Window::new("Recover_HD_Wallet_credentials_input")
          .title_bar(false)
          .movable(false)
          .resizable(false)
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
@@ -689,11 +692,13 @@ impl RecoverHDWallet {
          return;
       }
 
+      let frame = theme.frame1;
+
       Window::new("Recover_HD_Wallet_wallet_name")
          .title_bar(false)
          .movable(false)
          .resizable(false)
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size2.0, self.size2.1));
@@ -737,7 +742,11 @@ impl RecoverHDWallet {
                      vault.set_credentials(credentials);
 
                      match vault.recover_hd_wallet(name) {
-                        Ok(_) => {}
+                        Ok(_) => {
+                           SHARED_GUI.write(|gui| {
+                              gui.loading_window.reset();
+                           });
+                        }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.reset();
@@ -793,18 +802,19 @@ impl RecoverHDWallet {
          return;
       }
 
+      let frame = theme.frame1;
+
       Window::new("Recover_HD_Wallet_wallet_name")
          .title_bar(false)
          .movable(false)
          .resizable(false)
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
             ui.spacing_mut().item_spacing.y = 15.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      ui.vertical_centered(|ui| {
 
          let tip1 = "You just created a new Hierarchical Deterministic (HD) wallet";
          let tip2 = "This wallet can always be recovered with the same credentials even if you lose your Vault";
@@ -828,16 +838,35 @@ impl RecoverHDWallet {
          let label5 = Label::new(text5, None).wrap().interactive(false);
          let label_warning = Label::new(warning_text, None).wrap().interactive(false);
 
+         ui.horizontal(|ui| {
          ui.add(label1);
+         });
+
+         ui.horizontal(|ui| {
          ui.add(label2);
+         });
+
+         ui.horizontal(|ui| {
          ui.add(label3);
+         });
+
+         ui.horizontal(|ui| {
          ui.add(label4);
+         });
+
+         ui.horizontal(|ui| {
          ui.add(label5);
+         });
+
+         ui.horizontal(|ui| {
          ui.add(label_warning);
+         });
 
          let button_visuals = theme.button_visuals();
          let text = RichText::new("Ok").size(theme.text_sizes.large);
          let ok_button = Button::new(text).visuals(button_visuals).min_size(vec2(ui.available_width() * 0.25, 25.0));
+
+         ui.vertical_centered(|ui| {
 
          if ui.add(ok_button).clicked() {
             let vault = ctx.get_vault();

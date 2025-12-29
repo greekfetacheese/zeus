@@ -98,7 +98,7 @@ impl GUI {
       let token_selection = ui::TokenSelectionWindow::new(overlay_manager.clone());
       let recipient_selection = ui::RecipientSelectionWindow::new(overlay_manager.clone());
       let send_crypto = ui::SendCryptoUi::new();
-      let across_bridge = ui::dapps::across::AcrossBridge::new();
+      let across_bridge = ui::dapps::across::AcrossBridge::new(overlay_manager.clone());
       let header = Header::new(overlay_manager.clone());
 
       let msg_window = ui::MsgWindow::new(overlay_manager.clone());

@@ -222,9 +222,14 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
       warn_fg_color: colors.warning,
       error_fg_color: colors.error,
       window_corner_radius: CornerRadius::same(6),
-      window_shadow: Shadow::NONE,
+      window_shadow: Shadow {
+         offset: (0, 0).into(),
+         blur: 6,
+         spread: 2,
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 65),
+      },
       window_fill: colors.bg,
-      window_stroke: Stroke::new(1.0, colors.border),
+      window_stroke: Stroke::new(1.0, Color32::TRANSPARENT),
       panel_fill: colors.bg,
       ..Default::default()
    }

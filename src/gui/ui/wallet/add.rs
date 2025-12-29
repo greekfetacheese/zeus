@@ -310,7 +310,7 @@ impl AddWalletUi {
 
                // From seed phrase
                let text = RichText::new("Import from a Seed Phrase").size(theme.text_sizes.large);
-                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
                   import_from_seed_clicked = true;
@@ -329,13 +329,30 @@ impl AddWalletUi {
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = true;
             });
 
-            let wallets = match DiscoveredWallets::load_from_file() {
+            let master = ctx.master_wallet_address();
+
+            let mut discovered_wallets = match DiscoveredWallets::load_from_file() {
                Ok(wallets) => wallets,
                Err(e) => {
                   tracing::error!("Error loading discovered wallets: {:?}", e);
-                  DiscoveredWallets::new()
+                  let mut discovered_wallets = DiscoveredWallets::new();
+                  discovered_wallets.master_wallet_address = Some(master);
+                  discovered_wallets
                }
             };
+
+            // If wallets are empty, set master wallet address
+            if discovered_wallets.wallets.is_empty() {
+               discovered_wallets.master_wallet_address = Some(master);
+            }
+
+            // If master address is different, reset
+            if let Some(master_wallet_address) = discovered_wallets.master_wallet_address {
+               if master_wallet_address != master {
+                  discovered_wallets = DiscoveredWallets::new();
+                  discovered_wallets.master_wallet_address = Some(master);
+               }
+            }
 
             SHARED_GUI.write(|gui| {
                gui.wallet_ui
@@ -349,7 +366,7 @@ impl AddWalletUi {
                gui.wallet_ui
                   .add_wallet_ui
                   .discover_child_wallets_ui
-                  .set_discovered_wallets(wallets);
+                  .set_discovered_wallets(discovered_wallets);
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page = 0;
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.open = true;
                gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = false;
@@ -466,7 +483,11 @@ impl AddWalletUi {
    }
 }
 
-
+/// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
+///
+/// `discovery_wallets` stores the wallets that were discovered (No private keys)
+/// Even if the json file is maliciously modified, the wallets will be derived from the current master wallet
+/// so it's still safe to use
 pub struct DiscoverChildWallets {
    open: bool,
    overlay: OverlayManager,
@@ -515,6 +536,17 @@ impl DiscoverChildWallets {
    pub fn close(&mut self) {
       self.overlay.window_closed();
       self.open = false;
+   }
+
+   fn open_add_wallet_window(&mut self, index_to_add: u32) {
+      self.overlay.window_opened();
+      self.index_to_add = index_to_add;
+      self.add_wallet_window = true;
+   }
+
+   fn close_add_wallet_window(&mut self) {
+      self.overlay.window_closed();
+      self.add_wallet_window = false;
    }
 
    fn set_discovered_wallets(&mut self, discovered_wallets: DiscoveredWallets) {
@@ -832,6 +864,9 @@ impl DiscoverChildWallets {
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
+      let mut add_wallet_clicked = false;
+      let mut index_to_add = 0;
+
       let slice = &self.discovered_wallets.wallets[start..end];
       for child in slice.iter() {
          // If child already exists it will displayed as disabled in the Ui
@@ -914,16 +949,24 @@ impl DiscoverChildWallets {
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
-                     self.add_wallet_window = true;
-                     self.index_to_add = child.index;
+                     add_wallet_clicked = true;
+                     index_to_add = child.index;
                   }
                });
             });
          });
       }
+
+      if add_wallet_clicked {
+         self.open_add_wallet_window(index_to_add);
+      }
    }
 
    fn add_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.add_wallet_window {
+         return;
+      }
+
       let mut open = self.add_wallet_window;
 
       let title = RichText::new("Add Wallet").size(theme.text_sizes.heading);
@@ -962,8 +1005,8 @@ impl DiscoverChildWallets {
                   let balances = self.discovered_wallets.balances.clone();
 
                   RT.spawn_blocking(move || {
-                     let res =
-                        ctx.write_vault(|vault| vault.derive_child_wallet_at_mut(name, index));
+                     let mut vault = ctx.get_vault();
+                     let res = vault.derive_child_wallet_at_mut(name, index);
 
                      let address = match res {
                         Ok(address) => address,
@@ -990,39 +1033,46 @@ impl DiscoverChildWallets {
                         });
                      }
 
-                     // Save the vault and update the hd wallet in the Ui
+                     // On success save the vault and update the hd wallet in the Ui
                      // If this op fails we revert the changes
-                     match ctx.encrypt_and_save_vault(None, None) {
+                     match ctx.encrypt_and_save_vault(Some(vault.clone()), None) {
                         Ok(_) => {
-                           let hd_wallet = ctx.get_vault().get_hd_wallet();
+                           let hd_wallet = vault.get_hd_wallet();
+
                            SHARED_GUI.write(|gui| {
                               gui.wallet_ui
                                  .add_wallet_ui
                                  .discover_child_wallets_ui
-                                 .add_wallet_window = false;
+                                 .close_add_wallet_window();
+
                               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.wallet_name =
                                  String::new();
+
                               gui.wallet_ui
                                  .add_wallet_ui
                                  .discover_child_wallets_ui
                                  .set_hd_wallet(hd_wallet);
+
                               gui.open_msg_window("Wallet Added", "");
+
+                              // Update the Vault in the ZeusCtx
+                              ctx.set_vault(vault);
+                              // Calculate the wallets again in the UI
+                              gui.wallet_ui.open(ctx.clone());
                            });
                         }
                         Err(e) => {
-                           ctx.write_vault(|vault| {
-                              vault.remove_child(address);
-                           });
-
                            let hd_wallet = ctx.get_vault().get_hd_wallet();
 
                            SHARED_GUI.write(|gui| {
                               gui.wallet_ui
                                  .add_wallet_ui
                                  .discover_child_wallets_ui
-                                 .add_wallet_window = false;
+                                 .close_add_wallet_window();
+
                               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.wallet_name =
                                  String::new();
+
                               gui.wallet_ui
                                  .add_wallet_ui
                                  .discover_child_wallets_ui
@@ -1037,8 +1087,8 @@ impl DiscoverChildWallets {
             });
          });
 
-      self.add_wallet_window = open;
-      if !self.add_wallet_window {
+      if !open {
+         self.close_add_wallet_window();
          self.wallet_name.clear();
       }
    }

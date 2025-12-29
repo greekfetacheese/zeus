@@ -26,7 +26,7 @@ use zeus_eth::{
    types::{BSC, ChainId},
    utils::{NumericValue, address_book},
 };
-use zeus_theme::Theme;
+use zeus_theme::{Theme, OverlayManager};
 use zeus_widgets::{Button, SecureTextEdit};
 
 use reqwest::Client;
@@ -87,6 +87,7 @@ fn save_settings(settings: Settings) -> Result<(), anyhow::Error> {
 /// For simplicity currently only bridges Native Currencies (ETH)
 pub struct AcrossBridge {
    open: bool,
+   pub overlay: OverlayManager,
    pub currency: Currency,
    pub amount_field: AmountFieldWithCurrencySelect,
    pub from_chain: ChainSelect,
@@ -105,13 +106,14 @@ pub struct AcrossBridge {
 }
 
 impl AcrossBridge {
-   pub fn new() -> Self {
+   pub fn new(overlay: OverlayManager) -> Self {
       let settings = load_settings().unwrap_or_default();
       let from_chain = ChainSelect::new("across_bridge_from_chain", 1).size(vec2(180.0, 25.0));
       let to_chain = ChainSelect::new("across_bridge_to_chain", 10).size(vec2(180.0, 25.0));
 
       Self {
          open: false,
+         overlay,
          currency: NativeCurrency::from(1).into(),
          amount_field: AmountFieldWithCurrencySelect::new(),
          from_chain,
@@ -129,6 +131,16 @@ impl AcrossBridge {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   pub fn open_settings(&mut self) {
+      self.overlay.window_opened();
+      self.settings_open = true;
+   }
+
+   pub fn close_settings(&mut self) {
+      self.overlay.window_closed();
+      self.settings_open = false;
    }
 
    pub fn open(&mut self) {
@@ -205,7 +217,7 @@ impl AcrossBridge {
                      let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
-                        self.settings_open = true;
+                        self.open_settings();
                      }
                   });
                });
@@ -626,14 +638,16 @@ impl AcrossBridge {
                ));
             }
 
-            let button = Button::new(RichText::new("Save").size(theme.text_sizes.large))
-               .min_size(vec2(ui.available_width() * 0.8, 15.0));
+            let text = RichText::new("Save").size(theme.text_sizes.large);
+            let button = Button::new(text)
+               .visuals(theme.button_visuals())
+               .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
             let res = ui.vertical_centered(|ui| ui.add(button).clicked());
 
             if res.inner {
                let settings = self.settings.clone();
-               self.settings_open = false;
+               self.close_settings();
                RT.spawn_blocking(move || match save_settings(settings) {
                   Ok(_) => {}
                   Err(e) => {

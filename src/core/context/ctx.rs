@@ -252,6 +252,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.clone())
    }
 
+   pub fn master_wallet_address(&self) -> Address {
+      self.read(|ctx| ctx.vault.master_wallet_address())
+   }
+
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
       self.read(|ctx| {

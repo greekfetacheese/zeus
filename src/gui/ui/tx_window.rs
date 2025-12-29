@@ -793,9 +793,9 @@ pub fn permit_event_ui(
          params.token.symbol(),
          amount_usd.abbreviated()
       ))
-      .size(theme.text_sizes.normal)
+      .size(theme.text_sizes.large)
    } else {
-      RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.text_sizes.normal)
+      RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.text_sizes.large)
    };
 
    let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -828,7 +828,7 @@ pub fn permit_event_ui(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         ui.label(RichText::new(expiration).size(theme.text_sizes.normal));
+         ui.label(RichText::new(expiration).size(theme.text_sizes.large));
       });
    });
 }
@@ -863,9 +863,9 @@ pub fn token_approval_event_ui(
             token.symbol,
             amount_usd.abbreviated()
          ))
-         .size(theme.text_sizes.normal)
+         .size(theme.text_sizes.large)
       } else {
-         RichText::new(format!("{} {}", amount, token.symbol)).size(theme.text_sizes.normal)
+         RichText::new(format!("{} {}", amount, token.symbol)).size(theme.text_sizes.large)
       };
 
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
@@ -1019,7 +1019,7 @@ fn bridge_event_ui(
          amount.abbreviated(),
          currency_in.symbol()
       ))
-      .size(theme.text_sizes.normal)
+      .size(theme.text_sizes.large)
       .color(theme.colors.error);
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1030,7 +1030,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.amount_usd.clone().unwrap_or_default();
          ui.label(
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.normal),
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large),
          );
       });
    });
@@ -1045,7 +1045,7 @@ fn bridge_event_ui(
             amount.abbreviated(),
             currency_out.symbol()
          ))
-         .size(theme.text_sizes.normal)
+         .size(theme.text_sizes.large)
          .color(theme.colors.success);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
@@ -1054,7 +1054,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value = params.received_usd.clone().unwrap_or_default();
          let text =
-            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.normal);
+            RichText::new(format!("~ ${}", value.abbreviated())).size(theme.text_sizes.large);
          ui.label(text);
       });
    });
@@ -1088,7 +1088,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.origin_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -1103,7 +1103,7 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.destination_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
@@ -1252,7 +1252,7 @@ fn unwrap_weth_event_ui(
          params.weth_unwrapped.abbreviated(),
          eth.symbol
       ))
-      .size(theme.text_sizes.normal)
+      .size(theme.text_sizes.large)
       .color(theme.colors.success);
       let label = Label::new(text, Some(eth_icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1263,7 +1263,7 @@ fn unwrap_weth_event_ui(
       let weth_unwrapped_usd = params.weth_unwrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = RichText::new(format!("~ ${}", weth_unwrapped_usd.abbreviated()))
-            .size(theme.text_sizes.normal);
+            .size(theme.text_sizes.large);
          ui.label(text);
       });
    });
@@ -1305,7 +1305,7 @@ fn uniswap_position_op_event_ui(
       let icon = icons.currency_icon(currency0, tint);
 
       let text = format!("{} {}", amount0.abbreviated(), currency0.symbol());
-      let text = RichText::new(text).size(theme.text_sizes.normal);
+      let text = RichText::new(text).size(theme.text_sizes.large);
 
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1315,7 +1315,7 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount0_usd.abbreviated();
-         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
       });
    });
 
@@ -1324,7 +1324,7 @@ fn uniswap_position_op_event_ui(
       let icon = icons.currency_icon(currency1, tint);
       let text = format!("{} {}", amount1.abbreviated(), currency1.symbol());
 
-      let text = RichText::new(text).size(theme.text_sizes.normal);
+      let text = RichText::new(text).size(theme.text_sizes.large);
       let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
@@ -1333,7 +1333,7 @@ fn uniswap_position_op_event_ui(
       // Value
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let amount = amount1_usd.abbreviated();
-         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
+         ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
       });
    });
 
@@ -1357,7 +1357,7 @@ fn uniswap_position_op_event_ui(
             min_amount0.abbreviated(),
             currency0.symbol()
          );
-         let text = RichText::new(text).size(theme.text_sizes.normal);
+         let text = RichText::new(text).size(theme.text_sizes.large);
 
          let label = Label::new(text, Some(icon)).image_on_left();
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
@@ -1367,7 +1367,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount0_usd.abbreviated();
-            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
          });
       });
    }
@@ -1383,7 +1383,7 @@ fn uniswap_position_op_event_ui(
             currency1.symbol()
          );
 
-         let text = RichText::new(text).size(theme.text_sizes.normal);
+         let text = RichText::new(text).size(theme.text_sizes.large);
          let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
@@ -1392,7 +1392,7 @@ fn uniswap_position_op_event_ui(
          // Value
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             let amount = min_amount1_usd.abbreviated();
-            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.normal));
+            ui.label(RichText::new(format!("~ ${}", amount)).size(theme.text_sizes.large));
          });
       });
    }

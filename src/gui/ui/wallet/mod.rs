@@ -6,8 +6,8 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
-   ScrollArea, Sense, Ui, Vec2, Window, load::Bytes, vec2,
+   Align, Align2, FontId, Shadow, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
+   ScrollArea, Sense, Stroke, Ui, Vec2, Window, load::Bytes, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
@@ -138,12 +138,16 @@ impl WalletUi {
          return;
       }
 
+      let frame = Frame::window(ui.style())
+         .shadow(Shadow::NONE)
+         .stroke(Stroke::new(1.0, theme.colors.border));
+
       Window::new("wallet_main_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -656,7 +660,7 @@ impl ExportKeyUi {
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
-      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
@@ -676,7 +680,9 @@ impl ExportKeyUi {
                self.credentials_form.show(theme, icons, ui);
 
                let text = RichText::new("Confrim").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
                if ui.add(button).clicked() {
                   clicked = true;
@@ -781,11 +787,12 @@ impl DeleteWalletUi {
          return;
       }
 
+      let button_visuals = theme.button_visuals();
       let mut open = self.credentials_form.open;
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_delete_wallet_ui");
-      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.large))
+      Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
          .id(id)
          .open(&mut open)
          .order(Order::Foreground)
@@ -803,7 +810,11 @@ impl DeleteWalletUi {
 
                self.credentials_form.show(theme, icons, ui);
 
-               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
+               let text = RichText::new("Confirm").size(theme.text_sizes.normal);
+               let button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(ui.available_width() * 0.8, 45.0));
+
                if ui.add(button).clicked() {
                   clicked = true;
                }
