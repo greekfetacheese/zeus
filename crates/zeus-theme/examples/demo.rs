@@ -2,7 +2,7 @@ use eframe::egui::*;
 use secure_types::SecureString;
 use std::sync::Arc;
 use zeus_theme::{
-   Theme, ThemeEditor, ThemeKind, utils,
+   OverlayManager, Theme, ThemeEditor, ThemeKind, utils::{self, frame_it},
    window::{WindowCtx, window_frame},
 };
 use zeus_widgets::{Button, ComboBox, Label, SecureTextEdit};
@@ -43,6 +43,7 @@ impl Chain {
 
 struct DemoApp {
    set_theme: bool,
+   overlay: OverlayManager,
    check: bool,
    min_value: f32,
    tx_confirm_window: TxConfirmWindow,
@@ -51,72 +52,76 @@ struct DemoApp {
    string_value: SecureString,
    string_value2: String,
    current_chain: Chain,
-   widgets_selected_color: BGColor,
    theme: Theme,
    editor: ThemeEditor,
 }
 
 struct TxConfirmWindow {
    open: bool,
-   should_darken_bg: bool,
+   overlay: OverlayManager,
 }
 
 impl TxConfirmWindow {
-   fn new() -> Self {
+   fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         should_darken_bg: false,
+         overlay,
       }
    }
 }
 
 struct RecipientWindow {
    open: bool,
-   should_darken_bg: bool,
+   overlay: OverlayManager,
 }
 
 impl RecipientWindow {
-   fn new() -> Self {
+   fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         should_darken_bg: false,
+         overlay,
       }
    }
 }
 
 struct MsgWindow {
    open: bool,
+   overlay: OverlayManager,
 }
 
 impl MsgWindow {
-   fn new() -> Self {
-      Self { open: false }
+   fn new(overlay: OverlayManager) -> Self {
+      Self {
+         open: false,
+         overlay,
+      }
    }
 }
 
 impl DemoApp {
    fn new(cc: &eframe::CreationContext<'_>) -> Self {
       let theme = Theme::new(ThemeKind::Dark);
+      let overlay = theme.overlay_manager.clone();
       let editor = ThemeEditor::new();
       cc.egui_ctx.set_style(theme.style.clone());
 
       // setup_fonts(&cc.egui_ctx);
 
-      let tx_confirm_window = TxConfirmWindow::new();
-      let recipient_window = RecipientWindow::new();
+      let tx_confirm_window = TxConfirmWindow::new(overlay.clone());
+      let recipient_window = RecipientWindow::new(overlay.clone());
       let string_value = SecureString::new().unwrap();
       let string_value2 = String::new();
 
       Self {
          set_theme: false,
+         overlay: overlay.clone(),
          check: false,
          tx_confirm_window,
          recipient_window,
-         msg_window: MsgWindow::new(),
+         msg_window: MsgWindow::new(overlay),
          string_value,
          string_value2,
          current_chain: Chain::Ethereum,
-         widgets_selected_color: BGColor::BG1,
          min_value: 0.0,
          theme,
          editor,
@@ -130,10 +135,10 @@ impl eframe::App for DemoApp {
    }
 
    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-      // println!("Overlay counter: {}", self.theme.overlay_manager.counter());
-      let theme2 = self.theme.clone();
+      let theme = self.theme.clone();
 
-      let window = WindowCtx::new("egui Theme Demo", 40.0, &theme2);
+      let window = WindowCtx::new("egui Theme Demo", 40.0, &theme);
+      self.overlay.paint_overlay(ctx, true);
 
       window_frame(ctx, window, |ui| {
          utils::apply_theme_changes(&mut self.theme, ui);
@@ -160,25 +165,9 @@ impl DemoApp {
             self.theme = new_theme;
          }
 
-         if self.tx_confirm_window.open {
-            match self.msg_window.open {
-               false => self.tx_confirm_window.should_darken_bg = false,
-               true => self.tx_confirm_window.should_darken_bg = true,
-            }
-            self.tx_confirm_window.show(&mut self.theme, ui);
-         }
-
-         if self.recipient_window.open {
-            match self.msg_window.open {
-               false => self.recipient_window.should_darken_bg = false,
-               true => self.recipient_window.should_darken_bg = true,
-            }
-            self.recipient_window.show(&mut self.theme, ui);
-         }
-
-         if self.msg_window.open {
-            self.msg_window.show(&mut self.theme, ui);
-         }
+         self.tx_confirm_window.show(&self.theme, ui);
+         self.recipient_window.show(&self.theme, ui);
+         self.msg_window.show(&self.theme, ui);
 
          ScrollArea::vertical().show(ui, |ui| {
             ui.vertical_centered(|ui| {
@@ -211,7 +200,7 @@ impl DemoApp {
    }
 
    fn left_panel(&mut self, ui: &mut Ui) {
-      let bg = self.theme.colors.bg3;
+      let bg = self.theme.colors.bg;
       let frame = Frame::new().fill(bg);
 
       egui::SidePanel::left("left_panel")
@@ -246,19 +235,19 @@ impl DemoApp {
                let text = RichText::new("Tx Window").size(text_size);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
-                  self.tx_confirm_window.open(&mut self.theme);
+                  self.tx_confirm_window.open();
                }
 
                let text = RichText::new("Recipient Window").size(text_size);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
-                  self.recipient_window.open(&mut self.theme);
+                  self.recipient_window.open();
                }
 
                let text = RichText::new("Msg Window").size(text_size);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
-                  self.msg_window.open(&mut self.theme);
+                  self.msg_window.open();
                }
 
                let about_text = RichText::new("About").size(text_size);
@@ -289,29 +278,23 @@ impl DemoApp {
    }
 
    fn bg_colors_on_frames(&mut self, ui: &mut Ui) {
-      let frame1 = self.theme.frame1;
-      let frame2 = self.theme.frame2;
-      let frame3 = self.theme.frame2.fill(self.theme.colors.bg4);
+      let mut frame1 = self.theme.frame1;
+      let mut frame2 = self.theme.frame2;
+      let visuals1 = self.theme.frame1_visuals;
+      let visuals2 = self.theme.frame2_visuals;
 
-      frame1.show(ui, |ui| {
+      frame_it(&mut frame1, Some(visuals1), ui, |ui| {
          ui.set_width(250.0);
          ui.set_height(200.0);
 
-         let text = RichText::new("BG2 Color").size(self.theme.text_sizes.large);
+         let text = RichText::new("Frame 1").size(self.theme.text_sizes.large);
          ui.label(text);
 
-         frame2.show(ui, |ui| {
+         frame_it(&mut frame2, Some(visuals2), ui, |ui| {
             ui.set_width(200.0);
             ui.set_height(100.0);
-            let text = RichText::new("BG3 Color").size(self.theme.text_sizes.large);
+            let text = RichText::new("Frame 2").size(self.theme.text_sizes.large);
             ui.label(text);
-
-            frame3.show(ui, |ui| {
-               ui.set_width(150.0);
-               ui.set_height(50.0);
-               let text = RichText::new("BG4 Color").size(self.theme.text_sizes.large);
-               ui.label(text);
-            });
          });
       });
    }
@@ -321,75 +304,12 @@ impl DemoApp {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
       let button_size = vec2(100.0, 30.0);
 
-      let bg_color = match self.widgets_selected_color {
-         BGColor::BG1 => self.theme.colors.bg,
-         BGColor::BG2 => self.theme.colors.bg2,
-         BGColor::BG3 => self.theme.colors.bg3,
-         BGColor::BG4 => self.theme.colors.bg4,
-      };
+      let button_visuals = self.theme.colors.button_visuals;
+      let label_visuals = self.theme.colors.label_visuals;
+      let combo_visuals = self.theme.colors.combo_box_visuals;
+      let text_edit_visuals = self.theme.colors.text_edit_visuals;
 
-      let button_visuals = match self.widgets_selected_color {
-         BGColor::BG1 => self.theme.colors.button_visuals_1,
-         BGColor::BG2 => self.theme.colors.button_visuals_2,
-         BGColor::BG3 => self.theme.colors.button_visuals_3,
-         BGColor::BG4 => self.theme.colors.button_visuals_3,
-      };
-
-      let label_visuals = match self.widgets_selected_color {
-         BGColor::BG1 => self.theme.colors.label_visuals_1,
-         BGColor::BG2 => self.theme.colors.label_visuals_2,
-         BGColor::BG3 => self.theme.colors.label_visuals_3,
-         BGColor::BG4 => self.theme.colors.label_visuals_3,
-      };
-
-      let combo_visuals = match self.widgets_selected_color {
-         BGColor::BG1 => self.theme.colors.combo_box_visuals_1,
-         BGColor::BG2 => self.theme.colors.combo_box_visuals_2,
-         BGColor::BG3 => self.theme.colors.combo_box_visuals_3,
-         BGColor::BG4 => self.theme.colors.combo_box_visuals_3,
-      };
-
-      let text_edit_visuals = match self.widgets_selected_color {
-         BGColor::BG1 => self.theme.colors.text_edit_visuals_1,
-         BGColor::BG2 => self.theme.colors.text_edit_visuals_2,
-         BGColor::BG3 => self.theme.colors.text_edit_visuals_3,
-         BGColor::BG4 => self.theme.colors.text_edit_visuals_3,
-      };
-
-      let text = format!(
-         "Selected BG Color: {}",
-         self.widgets_selected_color.to_str()
-      );
-      let text = RichText::new(text).size(self.theme.text_sizes.normal);
-      ui.label(text);
-
-      let frame = Frame::new().inner_margin(Margin::same(10)).fill(bg_color);
-
-      ui.allocate_ui(button_size, |ui| {
-         let bgs = vec![BGColor::BG1, BGColor::BG2, BGColor::BG3, BGColor::BG4];
-         let selected_text =
-            RichText::new(self.widgets_selected_color.to_str()).size(self.theme.text_sizes.normal);
-         let selected_label = Label::new(selected_text, None).visuals(label_visuals);
-         ComboBox::new("combox_box", selected_label)
-            .width(150.0)
-            .visuals(combo_visuals)
-            .show_ui(ui, |ui| {
-               for bg in bgs {
-                  let text = RichText::new(bg.to_str()).size(self.theme.text_sizes.normal);
-                  let label = Label::new(text, None)
-                     .visuals(label_visuals)
-                     .expand(Some(3.0))
-                     .selected(bg == self.widgets_selected_color)
-                     .sense(Sense::click())
-                     .fill_width(true);
-
-                  if ui.add(label).clicked() {
-                     self.widgets_selected_color = bg;
-                  }
-                  ui.add_space(4.0);
-               }
-            });
-      });
+      let frame = Frame::new().inner_margin(Margin::same(10));
 
       frame.show(ui, |ui| {
          let text = RichText::new("Button 1").size(self.theme.text_sizes.normal);
@@ -448,7 +368,8 @@ impl DemoApp {
             ui.add(Slider::new(&mut self.min_value, 0.0..=100.0));
          });
 
-         let text = RichText::new("Text Edit with SecureString (Multiline)").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Text Edit with SecureString (Multiline)")
+            .size(self.theme.text_sizes.normal);
          ui.label(text);
 
          let hint = RichText::new("Write something")
@@ -463,7 +384,8 @@ impl DemoApp {
                .font(FontId::proportional(self.theme.text_sizes.normal)),
          );
 
-         let text = RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal);
+         let text =
+            RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal);
          ui.label(text);
 
          ui.add(
@@ -478,33 +400,35 @@ impl DemoApp {
 }
 
 impl TxConfirmWindow {
-   fn open(&mut self, theme: &mut Theme) {
-      if !self.open {
-         theme.overlay_manager.window_opened();
-      }
+   fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
-   fn close(&mut self, theme: &mut Theme) {
-      if self.open {
-         theme.overlay_manager.window_closed();
-      }
+   fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
-   fn show(&mut self, theme: &mut Theme, ui: &mut Ui) {
+   fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let frame = Frame::window(&theme.style);
 
       Window::new("Tx Confirm")
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .title_bar(false)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .frame(frame)
          .show(ui.ctx(), |ui| {
-            let frame = theme.frame2.outer_margin(Margin::same(0));
+            let frame = theme.frame1.outer_margin(Margin::same(0));
             let text_size = theme.text_sizes.large;
-            let button_visuals = theme.colors.button_visuals_2.clone();
+            let button_visuals = theme.colors.button_visuals;
+            let text_edit_visuals = theme.colors.text_edit_visuals;
             // let font_bold = FontFamily::Name("inter_bold".into());
 
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
@@ -629,7 +553,8 @@ impl TxConfirmWindow {
                               ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                               ui.add(
-                                 TextEdit::singleline(&mut fee)
+                                 SecureTextEdit::singleline(&mut fee)
+                                    .visuals(text_edit_visuals)
                                     .margin(Margin::same(10))
                                     .desired_width(fee_width)
                                     .font(FontId::proportional(theme.text_sizes.normal)),
@@ -648,7 +573,8 @@ impl TxConfirmWindow {
                                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                                  ui.add(
-                                    TextEdit::singleline(&mut gas_limit)
+                                    SecureTextEdit::singleline(&mut gas_limit)
+                                       .visuals(text_edit_visuals)
                                        .margin(Margin::same(10))
                                        .desired_width(gas_width)
                                        .font(FontId::proportional(theme.text_sizes.normal)),
@@ -682,9 +608,9 @@ impl TxConfirmWindow {
                      ui.horizontal(|ui| {
                         let text = RichText::new("Confirm").size(theme.text_sizes.normal);
                         let button =
-                           Button::new(text).visuals(button_visuals.clone()).min_size(button_size);
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
-                           self.close(theme);
+                           self.close();
                         }
 
                         ui.add_space(10.0);
@@ -693,7 +619,7 @@ impl TxConfirmWindow {
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
-                           self.close(theme);
+                           self.close();
                         }
                      });
                   });
@@ -704,23 +630,23 @@ impl TxConfirmWindow {
 }
 
 impl MsgWindow {
-   fn open(&mut self, theme: &mut Theme) {
-      if !self.open {
-         theme.overlay_manager.window_opened();
-      }
+   fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
-   fn close(&mut self, theme: &mut Theme) {
-      if self.open {
-         theme.overlay_manager.window_closed();
-      }
+   fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
-   fn show(&mut self, theme: &mut Theme, ui: &mut Ui) {
+   fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let frame = Frame::window(&theme.style);
-      let button_visuals = theme.colors.button_visuals_2.clone();
+      let button_visuals = theme.colors.button_visuals;
 
       Window::new("Msg")
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -744,7 +670,7 @@ impl MsgWindow {
                let text = RichText::new("Close").size(theme.text_sizes.normal);
                let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 45.0));
                if ui.add(button).clicked() {
-                  self.close(theme);
+                  self.close();
                }
             });
          });
@@ -752,26 +678,27 @@ impl MsgWindow {
 }
 
 impl RecipientWindow {
-   fn open(&mut self, theme: &mut Theme) {
-      if !self.open {
-         theme.overlay_manager.window_opened();
-      }
+   fn open(&mut self) {
+      self.overlay.window_opened();
       self.open = true;
    }
 
-   fn close(&mut self, theme: &mut Theme) {
-      if self.open {
-         theme.overlay_manager.window_closed();
-      }
+   fn close(&mut self) {
+      self.overlay.window_closed();
       self.open = false;
    }
 
-   fn show(&mut self, theme: &mut Theme, ui: &mut Ui) {
+   fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.open {
+         return;
+      }
+
       let frame = Frame::window(&theme.style);
 
       Window::new("Recipient")
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .title_bar(false)
+         .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .frame(frame)
@@ -782,7 +709,7 @@ impl RecipientWindow {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                let frame = theme.frame2;
-               let button_visuals = theme.colors.button_visuals_3.clone();
+               let button_visuals = theme.colors.button_visuals;
                let size = vec2(ui.available_width() * 0.7, 45.0);
 
                ui.allocate_ui(size, |ui| {
@@ -795,7 +722,7 @@ impl RecipientWindow {
                      frame.show(ui, |ui| {
                         ui.horizontal(|ui| {
                            let text = RichText::new("John Doe").size(theme.text_sizes.normal);
-                           let button = Button::new(text).visuals(button_visuals.clone());
+                           let button = Button::new(text).visuals(button_visuals);
                            ui.add(button);
 
                            ui.add_space(30.0);
@@ -815,37 +742,17 @@ impl RecipientWindow {
                   }
                });
 
-               let button_visuals = theme.colors.button_visuals_2.clone();
-
                let close = Button::new(RichText::new("Close").size(theme.text_sizes.normal))
                   .visuals(button_visuals)
                   .min_size(vec2(100.0, 45.0));
                if ui.add(close).clicked() {
-                  self.close(theme);
+                  self.close();
                }
             });
          });
    }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum BGColor {
-   BG1,
-   BG2,
-   BG3,
-   BG4,
-}
-
-impl BGColor {
-   fn to_str(&self) -> &'static str {
-      match self {
-         BGColor::BG1 => "BG1",
-         BGColor::BG2 => "BG2",
-         BGColor::BG3 => "BG3",
-         BGColor::BG4 => "BG4",
-      }
-   }
-}
 
 pub fn setup_fonts(ctx: &egui::Context) {
    // Start with defaults to keep built-in fonts.

@@ -5,8 +5,8 @@ use egui::{
    style::WidgetVisuals,
    text::LayoutJob,
 };
-use zeus_theme::LabelVisuals;
 use std::sync::Arc;
+use zeus_theme::LabelVisuals;
 
 #[must_use = "You should put this widget in a ui with `ui.add(widget);`"]
 #[derive(Clone)]
@@ -71,7 +71,7 @@ impl Label {
    }
 
    /// Make the label interactive
-   /// 
+   ///
    /// True by default, If false on hover/click there will be no bg color
    pub fn interactive(mut self, interactive: bool) -> Self {
       self.interactive = interactive;
@@ -194,7 +194,8 @@ impl Label {
             self.text_first,
          );
 
-         let text_color = self.visuals.as_ref().map(|v| v.text).unwrap_or(button_visuals.text_color());
+         let text_color =
+            self.visuals.as_ref().map(|v| v.text).unwrap_or(button_visuals.text_color());
          ui.painter().add(TextShape::new(
             text_pos,
             galley.clone(),
@@ -209,94 +210,7 @@ impl Label {
       }
    }
 }
-impl Widget for Label {
-   fn ui(self, ui: &mut Ui) -> Response {
-      // Calculate Size (Content Only)
-      let image_size = if let Some(image) = &self.image {
-         image.calc_size(ui.available_size(), image.size())
-      } else {
-         Vec2::ZERO
-      };
 
-      let available_width_for_text = if self.fill_width {
-         if self.image.is_some() {
-            (ui.available_width() - self.spacing - image_size.x).max(10.0)
-         } else {
-            ui.available_width()
-         }
-      } else {
-         f32::INFINITY
-      };
-
-      let (galley, content_size) = self.galley_and_size(ui, available_width_for_text);
-      let desired_size = if self.fill_width {
-         Vec2::new(ui.available_width(), content_size.y)
-      } else {
-         content_size
-      };
-
-      // Allocate Space (Content Size Only)
-      let sense = self.sense.unwrap_or(Sense::hover());
-      let (rect, response) = ui.allocate_exact_size(desired_size, sense);
-
-      // Paint
-      if ui.is_rect_visible(rect) {
-         let visuals = ui.style().interact_selectable(&response, self.selected);
-
-         let fill = if self.selected {
-            self.visuals.as_ref().map(|v| v.bg_selected).unwrap_or(visuals.bg_fill)
-         } else if response.hovered() || response.has_focus() {
-            match self.interactive {
-               true => self.visuals.as_ref().map(|v| v.bg_hover).unwrap_or(visuals.weak_bg_fill),
-               false => Color32::TRANSPARENT,
-            }
-         } else {
-            self.visuals.as_ref().map(|v| v.bg).unwrap_or(Color32::TRANSPARENT)
-         };
-
-         let stroke = if self.selected || response.hovered() || response.has_focus() {
-            self.visuals.as_ref().map(|v| v.border_hover).unwrap_or(visuals.bg_stroke)
-         } else {
-            self.visuals.as_ref().map(|v| v.border).unwrap_or(Stroke::NONE)
-         };
-
-         let expansion = self.expansion.unwrap_or(visuals.expansion);
-         let corner = self.visuals.as_ref().map(|v| v.corner_radius).unwrap_or(visuals.corner_radius);
-         let background_rect = rect.expand(expansion);
-         ui.painter().add(RectShape::new(
-            background_rect,
-            corner,
-            fill,
-            stroke,
-            StrokeKind::Inside,
-         ));
-
-         // Layout and Paint Content
-         let (text_pos, image_rect_opt) = layout_content_within_rect(
-            ui,
-            rect,
-            &galley,
-            &self.image,
-            self.spacing,
-            self.text_first,
-         );
-
-         let text_color = self.visuals.as_ref().map(|v| v.text).unwrap_or(visuals.text_color());
-         ui.painter().add(TextShape::new(
-            text_pos,
-            galley.clone(),
-            text_color,
-         ));
-
-         if let Some(image_rect) = image_rect_opt {
-            if let Some(image) = self.image {
-               image.paint_at(ui, image_rect);
-            }
-         }
-      }
-      response
-   }
-}
 fn layout_content_within_rect(
    ui: &Ui,
    rect: Rect,
@@ -350,4 +264,105 @@ fn layout_content_within_rect(
       top_y + (total_content_height - text_size.y) * 0.5,
    );
    (text_pos, image_final_rect)
+}
+
+impl Widget for Label {
+   fn ui(self, ui: &mut Ui) -> Response {
+      // Calculate Size (Content Only)
+      let image_size = if let Some(image) = &self.image {
+         image.calc_size(ui.available_size(), image.size())
+      } else {
+         Vec2::ZERO
+      };
+
+      let effective_wrap_mode = self.wrap_mode.unwrap_or_else(|| ui.wrap_mode());
+
+      let available_width_for_text = match effective_wrap_mode {
+         TextWrapMode::Extend => f32::INFINITY,
+         _ => {
+            // Wrap or Truncate
+            if self.image.is_some() {
+               (ui.available_width() - self.spacing - image_size.x).max(10.0)
+            } else {
+               ui.available_width()
+            }
+         }
+      };
+
+      let (galley, content_size) = self.galley_and_size(ui, available_width_for_text);
+      let desired_size = if self.fill_width {
+         Vec2::new(ui.available_width(), content_size.y)
+      } else {
+         content_size
+      };
+
+      // Allocate Space (Content Size Only)
+      let sense = self.sense.unwrap_or(Sense::hover());
+      let (rect, response) = ui.allocate_exact_size(desired_size, sense);
+
+      // Paint
+      if ui.is_rect_visible(rect) {
+         let visuals = ui.style().interact_selectable(&response, self.selected);
+
+         let fill = if self.selected {
+            self.visuals.as_ref().map(|v| v.bg_selected).unwrap_or(visuals.bg_fill)
+         } else if response.hovered() || response.has_focus() {
+            match self.interactive {
+               true => self.visuals.as_ref().map(|v| v.bg_hover).unwrap_or(visuals.weak_bg_fill),
+               false => Color32::TRANSPARENT,
+            }
+         } else {
+            self.visuals.as_ref().map(|v| v.bg).unwrap_or(Color32::TRANSPARENT)
+         };
+
+         let stroke = if self.selected {
+            self.visuals.as_ref().map(|v| v.border_hover).unwrap_or(visuals.bg_stroke)
+         } else if response.hovered() || response.has_focus() {
+            match self.interactive {
+               true => self.visuals.as_ref().map(|v| v.border_hover).unwrap_or(visuals.bg_stroke),
+               false => Stroke::new(0.0, Color32::TRANSPARENT),
+            }
+         } else {
+            self.visuals.as_ref().map(|v| v.border).unwrap_or(Stroke::NONE)
+         };
+
+         let expansion = self.expansion.unwrap_or(visuals.expansion);
+         let corner =
+            self.visuals.as_ref().map(|v| v.corner_radius).unwrap_or(visuals.corner_radius);
+         let background_rect = rect.expand(expansion);
+
+         ui.painter().add(RectShape::new(
+            background_rect,
+            corner,
+            fill,
+            stroke,
+            StrokeKind::Inside,
+         ));
+
+         // Layout and Paint Content
+         let (text_pos, image_rect_opt) = layout_content_within_rect(
+            ui,
+            rect,
+            &galley,
+            &self.image,
+            self.spacing,
+            self.text_first,
+         );
+
+         let text_color = self.visuals.as_ref().map(|v| v.text).unwrap_or(visuals.text_color());
+
+         ui.painter().add(TextShape::new(
+            text_pos,
+            galley.clone(),
+            text_color,
+         ));
+
+         if let Some(image_rect) = image_rect_opt {
+            if let Some(image) = self.image {
+               image.paint_at(ui, image_rect);
+            }
+         }
+      }
+      response
+   }
 }

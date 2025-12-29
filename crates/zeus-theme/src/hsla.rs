@@ -35,6 +35,14 @@ impl Hsla {
       }
    }
 
+   pub fn from_hex(hex: &str) -> Option<Self> {
+      match Color32::from_hex(hex) {
+         Ok(c) => Some(Self::from_color32(c)),
+         Err(_) => None,
+      }
+   }
+
+
    pub fn to_color32(&self) -> Color32 {
       let srgba = self.to_srgba();
       let (r, g, b, a) = srgba.into_components();
@@ -61,7 +69,6 @@ impl Hsla {
       (r, g, b, a)
    }
 
-   // Shade generator inspired by the app
    pub fn shades(&self, num_shades: usize, direction: ShadeDirection) -> Vec<Color32> {
       let mut shades = Vec::new();
       let step = if direction == ShadeDirection::Lighter {

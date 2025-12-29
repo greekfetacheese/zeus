@@ -32,7 +32,6 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::utils::{truncate_address, truncate_hash};
 use egui::{Align, FontFamily, Layout, RichText, Ui};
-use zeus_widgets::Label;
 use zeus_eth::{
    alloy_primitives::{Address, TxHash},
    currency::{Currency, NativeCurrency},
@@ -40,6 +39,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 use zeus_theme::Theme;
+use zeus_widgets::Label;
 
 use std::sync::Arc;
 
@@ -201,11 +201,8 @@ pub fn chain(chain: ChainId, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let icon = icons.chain_icon(chain.id(), tint);
-         let label = Label::new(
-            RichText::new(chain.name()).size(theme.text_sizes.large),
-            Some(icon),
-         )
-         .image_on_left();
+         let text = RichText::new(chain.name()).size(theme.text_sizes.large);
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
    });
@@ -231,7 +228,7 @@ pub fn eth_spent(
       eth_spent_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.text_sizes.normal);
-   ui.add(Label::new(text, Some(icon)).image_on_left());
+   ui.add(Label::new(text, Some(icon)).image_on_left().interactive(false));
 }
 
 /// Show the ETH received in a horizontal layout from left to right
@@ -253,5 +250,5 @@ pub fn eth_received(
       eth_received_usd.abbreviated()
    );
    let text = RichText::new(text).size(theme.text_sizes.large);
-   ui.add(Label::new(text, None).image_on_left());
+   ui.add(Label::new(text, None).image_on_left().interactive(false));
 }

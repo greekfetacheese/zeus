@@ -1,9 +1,8 @@
 use egui::{
-   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui,
-   Window, vec2,
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
 };
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Label;
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use super::{address, chain, contract_interact};
 use crate::assets::icons::Icons;
@@ -90,6 +89,9 @@ impl SignMsgWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                ui.vertical_centered(|ui| {
                   ui.spacing_mut().item_spacing.y = 15.0;
@@ -106,7 +108,7 @@ impl SignMsgWindow {
 
                   ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
 
-                  let frame = theme.frame2;
+                  let frame = theme.frame1;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
                   ui.label(RichText::new(msg.title()).size(theme.text_sizes.large));
@@ -126,7 +128,7 @@ impl SignMsgWindow {
                      });
                   }
 
-                  ui.add_space(30.0);
+                  ui.add_space(20.0);
 
                   if self.formatted_msg.is_none() {
                      self.formatted_msg = Some(format_sign_data(&msg, self.chain));
@@ -134,10 +136,11 @@ impl SignMsgWindow {
 
                   // Show the msg
                   if let Some(mut formatted) = self.formatted_msg.clone() {
-                     let text_edit = TextEdit::multiline(&mut formatted)
+                     let text_edit = SecureTextEdit::multiline(&mut formatted)
+                        .visuals(text_edit_visuals)
                         .font(FontId::proportional(theme.text_sizes.large))
                         .margin(Margin::same(10))
-                        .desired_width(ui.available_width() * 0.95);
+                        .desired_width(ui.available_width() * 0.90);
 
                      ui.label(RichText::new("Message").size(theme.text_sizes.large));
 
@@ -155,17 +158,19 @@ impl SignMsgWindow {
                      let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
                      ui.horizontal(|ui| {
+                        let text = RichText::new("Sign").size(theme.text_sizes.normal);
                         let ok_btn =
-                           Button::new(RichText::new("Sign").size(theme.text_sizes.normal))
-                              .min_size(button_size);
+                           Button::new(text).min_size(button_size).visuals(button_visuals);
+
                         if ui.add(ok_btn).clicked() {
                            self.signed = Some(true);
                            self.close(ctx.clone());
                         }
 
+                        let text = RichText::new("Cancel").size(theme.text_sizes.normal);
                         let cancel_btn =
-                           Button::new(RichText::new("Cancel").size(theme.text_sizes.normal))
-                              .min_size(button_size);
+                           Button::new(text).min_size(button_size).visuals(button_visuals);
+
                         if ui.add(cancel_btn).clicked() {
                            self.reset(ctx);
                            self.signed = Some(false);
@@ -209,11 +214,12 @@ fn permit2_single_approval(
                details.token.chain_id,
                tint,
             );
-            let label = Label::new(
-               RichText::new(text).size(theme.text_sizes.large),
-               Some(icon),
-            )
-            .wrap();
+
+            let text = RichText::new(text).size(theme.text_sizes.large);
+            let label = Label::new(text, Some(icon))
+               .wrap()
+               .visuals(theme.label_visuals())
+               .interactive(false);
             ui.add(label);
          });
       });

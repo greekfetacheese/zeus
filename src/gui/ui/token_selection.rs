@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
-   Sense, TextEdit, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
+   Sense, Ui, Window, emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
@@ -16,7 +16,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_widgets::Label;
+use zeus_widgets::{Label, Button, SecureTextEdit};
 use zeus_theme::{Theme, OverlayManager, utils::frame_it};
 
 /// A simple window that allows the user to select a token
@@ -141,11 +141,19 @@ impl TokenSelectionWindow {
             ui.set_height(self.size.1);
             let ui_width = ui.available_width();
 
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
+
+               let hint = RichText::new("Search tokens or enter an address")
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text_muted);
+
                ui.add(
-                  TextEdit::singleline(&mut self.search_query)
-                     .hint_text(RichText::new("Search tokens or enter an address"))
+                  SecureTextEdit::singleline(&mut self.search_query)
+                     .visuals(text_edit_visuals)
+                     .hint_text(hint)
                      .desired_width(ui_width * 0.7)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal)),
@@ -166,8 +174,8 @@ impl TokenSelectionWindow {
             let num_rows = filtered_list.len();
             let row_height = 80.0;
             let tint = theme.image_tint_recommended;
-            let mut frame = theme.frame2.outer_margin(Margin::same(5));
-            let frame_visuals = theme.frame2_visuals;
+            let mut frame = theme.frame1.outer_margin(Margin::same(5));
+            let frame_visuals = theme.frame1_visuals;
 
             ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
                ui,
@@ -251,9 +259,11 @@ impl TokenSelectionWindow {
 
          ui.add_space(20.0);
          let size = vec2(ui.available_width() * 0.7, 40.0);
+         let button_visuals = theme.button_visuals();
 
-         let button =
-            Button::new(RichText::new("Add Token").size(theme.text_sizes.large)).min_size(size);
+         let text = RichText::new("Add Token").size(theme.text_sizes.large);
+         let button = Button::new(text).min_size(size).visuals(button_visuals);
+         
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {

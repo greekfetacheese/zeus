@@ -10,8 +10,8 @@ use crate::gui::{
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Button, Color32, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
-   RichText, Slider, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, Order, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl,
+   RichText, Slider, Spinner, Ui, Window, vec2,
 };
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
@@ -27,6 +27,7 @@ use zeus_eth::{
    utils::{NumericValue, address_book},
 };
 use zeus_theme::Theme;
+use zeus_widgets::{Button, SecureTextEdit};
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -175,6 +176,7 @@ impl AcrossBridge {
       Window::new("across_bridge_ui")
          .title_bar(false)
          .resizable(false)
+         .order(Order::Middle)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 120.0))
          .frame(frame)
@@ -291,12 +293,14 @@ impl AcrossBridge {
                   });
 
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                     let visuals = theme.text_edit_visuals();
                      let hint = RichText::new("Search contacts or enter an address")
                         .size(theme.text_sizes.normal)
                         .color(theme.colors.text_muted);
 
                      let res = ui.add(
-                        TextEdit::singleline(&mut recipient_selection.recipient)
+                        SecureTextEdit::singleline(&mut recipient_selection.recipient)
+                           .visuals(visuals)
                            .hint_text(hint)
                            .min_size(vec2(ui_width, 25.0))
                            .margin(Margin::same(10))
@@ -349,7 +353,7 @@ impl AcrossBridge {
                   ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                   if self.requesting {
-                     ui.add(Spinner::new().size(20.0).color(Color32::WHITE));
+                     ui.add(Spinner::new().size(20.0).color(theme.colors.text));
                   }
 
                   // Estimated time to fill
@@ -409,8 +413,9 @@ impl AcrossBridge {
          button_text = format!("Insufficient {} Balance", self.currency.symbol());
       }
 
+      let visuals = theme.button_visuals();
       let text = RichText::new(button_text).size(theme.text_sizes.large);
-      let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
+      let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0)).visuals(visuals);
 
       if ui.add_enabled(valid_inputs, button).clicked() {
          self.sending_tx = true;

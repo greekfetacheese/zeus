@@ -20,7 +20,7 @@ pub enum ThemeKind {
    Dark,
 
    /// WIP
-   Light,
+  // Light,
 
    /// A custom theme
    Custom,
@@ -30,13 +30,13 @@ impl ThemeKind {
    pub fn to_str(&self) -> &str {
       match self {
          ThemeKind::Dark => "Dark",
-         ThemeKind::Light => "Light",
+        // ThemeKind::Light => "Light",
          ThemeKind::Custom => "Custom",
       }
    }
 
    pub fn to_vec() -> Vec<Self> {
-      vec![Self::Dark, Self::Light]
+      vec![Self::Dark]
    }
 }
 
@@ -75,7 +75,7 @@ impl Theme {
    pub fn new(kind: ThemeKind) -> Self {
       let theme = match kind {
          ThemeKind::Dark => dark::theme(),
-         ThemeKind::Light => light::theme(),
+        // ThemeKind::Light => light::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       };
 
@@ -85,7 +85,7 @@ impl Theme {
    pub fn set_window_frame_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.window_frame = dark::window_frame(&self.colors),
-         ThemeKind::Light => self.window_frame = light::window_frame(&self.colors),
+        // ThemeKind::Light => self.window_frame = light::window_frame(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -93,7 +93,7 @@ impl Theme {
    pub fn set_frame1_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame1 = dark::frame1(&self.colors),
-         ThemeKind::Light => self.frame1 = light::frame1(&self.colors),
+        // ThemeKind::Light => self.frame1 = light::frame1(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -101,7 +101,39 @@ impl Theme {
    pub fn set_frame2_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame2 = dark::frame2(&self.colors),
-         ThemeKind::Light => self.frame2 = light::frame2(&self.colors),
+        // ThemeKind::Light => self.frame2 = light::frame2(&self.colors),
+         ThemeKind::Custom => panic!("{}", PANIC_MSG),
+      }
+   }
+
+   pub fn button_visuals(&self) -> ButtonVisuals {
+      match self.kind {
+         ThemeKind::Dark => self.colors.button_visuals,
+        // ThemeKind::Light => self.colors.button_visuals,
+         ThemeKind::Custom => panic!("{}", PANIC_MSG),
+      }
+   }
+
+   pub fn label_visuals(&self) -> LabelVisuals {
+      match self.kind {
+         ThemeKind::Dark => self.colors.label_visuals,
+        // ThemeKind::Light => self.colors.label_visuals,
+         ThemeKind::Custom => panic!("{}", PANIC_MSG),
+      }
+   }
+
+   pub fn combo_box_visuals(&self) -> ComboBoxVisuals {
+      match self.kind {
+         ThemeKind::Dark => self.colors.combo_box_visuals,
+        // ThemeKind::Light => self.colors.combo_box_visuals,
+         ThemeKind::Custom => panic!("{}", PANIC_MSG),
+      }
+   }
+
+   pub fn text_edit_visuals(&self) -> TextEditVisuals {
+      match self.kind {
+         ThemeKind::Dark => self.colors.text_edit_visuals,
+        // ThemeKind::Light => self.colors.text_edit_visuals,
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
    }
@@ -111,73 +143,27 @@ impl Theme {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug)]
 pub struct ThemeColors {
-   /// Looks best on BG1
-   pub button_visuals_1: ButtonVisuals,
+   pub button_visuals: ButtonVisuals,
 
-   /// Looks best on BG2
-   pub button_visuals_2: ButtonVisuals,
+   pub label_visuals: LabelVisuals,
 
-   /// Looks best on BG3
-   pub button_visuals_3: ButtonVisuals,
+   pub combo_box_visuals: ComboBoxVisuals,
 
-   /// Looks best on BG1
-   pub label_visuals_1: LabelVisuals,
+   pub text_edit_visuals: TextEditVisuals,
 
-   /// Looks best on BG2
-   pub label_visuals_2: LabelVisuals,
-
-   /// Looks best on BG3
-   pub label_visuals_3: LabelVisuals,
-
-   /// Looks best on BG1
-   pub combo_box_visuals_1: ComboBoxVisuals,
-
-   /// Looks best on BG2
-   pub combo_box_visuals_2: ComboBoxVisuals,
-
-   // Looks best on BG3
-   pub combo_box_visuals_3: ComboBoxVisuals,
-
-   /// Looks best on BG1
-   pub text_edit_visuals_1: TextEditVisuals,
-
-   /// Looks best on BG2
-   pub text_edit_visuals_2: TextEditVisuals,
-
-   /// Looks best on BG3
-   pub text_edit_visuals_3: TextEditVisuals,
+   /// The color for the title bar of the app (if using custom window frame)
+   pub title_bar: Color32,
 
    /// Main BG color of the theme
-   ///
-   /// This is usually the darkest color of the theme
    pub bg: Color32,
 
-   /// BG2 color
-   ///
-   /// A secondary bg color that is applied on top of the `bg` color
-   ///
-   /// Usually this is the color of choice for a popup window or a base frame/container
-   ///
-   /// Its a should be a lighter shade/color of the `bg` color.
-   pub bg2: Color32,
+   /// Widget BG color
+   /// 
+   /// This is the color of the widget backgrounds
+   pub widget_bg: Color32,
 
-   /// BG3 color
-   ///
-   /// A third `bg` color that is applied on top of the `bg2` color
-   ///
-   /// Usually this is the color of choice for a frame/container that is already inside a Ui that uses the `bg2` color
-   ///
-   /// Its a should be a lighter shade/color of the `bg2` color.
-   pub bg3: Color32,
-
-   /// BG 4 color
-   ///
-   /// A fourth `bg` color that can be applied on top of the `bg3` color
-   ///
-   /// Usually this is the color of choice for a frame/container that is already inside a Ui that uses the `bg3` color
-   ///
-   /// Its a should be a lighter shade/color of the `bg3` color.
-   pub bg4: Color32,
+   /// The color to use when hovering over a widget
+   pub hover: Color32,
 
    /// Main text color
    pub text: Color32,
@@ -193,11 +179,8 @@ pub struct ThemeColors {
    /// Border color
    pub border: Color32,
 
-   /// Primary action color
-   pub primary: Color32,
-
-   /// Secondary action color
-   pub secondary: Color32,
+   /// Accent color
+   pub accent: Color32,
 
    /// Error color
    ///
@@ -402,7 +385,7 @@ impl OverlayCounter {
          return 0;
       }
 
-      let mut a = 40;
+      let mut a = 60;
       for _ in 1..counter {
          a += 20;
       }
@@ -414,7 +397,7 @@ impl OverlayCounter {
       let counter = self.counter();
 
       if counter == 1 {
-         return Color32::from_black_alpha(40);
+         return Color32::from_black_alpha(60);
       }
 
       let alpha = self.calculate_alpha();

@@ -1,9 +1,10 @@
 use crate::core::{TransactionRich, WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address};
-use egui::{Align, Button, ComboBox, Frame, Grid, Layout, Margin, RichText, ScrollArea, Ui, vec2};
+use egui::{Align, Frame, Grid, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 use zeus_theme::Theme;
+use zeus_widgets::{Button, ComboBox, Label};
 
 const DEFAULT_TXS_PER_PAGE: usize = 20;
 
@@ -72,6 +73,10 @@ impl TxHistory {
             ui.spacing_mut().item_spacing.x = 20.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let combo_visuals = theme.combo_box_visuals();
+            let label_visuals = theme.label_visuals();
+            let expansion = Some(6.0);
+
             // Wallet Filter
             let wallets = ctx.get_all_wallets_info();
             let selected_wallet_name = self
@@ -79,17 +84,27 @@ impl TxHistory {
                .clone()
                .map_or("All Wallets".to_string(), |wallet| wallet.name());
 
-            ComboBox::from_id_salt("wallet_filter")
+            let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
+            let label = Label::new(text, None)
+               .visuals(label_visuals)
+               .fill_width(true)
+               .sense(Sense::click())
+               .expand(expansion);
+
+            ComboBox::new("wallet_filter", label)
+               .visuals(combo_visuals)
                .width(200.0)
-               .selected_text(RichText::new(selected_wallet_name).size(theme.text_sizes.small))
                .show_ui(ui, |ui| {
-                  if ui
-                     .selectable_label(
-                        self.selected_wallet.is_none(),
-                        RichText::new("All Wallets").size(theme.text_sizes.small),
-                     )
-                     .clicked()
-                  {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+
+                  let text = RichText::new("All Wallets").size(theme.text_sizes.normal);
+                  let label = Label::new(text, None)
+                     .visuals(label_visuals)
+                     .fill_width(true)
+                     .sense(Sense::click())
+                     .expand(expansion);
+
+                  if ui.add(label).clicked() {
                      if self.selected_wallet.is_some() {
                         self.selected_wallet = None;
                         self.current_page = 0;
@@ -97,13 +112,14 @@ impl TxHistory {
                   }
 
                   for wallet in wallets {
-                     if ui
-                        .selectable_label(
-                           self.selected_wallet == Some(wallet.clone()),
-                           RichText::new(&wallet.name()).size(theme.text_sizes.small),
-                        )
-                        .clicked()
-                     {
+                     let text = RichText::new(&wallet.name()).size(theme.text_sizes.normal);
+                     let label = Label::new(text, None)
+                        .visuals(label_visuals)
+                        .sense(Sense::click())
+                        .fill_width(true)
+                        .expand(expansion);
+
+                     if ui.add(label).clicked() {
                         if self.selected_wallet != Some(wallet.clone()) {
                            self.selected_wallet = Some(wallet);
                            self.current_page = 0;
@@ -118,17 +134,27 @@ impl TxHistory {
                   chain.name().to_string()
                });
 
-            ComboBox::from_id_salt("chain_filter")
+            let text = RichText::new(selected_chain_name).size(theme.text_sizes.normal);
+            let label = Label::new(text, None)
+               .visuals(label_visuals)
+               .fill_width(true)
+               .sense(Sense::click())
+               .expand(expansion);
+
+            ComboBox::new("chain_filter", label)
+               .visuals(combo_visuals)
                .width(200.0)
-               .selected_text(RichText::new(selected_chain_name).size(theme.text_sizes.small))
                .show_ui(ui, |ui| {
-                  if ui
-                     .selectable_label(
-                        self.selected_chain.is_none(),
-                        RichText::new("All Chains").size(theme.text_sizes.small),
-                     )
-                     .clicked()
-                  {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+
+                  let text = RichText::new("All Chains").size(theme.text_sizes.normal);
+                  let label = Label::new(text, None)
+                     .visuals(label_visuals)
+                     .fill_width(true)
+                     .sense(Sense::click())
+                     .expand(expansion);
+
+                  if ui.add(label).clicked() {
                      if self.selected_chain.is_some() {
                         self.selected_chain = None;
                         self.current_page = 0;
@@ -136,13 +162,14 @@ impl TxHistory {
                   }
 
                   for chain in ChainId::supported_chains() {
-                     if ui
-                        .selectable_label(
-                           self.selected_chain == Some(chain),
-                           RichText::new(chain.name()).size(theme.text_sizes.small),
-                        )
-                        .clicked()
-                     {
+                     let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+                     let label = Label::new(text, None)
+                        .visuals(label_visuals)
+                        .sense(Sense::click())
+                        .fill_width(true)
+                        .expand(expansion);
+
+                     if ui.add(label).clicked() {
                         if self.selected_chain != Some(chain) {
                            self.selected_chain = Some(chain);
                            self.current_page = 0;
@@ -236,11 +263,14 @@ impl TxHistory {
          // Ensure current page is valid
          self.current_page = self.current_page.min(total_pages.saturating_sub(1));
 
+         let button_visuals = theme.button_visuals();
+
          // --- Pagination Controls ---
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             // Next Page Button
             let next_enabled = (self.current_page + 1) < total_pages;
-            let next_button = Button::new(RichText::new("Next").size(theme.text_sizes.normal));
+            let text = RichText::new("Next").size(theme.text_sizes.normal);
+            let next_button = Button::new(text).visuals(button_visuals);
             if ui.add_enabled(next_enabled, next_button).clicked() {
                self.current_page += 1;
             }
@@ -254,7 +284,8 @@ impl TxHistory {
 
             // Previous Page Button
             let prev_enabled = self.current_page > 0;
-            let prev_button = Button::new(RichText::new("Previous").size(theme.text_sizes.normal));
+            let text = RichText::new("Previous").size(theme.text_sizes.normal);
+            let prev_button = Button::new(text).visuals(button_visuals);
             if ui.add_enabled(prev_enabled, prev_button).clicked() {
                self.current_page -= 1;
             }
@@ -364,10 +395,8 @@ impl TxHistory {
                            });
 
                            // Details Button Column
-                           let details_button =
-                              Button::new(RichText::new("Details").size(theme.text_sizes.small));
-                           // let visuals = theme.get_button_visuals(bg_color);
-                           // widget_visuals(ui, visuals);
+                           let text = RichText::new("Details").size(theme.text_sizes.normal);
+                           let details_button = Button::new(text).visuals(button_visuals);
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[3]);
                               if ui.add(details_button).clicked() {

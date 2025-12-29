@@ -1,34 +1,40 @@
 use super::super::{
-   FrameVisuals, TextSizes, Theme, OverlayManager, ThemeColors, ThemeKind, visuals::*,
+   FrameVisuals, OverlayManager, TextSizes, Theme, ThemeColors, ThemeKind, visuals::*,
 };
 use egui::{
    Color32, CornerRadius, Frame, Margin, Shadow, Spacing, Stroke, Style, Visuals,
    style::{Selection, WidgetVisuals, Widgets},
 };
 
-// Background
+// Color Pallete
 
-const BG: Color32 = Color32::from_rgba_premultiplied(17, 17, 18, 255);
-const BG2: Color32 = Color32::from_rgba_premultiplied(24, 24, 26, 255);
-const BG3: Color32 = Color32::from_rgba_premultiplied(31, 31, 34, 255);
-const BG4: Color32 = Color32::from_rgba_premultiplied(43, 43, 48, 255);
+pub const BLACK: Color32 = Color32::from_rgba_premultiplied(28, 28, 32, 255);
+pub const DARK_GREY: Color32 = Color32::from_rgba_premultiplied(34, 34, 38, 255);
+pub const DARK_GREY2: Color32 = Color32::from_rgba_premultiplied(48, 48, 54, 255);
+pub const CHARCOAL_GREY: Color32 = Color32::from_rgba_premultiplied(68, 68, 76, 255);
+pub const CHARCOAL_GREY2: Color32 = Color32::from_rgba_premultiplied(76, 76, 76, 255);
+pub const MEDIUM_GREY: Color32 = Color32::from_rgba_premultiplied(76, 76, 76, 255);
+pub const GREY: Color32 = Color32::from_rgba_premultiplied(155, 155, 155, 255);
+pub const SILVER: Color32 = Color32::from_rgba_premultiplied(204, 204, 204, 255);
+pub const LIGHT_RED: Color32 = Color32::from_rgba_premultiplied(237, 57, 57, 255);
+pub const ORANGE: Color32 = Color32::from_rgba_premultiplied(228, 128, 25, 255);
+pub const GREEN: Color32 = Color32::from_rgba_premultiplied(72, 182, 120, 255);
+pub const PASTEL_PURPLE: Color32 = Color32::from_rgba_premultiplied(195, 153, 255, 255);
+pub const PURPLE: Color32 = Color32::from_rgba_premultiplied(137, 91, 245, 255);
 
-const TEXT: Color32 = Color32::from_rgba_premultiplied(204, 204, 204, 255);
-const TEXT_MUTED: Color32 = Color32::from_rgba_premultiplied(127, 127, 127, 255);
-
-const HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(160, 160, 160, 255);
-
-const BORDER: Color32 = Color32::from_rgba_premultiplied(46, 46, 46, 255);
-
-const PRIMARY: Color32 = Color32::from_rgba_premultiplied(221, 152, 198, 255);
-const SECONDARY: Color32 = Color32::from_rgba_premultiplied(118, 198, 157, 255);
-
-// Semantic
-
-const ERROR: Color32 = Color32::from_rgba_premultiplied(237, 57, 57, 255);
-const WARNING: Color32 = Color32::from_rgba_premultiplied(228, 128, 25, 255);
-const SUCCESS: Color32 = Color32::from_rgba_premultiplied(72, 182, 120, 255);
-const INFO: Color32 = Color32::from_rgba_premultiplied(195, 153, 255, 255);
+const TITLE_BAR: Color32 = BLACK;
+const MAIN_BG: Color32 = DARK_GREY;
+const WIDGET_BG: Color32 = BLACK;
+const HOVER: Color32 = CHARCOAL_GREY;
+const TEXT: Color32 = SILVER;
+const TEXT_MUTED: Color32 = GREY;
+const HIGHLIGHT: Color32 = CHARCOAL_GREY;
+const BORDER: Color32 = CHARCOAL_GREY2;
+const ACCENT: Color32 = PURPLE;
+const ERROR: Color32 = LIGHT_RED;
+const WARNING: Color32 = ORANGE;
+const SUCCESS: Color32 = GREEN;
+const INFO: Color32 = PASTEL_PURPLE;
 
 /// Return this theme
 pub fn theme() -> Theme {
@@ -51,28 +57,19 @@ pub fn theme() -> Theme {
 /// Return the theme colors for this theme
 fn colors() -> ThemeColors {
    ThemeColors {
-      button_visuals_1: button_visuals_1(),
-      button_visuals_2: button_visuals_2(),
-      button_visuals_3: button_visuals_3(),
-      label_visuals_1: label_visuals_1(),
-      label_visuals_2: label_visuals_2(),
-      label_visuals_3: label_visuals_3(),
-      combo_box_visuals_1: combo_box_visuals_1(),
-      combo_box_visuals_2: combo_box_visuals_1(),
-      combo_box_visuals_3: combo_box_visuals_3(),
-      text_edit_visuals_1: text_edit_visuals_1(),
-      text_edit_visuals_2: text_edit_visuals_2(),
-      text_edit_visuals_3: text_edit_visuals_3(),
-      bg: BG,
-      bg2: BG2,
-      bg3: BG3,
-      bg4: BG4,
+      button_visuals: button_visuals(),
+      label_visuals: label_visuals(),
+      combo_box_visuals: combo_box_visuals(),
+      text_edit_visuals: text_edit_visuals(),
+      title_bar: TITLE_BAR,
+      bg: MAIN_BG,
+      widget_bg: WIDGET_BG,
+      hover: HOVER,
       text: TEXT,
       text_muted: TEXT_MUTED,
       highlight: HIGHLIGHT,
       border: BORDER,
-      primary: PRIMARY,
-      secondary: SECONDARY,
+      accent: ACCENT,
       error: ERROR,
       warning: WARNING,
       success: SUCCESS,
@@ -86,7 +83,7 @@ fn text_sizes() -> TextSizes {
 
 pub fn window_frame(colors: &ThemeColors) -> Frame {
    Frame {
-      fill: colors.bg4,
+      fill: colors.title_bar,
       inner_margin: Margin::ZERO,
       outer_margin: Margin::ZERO,
       ..Default::default()
@@ -98,7 +95,7 @@ pub fn frame1(colors: &ThemeColors) -> Frame {
    Frame {
       corner_radius: CornerRadius::same(6),
       inner_margin: Margin::same(10),
-      fill: colors.bg2,
+      fill: colors.widget_bg,
       stroke: Stroke::new(0.0, colors.border),
       shadow: Shadow::NONE,
       ..Default::default()
@@ -107,10 +104,10 @@ pub fn frame1(colors: &ThemeColors) -> Frame {
 
 pub fn frame1_visuals(colors: &ThemeColors) -> FrameVisuals {
    FrameVisuals {
-      bg_on_hover: colors.bg3,
-      bg_on_click: colors.bg3,
-      border_on_hover: (1.0, colors.border),
-      border_on_click: (1.0, colors.border),
+      bg_on_hover: colors.hover,
+      bg_on_click: colors.widget_bg,
+      border_on_hover: (0.0, colors.highlight),
+      border_on_click: (0.0, colors.highlight),
    }
 }
 
@@ -120,7 +117,7 @@ pub fn frame2(colors: &ThemeColors) -> Frame {
       corner_radius: CornerRadius::same(6),
       inner_margin: Margin::same(10),
       outer_margin: Margin::same(10),
-      fill: colors.bg3,
+      fill: colors.bg,
       stroke: Stroke::NONE,
       ..Default::default()
    }
@@ -128,148 +125,66 @@ pub fn frame2(colors: &ThemeColors) -> Frame {
 
 pub fn frame2_visuals(colors: &ThemeColors) -> FrameVisuals {
    FrameVisuals {
-      bg_on_hover: colors.bg4,
-      bg_on_click: colors.bg4,
-      border_on_hover: (0.0, colors.border),
-      border_on_click: (0.0, colors.border),
+      bg_on_hover: colors.hover,
+      bg_on_click: colors.bg,
+      border_on_hover: (0.0, colors.highlight),
+      border_on_click: (0.0, colors.highlight),
    }
 }
 
-/// Button visuals on BG1
-pub fn button_visuals_1() -> ButtonVisuals {
+pub fn button_visuals() -> ButtonVisuals {
    ButtonVisuals {
       text: TEXT,
-      bg: BG3,
-      bg_hover: BG4,
-      bg_click: BG3,
-      bg_selected: BG4,
-      border: Stroke::new(1.0, BORDER),
+      bg: WIDGET_BG,
+      bg_hover: HOVER,
+      bg_click: WIDGET_BG,
+      bg_selected: HIGHLIGHT,
+      border: Stroke::new(1.0, Color32::TRANSPARENT),
       border_hover: Stroke::new(1.0, Color32::TRANSPARENT),
       border_click: Stroke::new(1.0, Color32::TRANSPARENT),
       corner_radius: CornerRadius::same(6),
       shadow: Shadow {
          offset: (0, 0).into(),
-         blur: 6,
+         blur: 2,
          spread: 1,
-         color: Color32::from_rgba_premultiplied(0, 0, 0, 115),
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 174),
       },
    }
 }
 
-/// Button visuals on BG2
-pub fn button_visuals_2() -> ButtonVisuals {
-   ButtonVisuals {
+pub fn combo_box_visuals() -> ComboBoxVisuals {
+   ComboBoxVisuals {
+      bg: WIDGET_BG,
+      icon: TEXT,
+      bg_hover: HOVER,
+      bg_open: WIDGET_BG,
       border: Stroke::new(1.0, Color32::TRANSPARENT),
+      border_hover: Stroke::new(1.0, Color32::TRANSPARENT),
+      border_open: Stroke::new(1.0, Color32::TRANSPARENT),
+      corner_radius: CornerRadius::same(6),
       shadow: Shadow {
          offset: (0, 0).into(),
-         blur: 17,
+         blur: 2,
          spread: 1,
-         color: Color32::from_rgba_premultiplied(0, 0, 0, 79),
+         color: Color32::from_rgba_premultiplied(0, 0, 0, 174),
       },
-      ..button_visuals_1()
    }
 }
 
-/// Button visuals on BG3
-pub fn button_visuals_3() -> ButtonVisuals {
-   ButtonVisuals {
-      text: TEXT,
-      bg: BG4,
-      bg_hover: BG3,
-      bg_click: BG4,
-      bg_selected: BG3,
-      border: Stroke::new(1.0, BORDER),
-      ..button_visuals_2()
-   }
-}
-
-pub fn combo_box_visuals_1() -> ComboBoxVisuals {
-   ComboBoxVisuals {
-      bg: BG3,
-      icon: TEXT,
-      bg_hover: BG4,
-      bg_open: BG3,
-      border: Stroke::new(1.0, BORDER),
-      border_hover: Stroke::new(1.0, BORDER),
-      border_open: Stroke::new(1.0, BORDER),
-      corner_radius: CornerRadius::same(6),
-      shadow: Shadow::NONE,
-   }
-}
-
-pub fn combo_box_visuals_2() -> ComboBoxVisuals {
-   combo_box_visuals_1()
-}
-
-pub fn combo_box_visuals_3() -> ComboBoxVisuals {
-   ComboBoxVisuals {
-      bg: BG4,
-      icon: TEXT,
-      bg_hover: BG3,
-      bg_open: BG2,
-      border: Stroke::new(1.0, BORDER),
-      border_hover: Stroke::new(1.0, BORDER),
-      border_open: Stroke::new(1.0, BORDER),
-      corner_radius: CornerRadius::same(6),
-      shadow: Shadow::NONE,
-   }
-}
-
-
-pub fn label_visuals_1() -> ButtonVisuals {
+pub fn label_visuals() -> ButtonVisuals {
    ButtonVisuals {
       bg: Color32::TRANSPARENT,
-      border: Stroke::new(1.0, Color32::TRANSPARENT),
-      ..button_visuals_1()
+      ..button_visuals()
    }
 }
 
-pub fn label_visuals_2() -> ButtonVisuals {
-   ButtonVisuals {
-      ..label_visuals_1()
-   }
-}
-
-pub fn label_visuals_3() -> ButtonVisuals {
-   ButtonVisuals {
-      bg_hover: BG4,
-      bg_click: BG3,
-      bg_selected: BG4,
-      ..label_visuals_2()
-   }
-}
-
-pub fn text_edit_visuals_1() -> TextEditVisuals {
+pub fn text_edit_visuals() -> TextEditVisuals {
    TextEditVisuals {
       text: TEXT,
-      bg: BG2,
+      bg: WIDGET_BG,
       border: Stroke::new(1.0, BORDER),
-      border_hover: Stroke::new(1.0, HIGHLIGHT),
-      border_open: Stroke::new(1.0, HIGHLIGHT),
-      corner_radius: CornerRadius::same(6),
-      shadow: Shadow::NONE,
-   }
-}
-
-pub fn text_edit_visuals_2() -> TextEditVisuals {
-   TextEditVisuals {
-      text: TEXT,
-      bg: BG2,
-      border: Stroke::new(1.0, BORDER),
-      border_hover: Stroke::new(1.0, HIGHLIGHT),
-      border_open: Stroke::new(1.0, HIGHLIGHT),
-      corner_radius: CornerRadius::same(6),
-      shadow: Shadow::NONE,
-   }
-}
-
-pub fn text_edit_visuals_3() -> TextEditVisuals {
-   TextEditVisuals {
-      text: TEXT,
-      bg: BG2,
-      border: Stroke::new(1.0, BORDER),
-      border_hover: Stroke::new(1.0, HIGHLIGHT),
-      border_open: Stroke::new(1.0, HIGHLIGHT),
+      border_hover: Stroke::new(1.0, SILVER),
+      border_open: Stroke::new(1.0, SILVER),
       corner_radius: CornerRadius::same(6),
       shadow: Shadow::NONE,
    }
@@ -297,18 +212,18 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
       override_text_color: Some(colors.text),
       widgets,
       selection: Selection {
-         bg_fill: colors.bg4, // affects selected text color, combox selected item bg
+         bg_fill: colors.highlight, // affects selected text color, combox selected item bg
          stroke: Stroke::new(1.0, colors.highlight), // also affects TextEdit border color when active
       },
       hyperlink_color: colors.info,
       faint_bg_color: colors.bg,
-      extreme_bg_color: colors.bg2,
+      extreme_bg_color: colors.widget_bg,
       code_bg_color: colors.bg,
       warn_fg_color: colors.warning,
       error_fg_color: colors.error,
       window_corner_radius: CornerRadius::same(6),
       window_shadow: Shadow::NONE,
-      window_fill: colors.bg2,
+      window_fill: colors.bg,
       window_stroke: Stroke::new(1.0, colors.border),
       panel_fill: colors.bg,
       ..Default::default()
@@ -317,8 +232,8 @@ fn visuals(widgets: Widgets, colors: &ThemeColors) -> Visuals {
 
 fn widgets(colors: ThemeColors) -> Widgets {
    let base_visuals = WidgetVisuals {
-      bg_fill: colors.bg3,
-      weak_bg_fill: colors.bg3,
+      bg_fill: colors.widget_bg,
+      weak_bg_fill: colors.bg,
       bg_stroke: Stroke::new(1.0, colors.border),
       corner_radius: CornerRadius::same(4),
       fg_stroke: Stroke::new(1.0, colors.text),
@@ -328,30 +243,30 @@ fn widgets(colors: ThemeColors) -> Widgets {
    let mut non_interactive_base = base_visuals.clone();
    non_interactive_base.bg_stroke.width = 1.0;
 
-   // Set inactive bg to border color
+   // Set inactive bg to highlight color
    // Because widgets like sliders dont get a border and it will not distinguish
    // from the bg color
    let mut inactive_visuals = base_visuals.clone();
-   inactive_visuals.bg_fill = colors.border;
+   inactive_visuals.bg_fill = colors.highlight;
 
    Widgets {
       noninteractive: non_interactive_base,
       inactive: inactive_visuals,
       hovered: WidgetVisuals {
-         bg_fill: colors.bg3,
-         weak_bg_fill: colors.bg4,
+         bg_fill: colors.widget_bg,
+         weak_bg_fill: colors.highlight,
          bg_stroke: Stroke::new(1.0, colors.highlight),
          ..base_visuals
       },
       active: WidgetVisuals {
-         bg_fill: colors.bg,
-         weak_bg_fill: colors.bg,
+         bg_fill: colors.widget_bg,
+         weak_bg_fill: colors.widget_bg,
          bg_stroke: Stroke::new(1.0, colors.border),
          ..base_visuals
       },
       open: WidgetVisuals {
-         bg_fill: colors.bg,
-         weak_bg_fill: colors.bg,
+         bg_fill: colors.widget_bg,
+         weak_bg_fill: colors.widget_bg,
          bg_stroke: Stroke::new(1.0, colors.border),
          ..base_visuals
       },

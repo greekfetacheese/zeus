@@ -2,13 +2,13 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, context::theme_kind_dir};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::RT;
-use egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
+use egui::{Align2, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use ncrypt_me::Argon2;
 use std::collections::HashSet;
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 use zeus_theme::{OverlayManager, Theme, ThemeKind};
-use zeus_widgets::{ComboBox, Label};
+use zeus_widgets::{Button, ComboBox, Label};
 
 pub mod contacts;
 pub mod networks;
@@ -86,24 +86,41 @@ impl ThemeSettings {
                ui.spacing_mut().item_spacing = vec2(0.0, 20.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               let selected_text = RichText::new(theme.kind.to_str()).size(theme.text_sizes.normal);
-               let label = Label::new(selected_text, None);
-               ComboBox::new("theme_settings_combobox", label).width(200.0).show_ui(ui, |ui| {
-                  for kind in ThemeKind::to_vec() {
-                     let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
-                     let label = Label::new(text, None).sense(Sense::click());
+               let combo_visuals = theme.combo_box_visuals();
+               let label_visuals = theme.label_visuals();
 
-                     if ui.add(label).clicked() {
-                        let new_theme = Theme::new(kind);
-                        ui.ctx().set_style(new_theme.style.clone());
-                        RT.spawn_blocking(move || {
-                           SHARED_GUI.write(|gui| {
-                              gui.theme = new_theme;
+               let selected_text = RichText::new(theme.kind.to_str()).size(theme.text_sizes.normal);
+               let label = Label::new(selected_text, None)
+                  .visuals(label_visuals)
+                  .sense(Sense::click())
+                  .expand(Some(6.0))
+                  .fill_width(true);
+
+               ComboBox::new("theme_settings_combobox", label)
+                  .width(200.0)
+                  .visuals(combo_visuals)
+                  .show_ui(ui, |ui| {
+                     ui.spacing_mut().item_spacing.y = 10.0;
+                     
+                     for kind in ThemeKind::to_vec() {
+                        let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
+                        let label = Label::new(text, None)
+                           .visuals(label_visuals)
+                           .expand(Some(6.0))
+                           .sense(Sense::click())
+                           .fill_width(true);
+
+                        if ui.add(label).clicked() {
+                           let new_theme = Theme::new(kind);
+                           ui.ctx().set_style(new_theme.style.clone());
+                           RT.spawn_blocking(move || {
+                              SHARED_GUI.write(|gui| {
+                                 gui.theme = new_theme;
+                              });
                            });
-                        });
+                        }
                      }
-                  }
-               });
+                  });
 
                let text = RichText::new("Save").size(theme.text_sizes.normal);
                let button = Button::new(text).min_size(vec2(ui.available_width() * 0.7, 35.0));
@@ -209,57 +226,54 @@ impl SettingsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
 
                ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
                let size = vec2(self.size.0, 50.0);
-               let credentials = Button::new(
-                  RichText::new("Change your Credentials").size(theme.text_sizes.large),
-               )
-               .corner_radius(5)
-               .min_size(size);
-               if ui.add(credentials).clicked() {
+
+               let text = RichText::new("Change your Credentials").size(theme.text_sizes.large);
+               let button = Button::new(text).min_size(size).visuals(button_visuals);
+
+               if ui.add(button).clicked() {
                   self.credentials_form.open();
                }
 
-               let encryption_settings =
-                  Button::new(RichText::new("Encryption Settings").size(theme.text_sizes.large))
-                     .corner_radius(5)
-                     .min_size(size);
-               if ui.add(encryption_settings).clicked() {
+               let text = RichText::new("Encryption Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
                   self.encryption.open();
                }
 
-               let contacts = Button::new(RichText::new("Contacts").size(theme.text_sizes.large))
-                  .corner_radius(5)
-                  .min_size(size);
-               if ui.add(contacts).clicked() {
+               let text = RichText::new("Contacts").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
                   self.contacts_ui.open();
                }
 
-               let network =
-                  Button::new(RichText::new("Network Settings").size(theme.text_sizes.large))
-                     .corner_radius(5)
-                     .min_size(size);
-               if ui.add(network).clicked() {
+               let text = RichText::new("Network Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
                   self.network.open();
                }
 
-               let general =
-                  Button::new(RichText::new("General Settings").size(theme.text_sizes.large))
-                     .corner_radius(5)
-                     .min_size(size);
-               if ui.add(general).clicked() {
+               let text = RichText::new("General Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
                   self.general.open();
                }
 
-               let theme =
-                  Button::new(RichText::new("Theme Settings").size(theme.text_sizes.large))
-                     .corner_radius(5)
-                     .min_size(size);
-               if ui.add(theme).clicked() {
+               let text = RichText::new("Theme Settings").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+               if ui.add(button).clicked() {
                   self.theme.open();
                }
             });
@@ -295,6 +309,8 @@ impl SettingsUi {
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
 
@@ -307,10 +323,11 @@ impl SettingsUi {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   let size = vec2(ui.available_width() * 0.7, 35.0);
-                  let verify = Button::new(RichText::new("Verify").size(theme.text_sizes.large))
-                     .min_size(size);
 
-                  if ui.add(verify).clicked() {
+                  let text = RichText::new("Verify").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+                  if ui.add(button).clicked() {
                      let mut vault = ctx.get_vault();
                      vault.set_credentials(self.credentials_form.credentials.clone());
 
@@ -349,10 +366,11 @@ impl SettingsUi {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   let size = vec2(ui.available_width() * 0.7, 35.0);
-                  let save =
-                     Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
 
-                  if ui.add(save).clicked() {
+                  let text = RichText::new("Save").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+
+                  if ui.add(button).clicked() {
                      let new_credentials = self.credentials_form.credentials.clone();
                      let mut new_vault = ctx.get_vault();
                      new_vault.set_credentials(new_credentials.clone());
@@ -455,6 +473,7 @@ impl EncryptionSettings {
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
             let slider_size = vec2(ui.available_width() * 0.4, 20.0);
+            let button_visuals = theme.button_visuals();
 
             let min_m_cost = if cfg!(feature = "dev") {
                DEV_M_MIN_COST
@@ -511,10 +530,10 @@ impl EncryptionSettings {
                ui.add_space(20.0);
 
                let size = vec2(ui.available_width() * 0.7, 35.0);
-               let save =
-                  Button::new(RichText::new("Save").size(theme.text_sizes.large)).min_size(size);
+               let text = RichText::new("Save").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(save).clicked() {
+               if ui.add(button).clicked() {
                   self.save(ctx);
                }
             });
@@ -644,6 +663,8 @@ impl GeneralSettings {
             ui.spacing_mut().item_spacing = vec2(5.0, 20.0);
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ScrollArea::vertical().show(ui, |ui| {
                   let slider_size = vec2(ui.available_width() * 0.4, 20.0);
@@ -652,7 +673,9 @@ impl GeneralSettings {
                   ui.label(header);
 
                   let text = RichText::new("Reset Settings").size(theme.text_sizes.normal);
-                  if ui.add(Button::new(text)).clicked() {
+                  let button = Button::new(text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
                      self.reset_settings(ctx.clone());
                   }
 

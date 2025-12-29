@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align2, Button, FontId, CursorIcon, Frame, Margin, OpenUrl, RichText, TextEdit, Ui, Window, vec2,
+   Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
 };
 
 use std::{
@@ -22,6 +22,7 @@ use crate::gui::{
 };
 use crate::utils::simulate::fetch_accounts_info;
 use zeus_theme::Theme;
+use zeus_widgets::{Button, SecureTextEdit};
 
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
@@ -110,12 +111,14 @@ impl SendCryptoUi {
          return;
       }
 
+      let frame = theme.frame1;
+
       Window::new("send_crypto_ui")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 30.0))
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
@@ -123,6 +126,8 @@ impl SendCryptoUi {
                   ui.set_max_height(self.size.1);
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+
+                  let text_edit_visuals = theme.text_edit_visuals();
 
                   ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
 
@@ -250,8 +255,10 @@ impl SendCryptoUi {
                         let hint = RichText::new("Search contacts or enter an address")
                            .size(theme.text_sizes.normal)
                            .color(theme.colors.text_muted);
+
                         let res = ui.add(
-                           TextEdit::singleline(&mut recipient_selection.recipient)
+                           SecureTextEdit::singleline(&mut recipient_selection.recipient)
+                              .visuals(text_edit_visuals)
                               .hint_text(hint)
                               .min_size(vec2(ui.available_width(), 25.0))
                               .margin(Margin::same(10))
@@ -292,6 +299,7 @@ impl SendCryptoUi {
       recipient: String,
       ui: &mut Ui,
    ) {
+      let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
       let recipient_is_sender = self.recipient_is_sender(owner, &recipient);
       let valid_recipient = self.valid_recipient(&recipient);
@@ -326,7 +334,9 @@ impl SendCryptoUi {
       }
 
       let text = RichText::new(button_text).size(theme.text_sizes.large);
-      let send = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0));
+      let send = Button::new(text)
+         .min_size(vec2(ui.available_width() * 0.8, 45.0))
+         .visuals(button_visuals);
 
       if ui.add_enabled(valid_inputs, send).clicked() {
          self.sending_tx = true;

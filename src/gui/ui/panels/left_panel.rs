@@ -8,7 +8,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    ui.set_width(140.0);
 
    ui.vertical_centered(|ui| {
-      let selected_color = gui.theme.colors.bg4;
+      let selected_color = gui.theme.colors.highlight;
       utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
       utils::no_border_on_idle(ui);
 

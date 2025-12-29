@@ -6,8 +6,8 @@ use crate::utils::{
    state::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{
-   Align, Align2, Button, CursorIcon, Frame, Grid, Layout, Order, RichText, ScrollArea, Sense,
-   Spinner, Ui, Vec2, Window, vec2,
+   Align, Align2, CursorIcon, Frame, Margin, Grid, Layout, Order, RichText, ScrollArea, Sense, Spinner, Ui,
+   Vec2, Window, vec2,
 };
 use std::{
    sync::Arc,
@@ -21,7 +21,7 @@ use zeus_eth::{
    types::ChainId,
 };
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{ComboBox, Label};
+use zeus_widgets::{Button, ComboBox, Label};
 
 pub mod dev;
 pub mod sync;
@@ -73,6 +73,8 @@ impl ChainSelect {
       let expansion = self.expansion;
 
       let text_size = theme.text_sizes.normal;
+      let combo_visuals = theme.combo_box_visuals();
+      let label_visuals = theme.label_visuals();
       let tint = theme.image_tint_recommended;
       let icon = icons.chain_icon(current_chain.id(), tint);
 
@@ -81,9 +83,11 @@ impl ChainSelect {
          Some(icon),
       )
       .image_on_left()
-      .sense(Sense::click());
+      .sense(Sense::click())
+      .visuals(label_visuals);
 
       ComboBox::new(self.id, current_chain_label)
+         .visuals(combo_visuals)
          .width(self.size.x)
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
@@ -102,6 +106,7 @@ impl ChainSelect {
                   .expand(expansion)
                   .fill_width(true)
                   .selected(is_selected)
+                  .visuals(label_visuals)
                   .sense(Sense::click());
 
                if ui.add(chain_label).clicked() {
@@ -150,15 +155,19 @@ impl WalletSelect {
       let mut clicked = false;
       let expansion = self.expansion;
 
+      let combo_visuals = theme.combo_box_visuals();
+      let label_visuals = theme.label_visuals();
       let wallet_icon = icons.wallet_main_x24();
       let text = RichText::new(&self.wallet.name_with_id_short()).size(theme.text_sizes.normal);
 
       let current_wallet_label = Label::new(text, Some(wallet_icon))
          .image_on_left()
          .expand(expansion)
+         .visuals(label_visuals)
          .sense(Sense::click());
 
       ComboBox::new(self.id, current_wallet_label)
+         .visuals(combo_visuals)
          .width(self.size.x)
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 14.0;
@@ -173,6 +182,7 @@ impl WalletSelect {
                      .fill_width(true)
                      .expand(expansion)
                      .selected(is_selected)
+                     .visuals(label_visuals)
                      .sense(Sense::click());
 
                   if ui.add(wallet_label).clicked() {
@@ -264,22 +274,19 @@ impl ConfirmWindow {
                   ui.label(RichText::new(msg).size(theme.text_sizes.normal));
                }
 
-               if ui
-                  .add(Button::new(
-                     RichText::new("Confirm").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
+               let visuals = theme.button_visuals();
+               let button = Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
+                  .visuals(visuals);
+
+               if ui.add(button).clicked() {
                   self.close();
                   self.confirm = Some(true);
                }
 
-               if ui
-                  .add(Button::new(
-                     RichText::new("Reject").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
+               let button = Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
+                  .visuals(visuals);
+
+               if ui.add(button).clicked() {
                   self.close();
                   self.confirm = Some(false);
                }
@@ -369,11 +376,13 @@ impl UpdateWindow {
                let text = "Would you like to update now?";
                ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
+               let visuals = theme.button_visuals();
+
                let text = RichText::new("Update Now").size(theme.text_sizes.normal);
-               let update_button = Button::new(text);
+               let update_button = Button::new(text).visuals(visuals);
 
                let text = RichText::new("Later").size(theme.text_sizes.normal);
-               let later_button = Button::new(text);
+               let later_button = Button::new(text).visuals(visuals);
 
                let size = vec2(ui.available_width() * 0.45, 25.0);
                ui.allocate_ui(size, |ui| {
@@ -431,14 +440,15 @@ impl UpdateWindow {
       let text = RichText::new("Please start Zeus manually").size(theme.text_sizes.normal);
       ui.label(text);
 
+      let visuals = theme.button_visuals();
       let text = RichText::new("Exit").size(theme.text_sizes.normal);
-      if ui.add(Button::new(text)).clicked() {
+      if ui.add(Button::new(text).visuals(visuals)).clicked() {
          std::process::exit(0);
       }
    }
 
    fn update_completed_ui(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.add(Spinner::new().size(0.0).color(theme.frame1.fill));
+      ui.add(Spinner::new().size(0.0).color(theme.colors.text));
 
       let text = RichText::new("Update completed!").size(theme.text_sizes.large);
       ui.label(text);
@@ -466,8 +476,9 @@ impl UpdateWindow {
          restart_app();
       }
 
+      let visuals = theme.button_visuals();
       let text = RichText::new("Restart now").size(theme.text_sizes.normal);
-      if ui.add(Button::new(text)).clicked() {
+      if ui.add(Button::new(text).visuals(visuals)).clicked() {
          restart_app();
       }
    }
@@ -561,7 +572,6 @@ impl MsgWindow {
    /// Open the window with this title and message
    pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
       self.overlay.window_opened();
-     // self.overlay.paint_tooltip();
       self.open = true;
       self.title = title.into();
       self.message = msg.into();
@@ -569,7 +579,6 @@ impl MsgWindow {
 
    pub fn reset(&mut self) {
       self.overlay.window_closed();
-     // self.overlay.paint_background();
       self.open = false;
    }
 
@@ -598,8 +607,10 @@ impl MsgWindow {
                ui.label(msg);
 
                let size = vec2(ui.available_width() * 0.5, 25.0);
-               let ok_button =
-                  Button::new(RichText::new("OK").size(theme.text_sizes.normal)).min_size(size);
+               let text = RichText::new("OK").size(theme.text_sizes.normal);
+               let visuals = theme.button_visuals();
+               let ok_button = Button::new(text).visuals(visuals).min_size(size);
+
                if ui.add(ok_button).clicked() {
                   self.reset();
                }
@@ -651,45 +662,47 @@ impl PortfolioUi {
       let portfolio = ctx.get_portfolio(chain_id, owner);
       let tokens = &portfolio.tokens;
 
-      ui.vertical_centered_justified(|ui| {
-         ui.set_width(ui.available_width() * 0.8);
+      Frame::new().outer_margin(Margin::same(5)).show(ui, |ui| {
+         ui.vertical_centered_justified(|ui| {
+            ui.set_width(ui.available_width() * 0.8);
 
-         ui.spacing_mut().item_spacing = Vec2::new(16.0, 20.0);
+            ui.spacing_mut().item_spacing = Vec2::new(16.0, 20.0);
 
-         ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               let add_token =
-                  Button::new(RichText::new("Add Token").size(theme.text_sizes.normal));
-               if ui.add(add_token).clicked() {
-                  token_selection.open(ctx.clone(), chain_id, owner);
-               }
+                  let visuals = theme.button_visuals();
+                  let text = RichText::new("Add Token").size(theme.text_sizes.normal);
+                  let add_token = Button::new(text).visuals(visuals);
 
-               let tint = theme.image_tint_recommended;
-               let icon = match theme.dark_mode {
-                  true => icons.refresh_white_x28(tint),
-                  false => icons.refresh_dark_x28(tint),
-               };
-
-               if !self.show_spinner {
-                  let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
-
-                  if res.clicked() {
-                     self.refresh(owner, ctx.clone());
+                  if ui.add(add_token).clicked() {
+                     token_selection.open(ctx.clone(), chain_id, owner);
                   }
-               } else {
-                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-               }
-            });
-         });
 
-         // Total Value
-         ui.vertical(|ui| {
-            Frame::group(ui.style())
-               .inner_margin(16.0)
-               .fill(ui.style().visuals.extreme_bg_color)
-               .show(ui, |ui| {
+                  let tint = theme.image_tint_recommended;
+                  let icon = match theme.dark_mode {
+                     true => icons.refresh_white_x28(tint),
+                     false => icons.refresh_dark_x28(tint),
+                  };
+
+                  if !self.show_spinner {
+                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+
+                     if res.clicked() {
+                        self.refresh(owner, ctx.clone());
+                     }
+                  } else {
+                     ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  }
+               });
+            });
+
+            let frame = theme.frame1;
+
+            // Total Value
+            ui.vertical(|ui| {
+               frame.show(ui, |ui| {
                   ui.vertical_centered(|ui| {
                      ui.label(RichText::new(wallet_info.name()).size(theme.text_sizes.very_large));
                      ui.add_space(8.0);
@@ -700,103 +713,104 @@ impl PortfolioUi {
                      );
                   });
                });
-         });
+            });
 
-         // Token List
-         ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            ui.set_width(ui.available_width());
+            // Token List
+            ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+               ui.set_width(ui.available_width());
 
-            let column_widths = [
-               ui.available_width() * 0.2, // Asset
-               ui.available_width() * 0.2, // Price
-               ui.available_width() * 0.2, // Balance
-               ui.available_width() * 0.2, // Value
-               ui.available_width() * 0.1, // Remove button
-            ];
+               let column_widths = [
+                  ui.available_width() * 0.2, // Asset
+                  ui.available_width() * 0.2, // Price
+                  ui.available_width() * 0.2, // Balance
+                  ui.available_width() * 0.2, // Value
+                  ui.available_width() * 0.1, // Remove button
+               ];
 
-            // Center the grid within the available space
-            ui.horizontal(|ui| {
-               ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
+               // Center the grid within the available space
+               ui.horizontal(|ui| {
+                  ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
 
-               Grid::new("currency_grid")
-                  .num_columns(5)
-                  .spacing([20.0, 30.0])
-                  .striped(true)
-                  .show(ui, |ui| {
-                     // Header
-                     ui.label(RichText::new("Asset").size(theme.text_sizes.large));
+                  Grid::new("currency_grid")
+                     .num_columns(5)
+                     .spacing([20.0, 30.0])
+                     .striped(true)
+                     .show(ui, |ui| {
+                        // Header
+                        ui.label(RichText::new("Asset").size(theme.text_sizes.large));
 
-                     ui.label(RichText::new("Price").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Price").size(theme.text_sizes.large));
 
-                     ui.label(RichText::new("Balance").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Balance").size(theme.text_sizes.large));
 
-                     ui.label(RichText::new("Value").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Value").size(theme.text_sizes.large));
 
-                     ui.end_row();
+                        ui.end_row();
 
-                     let native_currency = Currency::native(chain_id);
+                        let native_currency = Currency::native(chain_id);
 
-                     // Show the native currency first
+                        // Show the native currency first
 
-                     self.native(
-                        theme,
-                        icons.clone(),
-                        &native_currency,
-                        ui,
-                        column_widths[0],
-                     );
-
-                     self.price_balance_value_native(
-                        ctx.clone(),
-                        theme,
-                        chain_id,
-                        owner,
-                        &native_currency,
-                        ui,
-                        column_widths[0],
-                     );
-
-                     ui.end_row();
-
-                     // Show the rest of the tokens
-
-                     for token in tokens {
-                        self.token(theme, icons.clone(), token, ui, column_widths[0]);
-
-                        self.price_balance_value_token(
-                           ctx.clone(),
+                        self.native(
                            theme,
-                           chain_id,
-                           owner,
-                           token,
+                           icons.clone(),
+                           &native_currency,
                            ui,
                            column_widths[0],
                         );
 
-                        self.remove_token(ctx.clone(), owner, token, ui, column_widths[4]);
+                        self.price_balance_value_native(
+                           ctx.clone(),
+                           theme,
+                           chain_id,
+                           owner,
+                           &native_currency,
+                           ui,
+                           column_widths[0],
+                        );
 
                         ui.end_row();
-                     }
-                  });
+
+                        // Show the rest of the tokens
+
+                        for token in tokens {
+                           self.token(theme, icons.clone(), token, ui, column_widths[0]);
+
+                           self.price_balance_value_token(
+                              ctx.clone(),
+                              theme,
+                              chain_id,
+                              owner,
+                              token,
+                              ui,
+                              column_widths[0],
+                           );
+
+                           self.remove_token(ctx.clone(), owner, token, ui, column_widths[4]);
+
+                           ui.end_row();
+                        }
+                     });
+               });
+
+               // Token selection
+               token_selection.show(
+                  ctx.clone(),
+                  theme,
+                  icons.clone(),
+                  chain_id,
+                  owner,
+                  ui,
+               );
+
+               let currency = token_selection.get_currency().cloned();
+
+               if let Some(currency) = currency {
+                  let token_fetched = token_selection.token_fetched;
+                  token_selection.reset();
+                  self.add_currency(ctx.clone(), owner, token_fetched, currency);
+               }
             });
-
-            // Token selection
-            token_selection.show(
-               ctx.clone(),
-               theme,
-               icons.clone(),
-               chain_id,
-               owner,
-               ui,
-            );
-
-            let currency = token_selection.get_currency().cloned();
-
-            if let Some(currency) = currency {
-               let token_fetched = token_selection.token_fetched;
-               token_selection.reset();
-               self.add_currency(ctx.clone(), owner, token_fetched, currency);
-            }
          });
       });
    }
@@ -809,6 +823,7 @@ impl PortfolioUi {
       ui: &mut Ui,
       width: f32,
    ) {
+      let visuals = theme.label_visuals();
       let tint = theme.image_tint_recommended;
       let icon = icons.currency_icon(currency, tint);
 
@@ -816,7 +831,7 @@ impl PortfolioUi {
          ui.set_width(width);
          ui.add(icon);
          let text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
-         let label = Label::new(text, None).wrap();
+         let label = Label::new(text, None).wrap().visuals(visuals).interactive(false);
          ui.scope(|ui| {
             ui.set_max_width(100.0);
             ui.add(label).on_hover_text(currency.name());
@@ -825,6 +840,7 @@ impl PortfolioUi {
    }
 
    fn token(&self, theme: &Theme, icons: Arc<Icons>, token: &ERC20Token, ui: &mut Ui, width: f32) {
+      let visuals = theme.label_visuals();
       let tint = theme.image_tint_recommended;
       let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
 
@@ -832,7 +848,7 @@ impl PortfolioUi {
          ui.set_width(width);
          ui.add(icon);
          let text = RichText::new(&token.symbol).size(theme.text_sizes.normal);
-         let label = Label::new(text, None).wrap();
+         let label = Label::new(text, None).wrap().visuals(visuals).interactive(false);
          ui.scope(|ui| {
             ui.set_max_width(100.0);
             ui.add(label).on_hover_text(&token.name);

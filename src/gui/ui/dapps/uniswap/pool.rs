@@ -68,14 +68,14 @@ impl PoolsUi {
       let all_versions = Version::all();
       let selected_text = self.version.map(|v| v.to_str()).unwrap_or("Select Version");
       let selected_text = RichText::new(selected_text).size(theme.text_sizes.normal);
-      let selected_label = Label::new(selected_text, None).sense(Sense::click());
+      let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(false);
 
       ComboBox::new("pool_explore_combobox", selected_label)
          .width(200.0)
          .show_ui(ui, |ui| {
             for version in all_versions {
                let text = RichText::new(version.to_str()).size(theme.text_sizes.normal);
-               let label = Label::new(text, None).sense(Sense::click());
+               let label = Label::new(text, None).sense(Sense::click()).interactive(false);
                if ui.add(label).clicked() {
                   self.version = Some(version);
                }
@@ -174,12 +174,13 @@ impl PoolsUi {
                            RichText::new(token0_symbol).size(theme.text_sizes.normal),
                            Some(icon0),
                         )
-                        .image_on_left();
+                        .image_on_left()
+                        .interactive(false);
 
                         let label1 = Label::new(
                            RichText::new(token1_symbol).size(theme.text_sizes.normal),
                            Some(icon1),
-                        );
+                        ).interactive(false);
 
                         Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                            ui.horizontal(|ui| {
@@ -187,7 +188,7 @@ impl PoolsUi {
                               ui.add(Label::new(
                                  RichText::new("/").size(theme.text_sizes.normal),
                                  None,
-                              ));
+                              ).interactive(false));
                               ui.add(label1);
                            });
                         });

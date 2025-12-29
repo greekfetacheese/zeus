@@ -3,10 +3,7 @@ use crate::gui::ui::dapps::{AmountFieldWithCurrencySelect, uniswap::ProtocolVers
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{
-   Align, Button, Color32, ComboBox, Frame, Grid, Id, Layout, RichText, ScrollArea, Ui, Window,
-   vec2,
-};
+use egui::{Align, Frame, Grid, Id, Layout, RichText, ScrollArea, Sense, Ui, Window, vec2};
 
 use anyhow::anyhow;
 use std::sync::Arc;
@@ -14,6 +11,7 @@ use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 use zeus_theme::Theme;
+use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
    Dapp, TransactionAnalysis, ZeusCtx,
@@ -123,6 +121,8 @@ impl SimulateWindow {
                ui.set_height(self.size.1);
                ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
 
+               let button_visuals = theme.button_visuals();
+
                if self.pool_initial.is_none() {
                   let text = RichText::new("No Pool Selected").size(theme.text_sizes.normal);
                   ui.label(text);
@@ -132,7 +132,7 @@ impl SimulateWindow {
                ui.vertical_centered(|ui| {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                   let text = RichText::new("Reset Pool State").size(theme.text_sizes.normal);
-                  let button = Button::new(text);
+                  let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
                      self.set_pool_after(None);
@@ -351,19 +351,37 @@ impl SwapUi {
    }
 
    fn select_version(&mut self, theme: &Theme, ui: &mut Ui) {
-      let mut current_version = self.protocol_version;
+      let current_version = self.protocol_version;
       let versions = ProtocolVersion::all();
 
-      let selected_text = RichText::new(current_version.as_str()).size(theme.text_sizes.normal);
+      let combo_visuals = theme.combo_box_visuals();
+      let label_visuals = theme.label_visuals();
 
-      ComboBox::from_id_salt("protocol_version")
-         .selected_text(selected_text)
+      let selected_text = RichText::new(current_version.as_str()).size(theme.text_sizes.normal);
+      let label = Label::new(selected_text, None)
+         .visuals(label_visuals)
+         .sense(Sense::click())
+         .expand(Some(6.0))
+         .fill_width(true);
+
+      ComboBox::new("protocol_version", label)
+         .width(100.0)
+         .visuals(combo_visuals)
          .show_ui(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 10.0;
+            
             for version in versions {
                let text = RichText::new(version.as_str()).size(theme.text_sizes.normal);
-               ui.selectable_value(&mut current_version, version, text);
+               let label = Label::new(text, None)
+                  .sense(Sense::click())
+                  .visuals(label_visuals)
+                  .expand(Some(6.0))
+                  .fill_width(true);
+
+               if ui.add(label).clicked() {
+                  self.protocol_version = version;
+               }
             }
-            self.protocol_version = current_version;
          });
    }
 
@@ -379,6 +397,8 @@ impl SwapUi {
          return false;
       }
 
+      let visuals = theme.button_visuals();
+
       let mut changed = false;
       ui.horizontal(|ui| {
          ui.label(RichText::new("Fee Tier").size(theme.text_sizes.normal));
@@ -389,11 +409,7 @@ impl SwapUi {
 
                let fee = pool.fee().fee_percent();
                let text = RichText::new(format!("{fee}%")).size(theme.text_sizes.normal);
-               let mut button = Button::new(text);
-
-               if !selected {
-                  button = button.fill(Color32::TRANSPARENT);
-               }
+               let button = Button::new(text).visuals(visuals).selected(selected);
 
                if ui.add(button).clicked() {
                   self.pool = Some(pool.clone());
@@ -527,7 +543,9 @@ impl SwapUi {
          // Swap Currencies
          ui.vertical_centered(|ui| {
             let tint = theme.image_tint_recommended;
-            let swap_button = Button::image(icons.swap(tint)).min_size(vec2(40.0, 40.0));
+            let visuals = theme.button_visuals();
+            let swap_button =
+               Button::image(icons.swap(tint)).visuals(visuals).min_size(vec2(40.0, 40.0));
 
             if ui.add(swap_button).clicked() {
                self.swap_currencies();
@@ -619,10 +637,12 @@ impl SwapUi {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
+      let visuals = theme.button_visuals();
       let got_pool = self.pool.is_some();
       let enabled = !self.amount_in_field.amount.is_empty() && got_pool;
       let button = Button::new(RichText::new("Simulate").size(theme.text_sizes.large))
-         .min_size(vec2(ui.available_width() * 0.8, 45.0));
+         .min_size(vec2(ui.available_width() * 0.8, 45.0))
+         .visuals(visuals);
 
       if ui.add_enabled(enabled, button).clicked() {
          if let Some(pool) = &mut self.pool {
@@ -683,10 +703,12 @@ impl SwapUi {
          );
       }
 
+      let visuals = theme.button_visuals();
       let swap_button = Button::new(
          RichText::new(button_text).size(theme.text_sizes.large).color(theme.colors.text),
       )
-      .min_size(vec2(ui.available_width() * 0.8, 45.0));
+      .min_size(vec2(ui.available_width() * 0.8, 45.0))
+      .visuals(visuals);
 
       ui.vertical_centered(|ui| {
          if ui.add_enabled(valid, swap_button).clicked() {
@@ -1085,7 +1107,7 @@ impl SwapUi {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
-      let frame = theme.frame2;
+      let frame = theme.frame1;
       let text_size = theme.text_sizes.large;
       let tint = theme.image_tint_recommended;
 
@@ -1095,7 +1117,7 @@ impl SwapUi {
          ui.horizontal(|ui| {
             let text = RichText::new("Routing").size(text_size);
             let info = icons.info(tint);
-            let label = Label::new(text, Some(info));
+            let label = Label::new(text, Some(info)).interactive(false);
 
             ui.add(label).on_hover_ui(|ui| {
                ui.set_width(350.0);

@@ -14,10 +14,11 @@ use eframe::{
 };
 use std::sync::Arc;
 use std::time::Duration;
-use zeus_theme::window::*;
+use zeus_theme::{OverlayManager, window::*};
 
 pub struct ZeusApp {
    pub style_has_been_set: bool,
+   pub overlay: OverlayManager,
    pub ctx: ZeusCtx,
 }
 
@@ -85,6 +86,7 @@ impl ZeusApp {
 
       Self {
          style_has_been_set: false,
+         overlay: theme.overlay_manager,
          ctx,
       }
    }
@@ -121,7 +123,7 @@ impl eframe::App for ZeusApp {
          let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
          let color = gui.theme.colors.bg;
          let panel_frame = Frame::new().fill(color);
-         gui.theme.overlay_manager.paint_overlay(ctx, true);
+         self.overlay.paint_overlay(ctx, true);
 
          window_frame(ctx, window, |ui| {
             #[cfg(feature = "dev")]

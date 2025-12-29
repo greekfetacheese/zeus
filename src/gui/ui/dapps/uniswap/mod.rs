@@ -4,14 +4,13 @@ pub mod swap;
 // pub mod view_positions;
 
 // use create_position::CreatePositionUi;
-use zeus_widgets::Label;
+use zeus_widgets::{Button, SecureTextEdit, Label};
 use pool::PoolsUi;
 use swap::SwapUi;
 // use view_positions::ViewPositionsUi;
 
 use egui::{
-   Align, Align2, Button, CursorIcon, Frame, Layout, RichText, Slider, Spinner, TextEdit, Ui,
-   Window, vec2,
+   Align, Align2, CursorIcon, Frame, Layout, Order, RichText, Slider, Spinner, Ui, Window, vec2
 };
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
@@ -153,6 +152,7 @@ impl UniswapSettingsUi {
       theme: &Theme,
       ui: &mut Ui,
    ) {
+      let button_visuals = theme.button_visuals();
       ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
 
       // Slippage
@@ -161,9 +161,9 @@ impl UniswapSettingsUi {
          ui.label(text).on_hover_text(SLIPPAGE_TIP);
 
          let text = RichText::new(REFRESH).size(theme.text_sizes.very_small);
-         let res = ui.label(text).on_hover_cursor(CursorIcon::PointingHand);
+         let button = Button::new(text).visuals(button_visuals).small();
 
-         if res.clicked() {
+         if ui.add(button).clicked() {
             self.slippage_f64 = DEFAULT_SLIPPAGE;
             self.slippage = DEFAULT_SLIPPAGE.to_string();
          }
@@ -286,9 +286,10 @@ impl UniswapSettingsUi {
       }
 
       if view_position_open {
+         let visuals = theme.text_edit_visuals();
          let text = RichText::new("Number of Days to go back").size(theme.text_sizes.normal);
          ui.label(text);
-         ui.add(TextEdit::singleline(&mut self.days).desired_width(25.0));
+         ui.add(SecureTextEdit::singleline(&mut self.days).desired_width(25.0).visuals(visuals));
       }
    }
 }
@@ -505,6 +506,7 @@ impl UniswapUi {
       Window::new("Uniswap_Settings")
          .title_bar(false)
          .movable(false)
+         .order(Order::Foreground)
          .resizable(false)
          .frame(Frame::window(ui.style()))
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -528,7 +530,8 @@ impl UniswapUi {
                ui.add_space(10.0);
 
                let text = RichText::new("Close").size(theme.text_sizes.normal);
-               if ui.add(Button::new(text)).clicked() {
+               let visuals = theme.button_visuals();
+               if ui.add(Button::new(text).visuals(visuals)).clicked() {
                   self.settings.close();
                }
             });
@@ -561,7 +564,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
                   let icon = icons.currency_icon(token0, tint);
-                  let label = Label::new(text, Some(icon)).image_on_left();
+                  let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
                });
 
@@ -569,7 +572,7 @@ pub fn currencies_amount_and_value(
                   let balance = ctx.get_currency_balance(chain, owner, token0);
                   let b_text = format!("(Balance: {})", balance.abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
-                  let label = Label::new(text, None);
+                  let label = Label::new(text, None).interactive(false);
                   ui.add(label);
                });
             });
@@ -596,7 +599,7 @@ pub fn currencies_amount_and_value(
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
                   let icon = icons.currency_icon(token1, tint);
-                  let label = Label::new(text, Some(icon)).image_on_left();
+                  let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
                });
 
@@ -604,7 +607,7 @@ pub fn currencies_amount_and_value(
                   let balance = ctx.get_currency_balance(chain, owner, token1);
                   let b_text = format!("(Balance: {})", balance.abbreviated());
                   let text = RichText::new(b_text).size(theme.text_sizes.normal);
-                  let label = Label::new(text, None);
+                  let label = Label::new(text, None).interactive(false);
                   ui.add(label);
                });
             });

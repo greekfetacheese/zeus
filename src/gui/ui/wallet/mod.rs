@@ -6,13 +6,14 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Id, Image, ImageSource, Label, Layout, Margin, Order,
-   RichText, ScrollArea, Sense, TextEdit, Ui, Vec2, Window, load::Bytes, vec2,
+   Align, Align2, FontId, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
+   ScrollArea, Sense, Ui, Vec2, Window, load::Bytes, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_theme::{OverlayManager, Theme, utils::frame_it};
 use zeus_wallet::Wallet;
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -149,14 +150,15 @@ impl WalletUi {
             ui.spacing_mut().item_spacing = Vec2::new(8.0, 15.0);
             ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                // Add Wallet Button
-               if ui
-                  .add(Button::new(
-                     RichText::new("Add Wallet").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
+               let text = RichText::new("Add Wallet").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
+
+               if ui.add(button).clicked() {
                   self.add_wallet_ui.open();
                }
 
@@ -176,10 +178,13 @@ impl WalletUi {
                // Search bar
                ui.add_space(8.0);
 
-               let hint = RichText::new("Search...").color(theme.colors.text_muted);
+               let hint = RichText::new("Search...")
+                  .color(theme.colors.text_muted)
+                  .size(theme.text_sizes.normal);
 
                ui.add(
-                  TextEdit::singleline(&mut self.search_query)
+                  SecureTextEdit::singleline(&mut self.search_query)
+                     .visuals(text_edit_visuals)
                      .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(theme.text_sizes.normal))
@@ -224,14 +229,16 @@ impl WalletUi {
       is_current: bool,
       ui: &mut Ui,
    ) {
-      let mut frame = theme.frame2;
+      let mut frame = theme.frame1;
       let tint = theme.image_tint_recommended;
 
       let visuals = if is_current {
          None
       } else {
-         Some(theme.frame2_visuals)
+         Some(theme.frame1_visuals)
       };
+
+      let button_visuals = theme.button_visuals();
 
       let res = frame_it(&mut frame, visuals, ui, |ui| {
          ui.set_width(ui.available_width() * 0.7);
@@ -241,17 +248,19 @@ impl WalletUi {
          ui.vertical(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                // Wallet name
-               let name =
-                  Label::new(RichText::new(wallet.name()).size(theme.text_sizes.normal)).wrap();
+               let text = RichText::new(wallet.name()).size(theme.text_sizes.normal);
+               let label = Label::new(text, None).wrap().interactive(false);
 
                ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.45);
-                  ui.add(name);
+                  ui.set_width(ui.available_width() * 0.35);
+                  ui.add(label);
                });
 
                // Export button
                let enabled = !wallet.is_master();
-               let export_key = Button::new(RichText::new("Export").size(theme.text_sizes.small));
+               let text = RichText::new("Export").size(theme.text_sizes.small);
+               let export_key = Button::new(text).visuals(button_visuals);
+
                if ui.add_enabled(enabled, export_key).clicked() {
                   let wallet = ctx.get_wallet(wallet.address);
                   self.export_key_ui.open(ctx.clone(), wallet);
@@ -260,8 +269,9 @@ impl WalletUi {
                ui.add_space(8.0);
 
                // Rename button
-               let rename_wallet =
-                  Button::new(RichText::new("Rename").size(theme.text_sizes.small));
+               let text = RichText::new("Rename").size(theme.text_sizes.small);
+               let rename_wallet = Button::new(text).visuals(button_visuals);
+
                if ui.add(rename_wallet).clicked() {
                   let wallet_opt = ctx.get_wallet(wallet.address);
                   self.open_rename_wallet(wallet_opt);
@@ -270,8 +280,9 @@ impl WalletUi {
                ui.add_space(8.0);
 
                // Delete button
-               let delete_wallet =
-                  Button::new(RichText::new("Delete").size(theme.text_sizes.small));
+               let text = RichText::new("Delete").size(theme.text_sizes.small);
+               let delete_wallet = Button::new(text).visuals(button_visuals);
+
                if ui.add_enabled(enabled, delete_wallet).clicked() {
                   self.delete_wallet_ui.wallet_to_delete = Some(wallet.clone());
                   self.delete_wallet_ui.open();
@@ -348,6 +359,9 @@ impl WalletUi {
             ui.set_width(300.0);
             ui.set_height(200.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 15.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -365,14 +379,15 @@ impl WalletUi {
                ui.label(RichText::new("Wallet Name").size(theme.text_sizes.large));
                ui.add_space(10.0);
 
-               TextEdit::singleline(&mut self.new_wallet_name)
+               SecureTextEdit::singleline(&mut self.new_wallet_name)
+                  .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.text_sizes.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
-               let rename_button =
-                  Button::new(RichText::new("Rename").size(theme.text_sizes.normal));
+               let text = RichText::new("Rename").size(theme.text_sizes.normal);
+               let rename_button = Button::new(text).visuals(button_visuals);
 
                if ui.add(rename_button).clicked() {
                   let new_wallet_name = self.new_wallet_name.clone();
@@ -574,6 +589,8 @@ impl ExportKeyUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -584,7 +601,9 @@ impl ExportKeyUi {
                   ui.label(RichText::new(warning_text).size(theme.text_sizes.large));
 
                   let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
-                  if ui.add(Button::new(text)).clicked() {
+                  let button = Button::new(text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
                      ui.ctx().copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
                   }
 
@@ -610,7 +629,9 @@ impl ExportKeyUi {
                }
 
                let text = RichText::new("Close").size(theme.text_sizes.normal);
-               if ui.add(Button::new(text)).clicked() {
+               let button = Button::new(text).visuals(button_visuals);
+
+               if ui.add(button).clicked() {
                   if let Some(image_uri) = &self.image_uri {
                      ui.ctx().forget_image(image_uri);
                   }
@@ -645,6 +666,8 @@ impl ExportKeyUi {
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -652,7 +675,9 @@ impl ExportKeyUi {
 
                self.credentials_form.show(theme, icons, ui);
 
-               let button = Button::new(RichText::new("Confrim").size(theme.text_sizes.normal));
+               let text = RichText::new("Confrim").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
+
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -852,6 +877,8 @@ impl DeleteWalletUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -866,12 +893,10 @@ impl DeleteWalletUi {
                      .size(theme.text_sizes.normal),
                );
 
-               if ui
-                  .add(Button::new(
-                     RichText::new("Yes").size(theme.text_sizes.normal),
-                  ))
-                  .clicked()
-               {
+               let text = RichText::new("Yes").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
+
+               if ui.add(button).clicked() {
                   clicked = true;
                }
             });

@@ -3,8 +3,8 @@ use crate::core::{DiscoveredWallets, Portfolio, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner,
-   TextEdit, Ui, Vec2, Window, vec2,
+   Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui,
+   Vec2, Window, vec2,
 };
 use secure_types::SecureString;
 use zeus_bip32::BIP32_HARDEN;
@@ -16,7 +16,7 @@ use zeus_eth::{
 };
 use zeus_theme::{OverlayManager, Theme};
 use zeus_wallet::SecureHDWallet;
-use zeus_widgets::SecureTextEdit;
+use zeus_widgets::{Button, SecureTextEdit};
 
 use std::sync::Arc;
 use tokio::{sync::Semaphore, task::JoinHandle};
@@ -82,6 +82,9 @@ impl ImportWallet {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -91,7 +94,8 @@ impl ImportWallet {
                // Wallet Name
                ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
                ui.add(
-                  TextEdit::singleline(&mut self.wallet_name)
+                  SecureTextEdit::singleline(&mut self.wallet_name)
+                     .visuals(text_edit_visuals)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .margin(Margin::same(10))
                      .min_size(size),
@@ -107,6 +111,7 @@ impl ImportWallet {
                ui.label(RichText::new(text).size(theme.text_sizes.normal));
                self.key_or_phrase.unlock_mut(|imported_key| {
                   let text_edit = SecureTextEdit::singleline(imported_key)
+                     .visuals(text_edit_visuals)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .margin(Margin::same(10))
                      .min_size(size)
@@ -115,7 +120,9 @@ impl ImportWallet {
                });
 
                // Import Button
-               let button = Button::new(RichText::new("Import").size(theme.text_sizes.normal));
+               let text = RichText::new("Import").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
+
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -278,38 +285,33 @@ impl AddWalletUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.add_space(30.0);
                let size = vec2(ui.available_width() * 0.9, 50.0);
 
                // Derive a new child wallet from the master wallet
-               let button = Button::new(
-                  RichText::new("Derive from Master Wallet").size(theme.text_sizes.large),
-               )
-               .corner_radius(5)
-               .min_size(size);
+               let text = RichText::new("Derive from Master Wallet").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
                   derive_clicked = true;
                }
 
                // From private key
-               let button = Button::new(
-                  RichText::new("Import from a Private Key").size(theme.text_sizes.large),
-               )
-               .corner_radius(5)
-               .min_size(size);
+               let text = RichText::new("Import from a Private Key").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
+
                if ui.add(button).clicked() {
                   import_from_pk_clicked = true;
                }
 
                // From seed phrase
-               let button = Button::new(
-                  RichText::new("Import from a Seed Phrase").size(theme.text_sizes.large),
-               )
-               .corner_radius(5)
-               .min_size(size);
+               let text = RichText::new("Import from a Seed Phrase").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
+
                if ui.add(button).clicked() {
                   import_from_seed_clicked = true;
                }
@@ -390,6 +392,9 @@ impl AddWalletUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -399,14 +404,17 @@ impl AddWalletUi {
                // Wallet Name
                ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
                ui.add(
-                  TextEdit::singleline(&mut self.wallet_name)
+                  SecureTextEdit::singleline(&mut self.wallet_name)
+                     .visuals(text_edit_visuals)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .margin(Margin::same(10))
                      .min_size(size),
                );
 
                // Generate Button
-               let button = Button::new(RichText::new("Generate").size(theme.text_sizes.normal));
+               let text = RichText::new("Generate").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
+
                if ui.add(button).clicked() {
                   clicked = true;
                }
@@ -458,9 +466,7 @@ impl AddWalletUi {
    }
 }
 
-/// Still WIP
-///
-/// If the user generates a lot of wallets the Ui can lag
+
 pub struct DiscoverChildWallets {
    open: bool,
    overlay: OverlayManager,
@@ -551,12 +557,15 @@ impl DiscoverChildWallets {
             ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = Vec2::new(20.0, 15.0);
             ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
+
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                ui.add_space(15.0);
 
                if self.loading {
                   ui.label(RichText::new("Loading...").size(theme.text_sizes.normal));
-                  ui.add(Spinner::new().size(15.0));
+                  ui.add(Spinner::new().size(15.0).color(theme.colors.text));
                   return;
                }
 
@@ -590,10 +599,10 @@ impl DiscoverChildWallets {
 
                let text = format!("Generate next {} wallets", batch_size);
                let text = RichText::new(text).size(theme.text_sizes.normal);
-               let gen_button = Button::new(text);
+               let gen_button = Button::new(text).visuals(button_visuals);
 
-               let refresh_button =
-                  Button::new(RichText::new(REFRESH).size(theme.text_sizes.normal));
+               let text = RichText::new(REFRESH).size(theme.text_sizes.normal);
+               let refresh_button = Button::new(text).visuals(button_visuals);
 
                let size = vec2(ui.available_width() * 0.4, 45.0);
 
@@ -609,7 +618,7 @@ impl DiscoverChildWallets {
                         }
 
                         if self.syncing {
-                           ui.add(Spinner::new().size(15.0));
+                           ui.add(Spinner::new().size(15.0).color(theme.colors.text));
                         }
                      });
                   });
@@ -675,7 +684,9 @@ impl DiscoverChildWallets {
                      ui.horizontal(|ui| {
                         ui.add_enabled_ui(self.current_page > 0, |ui| {
                            let prev_text = RichText::new("Previous").size(theme.text_sizes.normal);
-                           if ui.add(Button::new(prev_text)).clicked() {
+                           let button = Button::new(prev_text).visuals(button_visuals);
+
+                           if ui.add(button).clicked() {
                               self.current_page -= 1;
                            }
                         });
@@ -690,7 +701,9 @@ impl DiscoverChildWallets {
                         ui.label(page_text);
                         ui.add_enabled_ui(self.current_page + 1 < total_pages, |ui| {
                            let next_text = RichText::new("Next").size(theme.text_sizes.normal);
-                           if ui.add(Button::new(next_text)).clicked() {
+                           let button = Button::new(next_text).visuals(button_visuals);
+
+                           if ui.add(button).clicked() {
                               self.current_page += 1;
                            }
                         });
@@ -817,6 +830,7 @@ impl DiscoverChildWallets {
       ui: &mut Ui,
    ) {
       let tint = theme.image_tint_recommended;
+      let button_visuals = theme.button_visuals();
 
       let slice = &self.discovered_wallets.wallets[start..end];
       for child in slice.iter() {
@@ -896,8 +910,10 @@ impl DiscoverChildWallets {
 
                ui.scope(|ui| {
                   ui.set_width(column_widths[3]);
-                  let text = RichText::new("Add").size(theme.text_sizes.small);
-                  if ui.button(text).clicked() {
+                  let text = RichText::new("Add").size(theme.text_sizes.normal);
+                  let button = Button::new(text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
                      self.add_wallet_window = true;
                      self.index_to_add = child.index;
                   }
@@ -923,19 +939,24 @@ impl DiscoverChildWallets {
             ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                let text = RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal);
                ui.label(text);
 
-               TextEdit::singleline(&mut self.wallet_name)
+               SecureTextEdit::singleline(&mut self.wallet_name)
+                  .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.text_sizes.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
                let text = RichText::new("Add Wallet").size(theme.text_sizes.large);
+               let button = Button::new(text).visuals(button_visuals);
 
-               if ui.button(text).clicked() {
+               if ui.add(button).clicked() {
                   let index = self.index_to_add;
                   let name = self.wallet_name.clone();
                   let balances = self.discovered_wallets.balances.clone();

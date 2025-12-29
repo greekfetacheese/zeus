@@ -213,7 +213,7 @@ fn combo_box_with_image_button(
       // Paint background
       let background_rect = rect.expand(visuals.expansion);
       let corner = combo_box_visuals.map(|v| v.corner_radius).unwrap_or(visuals.corner_radius);
-      
+
       let fill = combo_box_visuals
          .map(|v| v.bg_from_res(&response))
          .unwrap_or(visuals.weak_bg_fill);
@@ -222,13 +222,20 @@ fn combo_box_with_image_button(
          .map(|v| v.border_from_res(&response))
          .unwrap_or(visuals.bg_stroke);
 
-      ui.painter().add(RectShape::new(
+      if let Some(vis) = combo_box_visuals {
+         let shadow_shape = vis.shadow.as_shape(background_rect, corner);
+         ui.painter().add(shadow_shape);
+      }
+
+      let rect_shape = RectShape::new(
          background_rect,
          corner,
          fill,
          stroke,
          StrokeKind::Inside,
-      ));
+      );
+
+      ui.painter().add(rect_shape);
 
       // Area for content (label + image) inside padding
       let content_total_rect = rect.shrink2(button_padding);

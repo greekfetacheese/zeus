@@ -13,7 +13,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
    let on_startup_syncing = ctx.read(|ctx| ctx.on_startup_syncing);
    let icons = gui.icons.clone();
    let theme = &gui.theme;
-   let frame = theme.frame2;
+   let frame = theme.frame1;
 
    ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
    ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -32,7 +32,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
             frame.show(ui, |ui| {
                ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
                ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0));
+               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
             });
          });
       }
@@ -42,7 +42,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
             frame.show(ui, |ui| {
                ui.label(RichText::new(DEX_SYNCING_MSG).size(theme.text_sizes.normal));
                ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0));
+               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
             });
          });
       }
@@ -52,7 +52,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
             frame.show(ui, |ui| {
                ui.label(RichText::new(ON_STARTUP_SYNC_MSG).size(theme.text_sizes.normal));
                ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0));
+               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
             });
          });
       }
@@ -62,7 +62,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
             frame.show(ui, |ui| {
                ui.label(RichText::new(VAULT_SAVE_IN_PROGRESS_MSG).size(theme.text_sizes.normal));
                ui.add_space(10.0);
-               ui.add(Spinner::new().size(20.0));
+               ui.add(Spinner::new().size(20.0).color(theme.colors.text));
             });
          });
       }

@@ -1,5 +1,5 @@
 use egui::{
-   Atom, AtomExt as _, AtomKind, AtomLayout, AtomLayoutResponse, Frame, Image, IntoAtoms,
+   Atom, AtomExt as _, AtomKind, Color32, AtomLayout, AtomLayoutResponse, Frame, Image, IntoAtoms,
    NumExt as _, Response, Sense, Shadow, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo,
    WidgetText, WidgetType,
 };
@@ -10,6 +10,7 @@ use zeus_theme::visuals::ButtonVisuals;
 pub struct Button<'a> {
    layout: AtomLayout<'a>,
    visuals: Option<ButtonVisuals>,
+   bg_color: Option<Color32>,
    small: bool,
    frame_when_inactive: bool,
    min_size: Vec2,
@@ -25,6 +26,7 @@ impl<'a> Button<'a> {
             .sense(Sense::click())
             .fallback_font(TextStyle::Button),
          visuals: None,
+         bg_color: None,
          small: false,
          frame_when_inactive: true,
          min_size: Vec2::ZERO,
@@ -194,10 +196,18 @@ impl<'a> Button<'a> {
       self
    }
 
+   /// Set the background color of the button
+   #[inline]
+   pub fn bg_color(mut self, color: Color32) -> Self {
+      self.bg_color = Some(color);
+      self
+   }
+
    /// Show the button and return a [`AtomLayoutResponse`] for painting custom contents.
    pub fn atom_ui(self, ui: &mut Ui) -> AtomLayoutResponse {
       let Button {
          mut layout,
+         bg_color,
          small,
          visuals,
          frame_when_inactive,
@@ -249,7 +259,8 @@ impl<'a> Button<'a> {
             } else if is_hovered {
                (v.bg_hover, v.border_hover, v.corner_radius)
             } else {
-               (v.bg, v.border, v.corner_radius)
+               let bg = bg_color.unwrap_or(v.bg);
+               (bg, v.border, v.corner_radius)
             }
          } else {
             (

@@ -1,9 +1,8 @@
 use egui::{
-   Align, Align2, Button, Frame, Layout, Margin, Order, RichText, ScrollArea, TextEdit, Ui, Vec2,
-   Window, vec2,
+   Align, Align2, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Vec2, Window, vec2,
 };
-use zeus_theme::{Theme, OverlayManager};
-use zeus_widgets::Label;
+use zeus_theme::{OverlayManager, Theme};
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use super::{address, chain, contract_interact, eth_received, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
@@ -155,6 +154,9 @@ impl TxConfirmationWindow {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             Frame::new().show(ui, |ui| {
                ui.vertical_centered(|ui| {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
@@ -177,7 +179,7 @@ impl TxConfirmationWindow {
                      ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
                   }
 
-                  let frame = theme.frame2;
+                  let frame = theme.frame1;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
@@ -327,7 +329,8 @@ impl TxConfirmationWindow {
                               }
 
                               ui.add(
-                                 TextEdit::singleline(&mut self.priority_fee)
+                                 SecureTextEdit::singleline(&mut self.priority_fee)
+                                    .visuals(text_edit_visuals)
                                     .margin(Margin::same(10))
                                     .desired_width(fee_width)
                                     .font(egui::FontId::proportional(
@@ -347,7 +350,8 @@ impl TxConfirmationWindow {
                                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
 
                                  ui.add(
-                                    TextEdit::singleline(&mut self.adjusted_gas_limit)
+                                    SecureTextEdit::singleline(&mut self.adjusted_gas_limit)
+                                       .visuals(text_edit_visuals)
                                        .margin(Margin::same(10))
                                        .desired_width(gas_width)
                                        .font(egui::FontId::proportional(
@@ -382,7 +386,7 @@ impl TxConfirmationWindow {
                      };
 
                      let text = RichText::new(text).size(theme.text_sizes.normal);
-                     ui.add(Label::new(text, Some(icon)));
+                     ui.add(Label::new(text, Some(icon)).interactive(false));
                   }
 
                   if !sufficient_balance {
@@ -401,18 +405,18 @@ impl TxConfirmationWindow {
 
                         let button_size = vec2(ui.available_width() * 0.5, 45.0);
 
+                        let text = RichText::new("Confirm").size(theme.text_sizes.large);
                         let confirm =
-                           Button::new(RichText::new("Confirm").size(theme.text_sizes.large))
-                              .min_size(button_size);
+                           Button::new(text).min_size(button_size).visuals(button_visuals);
 
                         if ui.add_enabled(sufficient_balance, confirm).clicked() {
                            self.confirmed_or_rejected = Some(true);
                            self.close(ctx.clone());
                         }
 
+                        let text = RichText::new("Reject").size(theme.text_sizes.large);
                         let reject =
-                           Button::new(RichText::new("Reject").size(theme.text_sizes.large))
-                              .min_size(button_size);
+                           Button::new(text).min_size(button_size).visuals(button_visuals);
 
                         if ui.add(reject).clicked() {
                            self.confirmed_or_rejected = Some(false);
@@ -490,14 +494,16 @@ impl TxWindow {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+                  let button_visuals = theme.button_visuals();
+
                   ui.add_space(20.0);
 
                   if self.tx.is_none() {
                      ui.label(RichText::new("Transaction not found").size(theme.text_sizes.large));
                      let size = vec2(ui.available_width() * 0.8, 45.0);
-                     let close_button =
-                        Button::new(RichText::new("Close").size(theme.text_sizes.normal))
-                           .min_size(size);
+
+                     let text = RichText::new("Close").size(theme.text_sizes.normal);
+                     let close_button = Button::new(text).min_size(size).visuals(button_visuals);
 
                      if ui.add(close_button).clicked() {
                         self.close();
@@ -509,7 +515,7 @@ impl TxWindow {
                   let main_event = &tx.main_event;
                   let chain_id: ChainId = tx.chain.into();
 
-                  let frame = theme.frame2;
+                  let frame = theme.frame1;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
@@ -525,7 +531,6 @@ impl TxWindow {
                   );
 
                   let frame_size = vec2(ui.available_width() * 0.9, 45.0);
-                  let frame = theme.frame2;
 
                   if !main_event.is_other() && tx.success {
                      ui.label(
@@ -606,9 +611,8 @@ impl TxWindow {
                   ui.add_space(30.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
-                  let close_button =
-                     Button::new(RichText::new("Close").size(theme.text_sizes.normal))
-                        .min_size(size);
+                  let text = RichText::new("Close").size(theme.text_sizes.normal);
+                  let close_button = Button::new(text).min_size(size).visuals(button_visuals);
 
                   if ui.add(close_button).clicked() {
                      self.close();
@@ -621,7 +625,7 @@ impl TxWindow {
 
 fn show_decoded_events_button(theme: &Theme, ui: &mut Ui) -> bool {
    let text = RichText::new("Show all decoded events").size(theme.text_sizes.large);
-   let button = Button::new(text);
+   let button = Button::new(text).visuals(theme.button_visuals());
    ui.add(button).clicked()
 }
 
@@ -667,7 +671,7 @@ impl DecodedEvents {
       if !self.open {
          return;
       }
-      
+
       let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
       let mut open = self.open;
 
@@ -794,7 +798,7 @@ pub fn permit_event_ui(
       RichText::new(format!("{} {}", amount, params.token.symbol())).size(theme.text_sizes.normal)
    };
 
-   let label = Label::new(text, Some(icon)).image_on_left();
+   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
    ui.add(label);
 
    // Owner
@@ -864,7 +868,7 @@ pub fn token_approval_event_ui(
          RichText::new(format!("{} {}", amount, token.symbol)).size(theme.text_sizes.normal)
       };
 
-      let label = Label::new(text, Some(icon)).image_on_left();
+      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.add(label);
    }
 
@@ -913,7 +917,7 @@ fn transfer_event_ui(
                currency.symbol()
             ))
             .size(theme.text_sizes.large);
-            let label = Label::new(text, Some(icon)).image_on_left();
+            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
             ui.add(label);
          });
 
@@ -974,7 +978,7 @@ fn transfer_event_ui(
                currency.symbol()
             ))
             .size(theme.text_sizes.large);
-            let label = Label::new(text, None);
+            let label = Label::new(text, None).interactive(false);
             ui.add(label);
          });
       });
@@ -1017,7 +1021,7 @@ fn bridge_event_ui(
       ))
       .size(theme.text_sizes.normal)
       .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).image_on_left();
+      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1043,7 +1047,7 @@ fn bridge_event_ui(
          ))
          .size(theme.text_sizes.normal)
          .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).image_on_left();
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
 
@@ -1084,11 +1088,8 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.origin_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let label = Label::new(
-            RichText::new(chain.name()).size(theme.text_sizes.normal),
-            Some(icon),
-         )
-         .image_on_left();
+         let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
    });
@@ -1102,11 +1103,8 @@ fn bridge_event_ui(
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let chain: ChainId = params.destination_chain.into();
          let icon = icons.chain_icon(chain.id(), tint);
-         let label = Label::new(
-            RichText::new(chain.name()).size(theme.text_sizes.normal),
-            Some(icon),
-         )
-         .image_on_left();
+         let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
    });
@@ -1127,7 +1125,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ))
       .size(theme.text_sizes.large)
       .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).image_on_left();
+      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1154,7 +1152,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          ))
          .size(theme.text_sizes.large)
          .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).image_on_left();
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.add(label);
       });
 
@@ -1181,7 +1179,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          let amount_usd = format!("~ ${}", amount_usd.abbreviated());
          let text =
             RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.text_sizes.large);
-         let label = Label::new(text, None);
+         let label = Label::new(text, None).interactive(false);
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             ui.add(label);
          });
@@ -1208,9 +1206,9 @@ fn wrap_eth_event_ui(
          params.weth_received.abbreviated(),
          weth.symbol()
       ))
-      .size(theme.text_sizes.normal)
+      .size(theme.text_sizes.large)
       .color(theme.colors.success);
-      let label = Label::new(text, Some(weth_icon)).image_on_left();
+      let label = Label::new(text, Some(weth_icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1219,7 +1217,7 @@ fn wrap_eth_event_ui(
       let weth_received_usd = params.weth_received_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = RichText::new(format!("~ ${}", weth_received_usd.abbreviated()))
-            .size(theme.text_sizes.normal);
+            .size(theme.text_sizes.large);
          ui.label(text);
       });
    });
@@ -1256,7 +1254,7 @@ fn unwrap_weth_event_ui(
       ))
       .size(theme.text_sizes.normal)
       .color(theme.colors.success);
-      let label = Label::new(text, Some(eth_icon)).image_on_left();
+      let label = Label::new(text, Some(eth_icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1309,7 +1307,7 @@ fn uniswap_position_op_event_ui(
       let text = format!("{} {}", amount0.abbreviated(), currency0.symbol());
       let text = RichText::new(text).size(theme.text_sizes.normal);
 
-      let label = Label::new(text, Some(icon)).image_on_left();
+      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1327,7 +1325,7 @@ fn uniswap_position_op_event_ui(
       let text = format!("{} {}", amount1.abbreviated(), currency1.symbol());
 
       let text = RichText::new(text).size(theme.text_sizes.normal);
-      let label = Label::new(text, Some(icon)).image_on_left();
+      let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          ui.add(label);
       });
@@ -1386,7 +1384,7 @@ fn uniswap_position_op_event_ui(
          );
 
          let text = RichText::new(text).size(theme.text_sizes.normal);
-         let label = Label::new(text, Some(icon)).image_on_left();
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.add(label);
          });

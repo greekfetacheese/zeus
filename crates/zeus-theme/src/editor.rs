@@ -1,10 +1,5 @@
 use egui::{
-   Align, Button, CollapsingHeader, Color32, ComboBox, CornerRadius, DragValue, Frame, Layout,
-   Margin, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand,
-   Shadow, Slider, Stroke, StrokeKind, Ui, Vec2, Window,
-   color_picker::{Alpha, color_edit_button_srgba},
-   ecolor::HexColor,
-   vec2,
+   Align, Button, CollapsingHeader, Color32, ComboBox, CornerRadius, DragValue, Frame, Layout, Margin, Order, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand, Shadow, Slider, Stroke, StrokeKind, TextEdit, Ui, Vec2, Window, color_picker::{Alpha, color_edit_button_srgba}, ecolor::HexColor, vec2
 };
 
 use super::{Theme, hsla::Hsla, utils};
@@ -23,15 +18,13 @@ pub enum WidgetState {
 #[derive(Clone, PartialEq)]
 pub enum Color {
    Bg(Color32),
-   Bg2(Color32),
-   Bg3(Color32),
-   Bg4(Color32),
+   WidgetBG(Color32),
+   Hover(Color32),
    Text(Color32),
    TextMuted(Color32),
    Highlight(Color32),
    Border(Color32),
-   Primary(Color32),
-   Secondary(Color32),
+   Accent(Color32),
    Error(Color32),
    Warning(Color32),
    Success(Color32),
@@ -42,15 +35,13 @@ impl Color {
    pub fn all_colors_from(theme: &ThemeColors) -> Vec<Color> {
       vec![
          Color::Bg(theme.bg),
-         Color::Bg2(theme.bg2),
-         Color::Bg3(theme.bg3),
-         Color::Bg4(theme.bg4),
+         Color::WidgetBG(theme.widget_bg),
+         Color::Hover(theme.hover),
          Color::Text(theme.text),
          Color::TextMuted(theme.text_muted),
          Color::Highlight(theme.highlight),
          Color::Border(theme.border),
-         Color::Primary(theme.primary),
-         Color::Secondary(theme.secondary),
+         Color::Accent(theme.accent),
          Color::Error(theme.error),
          Color::Warning(theme.warning),
          Color::Success(theme.success),
@@ -61,15 +52,13 @@ impl Color {
    pub fn to_str(&self) -> &'static str {
       match self {
          Color::Bg(_) => "Bg",
-         Color::Bg2(_) => "Bg2",
-         Color::Bg3(_) => "Bg3",
-         Color::Bg4(_) => "Bg4",
+         Color::WidgetBG(_) => "WidgetBG",
+         Color::Hover(_) => "Hover",
          Color::Text(_) => "Text",
          Color::TextMuted(_) => "Text Muted",
          Color::Highlight(_) => "Highlight",
          Color::Border(_) => "Border",
-         Color::Primary(_) => "Primary",
-         Color::Secondary(_) => "Secondary",
+         Color::Accent(_) => "Accent",
          Color::Error(_) => "Error",
          Color::Warning(_) => "Warning",
          Color::Success(_) => "Success",
@@ -80,15 +69,13 @@ impl Color {
    pub fn color32(&self) -> Color32 {
       match self {
          Color::Bg(color) => *color,
-         Color::Bg2(color) => *color,
-         Color::Bg3(color) => *color,
-         Color::Bg4(color) => *color,
+         Color::WidgetBG(color) => *color,
+         Color::Hover(color) => *color,
          Color::Text(color) => *color,
          Color::TextMuted(color) => *color,
          Color::Highlight(color) => *color,
          Color::Border(color) => *color,
-         Color::Primary(color) => *color,
-         Color::Secondary(color) => *color,
+         Color::Accent(color) => *color,
          Color::Error(color) => *color,
          Color::Warning(color) => *color,
          Color::Success(color) => *color,
@@ -99,12 +86,10 @@ impl Color {
    pub fn name_from(color: Color32, theme_colors: &ThemeColors) -> &'static str {
       if color == theme_colors.bg {
          "Bg"
-      } else if color == theme_colors.bg2 {
-         "Bg2"
-      } else if color == theme_colors.bg3 {
-         "Bg3"
-      } else if color == theme_colors.bg4 {
-         "Bg4"
+      } else if color == theme_colors.widget_bg {
+         "WidgetBG"
+      } else if color == theme_colors.hover {
+         "Hover"
       } else if color == theme_colors.text {
          "Text"
       } else if color == theme_colors.text_muted {
@@ -113,10 +98,8 @@ impl Color {
          "Highlight"
       } else if color == theme_colors.border {
          "Border"
-      } else if color == theme_colors.primary {
-         "Primary"
-      } else if color == theme_colors.secondary {
-         "Secondary"
+      } else if color == theme_colors.accent {
+         "Accent"
       } else if color == theme_colors.error {
          "Error"
       } else if color == theme_colors.warning {
@@ -160,6 +143,7 @@ pub struct ThemeEditor {
    pub open: bool,
    /// The current widget state being edited
    pub widget_state: WidgetState,
+   pub hsla_edit_button: HslaEditButton,
    pub color: Color,
    pub bg_color: Color32,
    pub size: (f32, f32),
@@ -170,6 +154,7 @@ impl ThemeEditor {
       Self {
          open: false,
          widget_state: WidgetState::NonInteractive,
+         hsla_edit_button: HslaEditButton::new(),
          color: Color::Bg(Color32::TRANSPARENT),
          bg_color: Color32::from_rgba_premultiplied(32, 45, 70, 255),
          size: (300.0, 300.0),
@@ -235,139 +220,68 @@ impl ThemeEditor {
          CollapsingHeader::new("Custom Widgets Visuals").show(ui, |ui| {
             CollapsingHeader::new("Button").show(ui, |ui| {
                CollapsingHeader::new("Button Visuals 1").show(ui, |ui| {
-                  self.button_visuals(colors, &mut theme.colors.button_visuals_1, ui);
+                  self.button_visuals(colors, &mut theme.colors.button_visuals, ui);
                });
 
-               CollapsingHeader::new("Button Visuals 2").show(ui, |ui| {
-                  self.button_visuals(colors, &mut theme.colors.button_visuals_2, ui);
-               });
-
-               CollapsingHeader::new("Button Visuals 3").show(ui, |ui| {
-                  self.button_visuals(colors, &mut theme.colors.button_visuals_3, ui);
-               });
             });
 
             CollapsingHeader::new("Label").show(ui, |ui| {
                CollapsingHeader::new("Label Visuals 1").show(ui, |ui| {
-                  self.button_visuals(
-                     colors,
-                     &mut theme.colors.label_visuals_1,
-                     ui,
-                  );
+                  self.button_visuals(colors, &mut theme.colors.label_visuals, ui);
                });
 
-               CollapsingHeader::new("Label Visuals 2").show(ui, |ui| {
-                  self.button_visuals(
-                     colors,
-                     &mut theme.colors.label_visuals_2,
-                     ui,
-                  );
-               });
-
-               CollapsingHeader::new("Label Visuals 3").show(ui, |ui| {
-                  self.button_visuals(
-                     colors,
-                     &mut theme.colors.label_visuals_3,
-                     ui,
-                  );
-               });
             });
 
             CollapsingHeader::new("Combo Box").show(ui, |ui| {
                CollapsingHeader::new("Combo Box Visuals 1").show(ui, |ui| {
-                  self.combo_box_visuals(
-                     colors,
-                     &mut theme.colors.combo_box_visuals_1,
-                     ui,
-                  );
+                  self.combo_box_visuals(colors, &mut theme.colors.combo_box_visuals, ui);
                });
 
-               CollapsingHeader::new("Combo Box Visuals 2").show(ui, |ui| {
-                  self.combo_box_visuals(
-                     colors,
-                     &mut theme.colors.combo_box_visuals_2,
-                     ui,
-                  );
-               });
-
-               CollapsingHeader::new("Combo Box Visuals 3").show(ui, |ui| {
-                  self.combo_box_visuals(
-                     colors,
-                     &mut theme.colors.combo_box_visuals_3,
-                     ui,
-                  );
-               });
             });
 
             CollapsingHeader::new("Text Edit").show(ui, |ui| {
                CollapsingHeader::new("Text Edit Visuals 1").show(ui, |ui| {
-                  self.text_edit_visuals(
-                     colors,
-                     &mut theme.colors.text_edit_visuals_1,
-                     ui,
-                  );
-               });
-
-               CollapsingHeader::new("Text Edit Visuals 2").show(ui, |ui| {
-                  self.text_edit_visuals(
-                     colors,
-                     &mut theme.colors.text_edit_visuals_2,
-                     ui,
-                  );
-               });
-
-               CollapsingHeader::new("Text Edit Visuals 3").show(ui, |ui| {
-                  self.text_edit_visuals(
-                     colors,
-                     &mut theme.colors.text_edit_visuals_3,
-                     ui,
-                  );
+                  self.text_edit_visuals(colors, &mut theme.colors.text_edit_visuals, ui);
                });
             });
          });
 
          CollapsingHeader::new("Theme Colors").show(ui, |ui| {
             ui.label("BG");
-            hsla_edit_button("bg1", ui, &mut theme.colors.bg);
+            self.hsla_edit_button.show("bg", ui, &mut theme.colors.bg);
 
-            ui.label("BG2");
-            hsla_edit_button("bg2", ui, &mut theme.colors.bg2);
+            ui.label("WidgetBG");
+            self.hsla_edit_button.show("widgetbg", ui, &mut theme.colors.widget_bg);
 
-            ui.label("BG3");
-            hsla_edit_button("bg3", ui, &mut theme.colors.bg3);
-
-            ui.label("BG4");
-            hsla_edit_button("bg4", ui, &mut theme.colors.bg4);
+            ui.label("Hover");
+            self.hsla_edit_button.show("hover", ui, &mut theme.colors.hover);
 
             ui.label("Text");
-            hsla_edit_button("text1", ui, &mut theme.colors.text);
+            self.hsla_edit_button.show("text1", ui, &mut theme.colors.text);
 
             ui.label("Text Muted");
-            hsla_edit_button("text_muted1", ui, &mut theme.colors.text_muted);
+            self.hsla_edit_button.show("text_muted1", ui, &mut theme.colors.text_muted);
 
             ui.label("Highlight");
-            hsla_edit_button("highlight1", ui, &mut theme.colors.highlight);
+            self.hsla_edit_button.show("highlight1", ui, &mut theme.colors.highlight);
 
             ui.label("Border");
-            hsla_edit_button("border1", ui, &mut theme.colors.border);
+            self.hsla_edit_button.show("border1", ui, &mut theme.colors.border);
 
-            ui.label("Primary");
-            hsla_edit_button("primary1", ui, &mut theme.colors.primary);
-
-            ui.label("Secondary");
-            hsla_edit_button("secondary1", ui, &mut theme.colors.secondary);
+            ui.label("Accent");
+            self.hsla_edit_button.show("accent", ui, &mut theme.colors.accent);
 
             ui.label("Error");
-            hsla_edit_button("error1", ui, &mut theme.colors.error);
+            self.hsla_edit_button.show("error1", ui, &mut theme.colors.error);
 
             ui.label("Warning");
-            hsla_edit_button("warning1", ui, &mut theme.colors.warning);
+            self.hsla_edit_button.show("warning1", ui, &mut theme.colors.warning);
 
             ui.label("Success");
-            hsla_edit_button("success1", ui, &mut theme.colors.success);
+            self.hsla_edit_button.show("success1", ui, &mut theme.colors.success);
 
             ui.label("Info");
-            hsla_edit_button("info1", ui, &mut theme.colors.info);
+            self.hsla_edit_button.show("info1", ui, &mut theme.colors.info);
          });
 
          CollapsingHeader::new("Text Sizes").show(ui, |ui| {
@@ -400,63 +314,63 @@ impl ThemeEditor {
                .text("Stroke Width"),
             );
             ui.label("Selection Stroke Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "selection_stroke_color1",
                ui,
                &mut theme.style.visuals.selection.stroke.color,
             );
 
             ui.label("Selection Bg Fill");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "selection_bg_fill1",
                ui,
                &mut theme.style.visuals.selection.bg_fill,
             );
 
             ui.label("Hyperlink Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "hyperlink_color1",
                ui,
                &mut theme.style.visuals.hyperlink_color,
             );
 
             ui.label("Faint Background Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "faint_bg_color1",
                ui,
                &mut theme.style.visuals.faint_bg_color,
             );
 
             ui.label("Extreme Background Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "extreme_bg_color1",
                ui,
                &mut theme.style.visuals.extreme_bg_color,
             );
 
             ui.label("Code Background Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "code_bg_color1",
                ui,
                &mut theme.style.visuals.code_bg_color,
             );
 
             ui.label("Warning Text Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "warn_fg_color1",
                ui,
                &mut theme.style.visuals.warn_fg_color,
             );
 
             ui.label("Error Text Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "error_fg_color1",
                ui,
                &mut theme.style.visuals.error_fg_color,
             );
 
             ui.label("Panel Fill Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "panel_fill1",
                ui,
                &mut theme.style.visuals.panel_fill,
@@ -471,7 +385,7 @@ impl ThemeEditor {
             edit_shadow(&mut theme.style.visuals.window_shadow, ui);
 
             ui.label("Window Fill Color");
-            hsla_edit_button(
+            self.hsla_edit_button.show(
                "window_fill1",
                ui,
                &mut theme.style.visuals.window_fill,
@@ -591,7 +505,7 @@ impl ThemeEditor {
             visuals.text = color.color32();
          }
 
-         hsla_edit_button("text1", ui, &mut visuals.text);
+         self.hsla_edit_button.show("text1", ui, &mut visuals.text);
       });
 
       ui.label("Background Color");
@@ -601,7 +515,7 @@ impl ThemeEditor {
             visuals.bg = color.color32();
          }
 
-         hsla_edit_button("bg1", ui, &mut visuals.bg);
+         self.hsla_edit_button.show("bg1", ui, &mut visuals.bg);
       });
 
       ui.label("Background Hover Color");
@@ -611,7 +525,7 @@ impl ThemeEditor {
             visuals.bg_hover = color.color32();
          }
 
-         hsla_edit_button("bg_hover1", ui, &mut visuals.bg_hover);
+         self.hsla_edit_button.show("bg_hover1", ui, &mut visuals.bg_hover);
       });
 
       ui.label("Background Click Color");
@@ -621,7 +535,7 @@ impl ThemeEditor {
             visuals.bg_click = color.color32();
          }
 
-         hsla_edit_button("bg_click1", ui, &mut visuals.bg_click);
+         self.hsla_edit_button.show("bg_click1", ui, &mut visuals.bg_click);
       });
 
       ui.label("Background Selected");
@@ -632,7 +546,7 @@ impl ThemeEditor {
             visuals.bg_selected = color.color32();
          }
 
-         hsla_edit_button("bg_selected1", ui, &mut visuals.bg_selected);
+         self.hsla_edit_button.show("bg_selected1", ui, &mut visuals.bg_selected);
       });
 
       ui.label("Border Color");
@@ -643,7 +557,7 @@ impl ThemeEditor {
             visuals.border.color = color.color32();
          }
 
-         hsla_edit_button("border1", ui, &mut visuals.border.color);
+         self.hsla_edit_button.show("border1", ui, &mut visuals.border.color);
       });
 
       ui.label("Border Hover Color");
@@ -653,7 +567,7 @@ impl ThemeEditor {
             visuals.border_hover.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "border_hover1",
             ui,
             &mut visuals.border_hover.color,
@@ -667,7 +581,7 @@ impl ThemeEditor {
             visuals.border_click.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "border_click1",
             ui,
             &mut visuals.border_click.color,
@@ -685,7 +599,7 @@ impl ThemeEditor {
          }
 
          /*
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "shadow_color1",
             ui,
             &mut colors.button_visuals.shadow.color,
@@ -723,7 +637,7 @@ impl ThemeEditor {
             visuals.bg = color.color32();
          }
 
-         hsla_edit_button("bg1", ui, &mut visuals.bg);
+         self.hsla_edit_button.show("bg1", ui, &mut visuals.bg);
       });
 
       ui.label("Background Hover Color");
@@ -733,7 +647,7 @@ impl ThemeEditor {
             visuals.bg_hover = color.color32();
          }
 
-         hsla_edit_button("bg_hover1", ui, &mut visuals.bg_hover);
+         self.hsla_edit_button.show("bg_hover1", ui, &mut visuals.bg_hover);
       });
 
       ui.label("Border Color");
@@ -744,7 +658,7 @@ impl ThemeEditor {
             visuals.border.color = color.color32();
          }
 
-         hsla_edit_button("border1", ui, &mut visuals.border.color);
+         self.hsla_edit_button.show("border1", ui, &mut visuals.border.color);
       });
 
       ui.label("Border Hover Color");
@@ -754,7 +668,7 @@ impl ThemeEditor {
             visuals.border_hover.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "border_hover1",
             ui,
             &mut visuals.border_hover.color,
@@ -768,7 +682,7 @@ impl ThemeEditor {
             visuals.border_open.color = color.color32();
          }
 
-         hsla_edit_button("border_open1", ui, &mut visuals.border_open.color);
+         self.hsla_edit_button.show("border_open1", ui, &mut visuals.border_open.color);
       });
 
       //  ui.label("Corner Radius");
@@ -812,7 +726,7 @@ impl ThemeEditor {
             visuals.text = color.color32();
          }
 
-         hsla_edit_button("text1", ui, &mut visuals.text);
+         self.hsla_edit_button.show("text1", ui, &mut visuals.text);
       });
 
       ui.label("Background Color");
@@ -822,7 +736,7 @@ impl ThemeEditor {
             visuals.bg = color.color32();
          }
 
-         hsla_edit_button("bg1", ui, &mut visuals.bg);
+         self.hsla_edit_button.show("bg1", ui, &mut visuals.bg);
       });
 
       ui.label("Border Color");
@@ -833,7 +747,7 @@ impl ThemeEditor {
             visuals.border.color = color.color32();
          }
 
-         hsla_edit_button("border1", ui, &mut visuals.border.color);
+         self.hsla_edit_button.show("border1", ui, &mut visuals.border.color);
       });
 
       ui.label("Border Hover Color");
@@ -843,7 +757,7 @@ impl ThemeEditor {
             visuals.border_hover.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "border_hover1",
             ui,
             &mut visuals.border_hover.color,
@@ -857,7 +771,7 @@ impl ThemeEditor {
             visuals.border_open.color = color.color32();
          }
 
-         hsla_edit_button("border_open1", ui, &mut visuals.border_open.color);
+         self.hsla_edit_button.show("border_open1", ui, &mut visuals.border_open.color);
       });
 
       //  ui.label("Corner Radius");
@@ -907,7 +821,7 @@ impl ThemeEditor {
             widget_visuals.bg_fill = color.color32();
          }
 
-         hsla_edit_button("bg_fill1", ui, &mut widget_visuals.bg_fill);
+         self.hsla_edit_button.show("bg_fill1", ui, &mut widget_visuals.bg_fill);
       });
 
       ui.label("Weak Background Fill Color");
@@ -923,7 +837,7 @@ impl ThemeEditor {
             widget_visuals.weak_bg_fill = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "weak_bg_fill1",
             ui,
             &mut widget_visuals.weak_bg_fill,
@@ -948,7 +862,7 @@ impl ThemeEditor {
             widget_visuals.bg_stroke.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "bg_stroke_color1",
             ui,
             &mut widget_visuals.bg_stroke.color,
@@ -977,7 +891,7 @@ impl ThemeEditor {
             widget_visuals.fg_stroke.color = color.color32();
          }
 
-         hsla_edit_button(
+         self.hsla_edit_button.show(
             "fg_stroke_color1",
             ui,
             &mut widget_visuals.fg_stroke.color,
@@ -1004,7 +918,7 @@ impl ThemeEditor {
       edit_shadow(&mut frame.shadow, ui);
 
       ui.label("Fill Color");
-      hsla_edit_button("fill_color1", ui, &mut frame.fill);
+      self.hsla_edit_button.show("fill_color1", ui, &mut frame.fill);
 
       ui.label("Stroke Width & Color");
       edit_stroke(&mut frame.stroke, ui);
@@ -1084,106 +998,135 @@ fn edit_shadow(shadow: &mut Shadow, ui: &mut Ui) {
    color_edit_button_srgba(ui, &mut shadow.color, Alpha::BlendOrAdditive);
 }
 
-pub fn hsla_edit_button(id: &str, ui: &mut Ui, color32: &mut Color32) -> Response {
-   let stroke = Stroke::new(1.0, Color32::GRAY);
-   let button_size = Vec2::new(50.0, 20.0);
-   let (rect, mut response) = ui.allocate_exact_size(button_size, Sense::click());
-   ui.painter().rect_filled(rect, 4.0, *color32);
-   ui.painter().rect_stroke(rect, 4.0, stroke, StrokeKind::Inside);
-
-   let popup_id = ui.make_persistent_id(id);
-
-   let set_command = if response.clicked() {
-      Some(SetOpenCommand::Toggle)
-   } else {
-      None
-   };
-
-   let close_behavior = PopupCloseBehavior::CloseOnClickOutside;
-   let popup = Popup::from_response(&response)
-      .close_behavior(close_behavior)
-      .open_memory(set_command);
-
-   let working_id = popup_id.with("working_hsla");
-   let mut working_hsla = ui
-      .memory(|mem| mem.data.get_temp(working_id))
-      .unwrap_or_else(|| Hsla::from_color32(*color32));
-
-   let popup_res = popup.show(|ui| hsla_picker_ui(ui, &mut working_hsla));
-
-   if let Some(inner) = popup_res {
-      // if color changed
-      if inner.inner {
-         ui.memory_mut(|mem| mem.data.insert_temp(working_id, working_hsla));
-         *color32 = working_hsla.to_color32();
-         response.mark_changed();
-      }
-   } else {
-      ui.memory_mut(|mem| mem.data.remove::<Hsla>(working_id));
-   }
-
-   response
+#[derive(Clone)]
+pub struct HslaEditButton {
+   from_hex_text: String,
 }
 
-// The core HSLA picker UI (sliders, 2D square, preview). Returns true if changed.
-fn hsla_picker_ui(ui: &mut Ui, hsla: &mut Hsla) -> bool {
-   let mut changed = false;
-   let stroke = Stroke::new(1.0, Color32::GRAY);
+impl HslaEditButton {
+   pub fn new() -> Self {
+      Self {
+         from_hex_text: String::new(),
+      }
+   }
 
-   ui.horizontal(|ui| {
-      ui.set_width(200.0);
+   pub fn show(&mut self, id: &str, ui: &mut Ui, color32: &mut Color32) -> Response {
+      let stroke = Stroke::new(1.0, Color32::GRAY);
+      let button_size = Vec2::new(50.0, 20.0);
+      let (rect, mut response) = ui.allocate_exact_size(button_size, Sense::click());
+      ui.painter().rect_filled(rect, 4.0, *color32);
+      ui.painter().rect_stroke(rect, 4.0, stroke, StrokeKind::Inside);
 
-      // Left: 2D S-L square + hue slider below it
-      ui.vertical(|ui| {
-         changed |= sl_2d_picker(ui, hsla);
-         changed |= hue_slider(ui, hsla);
-         changed |= alpha_slider(ui, hsla);
-      });
+      let popup_id = ui.make_persistent_id(id);
 
-      // Right: Preview + numeric controls
-      ui.vertical(|ui| {
-         // Preview rect
-         let preview_size = Vec2::new(80.0, 80.0);
-         let (rect, _) = ui.allocate_exact_size(preview_size, Sense::hover());
-         ui.painter().rect_filled(rect, 4.0, hsla.to_color32());
-         ui.painter().rect_stroke(rect, 4.0, stroke, StrokeKind::Inside);
+      let set_command = if response.clicked() {
+         Some(SetOpenCommand::Toggle)
+      } else {
+         None
+      };
 
-         ui.label(RichText::new("Preview").strong());
+      let close_behavior = PopupCloseBehavior::CloseOnClickOutside;
+      response.layer_id.order = Order::Debug;
 
-         // Numeric sliders for precision
-         ui.add_space(10.0);
-         changed |= ui.add(Slider::new(&mut hsla.h, 0.0..=360.0).text("Hue")).changed();
-         changed |= ui.add(Slider::new(&mut hsla.s, 0.0..=100.0).text("Saturation")).changed();
-         changed |= ui.add(Slider::new(&mut hsla.l, 0.0..=100.0).text("Lightness")).changed();
-         changed |= ui.add(Slider::new(&mut hsla.a, 0.0..=1.0).text("Alpha")).changed();
-      });
+      let popup = Popup::from_response(&response)
+         .close_behavior(close_behavior)
+         .open_memory(set_command);
 
-      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+      let working_id = popup_id.with("working_hsla");
+      let mut working_hsla = ui
+         .memory(|mem| mem.data.get_temp(working_id))
+         .unwrap_or_else(|| Hsla::from_color32(*color32));
+
+      let popup_res = popup.show(|ui| self.hsla_picker_ui(ui, &mut working_hsla));
+
+      if let Some(inner) = popup_res {
+         // if color changed
+         if inner.inner {
+            ui.memory_mut(|mem| mem.data.insert_temp(working_id, working_hsla));
+            *color32 = working_hsla.to_color32();
+            response.mark_changed();
+         }
+      } else {
+         ui.memory_mut(|mem| mem.data.remove::<Hsla>(working_id));
+      }
+
+      response
+   }
+
+   // The core HSLA picker UI (sliders, 2D square, preview). Returns true if changed.
+   fn hsla_picker_ui(&mut self, ui: &mut Ui, hsla: &mut Hsla) -> bool {
+      let mut changed = false;
+      let stroke = Stroke::new(1.0, Color32::GRAY);
+
+      ui.horizontal(|ui| {
+         ui.set_width(200.0);
+
+         // Left: 2D S-L square + hue slider below it
          ui.vertical(|ui| {
-            // RGBA copy button
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let (r, g, b, a) = hsla.to_rgba_components();
-               let text = RichText::new(format!("RGBA ({r}, {g}, {b}, {a})"));
-               let button = Button::new(text).min_size(vec2(160.0, 15.0));
-               if ui.add(button).clicked() {
-                  ui.ctx().copy_text(format!("({r}, {g}, {b}, {a})"));
-               }
-            });
+            changed |= sl_2d_picker(ui, hsla);
+            changed |= hue_slider(ui, hsla);
+            changed |= alpha_slider(ui, hsla);
+         });
 
-            // HEX copy button
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let hex_color = HexColor::Hex6(hsla.to_color32());
-               let text = RichText::new(format!("HEX {}", hex_color));
-               let button = Button::new(text).min_size(vec2(160.0, 15.0));
-               if ui.add(button).clicked() {
-                  ui.ctx().copy_text(format!("{}", hex_color));
-               }
+         // Right: Preview + numeric controls
+         ui.vertical(|ui| {
+            // Preview rect
+            let preview_size = Vec2::new(80.0, 80.0);
+            let (rect, _) = ui.allocate_exact_size(preview_size, Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, hsla.to_color32());
+            ui.painter().rect_stroke(rect, 4.0, stroke, StrokeKind::Inside);
+
+            ui.label(RichText::new("Preview").strong());
+
+            // Numeric sliders for precision
+            ui.add_space(10.0);
+            changed |= ui.add(Slider::new(&mut hsla.h, 0.0..=360.0).text("Hue")).changed();
+            changed |= ui.add(Slider::new(&mut hsla.s, 0.0..=100.0).text("Saturation")).changed();
+            changed |= ui.add(Slider::new(&mut hsla.l, 0.0..=100.0).text("Lightness")).changed();
+            changed |= ui.add(Slider::new(&mut hsla.a, 0.0..=1.0).text("Alpha")).changed();
+         });
+
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.vertical(|ui| {
+               // RGBA copy button
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let (r, g, b, a) = hsla.to_rgba_components();
+                  let text = RichText::new(format!("RGBA ({r}, {g}, {b}, {a})"));
+                  let button = Button::new(text).min_size(vec2(160.0, 15.0));
+                  if ui.add(button).clicked() {
+                     ui.ctx().copy_text(format!("({r}, {g}, {b}, {a})"));
+                  }
+               });
+
+               // HEX copy button
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let hex_color = HexColor::Hex6(hsla.to_color32());
+                  let text = RichText::new(format!("HEX {}", hex_color));
+                  let button = Button::new(text).min_size(vec2(160.0, 15.0));
+                  if ui.add(button).clicked() {
+                     ui.ctx().copy_text(format!("{}", hex_color));
+                  }
+               });
+
+               // From RBG to HSLA
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  let text = RichText::new("Convert From HEX");
+                  let button = Button::new(text).small();
+                  ui.add(TextEdit::singleline(&mut self.from_hex_text));
+                  if ui.add(button).clicked() {
+                     let new_color = Hsla::from_hex(&self.from_hex_text);
+                     if let Some(new_color) = new_color {
+                        *hsla = new_color;
+                        changed = true;
+                     }
+                  }
+               });
             });
          });
       });
-   });
 
-   changed
+      changed
+   }
 }
 
 // 2D picker for Saturation (x) and Lightness (y)

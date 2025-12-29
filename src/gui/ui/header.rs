@@ -6,8 +6,8 @@ use crate::gui::{
 };
 use crate::utils::{RT, data_to_qr, truncate_address, tx::delegate_to};
 use egui::{
-   Align, Align2, Button, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl,
-   Order, RichText, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl, Order,
+   RichText, Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use zeus_eth::{
    types::ChainId,
 };
 use zeus_wallet::Wallet;
-use zeus_widgets::Label;
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use zeus_theme::{OverlayManager, Theme};
 
@@ -95,9 +95,10 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain();
-      let frame = theme.frame1;
+      let frame = theme.frame1.outer_margin(Margin::same(10));
       let wallet = ctx.current_wallet_info();
       let tint = theme.image_tint_recommended;
+      let button_visuals = theme.button_visuals();
 
       self.show_deleg_settings_window(
          ctx.clone(),
@@ -124,12 +125,13 @@ impl Header {
                let address = wallet.address_truncated();
 
                let address_text = RichText::new(address).size(theme.text_sizes.normal);
-               let button = Button::selectable(false, address_text);
-               if ui.add(button).clicked() {
+               let label = Button::selectable(false, address_text).visuals(button_visuals);
+
+               if ui.add(label).clicked() {
                   ui.ctx().copy_text(wallet.address.to_string());
                }
 
-               ui.add_space(5.0);
+               ui.add_space(7.0);
 
                // QR Code
                let icon = match theme.dark_mode {
@@ -137,7 +139,8 @@ impl Header {
                   false => icons.qrcode_dark_x18(tint),
                };
 
-               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+               let button = Button::image(icon).visuals(button_visuals);
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
                   self.qrcode_window.open(wallet.clone());
@@ -153,7 +156,8 @@ impl Header {
                   false => icons.external_link_dark_x18(tint),
                };
 
-               let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+               let button = Button::image(icon).visuals(button_visuals);
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
                   let url = OpenUrl::new_tab(link);
@@ -185,7 +189,7 @@ impl Header {
 
                   let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
 
-                  let label = Label::new(text, Some(icon));
+                  let label = Label::new(text, Some(icon)).interactive(false);
                   ui.add(label).on_hover_text(tip_text);
                });
 
@@ -295,6 +299,8 @@ impl Header {
             ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+
             let chain = ctx.chain();
             let delegated = ctx.get_delegated_address(chain.id(), wallet);
 
@@ -310,7 +316,8 @@ impl Header {
                      }
 
                      let text = RichText::new("Close").size(theme.text_sizes.normal);
-                     if ui.add(Button::new(text)).clicked() {
+                     let button = Button::new(text).visuals(button_visuals);
+                     if ui.add(button).clicked() {
                         self.close_delegate_window();
                      }
                   });
@@ -333,6 +340,7 @@ impl Header {
    ) {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
+      let button_visuals = theme.button_visuals();
       let tint = theme.image_tint_recommended;
       let icon = match theme.dark_mode {
          true => icons.refresh_white_x22(tint),
@@ -340,7 +348,8 @@ impl Header {
       };
 
       if !self.syncing {
-         let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+         let button = Button::image(icon).visuals(button_visuals);
+         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
          if res.clicked() {
             self.syncing = true;
@@ -374,11 +383,15 @@ impl Header {
       let text = RichText::new("Delegate to").size(theme.text_sizes.large);
       ui.label(text);
 
+      let text_edit_visuals = theme.text_edit_visuals();
+      let button_visuals = theme.button_visuals();
+
       let hint = RichText::new("Enter a smart contract address")
          .color(theme.colors.text_muted)
          .size(theme.text_sizes.normal);
 
-      let text = TextEdit::singleline(&mut self.delegate_to)
+      let text = SecureTextEdit::singleline(&mut self.delegate_to)
+         .visuals(text_edit_visuals)
          .hint_text(hint)
          .font(FontId::proportional(theme.text_sizes.normal))
          .margin(Margin::same(10))
@@ -387,7 +400,7 @@ impl Header {
       ui.add(text);
 
       let text = RichText::new("Delegate").size(theme.text_sizes.large);
-      let button = Button::new(text);
+      let button = Button::new(text).visuals(button_visuals);
 
       let clicked = ui.add(button).clicked();
 
@@ -445,6 +458,8 @@ impl Header {
       let text = RichText::new("Currently delegated to").size(theme.text_sizes.normal);
       ui.label(text);
 
+      let button_visuals = theme.button_visuals();
+
       let chain = ctx.chain();
 
       let address_short = truncate_address(delegated_address.to_string());
@@ -460,7 +475,7 @@ impl Header {
       ui.hyperlink_to(text, link);
 
       let text = RichText::new("Undelegate").size(theme.text_sizes.normal);
-      let button = Button::new(text).min_size(vec2(100.0, 30.0));
+      let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 30.0));
 
       let clicked = ui.add(button).clicked();
       if clicked {
@@ -619,7 +634,8 @@ impl QRCodeWindow {
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
       let text = RichText::new("Close").size(theme.text_sizes.normal);
-      if ui.add(Button::new(text)).clicked() {
+      let button = Button::new(text).visuals(theme.button_visuals());
+      if ui.add(button).clicked() {
          self.reset();
       }
    }

@@ -2,16 +2,14 @@ use crate::assets::icons::Icons;
 use crate::core::{M_COST, Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{
-   Align, Align2, Button, FontId, Frame, Layout, RichText, TextEdit, Ui, Window, vec2,
-};
+use eframe::egui::{Align, Align2, FontId, Frame, Layout, RichText, Ui, Window, vec2};
 use egui::Margin;
 use ncrypt_me::{Argon2, Credentials};
 use secure_types::SecureString;
 use std::sync::Arc;
 use std::time::Instant;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::{Label, SecureTextEdit};
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InputField {
@@ -107,6 +105,7 @@ impl VirtualKeyboard {
       ui.add_space(10.0);
 
       let frame = theme.frame2;
+      let button_visuals = theme.button_visuals();
 
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
@@ -120,8 +119,9 @@ impl VirtualKeyboard {
             for row in layout {
                ui.horizontal(|ui| {
                   for &key in row {
-                     let key_button = Button::new(RichText::new(key).size(theme.text_sizes.normal))
-                        .min_size(vec2(30.0, 30.0));
+                     let text = RichText::new(key).size(theme.text_sizes.normal);
+                     let key_button =
+                        Button::new(text).visuals(button_visuals).min_size(vec2(30.0, 30.0));
                      if ui.add(key_button).clicked() {
                         self.handle_key_press(key, target_str);
                      }
@@ -130,7 +130,8 @@ impl VirtualKeyboard {
             }
             // Spacebar
             ui.horizontal(|ui| {
-               if ui.add(Button::new(" ").min_size(vec2(30.0 * 5.0, 30.0))).clicked() {
+               let button = Button::new(" ").visuals(button_visuals).min_size(vec2(30.0 * 5.0, 30.0));
+               if ui.add(button).clicked() {
                   target_str.push_str(" ");
                }
             });
@@ -240,6 +241,8 @@ impl CredentialsForm {
       }
 
       let tint = theme.image_tint_recommended;
+      let button_visuals = theme.button_visuals();
+      let text_edit_visuals = theme.text_edit_visuals();
 
       ui.vertical_centered(|ui| {
          ui.spacing_mut().item_spacing.y = self.y_spacing;
@@ -252,6 +255,7 @@ impl CredentialsForm {
          ui.label(RichText::new("Username").size(theme.text_sizes.large));
          self.credentials.username.unlock_mut(|username| {
             let text_edit = SecureTextEdit::singleline(username)
+               .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .password(self.hide_username)
@@ -278,7 +282,7 @@ impl CredentialsForm {
                      }
                   };
 
-                  let hide_view = Button::image(icon);
+                  let hide_view = Button::image(icon).visuals(button_visuals);
                   if ui.add(hide_view).clicked() {
                      self.hide_username = !self.hide_username;
                   }
@@ -290,6 +294,7 @@ impl CredentialsForm {
          ui.label(RichText::new("Password").size(theme.text_sizes.large));
          self.credentials.password.unlock_mut(|password| {
             let text_edit = SecureTextEdit::singleline(password)
+               .visuals(text_edit_visuals)
                .min_size(text_edit_size)
                .margin(Margin::same(10))
                .font(FontId::proportional(theme.text_sizes.normal))
@@ -316,7 +321,7 @@ impl CredentialsForm {
                      }
                   };
 
-                  let hide_view = Button::image(icon);
+                  let hide_view = Button::image(icon).visuals(button_visuals);
                   if ui.add(hide_view).clicked() {
                      self.hide_password = !self.hide_password;
                   }
@@ -329,6 +334,7 @@ impl CredentialsForm {
             ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
             self.credentials.confirm_password.unlock_mut(|confirm_password| {
                let text_edit = SecureTextEdit::singleline(confirm_password)
+                  .visuals(text_edit_visuals)
                   .min_size(text_edit_size)
                   .margin(Margin::same(10))
                   .font(FontId::proportional(theme.text_sizes.normal))
@@ -355,7 +361,7 @@ impl CredentialsForm {
                         }
                      };
 
-                     let hide_view = Button::image(icon);
+                     let hide_view = Button::image(icon).visuals(button_visuals);
                      if ui.add(hide_view).clicked() {
                         self.hide_password = !self.hide_password;
                      }
@@ -394,14 +400,18 @@ impl UnlockVault {
          return;
       }
 
+      let frame = theme.frame1;
+
       Window::new("Unlock_Vault_Ui")
          .title_bar(false)
          .movable(false)
          .resizable(false)
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
+
+            let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
                ui.add_space(10.0);
@@ -413,8 +423,9 @@ impl UnlockVault {
 
                self.credentials_form.show(theme, icons, ui);
 
-               let button = Button::new(RichText::new("Unlock").size(theme.text_sizes.large))
-                  .min_size(vec2(ui_width * 0.25, 25.0));
+               let text = RichText::new("Unlock").size(theme.text_sizes.large);
+               let button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.50, 35.0));
 
                if ui.add(button).clicked() {
                   let mut vault = ctx.get_vault();
@@ -633,6 +644,8 @@ impl RecoverHDWallet {
             ui.spacing_mut().item_spacing.y = 15.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+
             ui.vertical_centered(|ui| {
                self.show_requirements_warning(theme, ui);
 
@@ -647,8 +660,9 @@ impl RecoverHDWallet {
                // Credentials input
                self.credentials_form.show(theme, icons, ui);
 
-               let next_button = Button::new(RichText::new("Next").size(theme.text_sizes.large))
-                  .min_size(vec2(ui_width * 0.25, 25.0));
+               let text = RichText::new("Next").size(theme.text_sizes.large);
+               let next_button =
+                  Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(next_button).clicked() {
                   let credentials = self.credentials_form.credentials.clone();
@@ -686,20 +700,25 @@ impl RecoverHDWallet {
             ui.spacing_mut().item_spacing.y = 15.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                self.show_requirements_warning(theme, ui);
 
                ui.label(RichText::new("Wallet Name").size(theme.text_sizes.heading));
 
-               TextEdit::singleline(&mut self.wallet_name)
+               SecureTextEdit::singleline(&mut self.wallet_name)
+                  .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.text_sizes.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
 
-               let recover_button =
-                  Button::new(RichText::new("Recover").size(theme.text_sizes.large))
-                     .min_size(vec2(ui.available_width() * 0.9, 25.0));
+               let text = RichText::new("Recover").size(theme.text_sizes.large);
+               let recover_button = Button::new(text)
+                  .visuals(button_visuals)
+                  .min_size(vec2(ui.available_width() * 0.9, 25.0));
 
                if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
                   self.recover_button_clicked = true;
@@ -802,12 +821,12 @@ impl RecoverHDWallet {
          let text5 = RichText::new(tip5).size(theme.text_sizes.large);
          let warning_text = RichText::new(warning).size(theme.text_sizes.very_large).color(theme.colors.warning);
 
-         let label1 = Label::new(text1, None).wrap();
-         let label2 = Label::new(text2, None).wrap();
-         let label3 = Label::new(text3, None).wrap();
-         let label4 = Label::new(text4, None).wrap();
-         let label5 = Label::new(text5, None).wrap();
-         let label_warning = Label::new(warning_text, None).wrap();
+         let label1 = Label::new(text1, None).wrap().interactive(false);
+         let label2 = Label::new(text2, None).wrap().interactive(false);
+         let label3 = Label::new(text3, None).wrap().interactive(false);
+         let label4 = Label::new(text4, None).wrap().interactive(false);
+         let label5 = Label::new(text5, None).wrap().interactive(false);
+         let label_warning = Label::new(warning_text, None).wrap().interactive(false);
 
          ui.add(label1);
          ui.add(label2);
@@ -816,8 +835,9 @@ impl RecoverHDWallet {
          ui.add(label5);
          ui.add(label_warning);
 
-         let ok_button = Button::new(RichText::new("Ok").size(theme.text_sizes.large))
-            .min_size(vec2(ui.available_width() * 0.25, 25.0));
+         let button_visuals = theme.button_visuals();
+         let text = RichText::new("Ok").size(theme.text_sizes.large);
+         let ok_button = Button::new(text).visuals(button_visuals).min_size(vec2(ui.available_width() * 0.25, 25.0));
 
          if ui.add(ok_button).clicked() {
             let vault = ctx.get_vault();

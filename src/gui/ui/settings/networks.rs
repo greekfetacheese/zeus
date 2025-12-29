@@ -3,13 +3,14 @@ use crate::core::{ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, Button, Color32, CursorIcon, FontId, Grid, Layout, Margin, Order, RichText,
-   ScrollArea, Slider, Spinner, TextEdit, Ui, Window, vec2,
+   Align, Align2, CursorIcon, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea, Slider,
+   Spinner, Ui, Window, vec2,
 };
 use egui::Frame;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
-use zeus_theme::{Theme, OverlayManager};
+use zeus_theme::{OverlayManager, Theme};
+use zeus_widgets::{Button, SecureTextEdit};
 
 pub struct NetworkSettings {
    open: bool,
@@ -93,6 +94,9 @@ impl NetworkSettings {
             ui.set_height(self.size.1);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.add_space(25.0);
             let chain = self.chain_select.chain.id();
             let z_client = ctx.get_zeus_client();
@@ -106,9 +110,10 @@ impl NetworkSettings {
                ui.add_space(30.0);
 
                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                  let add_network =
-                     Button::new(RichText::new("Add Network").size(theme.text_sizes.normal));
-                  if ui.add(add_network).clicked() {
+                  let text = RichText::new("Add Network").size(theme.text_sizes.normal);
+                  let button = Button::new(text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
                      self.open_add_rpc();
                   }
 
@@ -169,7 +174,8 @@ impl NetworkSettings {
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[0]);
                         ui.add(
-                           TextEdit::singleline(&mut rpc.url)
+                           SecureTextEdit::singleline(&mut rpc.url)
+                              .visuals(text_edit_visuals)
                               .font(FontId::proportional(theme.text_sizes.normal))
                               .min_size(vec2(column_widths[0] * 0.8, 25.0))
                               .margin(Margin::same(10)),
@@ -236,12 +242,14 @@ impl NetworkSettings {
                      // Test button column
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[5]);
-                        let button =
-                           Button::new(RichText::new("Test").size(theme.text_sizes.small));
+                        let text = RichText::new("Test").size(theme.text_sizes.small);
+                        let button = Button::new(text).visuals(button_visuals);
+
                         if ui.add(button).clicked() {
                            let ctx_clone = ctx.clone();
                            let rpc_clone = rpc.clone();
                            self.refreshing = true;
+
                            RT.spawn(async move {
                               let z_client = ctx_clone.get_zeus_client();
                               z_client.run_check_for(ctx_clone, rpc_clone).await;
@@ -255,13 +263,16 @@ impl NetworkSettings {
                      });
 
                      // Remove button column
-                     let button = Button::new(RichText::new("Remove").size(theme.text_sizes.small));
+                     let text = RichText::new("Remove").size(theme.text_sizes.small);
+                     let button = Button::new(text).visuals(button_visuals);
                      ui.horizontal(|ui| {
                         ui.set_width(column_widths[5]);
+
                         if ui.add(button).clicked() {
                            let z_client = ctx.get_zeus_client();
                            z_client.remove_rpc(chain, rpc.url.clone());
                            let ctx_clone = ctx.clone();
+
                            RT.spawn_blocking(move || {
                               ctx_clone.save_zeus_client();
                            });
@@ -334,12 +345,16 @@ impl NetworkSettings {
             ui.set_height(100.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+            let button_visuals = theme.button_visuals();
+            let text_edit_visuals = theme.text_edit_visuals();
+
             ui.vertical_centered(|ui| {
                let ui_width = ui.available_width();
 
                let hint_text = RichText::new("Enter a url").size(theme.text_sizes.normal);
                ui.add(
-                  TextEdit::singleline(&mut self.url_to_add)
+                  SecureTextEdit::singleline(&mut self.url_to_add)
+                     .visuals(text_edit_visuals)
                      .hint_text(hint_text)
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .min_size(vec2(ui_width * 0.5, 20.0))
@@ -356,10 +371,11 @@ impl NetworkSettings {
                }
 
                if self.refreshing {
-                  ui.add(Spinner::new().size(15.0).color(Color32::WHITE));
+                  ui.add(Spinner::new().size(15.0).color(theme.colors.text));
                }
 
-               let button = Button::new(RichText::new("Add").size(theme.text_sizes.normal));
+               let text = RichText::new("Add").size(theme.text_sizes.normal);
+               let button = Button::new(text).visuals(button_visuals);
                if self.valid_url() {
                   if ui.add_enabled(!self.refreshing, button).clicked() {
                      self.refreshing = true;

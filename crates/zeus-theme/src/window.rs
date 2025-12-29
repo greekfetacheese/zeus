@@ -22,10 +22,10 @@ impl WindowCtx {
 
       let title_text_size = theme.text_sizes.heading;
       let title_text_color = theme.colors.text;
-      let line_stroke = Stroke::new(1.0, theme.colors.border);
+      let line_stroke = Stroke::new(0.0, theme.colors.border);
       let button_text_size = theme.text_sizes.large;
       let button_text_color = theme.colors.text;
-      let on_hover_color = theme.colors.bg3;
+      let on_hover_color = theme.colors.hover;
       let close_on_hover_color = theme.colors.error;
 
       Self {
