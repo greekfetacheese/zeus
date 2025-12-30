@@ -2,15 +2,12 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, data_dir};
 use crate::gui::{
    SHARED_GUI,
-   ui::{
-      ChainSelect, ContactsUi, RecipientSelectionWindow,
-      dapps::AmountFieldWithCurrencySelect,
-   },
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, dapps::AmountFieldWithCurrencySelect},
 };
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, Order, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
    RichText, Slider, Spinner, Ui, Window, vec2,
 };
 use std::time::Duration;
@@ -26,7 +23,7 @@ use zeus_eth::{
    types::{BSC, ChainId},
    utils::{NumericValue, address_book},
 };
-use zeus_theme::{Theme, OverlayManager};
+use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 use zeus_widgets::{Button, SecureTextEdit};
 
 use reqwest::Client;
@@ -134,8 +131,10 @@ impl AcrossBridge {
    }
 
    pub fn open_settings(&mut self) {
-      self.overlay.window_opened();
-      self.settings_open = true;
+      if !self.settings_open {
+         self.overlay.window_opened();
+         self.settings_open = true;
+      }
    }
 
    pub fn close_settings(&mut self) {
@@ -183,6 +182,7 @@ impl AcrossBridge {
       self.get_suggested_fees(ctx.clone(), depositor, &recipient);
 
       let frame = theme.frame1;
+      let button_visuals = theme.button_visuals();
       let tint = theme.image_tint_recommended;
 
       Window::new("across_bridge_ui")
@@ -214,7 +214,11 @@ impl AcrossBridge {
                         false => icons.gear_dark_x24(tint),
                      };
 
-                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                     let mut visuals = ButtonVisuals::default();
+                     visuals.bg_hover = button_visuals.bg_hover;
+                     visuals.corner_radius = CornerRadius::same(25);
+                     let button = Button::image(icon).small().visuals(visuals);
+                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
                         self.open_settings();
@@ -427,7 +431,9 @@ impl AcrossBridge {
 
       let visuals = theme.button_visuals();
       let text = RichText::new(button_text).size(theme.text_sizes.large);
-      let button = Button::new(text).min_size(vec2(ui.available_width() * 0.8, 45.0)).visuals(visuals);
+      let button = Button::new(text)
+         .min_size(vec2(ui.available_width() * 0.8, 45.0))
+         .visuals(visuals);
 
       if ui.add_enabled(valid_inputs, button).clicked() {
          self.sending_tx = true;

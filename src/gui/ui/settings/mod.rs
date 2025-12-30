@@ -58,8 +58,10 @@ impl ThemeSettings {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -101,7 +103,7 @@ impl ThemeSettings {
                   .visuals(combo_visuals)
                   .show_ui(ui, |ui| {
                      ui.spacing_mut().item_spacing.y = 10.0;
-                     
+
                      for kind in ThemeKind::to_vec() {
                         let text = RichText::new(kind.to_str()).size(theme.text_sizes.normal);
                         let label = Label::new(text, None)
@@ -194,7 +196,9 @@ impl SettingsUi {
    }
 
    pub fn open(&mut self) {
-      self.open = true;
+      if !self.open {
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -439,8 +443,10 @@ impl EncryptionSettings {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -608,8 +614,10 @@ impl GeneralSettings {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {

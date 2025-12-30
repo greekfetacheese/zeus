@@ -1,13 +1,13 @@
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea,
-   Sense, Ui, Window, emath::Vec2b, vec2,
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
+   emath::Vec2b, vec2,
 };
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
-use crate::utils::{RT, truncate_symbol_or_name};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
+use crate::utils::{RT, truncate_symbol_or_name};
 use std::{str::FromStr, sync::Arc};
 
 use zeus_eth::{
@@ -16,8 +16,8 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_widgets::{Label, Button, SecureTextEdit};
-use zeus_theme::{Theme, OverlayManager, utils::frame_it};
+use zeus_theme::{OverlayManager, Theme, utils::frame_it};
+use zeus_widgets::{Button, Label, SecureTextEdit};
 
 /// A simple window that allows the user to select a token
 ///
@@ -56,7 +56,9 @@ impl TokenSelectionWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.process_currencies(ctx, chain_id, owner);
    }
@@ -126,7 +128,7 @@ impl TokenSelectionWindow {
       if !open {
          return;
       }
-      
+
       let mut close_window = false;
 
       Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
@@ -263,7 +265,7 @@ impl TokenSelectionWindow {
 
          let text = RichText::new("Add Token").size(theme.text_sizes.large);
          let button = Button::new(text).min_size(size).visuals(button_visuals);
-         
+
          if ui.add(button).clicked() {
             self.token_fetched = true;
             RT.spawn(async move {
@@ -375,7 +377,11 @@ async fn get_erc20_token(
       let pool_manager = ctx_clone.pool_manager();
 
       match pool_manager
-         .sync_pools_for_tokens(ctx_clone.clone(), chain, vec![token_clone.clone()])
+         .sync_pools_for_tokens(
+            ctx_clone.clone(),
+            chain,
+            vec![token_clone.clone()],
+         )
          .await
       {
          Ok(_) => {

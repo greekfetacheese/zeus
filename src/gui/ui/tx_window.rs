@@ -89,7 +89,9 @@ impl TxConfirmationWindow {
       priority_fee: String,
       mev_protect: bool,
    ) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       ctx.set_tx_confirm_window_open(true);
 
       let native = NativeCurrency::from(chain.id());
@@ -468,7 +470,9 @@ impl TxWindow {
 
    /// Show this [TxWindow]
    pub fn open(&mut self, tx: Option<TransactionRich>) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.tx = tx;
       self.open = true;
    }

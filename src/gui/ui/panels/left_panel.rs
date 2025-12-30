@@ -208,7 +208,9 @@ impl ConnectedDappsUi {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
    }
    pub fn close(&mut self) {

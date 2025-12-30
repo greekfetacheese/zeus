@@ -3,7 +3,7 @@ use egui::{Color32, CornerRadius, Response, Shadow, Stroke};
 pub type LabelVisuals = ButtonVisuals;
 
 /// Visuals for a button
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ButtonVisuals {
    pub text: Color32,
@@ -41,7 +41,7 @@ impl ButtonVisuals {
 }
 
 /// Visuals for a TextEdit
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TextEditVisuals {
     pub text: Color32,
@@ -66,7 +66,7 @@ impl TextEditVisuals {
 }
 
 /// Visuals for a ComboBox
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ComboBoxVisuals {
    pub bg: Color32,
@@ -103,7 +103,7 @@ impl ComboBoxVisuals {
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct FrameVisuals {
    pub bg_on_hover: Color32,
    pub bg_on_click: Color32,

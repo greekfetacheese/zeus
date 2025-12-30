@@ -273,7 +273,7 @@ impl MiscIcons {
          24,
       )?;
 
-      let gear_white_x24 = load_and_resize_image(include_bytes!("misc/gear-white.png"), 26, 26)?;
+      let gear_white_x24 = load_and_resize_image(include_bytes!("misc/gear-white.png"), 24, 24)?;
       let gear_dark_x24 = load_and_resize_image(include_bytes!("misc/gear-dark.png"), 24, 24)?;
       let refresh_white_x22 =
          load_and_resize_image(include_bytes!("misc/refresh-white.png"), 22, 22)?;

@@ -33,8 +33,10 @@ impl AddContact {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -182,8 +184,10 @@ impl DeleteContact {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -291,8 +295,10 @@ impl EditContact {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -449,8 +455,10 @@ impl ContactsUi {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {

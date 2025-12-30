@@ -6,8 +6,8 @@ use crate::gui::{
 };
 use crate::utils::{RT, data_to_qr, truncate_address, tx::delegate_to};
 use egui::{
-   Align, Align2, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin, OpenUrl, Order,
-   RichText, Spinner, Ui, Window, vec2,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin,
+   OpenUrl, Order, RichText, Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use zeus_eth::{
 use zeus_wallet::Wallet;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
@@ -69,7 +69,9 @@ impl Header {
    }
 
    pub fn open_delegate_window(&mut self) {
-      self.overlay.window_opened();
+      if !self.delegate_window_open {
+         self.overlay.window_opened();
+      }
       self.delegate_window_open = true;
    }
 
@@ -199,10 +201,16 @@ impl Header {
                      false => icons.gear_dark_x24(tint),
                   };
 
-                  let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                  let mut visuals = ButtonVisuals::default();
+                  visuals.bg_hover = button_visuals.bg_hover;
+                  visuals.corner_radius = CornerRadius::same(25);
+                  let button = Button::image(icon).small().visuals(visuals);
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                   if res.clicked() {
-                     self.open_delegate_window();
+                     if !self.delegate_window_open {
+                        self.open_delegate_window();
+                     }
                   }
                });
             });
@@ -290,7 +298,7 @@ impl Header {
          .movable(false)
          .resizable(false)
          .collapsible(false)
-         .order(Order::Tooltip)
+         .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
@@ -348,7 +356,10 @@ impl Header {
       };
 
       if !self.syncing {
-         let button = Button::image(icon).visuals(button_visuals);
+         let mut visuals = ButtonVisuals::default();
+         visuals.bg_hover = button_visuals.bg_hover;
+         visuals.corner_radius = CornerRadius::same(25);
+         let button = Button::image(icon).small().visuals(visuals);
          let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
          if res.clicked() {
@@ -552,7 +563,9 @@ impl QRCodeWindow {
             )),
          )
       };
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.wallet = Some(wallet);
       self.image = image;

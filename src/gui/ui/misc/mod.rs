@@ -6,8 +6,8 @@ use crate::utils::{
    state::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{
-   Align, Align2, CursorIcon, Frame, Margin, Grid, Layout, Order, RichText, ScrollArea, Sense, Spinner, Ui,
-   Vec2, Window, vec2,
+   Align, Align2, CornerRadius, CursorIcon, Frame, Grid, Layout, Margin, Order, RichText,
+   ScrollArea, Sense, Spinner, Ui, Vec2, Window, vec2,
 };
 use std::{
    sync::Arc,
@@ -20,7 +20,7 @@ use zeus_eth::{
    currency::{Currency, ERC20Token},
    types::ChainId,
 };
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 use zeus_widgets::{Button, ComboBox, Label};
 
 pub mod dev;
@@ -224,7 +224,9 @@ impl ConfirmWindow {
    }
 
    pub fn open(&mut self, msg: impl Into<String>) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.msg = msg.into();
    }
@@ -320,7 +322,9 @@ impl UpdateWindow {
    }
 
    pub fn open(&mut self, info: UpdateInfo) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.info = info;
    }
@@ -509,7 +513,9 @@ impl LoadingWindow {
    }
 
    pub fn open(&mut self, msg: impl Into<String>) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.msg = msg.into();
    }
@@ -571,7 +577,9 @@ impl MsgWindow {
 
    /// Open the window with this title and message
    pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.title = title.into();
       self.message = msg.into();
@@ -672,9 +680,9 @@ impl PortfolioUi {
                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let visuals = theme.button_visuals();
+                  let button_visuals = theme.button_visuals();
                   let text = RichText::new("Add Token").size(theme.text_sizes.normal);
-                  let add_token = Button::new(text).visuals(visuals);
+                  let add_token = Button::new(text).visuals(button_visuals);
 
                   if ui.add(add_token).clicked() {
                      token_selection.open(ctx.clone(), chain_id, owner);
@@ -682,12 +690,16 @@ impl PortfolioUi {
 
                   let tint = theme.image_tint_recommended;
                   let icon = match theme.dark_mode {
-                     true => icons.refresh_white_x28(tint),
-                     false => icons.refresh_dark_x28(tint),
+                     true => icons.refresh_white_x22(tint),
+                     false => icons.refresh_dark_x22(tint),
                   };
 
                   if !self.show_spinner {
-                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                     let mut visuals = ButtonVisuals::default();
+                     visuals.bg_hover = button_visuals.bg_hover;
+                     visuals.corner_radius = CornerRadius::same(25);
+                     let button = Button::image(icon).small().visuals(visuals);
+                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
                         self.refresh(owner, ctx.clone());

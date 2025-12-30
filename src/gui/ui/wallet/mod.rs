@@ -6,8 +6,8 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::CredentialsForm};
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
-   Align, Align2, FontId, Shadow, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
-   ScrollArea, Sense, Stroke, Ui, Vec2, Window, load::Bytes, vec2,
+   Align, Align2, FontId, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
+   ScrollArea, Sense, Shadow, Stroke, Ui, Vec2, Window, load::Bytes, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
@@ -60,7 +60,9 @@ impl WalletUi {
    }
 
    pub fn open_rename_wallet(&mut self, wallet: Option<Wallet>) {
-      self.overlay.window_opened();
+      if !self.rename_wallet {
+         self.overlay.window_opened();
+      }
       self.rename_wallet = true;
       self.wallet_to_rename = wallet;
    }
@@ -555,7 +557,9 @@ impl ExportKeyUi {
          }
       }
 
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.credentials_form.open = true;
       self.wallet_to_export = wallet;
@@ -756,7 +760,9 @@ impl DeleteWalletUi {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
       self.credentials_form.open = true;
    }

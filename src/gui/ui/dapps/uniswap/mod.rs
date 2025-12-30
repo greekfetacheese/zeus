@@ -4,13 +4,14 @@ pub mod swap;
 // pub mod view_positions;
 
 // use create_position::CreatePositionUi;
-use zeus_widgets::{Button, SecureTextEdit, Label};
 use pool::PoolsUi;
 use swap::SwapUi;
+use zeus_widgets::{Button, Label, SecureTextEdit};
 // use view_positions::ViewPositionsUi;
 
 use egui::{
-   Align, Align2, CursorIcon, Frame, Layout, Order, RichText, Slider, Spinner, Ui, Window, vec2
+   Align, Align2, CornerRadius, CursorIcon, Frame, Layout, Order, RichText, Slider, Spinner, Ui,
+   Window, vec2,
 };
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::currency::Currency;
@@ -23,7 +24,7 @@ use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::RT;
 use std::str::FromStr;
 use std::sync::Arc;
-use zeus_theme::{Theme, OverlayManager};
+use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 
 const MIN_SLIPPAGE: f64 = 0.1;
 const MAX_SLIPPAGE: f64 = 20.0;
@@ -131,8 +132,10 @@ impl UniswapSettingsUi {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -357,6 +360,7 @@ impl UniswapUi {
          }
 
          let size = vec2(ui.available_width() * 0.45, 50.0);
+         let button_visuals = theme.button_visuals();
 
          // Header
          ui.allocate_ui(size, |ui| {
@@ -372,7 +376,11 @@ impl UniswapUi {
                      false => icons.gear_dark_x24(tint),
                   };
 
-                  let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                  let mut visuals = ButtonVisuals::default();
+                  visuals.bg_hover = button_visuals.bg_hover;
+                  visuals.corner_radius = CornerRadius::same(25);
+                  let button = Button::image(icon).small().visuals(visuals);
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                   if res.clicked() {
                      self.settings.open();
@@ -388,7 +396,11 @@ impl UniswapUi {
                      || self.swap_ui.balance_syncing;
 
                   if !syncing {
-                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                     let mut visuals = ButtonVisuals::default();
+                     visuals.bg_hover = button_visuals.bg_hover;
+                     visuals.corner_radius = CornerRadius::same(25);
+                     let button = Button::image(icon).small().visuals(visuals);
+                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
                         if self.swap_ui.is_open() {
@@ -402,16 +414,16 @@ impl UniswapUi {
                   #[cfg(feature = "dev")]
                   {
                      let text = RichText::new("Swap").size(theme.text_sizes.large);
-                     let swap_button = Button::new(text);
+                     let swap_button = Button::new(text).visuals(button_visuals);
                      if ui.add(swap_button).clicked() {
                         self.swap_ui.open();
                         self.pools_ui.open = false;
                         // self.create_position_ui.open = false;
                         // self.view_positions_ui.open = false;
                      }
-                  
+
                      let text = RichText::new("Pools").size(theme.text_sizes.large);
-                     let pools_button = Button::new(text);
+                     let pools_button = Button::new(text).visuals(button_visuals);
                      if ui.add(pools_button).clicked() {
                         self.pools_ui.open = true;
                         self.swap_ui.close();

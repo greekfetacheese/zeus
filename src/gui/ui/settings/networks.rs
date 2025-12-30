@@ -3,13 +3,13 @@ use crate::core::{ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, CursorIcon, FontId, Grid, Layout, Margin, Order, RichText, ScrollArea, Slider,
-   Spinner, Ui, Window, vec2,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Grid, Layout, Margin, Order, RichText,
+   ScrollArea, Slider, Spinner, Ui, Window, vec2,
 };
 use egui::Frame;
 use std::sync::Arc;
 use zeus_eth::alloy_provider::Provider;
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 use zeus_widgets::{Button, SecureTextEdit};
 
 pub struct NetworkSettings {
@@ -46,8 +46,10 @@ impl NetworkSettings {
    }
 
    pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
+      if !self.open {
+         self.overlay.window_opened();
+         self.open = true;
+      }
    }
 
    pub fn close(&mut self) {
@@ -56,8 +58,10 @@ impl NetworkSettings {
    }
 
    pub fn open_add_rpc(&mut self) {
-      self.overlay.window_opened();
-      self.add_rpc = true;
+      if !self.add_rpc {
+         self.overlay.window_opened();
+         self.add_rpc = true;
+      }
    }
 
    pub fn close_add_rpc(&mut self) {
@@ -118,12 +122,16 @@ impl NetworkSettings {
                   }
 
                   let icon = match theme.dark_mode {
-                     true => icons.refresh_white_x28(tint),
-                     false => icons.refresh_dark_x28(tint),
+                     true => icons.refresh_white_x22(tint),
+                     false => icons.refresh_dark_x22(tint),
                   };
 
                   if !self.refreshing {
-                     let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                     let mut visuals = ButtonVisuals::default();
+                     visuals.bg_hover = button_visuals.bg_hover;
+                     visuals.corner_radius = CornerRadius::same(25);
+                     let button = Button::image(icon).small().visuals(visuals);
+                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
                         let ctx = ctx.clone();

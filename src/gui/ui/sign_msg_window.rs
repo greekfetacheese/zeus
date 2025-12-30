@@ -48,7 +48,9 @@ impl SignMsgWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx, dapp: String, chain: u64, msg: SignMsgType) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       ctx.set_sign_msg_window_open(true);
       self.dapp = dapp;
       self.chain = chain.into();

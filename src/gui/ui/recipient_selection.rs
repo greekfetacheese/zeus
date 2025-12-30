@@ -49,7 +49,9 @@ impl RecipientSelectionWindow {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx) {
-      self.overlay.window_opened();
+      if !self.open {
+         self.overlay.window_opened();
+      }
       self.open = true;
 
       let mut wallets = ctx.get_all_wallets_info();
