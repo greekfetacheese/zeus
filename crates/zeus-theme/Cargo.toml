@@ -1,9 +1,9 @@
 [package]
 name = "zeus-theme"
 authors = ["Michalis Molfetas"]
-version = "0.3.10"
+version = "0.3.20"
 edition = "2024"
-description = "Theme color styling for egui"
+description = "Themes for egui"
 readme = "readme.md"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-theme"
 license = "MIT OR Apache-2.0"

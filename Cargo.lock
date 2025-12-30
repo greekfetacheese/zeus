@@ -9340,7 +9340,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-theme"
-version = "0.3.10"
+version = "0.3.20"
 dependencies = [
  "eframe",
  "egui",

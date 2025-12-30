@@ -2,8 +2,9 @@
 
 # Theme color styling for egui
 
-Currently there are 2 themes to use, `Dark` and `Light`.
-The `Light` theme is still a work in progress so it is not recommended to use it.
+Available themes:
+- Dark
+- Tokyo Night
 
 ## This crate is still being actively developed, there will be breaking changes either to some apis or to the theme specs.
 
