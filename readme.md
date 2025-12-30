@@ -2,7 +2,7 @@
 
 ## <p align="center"><b>A truly seedless and decentralized self-custodial Ethereum wallet.</b></p>
 
-![Screenshot](src/zeus-home.png)
+![Screenshot](src/zeus.png)
  
  ---
 
