@@ -9243,7 +9243,7 @@ dependencies = [
 
 [[package]]
 name = "zeus"
-version = "0.7.26"
+version = "0.7.30"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
