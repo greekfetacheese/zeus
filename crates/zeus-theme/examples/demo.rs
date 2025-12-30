@@ -2,7 +2,8 @@ use eframe::egui::*;
 use secure_types::SecureString;
 use std::sync::Arc;
 use zeus_theme::{
-   OverlayManager, Theme, ThemeEditor, ThemeKind, utils::{self, frame_it},
+   OverlayManager, Theme, ThemeEditor, ThemeKind,
+   utils::{self, frame_it},
    window::{WindowCtx, window_frame},
 };
 use zeus_widgets::{Button, ComboBox, Label, SecureTextEdit};
@@ -173,7 +174,9 @@ impl DemoApp {
             ui.vertical_centered(|ui| {
                ui.add_space(50.0);
 
-               let text = RichText::new("BG Dark Color").size(self.theme.text_sizes.heading);
+               let text = RichText::new("BG Dark Color")
+                  .size(self.theme.text_sizes.heading)
+                  .color(self.theme.colors.text);
                ui.label(text);
 
                ui.add_space(20.0);
@@ -186,7 +189,9 @@ impl DemoApp {
 
                ui.add_space(20.0);
 
-               let text = RichText::new("Widgets").size(self.theme.text_sizes.heading);
+               let text = RichText::new("Widgets")
+                  .size(self.theme.text_sizes.heading)
+                  .color(self.theme.colors.text);
                ui.label(text);
 
                ui.add_space(20.0);
@@ -218,39 +223,43 @@ impl DemoApp {
                let text_size = self.theme.text_sizes.normal;
                let button_size = vec2(100.0, 50.0);
 
-               let home_text = RichText::new("Home").size(text_size);
+               let home_text = RichText::new("Home").size(text_size).color(self.theme.colors.text);
                let home_button = Button::new(home_text).min_size(button_size);
                ui.add(home_button);
 
-               let settings_text = RichText::new("Settings").size(text_size);
+               let settings_text =
+                  RichText::new("Settings").size(text_size).color(self.theme.colors.text);
                let settings_button = Button::new(settings_text).min_size(button_size);
                ui.add(settings_button);
 
-               let editor_text = RichText::new("Toggle Editor").size(text_size);
+               let editor_text =
+                  RichText::new("Toggle Editor").size(text_size).color(self.theme.colors.text);
                let editor_button = Button::new(editor_text).min_size(button_size);
                if ui.add(editor_button).clicked() {
                   self.editor.open = !self.editor.open;
                }
 
-               let text = RichText::new("Tx Window").size(text_size);
+               let text = RichText::new("Tx Window").size(text_size).color(self.theme.colors.text);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
                   self.tx_confirm_window.open();
                }
 
-               let text = RichText::new("Recipient Window").size(text_size);
+               let text =
+                  RichText::new("Recipient Window").size(text_size).color(self.theme.colors.text);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
                   self.recipient_window.open();
                }
 
-               let text = RichText::new("Msg Window").size(text_size);
+               let text = RichText::new("Msg Window").size(text_size).color(self.theme.colors.text);
                let button = Button::new(text).min_size(button_size);
                if ui.add(button).clicked() {
                   self.msg_window.open();
                }
 
-               let about_text = RichText::new("About").size(text_size);
+               let about_text =
+                  RichText::new("About").size(text_size).color(self.theme.colors.text);
                let about_button = Button::new(about_text).min_size(button_size);
                ui.add(about_button);
             });
@@ -258,22 +267,34 @@ impl DemoApp {
    }
 
    fn text_sizes(&mut self, ui: &mut Ui) {
-      let heading = RichText::new("Heading").size(self.theme.text_sizes.heading);
+      let heading = RichText::new("Heading")
+         .size(self.theme.text_sizes.heading)
+         .color(self.theme.colors.text);
       ui.label(heading);
 
-      let very_large = RichText::new("Very Large").size(self.theme.text_sizes.very_large);
+      let very_large = RichText::new("Very Large")
+         .size(self.theme.text_sizes.very_large)
+         .color(self.theme.colors.text);
       ui.label(very_large);
 
-      let large = RichText::new("Large").size(self.theme.text_sizes.large);
+      let large = RichText::new("Large")
+         .size(self.theme.text_sizes.large)
+         .color(self.theme.colors.text);
       ui.label(large);
 
-      let text = RichText::new("Normal").size(self.theme.text_sizes.normal);
+      let text = RichText::new("Normal")
+         .size(self.theme.text_sizes.normal)
+         .color(self.theme.colors.text);
       ui.label(text);
 
-      let small = RichText::new("Small").size(self.theme.text_sizes.small);
+      let small = RichText::new("Small")
+         .size(self.theme.text_sizes.small)
+         .color(self.theme.colors.text);
       ui.label(small);
 
-      let very_small = RichText::new("Very Small").size(self.theme.text_sizes.very_small);
+      let very_small = RichText::new("Very Small")
+         .size(self.theme.text_sizes.very_small)
+         .color(self.theme.colors.text);
       ui.label(very_small);
    }
 
@@ -287,13 +308,17 @@ impl DemoApp {
          ui.set_width(250.0);
          ui.set_height(200.0);
 
-         let text = RichText::new("Frame 1").size(self.theme.text_sizes.large);
+         let text = RichText::new("Frame 1")
+            .size(self.theme.text_sizes.large)
+            .color(self.theme.colors.text);
          ui.label(text);
 
          frame_it(&mut frame2, Some(visuals2), ui, |ui| {
             ui.set_width(200.0);
             ui.set_height(100.0);
-            let text = RichText::new("Frame 2").size(self.theme.text_sizes.large);
+            let text = RichText::new("Frame 2")
+               .size(self.theme.text_sizes.large)
+               .color(self.theme.colors.text);
             ui.label(text);
          });
       });
@@ -304,6 +329,7 @@ impl DemoApp {
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
       let button_size = vec2(100.0, 30.0);
 
+      let text_color = self.theme.colors.text;
       let button_visuals = self.theme.colors.button_visuals;
       let label_visuals = self.theme.colors.label_visuals;
       let combo_visuals = self.theme.colors.combo_box_visuals;
@@ -312,21 +338,21 @@ impl DemoApp {
       let frame = Frame::new().inner_margin(Margin::same(10));
 
       frame.show(ui, |ui| {
-         let text = RichText::new("Button 1").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Button 1").size(self.theme.text_sizes.normal).color(text_color);
          let button = Button::new(text).visuals(button_visuals).min_size(button_size);
          ui.add(button);
 
-         let text = RichText::new("Button (Selected)").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Button (Selected)").size(self.theme.text_sizes.normal).color(text_color);
          let button =
             Button::new(text).visuals(button_visuals).selected(true).min_size(button_size);
          ui.add(button);
 
-         let text = RichText::new("Combo Box").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Combo Box").size(self.theme.text_sizes.normal).color(text_color);
          ui.label(text);
 
          let all_chains = Chain::all();
          let current = self.current_chain;
-         let text = RichText::new(current.to_str()).size(self.theme.text_sizes.normal);
+         let text = RichText::new(current.to_str()).size(self.theme.text_sizes.normal).color(text_color);
          let selected_label = Label::new(text, None).visuals(label_visuals);
 
          ui.allocate_ui(button_size, |ui| {
@@ -335,7 +361,7 @@ impl DemoApp {
                .visuals(combo_visuals)
                .show_ui(ui, |ui| {
                   for chain in all_chains {
-                     let text = RichText::new(chain.to_str()).size(self.theme.text_sizes.normal);
+                     let text = RichText::new(chain.to_str()).size(self.theme.text_sizes.normal).color(text_color);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .expand(Some(3.0))
@@ -351,17 +377,17 @@ impl DemoApp {
                });
          });
 
-         let text = RichText::new("Label (Interactive)").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Label (Interactive)").size(self.theme.text_sizes.normal).color(text_color);
          let label = Label::new(text, None).expand(Some(6.0)).visuals(label_visuals);
          ui.add(label);
 
-         let text = RichText::new("Checkbox").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Checkbox").size(self.theme.text_sizes.normal).color(text_color);
          ui.checkbox(&mut self.check, text);
 
-         let text = RichText::new("Radio").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Radio").size(self.theme.text_sizes.normal).color(text_color);
          ui.radio_value(&mut self.check, true, text);
 
-         let text = RichText::new("Slider").size(self.theme.text_sizes.normal);
+         let text = RichText::new("Slider").size(self.theme.text_sizes.normal).color(text_color);
          ui.label(text);
 
          ui.allocate_ui(button_size, |ui| {
@@ -369,7 +395,8 @@ impl DemoApp {
          });
 
          let text = RichText::new("Text Edit with SecureString (Multiline)")
-            .size(self.theme.text_sizes.normal);
+            .size(self.theme.text_sizes.normal)
+            .color(text_color);
          ui.label(text);
 
          let hint = RichText::new("Write something")
@@ -385,7 +412,7 @@ impl DemoApp {
          );
 
          let text =
-            RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal);
+            RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal).color(text_color);
          ui.label(text);
 
          ui.add(
@@ -427,6 +454,7 @@ impl TxConfirmWindow {
          .show(ui.ctx(), |ui| {
             let frame = theme.frame1.outer_margin(Margin::same(0));
             let text_size = theme.text_sizes.large;
+            let text_color = theme.colors.text;
             let button_visuals = theme.colors.button_visuals;
             let text_edit_visuals = theme.colors.text_edit_visuals;
             // let font_bold = FontFamily::Name("inter_bold".into());
@@ -438,7 +466,7 @@ impl TxConfirmWindow {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let heading = RichText::new("Swap").size(theme.text_sizes.heading);
+                  let heading = RichText::new("Swap").size(theme.text_sizes.heading).color(text_color);
                   ui.label(heading);
 
                   frame.show(ui, |ui| {
@@ -450,7 +478,7 @@ impl TxConfirmWindow {
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("$1,600").size(text_size);
+                           let text = RichText::new("$1,600").size(text_size).color(text_color);
                            ui.label(text);
                         });
                      });
@@ -464,7 +492,7 @@ impl TxConfirmWindow {
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("$1,600").size(text_size);
+                           let text = RichText::new("$1,600").size(text_size).color(text_color);
                            ui.label(text);
                         });
                      });
@@ -473,19 +501,19 @@ impl TxConfirmWindow {
                   frame.show(ui, |ui| {
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("Chain").size(text_size);
+                           let text = RichText::new("Chain").size(text_size).color(text_color);
                            ui.label(text);
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("Ethereum").size(text_size);
+                           let text = RichText::new("Ethereum").size(text_size).color(text_color);
                            ui.label(text);
                         });
                      });
 
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("From").size(text_size);
+                           let text = RichText::new("From").size(text_size).color(text_color);
                            ui.label(text);
                         });
 
@@ -498,7 +526,7 @@ impl TxConfirmWindow {
 
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("Contract interaction").size(text_size);
+                           let text = RichText::new("Contract interaction").size(text_size).color(text_color);
                            ui.label(text);
                         });
 
@@ -515,24 +543,24 @@ impl TxConfirmWindow {
 
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("Value").size(text_size);
+                           let text = RichText::new("Value").size(text_size).color(text_color);
                            ui.label(text);
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("0 ETH ~ $0").size(text_size);
+                           let text = RichText::new("0 ETH ~ $0").size(text_size).color(text_color);
                            ui.label(text);
                         });
                      });
 
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("Cost").size(text_size);
+                           let text = RichText::new("Cost").size(text_size).color(text_color);
                            ui.label(text);
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("0.000167 ETH ~ $0.75").size(text_size);
+                           let text = RichText::new("0.000167 ETH ~ $0.75").size(text_size).color(text_color);
                            ui.label(text);
                         });
                      });
@@ -550,7 +578,7 @@ impl TxConfirmWindow {
                            ui.vertical(|ui| {
                               let mut fee = String::from("1");
                               let text = "Priority Fee (Gwei)";
-                              ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                              ui.label(RichText::new(text).size(theme.text_sizes.normal).color(text_color));
 
                               ui.add(
                                  SecureTextEdit::singleline(&mut fee)
@@ -570,7 +598,7 @@ impl TxConfirmWindow {
                               ui.vertical(|ui| {
                                  let mut gas_limit = String::from("50000");
                                  let text = "Gas Limit";
-                                 ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                                 ui.label(RichText::new(text).size(theme.text_sizes.normal).color(text_color));
 
                                  ui.add(
                                     SecureTextEdit::singleline(&mut gas_limit)
@@ -606,7 +634,7 @@ impl TxConfirmWindow {
 
                   ui.allocate_ui(size, |ui| {
                      ui.horizontal(|ui| {
-                        let text = RichText::new("Confirm").size(theme.text_sizes.normal);
+                        let text = RichText::new("Confirm").size(theme.text_sizes.normal).color(text_color);
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
@@ -615,7 +643,7 @@ impl TxConfirmWindow {
 
                         ui.add_space(10.0);
 
-                        let text = RichText::new("Reject").size(theme.text_sizes.normal);
+                        let text = RichText::new("Reject").size(theme.text_sizes.normal).color(text_color);
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
@@ -752,7 +780,6 @@ impl RecipientWindow {
          });
    }
 }
-
 
 pub fn setup_fonts(ctx: &egui::Context) {
    // Start with defaults to keep built-in fonts.

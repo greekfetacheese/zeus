@@ -19,6 +19,8 @@ pub use visuals::*;
 pub enum ThemeKind {
    Dark,
 
+   TokyoNight,
+
    /// WIP
   // Light,
 
@@ -30,13 +32,14 @@ impl ThemeKind {
    pub fn to_str(&self) -> &str {
       match self {
          ThemeKind::Dark => "Dark",
+         ThemeKind::TokyoNight => "Tokyo Night",
         // ThemeKind::Light => "Light",
          ThemeKind::Custom => "Custom",
       }
    }
 
    pub fn to_vec() -> Vec<Self> {
-      vec![Self::Dark]
+      vec![Self::Dark, Self::TokyoNight]
    }
 }
 
@@ -75,6 +78,7 @@ impl Theme {
    pub fn new(kind: ThemeKind) -> Self {
       let theme = match kind {
          ThemeKind::Dark => dark::theme(),
+         ThemeKind::TokyoNight => tokyo_night::theme(),
         // ThemeKind::Light => light::theme(),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       };
@@ -85,6 +89,7 @@ impl Theme {
    pub fn set_window_frame_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.window_frame = dark::window_frame(&self.colors),
+         ThemeKind::TokyoNight => self.window_frame = tokyo_night::window_frame(&self.colors),
         // ThemeKind::Light => self.window_frame = light::window_frame(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -93,6 +98,7 @@ impl Theme {
    pub fn set_frame1_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame1 = dark::frame1(&self.colors),
+         ThemeKind::TokyoNight => self.frame1 = tokyo_night::frame1(&self.colors),
         // ThemeKind::Light => self.frame1 = light::frame1(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -101,6 +107,7 @@ impl Theme {
    pub fn set_frame2_colors(&mut self) {
       match self.kind {
          ThemeKind::Dark => self.frame2 = dark::frame2(&self.colors),
+         ThemeKind::TokyoNight => self.frame2 = tokyo_night::frame2(&self.colors),
         // ThemeKind::Light => self.frame2 = light::frame2(&self.colors),
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -109,6 +116,7 @@ impl Theme {
    pub fn button_visuals(&self) -> ButtonVisuals {
       match self.kind {
          ThemeKind::Dark => self.colors.button_visuals,
+         ThemeKind::TokyoNight => self.colors.button_visuals,
         // ThemeKind::Light => self.colors.button_visuals,
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -117,6 +125,7 @@ impl Theme {
    pub fn label_visuals(&self) -> LabelVisuals {
       match self.kind {
          ThemeKind::Dark => self.colors.label_visuals,
+         ThemeKind::TokyoNight => self.colors.label_visuals,
         // ThemeKind::Light => self.colors.label_visuals,
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -125,6 +134,7 @@ impl Theme {
    pub fn combo_box_visuals(&self) -> ComboBoxVisuals {
       match self.kind {
          ThemeKind::Dark => self.colors.combo_box_visuals,
+         ThemeKind::TokyoNight => self.colors.combo_box_visuals,
         // ThemeKind::Light => self.colors.combo_box_visuals,
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }
@@ -133,6 +143,7 @@ impl Theme {
    pub fn text_edit_visuals(&self) -> TextEditVisuals {
       match self.kind {
          ThemeKind::Dark => self.colors.text_edit_visuals,
+         ThemeKind::TokyoNight => self.colors.text_edit_visuals,
         // ThemeKind::Light => self.colors.text_edit_visuals,
          ThemeKind::Custom => panic!("{}", PANIC_MSG),
       }

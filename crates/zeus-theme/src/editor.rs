@@ -1,5 +1,10 @@
 use egui::{
-   Align, Button, CollapsingHeader, Color32, ComboBox, CornerRadius, DragValue, Frame, Layout, Margin, Order, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense, SetOpenCommand, Shadow, Slider, Stroke, StrokeKind, TextEdit, Ui, Vec2, Window, color_picker::{Alpha, color_edit_button_srgba}, ecolor::HexColor, vec2
+   Align, Button, CollapsingHeader, Color32, ComboBox, CornerRadius, DragValue, Frame, Layout,
+   Margin, Order, Popup, PopupCloseBehavior, Rect, Response, RichText, ScrollArea, Sense,
+   SetOpenCommand, Shadow, Slider, Stroke, StrokeKind, TextEdit, Ui, Vec2, Window,
+   color_picker::{Alpha, color_edit_button_srgba},
+   ecolor::HexColor,
+   vec2,
 };
 
 use super::{Theme, hsla::Hsla, utils};
@@ -205,15 +210,15 @@ impl ThemeEditor {
 
          CollapsingHeader::new("Theme Frames").show(ui, |ui| {
             CollapsingHeader::new("Native Window Frame").show(ui, |ui| {
-               self.frame_settings(&mut theme.window_frame, ui);
+               self.frame_settings(&mut theme.window_frame, &colors, ui);
             });
 
             CollapsingHeader::new("Frame 1").show(ui, |ui| {
-               self.frame_settings(&mut theme.frame1, ui);
+               self.frame_settings(&mut theme.frame1, &colors, ui);
             });
 
             CollapsingHeader::new("Frame 2").show(ui, |ui| {
-               self.frame_settings(&mut theme.frame2, ui);
+               self.frame_settings(&mut theme.frame2, &colors, ui);
             });
          });
 
@@ -222,21 +227,18 @@ impl ThemeEditor {
                CollapsingHeader::new("Button Visuals 1").show(ui, |ui| {
                   self.button_visuals(colors, &mut theme.colors.button_visuals, ui);
                });
-
             });
 
             CollapsingHeader::new("Label").show(ui, |ui| {
                CollapsingHeader::new("Label Visuals 1").show(ui, |ui| {
                   self.button_visuals(colors, &mut theme.colors.label_visuals, ui);
                });
-
             });
 
             CollapsingHeader::new("Combo Box").show(ui, |ui| {
                CollapsingHeader::new("Combo Box Visuals 1").show(ui, |ui| {
                   self.combo_box_visuals(colors, &mut theme.colors.combo_box_visuals, ui);
                });
-
             });
 
             CollapsingHeader::new("Text Edit").show(ui, |ui| {
@@ -391,8 +393,8 @@ impl ThemeEditor {
                &mut theme.style.visuals.window_fill,
             );
 
-            ui.label("Window Stroke Color");
-            edit_stroke(&mut theme.style.visuals.window_stroke, ui);
+            ui.label("Window Stroke");
+            self.edit_stroke(&colors, &mut theme.style.visuals.window_stroke, ui);
 
             ui.label("Window Highlight Topmost");
             ui.checkbox(
@@ -588,8 +590,11 @@ impl ThemeEditor {
          );
       });
 
-      //  ui.label("Corner Radius");
-      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+      ui.label("Corner Radius");
+      ui.add(Slider::new(&mut visuals.corner_radius.ne, 0..=100).text("NE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.nw, 0..=100).text("NW"));
+      ui.add(Slider::new(&mut visuals.corner_radius.se, 0..=100).text("SE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.sw, 0..=100).text("SW"));
 
       ui.label("Shadow");
       ui.horizontal(|ui| {
@@ -685,8 +690,11 @@ impl ThemeEditor {
          self.hsla_edit_button.show("border_open1", ui, &mut visuals.border_open.color);
       });
 
-      //  ui.label("Corner Radius");
-      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+      ui.label("Corner Radius");
+      ui.add(Slider::new(&mut visuals.corner_radius.ne, 0..=100).text("NE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.nw, 0..=100).text("NW"));
+      ui.add(Slider::new(&mut visuals.corner_radius.se, 0..=100).text("SE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.sw, 0..=100).text("SW"));
 
       ui.label("Shadow");
       ui.horizontal(|ui| {
@@ -774,8 +782,11 @@ impl ThemeEditor {
          self.hsla_edit_button.show("border_open1", ui, &mut visuals.border_open.color);
       });
 
-      //  ui.label("Corner Radius");
-      //  ui.add(Slider::new(&mut visuals.corner_radius, 0.0..=25.0).text("Corner Radius"));
+      ui.label("Corner Radius");
+      ui.add(Slider::new(&mut visuals.corner_radius.ne, 0..=100).text("NE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.nw, 0..=100).text("NW"));
+      ui.add(Slider::new(&mut visuals.corner_radius.se, 0..=100).text("SE"));
+      ui.add(Slider::new(&mut visuals.corner_radius.sw, 0..=100).text("SW"));
 
       ui.label("Shadow");
       ui.horizontal(|ui| {
@@ -902,7 +913,7 @@ impl ThemeEditor {
       ui.add(Slider::new(&mut widget_visuals.expansion, 0.0..=100.0).text("Expansion"));
    }
 
-   fn frame_settings(&mut self, frame: &mut Frame, ui: &mut Ui) {
+   fn frame_settings(&mut self, frame: &mut Frame, colors: &ThemeColors, ui: &mut Ui) {
       CollapsingHeader::new("Inner & Outter Margin").show(ui, |ui| {
          ui.label("Inner Margin");
          edit_margin(&mut frame.inner_margin, ui);
@@ -921,7 +932,7 @@ impl ThemeEditor {
       self.hsla_edit_button.show("fill_color1", ui, &mut frame.fill);
 
       ui.label("Stroke Width & Color");
-      edit_stroke(&mut frame.stroke, ui);
+      self.edit_stroke(colors, &mut frame.stroke, ui);
    }
 
    fn select_widget_state(&mut self, ui: &mut Ui) {
@@ -965,13 +976,23 @@ impl ThemeEditor {
       });
       selected_color
    }
-}
 
-fn edit_stroke(stroke: &mut Stroke, ui: &mut Ui) {
-   ui.add(Slider::new(&mut stroke.width, 0.0..=100.0).text("Stroke Width"));
+   fn edit_stroke(&mut self, colors: &ThemeColors, stroke: &mut Stroke, ui: &mut Ui) {
+      ui.add(Slider::new(&mut stroke.width, 0.0..=100.0).text("Stroke Width"));
 
-   ui.label("Stroke Color");
-   color_edit_button_srgba(ui, &mut stroke.color, Alpha::BlendOrAdditive);
+      ui.label("Stroke Color");
+
+      ui.horizontal(|ui| {
+         let color = self.color_select("1", stroke.color, &colors, ui);
+         if let Some(color) = color {
+            stroke.color = color.color32();
+         }
+
+         color_edit_button_srgba(ui, &mut stroke.color, Alpha::BlendOrAdditive);
+
+         self.hsla_edit_button.show("stroke1", ui, &mut stroke.color);
+      });
+   }
 }
 
 fn edit_margin(margin: &mut Margin, ui: &mut Ui) {

@@ -17,9 +17,6 @@ pub struct WindowCtx {
 impl WindowCtx {
    pub fn new(title: &str, bar_height: f32, theme: &Theme) -> Self {
       let frame = theme.window_frame;
-     // let color = theme.overlay_manager.overlay_color(frame.fill);
-     // let frame = frame.fill(color);
-
       let title_text_size = theme.text_sizes.heading;
       let title_text_color = theme.colors.text;
       let line_stroke = Stroke::new(0.0, theme.colors.border);
