@@ -131,7 +131,7 @@ impl ZeusCtx {
             data.zeroize();
             tracing::info!("QR Image data zeroized");
          } else {
-            tracing::warn!("QR Image data zeroize failed");
+            tracing::error!("QR Image data zeroize failed");
          }
       });
    }
@@ -286,6 +286,7 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.wallet_address_exists(address))
    }
 
+   /// Get the wallet info for the given address, without cloning the private key
    pub fn get_wallet_info_by_address(&self, address: Address) -> Option<WalletInfo> {
       let mut info = None;
       self.read(|ctx| {
@@ -299,6 +300,7 @@ impl ZeusCtx {
       info
    }
 
+   /// Get all wallets info without cloning the private key
    pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
@@ -357,16 +359,19 @@ impl ZeusCtx {
       })
    }
 
+   /// Check if any RPC client is available for the given chain
    pub fn client_available(&self, chain: u64) -> bool {
       let z_client = self.get_zeus_client();
       z_client.rpc_available(chain)
    }
 
+   /// Check if any MEV protection client is available for the given chain
    pub fn client_mev_protect_available(&self, chain: u64) -> bool {
       let z_client = self.get_zeus_client();
       z_client.mev_protect_available(chain)
    }
 
+   /// Check if any archive client is available for the given chain
    pub fn client_archive_available(&self, chain: u64) -> bool {
       let z_client = self.get_zeus_client();
       z_client.rpc_archive_available(chain)
@@ -552,11 +557,6 @@ impl ZeusCtx {
       tokens
    }
 
-   pub fn portfolio_has_token(&self, chain: u64, owner: Address, token: Address) -> bool {
-      let portfolio = self.read(|ctx| ctx.portfolio_db.get(chain, owner));
-      portfolio.tokens.iter().any(|t| t.address == token)
-   }
-
    /// Calculate and update the portfolio value
    pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
@@ -586,10 +586,12 @@ impl ZeusCtx {
       self.read(|ctx| ctx.v3_positions_db.get(chain, owner))
    }
 
+   /// Get the USD price of an ERC20 token
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
       self.read(|ctx| ctx.price_manager.get_token_price(token)).unwrap_or_default()
    }
 
+   /// Get the USD price of a currency
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
       if currency.is_native() {
          let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
@@ -622,7 +624,6 @@ impl ZeusCtx {
       NumericValue::value(balance.f64(), price.f64())
    }
 
-   /// Get the value of the given amount in the given currency
    pub fn get_currency_value_for_amount(&self, amount: f64, currency: &Currency) -> NumericValue {
       let price = self.get_currency_price(currency);
       NumericValue::value(amount, price.f64())
@@ -711,13 +712,6 @@ impl ZeusCtx {
          return Some("Uniswap: Universal Router V2".to_string());
       }
 
-      let zeus_router = address_book::zeus_router(chain);
-      if let Ok(addr) = zeus_router {
-         if addr == address {
-            return Some("Zeus Router".to_string());
-         }
-      }
-
       let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
       if nft_position_manager == address {
          return Some("Uniswap V3: NFT Position Manager".to_string());
@@ -738,6 +732,9 @@ impl ZeusCtx {
       None
    }
 
+   /// Get the V2 pool for the given address
+   /// 
+   /// If the pool is not found in cache, it will be retrieved from the blockchain
    pub async fn get_v2_pool(
       &self,
       chain: u64,
@@ -769,6 +766,9 @@ impl ZeusCtx {
       };
    }
 
+   /// Get the V3 pool for the given address
+   /// 
+   /// If the pool is not found in cache, it will be retrieved from the blockchain
    pub async fn get_v3_pool(
       &self,
       chain: u64,
@@ -800,6 +800,11 @@ impl ZeusCtx {
       };
    }
 
+   /// Get the V4 pool for the given pool id
+   /// 
+   /// If the pool is not found in cache, it will be retrieved from the blockchain
+   /// 
+   /// It does a best effort search for the most common paired tokens 
    pub async fn get_v4_pool(
       &self,
       chain: u64,
@@ -811,7 +816,6 @@ impl ZeusCtx {
       let pool = if let Some(pool) = cached {
          return Ok(pool);
       } else {
-         // Best effort pool finding from all known tokens
          let pool_fee = FeeAmount::CUSTOM(fee);
 
          let mut base_tokens = ERC20Token::base_tokens(chain);
@@ -832,6 +836,7 @@ impl ZeusCtx {
          let mut found_pool: Option<AnyUniswapPool> = None;
          let mut break_outer = false;
 
+         // Best effort pool finding from all known tokens
          for quote_currency in quote_currencies.iter() {
             for base_currency in &base_currencies {
                let pool = UniswapV4Pool::new(
@@ -874,6 +879,9 @@ impl ZeusCtx {
       };
    }
 
+   /// Get the ERC20 token for the given address
+   /// 
+   /// If the token is not found in cache, it will be retrieved from the blockchain
    pub async fn get_token(
       &self,
       chain: u64,
@@ -969,6 +977,9 @@ impl ZeusCtx {
       Ok(())
    }
 
+   /// Get the receipt for the given transaction hash
+   /// 
+   /// If the receipt is not found in cache, it will be retrieved from the blockchain
    pub async fn get_receipt_by_hash(
       &self,
       hash: FixedBytes<32>,
@@ -1002,6 +1013,9 @@ impl ZeusCtx {
       Ok(receipt)
    }
 
+   /// Get the transaction for the given transaction hash
+   /// 
+   /// If the transaction is not found in cache, it will be retrieved from the blockchain
    pub async fn get_tx_by_hash(
       &self,
       hash: FixedBytes<32>,
@@ -1035,6 +1049,9 @@ impl ZeusCtx {
       Ok(transaction)
    }
 
+   /// Get the storage value for the given address and slot
+   /// 
+   /// If the storage value is not found in cache, it will be retrieved from the blockchain
    pub async fn get_storage(
       &self,
       block_id: BlockId,
@@ -1078,6 +1095,9 @@ impl ZeusCtx {
       Ok(storage)
    }
 
+   /// Get the code for the given address
+   /// 
+   /// If the code is not found in cache, it will be retrieved from the blockchain
    pub async fn get_code(
       &self,
       block_id: BlockId,
@@ -1120,6 +1140,9 @@ impl ZeusCtx {
       Ok(code)
    }
 
+   /// Estimate the gas for the given transaction
+   /// 
+   /// If the gas is not found in cache, it will be estimated from the blockchain
    pub async fn estimate_gas(&self, tx: TransactionRequest) -> Result<u64, anyhow::Error> {
       let chain = self.chain();
       let res = self.read(|ctx| ctx.estimate_gas.get(&(chain.id(), tx.clone())).cloned());
@@ -1169,6 +1192,9 @@ impl ZeusCtx {
       Ok(gas)
    }
 
+   /// Get the eth_call for the given transaction
+   /// 
+   /// If the eth_call is not found in cache, it will be retrieved from the blockchain
    pub async fn get_eth_call(&self, tx: TransactionRequest) -> Result<EthCall, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();
@@ -1217,6 +1243,9 @@ impl ZeusCtx {
       Ok(eth_call)
    }
 
+   /// Get the latest block
+   /// 
+   /// If the block is not found in cache, it will be retrieved from the blockchain
    pub async fn get_latest_block(&self) -> Result<Block, anyhow::Error> {
       let chain = self.chain();
       let block_time = chain.block_time_millis();

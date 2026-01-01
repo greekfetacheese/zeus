@@ -779,20 +779,6 @@ impl SwapUi {
                }
             }
          }
-
-         if currency.is_erc20() {
-            let token = currency.to_erc20().into_owned();
-            if ctx.portfolio_has_token(chain, owner, token.address) {
-               let mut portfolio = ctx.get_portfolio(chain, owner);
-               portfolio.add_token(token);
-               ctx.write(|ctx| {
-                  ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
-               });
-
-               ctx.calculate_portfolio_value(chain, owner);
-               ctx.save_portfolio_db();
-            }
-         }
       });
    }
 

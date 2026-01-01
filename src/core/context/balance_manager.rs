@@ -13,6 +13,7 @@ use zeus_eth::{
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use anyhow::anyhow;
 
 const BALANCE_DATA_FILE: &str = "balances.json";
 
@@ -200,8 +201,7 @@ impl BalanceManagerHandle {
 
       loop {
          if attempt > max_retries {
-            tracing::error!("Max retries reached");
-            break;
+            return Err(anyhow!("Max retries reached"));
          }
 
          let balances = client

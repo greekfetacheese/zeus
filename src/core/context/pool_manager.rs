@@ -350,6 +350,7 @@ impl PoolManagerHandle {
       Ok(())
    }
 
+   /// Update the state for the given pools without updating the PriceManager
    pub(crate) async fn _update_state_for_pools(
       &self,
       ctx: ZeusCtx,
