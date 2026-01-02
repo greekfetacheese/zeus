@@ -5,7 +5,7 @@ use zeus_widgets::Label;
 use crate::assets::Icons;
 use crate::core::{TransactionAnalysis, ZeusCtx, currencies::TokenData, transaction::*};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
-use crate::utils::state::UpdateInfo;
+use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, sign::SignMsgType};
 
 use zeus_eth::{

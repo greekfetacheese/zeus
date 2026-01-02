@@ -6,7 +6,8 @@ use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use crate::utils::{
    RT,
-   state::{check_for_updates, on_startup, test_and_measure_rpcs},
+   state::{on_startup, test_and_measure_rpcs},
+   self_update::check_for_updates
 };
 use eframe::{
    CreationContext,

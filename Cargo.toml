@@ -41,6 +41,7 @@ hmac = "=0.12.1"
 ripemd = "=0.1.3"
 rand = "=0.8"
 generic-array = {version = "=1.2.0", features = ["zeroize"]}
+minisign-verify = "0.2.4"
 
 # Encryption
 ncrypt-me = "0.1.22"

@@ -3,7 +3,7 @@ use crate::core::ZeusCtx;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::{
    RT,
-   state::{UpdateInfo, restart_app, update_zeus},
+   self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{
    Align, Align2, CornerRadius, CursorIcon, Frame, Grid, Layout, Margin, Order, RichText,
@@ -353,7 +353,7 @@ impl UpdateWindow {
       Window::new("Update Zeus")
          .title_bar(false)
          .resizable(false)
-         .order(Order::Tooltip)
+         .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
          .frame(Frame::window(ui.style()))

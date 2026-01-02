@@ -4,6 +4,7 @@ pub mod simulate;
 pub mod state;
 pub mod swap_quoter;
 pub mod tx;
+pub mod self_update;
 // pub mod zeus_router;
 pub mod universal_router_v2;
 
