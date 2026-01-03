@@ -39,9 +39,6 @@ version = "0.2"
 version = "0.1"
 features = ["zeroize"]
 
-[dependencies.lazy_static]
-version = "1"
-
 [dependencies.anyhow]
 version = "=1.0.99"
 

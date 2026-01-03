@@ -17,7 +17,6 @@ default-run = "zeus"
 eframe = {version = "=0.33.3", features = ["wgpu"]}
 egui = {version = "=0.33.3", features = ["serde"]}
 egui_extras = {version = "=0.33.3", features = ["image"]}
-zeus-widgets = {path = "crates/zeus-widgets", features = ["secure-types"]}
 image = "=0.25.6"
 
 
@@ -26,6 +25,7 @@ zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
 zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"]}
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"]}
+zeus-widgets = {path = "crates/zeus-widgets", features = ["secure-types"]}
 
 # Alloy
 alloy-consensus = "=1.1.2"
@@ -35,10 +35,6 @@ alloy-sol-types = {version = "=1.4.1", features = ["json"]}
 
 
 # Crypto
-sha3 = "=0.10.8"
-sha2 = "=0.10.9"
-hmac = "=0.12.1"
-ripemd = "=0.1.3"
 rand = "=0.8"
 generic-array = {version = "=1.2.0", features = ["zeroize"]}
 minisign-verify = "0.2.4"
@@ -74,7 +70,6 @@ chrono = "0.4.42"
 either = "=1.15.0"
 rayon = "=1.11.0"
 anyhow = "=1.0.99"
-thiserror = "=2.0.17"
 serde = {version = "=1.0.228", features = ["derive"]}
 serde_json = "=1.0.145"
 lazy_static = "=1.5.0"
