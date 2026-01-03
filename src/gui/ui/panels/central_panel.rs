@@ -87,7 +87,7 @@ pub struct FPSMetrics {
    overlay: OverlayManager,
    pub max_fps: f64,
    pub time_ms: f64,
-   pub time_ns: u128,
+   pub time_micros: f64,
 }
 
 impl FPSMetrics {
@@ -97,20 +97,19 @@ impl FPSMetrics {
          overlay,
          max_fps: 0.0,
          time_ms: 0.0,
-         time_ns: 0,
+         time_micros: 0.0,
       }
    }
 
-   pub fn update(&mut self, time_ns: u128) {
-      self.time_ns = time_ns;
-
-      if self.time_ns > 0 {
-         self.max_fps = 1_000_000_000.0 / self.time_ns as f64;
-
-         self.time_ms = self.time_ns as f64 / 1_000_000.0;
+   pub fn update(&mut self, time_ms: f64) {
+      if time_ms > 0.0 {
+         self.max_fps = 1_000.0 / time_ms;
+         self.time_ms = time_ms;
+         self.time_micros = time_ms * 1_000.0;
       } else {
          self.max_fps = 0.0;
          self.time_ms = 0.0;
+         self.time_micros = 0.0;
       }
    }
 
@@ -140,9 +139,12 @@ impl FPSMetrics {
                let text = format!("Order: {}", order.short_debug_format());
                let text = RichText::new(text).size(14.0);
                ui.label(text);
-               
+
                let order = self.overlay.recommended_order();
-               let text = format!("Recommended Order: {}", order.short_debug_format());
+               let text = format!(
+                  "Recommended Order: {}",
+                  order.short_debug_format()
+               );
                let text = RichText::new(text).size(14.0);
                ui.label(text);
 
@@ -157,8 +159,9 @@ impl FPSMetrics {
                let time_ms = RichText::new(format!("Time: {:.4} ms", self.time_ms)).size(14.0);
                ui.label(time_ms);
 
-               let time_ns = RichText::new(format!("Time: {} ns", self.time_ns)).size(14.0);
-               ui.label(time_ns);
+               let time_micros =
+                  RichText::new(format!("Time: {:.2} μs", self.time_micros)).size(14.0);
+               ui.label(time_micros);
             });
          });
 

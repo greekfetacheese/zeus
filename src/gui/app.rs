@@ -6,8 +6,8 @@ use crate::gui::{GUI, SHARED_GUI};
 use crate::server::run_server;
 use crate::utils::{
    RT,
+   self_update::check_for_updates,
    state::{on_startup, test_and_measure_rpcs},
-   self_update::check_for_updates
 };
 use eframe::{
    CreationContext,
@@ -187,7 +187,7 @@ impl eframe::App for ZeusApp {
          });
 
          #[cfg(feature = "dev")]
-         gui.fps_metrics.update(time.elapsed().as_nanos());
+         gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
       });
    }
 }
