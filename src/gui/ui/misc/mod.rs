@@ -798,7 +798,7 @@ impl PortfolioUi {
                               column_widths[0],
                            );
 
-                           self.remove_token(ctx.clone(), owner, token, ui, column_widths[4]);
+                           self.remove_token(ctx.clone(), theme, owner, token, ui, column_widths[4]);
 
                            ui.end_row();
                         }
@@ -1091,14 +1091,20 @@ impl PortfolioUi {
    fn remove_token(
       &self,
       ctx: ZeusCtx,
+      theme: &Theme,
       owner: Address,
       token: &ERC20Token,
       ui: &mut Ui,
       width: f32,
    ) {
+      let visuals = theme.button_visuals();
       ui.horizontal(|ui| {
          ui.set_width(width);
-         if ui.button("X").clicked() {
+         let button = Button::new(RichText::new("X").size(theme.text_sizes.small))
+            .visuals(visuals)
+            .small();
+
+         if ui.add(button).clicked() {
             let chain = ctx.chain().id();
 
             let mut portfolio = ctx.get_portfolio(chain, owner);

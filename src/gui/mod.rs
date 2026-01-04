@@ -8,7 +8,7 @@ use ui::settings;
 use crate::assets::icons::Icons;
 use crate::core::context::{ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
-use zeus_theme::{Theme, ThemeEditor, ThemeKind};
+use zeus_theme::{Theme, OverlayManager, ThemeEditor, ThemeKind};
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
@@ -62,6 +62,7 @@ pub struct GUI {
    pub egui_ctx: Context,
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
+   pub overlay_manager: OverlayManager,
    pub theme: Theme,
    pub editor: ThemeEditor,
    pub uniswap: UniswapUi,
@@ -116,11 +117,12 @@ impl GUI {
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new(overlay_manager.clone());
       let unlock_vault_ui = UnlockVault::new(overlay_manager.clone());
-      let recover_wallet_ui = RecoverHDWallet::new(overlay_manager);
+      let recover_wallet_ui = RecoverHDWallet::new(overlay_manager.clone());
 
       Self {
          egui_ctx,
          ctx: ctx.clone(),
+         overlay_manager,
          theme,
          editor: ThemeEditor::new(),
          icons,

@@ -1,6 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
-use eframe::egui::{Align2, Button, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
+use eframe::egui::{Align2, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
+use zeus_widgets::Button;
 use zeus_theme::{OverlayManager, Theme, utils};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
@@ -17,7 +18,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let home = if gui.portofolio.is_open() {
          Button::new(RichText::new("Home").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Home").size(text_size)).min_size(button_size)
@@ -36,7 +37,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let send = if gui.send_crypto.is_open() {
          Button::new(RichText::new("Send").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Send").size(text_size)).min_size(button_size)
@@ -57,7 +58,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let swap = if gui.uniswap.is_open() {
          Button::new(RichText::new("Swap").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Swap").size(text_size)).min_size(button_size)
@@ -76,7 +77,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let bridge = if gui.across_bridge.is_open() {
          Button::new(RichText::new("Bridge").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Bridge").size(text_size)).min_size(button_size)
@@ -97,7 +98,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let wallets = if gui.wallet_ui.is_open() {
          Button::new(RichText::new("Wallets").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Wallets").size(text_size)).min_size(button_size)
@@ -116,7 +117,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let tx_history = if gui.tx_history.is_open() {
          Button::new(RichText::new("Transactions").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Transactions").size(text_size)).min_size(button_size)
@@ -135,7 +136,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
       let settings = if gui.settings.is_open() {
          Button::new(RichText::new("Settings").size(text_size))
-            .fill(selected_color)
+            .bg_color(selected_color)
             .min_size(button_size)
       } else {
          Button::new(RichText::new("Settings").size(text_size)).min_size(button_size)
@@ -228,6 +229,7 @@ impl ConnectedDappsUi {
       }
 
       let mut open = self.open;
+      let button_visuals = theme.button_visuals();
 
       let title = RichText::new("Connected Dapps").size(theme.text_sizes.heading);
       Window::new(title)
@@ -252,7 +254,8 @@ impl ConnectedDappsUi {
                }
 
                let text = RichText::new("Disconnect all").size(theme.text_sizes.normal);
-               if ui.add(Button::new(text)).clicked() {
+               let button = Button::new(text).visuals(button_visuals);
+               if ui.add(button).clicked() {
                   ctx.disconnect_all_dapps();
                }
 
@@ -265,7 +268,8 @@ impl ConnectedDappsUi {
                         ui.label(text);
 
                         let text = RichText::new("Disconnect").size(theme.text_sizes.normal);
-                        if ui.add(Button::new(text)).clicked() {
+                        let button = Button::new(text).visuals(button_visuals);
+                        if ui.add(button).clicked() {
                            ctx.disconnect_dapp(&dapp);
                         }
                      });
