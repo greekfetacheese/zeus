@@ -236,6 +236,11 @@ impl PriceManagerHandle {
          });
       }
 
+      self.write(|manager| {
+         manager.good_pools.shrink_to_fit();
+         manager.token_prices.shrink_to_fit();
+      });
+
       Ok(())
    }
 
@@ -365,6 +370,7 @@ impl PriceManagerHandle {
          }
 
          manager.base_token_prices_last_updated.insert(chain, Instant::now());
+         manager.base_token_prices_last_updated.shrink_to_fit();
       });
 
       Ok(())

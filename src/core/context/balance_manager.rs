@@ -11,9 +11,9 @@ use zeus_eth::{
    utils::{NumericValue, batch},
 };
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use anyhow::anyhow;
 
 const BALANCE_DATA_FILE: &str = "balances.json";
 
@@ -93,12 +93,12 @@ impl BalanceManagerHandle {
    }
 
    pub fn max_retries(&self) -> usize {
-     let retries = self.read(|manager| manager.max_retries);
-     if retries == 0 {
-        default_max_retries()
-     } else {
-        retries
-     }
+      let retries = self.read(|manager| manager.max_retries);
+      if retries == 0 {
+         default_max_retries()
+      } else {
+         retries
+      }
    }
 
    pub fn retry_delay(&self) -> u64 {
@@ -118,7 +118,6 @@ impl BalanceManagerHandle {
          let wallets: Vec<Address> = ctx.get_all_wallets_info().iter().map(|w| w.address).collect();
          let manager = self.clone();
          let ctx = ctx.clone();
-
 
          let task = RT.spawn(async move {
             for chunk in wallets.chunks(batch_size) {
@@ -140,6 +139,10 @@ impl BalanceManagerHandle {
       for task in tasks {
          let _r = task.await;
       }
+
+      self.write(|manager| {
+         manager.eth_balances.shrink_to_fit();
+      });
    }
 
    pub async fn update_tokens_balance_across_wallets_and_chains(&self, ctx: ZeusCtx) {
@@ -174,6 +177,10 @@ impl BalanceManagerHandle {
       for task in tasks {
          let _r = task.await;
       }
+
+      self.write(|manager| {
+         manager.token_balances.shrink_to_fit();
+      });
    }
 
    /// `retry_if_unchanged` true if we expect the balance to change,
@@ -252,6 +259,10 @@ impl BalanceManagerHandle {
             }
          }
       }
+
+      self.write(|manager| {
+         manager.eth_balances.shrink_to_fit();
+      });
 
       Ok(())
    }
@@ -370,6 +381,11 @@ impl BalanceManagerHandle {
             Err(e) => tracing::error!("Error updating token balance: {:?}", e),
          }
       }
+
+      self.write(|manager| {
+         manager.token_balances.shrink_to_fit();
+      });
+
       Ok(())
    }
 

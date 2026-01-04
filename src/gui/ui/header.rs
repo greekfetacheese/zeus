@@ -7,7 +7,7 @@ use crate::gui::{
 use crate::utils::{RT, data_to_qr, truncate_address, tx::delegate_to};
 use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin,
-   OpenUrl, Order, RichText, Spinner, Ui, Window, vec2,
+   OpenUrl, Order, RichText, Spinner, Ui, Window, load::Bytes, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -110,7 +110,7 @@ impl Header {
          ui,
       );
 
-      self.qrcode_window.show(theme, ui);
+      self.qrcode_window.show(ctx.clone(), theme, ui);
 
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
@@ -145,7 +145,7 @@ impl Header {
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
-                  self.qrcode_window.open(wallet.clone());
+                  self.qrcode_window.open(ctx.clone(), wallet.clone());
                }
 
                ui.add_space(10.0);
@@ -521,7 +521,7 @@ pub struct QRCodeWindow {
    open: bool,
    overlay: OverlayManager,
    wallet: Option<WalletInfo>,
-   image: Option<Image<'static>>,
+   image_uri: Option<String>,
    error: Option<String>,
    size: (f32, f32),
 }
@@ -532,7 +532,7 @@ impl QRCodeWindow {
          open: false,
          overlay,
          wallet: None,
-         image: None,
+         image_uri: None,
          error: None,
          size: (400.0, 400.0),
       }
@@ -542,34 +542,30 @@ impl QRCodeWindow {
       self.open
    }
 
-   pub fn open(&mut self, wallet: WalletInfo) {
+   pub fn open(&mut self, ctx: ZeusCtx, wallet: WalletInfo) {
       let png_bytes_res = data_to_qr(&wallet.address.to_string().as_str());
 
-      let (image, error) = if let Ok(png_bytes) = png_bytes_res {
-         let uri = format!("bytes://receive-{}.png", &wallet.address);
-         (
-            Some(Image::new(ImageSource::Bytes {
-               uri: uri.into(),
-               bytes: png_bytes.into(),
-            })),
-            None,
-         )
-      } else {
-         (
-            None,
-            Some(format!(
-               "Failed to generate QR Code: {}",
-               png_bytes_res.unwrap_err()
-            )),
-         )
-      };
+      match png_bytes_res {
+         Ok(png_bytes) => {
+            ctx.set_qr_image_data(png_bytes);
+
+            let uri = format!("bytes://receive-{}.png", &wallet.address);
+
+            self.image_uri = Some(uri);
+            self.error = None;
+         }
+         Err(e) => {
+            self.image_uri = None;
+            self.error = Some(format!("Failed to generate QR Code: {}", e));
+         }
+      }
+
       if !self.open {
          self.overlay.window_opened();
       }
+
       self.open = true;
       self.wallet = Some(wallet);
-      self.image = image;
-      self.error = error;
    }
 
    pub fn close(&mut self) {
@@ -582,7 +578,7 @@ impl QRCodeWindow {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -608,15 +604,7 @@ impl QRCodeWindow {
                      RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
                   );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  self.close_button(theme, ui);
-                  return;
-               }
-
-               if self.error.is_some() {
-                  ui.label(
-                     RichText::new(self.error.as_ref().unwrap()).size(theme.text_sizes.large),
-                  );
-                  self.close_button(theme, ui);
+                  self.close_button(ctx.clone(), theme, ui);
                   return;
                }
 
@@ -633,23 +621,38 @@ impl QRCodeWindow {
 
                ui.add_space(10.0);
 
+               if self.error.is_some() {
+                  ui.label(
+                     RichText::new(self.error.as_ref().unwrap()).size(theme.text_sizes.large),
+                  );
+               }
+
                // QR Code
-               if let Some(image) = self.image.clone() {
+               if let Some(image_uri) = self.image_uri.clone() {
+                  let data = ctx.qr_image_data();
+                  let image = Image::new(ImageSource::Bytes {
+                     uri: image_uri.into(),
+                     bytes: Bytes::Shared(data),
+                  });
                   ui.add(image);
                }
 
                ui.add_space(10.0);
 
-               self.close_button(theme, ui);
+               self.close_button(ctx, theme, ui);
             });
          });
    }
 
-   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
+   fn close_button(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let text = RichText::new("Close").size(theme.text_sizes.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
       if ui.add(button).clicked() {
+         if let Some(uri) = &self.image_uri {
+            ui.ctx().forget_image(uri);
+         }
          self.reset();
+         ctx.erase_qr_image_data();
       }
    }
 }

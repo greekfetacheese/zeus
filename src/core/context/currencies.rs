@@ -70,6 +70,7 @@ impl CurrencyDB {
             }
          }
       }
+      self.tokens.shrink_to_fit();
    }
 
    pub fn get_currencies(&self, chain_id: u64) -> Arc<Vec<Currency>> {
@@ -86,6 +87,7 @@ impl CurrencyDB {
       for (_, currencies) in self.currencies.iter_mut() {
          let currencies_mut = Arc::make_mut(currencies);
          currencies_mut.dedup();
+         currencies_mut.shrink_to_fit();
       }
    }
 

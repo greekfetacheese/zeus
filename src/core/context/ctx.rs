@@ -119,21 +119,28 @@ impl ZeusCtx {
    }
 
    pub fn set_qr_image_data(&self, data: Vec<u8>) {
-      self.erase_qr_image_data();
       self.write(|ctx| {
          ctx.qr_image_data = data.into();
       });
    }
 
    pub fn erase_qr_image_data(&self) {
-      self.write(|ctx| {
+      let success = self.write(|ctx| {
          if let Some(data) = Arc::get_mut(&mut ctx.qr_image_data) {
             data.zeroize();
             tracing::info!("QR Image data zeroized");
+            true
          } else {
             tracing::error!("QR Image data zeroize failed");
+            false
          }
       });
+
+      if success {
+         self.write(|ctx| {
+            ctx.qr_image_data = Arc::new([0u8; 0]);
+         });
+      }
    }
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
@@ -733,7 +740,7 @@ impl ZeusCtx {
    }
 
    /// Get the V2 pool for the given address
-   /// 
+   ///
    /// If the pool is not found in cache, it will be retrieved from the blockchain
    pub async fn get_v2_pool(
       &self,
@@ -767,7 +774,7 @@ impl ZeusCtx {
    }
 
    /// Get the V3 pool for the given address
-   /// 
+   ///
    /// If the pool is not found in cache, it will be retrieved from the blockchain
    pub async fn get_v3_pool(
       &self,
@@ -801,10 +808,10 @@ impl ZeusCtx {
    }
 
    /// Get the V4 pool for the given pool id
-   /// 
+   ///
    /// If the pool is not found in cache, it will be retrieved from the blockchain
-   /// 
-   /// It does a best effort search for the most common paired tokens 
+   ///
+   /// It does a best effort search for the most common paired tokens
    pub async fn get_v4_pool(
       &self,
       chain: u64,
@@ -880,7 +887,7 @@ impl ZeusCtx {
    }
 
    /// Get the ERC20 token for the given address
-   /// 
+   ///
    /// If the token is not found in cache, it will be retrieved from the blockchain
    pub async fn get_token(
       &self,
@@ -978,7 +985,7 @@ impl ZeusCtx {
    }
 
    /// Get the receipt for the given transaction hash
-   /// 
+   ///
    /// If the receipt is not found in cache, it will be retrieved from the blockchain
    pub async fn get_receipt_by_hash(
       &self,
@@ -1014,7 +1021,7 @@ impl ZeusCtx {
    }
 
    /// Get the transaction for the given transaction hash
-   /// 
+   ///
    /// If the transaction is not found in cache, it will be retrieved from the blockchain
    pub async fn get_tx_by_hash(
       &self,
@@ -1050,7 +1057,7 @@ impl ZeusCtx {
    }
 
    /// Get the storage value for the given address and slot
-   /// 
+   ///
    /// If the storage value is not found in cache, it will be retrieved from the blockchain
    pub async fn get_storage(
       &self,
@@ -1096,7 +1103,7 @@ impl ZeusCtx {
    }
 
    /// Get the code for the given address
-   /// 
+   ///
    /// If the code is not found in cache, it will be retrieved from the blockchain
    pub async fn get_code(
       &self,
@@ -1141,7 +1148,7 @@ impl ZeusCtx {
    }
 
    /// Estimate the gas for the given transaction
-   /// 
+   ///
    /// If the gas is not found in cache, it will be estimated from the blockchain
    pub async fn estimate_gas(&self, tx: TransactionRequest) -> Result<u64, anyhow::Error> {
       let chain = self.chain();
@@ -1193,7 +1200,7 @@ impl ZeusCtx {
    }
 
    /// Get the eth_call for the given transaction
-   /// 
+   ///
    /// If the eth_call is not found in cache, it will be retrieved from the blockchain
    pub async fn get_eth_call(&self, tx: TransactionRequest) -> Result<EthCall, anyhow::Error> {
       let chain = self.chain();
@@ -1244,7 +1251,7 @@ impl ZeusCtx {
    }
 
    /// Get the latest block
-   /// 
+   ///
    /// If the block is not found in cache, it will be retrieved from the blockchain
    pub async fn get_latest_block(&self) -> Result<Block, anyhow::Error> {
       let chain = self.chain();
@@ -1446,7 +1453,7 @@ impl PriorityFee {
 
 impl Default for PriorityFee {
    fn default() -> Self {
-      let mut map = HashMap::new();
+      let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
       // Eth
       map.insert(1, NumericValue::parse_to_gwei("1"));
 
@@ -1531,7 +1538,7 @@ pub struct ZeusContext {
    pub server_running: bool,
    pub tx_confirm_window_open: bool,
    pub sign_msg_window_open: bool,
-   /// Private Key Qr Code
+   /// Private Key and Address Qr Code
    pub qr_image_data: Arc<[u8]>,
 }
 

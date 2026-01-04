@@ -290,6 +290,7 @@ impl PoolManagerHandle {
          for pool in pools {
             manager.add_pool(pool);
          }
+         manager.pools.shrink_to_fit();
       });
    }
 
@@ -341,11 +342,7 @@ impl PoolManagerHandle {
       let pools = self.get_pools_for_chain(chain_id);
       let updated_pools = self.update_state_for_pools(ctx.clone(), chain_id, pools).await?;
 
-      self.write(|manager| {
-         for pool in updated_pools {
-            manager.add_pool(pool);
-         }
-      });
+      self.add_pools(updated_pools);
 
       Ok(())
    }
@@ -363,11 +360,7 @@ impl PoolManagerHandle {
       let updated_pools =
          batch_update_state(ctx.clone(), chain, concurrency, batch_size, pools).await?;
 
-      self.write(|manager| {
-         for pool in &updated_pools {
-            manager.add_pool(pool.clone());
-         }
-      });
+      self.add_pools(updated_pools.clone());
 
       Ok(updated_pools)
    }
@@ -738,6 +731,10 @@ impl PoolManagerHandle {
             }
          }
       }
+
+      self.write(|manager| {
+         manager.pools.shrink_to_fit();
+      });
 
       Ok(())
    }
