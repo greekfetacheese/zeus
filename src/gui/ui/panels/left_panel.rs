@@ -1,8 +1,8 @@
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
 use eframe::egui::{Align2, Color32, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use zeus_widgets::Button;
 use zeus_theme::{OverlayManager, Theme, utils};
+use zeus_widgets::Button;
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -157,6 +157,14 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          Button::new(RichText::new("Connected Dapps").size(text_size)).min_size(button_size);
       if ui.add(connected_dapps).clicked() {
          gui.connected_dapps.open();
+      }
+
+      #[cfg(feature = "dev")]
+      {
+         let scan_qr = Button::new(RichText::new("Scan QR").size(text_size)).min_size(button_size);
+         if ui.add(scan_qr).clicked() {
+            gui.qr_scanner.open(ui.ctx().clone());
+         }
       }
 
       #[cfg(feature = "dev")]

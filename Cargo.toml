@@ -25,7 +25,7 @@ zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
 zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"]}
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"]}
-zeus-widgets = {path = "crates/zeus-widgets", features = ["secure-types"]}
+zeus-widgets = {path = "crates/zeus-widgets", features = ["secure-types", "qr-scanner"]}
 
 # Alloy
 alloy-consensus = "=1.1.2"
