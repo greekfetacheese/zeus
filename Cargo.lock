@@ -9880,6 +9880,7 @@ dependencies = [
  "zeus-bip32",
  "zeus-eth",
  "zeus-theme",
+ "zeus-ui-components",
  "zeus-wallet",
  "zeus-widgets",
  "zip",
@@ -9941,6 +9942,21 @@ dependencies = [
  "secure-types",
  "serde",
  "serde_json",
+ "zeus-widgets",
+]
+
+[[package]]
+name = "zeus-ui-components"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui_extras",
+ "enigo",
+ "rqrr",
+ "secure-types",
+ "xcap",
+ "zeus-theme",
  "zeus-widgets",
 ]
 

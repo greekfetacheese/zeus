@@ -1,6 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/zeus-theme", "crates/zeus-eth", "crates/zeus-widgets", "crates/zeus-bip32", "crates/zeus-wallet"]
+members = [
+    "crates/zeus-theme",
+    "crates/zeus-eth",
+    "crates/zeus-widgets",
+    "crates/zeus-bip32",
+    "crates/zeus-wallet",
+    "crates/zeus-ui-components",
+]
 
 [package]
 name = "zeus"
@@ -14,29 +21,36 @@ default-run = "zeus"
 [dependencies]
 
 # GUI
-eframe = {version = "=0.33.3", features = ["wgpu"]}
-egui = {version = "=0.33.3", features = ["serde"]}
-egui_extras = {version = "=0.33.3", features = ["image"]}
+eframe = { version = "=0.33.3", features = ["wgpu"] }
+egui = { version = "=0.33.3", features = ["serde"] }
+egui_extras = { version = "=0.33.3", features = ["image"] }
 image = "=0.25.6"
 
 
 # Zeus Crates
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
-zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"]}
+zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
-zeus-theme = { path = "crates/zeus-theme", features = ["serde"]}
-zeus-widgets = {path = "crates/zeus-widgets", features = ["secure-types", "qr-scanner"]}
+zeus-theme = { path = "crates/zeus-theme", features = ["serde"] }
+zeus-widgets = { path = "crates/zeus-widgets", features = [
+    "secure-types",
+    "qr-scanner",
+] }
+zeus-ui-components = { path = "crates/zeus-ui-components", features = [
+    "secure-types",
+    "qr-scanner",
+] }
 
 # Alloy
 alloy-consensus = "=1.1.2"
-alloy-signer-local = {version = "=1.1.2", features = ["mnemonic"]}
+alloy-signer-local = { version = "=1.1.2", features = ["mnemonic"] }
 alloy-eips = "=1.1.2"
-alloy-sol-types = {version = "=1.4.1", features = ["json"]}
+alloy-sol-types = { version = "=1.4.1", features = ["json"] }
 
 
 # Crypto
 rand = "=0.8"
-generic-array = {version = "=1.2.0", features = ["zeroize"]}
+generic-array = { version = "=1.2.0", features = ["zeroize"] }
 minisign-verify = "0.2.4"
 
 # Encryption
@@ -48,12 +62,12 @@ secure-types = "0.2"
 
 # Tracing
 tracing = "=0.1.41"
-tracing-subscriber = {version = "=0.3.20", features = ["env-filter", "fmt"]}
+tracing-subscriber = { version = "=0.3.20", features = ["env-filter", "fmt"] }
 tracing-appender = "=0.2.3"
 
 # Async
 tokio = { version = "=1.47.1", features = ["rt-multi-thread"] }
-warp = {version = "=0.4.2", features = ["server"]}
+warp = { version = "=0.4.2", features = ["server"] }
 futures = "=0.3.31"
 reqwest = { version = "=0.12.23", features = ["json"] }
 governor = { version = "0.10.1", features = ["jitter"] }
@@ -70,7 +84,7 @@ chrono = "0.4.42"
 either = "=1.15.0"
 rayon = "=1.11.0"
 anyhow = "=1.0.99"
-serde = {version = "=1.0.228", features = ["derive"]}
+serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.145"
 lazy_static = "=1.5.0"
 bincode = "=2.0.1"
