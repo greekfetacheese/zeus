@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use egui::*;
 use zeus_theme::{Theme, utils::TINT_1};
 use zeus_widgets::{Button, SecureString, SecureTextEdit};
@@ -25,6 +26,7 @@ pub struct InputField {
    min_size: Vec2,
    #[cfg(feature = "qr-scanner")]
    qr_scanner: QRScanner,
+   qr_enabled: bool,
 }
 
 impl InputField {
@@ -43,6 +45,7 @@ impl InputField {
          min_size: vec2(300.0, 20.0),
          #[cfg(feature = "qr-scanner")]
          qr_scanner: QRScanner::new(),
+         qr_enabled: true,
       }
    }
 
@@ -56,11 +59,6 @@ impl InputField {
 
    pub fn close(&mut self) {
       self.open = false;
-   }
-
-   /// Set a new id for this input field
-   pub fn set_id(&mut self, id: &'static str) {
-      self.id = id;
    }
 
    /// Erase the text from memory
@@ -92,6 +90,16 @@ impl InputField {
       self.icon_size = size;
    }
 
+   /// Enable the QR scanner
+   pub fn enable_qr_scanner(&mut self) {
+      self.qr_enabled = true;
+   }
+
+   /// Disable the QR scanner
+   pub fn disable_qr_scanner(&mut self) {
+      self.qr_enabled = false;
+   }
+
    pub fn with_icon_size(mut self, size: Vec2) -> Self {
       self.icon_size = size;
       self
@@ -99,6 +107,11 @@ impl InputField {
 
    pub fn with_min_size(mut self, size: Vec2) -> Self {
       self.min_size = size;
+      self
+   }
+
+   pub fn with_qr_enabled(mut self, enabled: bool) -> Self {
+      self.qr_enabled = enabled;
       self
    }
 
@@ -163,22 +176,24 @@ impl InputField {
 
                #[cfg(feature = "qr-scanner")]
                {
-                  let img_source = match theme.dark_mode {
-                     true => QR_CODE_WHITE,
-                     false => QR_CODE_BLACK,
-                  };
+                  if self.qr_enabled {
+                     let img_source = match theme.dark_mode {
+                        true => QR_CODE_WHITE,
+                        false => QR_CODE_BLACK,
+                     };
 
-                  let img = if theme.image_tint_recommended {
-                     Image::new(img_source)
-                        .tint(TINT_1)
-                        .fit_to_exact_size(img_size)
-                  } else {
-                     Image::new(img_source).fit_to_exact_size(img_size)
-                  };
+                     let img = if theme.image_tint_recommended {
+                        Image::new(img_source)
+                           .tint(TINT_1)
+                           .fit_to_exact_size(img_size)
+                     } else {
+                        Image::new(img_source).fit_to_exact_size(img_size)
+                     };
 
-                  let button = Button::image(img).visuals(button_visuals);
-                  if ui.add(button).clicked() {
-                     self.qr_scanner.open(ui.ctx().clone());
+                     let button = Button::image(img).visuals(button_visuals);
+                     if ui.add(button).clicked() {
+                        self.qr_scanner.open(ui.ctx().clone());
+                     }
                   }
                }
             });
@@ -187,11 +202,13 @@ impl InputField {
 
       #[cfg(feature = "qr-scanner")]
       {
-         self.qr_scanner.show(ui.ctx());
-         let res = self.qr_scanner.get_result();
-         if let Some(res) = res {
-            self.qr_scanner.reset();
-            self.set_text(res);
+         if self.qr_enabled {
+            self.qr_scanner.show(ui.ctx());
+            let res = self.qr_scanner.get_result();
+            if let Some(res) = res {
+               self.qr_scanner.reset();
+               self.set_text(res);
+            }
          }
       }
 
