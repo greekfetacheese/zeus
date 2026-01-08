@@ -1,13 +1,15 @@
 use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, context::theme_kind_dir};
-use crate::gui::{SHARED_GUI, ui::CredentialsForm};
+use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Frame, Order, RichText, ScrollArea, Sense, Slider, Ui, Window, vec2};
 use ncrypt_me::Argon2;
+use ncrypt_me::Credentials;
 use std::collections::HashSet;
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
 use zeus_theme::{OverlayManager, Theme, ThemeKind};
+use zeus_ui_components::CredentialsForm;
 use zeus_widgets::{Button, ComboBox, Label};
 
 pub mod contacts;
@@ -177,6 +179,9 @@ pub struct SettingsUi {
 
 impl SettingsUi {
    pub fn new(ctx: ZeusCtx, overlay: OverlayManager) -> Self {
+      let form_size = vec2(550.0 * 0.6, 20.0);
+      let credentials_form =
+         CredentialsForm::new().with_min_size(form_size).with_enabled_virtual_keyboard();
       Self {
          open: false,
          overlay: overlay.clone(),
@@ -185,7 +190,7 @@ impl SettingsUi {
          network: NetworkSettings::new(overlay.clone()),
          theme: ThemeSettings::new(overlay.clone()),
          contacts_ui: ContactsUi::new(overlay.clone()),
-         credentials_form: CredentialsForm::new(overlay),
+         credentials_form,
          verified_credentials: false,
          size: (550.0, 350.0),
       }
@@ -212,7 +217,7 @@ impl SettingsUi {
 
       self.main_ui(theme, ui);
       self.encryption.show(ctx.clone(), theme, ui);
-      self.change_credentials_ui(ctx.clone(), theme, icons.clone(), ui);
+      self.change_credentials_ui(ctx.clone(), theme, ui);
       self.network.show(ctx.clone(), theme, icons.clone(), ui);
       self.contacts_ui.show(ctx.clone(), theme, icons, ui);
       self.general.show(ctx, theme, ui);
@@ -243,6 +248,9 @@ impl SettingsUi {
                let button = Button::new(text).min_size(size).visuals(button_visuals);
 
                if ui.add(button).clicked() {
+                  if !self.credentials_form.is_open() {
+                     self.overlay.window_opened();
+                  }
                   self.credentials_form.open();
                }
 
@@ -284,13 +292,7 @@ impl SettingsUi {
          });
    }
 
-   fn change_credentials_ui(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      ui: &mut Ui,
-   ) {
+   fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let title = if self.verified_credentials {
          "New Credentials"
       } else {
@@ -320,8 +322,11 @@ impl SettingsUi {
 
                // Credentials Not Verified
                if !self.verified_credentials {
-                  self.credentials_form.confrim_password = false;
-                  self.credentials_form.show(theme, icons.clone(), ui);
+                  // self.credentials_form.confrim_password = false;
+                  ui.scope(|ui| {
+                     ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                     self.credentials_form.show(theme, ui);
+                  });
 
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -333,7 +338,12 @@ impl SettingsUi {
 
                   if ui.add(button).clicked() {
                      let mut vault = ctx.get_vault();
-                     vault.set_credentials(self.credentials_form.credentials.clone());
+                     let username = self.credentials_form.username();
+                     let password = self.credentials_form.password();
+                     let confirm_password = self.credentials_form.confirm_password();
+
+                     let credentials = Credentials::new(username, password, confirm_password);
+                     vault.set_credentials(credentials);
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
@@ -363,8 +373,11 @@ impl SettingsUi {
                // Credentials Verified
                // Allow the user to change the credentials
                if self.verified_credentials {
-                  self.credentials_form.confrim_password = true;
-                  self.credentials_form.show(theme, icons, ui);
+                  self.credentials_form.set_confirm_password(true);
+                  ui.scope(|ui| {
+                     ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                     self.credentials_form.show(theme, ui);
+                  });
 
                   ui.add_space(15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -375,9 +388,13 @@ impl SettingsUi {
                   let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                   if ui.add(button).clicked() {
-                     let new_credentials = self.credentials_form.credentials.clone();
+                     let username = self.credentials_form.username();
+                     let password = self.credentials_form.password();
+                     let confirm_password = self.credentials_form.confirm_password();
+
+                     let credentials = Credentials::new(username, password, confirm_password);
                      let mut new_vault = ctx.get_vault();
-                     new_vault.set_credentials(new_credentials.clone());
+                     new_vault.set_credentials(credentials);
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
@@ -391,6 +408,7 @@ impl SettingsUi {
                                  gui.loading_window.reset();
                                  gui.settings.verified_credentials = false;
                                  gui.settings.credentials_form.close();
+                                 gui.settings.overlay.window_closed();
                                  gui.open_msg_window("Credentials have been updated", "");
                               });
                               ctx.set_vault(new_vault);
@@ -413,9 +431,10 @@ impl SettingsUi {
          });
 
       // If the window was open and now we closed it
-      if self.credentials_form.open && !open {
+      if self.credentials_form.is_open() && !open {
          self.credentials_form.erase();
          self.credentials_form.close();
+         self.overlay.window_closed();
          self.verified_credentials = false;
       }
    }

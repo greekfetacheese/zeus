@@ -9,9 +9,8 @@ pub enum InputField {
    ConfirmPassword,
 }
 
-
 /// A virtual keyboard that can be used to edit an input field.
-/// 
+///
 /// For an example usage see [super::CredentialsForm]
 pub struct VirtualKeyboard {
    open: bool,
@@ -46,12 +45,7 @@ impl VirtualKeyboard {
       self.active_target = target;
    }
 
-   pub fn show(
-      &mut self,
-      ui: &mut Ui,
-      theme: &Theme,
-      target_str: &mut SecureString,
-   ) {
+   pub fn show(&mut self, theme: &Theme, target_str: &mut SecureString, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -112,40 +106,37 @@ impl VirtualKeyboard {
          ],
       ];
 
-      let frame = theme.frame2;
       let button_visuals = theme.button_visuals();
 
-      frame.show(ui, |ui| {
-         ui.vertical(|ui| {
-            let is_uppercase = self.shift_active ^ self.caps_lock_active;
-            let layout = if is_uppercase {
-               &keys_layout_upper
-            } else {
-               &keys_layout_lower
-            };
+      ui.vertical(|ui| {
+         let is_uppercase = self.shift_active ^ self.caps_lock_active;
+         let layout = if is_uppercase {
+            &keys_layout_upper
+         } else {
+            &keys_layout_lower
+         };
 
-            for row in layout {
-               ui.horizontal(|ui| {
-                  for &key in row {
-                     let text = RichText::new(key).size(theme.text_sizes.normal);
-                     let key_button = Button::new(text)
-                        .visuals(button_visuals)
-                        .min_size(vec2(30.0, 30.0));
-                     if ui.add(key_button).clicked() {
-                        self.handle_key_press(key, target_str);
-                     }
-                  }
-               });
-            }
-            // Spacebar
+         for row in layout {
             ui.horizontal(|ui| {
-               let button = Button::new(" ")
-                  .visuals(button_visuals)
-                  .min_size(vec2(30.0 * 5.0, 30.0));
-               if ui.add(button).clicked() {
-                  target_str.push_str(" ");
+               for &key in row {
+                  let text = RichText::new(key).size(theme.text_sizes.normal);
+                  let key_button = Button::new(text)
+                     .visuals(button_visuals)
+                     .min_size(vec2(30.0, 30.0));
+                  if ui.add(key_button).clicked() {
+                     self.handle_key_press(key, target_str);
+                  }
                }
             });
+         }
+         // Spacebar
+         ui.horizontal(|ui| {
+            let button = Button::new(" ")
+               .visuals(button_visuals)
+               .min_size(vec2(30.0 * 5.0, 30.0));
+            if ui.add(button).clicked() {
+               target_str.push_str(" ");
+            }
          });
       });
    }

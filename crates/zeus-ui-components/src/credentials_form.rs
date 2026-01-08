@@ -90,6 +90,11 @@ impl CredentialsForm {
       self.confirm_password.text.clone()
    }
 
+   pub fn with_open(mut self, open: bool) -> Self {
+      self.open = open;
+      self
+   }
+
    /// Initialize with enabled virtual keyboard.
    pub fn with_enabled_virtual_keyboard(mut self) -> Self {
       self.virtual_keyboard.open();
@@ -125,6 +130,21 @@ impl CredentialsForm {
       self.confirm_password.set_icon_size(size);
    }
 
+   /// Set the username text
+   pub fn set_username_text(&mut self, text: SecureString) {
+      self.username.set_text(text);
+   }
+
+   /// Set the password text
+   pub fn set_password_text(&mut self, text: SecureString) {
+      self.password.set_text(text);
+   }
+
+   /// Set the confirm password text
+   pub fn set_confirm_password_text(&mut self, text: SecureString) {
+      self.confirm_password.set_text(text);
+   }
+
    /// Adjust the y spacing between the input fields.
    pub fn with_y_spacing(mut self, y_spacing: f32) -> Self {
       self.y_spacing = y_spacing;
@@ -140,6 +160,22 @@ impl CredentialsForm {
    /// Whether to enable the confirm password field.
    pub fn with_confirm_password(mut self, confirm_password: bool) -> Self {
       self.confrim_password = confirm_password;
+      self
+   }
+
+   pub fn with_min_size(mut self, size: Vec2) -> Self {
+      let username = self.username.clone();
+      let password = self.password.clone();
+      let confirm_password = self.confirm_password.clone();
+
+      let username = username.with_min_size(size);
+      let password = password.with_min_size(size);
+      let confirm_password = confirm_password.with_min_size(size);
+
+      self.username = username;
+      self.password = password;
+      self.confirm_password = confirm_password;
+
       self
    }
 
@@ -181,7 +217,9 @@ impl CredentialsForm {
             _ => &mut self.username.text,
          };
 
-         self.virtual_keyboard.show(ui, theme, target_text);
+         ui.add_space(10.0);
+
+         self.virtual_keyboard.show(theme, target_text, ui);
       });
    }
 }

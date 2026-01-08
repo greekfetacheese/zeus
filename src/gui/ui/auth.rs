@@ -1,382 +1,15 @@
-use crate::assets::icons::Icons;
 use crate::core::{M_COST, Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use eframe::egui::{Align, Align2, FontId, Layout, RichText, Ui, Window, vec2};
-use egui::Margin;
+use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
 use ncrypt_me::{Argon2, Credentials};
-use secure_types::SecureString;
-use std::sync::Arc;
 use std::time::Instant;
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::Theme;
+use zeus_ui_components::CredentialsForm;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum InputField {
-   Username,
-   Password,
-   ConfirmPassword,
-}
-
-pub struct VirtualKeyboard {
-   pub open: bool,
-   active_target: InputField,
-   shift_active: bool,
-   caps_lock_active: bool,
-}
-
-impl VirtualKeyboard {
-   pub fn new(open: bool) -> Self {
-      Self {
-         open,
-         active_target: InputField::Username,
-         shift_active: false,
-         caps_lock_active: false,
-      }
-   }
-
-   pub fn show(&mut self, ui: &mut Ui, theme: &Theme, credentials: &mut Credentials) {
-      if !self.open {
-         return;
-      }
-
-      let target_str = match self.active_target {
-         InputField::Username => &mut credentials.username,
-         InputField::Password => &mut credentials.password,
-         InputField::ConfirmPassword => &mut credentials.confirm_password,
-      };
-
-      // Define the keyboard layout
-      let keys_layout_lower = vec![
-         vec![
-            "`",
-            "1",
-            "2",
-            "3",
-            "4",
-            "5",
-            "6",
-            "7",
-            "8",
-            "9",
-            "0",
-            "-",
-            "=",
-            "Backspace",
-         ],
-         vec![
-            "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "[", "]", "\\",
-         ],
-         vec![
-            "Caps", "a", "s", "d", "f", "g", "h", "j", "k", "l", ";", "'", "Enter",
-         ],
-         vec![
-            "Shift", "z", "x", "c", "v", "b", "n", "m", ",", ".", "/", "Shift",
-         ],
-      ];
-      let keys_layout_upper = vec![
-         vec![
-            "~",
-            "!",
-            "@",
-            "#",
-            "$",
-            "%",
-            "^",
-            "&",
-            "*",
-            "(",
-            ")",
-            "_",
-            "+",
-            "Backspace",
-         ],
-         vec![
-            "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "{", "}", "|",
-         ],
-         vec![
-            "Caps", "A", "S", "D", "F", "G", "H", "J", "K", "L", ":", "\"", "Enter",
-         ],
-         vec![
-            "Shift", "Z", "X", "C", "V", "B", "N", "M", "<", ">", "?", "Shift",
-         ],
-      ];
-
-      ui.add_space(10.0);
-
-      let frame = theme.frame2;
-      let button_visuals = theme.button_visuals();
-
-      frame.show(ui, |ui| {
-         ui.vertical(|ui| {
-            let is_uppercase = self.shift_active ^ self.caps_lock_active;
-            let layout = if is_uppercase {
-               &keys_layout_upper
-            } else {
-               &keys_layout_lower
-            };
-
-            for row in layout {
-               ui.horizontal(|ui| {
-                  for &key in row {
-                     let text = RichText::new(key).size(theme.text_sizes.normal);
-                     let key_button =
-                        Button::new(text).visuals(button_visuals).min_size(vec2(30.0, 30.0));
-                     if ui.add(key_button).clicked() {
-                        self.handle_key_press(key, target_str);
-                     }
-                  }
-               });
-            }
-            // Spacebar
-            ui.horizontal(|ui| {
-               let button =
-                  Button::new(" ").visuals(button_visuals).min_size(vec2(30.0 * 5.0, 30.0));
-               if ui.add(button).clicked() {
-                  target_str.push_str(" ");
-               }
-            });
-         });
-      });
-   }
-
-   fn handle_key_press(&mut self, key: &str, target: &mut SecureString) {
-      match key {
-         "Backspace" => {
-            target.unlock_mut(|s| {
-               let len = s.char_len();
-               if len > 0 {
-                  s.delete_text_char_range(len - 1..len);
-               }
-            });
-         }
-         "Shift" => {
-            self.shift_active = !self.shift_active;
-         }
-         "Caps" => {
-            self.caps_lock_active = !self.caps_lock_active;
-            self.shift_active = false; // Typically, pressing Caps disables Shift
-         }
-         "Enter" => {
-            // For now, we do nothing.
-         }
-         _ => {
-            target.push_str(key);
-            // Deactivate shift after a character press
-            if self.shift_active {
-               self.shift_active = false;
-            }
-         }
-      }
-   }
-}
-
-pub struct CredentialsForm {
-   pub open: bool,
-   overlay: OverlayManager,
-   pub confrim_password: bool,
-   pub credentials: Credentials,
-   pub hide_username: bool,
-   pub hide_password: bool,
-   pub y_spacing: f32,
-   pub x_spacing: f32,
-   pub virtual_keyboard: VirtualKeyboard,
-}
-
-impl CredentialsForm {
-   pub fn new(overlay: OverlayManager) -> Self {
-      Self {
-         open: false,
-         overlay,
-         confrim_password: false,
-         credentials: Credentials::new_with_capacity(1024).unwrap(),
-         hide_username: false,
-         hide_password: true,
-         y_spacing: 15.0,
-         x_spacing: 10.0,
-         virtual_keyboard: VirtualKeyboard::new(true),
-      }
-   }
-
-   pub fn is_open(&self) -> bool {
-      self.open
-   }
-
-   pub fn open(&mut self) {
-      self.overlay.window_opened();
-      self.open = true;
-   }
-
-   pub fn close(&mut self) {
-      self.overlay.window_closed();
-      self.open = false;
-   }
-
-   pub fn with_open(mut self, open: bool) -> Self {
-      self.open = open;
-      self
-   }
-
-   pub fn y_spacing(mut self, y_spacing: f32) -> Self {
-      self.y_spacing = y_spacing;
-      self
-   }
-
-   pub fn x_spacing(mut self, x_spacing: f32) -> Self {
-      self.x_spacing = x_spacing;
-      self
-   }
-
-   pub fn confirm_password(mut self, confirm_password: bool) -> Self {
-      self.confrim_password = confirm_password;
-      self
-   }
-
-   pub fn erase(&mut self) {
-      self.credentials.erase();
-   }
-
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      if !self.open {
-         return;
-      }
-
-      let tint = theme.image_tint_recommended;
-      let button_visuals = theme.button_visuals();
-      let text_edit_visuals = theme.text_edit_visuals();
-
-      ui.vertical_centered(|ui| {
-         ui.spacing_mut().item_spacing.y = self.y_spacing;
-         ui.spacing_mut().item_spacing.x = self.x_spacing;
-
-         let ui_width = ui.available_width();
-         let text_edit_size = vec2(ui_width * 0.6, 20.0);
-
-         // Username Field
-         ui.label(RichText::new("Username").size(theme.text_sizes.large));
-         self.credentials.username.unlock_mut(|username| {
-            let text_edit = SecureTextEdit::singleline(username)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .password(self.hide_username)
-               .font(FontId::proportional(theme.text_sizes.normal));
-
-            ui.allocate_ui(text_edit_size, |ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.spacing_mut().button_padding = vec2(0.0, 0.0);
-
-                  if text_edit.show(ui).response.gained_focus() {
-                     self.virtual_keyboard.open = true;
-                     self.virtual_keyboard.active_target = InputField::Username;
-                  }
-
-                  let icon = if self.hide_username {
-                     match theme.dark_mode {
-                        true => icons.hide_light(tint),
-                        _ => icons.hide_dark(),
-                     }
-                  } else {
-                     match theme.dark_mode {
-                        true => icons.view_light(tint),
-                        _ => icons.view_dark(),
-                     }
-                  };
-
-                  let hide_view = Button::image(icon).visuals(button_visuals);
-                  if ui.add(hide_view).clicked() {
-                     self.hide_username = !self.hide_username;
-                  }
-               });
-            });
-         });
-
-         // Password Field
-         ui.label(RichText::new("Password").size(theme.text_sizes.large));
-         self.credentials.password.unlock_mut(|password| {
-            let text_edit = SecureTextEdit::singleline(password)
-               .visuals(text_edit_visuals)
-               .min_size(text_edit_size)
-               .margin(Margin::same(10))
-               .font(FontId::proportional(theme.text_sizes.normal))
-               .password(self.hide_password);
-
-            ui.allocate_ui(text_edit_size, |ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  ui.spacing_mut().button_padding = vec2(0.0, 0.0);
-
-                  if text_edit.show(ui).response.gained_focus() {
-                     self.virtual_keyboard.open = true;
-                     self.virtual_keyboard.active_target = InputField::Password;
-                  }
-
-                  let icon = if self.hide_password {
-                     match theme.dark_mode {
-                        true => icons.hide_light(tint),
-                        _ => icons.hide_dark(),
-                     }
-                  } else {
-                     match theme.dark_mode {
-                        true => icons.view_light(tint),
-                        _ => icons.view_dark(),
-                     }
-                  };
-
-                  let hide_view = Button::image(icon).visuals(button_visuals);
-                  if ui.add(hide_view).clicked() {
-                     self.hide_password = !self.hide_password;
-                  }
-               });
-            });
-         });
-
-         // Confirm Password Field
-         if self.confrim_password {
-            ui.label(RichText::new("Confirm Password").size(theme.text_sizes.large));
-            self.credentials.confirm_password.unlock_mut(|confirm_password| {
-               let text_edit = SecureTextEdit::singleline(confirm_password)
-                  .visuals(text_edit_visuals)
-                  .min_size(text_edit_size)
-                  .margin(Margin::same(10))
-                  .font(FontId::proportional(theme.text_sizes.normal))
-                  .password(self.hide_password);
-
-               ui.allocate_ui(text_edit_size, |ui| {
-                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                     ui.spacing_mut().button_padding = vec2(0.0, 0.0);
-
-                     if text_edit.show(ui).response.gained_focus() {
-                        self.virtual_keyboard.open = true;
-                        self.virtual_keyboard.active_target = InputField::ConfirmPassword;
-                     }
-
-                     let icon = if self.hide_password {
-                        match theme.dark_mode {
-                           true => icons.hide_light(tint),
-                           _ => icons.hide_dark(),
-                        }
-                     } else {
-                        match theme.dark_mode {
-                           true => icons.view_light(tint),
-                           _ => icons.view_dark(),
-                        }
-                     };
-
-                     let hide_view = Button::image(icon).visuals(button_visuals);
-                     if ui.add(hide_view).clicked() {
-                        self.hide_password = !self.hide_password;
-                     }
-                  });
-               });
-            });
-         } else {
-            self.credentials.copy_passwd_to_confirm();
-         }
-
-         self.virtual_keyboard.show(ui, theme, &mut self.credentials);
-      });
-   }
-}
+#[cfg(feature = "dev")]
+use secure_types::SecureString;
 
 pub struct UnlockVault {
    pub credentials_form: CredentialsForm,
@@ -384,14 +17,19 @@ pub struct UnlockVault {
 }
 
 impl UnlockVault {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
+      let form_size = vec2(550.0 * 0.6, 20.0);
+      let credentials_form = CredentialsForm::new()
+         .with_min_size(form_size)
+         .with_open(true)
+         .with_enabled_virtual_keyboard();
       Self {
-         credentials_form: CredentialsForm::new(overlay).with_open(true),
+         credentials_form,
          size: (550.0, 350.0),
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       let vault_exists = ctx.vault_exists();
       let vault_unlocked = ctx.vault_unlocked();
 
@@ -422,15 +60,23 @@ impl UnlockVault {
 
                ui.label(RichText::new("Unlock your Vault").size(theme.text_sizes.heading));
 
-               self.credentials_form.show(theme, icons, ui);
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  self.credentials_form.show(theme, ui);
+               });
 
                let text = RichText::new("Unlock").size(theme.text_sizes.large);
                let button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.50, 35.0));
 
                if ui.add(button).clicked() {
+                  let username = self.credentials_form.username();
+                  let password = self.credentials_form.password();
+                  let confirm_password = self.credentials_form.confirm_password();
+
+                  let credentials = Credentials::new(username, password, confirm_password);
                   let mut vault = ctx.get_vault();
-                  vault.set_credentials(self.credentials_form.credentials.clone());
+                  vault.set_credentials(credentials);
                   self.unlock_vault(ctx.clone(), vault);
                }
 
@@ -566,9 +212,16 @@ pub struct RecoverHDWallet {
 }
 
 impl RecoverHDWallet {
-   pub fn new(ovelay: OverlayManager) -> Self {
+   pub fn new() -> Self {
+      let form_size = vec2(550.0 * 0.6, 20.0);
+      let credentials_form = CredentialsForm::new()
+         .with_min_size(form_size)
+         .with_confirm_password(true)
+         .with_open(true)
+         .with_enabled_virtual_keyboard();
+
       Self {
-         credentials_form: CredentialsForm::new(ovelay).with_open(true).confirm_password(true),
+         credentials_form,
          wallet_name: String::new(),
          credentials_input: true,
          recover_button_clicked: false,
@@ -580,12 +233,12 @@ impl RecoverHDWallet {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
       if ctx.vault_exists() {
          return;
       }
 
-      self.credentials_input(theme, icons, ui);
+      self.credentials_input(theme, ui);
       self.recover_hd_wallet(ctx.clone(), theme, ui);
       self.show_tips(ctx, theme, ui);
    }
@@ -629,7 +282,7 @@ impl RecoverHDWallet {
       }
    }
 
-   fn credentials_input(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn credentials_input(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.credentials_input {
          return;
       }
@@ -661,14 +314,21 @@ impl RecoverHDWallet {
                );
 
                // Credentials input
-               self.credentials_form.show(theme, icons, ui);
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  self.credentials_form.show(theme, ui);
+               });
 
                let text = RichText::new("Next").size(theme.text_sizes.large);
                let next_button =
                   Button::new(text).visuals(button_visuals).min_size(vec2(ui_width * 0.25, 25.0));
 
                if ui.add(next_button).clicked() {
-                  let credentials = self.credentials_form.credentials.clone();
+                  let username = self.credentials_form.username();
+                  let password = self.credentials_form.password();
+                  let confirm_password = self.credentials_form.confirm_password();
+                  let credentials = Credentials::new(username, password, confirm_password);
+
                   RT.spawn_blocking(move || match credentials.is_valid() {
                      Ok(_) => {
                         SHARED_GUI.write(|gui| {
@@ -729,7 +389,11 @@ impl RecoverHDWallet {
                   self.recover_button_clicked = true;
                   let mut vault = ctx.get_vault();
                   let name = self.wallet_name.clone();
-                  let credentials = self.credentials_form.credentials.clone();
+
+                  let username = self.credentials_form.username();
+                  let password = self.credentials_form.password();
+                  let confirm_password = self.credentials_form.confirm_password();
+                  let credentials = Credentials::new(username, password, confirm_password);
 
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {

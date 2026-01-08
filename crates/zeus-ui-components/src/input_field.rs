@@ -15,6 +15,7 @@ const QR_CODE_WHITE: ImageSource<'_> = include_image!("../assets/qr-code-white.p
 /// A input field that can be used to edit a text.
 ///
 /// For an example usage see [super::CredentialsForm]
+#[derive(Clone)]
 pub struct InputField {
    open: bool,
    pub(crate) text: SecureString,

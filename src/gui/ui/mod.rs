@@ -12,7 +12,7 @@ pub mod token_selection;
 pub mod tx_window;
 pub mod wallet;
 
-pub use auth::{CredentialsForm, RecoverHDWallet, UnlockVault};
+pub use auth::{RecoverHDWallet, UnlockVault};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
 pub use header::Header;
 pub use misc::*;

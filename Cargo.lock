@@ -9984,10 +9984,7 @@ name = "zeus-widgets"
 version = "0.3.0"
 dependencies = [
  "egui",
- "enigo",
- "rqrr",
  "secure-types",
- "xcap",
  "zeus-theme",
 ]
 

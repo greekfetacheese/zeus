@@ -8,13 +8,13 @@ mod credentials_form;
 mod input_field;
 
 #[cfg(feature = "secure-types")]
-pub use credentials_form::CredentialsForm;
-
-#[cfg(feature = "qr-scanner")]
-pub use qr_scanner::QRScanner;
-
-#[cfg(feature = "secure-types")]
 mod virtual_keyboard;
 
 #[cfg(feature = "secure-types")]
+pub use credentials_form::CredentialsForm;
+
+#[cfg(feature = "secure-types")]
 pub use virtual_keyboard::VirtualKeyboard;
+
+#[cfg(feature = "qr-scanner")]
+pub use qr_scanner::QRScanner;

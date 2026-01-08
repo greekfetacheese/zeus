@@ -22,8 +22,8 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.sign_msg_window.show(ctx.clone(), theme, icons.clone(), ui);
 
-   gui.recover_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
-   gui.unlock_vault_ui.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.recover_wallet_ui.show(ctx.clone(), theme, ui);
+   gui.unlock_vault_ui.show(ctx.clone(), theme, ui);
 
    gui.across_bridge.show(
       ctx.clone(),

@@ -35,7 +35,7 @@ const VIEWPORT_ID: &str = "qr_scanner";
 ///     // use the decoded string
 ///  }
 /// ```
-///
+#[derive(Clone)]
 pub struct QRScanner {
    open: Arc<AtomicBool>,
    capture_size: Arc<AtomicI32>,

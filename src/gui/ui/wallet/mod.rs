@@ -3,15 +3,17 @@ pub use add::AddWalletUi;
 
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx};
-use crate::gui::{SHARED_GUI, ui::CredentialsForm};
+use crate::gui::SHARED_GUI;
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
    ScrollArea, Sense, Shadow, Stroke, Ui, Vec2, Window, load::Bytes, vec2,
 };
+use ncrypt_me::Credentials;
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_theme::{OverlayManager, Theme, utils::frame_it};
+use zeus_ui_components::CredentialsForm;
 use zeus_wallet::Wallet;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
@@ -128,8 +130,8 @@ impl WalletUi {
       self.main_ui(ctx.clone(), theme, icons.clone(), ui);
       self.rename_wallet(ctx.clone(), theme, ui);
       self.add_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
-      self.export_key_ui.show(ctx.clone(), theme, icons.clone(), ui);
-      self.delete_wallet_ui.show(ctx, theme, icons.clone(), ui);
+      self.export_key_ui.show(ctx.clone(), theme, ui);
+      self.delete_wallet_ui.show(ctx, theme, ui);
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.
@@ -520,16 +522,19 @@ pub struct ExportKeyUi {
 
 impl ExportKeyUi {
    pub fn new(overlay: OverlayManager) -> Self {
+      let form_size = vec2(550.0 * 0.6, 20.0);
+      let credentials_form =
+         CredentialsForm::new().with_min_size(form_size).with_enabled_virtual_keyboard();
       Self {
          open: false,
          overlay: overlay.clone(),
-         credentials_form: CredentialsForm::new(overlay),
+         credentials_form,
          verified_credentials: false,
          wallet_to_export: None,
          image_uri: None,
          image_error: None,
          show_key: false,
-         size: (400.0, 400.0),
+         size: (550.0, 350.0),
       }
    }
 
@@ -560,8 +565,9 @@ impl ExportKeyUi {
       if !self.open {
          self.overlay.window_opened();
       }
+
       self.open = true;
-      self.credentials_form.open = true;
+      self.credentials_form.open();
       self.wallet_to_export = wallet;
    }
 
@@ -575,8 +581,8 @@ impl ExportKeyUi {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx.clone(), theme, ui);
       self.show_key(ctx, theme, ui);
    }
 
@@ -650,18 +656,12 @@ impl ExportKeyUi {
          });
    }
 
-   fn verify_credentials_ui(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      ui: &mut Ui,
-   ) {
-      if !self.credentials_form.open || !self.open {
+   fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.credentials_form.is_open() || !self.open {
          return;
       }
 
-      let mut open = self.credentials_form.open;
+      let mut open = self.credentials_form.is_open();
       let mut clicked = false;
 
       Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
@@ -681,7 +681,10 @@ impl ExportKeyUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               self.credentials_form.show(theme, icons, ui);
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  self.credentials_form.show(theme, ui);
+               });
 
                let text = RichText::new("Confrim").size(theme.text_sizes.normal);
                let button = Button::new(text)
@@ -696,7 +699,13 @@ impl ExportKeyUi {
 
       if clicked {
          let mut vault = ctx.get_vault();
-         vault.set_credentials(self.credentials_form.credentials.clone());
+         let username = self.credentials_form.username();
+         let password = self.credentials_form.password();
+         let confirm_password = self.credentials_form.confirm_password();
+
+         let credentials = Credentials::new(username, password, confirm_password);
+         vault.set_credentials(credentials);
+
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting vault...");
@@ -713,7 +722,7 @@ impl ExportKeyUi {
                      // Erase the credentials form
                      gui.wallet_ui.export_key_ui.credentials_form.erase();
                      // Close the credentials form
-                     gui.wallet_ui.export_key_ui.credentials_form.open = false;
+                     gui.wallet_ui.export_key_ui.credentials_form.close();
                      gui.loading_window.reset();
                   });
                }
@@ -745,10 +754,13 @@ pub struct DeleteWalletUi {
 
 impl DeleteWalletUi {
    pub fn new(overlay: OverlayManager) -> Self {
+      let form_size = vec2(550.0 * 0.6, 20.0);
+      let credentials_form =
+         CredentialsForm::new().with_min_size(form_size).with_enabled_virtual_keyboard();
       Self {
          open: false,
          overlay: overlay.clone(),
-         credentials_form: CredentialsForm::new(overlay),
+         credentials_form,
          verified_credentials: false,
          wallet_to_delete: None,
          size: (550.0, 350.0),
@@ -764,7 +776,7 @@ impl DeleteWalletUi {
          self.overlay.window_opened();
       }
       self.open = true;
-      self.credentials_form.open = true;
+      self.credentials_form.open();
    }
 
    pub fn close(&mut self) {
@@ -777,24 +789,18 @@ impl DeleteWalletUi {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, icons, ui);
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      self.verify_credentials_ui(ctx.clone(), theme, ui);
       self.delete_wallet_ui(ctx, theme, ui);
    }
 
-   fn verify_credentials_ui(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      ui: &mut Ui,
-   ) {
-      if !self.credentials_form.open || !self.open {
+   fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+      if !self.credentials_form.is_open() || !self.open {
          return;
       }
 
       let button_visuals = theme.button_visuals();
-      let mut open = self.credentials_form.open;
+      let mut open = self.credentials_form.is_open();
       let mut clicked = false;
 
       let id = Id::new("verify_credentials_delete_wallet_ui");
@@ -814,7 +820,10 @@ impl DeleteWalletUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               self.credentials_form.show(theme, icons, ui);
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  self.credentials_form.show(theme, ui);
+               });
 
                let text = RichText::new("Confirm").size(theme.text_sizes.normal);
                let button = Button::new(text)
@@ -829,7 +838,13 @@ impl DeleteWalletUi {
 
       if clicked {
          let mut vault = ctx.get_vault();
-         vault.set_credentials(self.credentials_form.credentials.clone());
+         let username = self.credentials_form.username();
+         let password = self.credentials_form.password();
+         let confirm_password = self.credentials_form.confirm_password();
+
+         let credentials = Credentials::new(username, password, confirm_password);
+         vault.set_credentials(credentials);
+
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting vault...");
@@ -842,7 +857,7 @@ impl DeleteWalletUi {
                      // Mark the credentials as verified
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
                      // Close the verify credentials ui
-                     gui.wallet_ui.delete_wallet_ui.credentials_form.open = false;
+                     gui.wallet_ui.delete_wallet_ui.credentials_form.close();
                      // Open the delete wallet ui
                      gui.wallet_ui.delete_wallet_ui.open = true;
                      // Erase the credentials form

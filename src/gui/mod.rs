@@ -9,7 +9,7 @@ use crate::assets::icons::Icons;
 use crate::core::context::{ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
 use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
-use zeus_widgets::QRScanner;
+use zeus_ui_components::QRScanner;
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
@@ -118,8 +118,8 @@ impl GUI {
       let update_window = UpdateWindow::new(overlay_manager.clone());
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new(overlay_manager.clone());
-      let unlock_vault_ui = UnlockVault::new(overlay_manager.clone());
-      let recover_wallet_ui = RecoverHDWallet::new(overlay_manager.clone());
+      let unlock_vault_ui = UnlockVault::new();
+      let recover_wallet_ui = RecoverHDWallet::new();
 
       Self {
          qr_scanner: QRScanner::new(),
