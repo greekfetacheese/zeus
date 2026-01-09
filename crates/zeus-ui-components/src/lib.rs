@@ -16,5 +16,8 @@ pub use credentials_form::CredentialsForm;
 #[cfg(feature = "secure-types")]
 pub use virtual_keyboard::VirtualKeyboard;
 
+#[cfg(feature = "secure-types")]
+pub use input_field::SecureInputField;
+
 #[cfg(feature = "qr-scanner")]
 pub use qr_scanner::QRScanner;
