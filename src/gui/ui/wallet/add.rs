@@ -1089,6 +1089,7 @@ impl DiscoverChildWallets {
                               gui.loading_window.reset();
                               gui.open_msg_window("Failed to encrypt vault", e.to_string());
                            });
+                           return;
                         }
                      }
                      // Update the Vault in the ZeusCtx
