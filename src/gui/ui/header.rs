@@ -633,7 +633,7 @@ impl QRCodeWindow {
                   let image = Image::new(ImageSource::Bytes {
                      uri: image_uri.into(),
                      bytes: Bytes::Shared(data),
-                  });
+                  }).fit_to_exact_size(vec2(250.0, 250.0));
                   ui.add(image);
                }
 

@@ -128,9 +128,11 @@ impl ZeusCtx {
       let success = self.write(|ctx| {
          if let Some(data) = Arc::get_mut(&mut ctx.qr_image_data) {
             data.zeroize();
+            #[cfg(feature = "dev")]
             tracing::info!("QR Image data zeroized");
             true
          } else {
+            #[cfg(feature = "dev")]
             tracing::error!("QR Image data zeroize failed");
             false
          }

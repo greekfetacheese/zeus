@@ -517,6 +517,7 @@ pub struct ExportKeyUi {
    image_uri: Option<String>,
    image_error: Option<String>,
    show_key: bool,
+   show_key_qrcode: bool,
    size: (f32, f32),
 }
 
@@ -534,6 +535,7 @@ impl ExportKeyUi {
          image_uri: None,
          image_error: None,
          show_key: false,
+         show_key_qrcode: false,
          size: (550.0, 350.0),
       }
    }
@@ -604,37 +606,56 @@ impl ExportKeyUi {
             ui.set_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
+            let button_size = vec2(100.0, 20.0);
+            let button_size_area = vec2(210.0, 20.0);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
+               ui.add_space(10.0);
 
                if let Some(wallet) = self.wallet_to_export.as_ref() {
                   let warning_text = "Make sure to save this key in a safe place!";
                   ui.label(RichText::new(warning_text).size(theme.text_sizes.large));
 
-                  let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
-                  let button = Button::new(text).visuals(button_visuals);
+                  ui.allocate_ui(button_size_area, |ui| {
+                     ui.horizontal(|ui| {
+                        let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
 
-                  if ui.add(button).clicked() {
-                     ui.ctx().copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
-                  }
+                        if ui.add(button).clicked() {
+                           ui.ctx()
+                              .copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
+                        }
 
-                  if self.image_error.is_some() {
-                     ui.label(
-                        RichText::new(self.image_error.as_ref().unwrap())
-                           .size(theme.text_sizes.large),
-                     );
-                  }
+                        let text = RichText::new("Show QR Code").size(theme.text_sizes.normal);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
 
-                  if let Some(image_uri) = self.image_uri.clone() {
-                     let data = ctx.qr_image_data();
-                     let image = Image::new(ImageSource::Bytes {
-                        uri: image_uri.into(),
-                        bytes: Bytes::Shared(data),
+                        if ui.add(button).clicked() {
+                           self.show_key_qrcode = true;
+                        }
                      });
-                     ui.add(image);
+                  });
+
+                  if self.show_key_qrcode {
+                     if let Some(image_uri) = self.image_uri.clone() {
+                        let data = ctx.qr_image_data();
+                        let image = Image::new(ImageSource::Bytes {
+                           uri: image_uri.into(),
+                           bytes: Bytes::Shared(data),
+                        })
+                        .fit_to_exact_size(vec2(250.0, 250.0));
+                        ui.add(image);
+                     } else {
+                        if self.image_error.is_some() {
+                           ui.label(
+                              RichText::new(self.image_error.as_ref().unwrap())
+                                 .size(theme.text_sizes.large),
+                           );
+                        }
+                     }
                   }
                } else {
                   ui.label(
@@ -906,8 +927,8 @@ impl DeleteWalletUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_width(300.0);
+            ui.set_height(200.0);
 
             let button_visuals = theme.button_visuals();
 
