@@ -160,14 +160,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       }
 
       #[cfg(feature = "dev")]
-      {
-         let scan_qr = Button::new(RichText::new("Scan QR").size(text_size)).min_size(button_size);
-         if ui.add(scan_qr).clicked() {
-            gui.qr_scanner.open(ui.ctx().clone());
-         }
-      }
-
-      #[cfg(feature = "dev")]
       if ui
          .add(Button::new(RichText::new("Theme Editor").size(text_size)).min_size(button_size))
          .clicked()

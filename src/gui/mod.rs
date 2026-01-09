@@ -9,7 +9,6 @@ use crate::assets::icons::Icons;
 use crate::core::context::{ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
 use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
-use zeus_ui_components::QRScanner;
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
@@ -60,7 +59,6 @@ impl Default for SharedGUI {
 }
 
 pub struct GUI {
-   pub qr_scanner: QRScanner,
    pub egui_ctx: Context,
    pub ctx: ZeusCtx,
    pub icons: Arc<Icons>,
@@ -122,7 +120,6 @@ impl GUI {
       let recover_wallet_ui = RecoverHDWallet::new();
 
       Self {
-         qr_scanner: QRScanner::new(),
          egui_ctx,
          ctx: ctx.clone(),
          overlay_manager,

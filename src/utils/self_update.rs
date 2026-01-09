@@ -247,6 +247,7 @@ pub fn restart_app() {
 pub fn restart_app() {
    use std::os::windows::process::CommandExt;
    use std::thread;
+   use std::time::Duration;
 
    let current_dir = std::env::current_dir().unwrap();
    let exe = current_dir.join("zeus-gui");

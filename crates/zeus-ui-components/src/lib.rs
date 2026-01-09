@@ -1,4 +1,4 @@
-#[cfg(feature = "qr-scanner")]
+#[cfg(all(feature = "qr-scanner", target_os = "linux"))]
 mod qr_scanner;
 
 #[cfg(feature = "secure-types")]
@@ -19,5 +19,5 @@ pub use virtual_keyboard::VirtualKeyboard;
 #[cfg(feature = "secure-types")]
 pub use input_field::SecureInputField;
 
-#[cfg(feature = "qr-scanner")]
+#[cfg(all(feature = "qr-scanner", target_os = "linux"))]
 pub use qr_scanner::QRScanner;

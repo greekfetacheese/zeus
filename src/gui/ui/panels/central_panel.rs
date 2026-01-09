@@ -80,18 +80,6 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          gui.theme = theme;
       }
    }
-
-   #[cfg(feature = "dev")]
-   {
-      gui.qr_scanner.show(ui.ctx());
-      let res = gui.qr_scanner.get_result();
-      if let Some(result) = res {
-         gui.qr_scanner.reset();
-         result.unlock_str(|str| {
-            tracing::info!("QR code found: {}", str);
-         });
-      }
-   }
 }
 
 pub struct FPSMetrics {

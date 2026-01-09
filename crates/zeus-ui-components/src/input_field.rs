@@ -6,7 +6,7 @@ use zeus_widgets::{
    secure_text_edit::{SecureTextEdit, SecureTextEditOutput},
 };
 
-#[cfg(feature = "qr-scanner")]
+#[cfg(all(feature = "qr-scanner", target_os = "linux"))]
 use super::QRScanner;
 
 const VISIBLE_BLACK: ImageSource<'_> = include_image!("../assets/visible-black.png");
@@ -27,16 +27,16 @@ pub struct SecureInputField {
    id: &'static str,
    icon_size: Vec2,
    min_size: Vec2,
-   #[cfg(feature = "qr-scanner")]
+   #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
    qr_scanner: QRScanner,
    qr_enabled: bool,
 }
 
 impl SecureInputField {
    /// Create a new secure input field.
-   /// 
+   ///
    /// # Arguments
-   /// 
+   ///
    /// * `id` - The id of the input field, this will also be used as the name of the input field
    /// * `text_hidden` - Whether the text is masked
    /// * `open` - Whether the input field is open
@@ -52,7 +52,7 @@ impl SecureInputField {
          id,
          icon_size: vec2(20.0, 20.0),
          min_size: vec2(300.0, 20.0),
-         #[cfg(feature = "qr-scanner")]
+         #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
          qr_scanner: QRScanner::new(),
          qr_enabled: true,
       }
@@ -161,8 +161,8 @@ impl SecureInputField {
             .password(hidden)
             .font(FontId::proportional(theme.text_sizes.normal));
 
-        let response = ui.allocate_ui(ui_size, |ui| {
-           let res = ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let response = ui.allocate_ui(ui_size, |ui| {
+            let res = ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                let output = text_edit.show(ui);
 
                let img_source = if hidden {
@@ -190,7 +190,7 @@ impl SecureInputField {
                   hidden = !hidden;
                }
 
-               #[cfg(feature = "qr-scanner")]
+               #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
                {
                   if self.qr_enabled {
                      let img_source = match theme.dark_mode {
@@ -219,7 +219,7 @@ impl SecureInputField {
          response
       });
 
-      #[cfg(feature = "qr-scanner")]
+      #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
       {
          if self.qr_enabled {
             self.qr_scanner.show(ui.ctx());
