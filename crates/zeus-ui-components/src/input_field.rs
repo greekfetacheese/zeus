@@ -34,6 +34,12 @@ pub struct SecureInputField {
 
 impl SecureInputField {
    /// Create a new secure input field.
+   /// 
+   /// # Arguments
+   /// 
+   /// * `id` - The id of the input field, this will also be used as the name of the input field
+   /// * `text_hidden` - Whether the text is masked
+   /// * `open` - Whether the input field is open
    ///
    /// # Panics
    ///
