@@ -3,6 +3,7 @@ name = "zeus-ui-components"
 authors = ["Michalis Molfetas"]
 version = "0.1.0"
 edition = "2024"
+description = "Reusable egui UI components made for Zeus"
 readme = "readme.md"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-ui-components"
 license = "MIT OR Apache-2.0"
