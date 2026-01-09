@@ -6,7 +6,6 @@ use eframe::egui::{
    Align, Align2, FontId, Frame, Id, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui,
    Vec2, Window, vec2,
 };
-use secure_types::SecureString;
 use zeus_bip32::BIP32_HARDEN;
 use zeus_eth::{
    alloy_primitives::Address,
@@ -15,6 +14,7 @@ use zeus_eth::{
    utils::{NumericValue, batch, truncate_address},
 };
 use zeus_theme::{OverlayManager, Theme};
+use zeus_ui_components::SecureInputField;
 use zeus_wallet::SecureHDWallet;
 use zeus_widgets::{Button, SecureTextEdit};
 
@@ -31,7 +31,7 @@ pub struct ImportWallet {
    open: bool,
    overlay: OverlayManager,
    import_key_or_phrase: ImportWalletType,
-   key_or_phrase: SecureString,
+   input_field: SecureInputField,
    wallet_name: String,
    size: (f32, f32),
 }
@@ -42,7 +42,7 @@ impl ImportWallet {
          open: false,
          overlay,
          import_key_or_phrase: ImportWalletType::PrivateKey,
-         key_or_phrase: SecureString::from(""),
+         input_field: SecureInputField::new("Import Wallet", true, true),
          wallet_name: String::new(),
          size: (450.0, 250.0),
       }
@@ -94,7 +94,7 @@ impl ImportWallet {
                ui.add_space(20.0);
 
                // Wallet Name
-               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Wallet Name (Optional)").size(theme.text_sizes.large));
                ui.add(
                   SecureTextEdit::singleline(&mut self.wallet_name)
                      .visuals(text_edit_visuals)
@@ -110,15 +110,13 @@ impl ImportWallet {
                   "Seed Phrase"
                };
 
-               ui.label(RichText::new(text).size(theme.text_sizes.normal));
-               self.key_or_phrase.unlock_mut(|imported_key| {
-                  let text_edit = SecureTextEdit::singleline(imported_key)
-                     .visuals(text_edit_visuals)
-                     .font(FontId::proportional(theme.text_sizes.normal))
-                     .margin(Margin::same(10))
-                     .min_size(size)
-                     .password(true);
-                  text_edit.show(ui);
+               // Input Field
+               self.input_field.set_min_size(size);
+               self.input_field.set_id(text);
+
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+                  self.input_field.show(theme, ui);
                });
 
                // Import Button
@@ -133,7 +131,7 @@ impl ImportWallet {
 
       if clicked {
          let name = self.wallet_name.clone();
-         let key_or_phrase = self.key_or_phrase.clone();
+         let key_or_phrase = self.input_field.text();
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
 
          RT.spawn_blocking(move || {
@@ -161,7 +159,7 @@ impl ImportWallet {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      gui.open_msg_window("Wallet imported successfully", "");
-                     gui.wallet_ui.add_wallet_ui.import_wallet.key_or_phrase.erase();
+                     gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                      gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
                   });
                }
@@ -175,6 +173,10 @@ impl ImportWallet {
             };
 
             ctx.set_vault(new_vault);
+            // Recalculate the wallets
+            SHARED_GUI.write(|gui| {
+               gui.wallet_ui.open(ctx.clone());
+            });
 
             // Fetch the balance for the new wallet across all chains and add it to the portfolio db
             RT.spawn(async move {
@@ -209,7 +211,7 @@ impl ImportWallet {
       }
 
       if was_open && !self.open {
-         self.key_or_phrase.erase();
+         self.input_field.erase();
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.add_wallet_ui.open();
@@ -1011,8 +1013,12 @@ impl DiscoverChildWallets {
                   let balances = self.discovered_wallets.balances.clone();
 
                   RT.spawn_blocking(move || {
-                     let mut vault = ctx.get_vault();
-                     let res = vault.derive_child_wallet_at_mut(name, index);
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open("Encrypting vault...");
+                     });
+
+                     let mut new_vault = ctx.get_vault();
+                     let res = new_vault.derive_child_wallet_at_mut(name, index);
 
                      let address = match res {
                         Ok(address) => address,
@@ -1041,9 +1047,9 @@ impl DiscoverChildWallets {
 
                      // On success save the vault and update the hd wallet in the Ui
                      // If this op fails we revert the changes
-                     match ctx.encrypt_and_save_vault(Some(vault.clone()), None) {
+                     match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                         Ok(_) => {
-                           let hd_wallet = vault.get_hd_wallet();
+                           let hd_wallet = new_vault.get_hd_wallet();
 
                            SHARED_GUI.write(|gui| {
                               gui.wallet_ui
@@ -1059,12 +1065,8 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .set_hd_wallet(hd_wallet);
 
+                              gui.loading_window.reset();
                               gui.open_msg_window("Wallet Added", "");
-
-                              // Update the Vault in the ZeusCtx
-                              ctx.set_vault(vault);
-                              // Calculate the wallets again in the UI
-                              gui.wallet_ui.open(ctx.clone());
                            });
                         }
                         Err(e) => {
@@ -1084,10 +1086,17 @@ impl DiscoverChildWallets {
                                  .discover_child_wallets_ui
                                  .set_hd_wallet(hd_wallet);
 
+                              gui.loading_window.reset();
                               gui.open_msg_window("Failed to encrypt vault", e.to_string());
                            });
                         }
                      }
+                     // Update the Vault in the ZeusCtx
+                     ctx.set_vault(new_vault);
+                     // Calculate the wallets again in the UI
+                     SHARED_GUI.write(|gui| {
+                        gui.wallet_ui.open(ctx.clone());
+                     });
                   });
                }
             });

@@ -463,9 +463,11 @@ impl WalletUi {
                         });
                      }
 
-                     ctx.set_vault(new_vault.clone());
+                     SHARED_GUI.write(|gui| {
+                        gui.loading_window.open("Encrypting vault...");
+                     });
 
-                     match ctx.encrypt_and_save_vault(Some(new_vault), None) {
+                     match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                         Ok(_) => {
                            SHARED_GUI.write(|gui| {
                               // Update header
@@ -473,30 +475,32 @@ impl WalletUi {
                                  gui.header.set_current_wallet(new_wallet);
                               }
 
-                              // Calculate the wallets again
-                              gui.wallet_ui.open(ctx.clone());
-
                               // Reset state
                               gui.wallet_ui.close_rename_wallet();
 
+                              gui.loading_window.reset();
                               gui.open_msg_window("Success", "");
                               gui.request_repaint();
                            });
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
+                              gui.loading_window.reset();
                               gui.open_msg_window(
                                  "Failed to encrypt vault, changes reverted",
                                  e.to_string(),
                               );
                               gui.request_repaint();
                            });
-                           ctx.set_vault(old_vault);
-                           ctx.write(|ctx| {
-                              ctx.current_wallet = old_wallet;
-                           });
+                           return;
                         }
                      };
+
+                     ctx.set_vault(new_vault);
+                     // Calculate the wallets again
+                     SHARED_GUI.write(|gui| {
+                        gui.wallet_ui.open(ctx.clone());
+                     });
                   });
                }
             });
@@ -983,9 +987,6 @@ impl DeleteWalletUi {
                      gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                      gui.open_msg_window("Wallet Deleted", "");
-                     // Calculate the wallets again
-                     ctx.set_vault(new_vault);
-                     gui.wallet_ui.open(ctx.clone());
                   });
                }
                Err(e) => {
@@ -996,6 +997,12 @@ impl DeleteWalletUi {
                   return;
                }
             };
+
+            ctx.set_vault(new_vault);
+            // Recalculate the wallets
+            SHARED_GUI.write(|gui| {
+               gui.wallet_ui.open(ctx.clone());
+            });
          });
       }
 

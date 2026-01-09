@@ -73,6 +73,16 @@ impl SecureInputField {
       self.text_hidden
    }
 
+   /// Return a clone of the text
+   pub fn text(&self) -> SecureString {
+      self.text.clone()
+   }
+
+   /// Set the id of this input field
+   pub fn set_id(&mut self, id: &'static str) {
+      self.id = id;
+   }
+
    /// Set whether this input field is hidden
    pub fn set_text_hidden(&mut self, text_hidden: bool) {
       self.text_hidden = text_hidden;
