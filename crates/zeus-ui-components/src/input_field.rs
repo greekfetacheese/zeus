@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 use egui::*;
 use zeus_theme::{Theme, utils::TINT_1};
-use zeus_widgets::{Button, SecureString, SecureTextEdit};
+use zeus_widgets::{
+   Button, SecureString,
+   secure_text_edit::{SecureTextEdit, SecureTextEditOutput},
+};
 
 #[cfg(feature = "qr-scanner")]
 use super::QRScanner;
@@ -13,14 +16,14 @@ const INVISIBLE_WHITE: ImageSource<'_> = include_image!("../assets/invisible-whi
 const QR_CODE_BLACK: ImageSource<'_> = include_image!("../assets/qr-code-black.png");
 const QR_CODE_WHITE: ImageSource<'_> = include_image!("../assets/qr-code-white.png");
 
-/// A input field that can be used to edit a text.
+/// A secure input field that can be used to edit a text containing sensitive information.
 ///
 /// For an example usage see [super::CredentialsForm]
 #[derive(Clone)]
-pub struct InputField {
+pub struct SecureInputField {
    open: bool,
    pub(crate) text: SecureString,
-   hidden: bool,
+   text_hidden: bool,
    id: &'static str,
    icon_size: Vec2,
    min_size: Vec2,
@@ -29,17 +32,17 @@ pub struct InputField {
    qr_enabled: bool,
 }
 
-impl InputField {
-   /// Create a new input field.
+impl SecureInputField {
+   /// Create a new secure input field.
    ///
    /// # Panics
    ///
    /// If the `SecureString` allocation fails.
-   pub fn new(id: &'static str, hidden: bool, open: bool) -> Self {
+   pub fn new(id: &'static str, text_hidden: bool, open: bool) -> Self {
       Self {
          open,
          text: SecureString::new_with_capacity(32).unwrap(),
-         hidden,
+         text_hidden,
          id,
          icon_size: vec2(20.0, 20.0),
          min_size: vec2(300.0, 20.0),
@@ -66,13 +69,13 @@ impl InputField {
       self.text.erase();
    }
 
-   pub fn is_hidden(&self) -> bool {
-      self.hidden
+   pub fn is_text_hidden(&self) -> bool {
+      self.text_hidden
    }
 
    /// Set whether this input field is hidden
-   pub fn set_hidden(&mut self, hidden: bool) {
-      self.hidden = hidden;
+   pub fn set_text_hidden(&mut self, text_hidden: bool) {
+      self.text_hidden = text_hidden;
    }
 
    /// Set the text of this input field
@@ -118,24 +121,23 @@ impl InputField {
    /// Show this input field
    ///
    /// # Returns
-   /// `true` if the input field is on focus (selected)
-   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) -> bool {
+   /// `SecureTextEditOutput`
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) -> Option<SecureTextEditOutput> {
       if !self.open {
-         return false;
+         return None;
       }
 
       let ui_size = self.min_size;
       let text_edit_visuals = theme.text_edit_visuals();
       let button_visuals = theme.button_visuals();
 
-      let mut on_focus = false;
-      let mut hidden = self.is_hidden();
+      let mut hidden = self.is_text_hidden();
       let field_name = self.id.to_string();
       let img_size = self.icon_size;
 
       ui.label(RichText::new(field_name).size(theme.text_sizes.large));
 
-      self.text.unlock_mut(|text_str| {
+      let response = self.text.unlock_mut(|text_str| {
          let text_edit = SecureTextEdit::singleline(text_str)
             .visuals(text_edit_visuals)
             .min_size(ui_size)
@@ -143,11 +145,9 @@ impl InputField {
             .password(hidden)
             .font(FontId::proportional(theme.text_sizes.normal));
 
-         ui.allocate_ui(ui_size, |ui| {
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               if text_edit.show(ui).response.gained_focus() {
-                  on_focus = true;
-               }
+        let response = ui.allocate_ui(ui_size, |ui| {
+           let res = ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let output = text_edit.show(ui);
 
                let img_source = if hidden {
                   match theme.dark_mode {
@@ -196,8 +196,11 @@ impl InputField {
                      }
                   }
                }
+               output
             });
+            res
          });
+         response
       });
 
       #[cfg(feature = "qr-scanner")]
@@ -212,8 +215,8 @@ impl InputField {
          }
       }
 
-      self.set_hidden(hidden);
+      self.set_text_hidden(hidden);
 
-      on_focus
+      Some(response.inner.inner)
    }
 }

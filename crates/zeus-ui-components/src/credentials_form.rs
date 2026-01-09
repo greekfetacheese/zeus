@@ -1,17 +1,16 @@
-use super::input_field::InputField;
+use super::input_field::SecureInputField;
 use super::virtual_keyboard::VirtualKeyboard;
 use egui::*;
 use zeus_theme::Theme;
 use zeus_widgets::SecureString;
 
-
 /// A credentials form that can be used to edit username, password, and optionally confirm password.
 pub struct CredentialsForm {
    open: bool,
    confrim_password: bool,
-   username: InputField,
-   password: InputField,
-   confirm_password: InputField,
+   username: SecureInputField,
+   password: SecureInputField,
+   confirm_password: SecureInputField,
    y_spacing: f32,
    x_spacing: f32,
    last_focused: &'static str,
@@ -25,9 +24,9 @@ impl CredentialsForm {
    ///
    /// If the `SecureString` allocation fails.
    pub fn new() -> Self {
-      let username = InputField::new("Username", false, true);
-      let password = InputField::new("Password", true, true);
-      let confirm_password = InputField::new("Confirm Password", true, true);
+      let username = SecureInputField::new("Username", false, true);
+      let password = SecureInputField::new("Password", true, true);
+      let confirm_password = SecureInputField::new("Confirm Password", true, true);
       Self {
          open: false,
          confrim_password: false,
@@ -188,15 +187,24 @@ impl CredentialsForm {
          ui.spacing_mut().item_spacing.y = self.y_spacing;
          ui.spacing_mut().item_spacing.x = self.x_spacing;
 
-         let username_focused = self.username.show(theme, ui);
-         let password_focused = self.password.show(theme, ui);
+         let user_res = self.username.show(theme, ui);
+         let pass_res = self.password.show(theme, ui);
 
          let confirm_password_focused = if self.confrim_password {
-            self.confirm_password.show(theme, ui)
+            let res = self.confirm_password.show(theme, ui);
+            res.map(|res| res.response.gained_focus()).unwrap_or(false)
          } else {
             self.copy_passwd_to_confirm();
             false
          };
+
+         let username_focused = user_res
+            .map(|res| res.response.gained_focus())
+            .unwrap_or(false);
+
+         let password_focused = pass_res
+            .map(|res| res.response.gained_focus())
+            .unwrap_or(false);
 
          if username_focused {
             self.last_focused = "Username";
