@@ -296,6 +296,7 @@ where
                         nonce,
                         balance,
                         code: code.map(|bytes| Bytecode::new_raw(bytes)),
+                        account_id: None,
                         code_hash,
                      };
                      pin.db.insert_account_info(addr, acc.clone());

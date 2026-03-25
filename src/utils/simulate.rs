@@ -145,6 +145,7 @@ pub async fn fetch_accounts_info(
             nonce,
             balance,
             code: code.map(|bytes| Bytecode::new_raw(bytes)),
+            account_id: None,
             code_hash,
          };
 

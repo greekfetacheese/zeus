@@ -1,5 +1,6 @@
 use std::sync::mpsc::channel as oneshot_channel;
 
+use alloy_primitives::map::FbBuildHasher;
 use futures::channel::mpsc::Sender;
 use revm::primitives::{Address, B256, HashMap, U256};
 
@@ -174,7 +175,7 @@ impl DatabaseRef for ForkDB {
 }
 
 impl DatabaseCommit for ForkDB {
-   fn commit(&mut self, changes: HashMap<Address, Account>) {
+   fn commit(&mut self, changes: HashMap<Address, Account, FbBuildHasher<20>>) {
       self.db.commit(changes)
    }
 }

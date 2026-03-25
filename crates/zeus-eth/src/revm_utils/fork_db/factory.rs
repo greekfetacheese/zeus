@@ -136,6 +136,7 @@ where
             balance: eth_balance,
             nonce: 0,
             code_hash: B256::default(),
+            account_id: None,
             code: Some(code),
          },
       );
