@@ -9,17 +9,10 @@ categories = ["gui"]
 license = "MIT OR Apache-2.0"
 edition = "2024"
 
-
-[dependencies.egui]
-version = "0.33.3"
-
-[dependencies.zeus-theme]
-version = "0.3"
-path = "../zeus-theme"
-
-[dependencies.secure-types]
-version = "0.2"
-optional = true
+[dependencies]
+egui = "0.33.3"
+zeus-theme = { path = "../zeus-theme", version = "0.3" }
+secure-types = { version = "0.2", optional = true }
 
 [features]
 secure-types = ["dep:secure-types"]

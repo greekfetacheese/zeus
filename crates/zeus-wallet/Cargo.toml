@@ -9,43 +9,20 @@ license = "MIT OR Apache-2.0"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies.zeus-bip32]
-version = "0.1.0"
-path = "../zeus-bip32"
+[dependencies]
+zeus-bip32 = { path = "../zeus-bip32", version = "0.1.0" }
 
-[dependencies.k256]
-version = "=0.13.4"
+alloy-signer-local = { version = "=1.7.3", features = ["mnemonic"] }
+alloy-network = "=1.7.3"
+alloy-primitives = "=1.5.7"
 
-[dependencies.sha3]
-version = "=0.10.8"
-
-[dependencies.rand]
-version = "=0.8"
-
-[dependencies.alloy-signer-local]
-version = "=1.7.3"
-features = ["mnemonic"]
-
-[dependencies.alloy-network]
-version = "=1.7.3"
-
-[dependencies.alloy-primitives]
-version = "=1.5.7"
-
-[dependencies.secure-types]
-version = "0.2"
-
-[dependencies.argon2-rs]
-version = "0.1"
-features = ["zeroize"]
-
-[dependencies.anyhow]
-version = "=1.0.99"
-
-[dependencies.serde]
-version = "=1.0.228"
-features = ["derive"]
-optional = true
+k256 = "=0.13.4"
+sha3 = "=0.10.8"
+rand = "=0.8"
+secure-types = "0.2"
+argon2-rs = "0.1"
+anyhow = "=1.0.99"
+serde = { version = "=1.0.228", optional = true, features = ["derive"] }
 
 [features]
 serde = ["dep:serde", "secure-types/serde"]
