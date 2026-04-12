@@ -1,6 +1,6 @@
 [package]
 name = "zeus-widgets"
-version = "0.3.1"
+version = "0.4.0"
 readme = "readme.md"
 description = "A collection of widgets for egui"
 repository = "https://github.com/greekfetacheese/zeus/tree/master/crates/zeus-widgets"
@@ -11,7 +11,7 @@ edition = "2024"
 
 [dependencies]
 egui = "0.34"
-zeus-theme = { path = "../zeus-theme", version = "0.3" }
+zeus-theme = { path = "../zeus-theme", version = "0.4" }
 secure-types = { version = "0.2", optional = true }
 
 [features]
