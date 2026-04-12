@@ -11,7 +11,7 @@ keywords = ["egui", "ui"]
 categories = ["gui"]
 
 [dependencies]
-egui = "0.33.3"
+egui = "0.34"
 
 zeus-theme = { version = "0.3", path = "../zeus-theme" }
 zeus-widgets = { version = "0.3", path = "../zeus-widgets" }
@@ -28,5 +28,9 @@ qr-scanner = ["dep:secure-types", "dep:xcap", "dep:enigo", "dep:rqrr"]
 all = ["secure-types", "qr-scanner"]
 
 [dev-dependencies]
-eframe = "=0.33.3"
-egui_extras = { version = "=0.33.3", features = ["image"] }
+eframe = "0.34"
+egui_extras = { version = "0.34", features = ["image"] }
+
+[[example]]
+name = "credentials_form"
+required-features = ["secure-types"]

@@ -3,7 +3,7 @@
 use eframe::{
    egui,
    egui_wgpu::{WgpuConfiguration, WgpuSetup, WgpuSetupCreateNew},
-   wgpu::{self, MemoryHints, Trace},
+   wgpu::{self, InstanceDescriptor, MemoryHints, Trace},
 };
 use gui::app::ZeusApp;
 use std::sync::Arc;
@@ -41,7 +41,10 @@ fn main() -> eframe::Result {
          trace: Trace::Off,
          ..Default::default()
       }),
-      ..Default::default()
+      instance_descriptor: InstanceDescriptor::new_without_display_handle(),
+      display_handle: None,
+      native_adapter_selector: None,
+      power_preference: wgpu::PowerPreference::LowPower
    });
 
    let wgpu_config = WgpuConfiguration {

@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 edition = "2024"
 
 [dependencies]
-egui = "0.33.3"
+egui = "0.34"
 zeus-theme = { path = "../zeus-theme", version = "0.3" }
 secure-types = { version = "0.2", optional = true }
 

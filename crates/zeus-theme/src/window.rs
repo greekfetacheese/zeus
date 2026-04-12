@@ -75,8 +75,8 @@ impl WindowCtx {
    }
 }
 
-pub fn window_frame(ctx: &Context, window_ctx: WindowCtx, add_contents: impl FnOnce(&mut Ui)) {
-   CentralPanel::default().frame(window_ctx.frame).show(ctx, |ui| {
+pub fn window_frame(ui: &mut Ui, window_ctx: WindowCtx, add_contents: impl FnOnce(&mut Ui)) {
+   CentralPanel::default().frame(window_ctx.frame).show_inside(ui, |ui| {
       let app_rect = ui.max_rect();
 
       let title_bar_rect = {
@@ -94,7 +94,7 @@ pub fn window_frame(ctx: &Context, window_ctx: WindowCtx, add_contents: impl FnO
          rect
       };
 
-      let ui_builder = UiBuilder::default().max_rect(content_rect).style(ctx.style().clone());
+      let ui_builder = UiBuilder::default().max_rect(content_rect).style(ui.global_style().clone());
       let mut content_ui = ui.new_child(ui_builder);
       add_contents(&mut content_ui);
    });

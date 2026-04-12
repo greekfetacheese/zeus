@@ -21,9 +21,9 @@ default-run = "zeus"
 [dependencies]
 
 # GUI
-eframe = { version = "=0.33.3", features = ["wgpu"] }
-egui = { version = "=0.33.3", features = ["serde"] }
-egui_extras = { version = "=0.33.3", features = ["image"] }
+eframe = { version = "=0.34.1", features = ["wgpu"] }
+egui = { version = "=0.34.1", features = ["serde"] }
+egui_extras = { version = "=0.34.1", features = ["image"] }
 image = "=0.25.6"
 
 
@@ -95,6 +95,7 @@ strip = true
 opt-level = 2
 debug = false
 lto = "fat"
+
 
 
 [features]

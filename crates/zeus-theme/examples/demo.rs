@@ -104,7 +104,7 @@ impl DemoApp {
       let theme = Theme::new(ThemeKind::Dark);
       let overlay = theme.overlay_manager.clone();
       let editor = ThemeEditor::new();
-      cc.egui_ctx.set_style(theme.style.clone());
+      cc.egui_ctx.set_global_style(theme.style.clone());
 
       // setup_fonts(&cc.egui_ctx);
 
@@ -135,13 +135,13 @@ impl eframe::App for DemoApp {
       egui::Rgba::TRANSPARENT.to_array()
    }
 
-   fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+   fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
       let theme = self.theme.clone();
 
       let window = WindowCtx::new("egui Theme Demo", 40.0, &theme);
-      self.overlay.paint_overlay(ctx, true);
+      self.overlay.paint_overlay(ui.ctx(), true);
 
-      window_frame(ctx, window, |ui| {
+      window_frame(ui, window, |ui| {
          utils::apply_theme_changes(&mut self.theme, ui);
 
          self.left_panel(ui);
@@ -157,7 +157,7 @@ impl DemoApp {
 
       egui::CentralPanel::default().frame(frame).show_inside(ui, |ui| {
          if !self.set_theme {
-            ui.ctx().set_style(self.theme.style.clone());
+            ui.ctx().set_global_style(self.theme.style.clone());
             self.set_theme = true;
          }
 
@@ -208,9 +208,9 @@ impl DemoApp {
       let bg = self.theme.colors.bg;
       let frame = Frame::new().fill(bg);
 
-      egui::SidePanel::left("left_panel")
-         .min_width(150.0)
-         .max_width(150.0)
+      egui::Panel::left("left_panel")
+         .min_size(150.0)
+         .max_size(150.0)
          .resizable(false)
          .show_separator_line(true)
          .frame(frame)

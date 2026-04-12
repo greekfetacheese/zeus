@@ -11,15 +11,16 @@ keywords = ["egui", "ui", "themes", "style"]
 categories = ["gui"]
 
 [dependencies]
-egui = "=0.33.3"
+egui = "0.34"
 palette = "=0.7.6"
 serde_json = { version = "1", optional = true }
 serde = { version = "1", optional = true, features = ["derive"] }
+
 
 [features]
 serde = ["dep:serde", "palette/serde", "dep:serde_json", "egui/serde"]
 
 [dev-dependencies]
-eframe = "=0.33.3"
+eframe = "0.34"
 secure-types = "0.2"
 zeus-widgets = { path = "../zeus-widgets", features = ["secure-types"] }

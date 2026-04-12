@@ -34,13 +34,13 @@ impl ZeusApp {
       let icons = Arc::new(icons);
 
       SHARED_GUI.write(|shared_gui| {
-         shared_gui.icons = icons.clone();
+         shared_gui.icons = icons;
          shared_gui.egui_ctx = egui_ctx.clone();
       });
 
       let theme = SHARED_GUI.read(|shared_gui| shared_gui.theme.clone());
       let ctx = SHARED_GUI.read(|shared_gui| shared_gui.ctx.clone());
-      egui_ctx.set_style(theme.style.clone());
+      egui_ctx.set_global_style(theme.style.clone());
 
       tracing::info!(
          "ZeusApp loaded in {}ms",
@@ -107,32 +107,32 @@ impl eframe::App for ZeusApp {
       egui::Rgba::TRANSPARENT.to_array()
    }
 
-   fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+   fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
       #[cfg(feature = "dev")]
       let time = std::time::Instant::now();
 
       SHARED_GUI.write(|gui| {
-         self.on_shutdown(ctx, gui);
+         self.on_shutdown(ui.ctx(), gui);
 
          // This is needed for Windows
          if !self.style_has_been_set {
             let style = gui.theme.style.clone();
-            ctx.set_style(style);
+            ui.set_global_style(style);
             self.style_has_been_set = true;
          }
 
          let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
          let color = gui.theme.colors.bg;
          let panel_frame = Frame::new().fill(color);
-         self.overlay.paint_overlay(ctx, true);
+         self.overlay.paint_overlay(ui.ctx(), true);
 
-         window_frame(ctx, window, |ui| {
+         window_frame(ui, window, |ui| {
             #[cfg(feature = "dev")]
             zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
             // Paint the Ui that belongs to the top panel
-            egui::TopBottomPanel::top("top_panel")
-               .min_height(150.0)
+            egui::Panel::top("top_panel")
+               .min_size(150.0)
                .resizable(false)
                .show_separator_line(false)
                .frame(panel_frame)
@@ -143,8 +143,8 @@ impl eframe::App for ZeusApp {
                });
 
             // Paint the Ui that belongs to the bottom panel
-            egui::TopBottomPanel::bottom("bottom_panel")
-               .max_height(24.0)
+            egui::Panel::bottom("bottom_panel")
+               .max_size(24.0)
                .resizable(false)
                .show_separator_line(false)
                .frame(panel_frame)
@@ -153,9 +153,9 @@ impl eframe::App for ZeusApp {
                });
 
             // Paint the Ui that belongs to the left panel
-            egui::SidePanel::left("left_panel")
-               .min_width(150.0)
-               .max_width(150.0)
+            egui::Panel::left("left_panel")
+               .min_size(150.0)
+               .max_size(150.0)
                .resizable(false)
                .frame(panel_frame)
                .show_separator_line(false)
@@ -168,8 +168,8 @@ impl eframe::App for ZeusApp {
 
             if gui.should_show_right_panel() {
                // Paint the Ui that belongs to the left panel
-               egui::SidePanel::right("right_panel")
-                  .min_width(150.0)
+               egui::Panel::right("right_panel")
+                  .min_size(150.0)
                   .resizable(false)
                   .show_separator_line(false)
                   .frame(panel_frame)

@@ -1,7 +1,9 @@
 use eframe::egui::*;
 use zeus_theme::{Theme, ThemeKind, window::*};
-use zeus_ui_components::CredentialsForm;
 use zeus_widgets::Button;
+
+#[cfg(feature = "secure-types")]
+use zeus_ui_components::CredentialsForm;
 
 pub struct MyApp {
    pub style_has_been_set: bool,
@@ -12,7 +14,7 @@ pub struct MyApp {
 impl MyApp {
    fn new(cc: &eframe::CreationContext<'_>) -> Self {
       let theme = Theme::new(ThemeKind::Dark);
-      cc.egui_ctx.set_style(theme.style.clone());
+      cc.egui_ctx.set_global_style(theme.style.clone());
 
       Self {
          style_has_been_set: false,
@@ -27,14 +29,15 @@ impl eframe::App for MyApp {
       egui::Rgba::TRANSPARENT.to_array()
    }
 
-   fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+
+   fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
       let theme = self.theme.clone();
 
       let window = WindowCtx::new("Credentials Form Demo", 40.0, &theme);
 
-      window_frame(ctx, window, |ui| {
+      window_frame(ui, window, |ui| {
          if !self.style_has_been_set {
-            ui.ctx().set_style(theme.style.clone());
+            ui.ctx().set_global_style(theme.style.clone());
             self.style_has_been_set = true;
          }
 

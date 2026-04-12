@@ -17,7 +17,7 @@ pub fn change_theme(current_theme: &Theme, ui: &mut Ui) -> Option<Theme> {
          for kind in ThemeKind::to_vec() {
             if ui.selectable_label(current_theme.kind == kind, kind.to_str()).clicked() {
                let new_theme = Theme::new(kind);
-               ui.ctx().set_style(new_theme.style.clone());
+               ui.ctx().set_global_style(new_theme.style.clone());
                new_theme_opt = Some(new_theme);
             }
          }

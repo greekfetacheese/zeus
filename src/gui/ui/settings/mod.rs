@@ -116,7 +116,7 @@ impl ThemeSettings {
 
                         if ui.add(label).clicked() {
                            let new_theme = Theme::new(kind);
-                           ui.ctx().set_style(new_theme.style.clone());
+                           ui.ctx().set_global_style(new_theme.style.clone());
                            RT.spawn_blocking(move || {
                               SHARED_GUI.write(|gui| {
                                  gui.theme = new_theme;

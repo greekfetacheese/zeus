@@ -466,7 +466,7 @@ impl<'a> SecureTextEdit<'a> {
          Sense::hover()
       };
       let mut response = ui.interact(outer_rect, id, sense_behavior);
-      response.intrinsic_size = Some(vec2(desired_width, desired_outer_size.y));
+      response.set_intrinsic_size(vec2(desired_width, desired_outer_size.y));
 
       // Handle click to focus
       if self.interactive {
