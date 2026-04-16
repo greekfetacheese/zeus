@@ -201,13 +201,13 @@ impl ChainId {
       }
    }
 
-   pub fn uses_priority_fee(&self) -> bool {
+   pub fn supports_type_2_tx(&self) -> bool {
       match self {
          ChainId::Ethereum => true,
          ChainId::Optimism => true,
          ChainId::BinanceSmartChain => false,
          ChainId::Base => true,
-         ChainId::Arbitrum => false,
+         ChainId::Arbitrum => true,
       }
    }
 }

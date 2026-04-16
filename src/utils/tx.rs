@@ -72,7 +72,7 @@ impl TxParams {
    }
 
    pub fn gas_cost(&self) -> U256 {
-      if self.chain.is_ethereum() || self.chain.is_optimism() || self.chain.is_base() {
+      if self.chain.supports_type_2_tx() {
          U256::from(U256::from(self.gas_used) * self.max_fee_per_gas())
       } else {
          U256::from(self.gas_used * self.base_fee)
@@ -553,7 +553,7 @@ where
 }
 
 fn make_tx_request(params: TxParams) -> TransactionRequest {
-   if params.chain.is_ethereum() || params.chain.is_optimism() || params.chain.is_base() {
+   if params.chain.supports_type_2_tx() {
       let mut tx = TransactionRequest::default()
          .with_from(params.signer.address())
          .with_to(params.transcact_to)

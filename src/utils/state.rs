@@ -341,6 +341,14 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
       .await?;
 
    let fee: u64 = gas_price.try_into()?;
+
+   let fee_gwei = NumericValue::format_to_gwei(U256::from(fee));
+   tracing::info!(
+      "Base fee for chain {} is {}",
+      chain.id(),
+      fee_gwei.formatted()
+   );
+
    ctx.update_base_fee(chain.id(), fee, fee);
    Ok(BaseFee::new(fee, fee))
 }
@@ -348,7 +356,7 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow::Error> {
    let z_client = ctx.get_zeus_client();
    let chain = ChainId::new(chain)?;
-   if chain.is_ethereum() || chain.is_optimism() || chain.is_base() {
+   if chain.supports_type_2_tx() {
       let fee = z_client
          .request(chain.id(), |client| async move {
             client.get_max_priority_fee_per_gas().await.map_err(|e| anyhow!("{:?}", e))
@@ -364,6 +372,12 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
             chain.id()
          ));
       }
+
+      tracing::info!(
+         "Priority fee for chain {} is {}",
+         chain.id(),
+         fee_value.formatted()
+      );
 
       ctx.update_priority_fee(chain.id(), fee_value);
    }

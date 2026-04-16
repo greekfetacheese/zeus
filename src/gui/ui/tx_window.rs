@@ -110,6 +110,8 @@ impl TxConfirmationWindow {
       self.tx_main_event = Some(main_event);
       self.open = true;
       self.confirmed_or_rejected = None;
+
+      self.calculate_tx_cost(ctx, self.gas_used);
    }
 
    pub fn get_confirmed_or_rejected(&self) -> Option<bool> {
@@ -128,7 +130,7 @@ impl TxConfirmationWindow {
    fn calculate_tx_cost(&mut self, ctx: ZeusCtx, gas_used: u64) {
       let chain = self.chain;
       let fee = NumericValue::parse_to_gwei(&self.priority_fee);
-      let fee = if fee.is_zero() {
+      let fee = if fee.is_zero() && chain.supports_type_2_tx() {
          NumericValue::parse_to_gwei("1")
       } else {
          fee
@@ -171,8 +173,6 @@ impl TxConfirmationWindow {
                      );
                      return;
                   }
-
-                  self.calculate_tx_cost(ctx.clone(), self.gas_used);
 
                   let analysis = self.tx.as_ref().unwrap();
                   let main_event = self.tx_main_event.as_ref().unwrap();
@@ -310,6 +310,8 @@ impl TxConfirmationWindow {
                      analysis.sender,
                   );
 
+                  let mut recalculate_tx_cost = false;
+
                   let size = vec2(ui.available_width() * 0.7, 45.0);
                   ui.allocate_ui(size, |ui| {
                      frame.show(ui, |ui| {
@@ -330,7 +332,7 @@ impl TxConfirmationWindow {
                                  ui.disable();
                               }
 
-                              ui.add(
+                              let res = ui.add(
                                  SecureTextEdit::singleline(&mut self.priority_fee)
                                     .visuals(text_edit_visuals)
                                     .margin(Margin::same(10))
@@ -339,6 +341,10 @@ impl TxConfirmationWindow {
                                        theme.text_sizes.normal,
                                     )),
                               );
+
+                              if res.changed() {
+                                 recalculate_tx_cost = true;
+                              }
                            });
 
                            // Take the available space because otherwise the gas limit
@@ -373,6 +379,10 @@ impl TxConfirmationWindow {
                      && main_event.is_mev_vulnerable();
                   let show_mev_protect = base_case || main_event.is_other();
                   let tint = theme.image_tint_recommended;
+
+                  if recalculate_tx_cost {
+                     self.calculate_tx_cost(ctx.clone(), self.gas_used);
+                  }
 
                   if show_mev_protect {
                      let icon = if self.mev_protect {
