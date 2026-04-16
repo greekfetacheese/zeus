@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use zeus_bip32::{BIP32_HARDEN, DerivationPath};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
-   amm::uniswap::{DexKind, FeeAmount},
-   currency::{ERC20Token, Currency},
+   currency::ERC20Token,
    utils::NumericValue,
 };
 
@@ -167,86 +166,6 @@ impl TransactionsDB {
    }
 }
 
-/// Uniswap V3 Positions by chain and wallet address
-pub type V3Positions = HashMap<(u64, Address), Vec<V3Position>>;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct V3Position {
-   pub chain_id: u64,
-   pub owner: Address,
-   pub dex: DexKind,
-   /// The block which this position was created
-   pub block: u64,
-   pub timestamp: u64,
-   /// Id of the position
-   pub id: U256,
-   /// Nonce for permits
-   pub nonce: U256,
-   /// Address that is approved for spending
-   pub operator: Address,
-   pub token0: Currency,
-   pub token1: Currency,
-   /// Fee tier of the pool
-   pub fee: FeeAmount,
-   pub pool_address: Address,
-   pub tick_lower: i32,
-   pub tick_upper: i32,
-   pub liquidity: u128,
-   pub fee_growth_inside0_last_x128: U256,
-   pub fee_growth_inside1_last_x128: U256,
-   /// Amount0 of token0
-   pub amount0: NumericValue,
-   /// Amount1 of token1
-   pub amount1: NumericValue,
-   /// Unclaimed fees
-   pub tokens_owed0: NumericValue,
-   /// Unclaimed fees
-   pub tokens_owed1: NumericValue,
-
-   pub apr: f64,
-}
-
-impl PartialEq for V3Position {
-   fn eq(&self, other: &Self) -> bool {
-      self.id == other.id
-   }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct V3PositionsDB {
-   #[serde(with = "serde_hashmap")]
-   pub positions: V3Positions,
-}
-
-impl V3PositionsDB {
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = data_dir()?.join(V3_POSITIONS_FILE);
-      let data = std::fs::read(dir)?;
-      let db = serde_json::from_slice(&data)?;
-      Ok(db)
-   }
-
-   pub fn save(&self) -> Result<(), anyhow::Error> {
-      let db = serde_json::to_string(&self)?;
-      let dir = data_dir()?.join(V3_POSITIONS_FILE);
-      std::fs::write(dir, db)?;
-      Ok(())
-   }
-
-   pub fn get(&self, chain: u64, owner: Address) -> Vec<V3Position> {
-      self.positions.get(&(chain, owner)).cloned().unwrap_or_default()
-   }
-
-   pub fn insert(&mut self, chain: u64, owner: Address, position: V3Position) {
-      self.remove(chain, owner, &position);
-      self.positions.entry((chain, owner)).or_default().push(position);
-   }
-
-   pub fn remove(&mut self, chain: u64, owner: Address, position: &V3Position) {
-      self.positions.get_mut(&(chain, owner)).map(|p| p.retain(|p| p != position));
-   }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredWallet {
    pub address: Address,
@@ -278,8 +197,6 @@ pub struct DiscoveredWallets {
    #[serde(default = "default_batch_size")]
    pub batch_size: usize,
 }
-
-
 
 impl DiscoveredWallets {
    pub fn new() -> Self {

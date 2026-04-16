@@ -431,14 +431,6 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_v3_positions_db(&self) {
-      let db = self.read(|ctx| ctx.v3_positions_db.clone());
-      match db.save() {
-         Ok(_) => tracing::trace!("V3PositionsDB saved"),
-         Err(e) => tracing::error!("Error saving V3 Positions DB: {:?}", e),
-      }
-   }
-
    pub fn save_currency_db(&self) {
       let db = self.read(|ctx| ctx.currency_db.clone());
       match db.save() {
@@ -503,7 +495,6 @@ impl ZeusCtx {
       self.save_portfolio_db();
       self.save_zeus_client();
       self.save_tx_db();
-      self.save_v3_positions_db();
       self.save_pool_manager();
       self.save_price_manager();
       self.save_delegated_wallets();
@@ -589,10 +580,6 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
-   }
-
-   pub fn get_v3_positions(&self, chain: u64, owner: Address) -> Vec<V3Position> {
-      self.read(|ctx| ctx.v3_positions_db.get(chain, owner))
    }
 
    /// Get the USD price of an ERC20 token
@@ -1518,7 +1505,6 @@ pub struct ZeusContext {
    pub currency_db: CurrencyDB,
    pub portfolio_db: PortfolioDB,
    pub tx_db: TransactionsDB,
-   pub v3_positions_db: V3PositionsDB,
    pub pool_manager: PoolManagerHandle,
    pub price_manager: PriceManagerHandle,
    pub balance_manager: BalanceManagerHandle,
@@ -1586,14 +1572,6 @@ impl ZeusContext {
          }
       };
 
-      let v3_positions_db = match V3PositionsDB::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load v3 positions, {:?}", e);
-            V3PositionsDB::default()
-         }
-      };
-
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
       let pool_manager = match PoolManagerHandle::load_from_file() {
@@ -1638,7 +1616,6 @@ impl ZeusContext {
          currency_db,
          portfolio_db,
          tx_db,
-         v3_positions_db,
          pool_manager,
          price_manager,
          balance_manager,
