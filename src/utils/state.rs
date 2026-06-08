@@ -79,6 +79,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       RT.spawn(async move {
          match update_priority_fee(ctx2, chain).await {
             Ok(_) => {
+               #[cfg(feature = "debug")]
                tracing::trace!("Updated priority fee for chain: {}", chain)
             }
             Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
@@ -122,6 +123,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
       RT.spawn(async move {
          match get_base_fee(ctx.clone(), chain).await {
             Ok(_) => {
+               #[cfg(feature = "debug")]
                tracing::trace!("Updated base fee for chain: {}", chain)
             }
             Err(e) => tracing::error!("Error updating base fee: {:?}", e),
@@ -189,7 +191,10 @@ async fn check_smart_account_status(ctx: ZeusCtx) {
          for account in &accounts {
             if ctx.should_check_delegated_wallet_status(chain, account.address) {
                match ctx.check_delegated_wallet_status(chain, account.address).await {
-                  Ok(_) => {}
+                  Ok(_) => {
+                     #[cfg(feature = "debug")]
+                     tracing::info!("Checked delegated wallet status for {}", account.address)
+                  }
                   Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
                }
             }
@@ -226,7 +231,10 @@ async fn update_token_prices(ctx: ZeusCtx) {
          }
 
          match price_manager.update_base_token_prices(ctx.clone(), chain).await {
-            Ok(_) => tracing::trace!("Updated base token prices for chain: {}", chain),
+            Ok(_) => {
+               #[cfg(feature = "debug")]
+               tracing::info!("Updated base token prices for chain: {}", chain)
+            },
             Err(e) => tracing::error!(
                "Error updating base token prices for chain {}: {:?}",
                chain,
@@ -235,7 +243,10 @@ async fn update_token_prices(ctx: ZeusCtx) {
          }
 
          match price_manager.calculate_prices(ctx, chain, pool_manager, tokens).await {
-            Ok(_) => tracing::trace!("Updated token prices for chain: {}", chain),
+            Ok(_) => {
+               #[cfg(feature = "debug")]
+               tracing::info!("Updated token prices for chain: {}", chain)
+            },
             Err(e) => tracing::error!(
                "Error updating token prices for chain {}: {:?}",
                chain,
@@ -283,6 +294,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
          for chain in SUPPORTED_CHAINS {
             match update_priority_fee(ctx.clone(), chain).await {
                Ok(_) => {
+                  #[cfg(feature = "debug")]
                   tracing::trace!("Updated priority fee for chain: {}", chain)
                }
                Err(e) => tracing::error!(
@@ -294,6 +306,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
             match get_base_fee(ctx.clone(), chain).await {
                Ok(_) => {
+                  #[cfg(feature = "debug")]
                   tracing::trace!("Updated base fee for chain: {}", chain)
                }
                Err(e) => tracing::error!("Error updating base fee: {:?}", e),
@@ -342,7 +355,10 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 
    let fee: u64 = gas_price.try_into()?;
 
+   #[cfg(feature = "debug")]
    let fee_gwei = NumericValue::format_to_gwei(U256::from(fee));
+
+   #[cfg(feature = "debug")]
    tracing::info!(
       "Base fee for chain {} is {}",
       chain.id(),
@@ -373,6 +389,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
          ));
       }
 
+      #[cfg(feature = "debug")]
       tracing::info!(
          "Priority fee for chain {} is {}",
          chain.id(),

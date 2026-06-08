@@ -119,7 +119,7 @@ impl UniswapSettingsUi {
          swap_on_v2: true,
          swap_on_v3: true,
          swap_on_v4: true,
-         split_routing_enabled: true,
+         split_routing_enabled: false,
          max_hops: 5,
          max_split_routes: 5,
          deadline: 5,

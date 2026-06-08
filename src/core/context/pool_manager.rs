@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::{sync::Semaphore, task::JoinHandle};
-use tracing::{info, trace};
+use tracing::info;
 use zeus_eth::abi::zeus::ZeusStateViewV2::PoolsState;
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
@@ -486,7 +486,7 @@ impl PoolManagerHandle {
       let mut tasks: Vec<JoinHandle<Result<ERC20Token, anyhow::Error>>> = Vec::new();
       let semaphore = Arc::new(Semaphore::new(self.concurrency()));
 
-      #[cfg(feature = "dev")]
+      #[cfg(feature = "debug")]
       {
          let symbols = tokens.iter().map(|t| t.symbol.clone()).collect::<Vec<_>>();
          let addresses = tokens.iter().map(|t| t.address.to_string()).collect::<Vec<_>>();
@@ -524,7 +524,7 @@ impl PoolManagerHandle {
                let should_sync =
                   manager.should_sync_pools(chain, base_token.address, token.address);
 
-               #[cfg(feature = "dev")]
+               #[cfg(feature = "debug")]
                tracing::info!(
                   "Should Sync {} for {} {}-{}",
                   should_sync,
@@ -763,7 +763,8 @@ impl PoolManagerHandle {
       let latest_block = client.get_block_number().await?;
 
       if !self.should_sync_v4_pools(chain.id(), dex) {
-         trace!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain.id());
+         #[cfg(feature = "debug")]
+         info!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain.id());
          return Ok(());
       }
 
@@ -1292,7 +1293,6 @@ async fn batch_update_state(
    let zeus_client = ctx.get_zeus_client();
    let state_view = uniswap_v4_stateview(chain)?;
 
-   #[cfg(feature = "dev")]
    let time = Instant::now();
 
    let batches = get_batches(
@@ -1412,7 +1412,6 @@ async fn batch_update_state(
       }
    }
 
-   #[cfg(feature = "dev")]
    tracing::info!(
       "Updated pool state for {} V2 Pools {} V3 Pools {} V4 Pools in {} ms. Chain {}",
       v2_pools.len(),

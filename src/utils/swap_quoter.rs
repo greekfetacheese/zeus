@@ -1,7 +1,8 @@
 use crate::core::ZeusCtx;
 use rayon::prelude::*;
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
+use std::sync::Arc;
 
 use zeus_eth::{
    alloy_primitives::U256,
@@ -10,10 +11,36 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+#[cfg(feature = "dev")]
+use std::time::Instant;
+
 /// Minimum estimated gas for a swap
 const BASE_GAS: u64 = 140_000;
 /// An estimate of the gas cost for a hop (intermidiate swaps always cost lower gas)
 const HOP_GAS: u64 = 80_000;
+
+/// Max-heap entry: marginal output gain of allocating one more chunk to a route.
+struct MarginalGain {
+   gain: U256,
+   route_index: usize,
+}
+
+impl PartialEq for MarginalGain {
+   fn eq(&self, other: &Self) -> bool {
+      self.gain == other.gain
+   }
+}
+impl Eq for MarginalGain {}
+impl Ord for MarginalGain {
+   fn cmp(&self, other: &Self) -> Ordering {
+      self.gain.cmp(&other.gain)
+   }
+}
+impl PartialOrd for MarginalGain {
+   fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+   }
+}
 
 /// Represents a single atomic swap step within a potentially larger route.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,10 +100,6 @@ pub struct Quote {
    pub currency_out: Currency,
    pub amount_in: NumericValue,
    pub amount_out: NumericValue,
-   /// For single-path routes
-   pub route: Option<Vec<RouteStep>>,
-   /// For multi-path routes
-   pub split_routes: Vec<SplitRoute>,
    pub swap_steps: Vec<SwapStep<AnyUniswapPool>>,
 }
 
@@ -105,7 +128,7 @@ impl EvaluatedRoute {
    }
 }
 
-const SPLIT_ROUTING_ITERATIONS: u32 = 100;
+const SPLIT_ROUTING_ITERATIONS: u32 = 10;
 
 pub fn get_quote(
    ctx: ZeusCtx,
@@ -119,11 +142,15 @@ pub fn get_quote(
    priority_fee: U256,
    max_hops: usize,
 ) -> Quote {
-   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
    #[cfg(feature = "dev")]
+   let now = Instant::now();
+
+   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
+
+   #[cfg(feature = "debug")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
-   #[cfg(feature = "dev")]
+   #[cfg(feature = "debug")]
    for pool in &all_pools {
       tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
    }
@@ -136,10 +163,11 @@ pub fn get_quote(
       max_hops,
    );
 
-   #[cfg(feature = "dev")]
+   #[cfg(feature = "debug")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Paths Length: {}", all_paths.len());
 
    if all_paths.is_empty() {
+      #[cfg(feature = "debug")]
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
       return Quote::default();
    }
@@ -154,7 +182,7 @@ pub fn get_quote(
       priority_fee,
    );
 
-   #[cfg(feature = "dev")]
+   #[cfg(feature = "debug")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Evaluated Routes Length: {}", evaluated_routes.len());
 
    // Select the best route
@@ -164,12 +192,22 @@ pub fn get_quote(
          .unwrap_or(std::cmp::Ordering::Equal)
    });
 
-   if let Some(best_route) = evaluated_routes.into_iter().next() {
+   let quote = if let Some(best_route) = evaluated_routes.into_iter().next() {
       build_quote_from_route(best_route, currency_in, currency_out)
    } else {
+      #[cfg(feature = "debug")]
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter", "No profitable routes found after evaluation.");
       Quote::default()
-   }
+   };
+
+   #[cfg(feature = "dev")]
+   tracing::info!(
+      "Quote took {} μs for {} pools",
+      now.elapsed().as_micros(),
+      all_pools.len()
+   );
+
+   quote
 }
 
 pub fn get_quote_with_split_routing(
@@ -185,11 +223,15 @@ pub fn get_quote_with_split_routing(
    max_hops: usize,
    max_split_routes: usize,
 ) -> Quote {
-   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
    #[cfg(feature = "dev")]
+   let now = Instant::now();
+
+   let all_pools: Vec<Arc<AnyUniswapPool>> = all_pools.into_iter().map(Arc::new).collect();
+
+   #[cfg(feature = "debug")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "All Pools Length: {}", all_pools.len());
 
-   #[cfg(feature = "dev")]
+   #[cfg(feature = "debug")]
    for pool in &all_pools {
       tracing::info!(target: "zeus_eth::amm::uniswap::quoter", "Pool {} / {} {} Fee: {}", pool.currency0().symbol(), pool.currency1().symbol(), pool.dex_kind().version_str(), pool.fee().fee_percent());
    }
@@ -203,6 +245,7 @@ pub fn get_quote_with_split_routing(
    );
 
    if all_paths.is_empty() {
+      #[cfg(feature = "debug")]
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter_split", "No routes found for {} -> {}", currency_in.symbol(), currency_out.symbol());
       return Quote::default();
    }
@@ -220,80 +263,84 @@ pub fn get_quote_with_split_routing(
       candidate_routes.drain(..).take(max_split_routes).collect();
 
    if top_routes.is_empty() {
+      #[cfg(feature = "debug")]
       tracing::warn!(target: "zeus_eth::amm::uniswap::quoter_split", "No viable candidate routes found after ranking.");
       return Quote::default();
    }
 
-   #[cfg(feature = "dev")]
+   #[cfg(feature = "debug")]
    tracing::info!(target: "zeus_eth::amm::uniswap::quoter_split", "Found {} candidate routes for split routing.", top_routes.len());
 
-   // distribute the input amount across the best routes.
+   // distribute the input across the best routes
    let total_amount_in_wei = amount_to_swap.wei();
    let chunk_size = total_amount_in_wei / U256::from(SPLIT_ROUTING_ITERATIONS);
 
-   // Stores the amount allocated to each route (in wei).
-   let allocations = Mutex::new(vec![U256::ZERO; top_routes.len()]);
+   let mut allocations = vec![U256::ZERO; top_routes.len()];
 
-   for _ in 0..SPLIT_ROUTING_ITERATIONS {
-      if chunk_size.is_zero() {
-         // handle very small total amounts
-         *allocations.lock().unwrap().get_mut(0).unwrap() = total_amount_in_wei;
-         break;
-      }
+   if chunk_size.is_zero() {
+      // Total smaller than the iteration count: just use the best-ranked route.
+      allocations[0] = total_amount_in_wei;
+   } else {
+      // Invariant: current_output[i] == simulate_path(allocations[i]) at all times.
+      let mut current_output = vec![U256::ZERO; top_routes.len()];
 
-      let marginal_gains: Vec<(usize, U256)> = top_routes
+      // Seed each route's first-chunk marginal gain. This is the only parallel part:
+      // N independent simulations.
+      let initial: Vec<MarginalGain> = top_routes
          .par_iter()
          .enumerate()
-         .map(|(i, route)| {
-            let current_allocation = allocations.lock().unwrap()[i];
-
-            // Simulate current output
-            let current_output = simulate_path(
-               &route.pools,
-               &route.path_currencies,
-               current_allocation,
-            )
-            .unwrap_or_default();
-
-            // Simulate output with one additional chunk
-            let next_output = simulate_path(
-               &route.pools,
-               &route.path_currencies,
-               current_allocation + chunk_size,
-            )
-            .unwrap_or_default();
-
-            // The marginal gain is the additional output from this chunk
-            let gain = next_output.saturating_sub(current_output);
-            (i, gain)
+         .map(|(i, route)| MarginalGain {
+            gain: simulate_path(&route.pools, &route.path_currencies, chunk_size)
+               .unwrap_or_default(),
+            route_index: i,
          })
          .collect();
+      let mut heap = BinaryHeap::from(initial); // O(n) heapify
 
-      // Find the route that gave the best marginal gain
-      if let Some((best_index, _)) = marginal_gains.iter().max_by_key(|(_, gain)| gain) {
-         // Allocate the chunk to that route
-         allocations.lock().unwrap()[*best_index] += chunk_size;
+      // Commit one chunk per iteration to the route with the highest marginal gain,
+      // then refresh only that route's gain (one simulation).
+      for _ in 0..SPLIT_ROUTING_ITERATIONS {
+         let Some(MarginalGain { gain, route_index }) = heap.pop() else {
+            break;
+         };
+
+         // `gain` was the exact delta from the previous output (concave, monotone
+         // increasing curve), so we can update output without re-simulating it.
+         allocations[route_index] += chunk_size;
+         current_output[route_index] += gain;
+
+         let route = &top_routes[route_index];
+         let next_output = simulate_path(
+            &route.pools,
+            &route.path_currencies,
+            allocations[route_index] + chunk_size,
+         )
+         .unwrap_or_default();
+
+         heap.push(MarginalGain {
+            gain: next_output.saturating_sub(current_output[route_index]),
+            route_index,
+         });
       }
    }
 
-   // Build the final quote from the distributed amounts.
+   // Build the final quote from the distributed amounts (no mutex needed now).
    let final_split_routes: Vec<SplitRoute> = top_routes
       .into_par_iter()
       .enumerate()
       .filter_map(|(i, route_info)| {
-         let allocated_amount_wei = allocations.lock().unwrap()[i];
+         let allocated_amount_wei = allocations[i];
          if allocated_amount_wei.is_zero() {
-            return None; // Skip routes that were not allocated any funds
+            return None;
          }
 
          let mut steps = Vec::new();
          let mut current_amount_in_step = allocated_amount_wei;
 
-         // Re-simulate the path with its final allocated amount to build the RouteStep details
-         for i in 0..route_info.pools.len() {
-            let pool = &route_info.pools[i];
-            let currency_in_step = &route_info.path_currencies[i];
-            let currency_out_step = &route_info.path_currencies[i + 1];
+         for j in 0..route_info.pools.len() {
+            let pool = &route_info.pools[j];
+            let currency_in_step = &route_info.path_currencies[j];
+            let currency_out_step = &route_info.path_currencies[j + 1];
 
             let amount_out_wei =
                pool.simulate_swap(currency_in_step, current_amount_in_step).unwrap_or_default();
@@ -323,26 +370,34 @@ pub fn get_quote_with_split_routing(
    // Aggregate results into the final Quote object.
    let total_amount_out_wei: U256 = final_split_routes.iter().map(|r| r.amount_out.wei()).sum();
 
-   let swap_steps = final_split_routes
-      .iter()
-      .flat_map(|split_route| {
-         split_route.steps.iter().map(|step| SwapStep {
-            pool: step.pool.clone(),
-            currency_in: step.currency_in.clone(),
-            currency_out: step.currency_out.clone(),
-            amount_in: step.amount_in.clone(),
-            amount_out: step.amount_out.clone(),
-         })
-      })
-      .collect();
+   let mut swap_steps = Vec::new();
+
+   for split_route in final_split_routes {
+      for step in split_route.steps {
+         swap_steps.push(SwapStep {
+            pool: step.pool,
+            currency_in: step.currency_in,
+            currency_out: step.currency_out,
+            amount_in: step.amount_in,
+            amount_out: step.amount_out,
+         });
+      }
+   }
+
+   #[cfg(feature = "dev")]
+   tracing::info!(
+      "Quote took {} μs for {} pools",
+      now.elapsed().as_micros(),
+      all_pools.len()
+   );
+
+   let amount_out = NumericValue::format_wei(total_amount_out_wei, currency_out.decimals());
 
    Quote {
       currency_in,
-      currency_out: currency_out.clone(),
+      currency_out,
       amount_in: amount_to_swap,
-      amount_out: NumericValue::format_wei(total_amount_out_wei, currency_out.decimals()),
-      route: None,
-      split_routes: final_split_routes,
+      amount_out,
       swap_steps,
    }
 }
@@ -536,24 +591,23 @@ fn build_quote_from_route(
       current_amount_in = amount_out_wei;
    }
 
-   let swap_steps = steps
-      .iter()
-      .map(|step| SwapStep {
+   let mut swap_steps = Vec::new();
+
+   for step in steps {
+      swap_steps.push(SwapStep {
          pool: step.pool.clone(),
          currency_in: step.currency_in.clone(),
          currency_out: step.currency_out.clone(),
          amount_in: step.amount_in.clone(),
          amount_out: step.amount_out.clone(),
-      })
-      .collect();
+      });
+   }
 
    Quote {
       currency_in,
       currency_out,
       amount_in: route.amount_in,
       amount_out: route.amount_out,
-      route: Some(steps),
-      split_routes: Vec::new(),
       swap_steps,
    }
 }

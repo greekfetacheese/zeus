@@ -930,7 +930,10 @@ impl ZeusClient {
 ///
 /// Others have a very low staticalll gas limit which cause the batch requests to fail
 pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow::Error> {
+
+   #[cfg(feature = "debug")]
    tracing::info!("Testing {}", rpc.url);
+
    let retry = retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -1046,6 +1049,7 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    let guard = result.lock().unwrap();
    let result = guard.clone();
 
+   #[cfg(feature = "debug")]
    tracing::info!(
       "Tested {} in {}secs",
       rpc.url,
@@ -1077,6 +1081,7 @@ async fn archive_check(client: RpcClient, block_to_query: u64, result: Arc<Mutex
    guard.archive = is_archive;
 }
 
+#[allow(unused_variables)]
 async fn get_logs_check(
    client: RpcClient,
    weth_address: Address,
@@ -1109,7 +1114,8 @@ async fn get_logs_check(
          }
          Err(e) => {
             block_range -= 5_000;
-            tracing::trace!("eth_getLogs Check Error: {:?}", e);
+            #[cfg(feature = "debug")]
+            tracing::warn!("eth_getLogs Check Error: {:?}", e);
          }
       }
    }
@@ -1127,6 +1133,7 @@ async fn get_logs_check(
    }
 }
 
+#[allow(unused_variables)]
 async fn v2_pool_reserves_check(
    ctx: ZeusCtx,
    client: RpcClient,
@@ -1169,6 +1176,7 @@ async fn v2_pool_reserves_check(
          }
          Err(e) => {
             batch_size -= 5;
+            #[cfg(feature = "debug")]
             tracing::warn!("V2 Reserves Check Error: {:?}", e);
          }
       }
@@ -1187,6 +1195,7 @@ async fn v2_pool_reserves_check(
    }
 }
 
+#[allow(unused_variables)]
 async fn v3_pool_state_check(
    ctx: ZeusCtx,
    client: RpcClient,
@@ -1235,6 +1244,7 @@ async fn v3_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
+            #[cfg(feature = "debug")]
             tracing::warn!("V3 State Check Error: {:?}", e);
          }
       }
@@ -1253,6 +1263,7 @@ async fn v3_pool_state_check(
    }
 }
 
+#[allow(unused_variables)]
 async fn v4_pool_state_check(
    ctx: ZeusCtx,
    client: RpcClient,
@@ -1299,6 +1310,7 @@ async fn v4_pool_state_check(
          }
          Err(e) => {
             batch_size -= 5;
+            #[cfg(feature = "debug")]
             tracing::warn!("V4 State Check Error: {:?}", e);
          }
       }
@@ -1317,6 +1329,7 @@ async fn v4_pool_state_check(
    }
 }
 
+#[allow(unused_variables)]
 async fn validate_v4_pools_check(
    ctx: ZeusCtx,
    client: RpcClient,
@@ -1359,6 +1372,7 @@ async fn validate_v4_pools_check(
          }
          Err(e) => {
             batch_size -= 5;
+            #[cfg(feature = "debug")]
             tracing::warn!("V4 Validate Pools Check Error: {:?}", e);
          }
       }
