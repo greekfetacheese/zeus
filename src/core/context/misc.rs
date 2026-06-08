@@ -7,6 +7,7 @@ use zeus_eth::{
    currency::ERC20Token,
    utils::NumericValue,
 };
+use zeus_wallet::SecureHDWallet;
 
 pub const PORTFOLIO_FILE: &str = "portfolio.json";
 pub const TRANSACTIONS_FILE: &str = "transactions.json";
@@ -14,10 +15,6 @@ pub const V3_POSITIONS_FILE: &str = "v3_positions.json";
 pub const DISCOVERED_WALLETS_FILE: &str = "discovered_wallets.json";
 
 /// Currencies that the user owns,
-///
-/// since we dont have access to any 3rd party indexers to auto populate this data
-///
-/// the user has to add them manually
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Portfolio {
    pub tokens: Vec<ERC20Token>,
@@ -222,6 +219,39 @@ impl DiscoveredWallets {
       let dir = data_dir()?.join(DISCOVERED_WALLETS_FILE);
       std::fs::write(dir, db)?;
       Ok(())
+   }
+
+   /// Make sure that the current index is correct based on the wallets length
+   pub fn is_corrupted(&self) -> bool {
+      let start = BIP32_HARDEN;
+      let wallets_len = self.wallets.len() as u32;
+      let should_end = start + wallets_len;
+      let current_index = self.index;
+
+      if should_end == current_index {
+         return false;
+      }
+
+      true
+   }
+
+   /// Rediscover the wallets from the master wallet
+   ///
+   /// This is needed to make sure even if the json file is corrupted somehow
+   /// we dont show any wrong wallets in the UI
+   pub fn rediscover_wallets(&mut self, master: SecureHDWallet) {
+      let len = self.wallets.len();
+
+      let mut index = BIP32_HARDEN;
+
+      for i in 0..len {
+         if let Ok(wallet) = master.derive_child_at("".into(), index) {
+            self.wallets[i].address = wallet.address();
+            self.wallets[i].path = wallet.derivation_path();
+            self.wallets[i].index = index;
+            index += 1;
+         }
+      }
    }
 
    pub fn add_wallet(&mut self, address: Address, path: DerivationPath, index: u32) {

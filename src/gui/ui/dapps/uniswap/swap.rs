@@ -857,7 +857,6 @@ impl SwapUi {
                   });
                }
                Err(_e) => {
-                  // tracing::error!("Error updating pool state: {:?}", e);
                   SHARED_GUI.write(|gui| {
                      gui.uniswap.swap_ui.pool_data_syncing = false;
                   });

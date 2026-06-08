@@ -330,11 +330,9 @@ impl AddWalletUi {
 
          let vault = ctx.get_vault();
 
-         RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = true;
-            });
+         self.discover_child_wallets_ui.loading = true;
 
+         RT.spawn_blocking(move || {
             let master = ctx.master_wallet_address();
 
             let mut discovered_wallets = match DiscoveredWallets::load_from_file() {
@@ -357,8 +355,17 @@ impl AddWalletUi {
                if master_wallet_address != master {
                   discovered_wallets = DiscoveredWallets::new();
                   discovered_wallets.master_wallet_address = Some(master);
+                  tracing::warn!("Discovered wallets master address is different, resetting");
                }
             }
+
+            if discovered_wallets.is_corrupted() {
+               discovered_wallets = DiscoveredWallets::new();
+               discovered_wallets.master_wallet_address = Some(master);
+               tracing::warn!("Discovered wallets index is corrupted, resetting");
+            }
+
+            discovered_wallets.rediscover_wallets(vault.get_hd_wallet());
 
             SHARED_GUI.write(|gui| {
                gui.wallet_ui
@@ -491,9 +498,9 @@ impl AddWalletUi {
 
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
 ///
-/// `discovery_wallets` stores the wallets that were discovered (No private keys)
-/// Even if the json file is maliciously modified, the wallets will be derived from the current master wallet
-/// so it's still safe to use
+/// We only store the wallets that were discovered (No private keys)
+/// 
+/// `Safety`: If the json file is maliciously modified in any way we reset [DiscoveredWallets]
 pub struct DiscoverChildWallets {
    open: bool,
    overlay: OverlayManager,
