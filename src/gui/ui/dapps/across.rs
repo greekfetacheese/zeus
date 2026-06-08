@@ -196,15 +196,19 @@ impl AcrossBridge {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
                ui.set_height(self.size.1);
-               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                let ui_width = ui.available_width();
+
+               let warning = "Bridge functionality is powered by the Across Protocol, make sure you understand the risks";
+               let warning_text = RichText::new(warning).size(theme.text_sizes.normal).color(theme.colors.warning);
 
                ui.horizontal(|ui| {
                   let size = vec2(ui.available_width(), 20.0);
                   ui.allocate_ui(size, |ui| {
                      ui.vertical_centered(|ui| {
                         ui.label(RichText::new("Bridge").size(theme.text_sizes.heading));
+                        ui.label(warning_text);
                      });
                   });
 
@@ -365,8 +369,16 @@ impl AcrossBridge {
                let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
                inner_frame.show(ui, |ui| {
-                  let text = format!("Total Fee≈ ${}", total_fee.abbreviated());
-                  ui.label(RichText::new(text).size(theme.text_sizes.normal));
+                  ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
+
+                  let network_fee_text = format!("Network≈ ${}", network_fee.abbreviated());
+                  ui.label(RichText::new(network_fee_text).size(theme.text_sizes.small));
+
+                  let bridge_fee_text = format!("Bridge≈ ${}", bridge_fee.abbreviated());
+                  ui.label(RichText::new(bridge_fee_text).size(theme.text_sizes.small));
+
+                  let total_text = format!("Total≈ ${}", total_fee.abbreviated());
+                  ui.label(RichText::new(total_text).size(theme.text_sizes.small));
 
                   if self.requesting {
                      ui.add(Spinner::new().size(20.0).color(theme.colors.text));
@@ -705,6 +717,7 @@ impl AcrossBridge {
          &self.amount_field.amount,
          self.currency.decimals(),
       );
+      
       request_suggested_fees(
          from_chain.id(),
          to_chain.id(),
@@ -734,6 +747,7 @@ impl AcrossBridge {
          &self.amount_field.amount,
          self.currency.decimals(),
       );
+
       let output_amount = self.minimum_amount();
 
       if output_amount.is_zero() {
