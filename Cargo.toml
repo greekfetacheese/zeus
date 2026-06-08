@@ -67,7 +67,6 @@ tokio = { version = "=1.47.1", features = ["rt-multi-thread"] }
 warp = { version = "=0.4.2", features = ["server"] }
 futures = "=0.3.31"
 reqwest = { version = "=0.12.23", features = ["json"] }
-governor = { version = "0.10.1", features = ["jitter"] }
 
 
 # Misc
@@ -97,13 +96,8 @@ debug = false
 lto = "fat"
 
 
-
 [features]
 dev = []
 
-[lints.clippy]
-new_without_default = "allow"
-too_many_arguments = "allow"
-unnecessary_unwrap = "allow"
-needless_return = "allow"
-needless_borrow = "deny"
+[lints]
+clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
