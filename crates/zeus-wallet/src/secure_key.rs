@@ -52,7 +52,13 @@ impl SecureKey {
    /// Panics if the key is not a valid form of a private key
    /// or if it has been erased
    pub fn to_signer(&self) -> PrivateKeySigner {
-      self.data.unlock(|bytes| PrivateKeySigner::from_slice(bytes).unwrap())
+      if self.is_erased() {
+         panic!("Key is erased");
+      }
+
+      self
+         .data
+         .unlock(|bytes| PrivateKeySigner::from_slice(bytes).expect("Key is invalid"))
    }
 
    /// Converts the private key to a [SigningKey] by cloning the inner key
@@ -61,7 +67,7 @@ impl SecureKey {
    /// Panics if the key is not a valid form of a private key
    /// or if it has been erased
    pub fn to_signing_key(&self) -> SigningKey {
-      self.data.unlock(|bytes| SigningKey::from_slice(bytes).unwrap())
+      self.data.unlock(|bytes| SigningKey::from_slice(bytes).expect("Key is invalid"))
    }
 
    /// Converts the private key to an [EthereumWallet] by cloning the inner key
@@ -90,7 +96,8 @@ impl From<SecureArray<u8, 32>> for SecureKey {
    /// # Panics
    /// Panics if the key is not a valid form of a private key
    fn from(value: SecureArray<u8, 32>) -> Self {
-      let signer = value.unlock(|slice| PrivateKeySigner::from_slice(slice).unwrap());
+      let signer =
+         value.unlock(|slice| PrivateKeySigner::from_slice(slice).expect("Key is invalid"));
       let address = signer.address();
       SecureKey {
          address,
@@ -103,7 +110,7 @@ impl From<PrivateKeySigner> for SecureKey {
    fn from(value: PrivateKeySigner) -> Self {
       let address = value.address();
       let mut key_bytes = value.to_bytes();
-      let data = SecureArray::from_slice_mut(key_bytes.as_mut()).unwrap();
+      let data = SecureArray::from_slice_mut(key_bytes.as_mut()).expect("Key is invalid");
 
       SecureKey { address, data }
    }
@@ -112,7 +119,7 @@ impl From<PrivateKeySigner> for SecureKey {
 impl From<SigningKey> for SecureKey {
    fn from(value: SigningKey) -> Self {
       let mut bytes = value.to_bytes();
-      let signer = PrivateKeySigner::from_slice(&bytes).unwrap();
+      let signer = PrivateKeySigner::from_slice(&bytes).expect("Key is invalid");
       let address = signer.address();
       let data = SecureArray::from_slice_mut(bytes.as_mut()).unwrap();
 

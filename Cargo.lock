@@ -927,13 +927,11 @@ dependencies = [
 
 [[package]]
 name = "argon2-rs"
-version = "0.1.11"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "813189d46fd831b5ce8a5c8f67c75f8f8e2b2e705c498f9229a7b0f05d94cc08"
+checksum = "e9aa47f96ca0c1800ddcd702d71da0a61b3a84c2472affbfe8b05716441e2c1b"
 dependencies = [
  "argon2-sys",
- "bincode",
- "thiserror 2.0.17",
  "zeroize",
 ]
 
@@ -4798,15 +4796,13 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.1.22"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28c1610bcf30abd039dab83871ceb0a1e0ddfd9d15293284e956f6249879bc60"
+checksum = "76e190c6ef8d67b37e71404f37ee55232e372e17a4f016729037e334c830947a"
 dependencies = [
  "argon2-rs",
- "bincode",
  "chacha20poly1305",
  "secure-types",
- "thiserror 2.0.17",
  "zeroize",
 ]
 
