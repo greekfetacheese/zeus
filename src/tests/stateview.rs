@@ -170,7 +170,7 @@ mod tests {
       evm.tx.kind = TxKind::Call(contract_address);
 
       let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      println!("Gas used: {}", res.gas_used());
+      println!("Gas used: {}", res.tx_gas_used());
       println!("Success: {}", res.is_success());
    }
 
@@ -214,7 +214,7 @@ mod tests {
       evm.tx.kind = TxKind::Call(contract_address);
 
       let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      println!("Gas used: {}", res.gas_used());
+      println!("Gas used: {}", res.tx_gas_used());
       println!("Success: {}", res.is_success());
    }
 
@@ -302,7 +302,7 @@ mod tests {
       evm.tx.kind = TxKind::Call(contract_address);
 
       let res = evm.transact_commit(evm.tx.clone()).unwrap();
-      println!("Gas used: {}", res.gas_used());
+      println!("Gas used: {}", res.tx_gas_used());
       println!("Success: {}", res.is_success());
    }
 }

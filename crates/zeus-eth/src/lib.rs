@@ -16,5 +16,4 @@ pub use alloy_signer;
 pub use alloy_signer_local;
 pub use alloy_sol_types;
 pub use alloy_transport;
-pub use op_revm;
 pub use revm;

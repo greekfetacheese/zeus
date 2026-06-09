@@ -1573,7 +1573,7 @@ pub async fn wrap_eth(
       call_data.clone(),
       value,
       logs,
-      sim_res.gas_used(),
+      sim_res.tx_gas_used(),
       eth_balance_before,
       eth_balance_after,
       auth_list.clone(),
@@ -1747,7 +1747,7 @@ pub async fn unwrap_weth(
       call_data.clone(),
       value,
       logs,
-      sim_res.gas_used(),
+      sim_res.tx_gas_used(),
       eth_balance_before,
       eth_balance_after,
       auth_list.clone(),
@@ -1831,7 +1831,7 @@ async fn handle_approve(
             time.elapsed().as_millis()
          );
 
-         approval_gas_used = res.gas_used();
+         approval_gas_used = res.tx_gas_used();
          approval_logs = res.logs().to_vec();
 
          let state = evm.balance(signer_address);
@@ -2190,7 +2190,7 @@ async fn swap_via_ur(
 
    let contract_interact = Some(true);
    let logs = sim_res.logs().to_vec();
-   let gas_used = sim_res.gas_used();
+   let gas_used = sim_res.tx_gas_used();
    let auth_list = Vec::new();
 
    let mut swap_tx_analysis = TransactionAnalysis::new(

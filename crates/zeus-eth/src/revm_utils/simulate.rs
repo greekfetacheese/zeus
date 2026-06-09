@@ -177,7 +177,7 @@ where
       eprintln!(
          "Failed to mint position: {} Gas Used: {}",
          err,
-         res.gas_used()
+         res.tx_gas_used()
       );
       return Err(anyhow!("Failed to mint position: {}", err));
    }

@@ -44,7 +44,7 @@ where
       .transact_commit(evm.tx.clone())
       .map_err(|e| anyhow!("Simulation failed: {:?}", e))?;
    let output = sim_res.output().unwrap_or_default();
-   let gas_used = sim_res.gas_used();
+   let gas_used = sim_res.tx_gas_used();
 
    if !sim_res.is_success() {
       let err = revert_msg(output);

@@ -2,6 +2,7 @@ use crate::utils::state::get_base_fee;
 use crate::core::{TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
+use zeus_eth::alloy_network::NetworkTransactionBuilder;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::gui::{SHARED_GUI, ui::NotificationType};
@@ -215,7 +216,7 @@ pub async fn send_transaction(
          call_data.clone(),
          value,
          logs,
-         sim_res.gas_used(),
+         sim_res.tx_gas_used(),
          balance_before,
          balance_after,
          authorization_list.clone(),

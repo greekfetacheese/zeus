@@ -698,7 +698,7 @@ async fn send_token(
       };
 
       real_amount_sent = real_amount;
-      gas_used = res.gas_used();
+      gas_used = res.tx_gas_used();
       logs = res.logs().to_vec();
    }
 

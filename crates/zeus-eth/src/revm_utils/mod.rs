@@ -10,9 +10,6 @@ use revm::{
    primitives::{Bytes, U256, hardfork::SpecId},
 };
 
-use op_revm::OpSpecId;
-
-pub use op_revm;
 pub use revm;
 pub use revm::{
    Database, DatabaseCommit, ExecuteCommitEvm, ExecuteEvm,
@@ -49,11 +46,9 @@ where
    }
 
    let spec = if chain.is_ethereum() {
-      SpecId::PRAGUE
-   } else if chain.is_optimism() || chain.is_base() {
-      OpSpecId::ISTHMUS.into_eth_spec()
+      SpecId::OSAKA
    } else {
-      SpecId::CANCUN
+      SpecId::PRAGUE
    };
 
    evm.cfg.chain_id = chain.id();

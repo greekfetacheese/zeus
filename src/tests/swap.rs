@@ -751,12 +751,12 @@ mod tests {
          let err = revert_msg(&output);
          eprintln!("Call Reverted: {}", err);
          eprintln!("Output: {:?}", output);
-         eprintln!("Gas Used: {}", res.gas_used());
+         eprintln!("Gas Used: {}", res.tx_gas_used());
          panic!("Call Failed");
       }
 
       eprintln!("Router Call Successful");
-      eprintln!("Gas Used: {}", res.gas_used());
+      eprintln!("Gas Used: {}", res.tx_gas_used());
 
       let currency_out_balance = if currency_out.is_erc20() {
          simulate::erc20_balance(&mut evm, currency_out.address(), alice.address).unwrap()
