@@ -193,7 +193,7 @@ impl Default for GUI {
       let theme_kind = if let Ok(kind) = load_theme_kind() {
          kind
       } else {
-         ThemeKind::Dark
+         ThemeKind::TokyoNight
       };
 
       let theme = Theme::new(theme_kind);
