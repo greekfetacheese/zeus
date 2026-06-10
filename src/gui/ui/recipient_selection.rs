@@ -1,15 +1,13 @@
 use crate::assets::icons::Icons;
 use crate::core::{Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;
-use eframe::egui::{
-   Align2, FontId, Frame, Margin, Order, RichText, ScrollArea, Sense, Ui, Window, vec2,
-};
+use eframe::egui::{Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Ui, Window, vec2};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
 use zeus_theme::{OverlayManager, Theme, utils::frame_it};
-use zeus_widgets::{Button, Label, SecureTextEdit};
+use zeus_widgets::{Button, SecureTextEdit};
 
 pub struct RecipientSelectionWindow {
    open: bool,
@@ -139,13 +137,15 @@ impl RecipientSelectionWindow {
       }
 
       let title = RichText::new("Recipient").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       let _window_res = Window::new(title)
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()).inner_margin(Margin::same(10)))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -274,11 +274,10 @@ impl RecipientSelectionWindow {
       let contacts = ctx.contacts();
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-      ui.spacing_mut().button_padding = vec2(0.0, 5.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      let mut frame = theme.frame1;
-      let visuals = theme.frame1_visuals;
-      let label_visuals = theme.label_visuals();
+      let mut frame = theme.frame2;
+      let visuals = theme.frame2_visuals;
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, &self.search_query);
@@ -296,13 +295,10 @@ impl RecipientSelectionWindow {
                ui.add_space(6.0);
 
                let address_text = RichText::new(&contact.address).size(theme.text_sizes.small);
-               let label = Label::new(address_text, None)
-                  .visuals(label_visuals)
-                  .expand(Some(6.0))
-                  .sense(Sense::click());
+               let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
-                  if ui.add(label).clicked() {
+                  if ui.add(button).clicked() {
                      ui.ctx().copy_text(contact.address.clone());
                   }
                });
@@ -335,11 +331,10 @@ impl RecipientSelectionWindow {
 
    fn show_wallets(&mut self, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-      ui.spacing_mut().button_padding = vec2(0.0, 5.0);
+      ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-      let mut frame = theme.frame1;
-      let visuals = theme.frame1_visuals;
-      let label_visuals = theme.label_visuals();
+      let mut frame = theme.frame2;
+      let visuals = theme.frame2_visuals;
 
       let wallets = &self.wallets;
 
@@ -367,13 +362,11 @@ impl RecipientSelectionWindow {
 
                let address_text =
                   RichText::new(&wallet.address.to_string()).size(theme.text_sizes.small);
-               let label = Label::new(address_text, None)
-                  .visuals(label_visuals)
-                  .expand(Some(6.0))
-                  .sense(Sense::click());
+
+               let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
-                  if ui.add(label).clicked() {
+                  if ui.add(button).clicked() {
                      ui.ctx().copy_text(wallet.address.to_string());
                   }
                });

@@ -256,13 +256,15 @@ impl ConfirmWindow {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new("confirm_window")
          .title_bar(false)
          .resizable(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -350,13 +352,15 @@ impl UpdateWindow {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new("Update Zeus")
          .title_bar(false)
          .resizable(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -536,13 +540,15 @@ impl LoadingWindow {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new("Loading")
          .title_bar(false)
          .order(Order::Debug)
          .resizable(false)
          .anchor(self.anchor.0, self.anchor.1)
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -597,13 +603,14 @@ impl MsgWindow {
 
       let title = RichText::new(self.title.clone()).size(theme.text_sizes.large);
       let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
+      let window_frame = theme.frame1;
 
       Window::new(title)
          .resizable(false)
          .order(Order::Debug)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

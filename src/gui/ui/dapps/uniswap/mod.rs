@@ -357,6 +357,8 @@ impl UniswapUi {
                .size(theme.text_sizes.large)
                .color(theme.colors.error);
             ui.label(text);
+         } else {
+            ui.add_space(15.0);
          }
 
          let size = vec2(ui.available_width() * 0.45, 50.0);
@@ -473,8 +475,6 @@ impl UniswapUi {
                */
             });
          });
-
-         ui.add_space(5.0);
 
          self.swap_ui.show(
             ctx.clone(),

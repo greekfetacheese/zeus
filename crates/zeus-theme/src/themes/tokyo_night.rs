@@ -91,12 +91,18 @@ pub fn window_frame(colors: &ThemeColors) -> Frame {
 
 /// Base container frame for major UI sections.
 pub fn frame1(colors: &ThemeColors) -> Frame {
+   let shadow = Shadow {
+      offset: (0, 0).into(),
+      blur: 2,
+      spread: 0,
+      color: colors.border,
+   };
    Frame {
       corner_radius: CornerRadius::same(6),
       inner_margin: Margin::same(10),
       fill: colors.widget_bg,
-      stroke: Stroke::new(0.0, colors.border),
-      shadow: Shadow::NONE,
+      stroke: Stroke::NONE,
+      shadow: shadow,
       ..Default::default()
    }
 }
@@ -112,12 +118,19 @@ pub fn frame1_visuals(colors: &ThemeColors) -> FrameVisuals {
 
 /// Frame for nested elements, like individual list items.
 pub fn frame2(colors: &ThemeColors) -> Frame {
+   let shadow = Shadow {
+      offset: (0, 0).into(),
+      blur: 2,
+      spread: 0,
+      color: colors.border,
+   };
    Frame {
       corner_radius: CornerRadius::same(6),
       inner_margin: Margin::same(10),
-      outer_margin: Margin::same(10),
+      outer_margin: Margin::same(5),
       fill: colors.bg,
       stroke: Stroke::NONE,
+      shadow: shadow,
       ..Default::default()
    }
 }

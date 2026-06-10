@@ -147,13 +147,15 @@ impl TxConfirmationWindow {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new("Transaction Confirmation Window")
          .title_bar(false)
          .resizable(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -493,12 +495,14 @@ impl TxWindow {
       }
 
       let title = RichText::new("Transaction Details").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

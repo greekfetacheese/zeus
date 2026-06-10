@@ -6,8 +6,8 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Id, Image, ImageSource, Layout, Margin, Order, RichText,
-   ScrollArea, Sense, Shadow, Stroke, Ui, Vec2, Window, load::Bytes, vec2,
+   Align, Align2, FontId, Id, Image, ImageSource, Layout, Margin, Order, RichText, ScrollArea,
+   Sense, Ui, Vec2, Window, load::Bytes, vec2,
 };
 use ncrypt_me::Credentials;
 use std::{collections::HashMap, sync::Arc};
@@ -142,9 +142,7 @@ impl WalletUi {
          return;
       }
 
-      let frame = Frame::window(ui.style())
-         .shadow(Shadow::NONE)
-         .stroke(Stroke::new(1.0, theme.colors.border));
+      let frame = theme.frame1;
 
       Window::new("wallet_main_ui")
          .title_bar(false)
@@ -237,13 +235,13 @@ impl WalletUi {
       is_current: bool,
       ui: &mut Ui,
    ) {
-      let mut frame = theme.frame1;
+      let mut frame = theme.frame2;
       let tint = theme.image_tint_recommended;
 
       let visuals = if is_current {
          None
       } else {
-         Some(theme.frame1_visuals)
+         Some(theme.frame2_visuals)
       };
 
       let button_visuals = theme.button_visuals();
@@ -299,11 +297,10 @@ impl WalletUi {
 
             // Address and value
             ui.horizontal(|ui| {
-               let res = ui.selectable_label(
-                  false,
-                  RichText::new(wallet.address_truncated()).size(theme.text_sizes.small),
-               );
-               if res.clicked() {
+               let text = RichText::new(wallet.address_truncated()).size(theme.text_sizes.small);
+               let label = Button::selectable(false, text).visuals(button_visuals);
+
+               if ui.add(label).clicked() {
                   // Copy the address to the clipboard
                   ui.ctx().copy_text(wallet.address.to_string());
                }
@@ -356,13 +353,15 @@ impl WalletUi {
       let mut open = self.rename_wallet;
 
       let title = RichText::new("Rename Wallet").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(200.0);
@@ -598,13 +597,14 @@ impl ExportKeyUi {
       }
 
       let title = RichText::new("Success").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
 
       Window::new(title)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -687,6 +687,7 @@ impl ExportKeyUi {
       }
 
       let mut open = self.credentials_form.is_open();
+      let window_frame = theme.frame1;
       let mut clicked = false;
 
       Window::new(RichText::new("Verify Credentials").size(theme.text_sizes.heading))
@@ -695,7 +696,7 @@ impl ExportKeyUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
@@ -825,6 +826,7 @@ impl DeleteWalletUi {
       }
 
       let button_visuals = theme.button_visuals();
+      let window_frame = theme.frame1;
       let mut open = self.credentials_form.is_open();
       let mut clicked = false;
 
@@ -836,7 +838,7 @@ impl DeleteWalletUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
@@ -922,6 +924,8 @@ impl DeleteWalletUi {
       let wallet = wallet.unwrap();
 
       let id = Id::new("delete_wallet_ui_delete_wallet");
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Delete this wallet?").size(theme.text_sizes.large))
          .id(id)
          .open(&mut open)
@@ -929,7 +933,7 @@ impl DeleteWalletUi {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(200.0);

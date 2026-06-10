@@ -7,8 +7,8 @@ use crate::gui::{
 use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
 use anyhow::anyhow;
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
-   RichText, Slider, Spinner, Ui, Window, vec2,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,
+   Slider, Spinner, Ui, Window, vec2,
 };
 use std::time::Duration;
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
@@ -122,7 +122,7 @@ impl AcrossBridge {
          api_res_cache: HashMap::new(),
          settings,
          settings_open: false,
-         size: (450.0, 600.0),
+         size: (450.0, 570.0),
       }
    }
 
@@ -190,7 +190,7 @@ impl AcrossBridge {
          .resizable(false)
          .order(Order::Middle)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 120.0))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
@@ -622,44 +622,62 @@ impl AcrossBridge {
    }
 
    fn settings_window(&mut self, theme: &Theme, ui: &mut Ui) {
+      let frame = theme.frame1;
+
       Window::new("Across Settings")
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(350.0);
             ui.set_height(150.0);
-            ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 5.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-            ui.horizontal(|ui| {
-               ui.label(RichText::new("API URL").size(theme.text_sizes.normal));
-               ui.add_space(10.0);
-               ui.text_edit_singleline(&mut self.settings.api_url);
+            let visuals = theme.text_edit_visuals();
+            let size = vec2(ui.available_width() * 0.9, 45.0);
+
+            ui.allocate_ui(size, |ui| {
+               ui.horizontal_centered(|ui| {
+                  ui.label(RichText::new("API URL").size(theme.text_sizes.normal));
+                  ui.add_space(10.0);
+                  SecureTextEdit::singleline(&mut self.settings.api_url)
+                     .font(FontId::proportional(theme.text_sizes.small))
+                     .margin(Margin::same(5))
+                     .desired_width(ui.available_width())
+                     .visuals(visuals)
+                     .show(ui);
+               });
             });
 
-            ui.horizontal(|ui| {
-               ui.label(RichText::new("Use API").size(theme.text_sizes.normal));
-               ui.add_space(10.0);
-               ui.checkbox(&mut self.settings.use_api, "");
+            ui.allocate_ui(size, |ui| {
+               ui.horizontal_centered(|ui| {
+                  ui.label(RichText::new("Use API").size(theme.text_sizes.normal));
+                  ui.add_space(10.0);
+                  ui.checkbox(&mut self.settings.use_api, "");
+               });
             });
 
             if !self.settings.use_api {
-               ui.label(RichText::new("Fee to pay %").size(theme.text_sizes.normal));
-               ui.add_space(10.0);
-               ui.add(Slider::new(
-                  &mut self.settings.fee_to_pay,
-                  0.01..=1.0,
-               ));
+               ui.allocate_ui(size, |ui| {
+                  ui.horizontal_centered(|ui| {
+                     ui.label(RichText::new("Fee to pay %").size(theme.text_sizes.normal));
+                     ui.add_space(10.0);
+                     ui.add(Slider::new(
+                        &mut self.settings.fee_to_pay,
+                        0.01..=1.0,
+                     ));
+                  });
+               });
             }
 
             let text = RichText::new("Save").size(theme.text_sizes.large);
             let button = Button::new(text)
                .visuals(theme.button_visuals())
-               .min_size(vec2(ui.available_width() * 0.8, 45.0));
+               .min_size(vec2(ui.available_width() * 0.3, 15.0));
 
             let res = ui.vertical_centered(|ui| ui.add(button).clicked());
 
@@ -717,7 +735,7 @@ impl AcrossBridge {
          &self.amount_field.amount,
          self.currency.decimals(),
       );
-      
+
       request_suggested_fees(
          from_chain.id(),
          to_chain.id(),

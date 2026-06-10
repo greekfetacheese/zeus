@@ -97,10 +97,11 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain();
-      let frame = theme.frame1.outer_margin(Margin::same(10));
       let wallet = ctx.current_wallet_info();
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
+
+      let frame = theme.frame1.outer_margin(Margin::same(10));
 
       self.show_deleg_settings_window(
          ctx.clone(),
@@ -633,7 +634,8 @@ impl QRCodeWindow {
                   let image = Image::new(ImageSource::Bytes {
                      uri: image_uri.into(),
                      bytes: Bytes::Shared(data),
-                  }).fit_to_exact_size(vec2(250.0, 250.0));
+                  })
+                  .fit_to_exact_size(vec2(250.0, 250.0));
                   ui.add(image);
                }
 

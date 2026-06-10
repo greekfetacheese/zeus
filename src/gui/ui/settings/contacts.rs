@@ -2,7 +2,7 @@ use crate::assets::icons::Icons;
 use crate::core::{Contact, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, FontId, Frame, Margin, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui::{Align2, FontId, Margin, Order, RichText, ScrollArea, Ui, Window, vec2};
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
@@ -64,13 +64,15 @@ impl AddContact {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Add new contact").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -203,6 +205,7 @@ impl DeleteContact {
       }
 
       let mut should_close = false;
+      let window_frame = theme.frame1;
 
       Window::new(RichText::new("Delete contact").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -210,7 +213,7 @@ impl DeleteContact {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -313,13 +316,15 @@ impl EditContact {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Edit contact").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -483,13 +488,15 @@ impl ContactsUi {
       }
 
       let mut open = self.open;
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Contacts").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, (0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -536,7 +543,7 @@ impl ContactsUi {
                ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
                   ui.set_width(self.size.0);
 
-                  let frame = theme.frame1;
+                  let frame = theme.frame2;
                   for contact in &contacts {
                      let valid = valid_contact_search(contact, &self.search_query);
 

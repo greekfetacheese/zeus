@@ -3,7 +3,7 @@ use crate::gui::ui::dapps::{AmountFieldWithCurrencySelect, uniswap::ProtocolVers
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
-use egui::{Align, Frame, Grid, Id, Layout, RichText, ScrollArea, Sense, Ui, Window, vec2};
+use egui::{Align, Align2, Frame, Grid, Id, Layout, RichText, ScrollArea, Sense, Ui, Window, vec2};
 
 use anyhow::anyhow;
 use std::sync::Arc;
@@ -286,7 +286,7 @@ impl SwapUi {
       let currency_out = Currency::from(ERC20Token::wrapped_native_token(1));
       Self {
          open: true,
-         size: (450.0, 700.0),
+         size: (450.0, 550.0),
          currency_in,
          currency_out,
          amount_in_field: AmountFieldWithCurrencySelect::new(),
@@ -369,7 +369,7 @@ impl SwapUi {
          .visuals(combo_visuals)
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
-            
+
             for version in versions {
                let text = RichText::new(version.as_str()).size(theme.text_sizes.normal);
                let label = Label::new(text, None)
@@ -463,158 +463,170 @@ impl SwapUi {
          self.simulate_window.show(ctx.clone(), theme, settings, ui);
       }
 
-      ui.vertical_centered(|ui| {
-         ui.set_width(self.size.0);
-         ui.set_height(self.size.1);
-         ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+      let window_frame = theme.frame1;
 
-         if simulate_mode {
-            let text =
-               RichText::new("You are on Simulate Mode").size(theme.text_sizes.large).strong();
-            ui.label(text);
-         }
+      Window::new("swap_ui")
+         .title_bar(false)
+         .resizable(false)
+         .collapsible(false)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 120.0))
+         .frame(window_frame)
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
+               ui.set_width(self.size.0);
+               ui.set_height(self.size.1);
+               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
 
-         if simulate_mode {
-            ui.horizontal(|ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  self.select_version(theme, ui);
+               if simulate_mode {
+                  let text = RichText::new("You are on Simulate Mode")
+                     .size(theme.text_sizes.large)
+                     .strong();
+                  ui.label(text);
+               }
+
+               if simulate_mode {
+                  ui.horizontal(|ui| {
+                     ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                        self.select_version(theme, ui);
+                     });
+                  });
+               }
+
+               if simulate_mode {
+                  let manager = ctx.pool_manager();
+                  let mut pools =
+                     manager.get_pools_from_pair(&self.currency_in, &self.currency_out);
+
+                  if self.protocol_version.is_v2() {
+                     pools.retain(|p| p.dex_kind().is_v2());
+                  }
+
+                  if self.protocol_version.is_v3() {
+                     pools.retain(|p| p.dex_kind().is_v3());
+                  }
+
+                  // sort pool by the lowest to highest fee
+                  pools.sort_by_key(|a| a.fee().fee());
+
+                  let changed = self.select_fee_tier(theme, &pools, ui);
+
+                  if changed {
+                     self.simulate_window.set_initial_pool(self.pool.clone());
+                     self.get_quote(ctx.clone(), settings);
+                  }
+
+                  if pools.is_empty() {
+                     ui.label(RichText::new("No pools found").size(theme.text_sizes.normal));
+                  }
+               }
+
+               // TODO: Show the correct usd values if we are in simulate mode
+
+               // Currency in
+               let inner_frame = theme.frame2;
+               let mut amount_changed = false;
+               let label = String::from("Sell");
+               let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+               let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+               let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
+               let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+
+               inner_frame.show(ui, |ui| {
+                  let changed = self.amount_in_field.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     Some(label),
+                     owner,
+                     &self.currency_in,
+                     Some(token_selection),
+                     Some(InOrOut::In),
+                     balance,
+                     max_amount,
+                     value,
+                     false,
+                     true,
+                     ui,
+                  );
+                  amount_changed = changed;
                });
+
+               // Swap Currencies
+               ui.vertical_centered(|ui| {
+                  let tint = theme.image_tint_recommended;
+                  let visuals = theme.button_visuals();
+                  let swap_button =
+                     Button::image(icons.swap(tint)).visuals(visuals).min_size(vec2(40.0, 40.0));
+
+                  if ui.add(swap_button).clicked() {
+                     self.swap_currencies();
+                     self.get_quote(ctx.clone(), settings);
+                  }
+               });
+
+               // Currency out
+               let label = String::from("Buy");
+               let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
+               let max_amount = || NumericValue::default();
+               let amount = self.amount_out_field.amount.parse().unwrap_or(0.0);
+               let value = || ctx.get_currency_value_for_amount(amount, &self.currency_out);
+               inner_frame.show(ui, |ui| {
+                  self.amount_out_field.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     Some(label),
+                     owner,
+                     &self.currency_out,
+                     Some(token_selection),
+                     Some(InOrOut::Out),
+                     balance,
+                     max_amount,
+                     value,
+                     false,
+                     false,
+                     ui,
+                  )
+               });
+
+               token_selection.show(
+                  ctx.clone(),
+                  theme,
+                  icons.clone(),
+                  chain_id,
+                  owner,
+                  ui,
+               );
+
+               let selected_currency = token_selection.get_currency().cloned();
+               let direction = token_selection.get_currency_direction();
+               let changed_currency = selected_currency.is_some();
+               let should_get_quote = changed_currency || amount_changed;
+
+               if let Some(currency) = selected_currency {
+                  self.replace_currency(direction, currency.clone());
+                  self.update_currency_balance(ctx.clone(), currency);
+                  token_selection.reset();
+               }
+
+               if changed_currency {
+                  self.sync_pools(ctx.clone(), settings, true);
+               }
+
+               if should_get_quote {
+                  self.get_quote(ctx.clone(), settings);
+               }
+
+               if simulate_mode {
+                  self.simulate_button(ctx.clone(), theme, settings, ui);
+               }
+
+               if !simulate_mode {
+                  self.swap_button(ctx.clone(), theme, settings, ui);
+                  self.swap_details(ctx, theme, icons, settings, ui);
+               }
             });
-         }
-
-         if simulate_mode {
-            let manager = ctx.pool_manager();
-            let mut pools = manager.get_pools_from_pair(&self.currency_in, &self.currency_out);
-
-            if self.protocol_version.is_v2() {
-               pools.retain(|p| p.dex_kind().is_v2());
-            }
-
-            if self.protocol_version.is_v3() {
-               pools.retain(|p| p.dex_kind().is_v3());
-            }
-
-            // sort pool by the lowest to highest fee
-            pools.sort_by_key(|a| a.fee().fee());
-
-            let changed = self.select_fee_tier(theme, &pools, ui);
-
-            if changed {
-               self.simulate_window.set_initial_pool(self.pool.clone());
-               self.get_quote(ctx.clone(), settings);
-            }
-
-            if pools.is_empty() {
-               ui.label(RichText::new("No pools found").size(theme.text_sizes.normal));
-            }
-         }
-
-         // TODO: Show the correct usd values if we are in simulate mode
-
-         // Currency in
-         let frame = theme.frame1;
-         let mut amount_changed = false;
-         let label = String::from("Sell");
-         let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-         let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-         let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
-         let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
-
-         frame.show(ui, |ui| {
-            let changed = self.amount_in_field.show(
-               ctx.clone(),
-               theme,
-               icons.clone(),
-               Some(label),
-               owner,
-               &self.currency_in,
-               Some(token_selection),
-               Some(InOrOut::In),
-               balance,
-               max_amount,
-               value,
-               false,
-               true,
-               ui,
-            );
-            amount_changed = changed;
          });
-
-         // Swap Currencies
-         ui.vertical_centered(|ui| {
-            let tint = theme.image_tint_recommended;
-            let visuals = theme.button_visuals();
-            let swap_button =
-               Button::image(icons.swap(tint)).visuals(visuals).min_size(vec2(40.0, 40.0));
-
-            if ui.add(swap_button).clicked() {
-               self.swap_currencies();
-               self.get_quote(ctx.clone(), settings);
-            }
-         });
-
-         // Currency out
-         let label = String::from("Buy");
-         let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
-         let max_amount = || NumericValue::default();
-         let amount = self.amount_out_field.amount.parse().unwrap_or(0.0);
-         let value = || ctx.get_currency_value_for_amount(amount, &self.currency_out);
-         frame.show(ui, |ui| {
-            self.amount_out_field.show(
-               ctx.clone(),
-               theme,
-               icons.clone(),
-               Some(label),
-               owner,
-               &self.currency_out,
-               Some(token_selection),
-               Some(InOrOut::Out),
-               balance,
-               max_amount,
-               value,
-               false,
-               false,
-               ui,
-            )
-         });
-
-         token_selection.show(
-            ctx.clone(),
-            theme,
-            icons.clone(),
-            chain_id,
-            owner,
-            ui,
-         );
-
-         let selected_currency = token_selection.get_currency().cloned();
-         let direction = token_selection.get_currency_direction();
-         let changed_currency = selected_currency.is_some();
-         let should_get_quote = changed_currency || amount_changed;
-
-         if let Some(currency) = selected_currency {
-            self.replace_currency(direction, currency.clone());
-            self.update_currency_balance(ctx.clone(), currency);
-            token_selection.reset();
-         }
-
-         if changed_currency {
-            self.sync_pools(ctx.clone(), settings, true);
-         }
-
-         if should_get_quote {
-            self.get_quote(ctx.clone(), settings);
-         }
-
-         if simulate_mode {
-            self.simulate_button(ctx.clone(), theme, settings, ui);
-         }
-
-         if !simulate_mode {
-            self.swap_button(ctx.clone(), theme, settings, ui);
-            self.swap_details(ctx, theme, icons, settings, ui);
-         }
-      });
    }
 
    fn action(&self) -> Action {
@@ -1092,7 +1104,7 @@ impl SwapUi {
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
-      let frame = theme.frame1;
+      let frame = theme.frame2;
       let text_size = theme.text_sizes.large;
       let tint = theme.image_tint_recommended;
 
@@ -2142,11 +2154,11 @@ async fn swap_via_ur(
             None,
          )
          .await?;
-      // increment the overlay counter to stay at 1
-      SHARED_GUI.write(|gui| {
-         gui.overlay_manager.window_opened();
-         gui.request_repaint();
-      });
+         // increment the overlay counter to stay at 1
+         SHARED_GUI.write(|gui| {
+            gui.overlay_manager.window_opened();
+            gui.request_repaint();
+         });
       }
    }
 

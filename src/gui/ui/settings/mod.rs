@@ -26,8 +26,8 @@ const MAX_M_COST: u32 = 8192_000;
 const MAX_T_COST: u32 = 2048;
 const MAX_P_COST: u32 = 1;
 
-const DEV_M_MIN_COST: u32 = 100_000;
-const DEV_T_MIN_COST: u32 = 3;
+const DEV_M_MIN_COST: u32 = 8_000;
+const DEV_T_MIN_COST: u32 = 1;
 const DEV_P_MAX_COST: u32 = 4;
 
 const M_COST_TIP: &str =
@@ -77,12 +77,14 @@ impl ThemeSettings {
       }
 
       let title = RichText::new("Theme Settings").size(theme.text_sizes.large);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
@@ -305,13 +307,15 @@ impl SettingsUi {
          return;
       }
 
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new(title).size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_min_size(vec2(self.size.0, self.size.1));
 
@@ -484,13 +488,15 @@ impl EncryptionSettings {
 
       let mut open = self.open;
       let title = RichText::new("Encryption Settings").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -677,13 +683,15 @@ impl GeneralSettings {
       let mut open = self.open;
 
       let title = RichText::new("General Settings").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);

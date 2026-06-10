@@ -73,13 +73,15 @@ impl ImportWallet {
       let mut is_open = self.open;
       let mut clicked = false;
 
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Import Wallet").size(theme.text_sizes.heading))
          .open(&mut is_open)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -280,13 +282,15 @@ impl AddWalletUi {
       let mut import_from_pk_clicked = false;
       let mut import_from_seed_clicked = false;
 
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Add a new Wallet").size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -499,7 +503,7 @@ impl AddWalletUi {
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
 ///
 /// We only store the wallets that were discovered (No private keys)
-/// 
+///
 /// `Safety`: If the json file is maliciously modified in any way we reset [DiscoveredWallets]
 pub struct DiscoverChildWallets {
    open: bool,
@@ -592,13 +596,15 @@ impl DiscoverChildWallets {
       let mut is_open = self.open;
 
       let title = RichText::new("Discover Wallets").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .open(&mut is_open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -681,17 +687,23 @@ impl DiscoverChildWallets {
                Frame::new().inner_margin(20).show(ui, |ui| {
                   // Header
                   ui.horizontal(|ui| {
+                     ui.add_space(5.0);
+
                      ui.scope(|ui| {
                         ui.set_width(column_widths[0]);
                         let text = RichText::new("Derivation Path").size(theme.text_sizes.normal);
                         ui.label(text);
                      });
 
+                     ui.add_space(5.0);
+
                      ui.scope(|ui| {
                         ui.set_width(column_widths[1]);
                         let text = RichText::new("Address").size(theme.text_sizes.normal);
                         ui.label(text);
                      });
+
+                     ui.add_space(5.0);
 
                      ui.scope(|ui| {
                         ui.set_width(column_widths[2]);
@@ -878,6 +890,7 @@ impl DiscoverChildWallets {
    ) {
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
+      let inner_frame = theme.frame2.outer_margin(Margin::same(0));
 
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
@@ -907,66 +920,70 @@ impl DiscoverChildWallets {
             }
          }
 
-         ui.horizontal(|ui| {
-            ui.add_enabled_ui(exists == false, |ui| {
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  // Derivation Path
-                  ui.scope(|ui| {
-                     ui.set_width(column_widths[0]);
-                     let text = child.path.derivation_string();
-                     let rich_text = RichText::new(text).size(theme.text_sizes.small);
-                     ui.label(rich_text);
+         inner_frame.show(ui, |ui| {
+            ui.horizontal(|ui| {
+               ui.add_enabled_ui(exists == false, |ui| {
+                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                     // Derivation Path
+                     ui.scope(|ui| {
+                        ui.set_width(column_widths[0]);
+                        let text = child.path.derivation_string();
+                        let rich_text = RichText::new(text).size(theme.text_sizes.small);
+                        ui.label(rich_text);
+                     });
+
+                     // Address
+                     ui.scope(|ui| {
+                        ui.set_width(column_widths[1]);
+                        let address = child.address.to_string();
+                        let text = truncate_address(&address, 20);
+                        let explorer = current_chain.block_explorer();
+                        let link = format!("{}/address/{}", explorer, address);
+                        ui.hyperlink_to(
+                           RichText::new(text)
+                              .size(theme.text_sizes.small)
+                              .color(theme.colors.info),
+                           link,
+                        );
+                     });
                   });
 
-                  // Address
-                  ui.scope(|ui| {
-                     ui.set_width(column_widths[1]);
-                     let address = child.address.to_string();
-                     let text = truncate_address(&address, 20);
-                     let explorer = current_chain.block_explorer();
-                     let link = format!("{}/address/{}", explorer, address);
-                     ui.hyperlink_to(
-                        RichText::new(text).size(theme.text_sizes.small).color(theme.colors.info),
-                        link,
+                  ui.add_space(10.0);
+
+                  // Value
+                  ui.vertical(|ui| {
+                     ui.set_width(column_widths[2]);
+                     let value = if !exists {
+                        NumericValue::from_f64(total_value)
+                     } else {
+                        ctx.get_portfolio_value_all_chains(child.address)
+                     };
+
+                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 1.0;
+                        for chain in SUPPORTED_CHAINS {
+                           let icon = icons.chain_icon_x16(chain, tint);
+                           ui.add(icon);
+                        }
+                     });
+
+                     ui.label(
+                        RichText::new(format!("${}", value.abbreviated()))
+                           .color(theme.colors.text_muted)
+                           .size(theme.text_sizes.small),
                      );
                   });
-               });
 
-               ui.add_space(10.0);
+                  ui.scope(|ui| {
+                     ui.set_width(column_widths[3]);
+                     let text = RichText::new("Add").size(theme.text_sizes.normal);
+                     let button = Button::new(text).visuals(button_visuals);
 
-               // Value
-               ui.vertical(|ui| {
-                  ui.set_width(column_widths[2]);
-                  let value = if !exists {
-                     NumericValue::from_f64(total_value)
-                  } else {
-                     ctx.get_portfolio_value_all_chains(child.address)
-                  };
-
-                  ui.horizontal(|ui| {
-                     ui.spacing_mut().item_spacing.x = 1.0;
-                     for chain in SUPPORTED_CHAINS {
-                        let icon = icons.chain_icon_x16(chain, tint);
-                        ui.add(icon);
+                     if ui.add(button).clicked() {
+                        add_wallet_clicked = true;
+                        index_to_add = child.index;
                      }
                   });
-
-                  ui.label(
-                     RichText::new(format!("${}", value.abbreviated()))
-                        .color(theme.colors.text_muted)
-                        .size(theme.text_sizes.small),
-                  );
-               });
-
-               ui.scope(|ui| {
-                  ui.set_width(column_widths[3]);
-                  let text = RichText::new("Add").size(theme.text_sizes.normal);
-                  let button = Button::new(text).visuals(button_visuals);
-
-                  if ui.add(button).clicked() {
-                     add_wallet_clicked = true;
-                     index_to_add = child.index;
-                  }
                });
             });
          });
@@ -985,6 +1002,8 @@ impl DiscoverChildWallets {
       let mut open = self.add_wallet_window;
 
       let title = RichText::new("Add Wallet").size(theme.text_sizes.heading);
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .id(Id::new("discover_wallets_add_wallet_window"))
          .open(&mut open)
@@ -992,7 +1011,7 @@ impl DiscoverChildWallets {
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.spacing_mut().item_spacing = vec2(10.0, 20.0);
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -1001,7 +1020,7 @@ impl DiscoverChildWallets {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
-               let text = RichText::new("Wallet Name (Optional)").size(theme.text_sizes.normal);
+               let text = RichText::new("Wallet Name (Optional)").size(theme.text_sizes.large);
                ui.label(text);
 
                SecureTextEdit::singleline(&mut self.wallet_name)

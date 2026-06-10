@@ -124,7 +124,7 @@ impl SendCryptoUi {
                Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
                   ui.set_width(self.size.0);
                   ui.set_max_height(self.size.1);
-                  ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+                  ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                   let text_edit_visuals = theme.text_edit_visuals();
@@ -204,8 +204,6 @@ impl SendCryptoUi {
                      self.sync_balance(owner, ctx.clone());
                   }
 
-                  ui.add_space(10.0);
-
                   recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
                   let recipient = recipient_selection.get_recipient();
                   let recipient_name = recipient_selection.get_recipient_name();
@@ -231,8 +229,6 @@ impl SendCryptoUi {
                                     .color(theme.colors.error),
                               );
                            }
-
-                           ui.add_space(5.0);
 
                            let block_explorer = chain.block_explorer();
                            let link = format!("{}/address/{}", block_explorer, recipient);
@@ -269,8 +265,6 @@ impl SendCryptoUi {
                         }
                      });
                   });
-
-                  ui.add_space(10.0);
 
                   self.send_button(ctx, theme, owner, recipient, ui);
                });

@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
    emath::Vec2b, vec2,
 };
 
@@ -130,6 +130,7 @@ impl TokenSelectionWindow {
       }
 
       let mut close_window = false;
+      let window_frame = theme.frame1;
 
       Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
          .open(&mut open)
@@ -137,7 +138,7 @@ impl TokenSelectionWindow {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .resizable(false)
          .collapsible(false)
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -176,8 +177,8 @@ impl TokenSelectionWindow {
             let num_rows = filtered_list.len();
             let row_height = 80.0;
             let tint = theme.image_tint_recommended;
-            let mut frame = theme.frame1.outer_margin(Margin::same(5));
-            let frame_visuals = theme.frame1_visuals;
+            let mut frame = theme.frame2.outer_margin(Margin::same(5));
+            let frame_visuals = theme.frame2_visuals;
 
             ScrollArea::vertical().auto_shrink(Vec2b::new(false, false)).show_rows(
                ui,

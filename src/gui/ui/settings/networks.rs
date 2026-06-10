@@ -86,13 +86,15 @@ impl NetworkSettings {
       self.add_rpc(ctx.clone(), theme, ui);
 
       let mut open = self.open;
+      let window_frame = theme.frame1;
+
       Window::new(RichText::new("Network Settings").size(theme.text_sizes.heading))
          .open(&mut open)
          .resizable(false)
          .order(Order::Foreground)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -340,6 +342,7 @@ impl NetworkSettings {
       }
 
       let mut open = self.add_rpc;
+      let window_frame = theme.frame1;
 
       Window::new(RichText::new("Add Network").size(theme.text_sizes.large))
          .open(&mut open)
@@ -347,7 +350,7 @@ impl NetworkSettings {
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
             ui.set_height(100.0);
