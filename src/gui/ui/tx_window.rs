@@ -183,7 +183,7 @@ impl TxConfirmationWindow {
                      ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
                   }
 
-                  let frame = theme.frame1;
+                  let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
@@ -533,7 +533,7 @@ impl TxWindow {
                   let main_event = &tx.main_event;
                   let chain_id: ChainId = tx.chain.into();
 
-                  let frame = theme.frame1;
+                  let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
@@ -693,13 +693,15 @@ impl DecodedEvents {
       let title = RichText::new("Decoded Events").size(theme.text_sizes.heading);
       let mut open = self.open;
 
+      let window_frame = theme.frame1;
+
       Window::new(title)
          .open(&mut open)
          .resizable(false)
          .collapsible(false)
          .order(Order::Tooltip)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, -100.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
                let width = window_size.0 + 50.0;

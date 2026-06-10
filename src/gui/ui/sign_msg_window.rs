@@ -112,7 +112,7 @@ impl SignMsgWindow {
 
                   ui.label(RichText::new(&self.dapp).size(theme.text_sizes.large));
 
-                  let frame = theme.frame1;
+                  let frame = theme.frame2;
                   let frame_size = vec2(ui.available_width(), 45.0);
 
                   ui.label(RichText::new(msg.title()).size(theme.text_sizes.large));
