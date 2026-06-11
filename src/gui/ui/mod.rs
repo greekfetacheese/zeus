@@ -11,6 +11,7 @@ pub mod sign_msg_window;
 pub mod token_selection;
 pub mod tx_window;
 pub mod wallet;
+pub mod portfolio;
 
 pub use auth::{RecoverHDWallet, UnlockVault};
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};
@@ -23,6 +24,7 @@ pub use settings::{ContactsUi, EncryptionSettings, NetworkSettings, SettingsUi};
 pub use token_selection::TokenSelectionWindow;
 pub use tx_window::{TxConfirmationWindow, TxWindow};
 pub use wallet::WalletUi;
+pub use portfolio::PortfolioUi;
 
 pub const GREEN_CHECK: &str = "✅";
 pub const REFRESH: &str = "⟲";
