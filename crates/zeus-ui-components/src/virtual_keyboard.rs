@@ -107,36 +107,42 @@ impl VirtualKeyboard {
       ];
 
       let button_visuals = theme.button_visuals();
+      let frame = theme.frame2.stroke(Stroke::new(1.0, theme.colors.border));
 
-      ui.vertical(|ui| {
-         let is_uppercase = self.shift_active ^ self.caps_lock_active;
-         let layout = if is_uppercase {
-            &keys_layout_upper
-         } else {
-            &keys_layout_lower
-         };
+      frame.show(ui, |ui| {
+         ui.vertical(|ui| {
+            let is_uppercase = self.shift_active ^ self.caps_lock_active;
+            let layout = if is_uppercase {
+               &keys_layout_upper
+            } else {
+               &keys_layout_lower
+            };
 
-         for row in layout {
-            ui.horizontal(|ui| {
-               for &key in row {
-                  let text = RichText::new(key).size(theme.text_sizes.normal);
-                  let key_button = Button::new(text)
-                     .visuals(button_visuals)
-                     .min_size(vec2(30.0, 30.0));
-                  if ui.add(key_button).clicked() {
-                     self.handle_key_press(key, target_str);
+            for row in layout {
+               ui.horizontal(|ui| {
+                  for &key in row {
+                     let text = RichText::new(key).size(theme.text_sizes.normal);
+                     let key_button = Button::new(text)
+                        .visuals(button_visuals)
+                        .min_size(vec2(30.0, 30.0));
+                     if ui.add(key_button).clicked() {
+                        self.handle_key_press(key, target_str);
+                     }
                   }
+               });
+            }
+
+            // Spacebar
+            ui.vertical_centered(|ui| {
+               let avail_width = ui.available_width();
+               let min_size = vec2(avail_width * 0.5, 30.0);
+
+               let button = Button::new(" ").visuals(button_visuals).min_size(min_size);
+
+               if ui.add(button).clicked() {
+                  target_str.push_str(" ");
                }
             });
-         }
-         // Spacebar
-         ui.horizontal(|ui| {
-            let button = Button::new(" ")
-               .visuals(button_visuals)
-               .min_size(vec2(30.0 * 5.0, 30.0));
-            if ui.add(button).clicked() {
-               target_str.push_str(" ");
-            }
          });
       });
    }
