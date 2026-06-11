@@ -286,15 +286,17 @@ impl RecipientSelectionWindow {
             let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
                ui.set_width(ui.available_width());
                let name = RichText::new(contact.name.clone())
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.info);
+                  .size(theme.text_sizes.large)
+                  .color(theme.colors.text);
                ui.horizontal(|ui| {
                   ui.label(name);
                });
 
                ui.add_space(6.0);
 
-               let address_text = RichText::new(&contact.address).size(theme.text_sizes.small);
+               let address_text = RichText::new(&contact.address)
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text_muted);
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
@@ -347,8 +349,8 @@ impl RecipientSelectionWindow {
                ui.set_width(ui.available_width());
                ui.horizontal(|ui| {
                   let name_text = RichText::new(wallet.name())
-                     .size(theme.text_sizes.normal)
-                     .color(theme.colors.info);
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.text);
                   ui.label(name_text);
 
                   ui.add_space(10.0);
@@ -360,8 +362,9 @@ impl RecipientSelectionWindow {
 
                ui.add_space(6.0);
 
-               let address_text =
-                  RichText::new(&wallet.address.to_string()).size(theme.text_sizes.small);
+               let address_text = RichText::new(&wallet.address.to_string())
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text_muted);
 
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 

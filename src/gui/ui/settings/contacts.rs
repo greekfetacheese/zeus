@@ -2,7 +2,9 @@ use crate::assets::icons::Icons;
 use crate::core::{Contact, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, FontId, Margin, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui::{
+   Align2, CursorIcon, FontId, Margin, OpenUrl, Order, RichText, ScrollArea, Ui, Window, vec2,
+};
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
@@ -84,7 +86,7 @@ impl AddContact {
                let text_edit_visuals = theme.text_edit_visuals();
                let button_visuals = theme.button_visuals();
 
-               ui.label(RichText::new("Name:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Name:").size(theme.text_sizes.large));
                let name = &mut self.contact.name;
                ui.add(
                   SecureTextEdit::singleline(name)
@@ -94,7 +96,7 @@ impl AddContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(RichText::new("Address:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Address:").size(theme.text_sizes.large));
                let address = &mut self.contact.address;
                ui.add(
                   SecureTextEdit::singleline(address)
@@ -104,8 +106,9 @@ impl AddContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               let text = RichText::new("Add").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Add").size(theme.text_sizes.large);
+               let size = vec2(ui.available_width() * 0.5, 30.0);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
                   let new_contact = self.contact.clone();
@@ -293,7 +296,7 @@ impl EditContact {
          overlay,
          contact_to_edit: Contact::default(),
          old_contact: Contact::default(),
-         size: (450.0, 350.0),
+         size: (450.0, 250.0),
       }
    }
 
@@ -338,7 +341,7 @@ impl EditContact {
                let button_visuals = theme.button_visuals();
 
                let mut contact = self.contact_to_edit.clone();
-               ui.label(RichText::new("Name:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Name:").size(theme.text_sizes.large));
                let name = &mut contact.name;
 
                ui.add(
@@ -349,7 +352,7 @@ impl EditContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(RichText::new("Address:").size(theme.text_sizes.normal));
+               ui.label(RichText::new("Address:").size(theme.text_sizes.large));
                let address = &mut contact.address;
 
                ui.add(
@@ -362,8 +365,9 @@ impl EditContact {
 
                self.contact_to_edit = contact.clone();
 
-               let text = RichText::new("Save").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let text = RichText::new("Save").size(theme.text_sizes.large);
+               let size = vec2(ui.available_width() * 0.5, 30.0);
+               let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
                   let old_contact = self.old_contact.clone();
@@ -471,18 +475,18 @@ impl ContactsUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.main_ui(ctx.clone(), theme, ui);
+      self.main_ui(ctx.clone(), theme, icons, ui);
       self.add_contact.show(ctx.clone(), theme, true, ui);
       self.delete_contact.show(ctx.clone(), theme, ui);
       self.edit_contact.show(ctx, theme, ui);
    }
 
-   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
@@ -505,6 +509,7 @@ impl ContactsUi {
 
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();
+            let tint = theme.image_tint_recommended;
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 10.0;
@@ -561,37 +566,56 @@ impl ContactsUi {
                            ui.add(label);
                         });
 
-                        // Address
+                        // Address - Hyperlink button
                         ui.horizontal(|ui| {
+                           ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+
+                           let address_text = RichText::new(&contact.address)
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.text_muted);
+
+                           let label =
+                              Button::selectable(false, address_text).visuals(button_visuals);
+
+                           if ui.add(label).clicked() {
+                              ui.ctx().copy_text(contact.address.to_string());
+                           }
+
                            let chain = ctx.chain();
                            let explorer = chain.block_explorer();
                            let link = format!("{}/address/{}", explorer, &contact.address);
-                           ui.hyperlink_to(
-                              RichText::new(&contact.address)
-                                 .size(theme.text_sizes.small)
-                                 .color(theme.colors.info),
-                              link,
-                           );
+
+                           let icon = match theme.dark_mode {
+                              true => icons.external_link_white_x18(tint),
+                              false => icons.external_link_dark_x18(tint),
+                           };
+
+                           let button = Button::image(icon).visuals(button_visuals);
+                           let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                           if res.clicked() {
+                              let url = OpenUrl::new_tab(link);
+                              ui.ctx().open_url(url);
+                           }
                         });
 
-                        let size = vec2(ui.available_width() * 0.30, 40.0);
-                        ui.allocate_ui(size, |ui| {
-                           ui.horizontal(|ui| {
-                              let text = RichText::new("Edit").size(theme.text_sizes.normal);
-                              let edit_button = Button::new(text).visuals(button_visuals);
-                              if ui.add(edit_button).clicked() {
-                                 self.edit_contact.open();
-                                 self.edit_contact.contact_to_edit = contact.clone();
-                                 self.edit_contact.old_contact = contact.clone();
-                              }
+                        ui.horizontal(|ui| {
+                           ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
-                              let text = RichText::new("Delete").size(theme.text_sizes.normal);
-                              let delete_button = Button::new(text).visuals(button_visuals);
-                              if ui.add(delete_button).clicked() {
-                                 self.delete_contact.open();
-                                 self.delete_contact.contact_to_delete = contact.clone();
-                              }
-                           });
+                           let text = RichText::new("Edit").size(theme.text_sizes.normal);
+                           let edit_button = Button::new(text).visuals(button_visuals);
+                           if ui.add(edit_button).clicked() {
+                              self.edit_contact.open();
+                              self.edit_contact.contact_to_edit = contact.clone();
+                              self.edit_contact.old_contact = contact.clone();
+                           }
+
+                           let text = RichText::new("Delete").size(theme.text_sizes.normal);
+                           let delete_button = Button::new(text).visuals(button_visuals);
+                           if ui.add(delete_button).clicked() {
+                              self.delete_contact.open();
+                              self.delete_contact.contact_to_delete = contact.clone();
+                           }
                         });
                      });
                      ui.add_space(5.0);
