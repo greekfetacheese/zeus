@@ -13,7 +13,7 @@ members = [
 name = "zeus"
 authors = ["Michalis Molfetas"]
 description = "A truly seedless and decentralized self-custodial Ethereum wallet"
-version = "0.7.36"
+version = "0.8.0"
 edition = "2024"
 default-run = "zeus"
 
@@ -24,7 +24,7 @@ default-run = "zeus"
 eframe = { version = "=0.34.3", features = ["wgpu"] }
 egui = { version = "=0.34.3", features = ["serde"] }
 egui_extras = { version = "=0.34.3", features = ["image"] }
-image = "=0.25.6"
+image = "=0.25.10"
 
 
 # Zeus Crates
