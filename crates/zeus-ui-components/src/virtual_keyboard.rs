@@ -150,7 +150,7 @@ impl VirtualKeyboard {
    fn handle_key_press(&mut self, key: &str, target: &mut SecureString) {
       match key {
          "Backspace" => {
-            target.unlock_mut(|s| {
+            target.secure_mut(|s| {
                let len = s.char_len();
                if len > 0 {
                   s.delete_text_char_range(len - 1..len);

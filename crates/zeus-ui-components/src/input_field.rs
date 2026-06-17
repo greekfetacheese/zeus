@@ -153,7 +153,7 @@ impl SecureInputField {
 
       ui.label(RichText::new(field_name).size(theme.text_sizes.large));
 
-      let response = self.text.unlock_mut(|text_str| {
+      let response = self.text.secure_mut(|text_str| {
          let text_edit = SecureTextEdit::singleline(text_str)
             .visuals(text_edit_visuals)
             .min_size(ui_size)
