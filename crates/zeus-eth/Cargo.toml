@@ -33,7 +33,7 @@ tower = "=0.5.2"
 
 uniswap_v3_math = { git = "https://github.com/greekfetacheese/uniswap-v3-math.git", branch = "main" }
 
-secure-types = {version = "0.2", features = ["serde"]}
+secure-types = {version = "0.3", features = ["serde"]}
 
 
 tracing = "=0.1.41"

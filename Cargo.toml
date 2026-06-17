@@ -51,10 +51,10 @@ generic-array = { version = "=1.2.0", features = ["zeroize"] }
 minisign-verify = "0.2.4"
 
 # Encryption
-ncrypt-me = "0.2"
+ncrypt-me = "0.3"
 
 # Memory
-secure-types = "0.2"
+secure-types = "0.3"
 
 
 # Tracing

@@ -22,5 +22,5 @@ serde = ["dep:serde", "palette/serde", "dep:serde_json", "egui/serde"]
 
 [dev-dependencies]
 eframe = "0.34"
-secure-types = "0.2"
+secure-types = "0.3"
 zeus-widgets = { path = "../zeus-widgets", features = ["secure-types"] }

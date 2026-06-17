@@ -12,7 +12,7 @@ edition = "2024"
 [dependencies]
 egui = "0.34"
 zeus-theme = { path = "../zeus-theme", version = "0.4" }
-secure-types = { version = "0.2", optional = true }
+secure-types = { version = "0.3", optional = true }
 
 [features]
 secure-types = ["dep:secure-types"]

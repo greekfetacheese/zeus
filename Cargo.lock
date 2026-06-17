@@ -651,7 +651,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_json",
  "serde_with",
@@ -810,7 +810,7 @@ checksum = "b273587487921274f4f5d0ef2c7ef36944dcbb75a4e2318e69eae822bd263f91"
 dependencies = [
  "alloy-json-rpc",
  "alloy-transport",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "reqwest 0.13.4",
  "serde_json",
  "tower",
@@ -4986,9 +4986,9 @@ dependencies = [
 
 [[package]]
 name = "ncrypt-me"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "76e190c6ef8d67b37e71404f37ee55232e372e17a4f016729037e334c830947a"
+checksum = "31aea8f1859d094433346c1a1bcd5686713577a3b06796c462710655155a144f"
 dependencies = [
  "argon2-rs",
  "chacha20poly1305",
@@ -7475,9 +7475,9 @@ dependencies = [
 
 [[package]]
 name = "secure-types"
-version = "0.2.63"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07fa14b0ee4fb6c3a275b40f884ed56037962bdc78c402ad052ba4d768ab4ed5"
+checksum = "80db6767824864264c448288828a78e3ff61c201bf640d1c3823aa7f7d35e829"
 dependencies = [
  "libc",
  "memsec",
