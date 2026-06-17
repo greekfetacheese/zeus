@@ -13,7 +13,7 @@ members = [
 name = "zeus"
 authors = ["Michalis Molfetas"]
 description = "A truly seedless and decentralized self-custodial Ethereum wallet"
-version = "0.8.0"
+version = "0.8.10"
 edition = "2024"
 default-run = "zeus"
 
