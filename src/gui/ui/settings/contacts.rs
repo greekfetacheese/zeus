@@ -1,3 +1,5 @@
+//! UI that allows the user to add,edit and remove contacts.
+
 use crate::assets::icons::Icons;
 use crate::core::{Contact, ZeusCtx};
 use crate::gui::SHARED_GUI;

@@ -1,3 +1,5 @@
+//! UI that allows the user to change the network settings.
+
 use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
