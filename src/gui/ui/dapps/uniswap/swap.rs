@@ -28,12 +28,13 @@ use crate::utils::{Permit2Details, simulate::*, swap_quoter::*, universal_router
 
 use zeus_eth::{
    abi,
-   alloy_primitives::{U256, address},
+   alloy_primitives::{Address, U256, address},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::{AnyUniswapPool, UniswapPool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
    revm_utils::{ForkDB, ForkFactory, Host, new_evm, simulate},
+   types::ChainId,
    utils::{NumericValue, address_book},
 };
 
@@ -1957,7 +1958,6 @@ async fn swap_via_ur(
    };
 
    // Prefetch account and storage info
-
    let router_addr = address_book::universal_router_v2(chain.id())?;
    let permit2_addr = address_book::permit2_contract(chain.id())?;
    let first_pool = &swap_steps.first().unwrap().pool;
