@@ -1,3 +1,5 @@
+//! UI that shows the transaction history
+
 use crate::core::{TransactionRich, WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address};

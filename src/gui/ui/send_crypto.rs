@@ -19,7 +19,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      dapps::AmountFieldWithCurrencySelect,
+      misc::AmountFieldWithCurrencySelect,
    },
 };
 use crate::utils::simulate::fetch_accounts_info;

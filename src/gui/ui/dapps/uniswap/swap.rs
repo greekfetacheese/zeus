@@ -1,5 +1,5 @@
 use super::UniswapSettingsUi;
-use crate::gui::ui::dapps::{AmountFieldWithCurrencySelect, uniswap::ProtocolVersion};
+use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
 use crate::{assets::icons::Icons, gui::SHARED_GUI};
@@ -1150,7 +1150,7 @@ impl SwapUi {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(RichText::new(format!("{:.1}%", settings.slippage_f64)).size(text_size));
+               ui.label(RichText::new(format!("{:.1}%", settings.slippage_f64())).size(text_size));
             });
          });
 
