@@ -1,3 +1,5 @@
+//! Notification window that shows up when a tx is beign processed and when its done
+
 use crate::assets::Icons;
 use crate::core::{DecodedEvent, TransactionRich, transaction::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};

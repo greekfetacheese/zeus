@@ -1,3 +1,5 @@
+//! UI that allows the user to send ETH or ERC20 tokens
+
 use eframe::egui::{
    Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
 };

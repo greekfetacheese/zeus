@@ -1,3 +1,5 @@
+//! Window that allows the user to select a contact or a wallet as the recipient of a transaction
+
 use crate::assets::icons::Icons;
 use crate::core::{Contact, WalletInfo, ZeusCtx};
 use crate::gui::ui::ContactsUi;

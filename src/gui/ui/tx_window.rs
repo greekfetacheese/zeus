@@ -1,3 +1,8 @@
+//! UI that contains 2 windows:
+//! 
+//! - The TxConfirmationWindow contains as much information as possible about the transaction before the user confirms it.
+//! - The TxWindow is what we show to the user for a transaction that has been confirmed.
+
 use egui::{
    Align, Align2, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Vec2, Window, vec2,
 };

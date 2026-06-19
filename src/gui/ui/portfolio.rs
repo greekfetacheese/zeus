@@ -1,3 +1,7 @@
+//! This is the UI that shows the portfolio of the current wallet
+//! 
+//! Showed when Home is selected
+
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};

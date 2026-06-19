@@ -1,3 +1,5 @@
+//! UI that allows the user to inspect and sign a message
+
 use egui::{
    Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
 };

@@ -1,3 +1,7 @@
+//! UI that allows the user to unlock the vault and access Zeus.
+//! 
+//! If the vault is not found, it will show the wallet recovery UI.
+
 use crate::core::{M_COST, Vault, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
@@ -198,7 +202,7 @@ impl SystemMemory {
    }
 }
 
-/// Recover an HD wallet from the credentials and create a Vault
+/// Ui to recover an HD wallet from the credentials
 pub struct RecoverHDWallet {
    credentials_form: CredentialsForm,
    wallet_name: String,

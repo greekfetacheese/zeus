@@ -1,3 +1,12 @@
+//! UI component that we show at the top left of the window
+//! 
+//! It allows the user to:
+//! - select a chain
+//! - select a wallet
+//! - show the QR code for the selected wallet
+//! - delegate to a smart contract
+//! - delegate status of the current wallet (Green if not delegated, Red if delegated)
+
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::{
@@ -24,7 +33,14 @@ use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 
-/// Show some of current state of Zeus like the current chain, wallet, etc.
+/// Ui component that we show at the top left of the window
+/// 
+/// It allows the user to:
+/// - select a chain
+/// - select a wallet
+/// - show the QR code for the selected wallet
+/// - delegate to a smart contract
+/// - delegate status of the current wallet (Green if not delegated, Red if delegated)
 pub struct Header {
    open: bool,
    overlay: OverlayManager,
