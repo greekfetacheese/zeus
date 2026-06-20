@@ -23,7 +23,7 @@ mod tests {
          let z_client = ctx.get_zeus_client();
          let rpcs = z_client.get_rpcs(chain);
 
-         for rpc in &rpcs {
+         for (_url, rpc) in &rpcs {
             let client = match ctx.connect_to_rpc(rpc).await {
                Ok(client) => client,
                Err(e) => {
@@ -96,7 +96,7 @@ mod tests {
 
          eprintln!("Chain {} has {} pools", chain, pools.len());
 
-         for rpc in &rpcs {
+         for (_url, rpc) in &rpcs {
             let client = match ctx.connect_to_rpc(rpc).await {
                Ok(client) => client,
                Err(e) => {

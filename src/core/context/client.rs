@@ -166,7 +166,7 @@ impl Default for RpcCheck {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Rpc {
-   pub url: String,
+   pub url: Arc<str>,
    pub chain_id: u64,
    /// False if the rpc is added by the user
    pub default: bool,
@@ -180,11 +180,14 @@ pub struct Rpc {
    /// Last time in UNIX timestamp this RPC failed to do a request
    #[serde(default)]
    pub last_failure: Option<u64>,
+
+   #[serde(skip)]
+   pub test_in_progress: bool,
 }
 
 impl Rpc {
    pub fn new(
-      url: impl Into<String>,
+      url: impl Into<Arc<str>>,
       chain_id: u64,
       default: bool,
       enabled: bool,
@@ -200,6 +203,7 @@ impl Rpc {
          latency: None,
          last_used: 0,
          last_failure: None,
+         test_in_progress: false,
       }
    }
 
@@ -269,137 +273,125 @@ impl Rpc {
    }
 }
 
+/// Map from RPC URL to RPC, keyed by `Arc<str>`.
+type RpcMapByUrl = HashMap<Arc<str>, Rpc>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZeusClient {
-   pub rpcs: Arc<RwLock<HashMap<u64, Vec<Rpc>>>>,
+   pub rpcs: Arc<RwLock<HashMap<u64, RpcMapByUrl>>>,
 }
 
 impl Default for ZeusClient {
    fn default() -> Self {
-      let mut rpcs = HashMap::new();
+      let mut rpc_map_by_chain = HashMap::new();
 
       // Chain ID 1: Ethereum
-
       let not_mev_protect = false;
       let mev_protect = true;
 
-      let url1 = "wss://ethereum-rpc.publicnode.com";
-      let url2 = "wss://mainnet.gateway.tenderly.co";
-      let url3 = "https://reth-ethereum.ithaca.xyz/rpc";
-      let url4 = "https://rpc.payload.de";
-      let url5 = "https://ethereum-rpc.publicnode.com";
-      let url6 = "https://eth.blockrazor.xyz";
+      let url1: Arc<str> = Arc::from("wss://ethereum-rpc.publicnode.com");
+      let url2: Arc<str> = Arc::from("wss://mainnet.gateway.tenderly.co");
+      let url3: Arc<str> = Arc::from("https://reth-ethereum.ithaca.xyz/rpc");
+      let url4: Arc<str> = Arc::from("https://rpc.payload.de");
+      let url5: Arc<str> = Arc::from("https://ethereum-rpc.publicnode.com");
+      let url6: Arc<str> = Arc::from("https://eth.blockrazor.xyz");
 
-      let mev_url = "https://rpc.mevblocker.io";
-      let mev_url2 = "https://rpc.flashbots.net/fast";
+      let mev_url: Arc<str> = Arc::from("https://rpc.mevblocker.io");
+      let mev_url2: Arc<str> = Arc::from("https://rpc.flashbots.net/fast");
 
-      rpcs.insert(
-         1,
-         vec![
-            Rpc::new(url1, 1, true, true, not_mev_protect),
-            Rpc::new(url2, 1, true, true, not_mev_protect),
-            Rpc::new(url3, 1, true, true, not_mev_protect),
-            Rpc::new(url4, 1, true, true, not_mev_protect),
-            Rpc::new(url5, 1, true, true, not_mev_protect),
-            Rpc::new(url6, 1, true, true, not_mev_protect),
-            Rpc::new(mev_url, 1, true, true, mev_protect),
-            Rpc::new(mev_url2, 1, true, true, mev_protect),
-         ],
-      );
+      let mut rpcs_by_url = RpcMapByUrl::new();
+      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url6), Rpc::new(url6, 1, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&mev_url), Rpc::new(mev_url, 1, true, true, mev_protect));
+      rpcs_by_url.insert(Arc::clone(&mev_url2), Rpc::new(mev_url2, 1, true, true, mev_protect));
+
+      rpc_map_by_chain.insert(1, rpcs_by_url);
 
       // Chain ID 10: Optimism
+      let url1: Arc<str> = Arc::from("wss://optimism.gateway.tenderly.co");
+      let url2: Arc<str> = Arc::from("wss://optimism.drpc.org");
+      let url3: Arc<str> = Arc::from("wss://optimism-rpc.publicnode.com");
+      let url4: Arc<str> = Arc::from("https://mainnet.optimism.io");
+      let url5: Arc<str> = Arc::from("https://optimism-rpc.publicnode.com");
+      let url6: Arc<str> = Arc::from("https://optimism.drpc.org");
 
-      let url = "wss://optimism.gateway.tenderly.co";
-      let url2 = "wss://optimism.drpc.org";
-      let url3 = "wss://optimism-rpc.publicnode.com";
-      let url4 = "https://mainnet.optimism.io";
-      let url5 = "https://optimism-rpc.publicnode.com";
-      let url6 = "https://optimism.drpc.org";
+      let mut rpcs_by_url = RpcMapByUrl::new();
+      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url6), Rpc::new(url6, 10, true, true, not_mev_protect));
 
-      rpcs.insert(
-         10,
-         vec![
-            Rpc::new(url, 10, true, true, not_mev_protect),
-            Rpc::new(url2, 10, true, true, not_mev_protect),
-            Rpc::new(url3, 10, true, true, not_mev_protect),
-            Rpc::new(url4, 10, true, true, not_mev_protect),
-            Rpc::new(url5, 10, true, true, not_mev_protect),
-            Rpc::new(url6, 10, true, true, not_mev_protect),
-         ],
-      );
+      rpc_map_by_chain.insert(10, rpcs_by_url);
 
       // Chain ID 56: BSC
+      let url1: Arc<str> = Arc::from("wss://bsc-rpc.publicnode.com");
+      let url2: Arc<str> = Arc::from("https://binance.llamarpc.com");
+      let url3: Arc<str> = Arc::from("https://bsc-pokt.nodies.app");
+      let url4: Arc<str> = Arc::from("https://api.zan.top/bsc-mainnet");
 
-      let url = "wss://bsc-rpc.publicnode.com";
-      let url2 = "https://binance.llamarpc.com";
-      let url3 = "https://bsc-pokt.nodies.app";
-      let url4 = "https://api.zan.top/bsc-mainnet";
+      let mut rpcs_by_url = RpcMapByUrl::new();
+      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 56, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 56, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 56, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 56, true, true, not_mev_protect));
 
-      rpcs.insert(
-         56,
-         vec![
-            Rpc::new(url, 56, true, true, not_mev_protect),
-            Rpc::new(url2, 56, true, true, not_mev_protect),
-            Rpc::new(url3, 56, true, true, not_mev_protect),
-            Rpc::new(url4, 56, true, true, not_mev_protect),
-         ],
-      );
+      rpc_map_by_chain.insert(56, rpcs_by_url);
 
       // Chain ID 8453: Base
+      let url1: Arc<str> = Arc::from("wss://base-rpc.publicnode.com");
+      let url2: Arc<str> = Arc::from("wss://base.gateway.tenderly.co");
+      let url3: Arc<str> = Arc::from("https://mainnet.base.org");
+      let url4: Arc<str> = Arc::from("https://1rpc.io/base");
+      let url5: Arc<str> = Arc::from("https://base-rpc.publicnode.com");
 
-      let url = "wss://base-rpc.publicnode.com";
-      let url2 = "wss://base.gateway.tenderly.co";
-      let url3 = "https://mainnet.base.org";
-      let url4 = "https://1rpc.io/base";
-      let url5 = "https://base-rpc.publicnode.com";
+      let mut rpcs_by_url = RpcMapByUrl::new();
+      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 8453, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 8453, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 8453, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 8453, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 8453, true, true, not_mev_protect));
 
-      rpcs.insert(
-         8453,
-         vec![
-            Rpc::new(url, 8453, true, true, not_mev_protect),
-            Rpc::new(url2, 8453, true, true, not_mev_protect),
-            Rpc::new(url3, 8453, true, true, not_mev_protect),
-            Rpc::new(url4, 8453, true, true, not_mev_protect),
-            Rpc::new(url5, 8453, true, true, not_mev_protect),
-         ],
-      );
+      rpc_map_by_chain.insert(8453, rpcs_by_url);
 
       // Chain ID 42161: Arbitrum
+      let url1: Arc<str> = Arc::from("wss://arbitrum-one-rpc.publicnode.com");
+      let url2: Arc<str> = Arc::from("https://arbitrum.meowrpc.com");
+      let url3: Arc<str> = Arc::from("https://arb1.arbitrum.io/rpc");
+      let url4: Arc<str> = Arc::from("https://1rpc.io/arb");
 
-      let url = "wss://arbitrum-one-rpc.publicnode.com";
-      let url2 = "https://arbitrum.meowrpc.com";
-      let url3 = "https://arb1.arbitrum.io/rpc";
-      let url4 = "https://1rpc.io/arb";
+      let mut rpcs_by_url = RpcMapByUrl::new();
+      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 42161, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 42161, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 42161, true, true, not_mev_protect));
+      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 42161, true, true, not_mev_protect));
 
-      rpcs.insert(
-         42161,
-         vec![
-            Rpc::new(url, 42161, true, true, not_mev_protect),
-            Rpc::new(url2, 42161, true, true, not_mev_protect),
-            Rpc::new(url3, 42161, true, true, not_mev_protect),
-            Rpc::new(url4, 42161, true, true, not_mev_protect),
-         ],
-      );
+      rpc_map_by_chain.insert(42161, rpcs_by_url);
 
       Self {
-         rpcs: Arc::new(RwLock::new(rpcs)),
+         rpcs: Arc::new(RwLock::new(rpc_map_by_chain)),
       }
    }
 }
 
 impl ZeusClient {
-   pub fn read<R>(&self, reader: impl FnOnce(&HashMap<u64, Vec<Rpc>>) -> R) -> R {
+   pub fn read<R>(&self, reader: impl FnOnce(&HashMap<u64, RpcMapByUrl>) -> R) -> R {
       reader(&self.rpcs.read().unwrap())
    }
 
-   pub fn write<R>(&self, writer: impl FnOnce(&mut HashMap<u64, Vec<Rpc>>) -> R) -> R {
+   pub fn write<R>(&self, writer: impl FnOnce(&mut HashMap<u64, RpcMapByUrl>) -> R) -> R {
       writer(&mut self.rpcs.write().unwrap())
    }
 
    pub fn load_from_file() -> Result<Self, anyhow::Error> {
       let dir = data_dir()?.join(PROVIDER_DATA_FILE);
       let data = std::fs::read(&dir)?;
-      let rpcs: HashMap<u64, Vec<Rpc>> = serde_json::from_slice(&data)?;
+      let rpcs: HashMap<u64, RpcMapByUrl> = serde_json::from_slice(&data)?;
       Ok(Self {
          rpcs: Arc::new(RwLock::new(rpcs)),
       })
@@ -413,19 +405,19 @@ impl ZeusClient {
       Ok(())
    }
 
-   pub fn get_rpcs(&self, chain: u64) -> Vec<Rpc> {
-      self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec())
+   pub fn get_rpcs(&self, chain: u64) -> RpcMapByUrl {
+      self.read(|rpcs| rpcs.get(&chain).unwrap_or(&HashMap::new()).clone())
    }
 
    pub fn add_rpc(&self, chain: u64, rpc: Rpc) {
       self.write(|rpcs| {
-         rpcs.entry(chain).or_default().push(rpc);
+         rpcs.entry(chain).or_default().insert(rpc.url.clone(), rpc);
       });
    }
 
-   pub fn remove_rpc(&self, chain: u64, url: String) {
+   pub fn remove_rpc(&self, chain: u64, url: Arc<str>) {
       self.write(|rpcs| {
-         rpcs.entry(chain).or_default().retain(|rpc| rpc.url != url);
+         rpcs.entry(chain).or_default().remove(&*url);
       });
    }
 
@@ -460,14 +452,11 @@ impl ZeusClient {
       match client.get_block_number().await {
          Ok(_) => {
             let latency = time.elapsed();
-            self.write(|rpcs| {
-               if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
-                  for rpc_mut in rpcs.iter_mut() {
-                     if rpc_mut.url == rpc.url {
-                        rpc_mut.check.working = true;
-                        rpc_mut.latency = Some(latency);
-                        break;
-                     }
+            self.write(|rpcs_map| {
+               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+                  if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+                     rpc.check.working = true;
+                     rpc.latency = Some(latency);
                   }
                }
             });
@@ -478,13 +467,10 @@ impl ZeusClient {
                rpc.url,
                e
             );
-            self.write(|rpcs| {
-               if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
-                  for rpc_mut in rpcs.iter_mut() {
-                     if rpc_mut.url == rpc.url {
-                        rpc_mut.check.working = false;
-                        break;
-                     }
+            self.write(|rpcs_map| {
+               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+                  if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+                     rpc.check.working = false;
                   }
                }
             });
@@ -497,11 +483,10 @@ impl ZeusClient {
       let mut tasks = Vec::new();
 
       for chain in SUPPORTED_CHAINS {
-         let rpcs = self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec());
+         let rpcs = self.get_rpcs(chain);
          let sempahore = Arc::new(Semaphore::new(5));
 
-         for rpc in rpcs {
-            let rpc = rpc.clone();
+         for (_url, rpc) in rpcs {
             let sempahore = sempahore.clone();
             let zeus_client = self.clone();
 
@@ -523,14 +508,11 @@ impl ZeusClient {
    pub async fn run_check_for(&self, ctx: ZeusCtx, rpc: Rpc) {
       match rpc_test(ctx, rpc.clone()).await {
          Ok((latency, result)) => {
-            self.write(|rpcs| {
-               if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
-                  for rpc_mut in rpcs.iter_mut() {
-                     if rpc_mut.url == rpc.url {
-                        rpc_mut.check = result.clone();
-                        rpc_mut.latency = Some(latency);
-                        break;
-                     }
+            self.write(|rpcs_map| {
+               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+                  if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+                     rpc.check = result.clone();
+                     rpc.latency = Some(latency);
                   }
                }
             });
@@ -539,11 +521,8 @@ impl ZeusClient {
             tracing::error!("Error testing RPC {} {:?}", rpc.url, e);
             self.write(|rpcs| {
                if let Some(rpcs) = rpcs.get_mut(&rpc.chain_id) {
-                  for rpc_mut in rpcs.iter_mut() {
-                     if rpc_mut.url == rpc.url {
-                        rpc_mut.check.working = false;
-                        break;
-                     }
+                  if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+                     rpc.check.working = false;
                   }
                }
             });
@@ -555,11 +534,10 @@ impl ZeusClient {
       let mut tasks = Vec::new();
 
       for chain in SUPPORTED_CHAINS {
-         let rpcs = self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec());
+         let rpcs = self.get_rpcs(chain);
          let semaphore = Arc::new(Semaphore::new(5));
 
-         for rpc in rpcs {
-            let rpc = rpc.clone();
+         for (_url, rpc) in rpcs {
             let ctx_clone = ctx.clone();
             let semaphore = semaphore.clone();
             let zeus_client = self.clone();
@@ -581,9 +559,9 @@ impl ZeusClient {
 
    /// Mark every RPC as working
    pub fn mark_all_as_working(&self) {
-      self.write(|rpcs| {
-         for (_, rpcs) in rpcs.iter_mut() {
-            for rpc in rpcs {
+      self.write(|rpcs_map| {
+         for (_, rpcs_by_url) in rpcs_map.iter_mut() {
+            for (_url, rpc) in rpcs_by_url {
                rpc.check.working = true;
             }
          }
@@ -592,9 +570,9 @@ impl ZeusClient {
 
    /// Mark every RPC as fully functional
    pub fn mark_all_as_fully_functional(&self) {
-      self.write(|rpcs| {
-         for (_, rpcs) in rpcs.iter_mut() {
-            for rpc in rpcs {
+      self.write(|rpcs_map| {
+         for (_, rpcs_by_url) in rpcs_map.iter_mut() {
+            for (_url, rpc) in rpcs_by_url {
                rpc.check.fully_functional = true;
             }
          }
@@ -602,14 +580,18 @@ impl ZeusClient {
    }
 
    pub fn sort_by_fastest(&self) {
-      self.write(|rpcs| {
-         for (_, rpcs) in rpcs.iter_mut() {
+      self.write(|rpcs_map| {
+         for (_, rpc_map) in rpcs_map.iter_mut() {
+            let mut rpcs: Vec<Rpc> = rpc_map.drain().map(|(_, v)| v).collect();
             rpcs.sort_by(|a, b| {
                a.latency
                   .unwrap_or_default()
                   .partial_cmp(&b.latency.unwrap_or_default())
                   .unwrap_or(std::cmp::Ordering::Equal)
             });
+            for rpc in rpcs {
+               rpc_map.insert(rpc.url.clone(), rpc);
+            }
          }
       });
    }
@@ -620,25 +602,13 @@ impl ZeusClient {
    }
 
    pub fn rpc_archive_available(&self, chain: u64) -> bool {
-      self.read(|rpcs| {
-         let rpcs = rpcs.get(&chain);
-         if rpcs.is_none() {
-            return false;
-         }
-         let rpcs = rpcs.as_ref().unwrap();
-         rpcs.iter().any(|rpc| rpc.is_working() && rpc.is_archive())
-      })
+      let rpcs = self.get_rpcs(chain);
+      rpcs.iter().any(|(_url, rpc)| rpc.is_working() && rpc.is_archive())
    }
 
    pub fn mev_protect_available(&self, chain: u64) -> bool {
-      self.read(|rpcs| {
-         let rpcs = rpcs.get(&chain);
-         if rpcs.is_none() {
-            return false;
-         }
-         let rpcs = rpcs.as_ref().unwrap();
-         rpcs.iter().any(|rpc| rpc.is_working() && rpc.is_mev_protect())
-      })
+      let rpcs = self.get_rpcs(chain);
+      rpcs.iter().any(|(_url, rpc)| rpc.is_working() && rpc.is_mev_protect())
    }
 
    pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
@@ -718,9 +688,9 @@ impl ZeusClient {
          sleep(Duration::from_millis(100)).await;
       }
 
-      let rpcs = self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec());
+      let rpcs = self.get_rpcs(chain);
 
-      for rpc in &rpcs {
+      for (_url, rpc) in &rpcs {
          if !rpc.mev_protect || !rpc.is_working() {
             continue;
          }
@@ -770,9 +740,9 @@ impl ZeusClient {
          sleep(Duration::from_millis(100)).await;
       }
 
-      let rpcs = self.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).to_vec());
+      let rpcs = self.get_rpcs(chain);
 
-      for rpc in &rpcs {
+      for (_url, rpc) in &rpcs {
          if !rpc.is_working() || !rpc.is_enabled() || !rpc.is_archive() {
             continue;
          }
@@ -808,13 +778,10 @@ impl ZeusClient {
 
    fn penalize(&self, chain: u64, rpc: &Rpc) {
       let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-      self.write(|rpcs| {
-         if let Some(rpcs) = rpcs.get_mut(&chain) {
-            for r in rpcs.iter_mut() {
-               if r.url == rpc.url {
-                  r.last_failure = Some(now_ms);
-                  break;
-               }
+      self.write(|rpcs_map| {
+         if let Some(rpcs) = rpcs_map.get_mut(&chain) {
+            if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+               rpc.last_failure = Some(now_ms);
             }
          }
       });
@@ -826,13 +793,14 @@ impl ZeusClient {
       let failure_penalty_max: u128 = 10_000;
       let failure_decay_secs: u64 = 60;
 
-      self.write(|rpcs| {
-         let mut empty = Vec::new();
-         let rpcs = rpcs.get_mut(&chain).unwrap_or(&mut empty);
+      self.write(|rpcs_map| {
+         let mut empty = HashMap::new();
+         let rpcs = rpcs_map.get_mut(&chain).unwrap_or(&mut empty);
          let now_ms = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64;
-         let mut best_idx = None;
+         let mut best_key = None;
          let mut best_score = u128::MAX;
-         for (idx, rpc) in rpcs.iter_mut().enumerate() {
+
+         for (url, rpc) in rpcs.iter_mut() {
             if !rpc.is_enabled() || !rpc.is_working() {
                continue;
             }
@@ -841,6 +809,7 @@ impl ZeusClient {
             let usage_penalty = cooldown_ms.saturating_sub(time_since_used) as u128;
 
             let mut score = rpc.latency_ms() + usage_penalty;
+
             if let Some(lf) = rpc.last_failure {
                let time_since_fail = now_ms.saturating_sub(lf);
                if time_since_fail < failure_decay_secs * 1000 {
@@ -855,17 +824,21 @@ impl ZeusClient {
 
             if score < best_score {
                best_score = score;
-               best_idx = Some(idx);
+               best_key = Some(url.clone());
             }
          }
 
-         let Some(idx) = best_idx else {
+         let Some(key) = best_key else {
             return None;
          };
-         
-         rpcs[idx].last_used = now_ms;
-         let rpc = rpcs[idx].clone();
-         Some(rpc)
+
+         if let Some(rpc) = rpcs.get_mut(&key) {
+            rpc.last_used = now_ms;
+            let rpc = rpc.clone();
+            Some(rpc)
+         } else {
+            None
+         }
       })
    }
 
@@ -930,9 +903,17 @@ impl ZeusClient {
 ///
 /// Others have a very low staticalll gas limit which cause the batch requests to fail
 pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), anyhow::Error> {
-
    #[cfg(feature = "debug")]
    tracing::info!("Testing {}", rpc.url);
+
+   let z_client = ctx.get_zeus_client();
+   z_client.write(|rpcs_map| {
+      if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+         if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+            rpc.test_in_progress = true;
+         }
+      }
+   });
 
    let retry = retry_layer(
       MAX_RETRIES,
@@ -1055,6 +1036,14 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
       rpc.url,
       latency.as_secs_f32()
    );
+
+   z_client.write(|rpcs_map| {
+      if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
+         if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
+            rpc.test_in_progress = false;
+         }
+      }
+   });
 
    Ok((latency, result))
 }

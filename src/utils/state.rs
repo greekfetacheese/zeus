@@ -27,14 +27,13 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
 
    let time = std::time::Instant::now();
    for chain in SUPPORTED_CHAINS {
-      let rpcs = client.read(|rpcs| rpcs.get(&chain).unwrap_or(&vec![]).clone());
+      let rpcs = client.get_rpcs(chain);
 
-      for rpc in &rpcs {
+      for (_url, rpc) in rpcs {
          let client = client.clone();
          let semaphore = semaphore.clone();
 
          if rpc.should_run_check() {
-            let rpc = rpc.clone();
             let ctx = ctx.clone();
 
             let task = RT.spawn(async move {
@@ -43,7 +42,6 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
             });
             tasks.push(task);
          } else {
-            let rpc = rpc.clone();
             let task = RT.spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                client.run_latency_check_for(rpc).await;
