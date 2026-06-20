@@ -141,7 +141,7 @@ where
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
-   if latest_block - from_block > block_range {
+   if latest_block.saturating_sub(from_block) > block_range {
       let mut start_block = from_block;
 
       while start_block <= latest_block {
@@ -289,7 +289,7 @@ fn _format_abbreviated(n: f64) -> Option<String> {
 
    // Just return unlimited for now, these numbers doesn't make sense anyway
    if n > one_sextillion {
-     return Some(format!("Unlimited"));
+      return Some(format!("Unlimited"));
    }
 
    // Up to sextillion 10^21

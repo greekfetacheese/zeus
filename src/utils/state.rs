@@ -33,7 +33,7 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
          let client = client.clone();
          let semaphore = semaphore.clone();
 
-         if rpc.should_run_check() {
+         if rpc.should_run_check() && rpc.is_enabled() {
             let ctx = ctx.clone();
 
             let task = RT.spawn(async move {
@@ -41,7 +41,7 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
                client.run_check_for(ctx, rpc).await;
             });
             tasks.push(task);
-         } else {
+         } else if rpc.is_enabled() {
             let task = RT.spawn(async move {
                let _permit = semaphore.acquire().await.unwrap();
                client.run_latency_check_for(rpc).await;
@@ -191,7 +191,10 @@ async fn check_smart_account_status(ctx: ZeusCtx) {
                match ctx.check_delegated_wallet_status(chain, account.address).await {
                   Ok(_) => {
                      #[cfg(feature = "debug")]
-                     tracing::info!("Checked delegated wallet status for {}", account.address)
+                     tracing::info!(
+                        "Checked delegated wallet status for {}",
+                        account.address
+                     )
                   }
                   Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
                }
@@ -232,7 +235,7 @@ async fn update_token_prices(ctx: ZeusCtx) {
             Ok(_) => {
                #[cfg(feature = "debug")]
                tracing::info!("Updated base token prices for chain: {}", chain)
-            },
+            }
             Err(e) => tracing::error!(
                "Error updating base token prices for chain {}: {:?}",
                chain,
@@ -244,7 +247,7 @@ async fn update_token_prices(ctx: ZeusCtx) {
             Ok(_) => {
                #[cfg(feature = "debug")]
                tracing::info!("Updated token prices for chain: {}", chain)
-            },
+            }
             Err(e) => tracing::error!(
                "Error updating token prices for chain {}: {:?}",
                chain,

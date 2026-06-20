@@ -25,7 +25,7 @@ pub struct SettingsUi {
    open: bool,
    general: GeneralSettings,
    pub encryption: EncryptionSettings,
-   network: NetworkSettings,
+   pub network: NetworkSettings,
    theme: ThemeSettings,
    pub contacts_ui: ContactsUi,
    pub change_credentials_ui: ChangeCredentialsUi,
@@ -60,6 +60,10 @@ impl SettingsUi {
       self.open = false;
    }
 
+   pub fn open_network_settings(&mut self) {
+      self.network.open();
+   }
+
    pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
@@ -68,7 +72,6 @@ impl SettingsUi {
       self.main_ui(theme, ui);
       self.encryption.show(ctx.clone(), theme, ui);
       self.change_credentials_ui.show(ctx.clone(), theme, ui);
-      self.network.show(ctx.clone(), theme, icons.clone(), ui);
       self.contacts_ui.show(ctx.clone(), theme, icons, ui);
       self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);

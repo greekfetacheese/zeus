@@ -141,14 +141,12 @@ pub struct RpcCheck {
    pub last_check: Option<u64>,
 }
 
-impl RpcCheck {}
-
 impl Default for RpcCheck {
    fn default() -> Self {
       Self {
-         archive: true,
-         working: true,
-         fully_functional: true,
+         archive: false,
+         working: false,
+         fully_functional: false,
          logs_block_range: DEFAULT_BLOCK_RANGE,
          static_gas_limit: 0,
          eth_balance_batch: ETH_BALANCE_BATCH,
@@ -288,26 +286,42 @@ impl Default for ZeusClient {
       // Chain ID 1: Ethereum
       let not_mev_protect = false;
       let mev_protect = true;
+      let default = true;
+      let enabled = false;
 
       let url1: Arc<str> = Arc::from("wss://ethereum-rpc.publicnode.com");
       let url2: Arc<str> = Arc::from("wss://mainnet.gateway.tenderly.co");
-      let url3: Arc<str> = Arc::from("https://reth-ethereum.ithaca.xyz/rpc");
-      let url4: Arc<str> = Arc::from("https://rpc.payload.de");
-      let url5: Arc<str> = Arc::from("https://ethereum-rpc.publicnode.com");
-      let url6: Arc<str> = Arc::from("https://eth.blockrazor.xyz");
+      let url3: Arc<str> = Arc::from("https://ethereum-rpc.publicnode.com");
+      let url4: Arc<str> = Arc::from("https://eth.blockrazor.xyz");
 
       let mev_url: Arc<str> = Arc::from("https://rpc.mevblocker.io");
       let mev_url2: Arc<str> = Arc::from("https://rpc.flashbots.net/fast");
 
       let mut rpcs_by_url = RpcMapByUrl::new();
-      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url6), Rpc::new(url6, 1, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&mev_url), Rpc::new(mev_url, 1, true, true, mev_protect));
-      rpcs_by_url.insert(Arc::clone(&mev_url2), Rpc::new(mev_url2, 1, true, true, mev_protect));
+      rpcs_by_url.insert(
+         Arc::clone(&url1),
+         Rpc::new(url1, 1, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url2),
+         Rpc::new(url2, 1, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url3),
+         Rpc::new(url3, 1, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url4),
+         Rpc::new(url4, 1, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&mev_url),
+         Rpc::new(mev_url, 1, default, enabled, mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&mev_url2),
+         Rpc::new(mev_url2, 1, default, enabled, mev_protect),
+      );
 
       rpc_map_by_chain.insert(1, rpcs_by_url);
 
@@ -320,12 +334,30 @@ impl Default for ZeusClient {
       let url6: Arc<str> = Arc::from("https://optimism.drpc.org");
 
       let mut rpcs_by_url = RpcMapByUrl::new();
-      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 10, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 10, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 10, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 10, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 10, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url6), Rpc::new(url6, 10, true, true, not_mev_protect));
+      rpcs_by_url.insert(
+         Arc::clone(&url1),
+         Rpc::new(url1, 10, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url2),
+         Rpc::new(url2, 10, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url3),
+         Rpc::new(url3, 10, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url4),
+         Rpc::new(url4, 10, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url5),
+         Rpc::new(url5, 10, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url6),
+         Rpc::new(url6, 10, default, enabled, not_mev_protect),
+      );
 
       rpc_map_by_chain.insert(10, rpcs_by_url);
 
@@ -336,10 +368,22 @@ impl Default for ZeusClient {
       let url4: Arc<str> = Arc::from("https://api.zan.top/bsc-mainnet");
 
       let mut rpcs_by_url = RpcMapByUrl::new();
-      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 56, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 56, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 56, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 56, true, true, not_mev_protect));
+      rpcs_by_url.insert(
+         Arc::clone(&url1),
+         Rpc::new(url1, 56, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url2),
+         Rpc::new(url2, 56, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url3),
+         Rpc::new(url3, 56, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url4),
+         Rpc::new(url4, 56, default, enabled, not_mev_protect),
+      );
 
       rpc_map_by_chain.insert(56, rpcs_by_url);
 
@@ -351,11 +395,26 @@ impl Default for ZeusClient {
       let url5: Arc<str> = Arc::from("https://base-rpc.publicnode.com");
 
       let mut rpcs_by_url = RpcMapByUrl::new();
-      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 8453, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 8453, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 8453, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 8453, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url5), Rpc::new(url5, 8453, true, true, not_mev_protect));
+      rpcs_by_url.insert(
+         Arc::clone(&url1),
+         Rpc::new(url1, 8453, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url2),
+         Rpc::new(url2, 8453, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url3),
+         Rpc::new(url3, 8453, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url4),
+         Rpc::new(url4, 8453, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url5),
+         Rpc::new(url5, 8453, default, enabled, not_mev_protect),
+      );
 
       rpc_map_by_chain.insert(8453, rpcs_by_url);
 
@@ -366,10 +425,22 @@ impl Default for ZeusClient {
       let url4: Arc<str> = Arc::from("https://1rpc.io/arb");
 
       let mut rpcs_by_url = RpcMapByUrl::new();
-      rpcs_by_url.insert(Arc::clone(&url1), Rpc::new(url1, 42161, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url2), Rpc::new(url2, 42161, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url3), Rpc::new(url3, 42161, true, true, not_mev_protect));
-      rpcs_by_url.insert(Arc::clone(&url4), Rpc::new(url4, 42161, true, true, not_mev_protect));
+      rpcs_by_url.insert(
+         Arc::clone(&url1),
+         Rpc::new(url1, 42161, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url2),
+         Rpc::new(url2, 42161, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url3),
+         Rpc::new(url3, 42161, default, enabled, not_mev_protect),
+      );
+      rpcs_by_url.insert(
+         Arc::clone(&url4),
+         Rpc::new(url4, 42161, default, enabled, not_mev_protect),
+      );
 
       rpc_map_by_chain.insert(42161, rpcs_by_url);
 
@@ -412,6 +483,16 @@ impl ZeusClient {
    pub fn add_rpc(&self, chain: u64, rpc: Rpc) {
       self.write(|rpcs| {
          rpcs.entry(chain).or_default().insert(rpc.url.clone(), rpc);
+      });
+   }
+
+   pub fn set_test_in_progress(&self, chain: u64, rpc: &Rpc, in_progress: bool) {
+      self.write(|rpcs_map| {
+         if let Some(rpcs) = rpcs_map.get_mut(&chain) {
+            if let Some(rpc) = rpcs.get_mut(&rpc.url) {
+               rpc.test_in_progress = in_progress;
+            }
+         }
       });
    }
 
@@ -487,6 +568,10 @@ impl ZeusClient {
          let sempahore = Arc::new(Semaphore::new(5));
 
          for (_url, rpc) in rpcs {
+            if !rpc.is_enabled() {
+               continue;
+            }
+
             let sempahore = sempahore.clone();
             let zeus_client = self.clone();
 
@@ -506,6 +591,8 @@ impl ZeusClient {
    }
 
    pub async fn run_check_for(&self, ctx: ZeusCtx, rpc: Rpc) {
+      self.set_test_in_progress(rpc.chain_id, &rpc, true);
+
       match rpc_test(ctx, rpc.clone()).await {
          Ok((latency, result)) => {
             self.write(|rpcs_map| {
@@ -528,6 +615,8 @@ impl ZeusClient {
             });
          }
       }
+
+      self.set_test_in_progress(rpc.chain_id, &rpc, false);
    }
 
    pub async fn run_rpc_checks(&self, ctx: ZeusCtx) {
@@ -538,6 +627,10 @@ impl ZeusClient {
          let semaphore = Arc::new(Semaphore::new(5));
 
          for (_url, rpc) in rpcs {
+            if !rpc.is_enabled() {
+               continue;
+            }
+
             let ctx_clone = ctx.clone();
             let semaphore = semaphore.clone();
             let zeus_client = self.clone();
@@ -598,7 +691,8 @@ impl ZeusClient {
 
    /// Is there any available RPC for a chain
    pub fn rpc_available(&self, chain: u64) -> bool {
-      self.get_best_rpc(chain).is_some()
+      let rpcs = self.get_rpcs(chain);
+      rpcs.iter().any(|(_, rpc)| rpc.is_enabled() && rpc.is_working())
    }
 
    pub fn rpc_archive_available(&self, chain: u64) -> bool {
@@ -906,15 +1000,6 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    #[cfg(feature = "debug")]
    tracing::info!("Testing {}", rpc.url);
 
-   let z_client = ctx.get_zeus_client();
-   z_client.write(|rpcs_map| {
-      if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
-         if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
-            rpc.test_in_progress = true;
-         }
-      }
-   });
-
    let retry = retry_layer(
       MAX_RETRIES,
       INITIAL_BACKOFF,
@@ -935,6 +1020,15 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    let latest_block = client.get_block_number().await?;
    let latency = time.elapsed();
 
+   let rpc_check = RpcCheck::default();
+   let result = Arc::new(Mutex::new(rpc_check));
+
+   // If it can return at least the latest block is considered functional
+   {
+      let mut guard = result.lock().unwrap();
+      guard.working = true;
+   }
+
    let block_to_query = if latest_block > 100_000 {
       latest_block - 100_000
    } else {
@@ -942,9 +1036,6 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
    };
 
    let weth = ERC20Token::wrapped_native_token(rpc.chain_id);
-
-   let rpc_check = RpcCheck::default();
-   let result = Arc::new(Mutex::new(rpc_check));
 
    let mut tasks = Vec::new();
 
@@ -1037,14 +1128,6 @@ pub async fn rpc_test(ctx: ZeusCtx, rpc: Rpc) -> Result<(Duration, RpcCheck), an
       latency.as_secs_f32()
    );
 
-   z_client.write(|rpcs_map| {
-      if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
-         if let Some(rpc) = rpcs.get_mut(&*rpc.url) {
-            rpc.test_in_progress = false;
-         }
-      }
-   });
-
    Ok((latency, result))
 }
 
@@ -1113,6 +1196,7 @@ async fn get_logs_check(
       true => {
          let mut guard = result.lock().unwrap();
          guard.logs_block_range = block_range;
+         guard.fully_functional = true;
       }
       false => {
          let mut guard = result.lock().unwrap();
@@ -1175,6 +1259,7 @@ async fn v2_pool_reserves_check(
       true => {
          let mut guard = result.lock().unwrap();
          guard.v2_pool_reserves_batch = batch_size;
+         guard.fully_functional = true;
       }
       false => {
          let mut guard = result.lock().unwrap();
@@ -1243,6 +1328,7 @@ async fn v3_pool_state_check(
       true => {
          let mut guard = result.lock().unwrap();
          guard.v3_pool_state_batch = batch_size;
+         guard.fully_functional = true;
       }
       false => {
          let mut guard = result.lock().unwrap();
@@ -1309,6 +1395,7 @@ async fn v4_pool_state_check(
       true => {
          let mut guard = result.lock().unwrap();
          guard.v4_pool_state_batch = batch_size;
+         guard.fully_functional = true;
       }
       false => {
          let mut guard = result.lock().unwrap();
@@ -1371,6 +1458,7 @@ async fn validate_v4_pools_check(
       true => {
          let mut guard = result.lock().unwrap();
          guard.validate_v4_pools_batch = batch_size;
+         guard.fully_functional = true;
       }
       false => {
          let mut guard = result.lock().unwrap();

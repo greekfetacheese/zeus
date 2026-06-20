@@ -67,6 +67,9 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    gui.tx_history.show(ctx.clone(), theme, ui);
    gui.update_window.show(theme, ui);
 
+   // This allows to show the network settings independently from the settings ui
+   gui.settings.network.show(ctx.clone(), theme, icons.clone(), ui);
+
    #[cfg(feature = "dev")]
    gui.dev.show(ctx.clone(), theme, icons, ui);
 

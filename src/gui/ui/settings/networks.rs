@@ -241,6 +241,7 @@ impl NetworkSettings {
                      });
 
                      // Enabled column
+                     let was_enabled = rpc.enabled;
                      let res = ui.scope(|ui| {
                         ui.set_width(others_width);
                         ui.add_space(15.0);
@@ -257,6 +258,16 @@ impl NetworkSettings {
                               }
                            }
                         });
+
+                        // If we just enabled the RPC, we need to run a check
+                        if !was_enabled && rpc.enabled {
+                           let ctx_clone = ctx.clone();
+                           let rpc = rpc.clone();
+                           RT.spawn(async move {
+                              let z_client = ctx_clone.get_zeus_client();
+                              z_client.run_check_for(ctx_clone, rpc).await;
+                           });
+                        }
 
                         let ctx_clone = ctx.clone();
                         RT.spawn_blocking(move || {

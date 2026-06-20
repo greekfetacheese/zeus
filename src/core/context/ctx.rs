@@ -1528,6 +1528,13 @@ pub struct ZeusContext {
    pub sign_msg_window_open: bool,
    /// Private Key and Address Qr Code
    pub qr_image_data: Arc<[u8]>,
+
+   /// Last time checked for available RPCs
+   pub last_checked_for_available_rpcs: u128,
+
+   /// True if we have at least one working & enabled RPC
+   /// for a specific chain
+   pub available_rpcs: HashMap<u64, bool>,
 }
 
 impl ZeusContext {
@@ -1638,11 +1645,33 @@ impl ZeusContext {
          tx_confirm_window_open: false,
          sign_msg_window_open: false,
          qr_image_data: Arc::new([0u8; 0]),
+         last_checked_for_available_rpcs: 0,
+         available_rpcs: HashMap::new(),
       }
    }
 
    pub fn vault_ref(&self) -> &Vault {
       &self.vault
+   }
+
+   /// Check if we have any enabled and working RPCs for the given chain
+   ///
+   /// Returns true if we have at least one enabled and working RPC
+   pub fn check_for_available_rpcs(&mut self, chain: u64, threshold: u128) -> bool {
+      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+      let last_checked = self.last_checked_for_available_rpcs;
+
+      let should_check = now.saturating_sub(last_checked) > threshold;
+
+      if should_check {
+         let ok = self.client.rpc_available(chain);
+         self.last_checked_for_available_rpcs = now;
+         self.available_rpcs.insert(chain, ok);
+
+         return ok;
+      }
+
+      self.available_rpcs.get(&chain).cloned().unwrap_or(false)
    }
 }
 
