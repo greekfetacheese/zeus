@@ -375,6 +375,29 @@ impl UiTesting {
             }
 
             let button =
+               Button::new(RichText::new("Confirm Window").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let msg2 = "Continue without MEV protection?";
+                     gui.confirm_window.open("No available MEV protect RPC found");
+                     gui.confirm_window.set_msg2(msg2);
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Msg Window").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     gui.msg_window.open("Error", "Error message goes here");
+                  });
+               });
+            }
+
+            let button =
                Button::new(RichText::new("Swap Notification With Progress Bar").size(text_size))
                   .min_size(button_size);
 

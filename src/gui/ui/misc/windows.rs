@@ -1,5 +1,5 @@
 //! Windows that are used throughout the app
-//! 
+//!
 //! - ConfirmWindow - A Window to prompt the user to confirm an action
 //! - UpdateWindow - Window to prompt the user to update Zeus version
 //! - LoadingWindow - Window to indicate a loading state
@@ -11,6 +11,7 @@ use crate::utils::{
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
 use eframe::egui::{Align2, Order, RichText, Spinner, Ui, Vec2, Window, vec2};
+use egui::{Align, Layout};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use zeus_theme::{OverlayManager, Theme};
@@ -34,7 +35,7 @@ impl ConfirmWindow {
          confirm: None,
          msg: String::new(),
          msg2: None,
-         size: (200.0, 100.0),
+         size: (300.0, 100.0),
       }
    }
 
@@ -75,44 +76,53 @@ impl ConfirmWindow {
          return;
       }
 
+      let title = RichText::new(&self.msg).size(theme.text_sizes.large);
       let window_frame = theme.frame1;
 
-      Window::new("confirm_window")
-         .title_bar(false)
+      Window::new(title)
          .resizable(false)
-         .order(Order::Foreground)
+         .order(Order::Debug)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .collapsible(false)
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 15.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-               ui.label(RichText::new(&self.msg).size(theme.text_sizes.normal));
+            ui.vertical_centered(|ui| {
+               ui.spacing_mut().item_spacing = vec2(25.0, 20.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
                if let Some(msg) = &self.msg2 {
                   ui.label(RichText::new(msg).size(theme.text_sizes.normal));
                }
 
-               let visuals = theme.button_visuals();
-               let button = Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
-                  .visuals(visuals);
+               let size = vec2(ui.available_width() * 0.6, 25.0);
+               let button_size = vec2(ui.available_width() * 0.25, 25.0);
 
-               if ui.add(button).clicked() {
-                  self.close();
-                  self.confirm = Some(true);
-               }
+               ui.allocate_ui(size, |ui| {
+                  ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
 
-               let button = Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
-                  .visuals(visuals);
+                     let visuals = theme.button_visuals();
+                     let button =
+                        Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
+                           .visuals(visuals).min_size(button_size);
 
-               if ui.add(button).clicked() {
-                  self.close();
-                  self.confirm = Some(false);
-               }
+                     if ui.add(button).clicked() {
+                        self.close();
+                        self.confirm = Some(true);
+                     }
+
+                     let button =
+                        Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
+                           .visuals(visuals).min_size(button_size);
+
+                     if ui.add(button).clicked() {
+                        self.close();
+                        self.confirm = Some(false);
+                     }
+                  });
+               });
             });
          });
    }

@@ -314,7 +314,7 @@ pub async fn send_transaction(
       if mev_client_res.is_err() {
          SHARED_GUI.write(|gui| {
             let msg2 = "Continue without MEV protection?";
-            gui.confirm_window.open("Error while connecting to MEV protect RPC");
+            gui.confirm_window.open("No available MEV protect RPC found");
             gui.confirm_window.set_msg2(msg2);
             gui.request_repaint();
          });

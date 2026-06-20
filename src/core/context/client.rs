@@ -28,7 +28,7 @@ use tokio::{sync::Semaphore, time::sleep};
 
 const PROVIDER_DATA_FILE: &str = "providers.json";
 
-pub const CLIENT_SELECTION_TIMEOUT: u64 = 30;
+pub const CLIENT_SELECTION_TIMEOUT: u64 = 1;
 
 /// Default timeout for sending a transaction or using an MEV protect rpc
 pub const CLIENT_TIMEOUT_FOR_SENDING_TX: u64 = 60;
@@ -702,7 +702,7 @@ impl ZeusClient {
 
    pub fn mev_protect_available(&self, chain: u64) -> bool {
       let rpcs = self.get_rpcs(chain);
-      rpcs.iter().any(|(_url, rpc)| rpc.is_working() && rpc.is_mev_protect())
+      rpcs.iter().any(|(_url, rpc)| rpc.is_working() && rpc.is_enabled() && rpc.is_mev_protect())
    }
 
    pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
@@ -785,7 +785,7 @@ impl ZeusClient {
       let rpcs = self.get_rpcs(chain);
 
       for (_url, rpc) in &rpcs {
-         if !rpc.mev_protect || !rpc.is_working() {
+         if !rpc.mev_protect || !rpc.is_working() || !rpc.is_enabled() {
             continue;
          }
 
