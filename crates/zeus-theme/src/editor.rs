@@ -394,7 +394,11 @@ impl ThemeEditor {
             );
 
             ui.label("Window Stroke");
-            self.edit_stroke(&colors, &mut theme.style.visuals.window_stroke, ui);
+            self.edit_stroke(
+               &colors,
+               &mut theme.style.visuals.window_stroke,
+               ui,
+            );
 
             ui.label("Window Highlight Topmost");
             ui.checkbox(

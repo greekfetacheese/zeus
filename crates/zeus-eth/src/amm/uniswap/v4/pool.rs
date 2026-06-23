@@ -675,16 +675,8 @@ mod tests {
 
       let (balance0, balance1) = pool.pool_balances();
 
-      eprintln!(
-         "{} {}",
-         pool.currency0().symbol(),
-         balance0.abbreviated()
-      );
-      eprintln!(
-         "{} {}",
-         pool.currency1().symbol(),
-         balance1.abbreviated()
-      );
+      eprintln!("{} {}", pool.currency0().symbol(), balance0.abbreviated());
+      eprintln!("{} {}", pool.currency1().symbol(), balance1.abbreviated());
    }
 
    #[tokio::test]
@@ -698,16 +690,8 @@ mod tests {
 
       let (balance0, balance1) = pool.pool_balances();
 
-      eprintln!(
-         "{} {}",
-         pool.currency0().symbol(),
-         balance0.abbreviated()
-      );
-      eprintln!(
-         "{} {}",
-         pool.currency1().symbol(),
-         balance1.abbreviated()
-      );
+      eprintln!("{} {}", pool.currency0().symbol(), balance0.abbreviated());
+      eprintln!("{} {}", pool.currency1().symbol(), balance1.abbreviated());
    }
 
    #[tokio::test]

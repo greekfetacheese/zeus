@@ -29,7 +29,6 @@ impl eframe::App for MyApp {
       egui::Rgba::TRANSPARENT.to_array()
    }
 
-
    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
       let theme = self.theme.clone();
 
@@ -91,7 +90,7 @@ impl eframe::App for MyApp {
 
                   ui.spacing_mut().button_padding = vec2(4.0, 4.0);
                   let size = vec2(ui.available_width() * 0.6, 20.0);
-                  
+
                   self.credentials_form.set_min_size(size);
                   self.credentials_form.show(&self.theme, ui);
                });

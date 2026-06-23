@@ -1,5 +1,5 @@
 use crate::gui::GUI;
-use eframe::egui::{Align, RichText, Layout, Ui};
+use eframe::egui::{Align, Layout, RichText, Ui};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let theme = &gui.theme;

@@ -1,14 +1,12 @@
 pub mod context;
-pub mod transaction;
-pub mod tx_analysis;
+pub mod tx;
 pub mod vault;
 pub mod wallet;
 
 pub use context::*;
-pub use transaction::*;
-pub use tx_analysis::TransactionAnalysis;
-pub use wallet::*;
+pub use tx::{analysis::*, events::*, rich::*};
 pub use vault::*;
+pub use wallet::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Dapp {

@@ -13,14 +13,14 @@ use zeus_wallet::Wallet;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
 pub mod add;
+pub mod delete;
 pub mod discover;
 pub mod export;
 pub mod import;
-pub mod delete;
 
 pub use add::AddWalletUi;
-pub use export::ExportKeyUi;
 pub use delete::DeleteWalletUi;
+pub use export::ExportKeyUi;
 
 /// Ui to manage the wallets
 pub struct WalletUi {
@@ -515,4 +515,3 @@ impl WalletUi {
       }
    }
 }
-

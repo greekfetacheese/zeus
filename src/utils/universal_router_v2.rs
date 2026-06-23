@@ -251,20 +251,19 @@ pub async fn encode_swap(
 
       #[cfg(feature = "dev")]
       {
-      tracing::info!("|=== Swap Step ===|");
-      tracing::info!(
-         "Swap Step: {} {} -> {} {} {} ({}) {} {}",
-         swap.amount_in.abbreviated(),
-         swap.currency_in.symbol(),
-         swap.amount_out.abbreviated(),
-         swap.currency_out.symbol(),
-         swap.pool.dex_kind().as_str(),
-         swap.pool.fee().fee_percent(),
-         swap.pool.address(),
-         swap.pool.id(),
-      );
-   }
-      
+         tracing::info!("|=== Swap Step ===|");
+         tracing::info!(
+            "Swap Step: {} {} -> {} {} {} ({}) {} {}",
+            swap.amount_in.abbreviated(),
+            swap.currency_in.symbol(),
+            swap.amount_out.abbreviated(),
+            swap.currency_out.symbol(),
+            swap.pool.dex_kind().as_str(),
+            swap.pool.fee().fee_percent(),
+            swap.pool.address(),
+            swap.pool.id(),
+         );
+      }
 
       // A step uses initial funds ONLY if its input is the main currency_in for the entire trade.
       let uses_initial_funds = swap.currency_in == currency_in;

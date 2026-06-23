@@ -6,9 +6,9 @@ use egui::{
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
-use crate::gui::ui::tx::{address, chain, contract_interact};
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
+use crate::gui::ui::tx::{address, chain, contract_interact};
 use crate::utils::sign::SignMsgType;
 
 use serde_json::{Value, to_string_pretty};

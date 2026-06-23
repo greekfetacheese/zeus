@@ -284,15 +284,20 @@ impl MiscIcons {
       let refresh_dark_x28 =
          load_and_resize_image(include_bytes!("misc/refresh-dark.png"), 28, 28)?;
 
-      let external_link_white_x18 =
-         load_and_resize_image(include_bytes!("misc/external-link-white.png"), 18, 18)?;
-      let external_link_dark_x18 =
-         load_and_resize_image(include_bytes!("misc/external-link-dark.png"), 18, 18)?;
+      let external_link_white_x18 = load_and_resize_image(
+         include_bytes!("misc/external-link-white.png"),
+         18,
+         18,
+      )?;
+      let external_link_dark_x18 = load_and_resize_image(
+         include_bytes!("misc/external-link-dark.png"),
+         18,
+         18,
+      )?;
 
-         let qrcode_white_x18 =
+      let qrcode_white_x18 =
          load_and_resize_image(include_bytes!("misc/qr-code-white.png"), 18, 18)?;
-      let qrcode_dark_x18 =
-         load_and_resize_image(include_bytes!("misc/qr-code-dark.png"), 18, 18)?;
+      let qrcode_dark_x18 = load_and_resize_image(include_bytes!("misc/qr-code-dark.png"), 18, 18)?;
 
       let info = load_and_resize_image(include_bytes!("misc/info.png"), 14, 14)?;
 
@@ -354,8 +359,16 @@ impl MiscIcons {
             external_link_dark_x18,
             texture_options,
          ),
-         qrcode_white_x18: ctx.load_texture("qrcode_white_x18", qrcode_white_x18, texture_options),
-         qrcode_dark_x18: ctx.load_texture("qrcode_dark_x18", qrcode_dark_x18, texture_options),
+         qrcode_white_x18: ctx.load_texture(
+            "qrcode_white_x18",
+            qrcode_white_x18,
+            texture_options,
+         ),
+         qrcode_dark_x18: ctx.load_texture(
+            "qrcode_dark_x18",
+            qrcode_dark_x18,
+            texture_options,
+         ),
          info: ctx.load_texture("info", info, texture_options),
          server_green: ctx.load_texture("server_green", server_green, texture_options),
          server_red: ctx.load_texture("server_red", server_red, texture_options),
@@ -648,7 +661,9 @@ impl Icons {
 
    pub fn external_link_white_x18(&self, tint: bool) -> Image<'static> {
       match tint {
-         true => Image::new(&self.misc.external_link_white_x18).sense(Sense::click()).tint(TINT_1),
+         true => Image::new(&self.misc.external_link_white_x18)
+            .sense(Sense::click())
+            .tint(TINT_1),
          false => Image::new(&self.misc.external_link_white_x18).sense(Sense::click()),
       }
    }

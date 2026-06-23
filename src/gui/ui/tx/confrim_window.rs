@@ -4,7 +4,7 @@ use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, transaction::*, tx_analysis::TransactionAnalysis};
+use crate::core::{DecodedEvent, TransactionAnalysis, ZeusCtx};
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
    alloy_primitives::{Address, U256},

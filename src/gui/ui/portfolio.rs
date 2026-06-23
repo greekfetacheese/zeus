@@ -1,5 +1,5 @@
 //! This is the UI that shows the portfolio of the current wallet
-//! 
+//!
 //! Showed when Home is selected
 
 use crate::assets::icons::Icons;

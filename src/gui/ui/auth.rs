@@ -1,5 +1,5 @@
 //! UI that allows the user to unlock the vault and access Zeus.
-//! 
+//!
 //! If the vault is not found, it will show the wallet recovery UI.
 
 use crate::core::{M_COST, Vault, ZeusCtx};

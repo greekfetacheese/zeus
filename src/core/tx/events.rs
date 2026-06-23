@@ -4,79 +4,43 @@ use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
    abi::{erc20, permit, protocols::across, uniswap, weth9},
-   alloy_primitives::{Address, Bytes, Log, TxHash, U256},
+   alloy_primitives::{Address, Bytes, Log, U256},
    amm::uniswap::UniswapPool,
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
 
-use alloy_consensus::TxType;
 use alloy_eips::eip7702::SignedAuthorization;
 
-use super::tx_analysis::TransactionAnalysis;
 use serde::{Deserialize, Serialize};
-
-/// A transaction that has been sent to the network with additional data like
-///
-/// a high-level overview of the transaction, decoded events etc...
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TransactionRich {
-   pub tx_type: TxType,
-   pub success: bool,
-   pub chain: u64,
-   pub block: u64,
-   pub timestamp: TimeStamp,
-   pub value_sent: NumericValue,
-   pub value_sent_usd: NumericValue,
-   pub eth_received: NumericValue,
-   pub eth_received_usd: NumericValue,
-   pub tx_cost: NumericValue,
-   pub tx_cost_usd: NumericValue,
-   pub hash: TxHash,
-   pub contract_interact: bool,
-
-   pub analysis: TransactionAnalysis,
-   pub main_event: DecodedEvent,
-}
-
-impl TransactionRich {
-   /// Who sent the transaction
-   pub fn sender(&self) -> Address {
-      self.analysis.sender
-   }
-
-   pub fn interact_to(&self) -> Address {
-      self.analysis.interact_to
-   }
-
-   pub fn value(&self) -> U256 {
-      self.analysis.value
-   }
-
-   pub fn call_data(&self) -> Bytes {
-      self.analysis.call_data.clone()
-   }
-}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub enum DecodedEvent {
+   /// Cross-chain bridge
    Bridge(BridgeParams),
 
+   /// Swap
    SwapToken(SwapParams),
 
    /// An operation on a Uniswap position
    UniswapPositionOperation(UniswapPositionParams),
 
+   /// ERC20 token approval
    TokenApprove(TokenApproveParams),
 
+   /// ETH or ERC20 transfer
    Transfer(TransferParams),
 
+   /// Wrap ETH
    WrapETH(WrapETHParams),
 
+   /// Unwrap WETH
    UnwrapWETH(UnwrapWETHParams),
 
+   /// EOA delegate
    EOADelegate(EOADelegateParams),
 
+   /// Permit2 approval
    Permit(PermitParams),
 
    #[default]

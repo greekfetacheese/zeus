@@ -702,7 +702,9 @@ impl ZeusClient {
 
    pub fn mev_protect_available(&self, chain: u64) -> bool {
       let rpcs = self.get_rpcs(chain);
-      rpcs.iter().any(|(_url, rpc)| rpc.is_working() && rpc.is_enabled() && rpc.is_mev_protect())
+      rpcs
+         .iter()
+         .any(|(_url, rpc)| rpc.is_working() && rpc.is_enabled() && rpc.is_mev_protect())
    }
 
    pub async fn connect_to(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {

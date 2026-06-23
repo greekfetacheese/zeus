@@ -933,7 +933,7 @@ fn secure_text_edit_events(
                   let inserted = text.insert_text_at_char_idx(c.index, &commit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
-                  
+
                   #[cfg(feature = "secure-types")]
                   commit_text.zeroize();
 

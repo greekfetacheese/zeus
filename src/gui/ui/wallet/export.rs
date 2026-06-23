@@ -3,9 +3,7 @@
 use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, data_to_qr};
-use eframe::egui::{
-   Align2, Image, ImageSource, Order, RichText, Ui, Window, load::Bytes, vec2,
-};
+use eframe::egui::{Align2, Image, ImageSource, Order, RichText, Ui, Window, load::Bytes, vec2};
 use ncrypt_me::Credentials;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;

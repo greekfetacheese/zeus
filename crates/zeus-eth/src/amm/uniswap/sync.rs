@@ -70,7 +70,6 @@ impl SyncResult {
 /// Configuration for syncing pools
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
-
    /// The chain id to sync from
    pub chain_id: u64,
 
@@ -255,7 +254,7 @@ where
    let pools = Arc::try_unwrap(pools).unwrap().into_inner();
    let checkpoint = Checkpoint::new(chain_id, synced_block, dex);
    trace!(target: "zeus_eth::amm::sync", "Synced {} pools for {} - on ChainId {}", pools.len(), dex.as_str(), chain_id);
-   
+
    let synced = SyncResult::new(checkpoint, pools);
    Ok(synced)
 }

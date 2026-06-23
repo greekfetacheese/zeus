@@ -44,13 +44,13 @@ impl ButtonVisuals {
 #[derive(Copy, Clone, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TextEditVisuals {
-    pub text: Color32,
-    pub bg: Color32,
-    pub border: Stroke,
-    pub border_hover: Stroke,
-    pub border_open: Stroke,
-    pub corner_radius: CornerRadius,
-    pub shadow: Shadow,
+   pub text: Color32,
+   pub bg: Color32,
+   pub border: Stroke,
+   pub border_hover: Stroke,
+   pub border_open: Stroke,
+   pub corner_radius: CornerRadius,
+   pub shadow: Shadow,
 }
 
 impl TextEditVisuals {

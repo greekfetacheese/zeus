@@ -1,6 +1,9 @@
-use alloy_primitives::{Address, Signature, Bytes, U256, aliases::{U48, U160}};
+use super::permit::Permit2::{PermitDetails, PermitSingle};
+use alloy_primitives::{
+   Address, Bytes, Signature, U256,
+   aliases::{U48, U160},
+};
 use alloy_sol_types::{SolCall, SolValue, sol};
-use super::permit::Permit2::{PermitSingle, PermitDetails};
 
 sol! {
     contract ZeusDelegate {

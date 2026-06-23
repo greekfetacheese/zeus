@@ -68,12 +68,8 @@ impl WalletInfo {
 
    pub fn zk_address_truncated(&self) -> String {
       match &self.zk_address {
-         Some(zk_address) => format!(
-            "{}...{}",
-            &zk_address[..6],
-            &zk_address[121..]
-         ),
+         Some(zk_address) => format!("{}...{}", &zk_address[..6], &zk_address[121..]),
          None => "zkAddress not available".to_string(),
       }
-}
+   }
 }

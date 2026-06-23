@@ -1,18 +1,18 @@
 use crate::core::ZeusCtx;
 use crate::utils::RT;
 
+use alloy_eips::eip7702::SignedAuthorization;
+use either::Either;
 use zeus_eth::{
-   alloy_primitives::{Address, TxKind, Bytes, KECCAK256_EMPTY, U256, keccak256},
+   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, TxKind, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
    revm_utils::{
-      Database, DatabaseCommit, revert_msg, Evm2, ExecuteCommitEvm, ExecutionResult,
+      Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, revert_msg,
       revm::state::{AccountInfo, Bytecode},
    },
 };
-use alloy_eips::eip7702::SignedAuthorization;
-use either::Either;
 
 use anyhow::anyhow;
 use std::sync::Arc;

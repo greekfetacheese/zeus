@@ -4,7 +4,7 @@ use zeus_widgets::Button;
 
 use super::{chain, contract_interact, eth_received, events::*, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, transaction::*};
+use crate::core::{TransactionRich, ZeusCtx};
 use zeus_eth::types::ChainId;
 
 use std::sync::Arc;

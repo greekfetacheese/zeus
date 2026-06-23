@@ -42,7 +42,6 @@ impl Hsla {
       }
    }
 
-
    pub fn to_color32(&self) -> Color32 {
       let srgba = self.to_srgba();
       let (r, g, b, a) = srgba.into_components();

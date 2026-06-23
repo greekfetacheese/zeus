@@ -1,5 +1,5 @@
 //! UI component that we show at the top left of the window
-//! 
+//!
 //! It allows the user to:
 //! - select a chain
 //! - select a wallet
@@ -34,7 +34,7 @@ const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smar
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 
 /// Ui component that we show at the top left of the window
-/// 
+///
 /// It allows the user to:
 /// - select a chain
 /// - select a wallet

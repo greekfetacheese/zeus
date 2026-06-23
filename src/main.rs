@@ -44,7 +44,7 @@ fn main() -> eframe::Result {
       instance_descriptor: InstanceDescriptor::new_without_display_handle(),
       display_handle: None,
       native_adapter_selector: None,
-      power_preference: wgpu::PowerPreference::LowPower
+      power_preference: wgpu::PowerPreference::LowPower,
    });
 
    let wgpu_config = WgpuConfiguration {

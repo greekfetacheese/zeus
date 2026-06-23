@@ -14,8 +14,8 @@ use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
-   Dapp, TransactionAnalysis, ZeusCtx,
-   transaction::{DecodedEvent, SwapParams, TokenApproveParams, UnwrapWETHParams, WrapETHParams},
+   Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
+   WrapETHParams, ZeusCtx,
 };
 use crate::utils::{
    RT,

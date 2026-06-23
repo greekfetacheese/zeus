@@ -1,9 +1,11 @@
+use crate::core::{
+   TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX,
+};
 use crate::utils::state::get_base_fee;
-use crate::core::{TransactionAnalysis, TransactionRich, ZeusCtx, client::CLIENT_TIMEOUT_FOR_SENDING_TX};
 use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
-use zeus_eth::alloy_network::NetworkTransactionBuilder;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use zeus_eth::alloy_network::NetworkTransactionBuilder;
 
 use crate::gui::{SHARED_GUI, ui::NotificationType};
 use crate::utils::{
@@ -542,7 +544,9 @@ where
    let receipt = client
       .send_tx_envelope(tx_envelope)
       .await?
-      .with_timeout(Some(Duration::from_secs(CLIENT_TIMEOUT_FOR_SENDING_TX)))
+      .with_timeout(Some(Duration::from_secs(
+         CLIENT_TIMEOUT_FOR_SENDING_TX,
+      )))
       .get_receipt()
       .await?;
    tracing::info!(

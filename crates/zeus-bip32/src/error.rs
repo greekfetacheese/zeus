@@ -1,6 +1,5 @@
 use thiserror::Error;
 
-
 #[derive(Debug, Error)]
 pub enum Bip32Error {
    /// Error bubbled up from the backend

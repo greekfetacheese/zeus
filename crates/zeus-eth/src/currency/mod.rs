@@ -87,7 +87,7 @@ impl Currency {
    }
 
    /// Convert this currency to a wrapped native currency
-   /// 
+   ///
    /// For example if the chain_id is 1 this will become [ERC20Token::weth()]
    pub fn to_wrapped_native(&self) -> ERC20Token {
       ERC20Token::wrapped_native_token(self.chain_id())

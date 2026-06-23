@@ -102,11 +102,11 @@ impl ConfirmWindow {
 
                ui.allocate_ui(size, |ui| {
                   ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-
                      let visuals = theme.button_visuals();
                      let button =
                         Button::new(RichText::new("Confirm").size(theme.text_sizes.normal))
-                           .visuals(visuals).min_size(button_size);
+                           .visuals(visuals)
+                           .min_size(button_size);
 
                      if ui.add(button).clicked() {
                         self.close();
@@ -115,7 +115,8 @@ impl ConfirmWindow {
 
                      let button =
                         Button::new(RichText::new("Reject").size(theme.text_sizes.normal))
-                           .visuals(visuals).min_size(button_size);
+                           .visuals(visuals)
+                           .min_size(button_size);
 
                      if ui.add(button).clicked() {
                         self.close();

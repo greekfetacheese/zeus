@@ -2,11 +2,11 @@ use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, U
 use zeus_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
-use crate::utils::truncate_symbol_or_name;
 use crate::core::ZeusCtx;
-use zeus_theme::Theme;
+use crate::utils::truncate_symbol_or_name;
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
+use zeus_theme::Theme;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Version {
@@ -180,15 +180,19 @@ impl PoolsUi {
                         let label1 = Label::new(
                            RichText::new(token1_symbol).size(theme.text_sizes.normal),
                            Some(icon1),
-                        ).interactive(false);
+                        )
+                        .interactive(false);
 
                         Frame::new().inner_margin(Margin::same(5)).show(ui, |ui| {
                            ui.horizontal(|ui| {
                               ui.add(label0);
-                              ui.add(Label::new(
-                                 RichText::new("/").size(theme.text_sizes.normal),
-                                 None,
-                              ).interactive(false));
+                              ui.add(
+                                 Label::new(
+                                    RichText::new("/").size(theme.text_sizes.normal),
+                                    None,
+                                 )
+                                 .interactive(false),
+                              );
                               ui.add(label1);
                            });
                         });

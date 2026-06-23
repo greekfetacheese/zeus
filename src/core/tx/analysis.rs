@@ -1,4 +1,3 @@
-use super::transaction::*;
 use crate::core::{Dapp, ZeusCtx};
 use crate::utils::truncate_address;
 use alloy_eips::eip7702::SignedAuthorization;
@@ -16,6 +15,8 @@ use zeus_eth::{
       },
    },
 };
+
+use super::events::*;
 
 use std::str::FromStr;
 

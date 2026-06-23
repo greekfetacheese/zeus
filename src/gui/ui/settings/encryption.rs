@@ -1,5 +1,5 @@
 //! UI that allows the user to change the encryption settings.
-//! 
+//!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
 use crate::core::ZeusCtx;

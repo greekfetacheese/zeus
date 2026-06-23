@@ -1,5 +1,5 @@
 //! UI that allows the user to change their credentials.
-//! 
+//!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
 use crate::core::ZeusCtx;

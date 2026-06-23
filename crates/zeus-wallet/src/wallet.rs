@@ -13,7 +13,6 @@ use zeus_bip32::{
    BIP32_HARDEN, DEFAULT_DERIVATION_PATH, DerivationPath, SecureXPriv, XKeyInfo, root_from_seed,
 };
 
-
 pub type ZkAddress = String;
 
 /// Derive the seed from the given username and password
@@ -96,7 +95,7 @@ impl Wallet {
       Ok(full_key)
    }
 
-   /* 
+   /*
    /// Return the zkAddress of the wallet
    pub fn zk_address(&self) -> Result<ZkAddress, anyhow::Error> {
       let full_key = self.full_key()?;

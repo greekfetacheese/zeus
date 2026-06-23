@@ -5,7 +5,7 @@ use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Label;
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, transaction::*, tx_analysis::TransactionAnalysis};
+use crate::core::{TransactionAnalysis, ZeusCtx, tx::events::*};
 use zeus_eth::{
    alloy_primitives::U256,
    currency::{Currency, ERC20Token, NativeCurrency},

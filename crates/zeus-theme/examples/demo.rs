@@ -342,7 +342,9 @@ impl DemoApp {
          let button = Button::new(text).visuals(button_visuals).min_size(button_size);
          ui.add(button);
 
-         let text = RichText::new("Button (Selected)").size(self.theme.text_sizes.normal).color(text_color);
+         let text = RichText::new("Button (Selected)")
+            .size(self.theme.text_sizes.normal)
+            .color(text_color);
          let button =
             Button::new(text).visuals(button_visuals).selected(true).min_size(button_size);
          ui.add(button);
@@ -352,7 +354,9 @@ impl DemoApp {
 
          let all_chains = Chain::all();
          let current = self.current_chain;
-         let text = RichText::new(current.to_str()).size(self.theme.text_sizes.normal).color(text_color);
+         let text = RichText::new(current.to_str())
+            .size(self.theme.text_sizes.normal)
+            .color(text_color);
          let selected_label = Label::new(text, None).visuals(label_visuals);
 
          ui.allocate_ui(button_size, |ui| {
@@ -361,7 +365,9 @@ impl DemoApp {
                .visuals(combo_visuals)
                .show_ui(ui, |ui| {
                   for chain in all_chains {
-                     let text = RichText::new(chain.to_str()).size(self.theme.text_sizes.normal).color(text_color);
+                     let text = RichText::new(chain.to_str())
+                        .size(self.theme.text_sizes.normal)
+                        .color(text_color);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .expand(Some(3.0))
@@ -377,7 +383,9 @@ impl DemoApp {
                });
          });
 
-         let text = RichText::new("Label (Interactive)").size(self.theme.text_sizes.normal).color(text_color);
+         let text = RichText::new("Label (Interactive)")
+            .size(self.theme.text_sizes.normal)
+            .color(text_color);
          let label = Label::new(text, None).expand(Some(6.0)).visuals(label_visuals);
          ui.add(label);
 
@@ -411,8 +419,9 @@ impl DemoApp {
                .font(FontId::proportional(self.theme.text_sizes.normal)),
          );
 
-         let text =
-            RichText::new("Text Edit with normal String").size(self.theme.text_sizes.normal).color(text_color);
+         let text = RichText::new("Text Edit with normal String")
+            .size(self.theme.text_sizes.normal)
+            .color(text_color);
          ui.label(text);
 
          ui.add(
@@ -466,7 +475,8 @@ impl TxConfirmWindow {
                   ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let heading = RichText::new("Swap").size(theme.text_sizes.heading).color(text_color);
+                  let heading =
+                     RichText::new("Swap").size(theme.text_sizes.heading).color(text_color);
                   ui.label(heading);
 
                   frame.show(ui, |ui| {
@@ -526,7 +536,9 @@ impl TxConfirmWindow {
 
                      ui.horizontal(|ui| {
                         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                           let text = RichText::new("Contract interaction").size(text_size).color(text_color);
+                           let text = RichText::new("Contract interaction")
+                              .size(text_size)
+                              .color(text_color);
                            ui.label(text);
                         });
 
@@ -560,7 +572,9 @@ impl TxConfirmWindow {
                         });
 
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                           let text = RichText::new("0.000167 ETH ~ $0.75").size(text_size).color(text_color);
+                           let text = RichText::new("0.000167 ETH ~ $0.75")
+                              .size(text_size)
+                              .color(text_color);
                            ui.label(text);
                         });
                      });
@@ -578,7 +592,11 @@ impl TxConfirmWindow {
                            ui.vertical(|ui| {
                               let mut fee = String::from("1");
                               let text = "Priority Fee (Gwei)";
-                              ui.label(RichText::new(text).size(theme.text_sizes.normal).color(text_color));
+                              ui.label(
+                                 RichText::new(text)
+                                    .size(theme.text_sizes.normal)
+                                    .color(text_color),
+                              );
 
                               ui.add(
                                  SecureTextEdit::singleline(&mut fee)
@@ -598,7 +616,11 @@ impl TxConfirmWindow {
                               ui.vertical(|ui| {
                                  let mut gas_limit = String::from("50000");
                                  let text = "Gas Limit";
-                                 ui.label(RichText::new(text).size(theme.text_sizes.normal).color(text_color));
+                                 ui.label(
+                                    RichText::new(text)
+                                       .size(theme.text_sizes.normal)
+                                       .color(text_color),
+                                 );
 
                                  ui.add(
                                     SecureTextEdit::singleline(&mut gas_limit)
@@ -634,7 +656,8 @@ impl TxConfirmWindow {
 
                   ui.allocate_ui(size, |ui| {
                      ui.horizontal(|ui| {
-                        let text = RichText::new("Confirm").size(theme.text_sizes.normal).color(text_color);
+                        let text =
+                           RichText::new("Confirm").size(theme.text_sizes.normal).color(text_color);
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {
@@ -643,7 +666,8 @@ impl TxConfirmWindow {
 
                         ui.add_space(10.0);
 
-                        let text = RichText::new("Reject").size(theme.text_sizes.normal).color(text_color);
+                        let text =
+                           RichText::new("Reject").size(theme.text_sizes.normal).color(text_color);
                         let button =
                            Button::new(text).visuals(button_visuals).min_size(button_size);
                         if ui.add(button).clicked() {

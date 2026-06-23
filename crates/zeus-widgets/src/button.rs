@@ -1,5 +1,5 @@
 use egui::{
-   Atom, AtomExt as _, AtomKind, Color32, AtomLayout, AtomLayoutResponse, Frame, Image, IntoAtoms,
+   Atom, AtomExt as _, AtomKind, AtomLayout, AtomLayoutResponse, Color32, Frame, Image, IntoAtoms,
    NumExt as _, Response, Sense, Shadow, TextStyle, TextWrapMode, Ui, Vec2, Widget, WidgetInfo,
    WidgetText, WidgetType,
 };

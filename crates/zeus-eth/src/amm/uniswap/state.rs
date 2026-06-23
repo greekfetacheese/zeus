@@ -132,11 +132,7 @@ pub struct TickInfo {
 }
 
 impl V3PoolState {
-   pub fn new(
-      pool_data: V3PoolData,
-      tick_spacing: I24,
-      _block: Option<BlockId>,
-   ) -> Result<Self, anyhow::Error> {
+   pub fn new(pool_data: V3PoolData, tick_spacing: I24, _block: Option<BlockId>) -> Result<Self, anyhow::Error> {
       let mut tick_bitmap_map = HashMap::new();
       tick_bitmap_map.insert(pool_data.wordPos, pool_data.tickBitmap);
 

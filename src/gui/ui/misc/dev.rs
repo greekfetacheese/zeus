@@ -3,7 +3,7 @@ use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Windo
 use zeus_widgets::Label;
 
 use crate::assets::Icons;
-use crate::core::{TransactionAnalysis, ZeusCtx, currencies::TokenData, transaction::*};
+use crate::core::{DecodedEvent, TransactionAnalysis, ZeusCtx, currencies::TokenData};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::self_update::UpdateInfo;
 use crate::utils::{RT, sign::SignMsgType};
@@ -387,7 +387,8 @@ impl UiTesting {
                });
             }
 
-            let button = Button::new(RichText::new("Msg Window").size(text_size)).min_size(button_size);
+            let button =
+               Button::new(RichText::new("Msg Window").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
                RT.spawn_blocking(move || {
