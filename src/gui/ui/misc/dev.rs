@@ -3,10 +3,10 @@ use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Windo
 use zeus_widgets::Label;
 
 use crate::assets::Icons;
-use crate::core::{DecodedEvent, TransactionAnalysis, ZeusCtx, currencies::TokenData};
+use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusCtx, currencies::TokenData};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
+use crate::utils::RT;
 use crate::utils::self_update::UpdateInfo;
-use crate::utils::{RT, sign::SignMsgType};
 
 use zeus_eth::{
    alloy_primitives::Address,

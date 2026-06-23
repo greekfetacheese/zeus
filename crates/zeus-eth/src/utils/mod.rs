@@ -5,91 +5,18 @@ pub mod client;
 pub mod price_feed;
 
 use alloy_contract::private::{Network, Provider};
-use alloy_dyn_abi::{Eip712Domain, Eip712Types, Resolver, TypedData};
 use alloy_primitives::{
    Address, U256,
-   aliases::U48,
    utils::{format_units, parse_units},
 };
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use anyhow::anyhow;
 use std::sync::Arc;
 use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-
-pub fn generate_permit2_json_value(
-   chain_id: u64,
-   token: Address,
-   spender: Address,
-   amount: U256,
-   permit2: Address,
-   expiration: U256,
-   sig_deadline: U256,
-   nonce: U48,
-) -> Value {
-   let value = serde_json::json!({
-       "types": {
-           "PermitSingle": [
-               {"name": "details", "type": "PermitDetails"},
-               {"name": "spender", "type": "address"},
-               {"name": "sigDeadline", "type": "uint256"}
-           ],
-           "PermitDetails": [
-               {"name": "token", "type": "address"},
-               {"name": "amount", "type": "uint160"},
-               {"name": "expiration", "type": "uint48"},
-               {"name": "nonce", "type": "uint48"}
-           ],
-           "EIP712Domain": [
-               {"name": "name", "type": "string"},
-               {"name": "chainId", "type": "uint256"},
-               {"name": "verifyingContract", "type": "address"}
-           ]
-       },
-       "domain": {
-           "name": "Permit2",
-           "chainId": chain_id.to_string(),
-           "verifyingContract": permit2.to_string()
-       },
-       "primaryType": "PermitSingle",
-       "message": {
-           "details": {
-               "token": token.to_string(),
-               "amount": amount.to_string(),
-               "expiration": expiration.to_string(),
-               "nonce": nonce.to_string()
-           },
-           "spender": spender.to_string(),
-           "sigDeadline": sig_deadline.to_string()
-       }
-   });
-
-   value
-}
-
-pub fn parse_typed_data(json: Value) -> Result<TypedData, anyhow::Error> {
-   let domain: Eip712Domain = serde_json::from_value(json["domain"].clone())?;
-   let types: Eip712Types = serde_json::from_value(json["types"].clone())?;
-   let resolver = Resolver::from(&types);
-   let primary_type = json["primaryType"]
-      .as_str()
-      .ok_or(anyhow!("Missing primaryType"))?
-      .to_string();
-
-   let message = json["message"].clone();
-
-   Ok(TypedData {
-      domain,
-      resolver,
-      primary_type,
-      message,
-   })
-}
 
 /// Is this token a base token?
 ///

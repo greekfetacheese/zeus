@@ -1,11 +1,8 @@
 use anyhow::anyhow;
 use serde_json::Value;
 
-use super::{
-   misc::{Permit2Details, TimeStamp},
-   swap_quoter::SwapStep,
-};
-use crate::core::ZeusCtx;
+use super::{misc::TimeStamp, swap_quoter::SwapStep};
+use crate::core::{ZeusCtx, signature::Permit2Info};
 use zeus_eth::{
    abi::uniswap::{universal_router_v2::*, v4::actions::*},
    alloy_primitives::{Address, Bytes, U256},
@@ -49,7 +46,7 @@ pub struct SwapExecuteParams {
    /// The eth to be sent along with the transaction
    pub value: U256,
 
-   pub permit2_details: Option<Permit2Details>,
+   pub permit2_info: Option<Permit2Info>,
 }
 
 impl Default for SwapExecuteParams {
@@ -63,7 +60,7 @@ impl SwapExecuteParams {
       Self {
          call_data: Bytes::default(),
          value: U256::ZERO,
-         permit2_details: None,
+         permit2_info: None,
       }
    }
 
@@ -75,20 +72,20 @@ impl SwapExecuteParams {
       self.value = value;
    }
 
-   pub fn set_permit2_details(&mut self, permit2_details: Option<Permit2Details>) {
-      self.permit2_details = permit2_details;
+   pub fn set_permit2_info(&mut self, permit2_details: Option<Permit2Info>) {
+      self.permit2_info = permit2_details;
    }
 
    pub fn permit2_needs_approval(&self) -> bool {
-      if let Some(permit2_details) = &self.permit2_details {
-         permit2_details.permit2_needs_approval
+      if let Some(permit2_details) = &self.permit2_info {
+         permit2_details.needs_approval
       } else {
          false
       }
    }
 
    pub fn needs_new_signature(&self) -> bool {
-      if let Some(permit2_details) = &self.permit2_details {
+      if let Some(permit2_details) = &self.permit2_info {
          permit2_details.needs_new_signature
       } else {
          false
@@ -96,7 +93,7 @@ impl SwapExecuteParams {
    }
 
    pub fn message(&self) -> Result<Value, anyhow::Error> {
-      if let Some(permit2_details) = &self.permit2_details {
+      if let Some(permit2_details) = &self.permit2_info {
          if let Some(msg) = &permit2_details.msg {
             Ok(msg.clone())
          } else {
@@ -130,7 +127,7 @@ impl SwapType {
 /// Encode the calldata for a swap using the universal router
 pub async fn encode_swap(
    ctx: ZeusCtx,
-   permit2_details: Option<Permit2Details>,
+   permit2_info: Option<Permit2Info>,
    chain_id: u64,
    swap_steps: Vec<SwapStep<impl UniswapPool + Clone>>,
    swap_type: SwapType,
@@ -179,10 +176,10 @@ pub async fn encode_swap(
    if currency_in.is_erc20() {
       let token_in = currency_in.to_erc20();
 
-      let permit_details = if let Some(permit2_details) = permit2_details {
-         permit2_details
+      let permit_info = if let Some(info) = permit2_info {
+         info
       } else {
-         let details = Permit2Details::new(
+         let info = Permit2Info::new(
             ctx.clone(),
             chain_id,
             &token_in,
@@ -191,19 +188,19 @@ pub async fn encode_swap(
             router_addr,
          )
          .await?;
-         details
+         info
       };
 
-      if permit_details.needs_new_signature {
-         let signature = permit_details.sign(&secure_signer).await?;
+      if permit_info.needs_new_signature {
+         let signature = permit_info.sign(&secure_signer).await?;
 
          let permit_input = encode_permit2_permit(
             token_in.address,
             amount_in,
-            permit_details.expiration,
-            permit_details.allowance.nonce,
+            permit_info.expiration,
+            permit_info.allowance.nonce,
             router_addr,
-            permit_details.sig_deadline,
+            permit_info.sig_deadline,
             signature,
          );
 
@@ -211,7 +208,7 @@ pub async fn encode_swap(
          inputs.push(permit_input);
       }
 
-      execute_params.set_permit2_details(Some(permit_details));
+      execute_params.set_permit2_info(Some(permit_info));
    }
 
    let first_step_uses_permit2 = currency_in.is_erc20();

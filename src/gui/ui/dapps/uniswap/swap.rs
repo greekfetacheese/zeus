@@ -15,16 +15,15 @@ use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
    Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
-   WrapETHParams, ZeusCtx,
+   WrapETHParams, ZeusCtx, sign_message, signature::Permit2Info,
 };
 use crate::utils::{
    RT,
-   sign::sign_message,
    simulate::{fetch_accounts_info, simulate_transaction},
    tx::send_transaction,
 };
 
-use crate::utils::{Permit2Details, simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
+use crate::utils::{simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
 
 use zeus_eth::{
    abi,
@@ -1815,12 +1814,12 @@ async fn handle_approve(
    token: &ERC20Token,
    eth_balance_before: U256,
    block: Block,
-   permit_details: &Permit2Details,
+   permit_info: &Permit2Info,
    fork_db: ForkDB,
 ) -> Result<ForkDB, anyhow::Error> {
    let mut new_fork_db = fork_db.clone();
 
-   if permit_details.permit2_needs_approval {
+   if permit_info.needs_approval {
       let approval_logs;
       let approval_gas_used;
       let eth_balance_after;
@@ -2035,13 +2034,13 @@ async fn swap_via_ur(
    // Handle the token approval if needed
 
    let mut new_fork_db = None;
-   let mut permit2_details_opt = None;
+   let mut permit2_info_opt = None;
 
    if currency_in.is_erc20() {
       let token = currency_in.to_erc20();
       let fork_db = factory.new_sandbox_fork();
 
-      let permit2_details = Permit2Details::new(
+      let permit2_info = Permit2Info::new(
          ctx.clone(),
          chain.id(),
          &token,
@@ -2058,13 +2057,13 @@ async fn swap_via_ur(
          &token,
          eth_balance_before,
          block.clone(),
-         &permit2_details,
+         &permit2_info,
          fork_db,
       )
       .await?;
 
       new_fork_db = Some(new_db);
-      permit2_details_opt = Some(permit2_details);
+      permit2_info_opt = Some(permit2_info);
    }
 
    let signer = ctx.get_wallet(signer_address).ok_or(anyhow!("Wallet not found"))?.key;
@@ -2073,7 +2072,7 @@ async fn swap_via_ur(
 
    let params = encode_swap(
       ctx.clone(),
-      permit2_details_opt.clone(),
+      permit2_info_opt.clone(),
       chain.id(),
       swap_steps.clone(),
       SwapType::ExactInput,
@@ -2143,9 +2142,9 @@ async fn swap_via_ur(
    };
 
    // Prompt the user to sign a message if needed
-   if let Some(permit2_details) = &permit2_details_opt {
-      if permit2_details.needs_new_signature {
-         let msg = permit2_details.msg.clone().ok_or(anyhow!("No permit message found"))?;
+   if let Some(permit2_info) = &permit2_info_opt {
+      if permit2_info.needs_new_signature {
+         let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;
          let _sig = sign_message(
             ctx.clone(),
             "".to_string(),
@@ -2167,7 +2166,7 @@ async fn swap_via_ur(
    // Build the call data again with the real_amount_out and slippage applied
    let execute_params = encode_swap(
       ctx.clone(),
-      permit2_details_opt,
+      permit2_info_opt,
       chain.id(),
       swap_steps.clone(),
       SwapType::ExactInput,

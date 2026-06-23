@@ -1,9 +1,11 @@
 pub mod context;
+pub mod signature;
 pub mod tx;
 pub mod vault;
 pub mod wallet;
 
 pub use context::*;
+pub use signature::{msg::SignMsgType, sign::sign_message};
 pub use tx::{analysis::*, events::*, rich::*};
 pub use vault::*;
 pub use wallet::*;
