@@ -8,12 +8,12 @@
 //! - delegate status of the current wallet (Green if not delegated, Red if delegated)
 
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx};
+use crate::core::{WalletInfo, ZeusCtx, delegate_to};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
 };
-use crate::utils::{RT, data_to_qr, truncate_address, tx::delegate_to};
+use crate::utils::{RT, data_to_qr, truncate_address};
 use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin,
    OpenUrl, Order, RichText, Spinner, Ui, Window, load::Bytes, vec2,

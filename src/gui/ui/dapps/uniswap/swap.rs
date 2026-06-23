@@ -15,12 +15,11 @@ use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
    Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
-   WrapETHParams, ZeusCtx, sign_message, signature::Permit2Info,
+   WrapETHParams, ZeusCtx, send_transaction, sign_message, signature::Permit2Info,
 };
 use crate::utils::{
    RT,
    simulate::{fetch_accounts_info, simulate_transaction},
-   tx::send_transaction,
 };
 
 use crate::utils::{simulate::*, swap_quoter::*, universal_router_v2::encode_swap};

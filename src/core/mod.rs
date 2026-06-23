@@ -6,7 +6,7 @@ pub mod wallet;
 
 pub use context::*;
 pub use signature::{msg::SignMsgType, sign::sign_message};
-pub use tx::{analysis::*, events::*, rich::*};
+pub use tx::{analysis::*, events::*, rich::*, send::*};
 pub use vault::*;
 pub use wallet::*;
 

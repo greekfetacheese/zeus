@@ -1,6 +1,6 @@
-use crate::core::{ZeusCtx, sign_message};
+use crate::core::{ZeusCtx, send_transaction, sign_message};
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, tx::send_transaction};
+use crate::utils::RT;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};

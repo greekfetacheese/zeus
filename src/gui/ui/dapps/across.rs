@@ -1,12 +1,12 @@
 //! UI that allows the user to bridge assets between chains using the Across protocol (https://across.to)
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, data_dir};
+use crate::core::{ZeusCtx, data_dir, send_transaction};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, misc::AmountFieldWithCurrencySelect},
 };
-use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
+use crate::utils::{RT, estimate_tx_cost};
 use anyhow::anyhow;
 use egui::{
    Align, Align2, CornerRadius, CursorIcon, FontId, Layout, Margin, OpenUrl, Order, RichText,

@@ -11,8 +11,8 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::core::{DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx};
-use crate::utils::{RT, estimate_tx_cost, tx::send_transaction};
+use crate::core::{DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx, send_transaction};
+use crate::utils::{RT, estimate_tx_cost};
 
 use crate::assets::icons::Icons;
 use crate::gui::{
