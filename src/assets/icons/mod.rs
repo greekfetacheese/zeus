@@ -12,7 +12,7 @@ use std::str::FromStr;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use zeus_theme::utils::TINT_1;
 
-use bincode::{config::standard, decode_from_slice};
+use bincode_next::{config::standard, decode_from_slice};
 
 /// Icons used in the GUI
 pub struct Icons {

@@ -1,4 +1,4 @@
-use bincode::{config::standard, decode_from_slice, encode_to_vec};
+use bincode_next::{config::standard, decode_from_slice, encode_to_vec};
 use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
 use zeus_widgets::Label;
 

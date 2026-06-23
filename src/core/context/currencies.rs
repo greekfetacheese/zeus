@@ -9,7 +9,7 @@ use zeus_eth::{
    types::{ARBITRUM, BASE, BSC, ETH, OPTIMISM},
 };
 
-use bincode::{Decode, Encode, config::standard, decode_from_slice};
+use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "currencies.json";
 pub const TOKENS: &[u8] = include_bytes!("../../../token_data.data");

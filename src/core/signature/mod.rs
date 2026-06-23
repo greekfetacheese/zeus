@@ -77,7 +77,7 @@ impl Permit2Info {
          tracing::info!("Permit2 Expired: {}", expired);
          tracing::info!(
             "Permit2 Contract Needs Approval: {}",
-            permit2_contract_need_approval
+            contract_need_approval
          );
          tracing::info!(
             "Permit2 Needs New Signature: {}",
