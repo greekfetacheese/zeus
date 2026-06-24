@@ -1,4 +1,5 @@
 use egui::*;
+use zeus_eth::types::SUPPORTED_CHAINS;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
 use crate::core::ZeusCtx;
@@ -66,6 +67,12 @@ impl ZeusApp {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          test_and_measure_rpcs(ctx_clone).await;
+      });
+
+      ctx.write(|ctx| {
+         for chain in SUPPORTED_CHAINS {
+            ctx.check_for_available_rpcs(chain, 0);
+         }
       });
 
       let ctx_clone = ctx.clone();

@@ -1530,7 +1530,7 @@ pub struct ZeusContext {
    pub qr_image_data: Arc<[u8]>,
 
    /// Last time checked for available RPCs
-   pub last_checked_for_available_rpcs: u128,
+   pub last_checked_for_available_rpcs: HashMap<u64, u128>,
 
    /// True if we have at least one working & enabled RPC
    /// for a specific chain
@@ -1612,7 +1612,7 @@ impl ZeusContext {
       };
 
       let priority_fee = PriorityFee::default();
-      
+
       Self {
          client,
          chain: ChainId::new(1).unwrap(),
@@ -1646,7 +1646,7 @@ impl ZeusContext {
          tx_confirm_window_open: false,
          sign_msg_window_open: false,
          qr_image_data: Arc::new([0u8; 0]),
-         last_checked_for_available_rpcs: 0,
+         last_checked_for_available_rpcs: HashMap::new(),
          available_rpcs: HashMap::new(),
       }
    }
@@ -1660,13 +1660,13 @@ impl ZeusContext {
    /// Returns true if we have at least one enabled and working RPC
    pub fn check_for_available_rpcs(&mut self, chain: u64, threshold: u128) -> bool {
       let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
-      let last_checked = self.last_checked_for_available_rpcs;
+      let last_checked = self.last_checked_for_available_rpcs.get(&chain).cloned().unwrap_or(0);
 
       let should_check = now.saturating_sub(last_checked) > threshold;
 
       if should_check {
          let ok = self.client.rpc_available(chain);
-         self.last_checked_for_available_rpcs = now;
+         self.last_checked_for_available_rpcs.insert(chain, now);
          self.available_rpcs.insert(chain, ok);
 
          return ok;
