@@ -1,7 +1,7 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
+   Align, Align2, FontId, Spinner, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
    emath::Vec2b, vec2,
 };
 
@@ -28,6 +28,7 @@ use zeus_widgets::{Button, Label, SecureTextEdit};
 /// If a valid address is passed to the search bar, we can fetch the token from the blockchain if it exists
 pub struct TokenSelectionWindow {
    open: bool,
+   loading: bool,
    overlay: OverlayManager,
    pub size: (f32, f32),
    pub search_query: String,
@@ -47,6 +48,7 @@ impl TokenSelectionWindow {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         loading: false,
          overlay,
          size: (550.0, 500.0),
          search_query: String::new(),
@@ -57,10 +59,15 @@ impl TokenSelectionWindow {
       }
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
    pub fn open(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
       if !self.open {
          self.overlay.window_opened();
       }
+
       self.open = true;
       self.process_currencies(ctx, chain_id, owner);
    }
@@ -80,21 +87,15 @@ impl TokenSelectionWindow {
    }
 
    pub fn process_currencies(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
-      let currencies = ctx.get_currencies(chain_id);
+      self.loading = true;
 
-      let mut currency_list: Vec<(Currency, NumericValue, NumericValue)> = currencies
-         .iter()
-         .map(|currency| {
-            let balance = ctx.get_currency_balance(chain_id, owner, currency);
-            let value = ctx.get_currency_value_for_amount(balance.f64(), currency);
-            (currency.clone(), balance, value)
-         })
-         .collect();
-
-      currency_list
-         .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
-
-      self.processed_currencies = currency_list;
+      RT.spawn_blocking(move || {
+         let currencies = process_currencies(ctx.clone(), chain_id, owner);
+         SHARED_GUI.write(|gui| {
+            gui.token_selection.processed_currencies = currencies;
+            gui.token_selection.loading = false;
+         });
+      });
    }
 
    pub fn clear_processed_currencies(&mut self) {
@@ -150,6 +151,11 @@ impl TokenSelectionWindow {
 
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
+
+               if self.loading {
+                  ui.add(Spinner::new().size(25.0).color(theme.colors.text));
+                  return;
+               }
 
                let hint = RichText::new("Search tokens or enter an address")
                   .size(theme.text_sizes.normal)
@@ -424,4 +430,26 @@ async fn get_erc20_token(
    });
 
    Ok(token)
+}
+
+fn process_currencies(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+) -> Vec<(Currency, NumericValue, NumericValue)> {
+   let currencies = ctx.get_currencies(chain_id);
+
+   let mut currency_list: Vec<(Currency, NumericValue, NumericValue)> = currencies
+      .iter()
+      .map(|currency| {
+         let balance = ctx.get_currency_balance(chain_id, owner, currency);
+         let value = ctx.get_currency_value_for_amount(balance.f64(), currency);
+         (currency.clone(), balance, value)
+      })
+      .collect();
+
+   currency_list
+      .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
+
+   currency_list
 }

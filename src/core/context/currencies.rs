@@ -6,7 +6,7 @@ use crate::core::{context::data_dir, serde_hashmap};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token, NativeCurrency},
-   types::ETH,
+   types::{BSC, ETH},
 };
 
 use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
@@ -122,6 +122,7 @@ impl CurrencyDB {
 
       let weth = ERC20Token::weth();
       let dai = ERC20Token::dai();
+      let wbnb = ERC20Token::wbnb();
 
       for token in default_tokens {
          if token.address == weth.address {
@@ -134,6 +135,8 @@ impl CurrencyDB {
 
          self.insert_token(token.chain_id, token);
       }
+
+      self.insert_token(BSC, wbnb);
 
       // Fix for WETH on mainnet cause it has WETH as name instead of Wrapped Ether
       self.insert_token(ETH, weth);
