@@ -520,7 +520,7 @@ impl ZeusCtx {
       self.read(|ctx| ctx.balance_manager.get_token_balance(chain, owner, token))
    }
 
-   pub fn get_currencies(&self, chain: u64) -> Arc<Vec<Currency>> {
+   pub fn get_currencies(&self, chain: u64) -> Vec<Currency> {
       self.read(|ctx| ctx.currency_db.get_currencies(chain))
    }
 
@@ -1612,6 +1612,7 @@ impl ZeusContext {
       };
 
       let priority_fee = PriorityFee::default();
+      
       Self {
          client,
          chain: ChainId::new(1).unwrap(),
