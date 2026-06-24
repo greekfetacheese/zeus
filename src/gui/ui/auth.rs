@@ -137,7 +137,6 @@ impl UnlockVault {
                let current_wallet = vault.get_master_wallet();
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
-                  gui.portofolio.open();
                   gui.loading_window.reset();
                   gui.settings.encryption.set_argon2(info.argon2);
                   gui.header.open();
@@ -150,6 +149,10 @@ impl UnlockVault {
                });
 
                ctx.set_vault(vault);
+
+               SHARED_GUI.write(|gui| {
+                  gui.portofolio.open(ctx.clone());
+               });
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
@@ -542,7 +545,7 @@ impl RecoverHDWallet {
             let current_wallet = vault.get_master_wallet();
             SHARED_GUI.write(|gui| {
                gui.recover_wallet_ui.show_tips = false;
-               gui.portofolio.open();
+               gui.portofolio.open(ctx.clone());
                gui.header.open();
                gui.header.set_current_wallet(current_wallet);
 

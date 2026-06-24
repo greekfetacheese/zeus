@@ -255,12 +255,16 @@ impl Header {
 
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
+                  let owner = ctx.current_wallet_info().address;
                   let currency: Currency = NativeCurrency::from(new_chain.id()).into();
                   gui.send_crypto.set_currency(currency.clone());
 
                   if gui.token_selection.is_open() {
-                     let owner = ctx.current_wallet_info().address;
-                     gui.token_selection.process_currencies(ctx, new_chain.id(), owner);
+                     gui.token_selection.process_currencies(ctx.clone(), new_chain.id(), owner);
+                  }
+
+                  if gui.portofolio.is_open() {
+                     gui.portofolio.process_tokens(ctx, new_chain.id(), owner);
                   }
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
@@ -290,11 +294,16 @@ impl Header {
             });
 
             RT.spawn_blocking(move || {
+               let owner = ctx.current_wallet_info().address;
+               let chain_id = ctx.chain().id();
+
                SHARED_GUI.write(|gui| {
                   if gui.token_selection.is_open() {
-                     let owner = ctx.current_wallet_info().address;
-                     let chain_id = ctx.chain().id();
-                     gui.token_selection.process_currencies(ctx, chain_id, owner);
+                     gui.token_selection.process_currencies(ctx.clone(), chain_id, owner);
+                  }
+
+                  if gui.portofolio.is_open() {
+                     gui.portofolio.process_tokens(ctx, chain_id, owner);
                   }
                });
             });

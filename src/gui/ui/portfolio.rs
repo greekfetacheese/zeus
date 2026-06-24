@@ -10,25 +10,60 @@ use eframe::egui::{
    Align, CornerRadius, CursorIcon, Frame, Grid, Layout, Margin, RichText, ScrollArea, Spinner, Ui,
    Vec2, vec2,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
+   utils::NumericValue,
 };
 use zeus_theme::{ButtonVisuals, Theme};
 use zeus_widgets::{Button, Label};
 
+type Balance = NumericValue;
+type Value = NumericValue;
+type Price = NumericValue;
+
+type TokenList = Vec<(ERC20Token, Balance, Value, Price)>;
+type TokenMap = HashMap<u64, HashMap<Address, TokenList>>;
+
+fn process_tokens(ctx: ZeusCtx, chain_id: u64, owner: Address) -> TokenList {
+   let portfolio = ctx.get_portfolio(chain_id, owner);
+   let tokens = portfolio.tokens;
+
+   let mut token_list: TokenList = tokens
+      .iter()
+      .map(|token| {
+         let price = ctx.get_token_price(token);
+         let balance = ctx.get_token_balance(chain_id, owner, token.address);
+         let value = ctx.get_token_value_for_owner(chain_id, owner, token);
+         (token.clone(), balance, value, price)
+      })
+      .collect();
+
+   token_list
+      .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
+
+   token_list
+}
+
 pub struct PortfolioUi {
    open: bool,
+   loading: bool,
    pub show_spinner: bool,
+
+   /// Cached and sorted list of tokens by value
+   pub tokens: TokenMap,
 }
 
 impl PortfolioUi {
    pub fn new() -> Self {
       Self {
          open: false,
+         loading: false,
          show_spinner: false,
+         tokens: HashMap::new(),
       }
    }
 
@@ -36,12 +71,39 @@ impl PortfolioUi {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, ctx: ZeusCtx) {
       self.open = true;
+
+      let chain_id = ctx.chain().id();
+      let owner = ctx.current_wallet_info().address;
+      self.process_tokens(ctx, chain_id, owner);
    }
 
    pub fn close(&mut self) {
       self.open = false;
+   }
+
+   pub fn process_tokens(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+      self.loading = true;
+
+      RT.spawn_blocking(move || {
+         let tokens = process_tokens(ctx.clone(), chain_id, owner);
+
+         SHARED_GUI.write(|gui| {
+            gui.portofolio.add_token_list(chain_id, owner, tokens);
+            gui.portofolio.loading = false;
+         });
+      });
+   }
+
+   pub fn add_token_list(&mut self, chain_id: u64, owner: Address, list: TokenList) {
+      if let Some(tokens) = self.tokens.get_mut(&chain_id) {
+         tokens.insert(owner, list);
+      } else {
+         let mut tokens = HashMap::new();
+         tokens.insert(owner, list);
+         self.tokens.insert(chain_id, tokens);
+      }
    }
 
    pub fn show(
@@ -60,7 +122,6 @@ impl PortfolioUi {
       let wallet_info = ctx.current_wallet_info();
       let owner = wallet_info.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
-      let tokens = &portfolio.tokens;
 
       Frame::new().outer_margin(Margin::same(5)).show(ui, |ui| {
          ui.vertical_centered_justified(|ui| {
@@ -172,16 +233,20 @@ impl PortfolioUi {
 
                         ui.end_row();
 
+                        let empty_map = HashMap::new();
+                        let empty_list = Vec::new();
+                        let token_map = self.tokens.get(&chain_id).unwrap_or(&empty_map);
+                        let token_list = token_map.get(&owner).unwrap_or(&empty_list);
+
                         // Show the rest of the tokens
-                        for token in tokens {
+                        for (token, balance, value, price) in token_list {
                            self.token(theme, icons.clone(), token, ui, column_widths[0]);
 
                            self.price_balance_value_token(
-                              ctx.clone(),
                               theme,
-                              chain_id,
-                              owner,
-                              token,
+                              balance,
+                              value,
+                              price,
                               ui,
                               column_widths[0],
                            );
@@ -296,29 +361,23 @@ impl PortfolioUi {
 
    fn price_balance_value_token(
       &self,
-      ctx: ZeusCtx,
       theme: &Theme,
-      chain: u64,
-      owner: Address,
-      token: &ERC20Token,
+      balance: &NumericValue,
+      value: &NumericValue,
+      price: &NumericValue,
       ui: &mut Ui,
       width: f32,
    ) {
-      let price = ctx.get_token_price(token);
-
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.label(RichText::new(format!("${}", price.formatted())).size(theme.text_sizes.normal));
       });
-
-      let balance = ctx.get_token_balance(chain, owner, token.address);
 
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.label(RichText::new(balance.abbreviated()).size(theme.text_sizes.normal));
       });
 
-      let value = ctx.get_token_value_for_owner(chain, owner, token);
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
@@ -374,14 +433,16 @@ impl PortfolioUi {
 
          ctx.calculate_portfolio_value(chain, owner);
 
+         let ctx_clone = ctx.clone();
          RT.spawn_blocking(move || {
-            ctx.save_portfolio_db();
-            ctx.save_balance_manager();
-            ctx.save_pool_manager();
-            ctx.save_price_manager();
+            ctx_clone.save_portfolio_db();
+            ctx_clone.save_balance_manager();
+            ctx_clone.save_pool_manager();
+            ctx_clone.save_price_manager();
          });
 
          SHARED_GUI.write(|gui| {
+            gui.portofolio.process_tokens(ctx.clone(), chain, owner);
             gui.portofolio.show_spinner = false;
          });
       });
@@ -410,6 +471,10 @@ impl PortfolioUi {
       let ctx_clone = ctx.clone();
       RT.spawn_blocking(move || {
          ctx_clone.save_portfolio_db();
+
+         SHARED_GUI.write(|gui| {
+            gui.portofolio.process_tokens(ctx_clone, chain_id, owner);
+         });
       });
 
       let token = currency.to_erc20().into_owned();
@@ -479,6 +544,10 @@ impl PortfolioUi {
          RT.spawn_blocking(move || {
             ctx_clone.calculate_portfolio_value(chain_id, owner);
             ctx_clone.save_all();
+
+            SHARED_GUI.write(|gui| {
+               gui.portofolio.process_tokens(ctx_clone, chain_id, owner);
+            });
          });
       });
    }
@@ -507,6 +576,10 @@ impl PortfolioUi {
             ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
 
             RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  gui.portofolio.process_tokens(ctx.clone(), chain, owner);
+               });
+
                ctx.calculate_portfolio_value(chain, owner);
                ctx.save_all();
             });

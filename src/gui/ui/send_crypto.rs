@@ -787,5 +787,12 @@ async fn update_balances(
    ctx.save_balance_manager();
    ctx.save_portfolio_db();
 
+   SHARED_GUI.write(|gui| {
+      gui.portofolio.process_tokens(ctx.clone(), chain, sender);
+      if exists {
+         gui.portofolio.process_tokens(ctx, chain, recipient);
+      }
+   });
+
    Ok(())
 }
