@@ -682,11 +682,11 @@ async fn send_token(
          recipient_token_balance_after - recipient_token_balance_before
       } else {
          return Err(anyhow!(
-            "ERC20 transfer was success but no tokens were actually transferred"
+            "Simulation Error: Recipient did not receive any tokens after transfer, you are probably try to interact with a malicious token"
          ));
       };
 
-      let state = evm.balance(recipient);
+      let state = evm.balance(from);
       eth_balance_after = if let Some(state) = state {
          state.data
       } else {
