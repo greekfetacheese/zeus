@@ -192,7 +192,7 @@ impl TokenSelectionWindow {
                         let name = truncate_symbol_or_name(currency.name(), 25);
                         let symbol = truncate_symbol_or_name(currency.symbol(), 10);
                         let text = format!("{}\n{}", name, symbol);
-                        let icon = icons.currency_icon(currency, tint);
+                        let icon = icons.currency_icon_x32(currency, tint);
                         let rich_text = RichText::new(text).size(theme.text_sizes.normal);
                         let label = Label::new(rich_text, Some(icon))
                            .interactive(false)

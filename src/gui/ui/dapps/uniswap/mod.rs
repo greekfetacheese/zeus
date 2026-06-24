@@ -351,7 +351,7 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token0.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(token0, tint);
+                  let icon = icons.currency_icon_x32(token0, tint);
                   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
                });
@@ -386,7 +386,7 @@ pub fn currencies_amount_and_value(
             ui.vertical(|ui| {
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   let text = RichText::new(token1.symbol()).size(theme.text_sizes.large);
-                  let icon = icons.currency_icon(token1, tint);
+                  let icon = icons.currency_icon_x32(token1, tint);
                   let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
                   ui.add(label);
                });

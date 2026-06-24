@@ -489,7 +489,7 @@ impl Notification {
 
             let show_usd_value = !is_unlimited && amount_usd.is_some();
 
-            let icon = icons.currency_icon(&Currency::from(token.clone()), tint);
+            let icon = icons.currency_icon_x32(&Currency::from(token.clone()), tint);
             let text = if show_usd_value {
                let amount_usd = amount_usd.as_ref().unwrap();
                RichText::new(format!(

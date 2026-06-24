@@ -9,6 +9,7 @@ use crate::core::context::currencies::{TOKENS, TokenData};
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::RwLock;
 use zeus_eth::{alloy_primitives::Address, currency::Currency};
 use zeus_theme::utils::TINT_1;
 
@@ -39,8 +40,12 @@ impl Default for Icons {
 }
 
 pub struct TokenIcons {
-   pub icons_x32: HashMap<(Address, u64), TextureHandle>,
-   pub icons_x24: HashMap<(Address, u64), TextureHandle>,
+   icons_x32: RwLock<HashMap<(Address, u64), TextureHandle>>,
+   icons_x24: RwLock<HashMap<(Address, u64), TextureHandle>>,
+   /// Raw compressed icon PNG bytes. Kept for lazy loading to avoid
+   /// decompressing and uploading all textures at startup.
+   icon_data: HashMap<(Address, u64), (Vec<u8>, Vec<u8>)>,
+   egui_ctx: Context,
    pub erc20_x32: TextureHandle,
    pub erc20_x24: TextureHandle,
    pub bep20_x32: TextureHandle,
@@ -65,8 +70,10 @@ impl Default for TokenIcons {
       let bep20_x24 = ctx.load_texture("bep20_x24", bep20_x24, texture_options);
 
       Self {
-         icons_x32: HashMap::new(),
-         icons_x24: HashMap::new(),
+         icons_x32: RwLock::new(HashMap::new()),
+         icons_x24: RwLock::new(HashMap::new()),
+         icon_data: HashMap::new(),
+         egui_ctx: ctx,
          erc20_x32,
          bep20_x32,
          erc20_x24,
@@ -80,27 +87,20 @@ impl TokenIcons {
       let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
          decode_from_slice(TOKENS, standard())?;
 
-      let mut icons_x32 = HashMap::new();
-      let mut icons_x24 = HashMap::new();
+      #[cfg(feature = "dev")]
+      tracing::info!("Loaded {} tokens", icon_data.len());
 
-      let texture_options = TextureOptions::default();
+      let mut icon_bytes: HashMap<(Address, u64), (Vec<u8>, Vec<u8>)> = HashMap::new();
+
       for icon in icon_data {
-         let img = load_image(&icon.icon_data)?;
-         let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
-         icons_x32.insert(
-            (Address::from_str(&icon.address)?, icon.chain_id),
-            texture_handle,
-         );
-
-         let img = load_and_resize_image(&icon.icon_data, 24, 24)?;
-         let texture_handle = ctx.load_texture(icon.address.to_string(), img, texture_options);
-         icons_x24.insert(
-            (Address::from_str(&icon.address)?, icon.chain_id),
-            texture_handle,
-         );
+         let address = Address::from_str(&icon.address)?;
+         let key = (address, icon.chain_id);
+         icon_bytes.insert(key, (icon.icon_data_x32, icon.icon_data_x24));
       }
 
-      // ERC20 & BEP20 Placeholders
+      let texture_options = TextureOptions::default();
+
+      // ERC20 & BEP20 Placeholders - always loaded
       let erc20_x32 = load_image(include_bytes!("currency/resized/erc20.png"))?;
       let bep20_x32 = load_image(include_bytes!("currency/resized/bep20.png"))?;
 
@@ -114,13 +114,76 @@ impl TokenIcons {
       let bep20_x24 = ctx.load_texture("bep20_x24", bep20_x24, texture_options);
 
       Ok(Self {
-         icons_x32,
-         icons_x24,
+         icons_x32: RwLock::new(HashMap::new()),
+         icons_x24: RwLock::new(HashMap::new()),
+         icon_data: icon_bytes,
+         egui_ctx: ctx.clone(),
          erc20_x32,
          bep20_x32,
          erc20_x24,
          bep20_x24,
       })
+   }
+
+   /// Get or lazily load the 32x32 texture for a token.
+   fn get_or_load_x32(&self, key: &(Address, u64)) -> Option<TextureHandle> {
+      {
+         let map = self.icons_x32.read().unwrap();
+         if let Some(handle) = map.get(key) {
+            return Some(handle.clone());
+         }
+      }
+
+      // Load from raw data (decompress + upload only when first used in UI)
+      if let Some((data_x32, _)) = self.icon_data.get(key) {
+         match load_image(data_x32) {
+            Ok(img) => {
+               let name = format!("token32_{}", key.0);
+               let handle = self.egui_ctx.load_texture(name, img, TextureOptions::default());
+               let mut map = self.icons_x32.write().unwrap();
+               map.insert(*key, handle.clone());
+               return Some(handle);
+            }
+            Err(e) => {
+               tracing::warn!(
+                  "Failed to decode token icon x32 for {}: {}",
+                  key.0,
+                  e
+               );
+            }
+         }
+      }
+      None
+   }
+
+   /// Get or lazily load the 24x24 texture for a token.
+   fn get_or_load_x24(&self, key: &(Address, u64)) -> Option<TextureHandle> {
+      {
+         let map = self.icons_x24.read().unwrap();
+         if let Some(handle) = map.get(key) {
+            return Some(handle.clone());
+         }
+      }
+
+      if let Some((_, data_x24)) = self.icon_data.get(key) {
+         match load_image(data_x24) {
+            Ok(img) => {
+               let name = format!("token24_{}", key.0);
+               let handle = self.egui_ctx.load_texture(name, img, TextureOptions::default());
+               let mut map = self.icons_x24.write().unwrap();
+               map.insert(*key, handle.clone());
+               return Some(handle);
+            }
+            Err(e) => {
+               tracing::warn!(
+                  "Failed to decode token icon x24 for {}: {}",
+                  key.0,
+                  e
+               );
+            }
+         }
+      }
+      None
    }
 }
 
@@ -249,7 +312,6 @@ impl MiscIcons {
       let server_red = load_and_resize_image(include_bytes!("misc/server-red.png"), 24, 24)?;
 
       let swap = load_image(include_bytes!("misc/x24/swap.png"))?;
-
       let view = load_image(include_bytes!("misc/x24/view.png"))?;
       let view_light = load_image(include_bytes!("misc/x24/view-light.png"))?;
 
@@ -458,7 +520,7 @@ impl Icons {
    /// If the currency is native, it will return the native currency icon based on the chain_id
    ///
    /// If its ERC20, it will return the token icon based on the token address and chain id
-   pub fn currency_icon(&self, currency: &Currency, tint: bool) -> Image<'static> {
+   pub fn currency_icon_x32(&self, currency: &Currency, tint: bool) -> Image<'static> {
       if currency.is_native() {
          self.native_currency_icon(currency.chain_id(), tint)
       } else {
@@ -476,13 +538,14 @@ impl Icons {
 
    /// Return the token icon (32 x 32) based on its address and chain id
    ///
-   /// If it does not exist we return a placeholder
+   /// If it does not exist we return a placeholder.
+   /// The texture is loaded lazily on first use to keep startup memory low.
    pub fn token_icon_x32(&self, address: Address, chain_id: u64, tint: bool) -> Image<'static> {
       let key = &(address, chain_id);
-      if let Some(icon) = self.tokens.icons_x32.get(key) {
+      if let Some(icon) = self.tokens.get_or_load_x32(key) {
          match tint {
-            true => Image::new(icon).tint(TINT_1),
-            false => Image::new(icon),
+            true => Image::new(&icon).tint(TINT_1),
+            false => Image::new(&icon),
          }
       } else {
          self.token_placeholder_x32(chain_id, tint)
@@ -491,10 +554,10 @@ impl Icons {
 
    pub fn token_icon_x24(&self, address: Address, chain_id: u64, tint: bool) -> Image<'static> {
       let key = &(address, chain_id);
-      if let Some(icon) = self.tokens.icons_x24.get(key) {
+      if let Some(icon) = self.tokens.get_or_load_x24(key) {
          match tint {
-            true => Image::new(icon).tint(TINT_1),
-            false => Image::new(icon),
+            true => Image::new(&icon).tint(TINT_1),
+            false => Image::new(&icon),
          }
       } else {
          self.token_placeholder_x24(chain_id, tint)

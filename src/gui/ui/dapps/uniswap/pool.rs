@@ -164,8 +164,8 @@ impl PoolsUi {
                         let token0 = pool.currency0();
                         let token1 = pool.currency1();
 
-                        let icon0 = icons.currency_icon(token0, tint);
-                        let icon1 = icons.currency_icon(token1, tint);
+                        let icon0 = icons.currency_icon_x32(token0, tint);
+                        let icon1 = icons.currency_icon_x32(token1, tint);
 
                         let token0_symbol = truncate_symbol_or_name(token0.symbol(), 10);
                         let token1_symbol = truncate_symbol_or_name(token1.symbol(), 10);

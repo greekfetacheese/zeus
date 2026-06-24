@@ -173,7 +173,7 @@ pub fn permit_event_ui(
    let expiration = params.expiration.to_relative();
 
    let tint = theme.image_tint_recommended;
-   let icon = icons.currency_icon(&params.token, tint);
+   let icon = icons.currency_icon_x32(&params.token, tint);
    let text = if show_usd_value {
       let amount_usd = params.amount_usd.as_ref().unwrap();
       RichText::new(format!(
@@ -243,7 +243,7 @@ pub fn token_approval_event_ui(
       let show_usd_value = !is_unlimited && amount_usd.is_some();
       let tint = theme.image_tint_recommended;
 
-      let icon = icons.currency_icon(&Currency::from(token.clone()), tint);
+      let icon = icons.currency_icon_x32(&Currency::from(token.clone()), tint);
       let text = if show_usd_value {
          let amount_usd = amount_usd.as_ref().unwrap();
          RichText::new(format!(
@@ -299,7 +299,7 @@ fn transfer_event_ui(
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             let currency = &params.currency;
             let amount = &params.amount;
-            let icon = icons.currency_icon(currency, tint);
+            let icon = icons.currency_icon_x32(currency, tint);
             let text = RichText::new(format!(
                "{} {} ",
                amount.abbreviated(),
@@ -402,7 +402,7 @@ fn bridge_event_ui(
    // Input currency column
    ui.horizontal(|ui| {
       let amount = &params.amount;
-      let icon = icons.currency_icon(&currency_in, tint);
+      let icon = icons.currency_icon_x32(&currency_in, tint);
       let text = RichText::new(format!(
          "- {} {} ",
          amount.abbreviated(),
@@ -428,7 +428,7 @@ fn bridge_event_ui(
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let amount = &params.received;
-         let icon = icons.currency_icon(&currency_out, tint);
+         let icon = icons.currency_icon_x32(&currency_out, tint);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.abbreviated(),
@@ -506,7 +506,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
    ui.horizontal(|ui| {
       let currency = &params.input_currency;
       let amount = &params.amount_in;
-      let icon = icons.currency_icon(currency, tint);
+      let icon = icons.currency_icon_x32(currency, tint);
       let text = RichText::new(format!(
          "- {} {} ",
          amount.abbreviated(),
@@ -533,7 +533,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let currency = &params.output_currency;
          let amount = &params.received;
-         let icon = icons.currency_icon(currency, tint);
+         let icon = icons.currency_icon_x32(currency, tint);
          let text = RichText::new(format!(
             "+ {} {}",
             amount.abbreviated(),
@@ -586,7 +586,7 @@ fn wrap_eth_event_ui(
 ) {
    let tint = theme.image_tint_recommended;
    let weth = Currency::from(ERC20Token::wrapped_native_token(chain.id()));
-   let weth_icon = icons.currency_icon(&weth, tint);
+   let weth_icon = icons.currency_icon_x32(&weth, tint);
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
@@ -691,7 +691,7 @@ fn uniswap_position_op_event_ui(
 
    // Currency A and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon(currency0, tint);
+      let icon = icons.currency_icon_x32(currency0, tint);
 
       let text = format!("{} {}", amount0.abbreviated(), currency0.symbol());
       let text = RichText::new(text).size(theme.text_sizes.large);
@@ -710,7 +710,7 @@ fn uniswap_position_op_event_ui(
 
    // Currency B and Amount & value
    ui.horizontal(|ui| {
-      let icon = icons.currency_icon(currency1, tint);
+      let icon = icons.currency_icon_x32(currency1, tint);
       let text = format!("{} {}", amount1.abbreviated(), currency1.symbol());
 
       let text = RichText::new(text).size(theme.text_sizes.large);
@@ -740,7 +740,7 @@ fn uniswap_position_op_event_ui(
    if min_amount0.is_some() {
       let min_amount0 = min_amount0.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon(currency0, tint);
+         let icon = icons.currency_icon_x32(currency0, tint);
          let text = format!(
             "{} {}",
             min_amount0.abbreviated(),
@@ -765,7 +765,7 @@ fn uniswap_position_op_event_ui(
    if min_amount1.is_some() {
       let min_amount1 = min_amount1.unwrap();
       ui.horizontal(|ui| {
-         let icon = icons.currency_icon(currency1, tint);
+         let icon = icons.currency_icon_x32(currency1, tint);
          let text = format!(
             "{} {}",
             min_amount1.abbreviated(),

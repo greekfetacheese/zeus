@@ -232,7 +232,7 @@ impl PortfolioUi {
    ) {
       let visuals = theme.label_visuals();
       let tint = theme.image_tint_recommended;
-      let icon = icons.currency_icon(currency, tint);
+      let icon = icons.currency_icon_x32(currency, tint);
 
       ui.horizontal(|ui| {
          ui.set_width(width);

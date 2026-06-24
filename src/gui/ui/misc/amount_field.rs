@@ -159,7 +159,7 @@ impl AmountFieldWithCurrencySelect {
                // Currency Selector Button
 
                let visuals = theme.button_visuals();
-               let icon = icons.currency_icon(currency, tint);
+               let icon = icons.currency_icon_x32(currency, tint);
                let button_text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
                let width = ui.available_width() * 0.5;
                let button = Button::image_and_text(icon, button_text)
