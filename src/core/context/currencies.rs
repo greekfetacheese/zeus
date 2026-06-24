@@ -162,8 +162,8 @@ impl CurrencyDB {
          let erc20 = ERC20Token {
             address,
             chain_id: token.chain_id,
-            symbol: token.symbol,
-            name: token.name,
+            symbol: token.symbol.into(),
+            name: token.name.into(),
             decimals: token.decimals,
             total_supply: U256::ZERO,
          };

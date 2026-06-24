@@ -140,14 +140,14 @@ impl Currency {
       }
    }
 
-   pub fn symbol(&self) -> &String {
+   pub fn symbol(&self) -> &str {
       match self {
          Self::Native(native) => &native.symbol,
          Self::ERC20(erc20) => &erc20.symbol,
       }
    }
 
-   pub fn name(&self) -> &String {
+   pub fn name(&self) -> &str {
       match self {
          Self::Native(native) => &native.name,
          Self::ERC20(erc20) => &erc20.name,

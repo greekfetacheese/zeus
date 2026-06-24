@@ -1,12 +1,13 @@
 use crate::types::ChainId;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 /// Represents a Native Currency to its chain
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct NativeCurrency {
    pub chain_id: u64,
-   pub symbol: String,
-   pub name: String,
+   pub symbol: Arc<str>,
+   pub name: Arc<str>,
    pub decimals: u8,
 }
 
@@ -14,8 +15,8 @@ impl Default for NativeCurrency {
    fn default() -> Self {
       Self {
          chain_id: 1,
-         symbol: "ETH".to_string(),
-         name: "Ethereum".to_string(),
+         symbol: "ETH".into(),
+         name: "Ethereum".into(),
          decimals: 18,
       }
    }
@@ -28,7 +29,7 @@ impl From<u64> for NativeCurrency {
 }
 
 impl NativeCurrency {
-   pub fn new(chain_id: u64, symbol: impl Into<String>, name: impl Into<String>, decimals: u8) -> Self {
+   pub fn new(chain_id: u64, symbol: impl Into<Arc<str>>, name: impl Into<Arc<str>>, decimals: u8) -> Self {
       Self {
          chain_id,
          symbol: symbol.into(),

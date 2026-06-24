@@ -254,11 +254,11 @@ impl PortfolioUi {
       ui.horizontal(|ui| {
          ui.set_width(width);
          ui.add(icon);
-         let text = RichText::new(&token.symbol).size(theme.text_sizes.normal);
+         let text = RichText::new(&*token.symbol).size(theme.text_sizes.normal);
          let label = Label::new(text, None).wrap().visuals(visuals).interactive(false);
          ui.scope(|ui| {
             ui.set_max_width(100.0);
-            ui.add(label).on_hover_text(&token.name);
+            ui.add(label).on_hover_text(&*token.name);
          });
       });
    }

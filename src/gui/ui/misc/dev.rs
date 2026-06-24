@@ -213,8 +213,8 @@ async fn filter_tokens(ctx: ZeusCtx, mut token_data: Vec<TokenData>) -> Result<(
          let erc20 = ERC20Token {
             chain_id: chain,
             address,
-            name: token.name.clone(),
-            symbol: token.symbol.clone(),
+            name: token.name.clone().into(),
+            symbol: token.symbol.clone().into(),
             decimals: token.decimals,
             total_supply: Default::default(),
          };
@@ -296,8 +296,8 @@ async fn filter_tokens(ctx: ZeusCtx, mut token_data: Vec<TokenData>) -> Result<(
       good_tokens.contains(&ERC20Token {
          chain_id: token.chain_id,
          address: Address::from_str(&token.address).unwrap(),
-         name: token.name.clone(),
-         symbol: token.symbol.clone(),
+         name: token.name.clone().into(),
+         symbol: token.symbol.clone().into(),
          decimals: token.decimals,
          total_supply: Default::default(),
       })

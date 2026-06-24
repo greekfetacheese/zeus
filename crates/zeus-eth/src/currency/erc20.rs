@@ -12,14 +12,15 @@ use crate::utils::{
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 /// Represents an ERC20 token.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ERC20Token {
    pub chain_id: u64,
    pub address: Address,
-   pub symbol: String,
-   pub name: String,
+   pub symbol: Arc<str>,
+   pub name: Arc<str>,
    pub decimals: u8,
    pub total_supply: U256,
 }
@@ -55,10 +56,10 @@ impl Default for ERC20Token {
    fn default() -> Self {
       Self {
          chain_id: 1,
-         name: "Wrapped Ether".to_string(),
+         name: "Wrapped Ether".into(),
          address: address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
          decimals: 18,
-         symbol: "WETH".to_string(),
+         symbol: "WETH".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -76,8 +77,8 @@ impl ERC20Token {
       Ok(Self {
          chain_id,
          address: token,
-         symbol: info.symbol,
-         name: info.name,
+         symbol: info.symbol.into(),
+         name: info.name.into(),
          decimals: info.decimals,
          total_supply: info.totalSupply,
       })
@@ -97,8 +98,8 @@ impl ERC20Token {
                tokens_erc20.push(Self {
                   chain_id: chain,
                   address: token_addr,
-                  symbol: token_info.symbol.clone(),
-                  name: token_info.name.clone(),
+                  symbol: token_info.symbol.clone().into(),
+                  name: token_info.name.clone().into(),
                   decimals: token_info.decimals,
                   total_supply: token_info.totalSupply,
                });
@@ -111,16 +112,16 @@ impl ERC20Token {
    pub fn from_components(
       chain_id: u64,
       address: Address,
-      symbol: String,
-      name: String,
+      symbol: impl Into<Arc<str>>,
+      name: impl Into<Arc<str>>,
       decimals: u8,
       total_supply: U256,
    ) -> Self {
       Self {
          chain_id,
          address,
-         symbol,
-         name,
+         symbol: symbol.into(),
+         name: name.into(),
          decimals,
          total_supply,
       }
@@ -266,10 +267,10 @@ impl ERC20Token {
    pub fn wbtc() -> ERC20Token {
       ERC20Token {
          chain_id: ETH,
-         name: "Wrapped BTC".to_string(),
+         name: "Wrapped BTC".into(),
          address: address!("0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"),
          decimals: 8,
-         symbol: "WBTC".to_string(),
+         symbol: "WBTC".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -278,10 +279,10 @@ impl ERC20Token {
    pub fn link() -> ERC20Token {
       ERC20Token {
          chain_id: ETH,
-         name: "ChainLink Token".to_string(),
+         name: "ChainLink Token".into(),
          address: address!("0x514910771AF9Ca656af840dff83E8264EcF986CA"),
          decimals: 18,
-         symbol: "LINK".to_string(),
+         symbol: "LINK".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -290,10 +291,10 @@ impl ERC20Token {
    pub fn wbnb() -> ERC20Token {
       ERC20Token {
          chain_id: BSC,
-         name: "Wrapped BNB".to_string(),
+         name: "Wrapped BNB".into(),
          address: wbnb(BSC).unwrap(),
          decimals: 18,
-         symbol: "WBNB".to_string(),
+         symbol: "WBNB".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -334,10 +335,10 @@ impl ERC20Token {
    pub fn usdc() -> ERC20Token {
       ERC20Token {
          chain_id: ETH,
-         name: "USD Coin".to_string(),
+         name: "USD Coin".into(),
          address: usdc(ETH).unwrap(),
          decimals: 6,
-         symbol: "USDC".to_string(),
+         symbol: "USDC".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -378,10 +379,10 @@ impl ERC20Token {
    pub fn usdt() -> ERC20Token {
       ERC20Token {
          chain_id: ETH,
-         name: "Tether USD".to_string(),
+         name: "Tether USD".into(),
          address: usdt(ETH).unwrap(),
          decimals: 6,
-         symbol: "USDT".to_string(),
+         symbol: "USDT".into(),
          total_supply: U256::ZERO,
       }
    }
@@ -414,10 +415,10 @@ impl ERC20Token {
    pub fn dai() -> ERC20Token {
       ERC20Token {
          chain_id: ETH,
-         name: "Dai Stablecoin".to_string(),
+         name: "Dai Stablecoin".into(),
          address: dai(ETH).unwrap(),
          decimals: 18,
-         symbol: "DAI".to_string(),
+         symbol: "DAI".into(),
          total_supply: U256::ZERO,
       }
    }

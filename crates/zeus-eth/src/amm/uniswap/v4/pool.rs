@@ -467,8 +467,8 @@ impl UniswapV4Pool {
          chain_id: 1,
          address: uni_addr,
          decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
+         symbol: "UNI".into(),
+         name: "Uniswap Token".into(),
          total_supply: U256::ZERO,
       };
       let currency_a = Currency::from(uni);
@@ -491,8 +491,8 @@ impl UniswapV4Pool {
          chain_id: 1,
          address: uni_addr,
          decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
+         symbol: "UNI".into(),
+         name: "Uniswap Token".into(),
          total_supply: U256::ZERO,
       };
       let currency_a = Currency::from(uni);

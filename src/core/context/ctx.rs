@@ -690,7 +690,7 @@ impl ZeusCtx {
 
       let token = self.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
       if token.is_some() {
-         return Some(token.unwrap().name);
+         return Some(token.unwrap().name.to_string());
       }
 
       let permit2 = address_book::permit2_contract(chain).unwrap();

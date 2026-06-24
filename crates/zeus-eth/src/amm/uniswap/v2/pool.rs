@@ -427,8 +427,8 @@ impl UniswapV2Pool {
          chain_id: 1,
          address: uni_addr,
          decimals: 18,
-         symbol: "UNI".to_string(),
-         name: "Uniswap Token".to_string(),
+         symbol: "UNI".into(),
+         name: "Uniswap Token".into(),
          total_supply: U256::ZERO,
       };
 
@@ -443,8 +443,8 @@ impl UniswapV2Pool {
          chain_id: 1,
          address: wbtc,
          decimals: 8,
-         symbol: "WBTC".to_string(),
-         name: "Wrapped BTC".to_string(),
+         symbol: "WBTC".into(),
+         name: "Wrapped BTC".into(),
          total_supply: U256::ZERO,
       };
 
