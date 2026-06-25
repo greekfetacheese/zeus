@@ -3260,16 +3260,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eyre"
-version = "0.6.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
-dependencies = [
- "indenter",
- "once_cell",
-]
-
-[[package]]
 name = "fast-srgb8"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4331,12 +4321,6 @@ dependencies = [
  "quote",
  "syn 2.0.117",
 ]
-
-[[package]]
-name = "indenter"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 
 [[package]]
 name = "indexmap"
@@ -8705,16 +8689,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
-name = "uniswap_v3_math"
-version = "0.6.0"
-source = "git+https://github.com/greekfetacheese/uniswap-v3-math.git?branch=main#6dc07b56fa85a0077410718e302758c36c731d3d"
-dependencies = [
- "alloy-primitives",
- "eyre",
- "thiserror 2.0.17",
-]
-
-[[package]]
 name = "universal-hash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10378,14 +10352,12 @@ dependencies = [
  "futures",
  "rand 0.8.6",
  "revm",
- "secure-types",
  "serde",
  "serde_json",
  "thiserror 2.0.17",
  "tokio",
  "tower",
  "tracing",
- "uniswap_v3_math",
  "url",
 ]
 

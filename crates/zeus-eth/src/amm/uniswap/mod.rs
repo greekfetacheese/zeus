@@ -18,13 +18,12 @@ pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};
 pub mod consts;
 pub mod state;
 pub mod sync;
+pub mod math;
 pub mod v2;
 pub mod v3;
 pub mod v4;
 
 pub use state::State;
-
-pub use uniswap_v3_math;
 
 pub const FEE_TIERS: [u32; 4] = [100, 500, 3000, 10000];
 

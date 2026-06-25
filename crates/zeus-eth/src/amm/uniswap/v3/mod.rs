@@ -10,7 +10,7 @@ use super::{
 };
 
 use std::cmp::Ordering;
-use uniswap_v3_math::{full_math::mul_div, sqrt_price_math, tick_math::*};
+use super::math::{full_math::mul_div, sqrt_price_math, swap_math, tick_math::*, tick_bitmap};
 
 use anyhow::anyhow;
 
@@ -179,7 +179,7 @@ pub fn calculate_swap(
       };
 
       // Get the next tick from the current tick
-      (step.tick_next, step.initialized) = uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
+      (step.tick_next, step.initialized) = tick_bitmap::next_initialized_tick_within_one_word(
          &state.tick_bitmap,
          current_state.tick,
          state.tick_spacing,
@@ -190,7 +190,7 @@ pub fn calculate_swap(
       step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
 
       // Get the next sqrt price from the input amount
-      step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(step.tick_next)?;
+      step.sqrt_price_next_x96 = get_sqrt_ratio_at_tick(step.tick_next)?;
 
       // Target spot price
       let swap_target_sqrt_ratio = if zero_for_one {
@@ -211,7 +211,7 @@ pub fn calculate_swap(
          step.amount_in,
          step.amount_out,
          step.fee_amount,
-      ) = uniswap_v3_math::swap_math::compute_swap_step(
+      ) = swap_math::compute_swap_step(
          current_state.sqrt_price_x_96,
          swap_target_sqrt_ratio,
          current_state.liquidity,
@@ -267,7 +267,7 @@ pub fn calculate_swap(
          // If the current_state sqrt price is not equal to the step sqrt price, then we are not on the same tick.
          // Update the current_state.tick to the tick at the current_state.sqrt_price_x_96
       } else if current_state.sqrt_price_x_96 != step.sqrt_price_start_x_96 {
-         current_state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(current_state.sqrt_price_x_96)?;
+         current_state.tick = get_tick_at_sqrt_ratio(current_state.sqrt_price_x_96)?;
       }
    }
 
@@ -305,7 +305,7 @@ pub fn calculate_swap_mut(
       let mut step = StepComputations::default();
       step.sqrt_price_start_x_96 = state.sqrt_price;
 
-      (step.tick_next, step.initialized) = uniswap_v3_math::tick_bitmap::next_initialized_tick_within_one_word(
+      (step.tick_next, step.initialized) = tick_bitmap::next_initialized_tick_within_one_word(
          &state.tick_bitmap,
          state.tick,
          state.tick_spacing,
@@ -313,7 +313,7 @@ pub fn calculate_swap_mut(
       )?;
 
       step.tick_next = step.tick_next.clamp(MIN_TICK, MAX_TICK);
-      step.sqrt_price_next_x96 = uniswap_v3_math::tick_math::get_sqrt_ratio_at_tick(step.tick_next)?;
+      step.sqrt_price_next_x96 = get_sqrt_ratio_at_tick(step.tick_next)?;
 
       // Target spot price
       let swap_target_sqrt_ratio = if zero_for_one {
@@ -333,7 +333,7 @@ pub fn calculate_swap_mut(
          step.amount_in,
          step.amount_out,
          step.fee_amount,
-      ) = uniswap_v3_math::swap_math::compute_swap_step(
+      ) = swap_math::compute_swap_step(
          step.sqrt_price_start_x_96,
          swap_target_sqrt_ratio,
          state.liquidity,
@@ -399,7 +399,7 @@ pub fn calculate_swap_mut(
             step.tick_next
          };
       } else if state.sqrt_price != step.sqrt_price_start_x_96 {
-         state.tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;
+         state.tick = get_tick_at_sqrt_ratio(state.sqrt_price)?;
       }
    }
 
@@ -419,7 +419,7 @@ pub fn calculate_price(pool: &impl UniswapPool, zero_for_one: bool) -> Result<f6
       .v3_state()
       .ok_or_else(|| anyhow::anyhow!("State not initialized"))?;
 
-   let tick = uniswap_v3_math::tick_math::get_tick_at_sqrt_ratio(state.sqrt_price)?;
+   let tick = get_tick_at_sqrt_ratio(state.sqrt_price)?;
    let shift = (pool.currency0().decimals() as i8) - (pool.currency1().decimals() as i8);
 
    let price = match shift.cmp(&0) {
