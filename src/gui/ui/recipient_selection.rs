@@ -298,7 +298,7 @@ impl RecipientSelectionWindow {
 
                let address_text = RichText::new(&contact.address)
                   .size(theme.text_sizes.normal)
-                  .color(theme.colors.text_muted);
+                  .color(theme.colors.text);
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
@@ -366,7 +366,7 @@ impl RecipientSelectionWindow {
 
                let address_text = RichText::new(&wallet.address.to_string())
                   .size(theme.text_sizes.normal)
-                  .color(theme.colors.text_muted);
+                  .color(theme.colors.text);
 
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 

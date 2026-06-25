@@ -1,9 +1,9 @@
 use crate::core::ZeusCtx;
 use crate::gui::GUI;
-use eframe::egui::{Align2, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
-use egui::{Margin, Stroke};
+use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
+use egui::{FontId, Margin, Stroke};
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Button;
+use zeus_widgets::{Button, SecureTextEdit};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
@@ -213,6 +213,8 @@ impl ConnectedDappsUi {
 
       let mut open = self.open;
       let button_visuals = theme.button_visuals();
+      let text_edit_visuals = theme.text_edit_visuals();
+      let window_frame = theme.frame1;
 
       let title = RichText::new("Connected Dapps").size(theme.text_sizes.heading);
       Window::new(title)
@@ -221,43 +223,51 @@ impl ConnectedDappsUi {
          .resizable(false)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
+         .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
-               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.set_width(self.size.0);
-               ui.set_height(self.size.1);
+            ui.spacing_mut().item_spacing.y = 20.0;
+            ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.set_width(self.size.0);
+            ui.set_height(self.size.1);
 
-               let dapps = ctx.get_connected_dapps();
+            let mut dapps = ctx.get_connected_dapps();
+            let dapps_are_empty = dapps.is_empty();
 
-               if dapps.is_empty() {
-                  ui.label(RichText::new("No connected dapps").size(theme.text_sizes.normal));
-                  return;
-               }
+            ui.scope(|ui| {
+               ui.vertical_centered(|ui| {
+                  if dapps_are_empty {
+                     ui.label(RichText::new("No connected dapps").size(theme.text_sizes.normal));
+                     return;
+                  }
+               });
+            });
 
+            if !dapps_are_empty {
                let text = RichText::new("Disconnect all").size(theme.text_sizes.normal);
                let button = Button::new(text).visuals(button_visuals);
                if ui.add(button).clicked() {
                   ctx.disconnect_all_dapps();
                }
+            }
 
-               ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-                  ui.set_width(ui.available_width());
-                  ui.set_height(ui.available_height());
-                  for dapp in dapps {
-                     ui.horizontal(|ui| {
-                        let text = RichText::new(&dapp).size(theme.text_sizes.normal);
-                        ui.label(text);
+            ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+               for dapp in dapps.iter_mut() {
+                  ui.horizontal(|ui| {
+                     let edit = SecureTextEdit::singleline(dapp)
+                        .visuals(text_edit_visuals)
+                        .min_size(vec2(ui.available_width() * 0.10, 25.0))
+                        .margin(Margin::same(10))
+                        .font(FontId::proportional(theme.text_sizes.normal));
+                     ui.add(edit);
 
-                        let text = RichText::new("Disconnect").size(theme.text_sizes.normal);
-                        let button = Button::new(text).visuals(button_visuals);
-                        if ui.add(button).clicked() {
-                           ctx.disconnect_dapp(&dapp);
-                        }
-                     });
-                  }
-               });
+                     let text = RichText::new("Disconnect").size(theme.text_sizes.normal);
+                     let button =
+                        Button::new(text).visuals(button_visuals).min_size(vec2(50.0, 25.0));
+                     if ui.add(button).clicked() {
+                        ctx.disconnect_dapp(&dapp);
+                     }
+                  });
+               }
             });
          });
 
