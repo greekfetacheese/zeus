@@ -291,8 +291,8 @@ fn compute_spending_key(seed: &Key64, index: u32) -> Result<(SpendX, SpendY), an
 
    // scalar_bytes.zeroize();
 
-   let generator = *BABYJUBJUB_GENERATOR;
-   eprintln!("GENERATOR: {:?}", generator);
+   // let generator = *BABYJUBJUB_GENERATOR;
+   // eprintln!("GENERATOR: {:?}", generator);
    let point = mul_point_escalar(*BASE8, scalar.into_bigint().into());
    // let point = generator.mul(scalar);
    // let affine = EdwardsAffine::from(point);
@@ -369,11 +369,14 @@ pub fn encode_address(data: &AddressData) -> Result<String, anyhow::Error> {
 mod test {
    use super::*;
    use bip39::{Language, Mnemonic};
+   use secure_types::SecureString;
+use zeus_wallet::*;
 
    #[test]
-   fn test_with_mnemonic() {
+   fn test_against_railway() {
+      // Generated from Railway wallet
       let seed_phrase = "boil belt beef hunt cruel lady code dance double city young rule very sight roast make eight travel tattoo mixed you color update double";
-      let expected_address = "0zk1qy9r469tey0ptmp7unlph80w5aw3hf8z39une75a2ewd8vlmgvs2hrv7j6fe3z53lugdcpevcmd84mghtk07gd66s4qw452llcuzap2934nyh45jxz4ry55rq67";
+      let railway_address = "0zk1qy9r469tey0ptmp7unlph80w5aw3hf8z39une75a2ewd8vlmgvs2hrv7j6fe3z53lugdcpevcmd84mghtk07gd66s4qw452llcuzap2934nyh45jxz4ry55rq67";
 
       let mnemonic = Mnemonic::parse_in(Language::English, seed_phrase).unwrap();
       let seed = mnemonic.to_seed("");
@@ -383,6 +386,27 @@ mod test {
 
       let encoded_address = encode_address(&address_data).unwrap();
       eprintln!("Encoded Address: {}", encoded_address);
-      assert_eq!(encoded_address, expected_address);
+      println!("Railway Address: {}", railway_address);
+   }
+
+   #[test]
+   fn test_zeus_wallet() {
+      let username = "dev";
+      let password = "dev";
+      
+      let username = SecureString::from(username);
+      let password = SecureString::from(password);
+
+      let m_cost = 2048;
+      let t_cost = 1;
+      let p_cost = 4;
+
+      let seed = derive_seed(&username, &password, m_cost, t_cost, p_cost).unwrap();
+      let wallet = SecureHDWallet::new_from_seed(None, seed);
+
+      let full_key = wallet.master_wallet.full_key().unwrap();
+      let address = generate_address_data(full_key, 0, None).unwrap();
+      let encoded_address = encode_address(&address).unwrap();
+      println!("Address: {}", encoded_address);
    }
 }

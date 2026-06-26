@@ -1,0 +1,19 @@
+{
+  "name": "zeus-waku-broadcaster-sidecar",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Lightweight Node.js sidecar for Waku networking used by Zeus Railgun integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@waku/sdk": "^0.0.36",
+    "@waku/core": "^0.0.40",
+    "@waku/interfaces": "^0.0.34"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

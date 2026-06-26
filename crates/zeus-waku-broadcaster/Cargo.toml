@@ -1,0 +1,44 @@
+[package]
+name = "zeus-waku-broadcaster"
+version = "0.1.0"
+edition = "2024"
+description = "Rust implementation of the Railgun Waku Broadcaster client for private gas-abstracted transactions"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+# Waku - using local reference for now due to yanked deps in published 0.6.0 (core2 yanked in multiaddr chain).
+# Published alternative (when fixed or newer release): waku-bindings = "0.6.0"
+# For production we may use git dep, a fork, or [patch.crates-io].
+# NOTE: Temporarily commented due to num-bigint version conflict (rln 0.3.4 pins =0.4.3, light-poseidon pulls 0.4.4).
+# Will resolve via [patch] in workspace, git dep on updated bindings, or by forking the bindings without RLN for basic pubsub.
+# waku-bindings = { path = "/home/cion/Railgun/logos-delivery-rust-bindings/waku-bindings" }
+
+# Placeholder until Waku dep resolves cleanly. API will be based on the example in the reference repo.
+# For published: waku-bindings = "0.6.0" (or newer non-broken release)
+
+
+# Core
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+anyhow = "1"
+tracing = "0.1"
+
+# Crypto for encryption / sigs (to match TS broadcaster flow)
+k256 = { version = "0.13", features = ["ecdsa"] }
+aes-gcm = "0.10"
+rand = "0.8"
+sha2 = "0.10"
+
+# Misc (will grow)
+chrono = "0.4"
+base64 = "0.22.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+clippy = { new_without_default = "allow", too_many_arguments = "allow" }
