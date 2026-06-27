@@ -61,6 +61,7 @@ function log(...args) {
 
 let waku = null;
 let currentSubscriptions = new Map();
+let goodStorePeers = new Set(); // peers that successfully delivered messages
 
 
 async function getStorePeers() {
@@ -92,6 +93,29 @@ async function getConnectedPeerIds() {
 }
 
 
+
+async function ensureStrongConnectivity() {
+  if (!waku) return 0;
+  
+  // Re-dial all known Railgun relays (helps when initial dials were partial)
+  let dialed = 0;
+  for (const peer of RAILGUN_KNOWN_PEERS) {
+    try {
+      await waku.dial(peer);
+      dialed++;
+    } catch (e) {
+      // normal - many will fail
+    }
+  }
+  
+  // Give discovery a moment
+  await new Promise(r => setTimeout(r, 3000));
+  
+  const connected = await getConnectedPeerIds();
+  log('ensureStrongConnectivity: dialed known relays + now have', connected.length, 'connections');
+  return connected.length;
+}
+
 async function handleStart(params) {
   const { chain, options = {} } = params;
 
@@ -111,6 +135,7 @@ async function handleStart(params) {
 
   try {
     // Use the same discovery as the official Railgun broadcaster client
+    // Pass the raw enrtree:// URL strings directly (this was the working pattern)
     const enrTrees = [RAILGUN_ENR_TREE];
 
     waku = await createLightNode({
@@ -124,7 +149,7 @@ async function handleStart(params) {
       autoStart: false,
       defaultBootstrap: true,
       bootstrapPeers,
-      // Explicit store peers - this is how the official Railgun TS client configures Store
+      // Explicit store peers - critical for historical queries (matches official client)
       store: {
         peers: bootstrapPeers,
       },
@@ -190,8 +215,11 @@ async function handleStart(params) {
     const connected = await getConnectedPeerIds();
     log('Total connected peerIds:', connected.length, connected);
     if (storePeersAfterStart.length === 0) {
-      log('WARNING: peerManager reports 0 store peers even after waitForPeers + explicit store config');
+      log('Note: peerManager still reports 0 store peers (we will try multiple connected peers on queries)');
     }
+
+    // Final boost before telling Rust we're ready
+    await ensureStrongConnectivity();
 
     send({ id: params.id, type: 'started', success: true, peerId });
 
@@ -218,6 +246,22 @@ function startPeerReporter() {
       if (count > 0) {
         log('Peer count update:', count, 'connections');
       }
+async function ensureConnectedToKnownPeers() {
+  if (!waku) return;
+  const toDial = [...RAILGUN_KNOWN_PEERS];
+  for (const peer of toDial) {
+    try {
+      await waku.dial(peer).catch(() => {});
+    } catch (_) {}
+  }
+  // Also try to get more via peer exchange if possible
+  try {
+    if (waku.libp2p && waku.libp2p.services && waku.libp2p.services.peerExchange) {
+      // trigger if available
+    }
+  } catch (_) {}
+}
+
     } catch (e) {
       // ignore transient errors
     }
@@ -303,7 +347,7 @@ async function handlePublish(params) {
 
 
 async function handleQueryHistorical(params) {
-  const { contentTopics = [], timeStartMs, timeEndMs, pageSize = 50 } = params;
+  const { contentTopics = [], timeStartMs, timeEndMs, pageSize = 100 } = params;
 
   if (!waku || !waku.store) {
     return send({ id: params.id, type: 'historical_queried', success: false, error: 'not_started_or_no_store' });
@@ -314,48 +358,57 @@ async function handleQueryHistorical(params) {
   }
 
   let total = 0;
-  const maxAttempts = 3;
 
   try {
     const now = Date.now();
-    // For fee messages we only need very recent data (broadcasters republish frequently)
-    // Default to last 5 minutes unless explicitly asked for more
-    const defaultLookbackMs = 1000 * 60 * 5; // 5 minutes
+    const defaultLookbackMs = 1000 * 60 * 5; // 5 min default (fees republish often)
     const startTime = timeStartMs ? new Date(timeStartMs) : new Date(now - defaultLookbackMs);
     const endTime = timeEndMs ? new Date(timeEndMs) : new Date(now);
 
     log(`Querying historical on ${contentTopics.length} topics, range: ${startTime.toISOString()} -> ${endTime.toISOString()}`);
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      let attemptTotal = 0;
-      let hadPeerError = false;
+    // === NEW: aggressively ensure we have good connectivity before querying ===
+    const connCount = await ensureStrongConnectivity();
+    if (connCount < 4) {
+      log('Low connectivity before query, waiting a bit more...');
+      await new Promise(r => setTimeout(r, 8000));
+    }
 
-      const currentStorePeers = await getStorePeers();
-      log(`(attempt ${attempt}) Current store peers from peerManager: ${currentStorePeers.length}`);
+    // Collect candidate peers (prefer good ones we have seen work before)
+    let candidates = [];
+    const goodOnes = Array.from(goodStorePeers);
+    if (goodOnes.length > 0) candidates.push(...goodOnes);
 
-      // Before each store query attempt, explicitly wait for store peers
-      try {
-        log(`(attempt ${attempt}) Waiting for Store peers...`);
-        await waitForRemotePeer(waku, ['store'], 20000);
-        const afterWait = await getStorePeers();
-        log(`(attempt ${attempt}) After waitForRemotePeer store: ${afterWait.length}`);
-      } catch (_) {
-        log(`(attempt ${attempt}) Still no Store peers after wait, will try query anyway (may fail)`);
-      }
+    const storeP = await getStorePeers();
+    candidates.push(...storeP);
 
-      // Try to pick a peerId to force
-      let forcedPeerId = null;
-      const storePeersNow = await getStorePeers();
-      if (storePeersNow.length > 0) {
-        forcedPeerId = storePeersNow[0];
-        log(`(attempt ${attempt}) Will force peerId from store peers:`, forcedPeerId);
+    const connected = await getConnectedPeerIds();
+    candidates.push(...connected);
+
+    // Dedup + shuffle for better chance
+    candidates = [...new Set(candidates)].sort(() => Math.random() - 0.5);
+
+    if (candidates.length === 0) {
+      log('No candidate peers at all — will still try default query');
+      candidates = [null];
+    }
+
+    log(`Trying historical query with ${candidates.length} candidate peer(s) (some may be duplicates of connected)`);
+
+    let successWithPeer = false;
+
+    for (const candidate of candidates.slice(0, 6)) {  // try up to 6 different peers
+      if (successWithPeer) break;
+
+      const forcedPeerId = candidate;
+      if (forcedPeerId) {
+        log(`  → Trying peer: ${forcedPeerId}`);
       } else {
-        const connected = await getConnectedPeerIds();
-        if (connected.length > 0) {
-          forcedPeerId = connected[0];
-          log(`(attempt ${attempt}) No store peers, will try forcing a connected peerId (diagnostic):`, forcedPeerId);
-        }
+        log('  → Trying without explicit peerId (default behavior)');
       }
+
+      // Small wait for store before each peer attempt
+      await waitForRemotePeer(waku, ['store'], 8000).catch(() => {});
 
       for (const contentTopic of contentTopics) {
         const decoder = createDecoder(contentTopic, DEFAULT_PUBSUB_TOPIC);
@@ -371,6 +424,7 @@ async function handleQueryHistorical(params) {
           queryOpts.peerId = forcedPeerId;
         }
 
+        let thisPeerCount = 0;
         try {
           for await (const page of waku.store.queryGenerator([decoder], queryOpts)) {
             for (const msgPromise of page) {
@@ -384,45 +438,34 @@ async function handleQueryHistorical(params) {
                   pubsubTopic: DEFAULT_PUBSUB_TOPIC,
                   source: 'historical',
                 });
-                attemptTotal++;
+                thisPeerCount++;
+                total++;
               }
+              if (thisPeerCount > 30) break; // per-peer cap
             }
           }
+
+          if (thisPeerCount > 0) {
+            log(`    ✓ Got ${thisPeerCount} messages from peer ${forcedPeerId || 'default'}`);
+            if (forcedPeerId) goodStorePeers.add(forcedPeerId);
+            successWithPeer = true;
+          }
         } catch (e) {
-          const msg = e.message || String(e);
-          log(`Historical query error (attempt ${attempt}) for topic ${contentTopic}: ${msg}`);
-          if (msg.includes('No peers available')) {
-            hadPeerError = true;
+          const m = e.message || String(e);
+          if (!m.includes('No peers')) {
+            log(`    peer ${forcedPeerId || 'default'} error: ${m}`);
           }
         }
       }
-
-      total += attemptTotal;
-
-      if (attemptTotal > 0) {
-        log(`Historical query (attempt ${attempt}) delivered ${attemptTotal} messages`);
-        break; // success, stop retrying
-      }
-
-      if (hadPeerError && attempt < maxAttempts) {
-        log(`No store peers yet (attempt ${attempt}/${maxAttempts}), waiting 12s before retry...`);
-        await new Promise(r => setTimeout(r, 12000));
-      } else if (attempt < maxAttempts) {
-        // small wait even on other errors
-        await new Promise(r => setTimeout(r, 8000));
-      }
     }
 
-    log(`Historical query complete. Delivered ${total} messages total`);
+    log('Historical query complete. Delivered', total, 'messages total');
     send({ id: params.id, type: 'historical_queried', success: true, count: total });
   } catch (err) {
     log('Historical query failed:', err);
     send({ id: params.id, type: 'historical_queried', success: false, error: err.message || String(err) });
   }
-}
-
-
-async function handleGetStatus() {
+}async function handleGetStatus() {
   if (!waku || !waku.libp2p) {
     return send({ type: 'status', started: false, meshPeers: 0, pubsubPeers: 0, storePeers: 0 });
   }

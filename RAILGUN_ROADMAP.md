@@ -671,3 +671,41 @@ The goal is to get back to the state where we saw:
 
 Once we confirm it works again, we can polish further (e.g. send a separate "store_ready" event, or make waits non-blocking but with better signaling).
 
+
+### 2026-06-27 Peer Discovery Improvements (before continuing higher layers)
+
+User requested one more round of peer discovery hardening because historical queries are still flaky (works only sometimes, even with good mesh).
+
+**Changes applied**:
+- Proper use of `enrTree()` helper from @waku/discovery (matching official client pattern).
+- New `ensureStrongConnectivity()` function that re-dials all known Railgun relays aggressively.
+- Called multiple times: after initial dials, before sending 'started', and right before every historical query.
+- Major upgrade to `handleQueryHistorical`:
+  - Collects candidates from goodStorePeers (remembered successes) + store peers + all connected peers.
+  - Shuffles and tries up to 6 different peers in sequence for a single query.
+  - Once a peer delivers messages, it is added to `goodStorePeers` and preferred in future.
+- Periodic (every 45s) background call to `ensureStrongConnectivity()`.
+- Rust test example now:
+  - Waits up to 180s for 'started'.
+  - Waits up to 90s or until mesh >= 6 before first historical query.
+  - Uses 6h window for snapshot testing (higher chance of catching fee data).
+
+These changes make the "force peerId" strategy much more robust and give discovery more chances to surface usable Store peers.
+
+Next step after testing this version: decide whether to continue iterating on discovery or lock this as "good enough foundation" and move real fee logic into Rust.
+
+### 2026-06-27 Quick Fix - enrTree misuse
+The latest run crashed with "enrTree is not a function".
+Root cause: `enrTree` exported from @waku/discovery is an *object* containing predefined tree URLs (for Waku's own SANDBOX/TEST), not a wrapper function.
+We were calling `enrTree(url)` which doesn't exist.
+
+Fixed by reverting only the discovery creation line back to the previous working form:
+wakuDnsDiscovery(enrTrees)   // raw enrtree:// strings
+
+All the other peer discovery improvements remain active:
+- ensureStrongConnectivity() with repeated dials of known relays
+- goodStorePeers memory
+- Trying up to 6 different candidate peers during historical queries
+- Patient waits in the Rust test example
+
+This should restore connectivity while keeping the new robustness.

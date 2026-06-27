@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
     // Wait for the 'started' event from sidecar (event-driven, not fixed sleep)
     info!("Waiting for Waku 'started' confirmation from sidecar (this can take time for peer discovery + store waits)...");
     let mut started_ok = false;
-    let start_wait = Duration::from_secs(60);  // sidecar now does store waits after early 'started'
+    let start_wait = Duration::from_secs(180);  // sidecar does long store waits before sending 'started'
     let start_deadline = std::time::Instant::now() + start_wait;
 
     while std::time::Instant::now() < start_deadline {
@@ -120,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Wait for some peers before querying historical (Store needs connected peers)
     info!("Waiting for peers before issuing historical Store query (Store protocol needs mesh peers)...");
-    let wait_for_peers = Duration::from_secs(30);
+    let wait_for_peers = Duration::from_secs(180);
     let peer_wait_start = std::time::Instant::now();
     let mut peers_ready = false;
     let mut last_mesh = 0u32;
@@ -157,9 +157,9 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if peers_ready {
-        info!("Peers ready (mesh ~{}), now querying historical fee messages (last 5 minutes)...", last_mesh);
+        info!("Peers ready (mesh ~{}), now querying historical fee messages (5m window)...", last_mesh);
     } else {
-        info!("No strong peer count after {}s (last mesh={}), will still try historical query (5min window) + rely on live.", 
+        info!("No strong peer count after {}s (last mesh={}), will still try historical query (5m window with multi-peer logic) + rely on live.", 
               wait_for_peers.as_secs(), last_mesh);
     }
 
@@ -168,11 +168,11 @@ async fn main() -> anyhow::Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    let six_hours_ago = now_ms.saturating_sub(1000 * 60 * 60 * 6); // default last 6 hours
+    let ago = now_ms.saturating_sub(1000 * 60 * 5); // 5 min default (fees republish often)
 
     let hist_id = client.query_historical(
         vec![fees_topic.clone()],
-        Some(six_hours_ago),
+        Some(ago),
         Some(now_ms),
     ).await?;
     info!("Historical query command sent (id={})", hist_id);
@@ -271,8 +271,8 @@ async fn main() -> anyhow::Result<()> {
                 // Periodically retry historical query if we have peers but very few messages
                 // (fee announcements are not frequent; Store can surface older ones)
                 if message_count < 3 && last_historical_query.elapsed() > Duration::from_secs(30) {
-                    info!("Few messages so far — re-issuing historical query (last 6h) to catch fee announcements...");
-                    let hist_start = (std::time::SystemTime::now() - std::time::Duration::from_secs(6 * 3600))
+                    info!("Few messages so far — re-issuing historical query (last 5m) to catch fee announcements...");
+                    let hist_start = (std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 5))
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap()
                         .as_millis() as u64;
