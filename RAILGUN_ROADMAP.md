@@ -709,3 +709,82 @@ All the other peer discovery improvements remain active:
 - Patient waits in the Rust test example
 
 This should restore connectivity while keeping the new robustness.
+
+### 2026-06-27 Test Results — Multi-peer logic success
+
+New run:
+- Sidecar starts cleanly.
+- Reached mesh 6-8.
+- Historical query with multi-peer logic succeeded: tried several peers, eventually pulled **648 messages** from one good peer.
+- Rust side parsed many real `BroadcasterFeeMessageData` entries with correct versions and token counts.
+- User confirmed: even when switched to 5-minute window, historical still works reliably.
+
+Live messages: still zero during the run (no filter-delivered fee updates observed).
+
+Conclusion in log: "Your multipeer retry logic for the historical query seems to work perfect."
+
+This is a solid foundation for fee reception via Store.
+
+## Phase 1B: Rust Waku Broadcaster Client Foundation (started 2026-06-27)
+
+**Decision (from user)**: Proceed with full implementation of the Rust-side broadcaster client logic (fee cache + selection) using reliable historical Store queries as the data source. Perfecting live Filter behavior can wait until the client is more feature-complete.
+
+**Milestone achieved**:
+- Historical queries now consistently deliver real fee messages (even 5-minute windows work after multi-peer logic + `ensureStrongConnectivity`).
+- 648+ messages received in one run; Rust parsing of `BroadcasterFeeMessageData` validated.
+- Sidecar + IPC layer is stable for this purpose.
+
+**Current focus**:
+- Port / implement `BroadcasterFeeCache` (from TS `broadcaster-fee-cache.ts`).
+- Implement `findBestBroadcaster`, `findBroadcastersForToken`, selection logic (from `best-broadcaster.ts`).
+- Process incoming historical (and future live) messages into the cache.
+- Clean up the test example: default to 5min windows + summary output.
+- Basic version/expiration/POI filtering.
+
+**Next after cache + selection**:
+- Transact encryption / response handling.
+- Integration points back into `zeus-railgun`.
+- Live message improvements (as a later polish).
+
+Update todos and this file after each sub-milestone.
+
+### 2026-06-27 — Started Rust Fee Cache + Selection (Option A)
+
+Following user decision: proceed with full Rust broadcaster client implementation using reliable historical queries.
+
+**Implemented**:
+- `BroadcasterFeeCache` (basic port of TS logic): `add_token_fees`, `fees_for_token`, expiration check, last received tracking.
+- `SelectedBroadcaster`, `find_best_broadcaster`, `find_broadcasters_for_token` in `fees/best_broadcaster.rs`.
+- Updated `waku_sidecar_test.rs` example to:
+  - Default to 5-minute windows (already working).
+  - Feed parsed fee messages into the cache.
+  - Print only first ~8 detailed fees + periodic/best summaries.
+  - Final summary showing best broadcaster for common tokens (USDC, WETH).
+
+Everything compiles cleanly (`cargo check -p zeus-waku-broadcaster --example waku_sidecar_test`).
+
+Next immediate steps:
+- Improve cache (add more filters from TS: version range, POI, reliability).
+- Expose a higher-level API on `WakuBroadcasterClient`.
+- Start thinking about transact flow once selection is solid.
+
+Live Filter improvements deferred until client foundation is more complete.
+
+### 2026-06-27 — Wrapped Phase 1B Client Foundation (per user request)
+
+**Completed in this session**:
+- Hardened `BroadcasterFeeCache` + introduced `BroadcasterClient` that owns the cache.
+- Version range filtering (`set_version_range`)
+- Basic POI list filtering (`set_poi_active_list_keys`)
+- `BroadcasterClient::add_fee_message()` applies filters before caching.
+- Nice API:
+  - `get_best_fee_quote(token_address) -> Option<SelectedBroadcaster>`
+  - `get_all_fee_quotes(token_address) -> Vec<SelectedBroadcaster>`
+  - `fee_cache()`, `last_received_at()`, `clear_cache()`
+- Added common token constants (`tokens::USDC_ETHEREUM`, `WETH_ETHEREUM`, etc.)
+- Updated example to use the new client, 5-min windows, and clean summaries.
+- Everything compiles cleanly.
+
+Next after this: when ready, we can move to transact encryption (BroadcasterTransaction) using a selected broadcaster from the client.
+
+Live Waku messages remain a later polish (Option A).
