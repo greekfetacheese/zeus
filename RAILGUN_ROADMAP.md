@@ -430,3 +430,244 @@ This marks the end of the pure networking bootstrap phase. We are now doing real
 
 **Updated task priority**: `railgun-fee-quotes` is now the active implementation task.
 
+
+---
+
+## 2026-06-26 Update — Focus on Reliable Fee Reception (Option A)
+
+Decision: Before building higher-level transact / selection logic, make sure we can actually **receive real fee messages** reliably.
+
+Actions taken:
+- Added `handleQueryHistorical` + `query_historical` command to the sidecar.
+- Sidecar now supports `waku.store.queryGenerator` with time range (defaults to last 4h).
+- Rust client exposes `client.query_historical(...)`.
+- Example now automatically issues a historical query right after subscribing to the fees topic.
+- Messages from historical queries are delivered the same way as live ones (with `source: "historical"`).
+- Fee parsing (SignedBroadcasterFeeMessage + BroadcasterFeeMessageData) is already wired in the example.
+
+Next test run should pull historical fee announcements even if no live ones are published during the session.
+
+This is the current active focus for Phase 1.
+
+
+### 2026-06-26 Follow-up Run
+- Networking improved: bootstrap dials now succeed, reached 8 mesh peers quickly.
+- Historical query was issued too early (right after subscribe) → "No peers available to query".
+- **Fixes applied**:
+  - JS sidecar: `handleQueryHistorical` now retries up to 3 times (with 8-12s delays) when Store reports no peers.
+  - Example: Added explicit "wait for peers" phase (up to 90s, breaks early on mesh>=3 or any message).
+  - After waiting, issues historical query.
+  - Added periodic re-query of historical every ~3 minutes while message_count < 3 (to catch infrequent fee announcements via Store).
+- This directly addresses the "wait a bit before querying" observation.
+- Still no fee messages in this run (query failed early due to timing), but foundation for reliable reception is now stronger.
+- Next run should have much better chance of seeing historical + live fee data.
+
+
+### 2026-06-26 Latest Run Analysis + Fixes
+**Run summary**:
+- Bootstrap dials now succeed reliably.
+- Reaches 9 mesh/pubsub peers very quickly.
+- Wait for peers in example triggered correctly (mesh~4 then sustained).
+- Historical query still returns "No peers available to query" on all 3 attempts.
+- Even with 9 peers and retries, Store protocol finds 0 usable peers.
+- No live fee messages observed.
+
+**Root cause identified**:
+Mesh/pubsub peers (for gossip/filter/lightpush) ≠ Store peers.
+The @waku store peerManager is not finding any peers advertising the Store protocol for the Railgun shard/content topic.
+
+**Changes applied**:
+- Sidecar `handleStart`: Added dedicated long wait (up to 3 minutes) specifically for `['store']` protocol after general connectivity.
+- `handleQueryHistorical`: Before every attempt, explicitly calls `waitForRemotePeer(waku, ['store'], 20000)`.
+- Example: Increased patient peer wait to 180s + requires sustained mesh >=5 for 20s before first historical query (to give discovery time).
+- Periodic historical re-query logic remains.
+
+These changes make the client much more patient with Store discovery.
+
+**Next run expectation**:
+The "started" message may take longer (because of the 3min store wait).
+After that, the example will wait up to 3min for good mesh.
+Then historical query should have better chance because sidecar waited for store peers.
+
+If it still fails with "no peers available", we will need to:
+- Explicitly configure/hardcode known store peers (Railgun has `storePeers` in config).
+- Or find which specific peers in the fleet provide Store for fees.
+- Or accept that historical Store is unreliable for fees and focus on live + other mechanisms.
+
+
+### 2026-06-26 - Pinpointing Store Peer Issue (3 action points executed)
+
+User confirmed even with long waits + retries: still 0 store peers.
+
+Implemented the 3 points:
+
+1. **Hardcode + force known store peers**
+   - Using the same 3 Railgun relays as store candidates (matching what TS client does with `storePeers`).
+   - In every historical query attempt: ask peerManager for store peers.
+   - If any, **force** `peerId` in `queryGenerator(options)` (bypasses peerManager selection).
+   - Fallback: force one of the general connected peers (diagnostic).
+
+2. **Better diagnostics**
+   - New helpers: `getStorePeers()` using `waku.store.peerManager.getPeers({ protocol: Protocols.Store })`
+   - `getConnectedPeerIds()`
+   - Status now includes `storePeers: N`
+   - Logs:
+     - "Store peers after dedicated wait: X"
+     - "(attempt N) Current store peers from peerManager: Y"
+     - "After waitForRemotePeer store: Z"
+     - When forcing a peerId (from store or fallback connected)
+   - Subscribed to `store:connect` events (logs "🟢 Store peer connected event received")
+   - Example now prints `store=N` in every status line.
+
+3. **Explicit store-oriented dialing / ingress**
+   - Already dialing the 3 known peers at start (waku.dial).
+   - Added dedicated 3-minute `waitForRemotePeer(waku, ['store'], ...)` during start.
+   - Re-wait for store before each query attempt.
+   - Forcing the peerId directly in queries (the main new lever).
+
+These changes should give us much clearer signal on whether:
+- peerManager ever sees store peers (even 1)
+- Forcing a peerId bypasses the "no peers" error
+- Store connect events ever fire
+- The forced peers actually support the protocol or return data/errors
+
+Next run will be very informative for root cause.
+
+
+### 2026-06-26 Analysis of Diagnostic Run (after implementing the 3 pinpoint actions)
+
+**Run results (with initial diagnostic code):**
+- 3 known relays dialed successfully.
+- Reached 8 mesh peers.
+- storePeers reported by peerManager: **always 0** (even after long dedicated waits).
+- No `store:connect` events ever fired.
+- "Error getting store peers: Protocols is not defined" (our diagnostic bug).
+- When forcing a connected peerId into query: new error "Both pubsubTopic and contentTopics must be set together for content-filtered queries" (instead of the previous "No peers available").
+- 0 historical messages, 0 live fee messages.
+
+**What the 3 actions revealed:**
+1. Hardcoding/Forcing: The peerManager never surfaces any Store peers. Forcing a general peer changes the error mode (good sign that the "no peers" was the selection layer).
+2. Diagnostics: peerManager.getPeers({protocol: 'store'}) == 0. storePeers in status = 0. Connected peers exist but none are Store-capable for this topic.
+3. Explicit dialing: The 3 relays we dial do not provide Store (or are not selected by the peer manager for Store on cluster 5/shard 1).
+
+**Immediate code fixes applied after this run:**
+- Fixed Protocols require for CommonJS (`wakuInterfaces.Protocols`).
+- Added `pubsubTopic` + `contentTopics` to queryOpts when forcing peerId (to satisfy validation).
+- Much better logging: now prints actual peer IDs for both connected and store attempts.
+- Status now reliably shows store count.
+
+**Current working hypothesis:**
+The Railgun Waku fleet's "relay-a / relay-b / client-edge" nodes (as currently dialed over wss) do not expose the Store protocol to light nodes for the fees topic, or the @waku/sdk peerManager for Store is not discovering them properly with our current config.
+
+The official TS client likely has extra `storePeers` configuration or uses different ingress nodes / TCP for Store.
+
+Next step: Re-run with the fixes above. If we still see 0 store peers + actual peer IDs logged, we will:
+- Try the TCP variants (port 30304) that appear in some Railgun tests.
+- Add explicit `additionalDirectPeers` or manual store peer injection if the API allows.
+- Consider falling back to pure live Filter + accepting that historical Store for fees may not be reliable in this setup.
+
+
+### 2026-06-26 Latest Run + Config Alignment Fixes
+
+**Run observations**:
+- 6 bootstrap peers listed (3 WSS + 3 TCP).
+- WSS dials succeed, TCP fail (expected).
+- "waitForPeers(store) completed" logged.
+- But `getPeers({protocol: 'store'})` still 0.
+- No store:connect event this time (user noted "worse").
+- "Protocols is not defined" still in logs (import issue).
+- 0 historical, 0 live fee messages.
+- Peer count stable at 7-8.
+
+**Root causes identified from log + TS code review**:
+1. The `store: { peers: [...] }` option was **not present** in the createLightNode call during this run (critical mismatch with official client).
+2. Protocols import was broken (ESM + require mix).
+3. peerManager.getPeers for Store returns 0 even when waitForPeers succeeds. This is common if the peers don't advertise the Store protocol or the peerManager hasn't negotiated it.
+4. The 3 relays we use may primarily be Filter/LightPush ingress; Store may require different peers or explicit connection establishment.
+
+**Fixes applied in this iteration**:
+- Switched to proper ESM import for `@waku/interfaces` (Protocols now defined).
+- Added `store: { peers: bootstrapPeers }` to createLightNode (matches exactly what the official Railgun waku-broadcaster-client does in peer-discovery-core-base.ts).
+- Updated startup log to confirm store config.
+- Made getStorePeers error logging less noisy.
+- TCP variants kept for experimentation but expected to fail on WSS nodes.
+
+**Next run expectations**:
+- "Store configured with explicit peers for historical queries"
+- No more "Protocols is not defined"
+- Better chance that peerManager will report store peers > 0 after the waits.
+- If still 0, we will add manual `waku.dial()` for store + try query with forced peerId and capture the actual query result/error (instead of just "no peers").
+
+
+### 2026-06-27 Breakthrough — Historical Store Queries Now Working
+
+**Major milestone achieved:**
+- First real Railgun fee messages received via Store!
+- 6+ parsed `BroadcasterFeeMessageData` entries (version 8.2.3, different broadcasters, token fees 4–5).
+- Explicit `store: { peers: [...] }` + matching `waitForPeers([filter, lightpush, store])` was the key (aligned with official TS client).
+- Queries succeed even when `peerManager.getPeers({protocol: 'store'})` returns 0 (we force a connected peerId and it works).
+
+**Remaining small issues addressed in this session:**
+- Default historical window reduced from 6h → 5 minutes (prevents huge dumps).
+- Added hard cap (50 messages per query attempt) + only retry on 0 messages.
+- Rust example now prints only first 8 detailed messages + periodic summaries.
+- Added graceful shutdown (SIGINT/SIGTERM + EPIPE handling) so Ctrl+C no longer crashes the sidecar.
+- Better logging around "Store configured with explicit peers".
+
+**PeerManager observation (still open):**
+- `getPeers({ protocol: 'store' })` consistently returns 0 even after successful queries and `waitForPeers`.
+- Possible reasons:
+  - The `store: { peers }` option at creation time makes the Store subsystem use the peers directly without populating the peerManager's "known store peers" list.
+  - Many nodes on the Railgun fleet may not fully advertise the Store protocol in the way the peerManager API expects.
+  - Forcing a peerId from the connected list bypasses this and works.
+
+  We can treat "peerManager store count" as a secondary diagnostic only. The important thing (successful queries + real fee data) now works.
+
+**Next immediate actions (per user):**
+- Rerun the cleaned test.
+- Once stable, move on to proper Rust-side fee handling (cache, signature verification, findBestBroadcaster, etc.).
+- Keep the sidecar lean.
+
+
+### 2026-06-27 Regression + Fix (Timing of 'started')
+
+**Problem in this run**:
+- Sidecar was doing long store waits *before* sending the 'started' event.
+- Rust timed out after 60s waiting for 'started', then issued query too early.
+- The running binary still had the old 6h window code.
+- Result: 0 messages.
+
+**Fixes applied**:
+- Sidecar now emits 'started' + starts peer reporter **immediately** after `waku.start()` + explicit dials.
+- Long `waitForPeers` + store waits now happen *after* 'started' is sent (non-blocking for the client).
+- Rust example:
+  - Increased 'started' timeout to 180s.
+  - Always sends explicit last-5-minute window for the initial historical query.
+  - All log strings updated from "last 6h" to "last 5 minutes".
+- This should make the first query happen at the right time again while keeping the reliable Store config.
+
+**Recommendation for next run**:
+- `cargo run -p zeus-waku-broadcaster --example waku_sidecar_test`
+- You should see 'started' much faster now.
+- First historical query will request only the last 5 minutes.
+
+
+### 2026-06-27 Revert to Working Historical Query Timing
+
+User requested revert to the exact timing/behavior where historical Store queries were successfully delivering real fee messages (the run with 6+ parsed BroadcasterFeeMessageData).
+
+Reverted changes:
+- Sidecar now performs the store waits (waitForPeers + dedicated store wait) **before** emitting the 'started' event.
+  - This is the timing from the successful run.
+- Shortened max waits (90s per phase instead of 120-240s) to reduce the "I have to wait forever" feeling.
+- Rust example:
+  - Keeps patient wait for 'started' (up to 180s).
+  - Uses explicit last-5-minute window for the first historical query.
+  - 30s peer wait after subscribe (reasonable now that 'started' implies store readiness).
+- Kept all the good cleanups from before: 5min default, message caps, graceful shutdown, EPIPE handling, better logging.
+
+The goal is to get back to the state where we saw:
+  ✅ Fee from historical | railgun=0zk... | version=8.2.3 | tokens=X
+
+Once we confirm it works again, we can polish further (e.g. send a separate "store_ready" event, or make waits non-blocking but with better signaling).
+

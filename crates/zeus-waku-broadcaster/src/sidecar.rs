@@ -34,6 +34,10 @@ pub enum SidecarCommand {
     GetStatus {
         id: u64,
     },
+    QueryHistorical {
+        id: u64,
+        params: QueryHistoricalParams,
+    },
     Stop {
         id: u64,
     },
@@ -68,6 +72,19 @@ pub struct PublishParams {
     #[serde(rename = "pubsubTopic")]
     pub pubsub_topic: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+pub struct QueryHistoricalParams {
+    #[serde(rename = "contentTopics")]
+    pub content_topics: Vec<String>,
+    #[serde(rename = "timeStartMs", skip_serializing_if = "Option::is_none")]
+    pub time_start_ms: Option<u64>,
+    #[serde(rename = "timeEndMs", skip_serializing_if = "Option::is_none")]
+    pub time_end_ms: Option<u64>,
+    #[serde(rename = "pageSize", skip_serializing_if = "Option::is_none")]
+    pub page_size: Option<u32>,
+}
+
 
 /// Simple chain identifier (matches Railgun/TS).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +130,8 @@ pub enum SidecarMessage {
         mesh_peers: u32,
         #[serde(rename = "pubsubPeers", default)]
         pubsub_peers: u32,
+        #[serde(rename = "storePeers", default)]
+        store_peers: u32,
     },
     Message {
         #[serde(rename = "contentTopic")]
@@ -122,6 +141,8 @@ pub enum SidecarMessage {
         timestamp: u64,
         #[serde(rename = "pubsubTopic", default)]
         pubsub_topic: Option<String>,
+        #[serde(default)]
+        source: Option<String>, // "live" or "historical"
     },
     PeerUpdate {
         mesh: u32,
@@ -129,6 +150,14 @@ pub enum SidecarMessage {
     },
     Stopped {
         id: Option<u64>,
+    },
+    HistoricalQueried {
+        id: Option<u64>,
+        success: bool,
+        #[serde(default)]
+        count: Option<u32>,
+        #[serde(default)]
+        error: Option<String>,
     },
     Error {
         #[serde(default)]
@@ -272,6 +301,26 @@ impl WakuSidecarClient {
     pub async fn get_status(&mut self) -> Result<u64> {
         let id = self.next_id();
         self.send(&SidecarCommand::GetStatus { id }).await?;
+        Ok(id)
+    }
+
+    pub async fn query_historical(
+        &mut self,
+        content_topics: Vec<String>,
+        time_start_ms: Option<u64>,
+        time_end_ms: Option<u64>,
+    ) -> Result<u64> {
+        let id = self.next_id();
+        let cmd = SidecarCommand::QueryHistorical {
+            id,
+            params: QueryHistoricalParams {
+                content_topics,
+                time_start_ms,
+                time_end_ms,
+                page_size: Some(100),
+            },
+        };
+        self.send(&cmd).await?;
         Ok(id)
     }
 
