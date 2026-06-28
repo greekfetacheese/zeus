@@ -32,10 +32,6 @@ const RAILGUN_KNOWN_PEERS = [
   "/dns4/relay-a.rootedinprivacy.com/tcp/8000/wss/p2p/16Uiu2HAmFbD2ZvAFi2j9jjDo6g4HFbQAhfjDfnTTrbyRGQRmtG7x",
   "/dns4/relay-b.rootedinprivacy.com/tcp/8000/wss/p2p/16Uiu2HAmPtEAoPPok7VLrpNNC6t92ZQFqLndHvkdx6Fk3CxA4MaG",
   "/dns4/client-edge.rootedinprivacy.com/tcp/8000/wss/p2p/16Uiu2HAmQdCGG5qREQCq96kucmpUVupmvLwrTRjMazPAaMTNP97A",
-  // TCP variants (often better for Store on node)
-  "/dns4/relay-a.rootedinprivacy.com/tcp/30304/p2p/16Uiu2HAmFbD2ZvAFi2j9jjDo6g4HFbQAhfjDfnTTrbyRGQRmtG7x",
-  "/dns4/relay-b.rootedinprivacy.com/tcp/30304/p2p/16Uiu2HAmPtEAoPPok7VLrpNNC6t92ZQFqLndHvkdx6Fk3CxA4MaG",
-  "/dns4/client-edge.rootedinprivacy.com/tcp/30304/p2p/16Uiu2HAmQdCGG5qREQCq96kucmpUVupmvLwrTRjMazPAaMTNP97A",
 ];
 
 // Simple line-based JSON protocol
@@ -154,6 +150,14 @@ async function handleStart(params) {
       store: {
         peers: bootstrapPeers,
       },
+      discovery: {
+        peerExchange: true,
+        dns: true,
+        peerCache: true,
+      },
+      connectionManager: {
+        maxConnections: 30,
+      },
     });
 
     await waku.start();
@@ -162,15 +166,23 @@ async function handleStart(params) {
     log('Store configured with explicit peers for historical queries (matching official Railgun client)');
 
     // Dial the known Railgun relays explicitly using the high-level Waku dial (helps bootstrap)
+    // Non-blocking with short timeout so one slow dial doesn't delay start for minutes.
+    const dialTimeout = (peer, ms = 5000) => Promise.race([
+      waku.dial(peer).then(() => ({ok: true, peer})).catch(e => ({ok: false, peer, err: e.message})),
+      new Promise(res => setTimeout(() => res({ok: false, peer, err: 'timeout'}), ms))
+    ]);
+
     for (const peer of bootstrapPeers) {
-      try {
-        // Use waku.dial (string multiaddr works)
-        await waku.dial(peer);
-        log('Successfully dialed bootstrap peer via waku.dial', peer);
-      } catch (e) {
-        log('Dial bootstrap peer failed (this is often normal):', peer, e.message);
-      }
+      dialTimeout(peer, 5000).then(result => {
+        if (result.ok) {
+          log('Successfully dialed bootstrap peer via waku.dial', result.peer);
+        } else {
+          log('Dial bootstrap peer failed or timed out (this is often normal):', result.peer, result.err);
+        }
+      }).catch(() => {});
     }
+    // Give a short collective grace for some dials to succeed in background
+    await new Promise(r => setTimeout(r, 2000));
 
     // Listen for store connect events for diagnostics
     try {
@@ -301,7 +313,8 @@ async function handleSubscribe(params) {
     try {
       const decoder = createDecoder(contentTopic, DEFAULT_PUBSUB_TOPIC);
 
-      const subscription = await waku.filter.subscribe([decoder], (message) => {
+      // Use single decoder + callback to exactly match official @railgun-community waku client
+      const subscription = await waku.filter.subscribe(decoder, (message) => {
         try {
           const payload = message.payload ? Buffer.from(message.payload).toString('base64') : '';
           const preview = payload.length > 100 ? payload.substring(0, 100) + '...' : payload;
@@ -312,6 +325,7 @@ async function handleSubscribe(params) {
             payload,
             timestamp: message.timestamp ? message.timestamp.getTime() : Date.now(),
             pubsubTopic: DEFAULT_PUBSUB_TOPIC,
+            source: 'live',
           });
         } catch (e) {
           log('Error processing incoming message', e);
@@ -319,7 +333,29 @@ async function handleSubscribe(params) {
       });
 
       currentSubscriptions.set(contentTopic, { decoder, subscription });
-      log('Subscribed to', contentTopic);
+      log('Subscribed to', contentTopic, 'via filter');
+
+      // Also subscribe via relay if available (some light nodes need this for live pubsub delivery)
+      try {
+        const encoder = createEncoder({ contentTopic, pubsubTopic: DEFAULT_PUBSUB_TOPIC });
+        if (waku.relay && typeof waku.relay.subscribe === 'function') {
+          await waku.relay.subscribe(encoder);
+          log('Also subscribed via relay for live messages:', contentTopic);
+        }
+      } catch (e) {
+        log('Relay subscribe optional/not available:', e.message);
+      }
+
+      // Ensure filter is ready + log filter peers
+      await waitForRemotePeer(waku, ['filter'], 8000).catch(() => {
+        log('waitForRemotePeer(filter) after subscribe timed out (may still work)');
+      });
+
+      try {
+        const filterPeers = waku.filter?.peerManager ? await waku.filter.peerManager.getPeers?.() : [];
+        log('Filter peers after subscribe:', filterPeers?.length || 0, filterPeers);
+      } catch (_) {}
+
       successCount++;
     } catch (err) {
       log('Subscribe failed for', contentTopic, err.message);
@@ -372,17 +408,18 @@ async function handleQueryHistorical(params) {
 
   try {
     const now = Date.now();
-    const defaultLookbackMs = 1000 * 60 * 5; // 5 min default (fees republish often)
+    const defaultLookbackMs = 1000 * 60 * 1; // 1 min default (fees republish often)
     const startTime = timeStartMs ? new Date(timeStartMs) : new Date(now - defaultLookbackMs);
     const endTime = timeEndMs ? new Date(timeEndMs) : new Date(now);
 
     log(`Querying historical on ${contentTopics.length} topics, range: ${startTime.toISOString()} -> ${endTime.toISOString()}`);
 
-    // === NEW: aggressively ensure we have good connectivity before querying ===
+    // ensure we have good connectivity before querying ===
+    // Always proceed (even on low peers) using multi-peer fallback; avoid long blocking waits that can accumulate
     const connCount = await ensureStrongConnectivity();
-    if (connCount < 4) {
-      log('Low connectivity before query, waiting a bit more...');
-      await new Promise(r => setTimeout(r, 8000));
+    if (connCount < 1) {
+      log('Low connectivity before query (' + connCount + '), proceeding anyway with multi-peer Store fallback (no long wait to avoid accumulation)');
+      await new Promise(r => setTimeout(r, 1500));  // short grace only
     }
 
     // Collect candidate peers (prefer good ones we have seen work before)

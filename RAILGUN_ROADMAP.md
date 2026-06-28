@@ -1012,3 +1012,113 @@ Peer connectivity was the real blocker; the above should help significantly.
 
 Next after polish: zeus-railgun engine (address already good, now shield/unshield, proofs, nullifiers, actual to/data for transact).
 
+
+## 2026-06-28 — Live subscription fix + further client polish (after user's run log)
+
+User uploaded run log + notes after running the example (post some of their refactoring: only WSS peers, 1min lookback in historical + example, clear_expired_fees() in fee_cache + exposed on client).
+
+**Run observations (from log):**
+- With WSS-only + peer cache + aggressive dials: mesh reached 2 very quickly (within the wait_for_peers), then 3.
+- Historical query (1min window) immediately delivered 8+ recent fee messages.
+- Best broadcaster selection + summaries work.
+- clear_expired_fees works (removed 4 later).
+- "started" confirmation took >60s (long waits in sidecar).
+- **Critical: zero live fee messages arrived** over the ~45min run (only historical at start). "we never receive a fee message from the live subscription, this was actually never worked"
+- Peer discovery: "usually take 2-5 mins to grow to 3-4 mesh connections but it can take longer sometimes."
+- Second issue noted: the 8s wait in handleQueryHistorical when low conn can accumulate promises if repeated.
+
+**Fixes applied:**
+1. Sidecar subscribe now uses **exact official signature**: `waku.filter.subscribe(decoder, callback)` (single, not array) + added `source: 'live'` in event.
+2. Added **relay.subscribe(encoder)** attempt after filter (in addition to filter) + post-subscribe `waitForRemotePeer(waku, ['filter'])`.
+3. Shortened low-connectivity grace in handleQueryHistorical to 1.5s + always-proceed language + clear log ("proceeding anyway with multi-peer... no long wait to avoid accumulation").
+4. Example: default source to "live" when absent (so live messages are treated as such).
+5. All cargo check clean.
+
+**What to expect on re-run:**
+- Sidecar will log "Subscribed to ... via filter" + "Also subscribed via relay..." + waitFor filter.
+- When live fees arrive: "📨 WAKU MESSAGE on /railgun/v2/0-1-fees/json ..." (in sidecar stderr) and Rust will show source=live (or default live) + fee parse.
+- Historical still works as before.
+- With 3 connections to relays + filter+relay sub, live pubsub pushes should start (broadcasters republish fees ~1min).
+
+**Client status before engine:**
+- Networking: much improved (usable mesh faster).
+- Live receive: now should work (was the missing piece).
+- Transact layer: structure complete with real crypto.
+- Recommendation: re-run the example (let it run 10-20min), confirm live fees arrive after initial historical. Then do a dummy `client.transact(...)` using a cached broadcaster (even if it times out waiting for real response, the publish + buffer path will be exercised).
+- Once that succeeds, client "works as expected". Then move to zeus-railgun engine (shield/unshield, nullifiers, commitments, real tx construction).
+
+Railway wallet uses the exact same pattern (WakuBroadcasterClient → setObserversForChain using filter.subscribe on fee + response topics + pollHistorical). Our sidecar mirrors it.
+
+Peer connectivity remains somewhat variable on cold starts (normal for Waku + specific Railgun relays), but we have the best practices from the TS client + cache + explicit dials.
+
+
+## 2026-06-28 — Live subscription fix + further client polish (after user's run log)
+
+User uploaded run log + notes after running the example (post some of their refactoring: only WSS peers, 1min lookback in historical + example, clear_expired_fees() in fee_cache + exposed on client).
+
+**Run observations (from log):**
+- With WSS-only + peer cache + aggressive dials: mesh reached 2 very quickly (within the wait_for_peers), then 3.
+- Historical query (1min window) immediately delivered 8+ recent fee messages.
+- Best broadcaster selection + summaries work.
+- clear_expired_fees works (removed 4 later).
+- "started" confirmation took >60s (long waits in sidecar).
+- **Critical: zero live fee messages arrived** over the ~45min run (only historical at start). "we never receive a fee message from the live subscription, this was actually never worked"
+- Peer discovery: "usually take 2-5 mins to grow to 3-4 mesh connections but it can take longer sometimes."
+- Second issue noted: the 8s wait in handleQueryHistorical when low conn can accumulate promises if repeated.
+
+**Fixes applied:**
+1. Sidecar subscribe now uses **exact official signature**: `waku.filter.subscribe(decoder, callback)` (single, not array) + added `source: 'live'` in event.
+2. Added **relay.subscribe(encoder)** attempt after filter (in addition to filter) + post-subscribe `waitForRemotePeer(waku, ['filter'])`.
+3. Shortened low-connectivity grace in handleQueryHistorical to 1.5s + always-proceed language + clear log ("proceeding anyway with multi-peer... no long wait to avoid accumulation").
+4. Example: default source to "live" when absent (so live messages are treated as such).
+5. All cargo check clean.
+
+**What to expect on re-run:**
+- Sidecar will log "Subscribed to ... via filter" + "Also subscribed via relay..." + waitFor filter.
+- When live fees arrive: "📨 WAKU MESSAGE on /railgun/v2/0-1-fees/json ..." (in sidecar stderr) and Rust will show source=live (or default live) + fee parse.
+- Historical still works as before.
+- With 3 connections to relays + filter+relay sub, live pubsub pushes should start (broadcasters republish fees ~1min).
+
+**Client status before engine:**
+- Networking: much improved (usable mesh faster).
+- Live receive: now should work (was the missing piece).
+- Transact layer: structure complete with real crypto.
+- Recommendation: re-run the example (let it run 10-20min), confirm live fees arrive after initial historical. Then do a dummy `client.transact(...)` using a cached broadcaster (even if it times out waiting for real response, the publish + buffer path will be exercised).
+- Once that succeeds, client "works as expected". Then move to zeus-railgun engine (shield/unshield, nullifiers, commitments, real tx construction).
+
+Railway wallet uses the exact same pattern (WakuBroadcasterClient → setObserversForChain using filter.subscribe on fee + response topics + pollHistorical). Our sidecar mirrors it.
+
+Peer connectivity remains somewhat variable on cold starts (normal for Waku + specific Railgun relays), but we have the best practices from the TS client + cache + explicit dials.
+
+
+## 2026-06-28 — Discovery options, non-blocking dials, redundant query guard (user feedback)
+
+User run after previous live-sub fixes:
+- Good: mesh=3 quickly, historical delivered many messages fast.
+- Still: live messages never arrived.
+- Problems called out:
+  1. handleQueryHistorical still doing redundant calls (two "Historical query complete" with 48 + 45 msgs from same peer shortly after start).
+  2. In handleStart, sequential await waku.dial(peer) for bootstrap can block minutes.
+  3. Not passing the top-level `discovery?: Partial<DiscoveryOptions>` (dns/peerExchange/peerCache). Only using libp2p.peerDiscovery array. The types default is { peerExchange: true, dns: true, peerCache: true }. Official Railgun client uses the libp2p array approach too, but user is right that being explicit may help activation of DNS discovery.
+
+Fixes applied:
+- createLightNode now explicitly passes:
+  discovery: { peerExchange: true, dns: true, peerCache: true }
+  (in addition to the peerDiscovery array we already had — this matches the documented default intent).
+- Bootstrap dials made non-blocking: fire-and-forget with 5s timeout per dial via Promise.race. Short 2s grace after starting the dials. Start no longer blocked by one slow dial.
+- Redundant historical:
+  - Sidecar handleQueryHistorical: added simple 30s de-dupe guard keyed on topics+time window. Skips near-duplicate requests.
+  - Example: periodic re-query now only triggers on zero messages after 5min (very rare fallback). Only one initial query after subscribe.
+- Subscribe improvements: more filter peer logging after subscribe + targeted waits. Helps diagnose why live isn't arriving (e.g. if filter peers == 0).
+- Example header and comments updated with current reality and new fixes.
+
+Next run recommendations:
+- Watch for "Filter peers after subscribe: X [...]" in sidecar logs.
+- If mesh good but filter peers low, we may need to wait longer for filter or dial specific filter-capable peers.
+- With discovery explicitly enabled + faster start, DNS + PeerExchange should kick in better for more peers over time.
+- Live delivery may also benefit from the relay.subscribe we added.
+
+This gets us closer to "client works as expected". Once live fees flow reliably + we can exercise a dummy transact, move to zeus-railgun engine.
+
+Official client relies heavily on the same ENR + peerExchange + store peers pattern; our sidecar is converging on it.
+

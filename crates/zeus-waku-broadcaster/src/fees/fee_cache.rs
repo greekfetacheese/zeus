@@ -21,7 +21,7 @@ pub struct CachedTokenFee {
    pub expiration: u64,          // unix ms
    pub railgun_address: String,
    pub identifier: Option<String>,
-   pub fees_id: String,          // the feesID for transact
+   pub fees_id: String, // the feesID for transact
    pub version: String,
    pub received_at: u64, // when we stored it (ms)
 }
@@ -115,6 +115,31 @@ impl BroadcasterFeeCache {
    pub fn clear_for_chain(&mut self, chain: &crate::Chain) {
       let name = network_name_for_chain(chain);
       self.cache.remove(&name);
+   }
+
+   pub fn clear_expired_fees(&mut self, chain: &crate::Chain) -> usize {
+      let now = current_ms();
+      let name = network_name_for_chain(chain);
+      let mut fees_removed = 0;
+
+      if let Some(cached_fees) = self.cache.get_mut(&name) {
+         for (_token, token_fees) in cached_fees {
+            for (_broadcaster, broadcaster_fees) in token_fees {
+               let expired_ids: Vec<String> = broadcaster_fees
+                  .iter()
+                  .filter(|(_, fee)| fee.expiration <= now)
+                  .map(|(fee_id, _)| fee_id.clone())
+                  .collect();
+
+               fees_removed += expired_ids.len();
+               for fee_id in &expired_ids {
+                  broadcaster_fees.remove(fee_id);
+               }
+            }
+         }
+      }
+
+      fees_removed
    }
 }
 

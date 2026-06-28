@@ -1,4 +1,4 @@
-//! Simple integration example to verify the Waku sidecar runs and can receive Railgun messages.
+//! Simple integration example to verify the Waku sidecar runs and can receive Railgun messages (live + historical via Store).
 //!
 //! Run with:
 //!   cargo run -p zeus-waku-broadcaster --example waku_sidecar_test
@@ -19,8 +19,14 @@
 //!   - Uses DNS ENR tree + Peer Exchange (same as official @railgun-community client)
 //!   - Falls back to defaultBootstrap
 //!
-//! Expectation: first cold start can still take 1-5+ minutes to see mesh_peers > 0.
-//! Subsequent runs are usually faster once the peer store has data.
+//! Expectation (2026-06-28 continued fixes):
+//! - Explicit `discovery: {dns, peerExchange, peerCache}` passed + peerDiscovery in libp2p.
+//! - Bootstrap dials are now non-blocking with 5s timeout per peer (no more long blocking delays).
+//! - Redundant historical queries heavily reduced (guard in sidecar + example only does one initial + rare fallback).
+//! - Usable mesh (2-3) often fast with good peers (WSS recommended).
+//! - Historical delivers quickly.
+//! - Live still the focus: after subscribe you should see filter peers logged. If live fees appear, great. If not, next iteration may need more relay/filter tuning.
+//! - Sidecar now logs filter peer count after subscribe for diagnostics.
 
 use std::time::Duration;
 
@@ -141,10 +147,16 @@ async fn main() -> anyhow::Result<()> {
    // Use the client's helper to wait for usable mesh (improves reliability)
    info!("Waiting for usable peer mesh (using client.wait_for_peers helper)...");
    let mesh = client.wait_for_peers(&mut rx, 2, Duration::from_secs(90)).await?;
-   info!("Mesh after wait: {} (proceeding to historical query + live feed)", mesh);
+   info!(
+      "Mesh after wait: {} (proceeding to historical query + live feed)",
+      mesh
+   );
 
    if mesh < 2 {
-      info!("Low mesh ({}); historical may be slow but multi-peer fallback + live should still work. Discovery continues in background.", mesh);
+      info!(
+         "Low mesh ({}); historical may be slow but multi-peer fallback + live should still work. Discovery continues in background.",
+         mesh
+      );
    }
 
    // Always use a small recent window for fee quotes (broadcasters republish often)
@@ -152,7 +164,7 @@ async fn main() -> anyhow::Result<()> {
       .duration_since(std::time::UNIX_EPOCH)
       .unwrap()
       .as_millis() as u64;
-   let ago = now_ms.saturating_sub(1000 * 60 * 5); // 5 min default (fees republish often)
+   let ago = now_ms.saturating_sub(1000 * 60 * 1); // 1 min default (fees republish often)
 
    let hist_id = client
       .query_historical(vec![fees_topic.clone()], Some(ago), Some(now_ms))
@@ -188,9 +200,13 @@ async fn main() -> anyhow::Result<()> {
                           tracing::warn!("Subscribe failed: {:?}", error);
                       }
                   }
-                                    SidecarMessage::Message { content_topic, payload, timestamp, source, .. } => {
+                  SidecarMessage::Message { content_topic, payload, timestamp, source, .. } => {
+                  let src = source.clone().unwrap_or_else(|| "live".to_string());
                       message_count += 1;
-                      let src = source.as_deref().unwrap_or("live");
+                      // src defaulted above
+
+                      // Avoid spamming the log with historical messages
+                      if src == "live" {
                       info!(
                           "📨 MESSAGE #{} | source={} | topic={} | ts={} | len={}",
                           message_count,
@@ -199,6 +215,7 @@ async fn main() -> anyhow::Result<()> {
                           timestamp,
                           payload.len()
                       );
+                     }
 
                       // Try to parse as Railgun fee message
                       use zeus_waku_broadcaster::models::SignedBroadcasterFeeMessage;
@@ -274,11 +291,16 @@ async fn main() -> anyhow::Result<()> {
                   let _ = client.get_status().await;
               }
 
+              let fees_removed = client.clear_expired_fees();
+              if fees_removed > 0 {
+                  info!("Removed {} expired fees from cache", fees_removed);
+              }
+
               // Periodically retry historical query if we have peers but very few messages
               // (fee announcements are not frequent; Store can surface older ones)
               if message_count < 3 && last_historical_query.elapsed() > Duration::from_secs(180) {
-                  info!("Few messages so far — re-issuing historical query (last 5m) to catch fee announcements...");
-                  let hist_start = (std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 5))
+                  info!("Few messages so far — re-issuing historical query (last 1m) to catch fee announcements...");
+                  let hist_start = (std::time::SystemTime::now() - std::time::Duration::from_secs(60 * 1))
                       .duration_since(std::time::UNIX_EPOCH)
                       .unwrap()
                       .as_millis() as u64;

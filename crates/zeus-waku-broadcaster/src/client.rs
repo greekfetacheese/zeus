@@ -22,6 +22,8 @@ use crate::{
    find_broadcasters_for_token,
 };
 
+pub const HISTORICAL_LOOKBACK_MS: u64 = 1000 * 60 * 1; // 1 min
+pub const FEE_EXPIRATION_TIMEOUT_MS: u64 = 120_000; // 2 min
 
 /// Commands sent from Rust to the Node sidecar (snake_case on the wire for cmd).
 #[derive(Debug, Serialize)]
@@ -411,9 +413,14 @@ impl WakuSidecarClient {
       &self.fee_cache
    }
 
-   /// Clear the cache for this chain.
-   pub fn clear_cache(&mut self) {
+   /// Clear the fee cache for this chain.
+   pub fn clear_fee_cache(&mut self) {
       self.fee_cache.clear_for_chain(&self.chain);
+   }
+
+   /// Clear any fees from the cache that are expired.
+   pub fn clear_expired_fees(&mut self) -> usize {
+      self.fee_cache.clear_expired_fees(&self.chain)
    }
 
    /// Get last time we received any fee data (ms since epoch).
