@@ -15,10 +15,10 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
-use crate::fee_message::BroadcasterFeeMessageData;
+use crate::models::fee_message::BroadcasterFeeMessageData;
 use crate::{
-   BroadcasterFeeCache, BroadcasterVersionRange, Chain,
-   SelectedBroadcaster, find_best_broadcaster, find_broadcasters_for_token,
+   BroadcasterFeeCache, BroadcasterVersionRange, Chain, SelectedBroadcaster, find_best_broadcaster,
+   find_broadcasters_for_token,
 };
 
 /// Commands sent from Rust to the Node sidecar (snake_case on the wire for cmd).
@@ -386,6 +386,10 @@ impl WakuSidecarClient {
       }
 
       self.fee_cache.add_token_fees(&self.chain, data);
+   }
+
+   pub fn chain(&self) -> Chain {
+      self.chain
    }
 
    /// Returns the best (lowest fee) usable broadcaster for the token.

@@ -5,6 +5,57 @@
 **Timeline**: Long-term multi-month project. Track here + Hermes `todo` tool + git commits.  
 **Maintainer notes**: Update this file after every significant milestone. Use conventional commits (e.g. `feat(railgun): add waku fee cache`).
 
+
+## HANDOVER NOTES FOR NEXT AGENT (June 2026)
+
+**Current State of zeus-waku-broadcaster crate (as of this review):**
+
+- The fee cache and broadcaster selection logic have been **integrated directly into `WakuSidecarClient`** (in `src/client.rs`).
+  - `WakuSidecarClient::new(chain)` owns `BroadcasterFeeCache`, `version_range`, `poi_active_list_keys`.
+  - Methods: `add_fee_message(&data)` (applies version + POI + expiration filters then calls cache), `get_best_fee_quote(token)`, `get_all_fee_quotes(token)`, `fee_cache()`, `last_received_at()`, `clear_cache()`, setters for version/POI.
+- Fees module: `fees/fee_cache.rs` + `fees/best_broadcaster.rs` (SelectedBroadcaster, find_* functions). Clean, no duplication.
+- Models: `models/fee_message.rs` for Signed / Data structs + parse helpers. Good port from TS.
+- Example `waku_sidecar_test.rs` correctly uses the integrated client, parses fees, calls add_fee_message, periodically shows best quotes using token constants from lib.
+- JS sidecar (js-sidecar/src/index.js) is solid: uses correct Railgun ENR + known relays, store queries, multi-peer, graceful shutdown.
+- lib.rs re-exports the useful items (Chain, tokens, cache types, selection fns, BroadcasterTransaction stub).
+- Compiles cleanly.
+- No separate BroadcasterClient struct remains (was consolidated per user cleanup).
+
+**What was cleaned / fixed in this review:**
+- Removed incorrect `use crate::fee_message::...` import (changed to `crate::models::fee_message`).
+- Updated README to accurately describe architecture and status.
+- Confirmed no obvious duplicate code for fee logic (selection lives in best_broadcaster, owned via client).
+
+**Option A decision (locked in):**
+User chose to make the full Rust client feature-complete using **historical Store queries** as the reliable source first.
+Live Filter subscription behavior can be optimized later.
+
+**Recommended next for new agent:**
+1. Run the example for 5-10 minutes on mainnet to confirm real fee data flows into cache and `get_best_fee_quote` produces useful output.
+2. Harden selection further (use `reliability` field, seen-count, version checks inside find_best).
+3. Start transact layer: pick a broadcaster from client.get_best..., implement BroadcasterTransaction create/send using ECDH + responseKey (see TS broadcaster-transaction.ts for exact format).
+4. Keep using 5-min windows + summary logs in tests.
+5. Update this roadmap + memory after each step.
+
+**Pitfalls to avoid:**
+- Do not introduce separate "BroadcasterClient" wrapper if it duplicates logic already in WakuSidecarClient.
+- Always feed parsed fee messages through `client.add_fee_message()` so filters run.
+- Keep the sidecar "dumb" — all Railgun parsing/selection/encryption in Rust.
+- Use conventional commits.
+- Test with real historical queries; don't assume live messages.
+
+**Key files for continuation:**
+- crates/zeus-waku-broadcaster/src/client.rs (the heart now)
+- crates/zeus-waku-broadcaster/src/fees/*
+- crates/zeus-waku-broadcaster/examples/waku_sidecar_test.rs
+- crates/zeus-waku-broadcaster/js-sidecar/src/index.js
+- Top level RAILGUN_ROADMAP.md + memory
+
+**Previous agent notes:** User prefers clean, non-duplicated code. Prefers summaries in long-running tests. Values roadmap tracking.
+
+---
+
+
 ## What We Said / Project Context (Summary)
 
 - Zeus is a seedless/self-custodial EVM wallet in Rust (eframe/egui GUI + alloy for blockchain).
@@ -788,3 +839,78 @@ Live Filter improvements deferred until client foundation is more complete.
 Next after this: when ready, we can move to transact encryption (BroadcasterTransaction) using a selected broadcaster from the client.
 
 Live Waku messages remain a later polish (Option A).
+
+
+## Latest Milestone (2026-06-28 review + cleanup)
+
+- Fee cache + broadcaster selection logic fully integrated into WakuSidecarClient (user cleanup).
+- Hardening (version range, POI) + nice API (`get_best_fee_quote`, `get_all_fee_quotes`) working.
+- Example updated to use integrated client + clean 5min summaries.
+- Fixed leftover import bugs.
+- Compiles, ready for transact layer.
+- Decision reaffirmed: Option A — complete client on historical before live.
+
+See active todo list for remaining Phase 1 items.
+
+## 2026-06-28 Update — Started Transact Layer (Mike request)
+
+**Goal**: Build client feature complete (transact) before perfecting live or hardening.
+
+**What was implemented**:
+- `src/models/transact.rs`: BroadcasterRawParamsTransact, BroadcastMessageData, WakuTransactResponse, etc. (ported from TS).
+- `src/encryption.rs`: generate_response_key, derive_shared_key (placeholder), aes_gcm_encrypt/decrypt, encrypt_transact_payload.
+- `src/transact.rs`: Full `BroadcasterTransaction::create` (injects responseKey, encrypts using selected broadcaster's viewing key) + `send` using client's publish/subscribe.
+- Extended `WakuSidecarClient` with `transact(...)` convenience method and `try_get_decrypted_transact_response`.
+- Extended `SelectedBroadcaster` with `fees_id` and `viewing_public_key`.
+- Updated lib.rs re-exports and models.
+- All logic stays in Rust; sidecar remains dumb pipe.
+
+**Current compile status**: Most of the layer compiles (small remaining fixes for publish signature, chain access, and one Option in fee construction).
+
+**Known limitations / TODOs for next agent or continuation**:
+- `derive_shared_key` is a placeholder (x25519 + mixing). Must be replaced with real BabyJubJub ECDH using code from zeus-railgun (ark-ed-on-bn254 or curve25519-dalek + viewing key derivation).
+- Response handling is poll-based skeleton. Need to wire sidecar to forward transact-response messages and populate a buffer in the client for proper decryption.
+- `SelectedBroadcaster` needs the real viewing key populated from fee messages or by decoding the 0zk address (add decode_address to zeus-railgun).
+- The actual `to` + `data` for a real Railgun transaction will come from the engine in zeus-railgun (nullifiers, commitments, proof, etc.).
+- Add support for the full retry + nullifier matching logic from the TS broadcast() method.
+- Update the waku_sidecar_test example to demonstrate a full (dummy) transact once the above is stable.
+- Real AES format should eventually match the exact chunked format used in Railgun's engine AES module if broadcasters are strict.
+
+**Next recommended steps**:
+1. Fix the remaining compile errors (run `cargo check`).
+2. Implement real BabyJub ECDH (reuse or port from zeus-railgun address.rs).
+3. Wire response messages from the JS sidecar into the Rust client.
+4. Test end-to-end with a real fee quote + dummy transact payload on mainnet (historical mode).
+5. Once stable, move the higher-level Railgun transaction building into zeus-railgun crate.
+
+Option A is still in effect: get the full client (fees + transact) working reliably on historical Store data first.
+
+
+## 2026-06-28 — Transact Layer Started (client feature complete focus)
+
+Per user: build the client feature complete first, then perfect flaws.
+
+**Implemented**:
+- BroadcasterTransaction::create + send (encryption with responseKey + placeholder ECDH/AES, publish to /transact topic, subscribe to response topic).
+- Convenience `client.transact(...)` on WakuSidecarClient (keeps all logic owned by the client, no duplicate wrappers).
+- SelectedBroadcaster now carries `fees_id` (from fee message) for transact.
+- CachedTokenFee updated to store fees_id.
+- Example updated with demo of the transact API (after fee summaries).
+- Encryption module with AES-GCM matching TS shape + clear TODO for real BabyJubJub ECDH.
+- All compiles cleanly after fixes.
+
+**Current limitations (to perfect later)**:
+- derive_shared_key is placeholder (x25519 mix). Need real implementation using zeus-railgun BabyJub viewing key derivation + ed-on-bn254 ECDH.
+- Response decryption in try_get is not yet wired to actual sidecar Message for transact-response topics (returns None, send will timeout).
+- Dummy to/data for now; real private tx data comes from the Railgun engine (zeus-railgun crate).
+- No full retry / nullifier matching / historical response polling yet (from TS broadcast method).
+
+**Next steps for client complete**:
+1. Wire sidecar Message for transact-response into client (add buffer or event handling).
+2. Implement real ECDH in encryption.rs using zeus-railgun primitives (decode 0zk address for viewing pubkey).
+3. Update example to actually call transact (with real or better dummy) and show publish success.
+4. Populate viewing_public_key in SelectedBroadcaster (decode railgun_address).
+5. Move higher level tx building (nullifiers etc) to zeus-railgun.
+
+This gives a clean, usable API on the client for the next layer (integrating with the Railgun engine for actual shielded txs).
+

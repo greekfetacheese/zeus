@@ -21,6 +21,7 @@ pub struct CachedTokenFee {
    pub expiration: u64,          // unix ms
    pub railgun_address: String,
    pub identifier: Option<String>,
+   pub fees_id: String,          // the feesID for transact
    pub version: String,
    pub received_at: u64, // when we stored it (ms)
 }
@@ -80,6 +81,7 @@ impl BroadcasterFeeCache {
             expiration: data.fee_expiration,
             railgun_address: data.railgun_address.clone(),
             identifier: data.identifier.clone(),
+            fees_id: data.fees_id.clone(),
             version: data.version.clone(),
             received_at: now,
          };

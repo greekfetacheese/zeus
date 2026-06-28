@@ -11,6 +11,10 @@ pub struct SelectedBroadcaster {
    pub railgun_address: String,
    pub token_fee: CachedTokenFee,
    pub token_address: String,
+   /// feesID from the fee message (required to send transact).
+   pub fees_id: String,
+   /// Viewing public key (hex) for ECDH encryption with the broadcaster.
+   pub viewing_public_key: Option<String>,
 }
 
 /// Finds the best (lowest fee) broadcaster for a given token on the chain.
@@ -39,6 +43,8 @@ pub fn find_best_broadcaster(
             railgun_address: broadcaster_addr.clone(),
             token_fee: fee.clone(),
             token_address: token_address.to_string(),
+            fees_id: fee.fees_id.clone(),
+            viewing_public_key: None, // populated later from fee message if needed
          });
       }
    }
@@ -85,6 +91,8 @@ pub fn find_broadcasters_for_token(
                railgun_address: broadcaster_addr.clone(),
                token_fee: fee.clone(),
                token_address: token_address.to_string(),
+               fees_id: fee.fees_id.clone(),
+               viewing_public_key: None,
             });
          }
       }

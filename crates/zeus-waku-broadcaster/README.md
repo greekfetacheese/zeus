@@ -18,22 +18,22 @@ Because the Rust `waku-bindings` depend on an old Nim-based FFI (`waku-sys` + zs
 - **js-sidecar/**: Small Node process using the **pure JavaScript** `@waku/sdk` from `logos-delivery-js` (no Nim, clean libp2p).
   - Responsibilities: start light node, subscribe to Railgun topics, publish, report peer counts.
 - **Rust (this crate)**: Owns **all** Railgun logic.
-  - `src/sidecar.rs`: `WakuSidecarClient` — spawns the Node process and talks to it over line-delimited JSON (stdin/stdout).
-  - Fee parsing, signature verification, encryption (sharedKey + responseKey), broadcaster selection, transact message building — all in Rust.
+  - `src/client.rs`: `WakuSidecarClient` — spawns the Node process, IPC, **and owns the fee cache + broadcaster selection logic**.
+  - Fee parsing (models), cache (fees/), selection, hardening (version range + POI filtering on ingest), transact skeleton — all in Rust.
 
 This gives us reliable Waku behavior immediately while keeping the project mostly Rust.
 
 ## Current Status
 
 - Sidecar protocol + basic JS implementation done.
-- Rust `WakuSidecarClient` implemented and compiles.
-- Topics defined (`/railgun/v2/{type}-{id}-{fees|transact|transact-response}/json`).
-- High-level skeleton for `WakuBroadcasterClient`, `BroadcasterFeeCache`, `BroadcasterTransaction`.
+- Rust `WakuSidecarClient` (in client.rs) fully owns cache + selection.
+- Fee cache + best broadcaster selection implemented and integrated into client.
+- Hardening: version range filtering + basic POI list filtering on fee ingest.
+- Example (waku_sidecar_test) feeds messages, uses 5min windows, shows summaries + get_best_fee_quote.
+- Topics, sidecar IPC, historical queries working.
+- Transact skeleton present (not implemented).
 
-Next milestones:
-- Wire the sidecar into `start()` and receive real fee messages.
-- Port fee message handling + verification from TS.
-- Implement encryption + transact flow.
+Current focus (per user): Option A — complete client features on historical Store data first. Live Filter later.
 
 ## How to use (when ready)
 
