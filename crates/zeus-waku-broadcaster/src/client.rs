@@ -22,6 +22,7 @@ use crate::{
    find_broadcasters_for_token,
 };
 
+
 /// Commands sent from Rust to the Node sidecar (snake_case on the wire for cmd).
 #[derive(Debug, Serialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -489,6 +490,49 @@ impl WakuSidecarClient {
       }
       true
    }
+
+   /// Wait until we see a peer update with at least `min_mesh` connections, or timeout.
+   /// Useful before transact or heavy queries.
+   pub async fn wait_for_peers(
+      &mut self,
+      rx: &mut tokio::sync::mpsc::UnboundedReceiver<SidecarMessage>,
+      min_mesh: u32,
+      timeout: std::time::Duration,
+   ) -> Result<u32> {
+      let deadline = std::time::Instant::now() + timeout;
+      let mut last_mesh = 0u32;
+
+      while std::time::Instant::now() < deadline {
+         // Ask sidecar for status
+         let _ = self.get_status().await;
+
+         if let Ok(Some(msg)) = tokio::time::timeout(std::time::Duration::from_millis(1500), rx.recv()).await {
+            match msg {
+               SidecarMessage::PeerUpdate { mesh, .. } => {
+                  last_mesh = mesh;
+                  if mesh >= min_mesh {
+                     return Ok(mesh);
+                  }
+               }
+               SidecarMessage::Status { mesh_peers, .. } => {
+                  last_mesh = mesh_peers;
+                  if mesh_peers >= min_mesh {
+                     return Ok(mesh_peers);
+                  }
+               }
+               SidecarMessage::Message { .. } => {
+                  if last_mesh >= 1 || min_mesh <= 1 {
+                     return Ok(last_mesh.max(1));
+                  }
+               }
+               _ => {}
+            }
+         }
+         tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+      }
+      Ok(last_mesh)
+   }
+
 }
 
 impl Default for WakuSidecarClient {
@@ -503,7 +547,9 @@ impl Drop for WakuSidecarClient {
          let _ = child.start_kill();
       }
    }
-}
+
+   }
+
 
 fn version_in_range(version: &str, range: &BroadcasterVersionRange) -> bool {
    // Very simple semver-ish comparison.

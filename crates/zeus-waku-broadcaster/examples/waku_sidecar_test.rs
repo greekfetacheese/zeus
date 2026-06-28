@@ -138,57 +138,13 @@ async fn main() -> anyhow::Result<()> {
    let sub_id = client.subscribe(vec![fees_topic.clone()]).await?;
    info!("Subscribe command sent (id={})", sub_id);
 
-   // Wait for some peers before querying historical (Store needs connected peers)
-   info!(
-      "Waiting for peers before issuing historical Store query (Store protocol needs mesh peers)..."
-   );
-   let wait_for_peers = Duration::from_secs(30);
-   let peer_wait_start = std::time::Instant::now();
-   let mut peers_ready = false;
-   let mut last_mesh = 0u32;
+   // Use the client's helper to wait for usable mesh (improves reliability)
+   info!("Waiting for usable peer mesh (using client.wait_for_peers helper)...");
+   let mesh = client.wait_for_peers(&mut rx, 2, Duration::from_secs(90)).await?;
+   info!("Mesh after wait: {} (proceeding to historical query + live feed)", mesh);
 
-   while peer_wait_start.elapsed() < wait_for_peers {
-      // Poll status and wait for peer updates
-      let _ = client.get_status().await;
-      if let Ok(Some(msg)) = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await {
-         match msg {
-            SidecarMessage::PeerUpdate { mesh, .. } => {
-               last_mesh = mesh;
-               info!("Peer update during wait: mesh={}", mesh);
-               if mesh >= 3 {
-                  peers_ready = true;
-                  break;
-               }
-            }
-            SidecarMessage::Status { mesh_peers, .. } => {
-               last_mesh = mesh_peers;
-               if mesh_peers >= 3 {
-                  peers_ready = true;
-                  break;
-               }
-            }
-            SidecarMessage::Message { .. } => {
-               // If we get any message early, great
-               peers_ready = true;
-               break;
-            }
-            _ => {}
-         }
-      }
-      tokio::time::sleep(Duration::from_secs(2)).await;
-   }
-
-   if peers_ready {
-      info!(
-         "Peers ready (mesh ~{}), now querying historical fee messages (5m window)...",
-         last_mesh
-      );
-   } else {
-      info!(
-         "No strong peer count after {}s (last mesh={}), will still try historical query (5m window with multi-peer logic) + rely on live.",
-         wait_for_peers.as_secs(),
-         last_mesh
-      );
+   if mesh < 2 {
+      info!("Low mesh ({}); historical may be slow but multi-peer fallback + live should still work. Discovery continues in background.", mesh);
    }
 
    // Always use a small recent window for fee quotes (broadcasters republish often)

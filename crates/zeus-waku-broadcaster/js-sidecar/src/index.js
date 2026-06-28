@@ -12,7 +12,7 @@
 
 import { createLightNode, createEncoder, createDecoder } from '@waku/sdk';
 import { waitForRemotePeer } from '@waku/sdk';
-import { wakuDnsDiscovery, wakuPeerExchangeDiscovery } from '@waku/discovery';
+import { wakuDnsDiscovery, wakuPeerExchangeDiscovery, wakuPeerCacheDiscovery } from '@waku/discovery';
 import * as wakuInterfaces from '@waku/interfaces';
 const Protocols = wakuInterfaces.Protocols || { Store: 'store' };
 
@@ -144,6 +144,7 @@ async function handleStart(params) {
         peerDiscovery: [
           wakuDnsDiscovery(enrTrees),
           wakuPeerExchangeDiscovery(),
+          wakuPeerCacheDiscovery(),
         ],
       },
       autoStart: false,
@@ -184,27 +185,31 @@ async function handleStart(params) {
       log('Could not subscribe to store events:', e.message);
     }
 
-    // Wait for connectivity (general)
-    await waitForRemotePeer(waku, ['lightpush', 'filter'], 30000).catch(() => {
-      log('waitForRemotePeer (filter/lightpush) timed out');
+    // Faster bootstrap: do aggressive dials + short waits, then proceed.
+    // Official client also takes time on cold start; we accelerate with known peers + cache.
+    log('Performing aggressive bootstrap dials and short connectivity waits...');
+
+    await waitForRemotePeer(waku, ['lightpush', 'filter'], 15000).catch(() => {
+      log('waitForRemotePeer (filter/lightpush) timed out (normal on cold start)');
     });
 
-    // Wait for all protocols like the official Railgun client does
-    // (Filter + LightPush + Store)
-    log('Waiting for remote peers (Filter + LightPush + Store) like official client...');
+    // Shorter protocol wait
     if (typeof waku.waitForPeers === 'function') {
       try {
-        await waku.waitForPeers(['filter', 'lightpush', 'store'], 120000);
-        log('waitForPeers([filter, lightpush, store]) completed');
+        await waku.waitForPeers(['filter', 'lightpush', 'store'], 45000);
+        log('waitForPeers completed');
       } catch (e) {
-        log('waitForPeers for full set timed out or failed:', e.message);
+        log('waitForPeers timed out (will continue with discovery):', e.message);
       }
     }
 
-    // Dedicated store wait as backup
-    await waitForRemotePeer(waku, ['store'], 120000).catch(() => {
-      log('Dedicated waitForRemotePeer(store) timed out');
+    await waitForRemotePeer(waku, ['store'], 30000).catch(() => {
+      log('Dedicated waitForRemotePeer(store) timed out (will use multi-peer queries)');
     });
+
+    // Final aggressive boost
+    const initialConnected = await ensureStrongConnectivity();
+    log('Initial connected after boost:', initialConnected);
 
     const peerId = waku.libp2p.peerId.toString();
     log('Waku light node started', peerId);
@@ -220,6 +225,12 @@ async function handleStart(params) {
 
     // Final boost before telling Rust we're ready
     await ensureStrongConnectivity();
+
+    // Send immediate peer update so Rust sees progress right away
+    try {
+      const conns = await getConnectedPeerIds();
+      sendEvent('peer_update', { mesh: conns.length, pubsub: conns.length });
+    } catch (_) {}
 
     send({ id: params.id, type: 'started', success: true, peerId });
 
@@ -265,7 +276,7 @@ async function ensureConnectedToKnownPeers() {
     } catch (e) {
       // ignore transient errors
     }
-  }, 10000);
+  }, 8000);
 }
 
 async function handleSubscribe(params) {

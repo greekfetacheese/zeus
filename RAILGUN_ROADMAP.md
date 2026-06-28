@@ -966,3 +966,49 @@ Result:
 - zeus-waku-broadcaster can now populate real viewing_public_key for ECDH in transact
 - decode_address ready for engine use too
 
+
+## 2026-06-28 — Client polish + peer connectivity improvements (pre-engine)
+
+User: "is there any feature that the client needs? " "polish the client and improve the peer connectivity and discovery" "make sure the client works as expected" "check the Railway wallet repo to see how this wallet actually uses the waku client".
+
+**Current client feature status (before engine):**
+
+- WakuSidecarClient owns:
+  - start_waku / subscribe / publish / query_historical
+  - Fee cache + selection (find_broadcasters_for_token, get_best_fee_quote, version/POI filters)
+  - Transact: BroadcasterTransaction create + send (with real BabyJub ECDH via zeus-railgun + responseKey)
+  - Response handling: transact_response_buffer + feed_message + try_get_decrypted_transact_response
+  - New: wait_for_peers(min_mesh, timeout) helper
+
+- Sidecar (js-sidecar):
+  - createLightNode with Railgun cluster/shard (5/1)
+  - ENR tree + wakuDnsDiscovery + wakuPeerExchangeDiscovery + (now) wakuPeerCacheDiscovery
+  - Hardcoded RAILGUN_KNOWN_PEERS (same as official TS constants)
+  - Explicit dials + ensureStrongConnectivity
+  - Historical Store support (multi-peer fallback)
+  - Peer reporter (peer_update events)
+  - Improved waits (shorter initial, aggressive bootstrap)
+
+**Railway wallet usage (from inspection of /home/cion/Railgun/waku-broadcaster-client and wallet):**
+- Uses WakuBroadcasterClient.start(chain, options, statusCallback)
+- Internally: WakuBroadcasterWakuCore.initWaku + setObserversForChain + pollHistoricalTopics
+- Then fee cache, best broadcaster search, and BroadcasterTransaction for privacy txs.
+- Acknowledges "It takes a few seconds to discover peers" in docs (cold start is normal).
+- Our sidecar + Rust client mirrors this architecture (dumb net pipe + all logic in "client").
+
+**Improvements made today:**
+- Sidecar: added wakuPeerCacheDiscovery, shorter waits (15s/45s/30s instead of 120s), early peer_update right after start, faster reporter interval.
+- Rust: added `client.wait_for_peers(&mut rx, min_mesh, timeout)` 
+- Example: now uses the helper, better progress logs, updated comments on expected time (30s-2min vs previous 1-5min).
+- All cargo check clean.
+
+**Remaining for "client works as expected" (recommended before engine):**
+- End-to-end dummy transact test (call transact, feed responses, see decrypt attempt succeed or timeout gracefully).
+- Perhaps surface mesh count on client or add simple health().
+- Full response retry logic inside transact.send (optional polish).
+- Run long example and confirm mesh comes up reasonably.
+
+Peer connectivity was the real blocker; the above should help significantly.
+
+Next after polish: zeus-railgun engine (address already good, now shield/unshield, proofs, nullifiers, actual to/data for transact).
+
