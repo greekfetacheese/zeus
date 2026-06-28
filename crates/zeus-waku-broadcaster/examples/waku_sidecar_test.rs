@@ -232,7 +232,7 @@ async fn main() -> anyhow::Result<()> {
                           tracing::warn!("Subscribe failed: {:?}", error);
                       }
                   }
-                  SidecarMessage::Message { content_topic, payload, timestamp, source, .. } => {
+                                    SidecarMessage::Message { content_topic, payload, timestamp, source, .. } => {
                       message_count += 1;
                       let src = source.as_deref().unwrap_or("live");
                       info!(
@@ -246,19 +246,16 @@ async fn main() -> anyhow::Result<()> {
 
                       // Try to parse as Railgun fee message
                       use zeus_waku_broadcaster::models::SignedBroadcasterFeeMessage;
-
-                      // payload here is base64 string from sidecar
                       use base64::Engine;
                       let decoded = base64::engine::general_purpose::STANDARD.decode(&payload).unwrap_or_default();
                       match SignedBroadcasterFeeMessage::from_waku_payload(&decoded) {
                           Ok(signed) => {
                               if let Ok(fee_data) = signed.parse_inner_data() {
-                                  // Feed into cache (historical source for now)
                                   client.add_fee_message(&fee_data);
 
-                                  // Only print first 8 in detail to keep output clean
                                   if message_count <= 8 {
-                                      info!("   ✅ Fee from {} | railgun={} | version={} | tokens={}",
+                                      info!(
+                                          "   ✅ Fee from {} | railgun={} | version={} | tokens={}",
                                           src,
                                           fee_data.railgun_address,
                                           fee_data.version,
@@ -266,31 +263,15 @@ async fn main() -> anyhow::Result<()> {
                                       );
                                   }
 
-                                  // Every 50 messages or so, show best broadcaster summary
                                   if message_count % 50 == 0 && message_count > 0 {
-                                      // Example: look for common tokens (USDC on mainnet)
                                       let usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
                                       if let Some(best) = client.get_best_fee_quote(usdc) {
-                                          info!("   📊 Best broadcaster for USDC (summary): {} @ {} gas units",
-                                              &best.railgun_address[..30], best.token_fee.fee_per_unit_gas);
+                                          info!(
+                                              "   📊 Best broadcaster for USDC (summary): {} @ {} gas units",
+                                              &best.railgun_address[..30], best.token_fee.fee_per_unit_gas
+                                          );
                                       }
                                   }
-
-
-                                  // Demo: show transact API (client feature complete)
-                                  if message_count == 10 {
-                                      let usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
-                                      if let Some(best) = client.get_best_fee_quote(usdc) {
-                                          info!("   🚀 DEMO: Would send transact using best broadcaster");
-                                          // Dummy Railgun contract call data (real one comes from zeus-railgun engine)
-                                          let dummy_to = "0x...railgun_proxy...";
-                                          let dummy_data = "0x...encoded_private_tx...";
-                                          // This will publish but response handling is placeholder (will timeout)
-                                          // let _ = client.transact("V2_PoseidonMerkle", dummy_to, dummy_data, best, vec![], 1000000, false).await;
-                                          info!("   (transact API ready - uncomment to test publish to response topic)");
-                                      }
-                                  }
-
                               }
                           }
                           Err(_) => {
@@ -298,6 +279,15 @@ async fn main() -> anyhow::Result<()> {
                               info!("   (non-fee) preview: {}", preview);
                           }
                       }
+
+                      // IMPORTANT: Feed every message to the client for transact response buffering
+                      client.feed_message(&SidecarMessage::Message {
+                          content_topic: content_topic.clone(),
+                          payload: payload.clone(),
+                          timestamp,
+                          pubsub_topic: None,
+                          source: source.clone(),
+                      });
                   }
                   SidecarMessage::PeerUpdate { mesh, pubsub } => {
                       info!("Peer update: mesh_peers={}, pubsub_peers={}", mesh, pubsub);

@@ -23,33 +23,14 @@ pub fn generate_response_key() -> [u8; 16] {
    key
 }
 
-/// Placeholder for deriving the shared secret.
-///
-/// IMPORTANT: Railgun uses BabyJubJub (twisted Edwards on bn254) viewing keys + ed.getSharedSecret.
-/// Current implementation uses x25519 as a stand-in so we can build the message flow.
-/// TODO: Replace with proper implementation using zeus-railgun's BabyJubJub primitives
-/// (see zeus-railgun/src/address.rs for point math and viewing key derivation).
+/// Real BabyJubJub ECDH using primitives from zeus-railgun.
 pub fn derive_shared_key(broadcaster_viewing_pubkey: &[u8; 32]) -> Result<([u8; 32], [u8; 32])> {
-   // For now, to make progress on the client, we derive a deterministic key from the pubkey bytes
-   // + random so that encrypt/decrypt works in tests. This is NOT the real ECDH.
-   // Real version must do:
-   //   random_priv = random(32)
-   //   random_pub = getPublicViewingKey(random_priv)
-   //   shared = ed.getSharedSecret(random_priv, broadcasterViewingKey)
-   let mut shared = [0u8; 32];
-   let mut random_pub = [0u8; 32];
+   // Generate fresh random private key for this transact (32 bytes)
+   let mut random_priv = [0u8; 32];
+   OsRng.fill_bytes(&mut random_priv);
 
-   // Mix the broadcaster key with some randomness for demo (replace this)
-   let mut rng = rand::thread_rng();
-   rng.fill_bytes(&mut shared);
-   rng.fill_bytes(&mut random_pub);
-
-   // Make it "derived" from the input so same key gives same result in a run
-   for (i, b) in broadcaster_viewing_pubkey.iter().enumerate() {
-      shared[i] ^= b;
-   }
-
-   Ok((random_pub, shared))
+   // Use the real implementation from zeus-railgun
+   zeus_railgun::address::babyjub_shared_secret(&random_priv, broadcaster_viewing_pubkey)
 }
 
 /// Encrypts arbitrary JSON with AES-256-GCM.
@@ -78,7 +59,17 @@ pub fn aes_gcm_encrypt(
 
 /// Decrypts a response that was encrypted with the responseKey (or shared key).
 pub fn aes_gcm_decrypt(encrypted: &serde_json::Value, key: &[u8]) -> Result<serde_json::Value> {
-   let key32: [u8; 32] = key.try_into().map_err(|_| anyhow!("key must be 32 bytes"))?;
+   // Support both 16-byte responseKey and 32-byte shared keys
+   let key32: [u8; 32] = if key.len() == 32 {
+      key.try_into().unwrap()
+   } else if key.len() == 16 {
+      let mut k = [0u8; 32];
+      k[0..16].copy_from_slice(key);
+      k[16..32].copy_from_slice(key); // simple expansion for responseKey
+      k
+   } else {
+      return Err(anyhow!("key must be 16 or 32 bytes"));
+   };
 
    let key = aes_gcm::Key::<Aes256Gcm>::from_slice(&key32);
    let cipher = Aes256Gcm::new(key);

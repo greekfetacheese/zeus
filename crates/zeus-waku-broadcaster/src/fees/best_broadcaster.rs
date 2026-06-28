@@ -87,12 +87,13 @@ pub fn find_broadcasters_for_token(
    for (broadcaster_addr, identifiers) in token_fees {
       for (_id, fee) in identifiers {
          if fee_is_usable(fee) {
+            let viewing_pk = zeus_railgun::address::get_broadcaster_viewing_key(&broadcaster_addr).ok();
             result.push(SelectedBroadcaster {
                railgun_address: broadcaster_addr.clone(),
                token_fee: fee.clone(),
                token_address: token_address.to_string(),
                fees_id: fee.fees_id.clone(),
-               viewing_public_key: None,
+               viewing_public_key: viewing_pk.map(hex::encode),
             });
          }
       }

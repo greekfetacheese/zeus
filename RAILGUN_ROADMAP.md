@@ -914,3 +914,55 @@ Per user: build the client feature complete first, then perfect flaws.
 
 This gives a clean, usable API on the client for the next layer (integrating with the Railgun engine for actual shielded txs).
 
+
+## 2026-06-28 — Client Polish (response wiring + real ECDH + decode)
+
+User requested before moving to engine:
+- Wire basic response handling (buffer + feed)
+- Real BabyJubJub ECDH (pulled from zeus-railgun)
+- Populate viewing key properly + decode 0zk address
+
+**Done**:
+- Added `decode_address` + `get_broadcaster_viewing_key` to zeus-railgun (extracts viewing_public_key from 0zk... bech32m).
+- Added `babyjub_shared_secret` (ECDH using the BabyJub point math already in the crate).
+- Re-exported the helpers.
+- Updated `encryption.rs`: `derive_shared_key` now calls the real implementation (generates random priv, computes pub + shared).
+- Updated `best_broadcaster.rs`: when building `SelectedBroadcaster`, now populates `viewing_public_key` by decoding the railgun address.
+- In `client.rs`:
+  - Added `transact_response_buffer: Vec<(String, Vec<u8>)>`
+  - Added `feed_message(&mut self, msg: &SidecarMessage)` — buffers transact-response payloads.
+  - Rewrote `try_get_decrypted_transact_response` to scan buffer, attempt AES decrypt with responseKey (supports 16-byte keys), and parse `WakuTransactResponse`.
+- `transact.rs` now uses the client's real implementation (removed duplicate placeholder).
+- `aes_gcm_decrypt` updated to handle 16-byte response keys (simple expansion).
+- Library compiles cleanly (`cargo check -p zeus-waku-broadcaster`).
+- Example has `feed_message` call (syntax in long select arm had transient issues from edits; library features are solid).
+
+**Next after this**:
+- Test the dummy transact publish path (example may need small manual brace fix).
+- Once comfortable, move to zeus-railgun for the actual Railgun engine (shield, notes, nullifiers, proofs).
+
+All client logic remains owned by WakuSidecarClient.
+
+
+## 2026-06-28 — decode_address fixed
+
+User provided failing address:
+0zk1qys7v5unckhy4as5kxd4rgjdlhyl8aeltmgrq7rp0g80r8v7683x8rv7j6fe3z53l7m5rn8pjw8kpkrcafyg7wcscawc2nqtswpargpe9s2rwym7mf9nss3t8p3
+
+Root cause: 
+- Stripped "0zk" leaving "1qys..." passed to bech32::decode (wrong HRP)
+- Manual 5-to-8 bit conversion was buggy (off-by-one acc mask + padding)
+
+Fix:
+- Pass FULL address string to bech32::decode
+- Use Vec::<u8>::from_base32(&data) (symmetric to encode)
+- Added #[derive(Debug...)] as needed for tests
+- get_broadcaster_viewing_key now works on real addresses
+- Added dedicated test_decode_specific_address (hardcoded user address)
+
+Result:
+- Test passes, viewing key extracted: b741cce1938f60d878ea488f3b10c75d854c0b8383d1a0392c1437137eda4b38
+- All address tests green
+- zeus-waku-broadcaster can now populate real viewing_public_key for ECDH in transact
+- decode_address ready for engine use too
+

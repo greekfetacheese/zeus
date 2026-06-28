@@ -15,6 +15,7 @@ use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
+use crate::WakuTransactResponse;
 use crate::models::fee_message::BroadcasterFeeMessageData;
 use crate::{
    BroadcasterFeeCache, BroadcasterVersionRange, Chain, SelectedBroadcaster, find_best_broadcaster,
@@ -175,6 +176,7 @@ pub struct WakuSidecarClient {
    chain: Chain,
    version_range: Option<BroadcasterVersionRange>,
    poi_active_list_keys: Vec<String>,
+   transact_response_buffer: Vec<(String, Vec<u8>)>, // (topic, raw payload bytes)
 }
 
 impl WakuSidecarClient {
@@ -190,6 +192,7 @@ impl WakuSidecarClient {
          fee_cache: BroadcasterFeeCache::new(),
          version_range: None,
          poi_active_list_keys: vec![],
+         transact_response_buffer: vec![],
       }
    }
 
@@ -415,6 +418,63 @@ impl WakuSidecarClient {
    /// Get last time we received any fee data (ms since epoch).
    pub fn last_received_at(&self) -> Option<u64> {
       self.fee_cache.last_received_at()
+   }
+
+   /// Feed an incoming SidecarMessage into the client (for fees + transact response buffering).
+   /// Call this from your event loop when you receive SidecarMessage::Message.
+   pub fn feed_message(&mut self, msg: &SidecarMessage) {
+      if let SidecarMessage::Message {
+         content_topic,
+         payload,
+         ..
+      } = msg
+      {
+         if content_topic.contains("transact-response") {
+            use base64::Engine;
+            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(payload) {
+               self.transact_response_buffer.push((content_topic.clone(), decoded));
+               // keep bounded
+               if self.transact_response_buffer.len() > 50 {
+                  self.transact_response_buffer.remove(0);
+               }
+            }
+         }
+         // Fee messages are handled via add_fee_message in the caller (example)
+      }
+   }
+
+   /// Try to find and decrypt a pending transact-response using the given response_key (16 or 32 bytes).
+   pub async fn try_get_decrypted_transact_response(
+      &self,
+      response_key: &[u8],
+   ) -> Result<Option<WakuTransactResponse>> {
+      for (_topic, raw) in &self.transact_response_buffer {
+         // Try to parse as the response envelope the sidecar / broadcaster sends
+         if let Ok(json_val) = serde_json::from_slice::<serde_json::Value>(raw) {
+            // Many responses come as { data: "...", signature? } or directly the decrypted form
+            // Try direct decrypt first
+            if let Ok(decrypted) = crate::encryption::aes_gcm_decrypt(&json_val, response_key) {
+               if let Ok(resp) = serde_json::from_value::<WakuTransactResponse>(decrypted) {
+                  return Ok(Some(resp));
+               }
+            }
+
+            // Try if it's wrapped as { "data": base64 or hex encrypted }
+            if let Some(data) = json_val.get("data").and_then(|d| d.as_str()) {
+               if let Ok(inner) = hex::decode(data.trim_start_matches("0x")) {
+                  if let Ok(inner_json) = serde_json::from_slice::<serde_json::Value>(&inner) {
+                     if let Ok(dec) = crate::encryption::aes_gcm_decrypt(&inner_json, response_key)
+                     {
+                        if let Ok(resp) = serde_json::from_value::<WakuTransactResponse>(dec) {
+                           return Ok(Some(resp));
+                        }
+                     }
+                  }
+               }
+            }
+         }
+      }
+      Ok(None)
    }
 
    fn poi_list_ok(&self, required: &[String]) -> bool {

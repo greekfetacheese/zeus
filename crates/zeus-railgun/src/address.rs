@@ -3,7 +3,7 @@ use anyhow::anyhow;
 use ark_bn254::Fr;
 use ark_ed_on_bn254::{EdwardsAffine, EdwardsProjective, Fq, Fr as BabyJubScalar};
 use ark_ff::{BigInteger, One, PrimeField, Zero};
-use bech32::{ToBase32, Variant};
+use bech32::{FromBase32, ToBase32, Variant};
 use blake2::{Blake2b512, Digest};
 use curve25519_dalek::{EdwardsPoint, Scalar, constants::ED25519_BASEPOINT_TABLE};
 use hmac::{Hmac, Mac};
@@ -14,7 +14,10 @@ use secure_types::{SecureArray, Zeroize};
 use sha2::Sha512;
 use std::str::FromStr;
 
+#[allow(dead_code)]
 const GEN_X_HEX: &str = "023343e3445b673d38bcba38f25645adb494b1255b1162bb40f41a59f4d4b45e";
+
+#[allow(dead_code)]
 const GEN_Y_HEX: &str = "0c19139cb84c680a6e14116da06056174a0cfa121e6e5c2450f87d64fc000001";
 
 const PREFIX: &str = "0zk";
@@ -96,7 +99,7 @@ lazy_static! {
    };
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Chain {
    pub type_: u8,
    pub id: u64,
@@ -108,6 +111,7 @@ impl From<u64> for Chain {
    }
 }
 
+#[derive(Debug, Clone)]
 pub struct AddressData {
    pub master_public_key: U256,
    pub viewing_public_key: [u8; 32],
@@ -365,12 +369,108 @@ pub fn encode_address(data: &AddressData) -> Result<String, anyhow::Error> {
    Ok(address)
 }
 
+pub fn decode_address(address: &str) -> Result<AddressData, anyhow::Error> {
+   // Decode the FULL address string (e.g. "0zk1qys..."), do NOT strip the "0zk" prefix.
+   // bech32::decode expects the complete bech32m string including HRP + "1" + data.
+   let (hrp, data, variant) = bech32::decode(address)?;
+
+   if hrp.to_lowercase() != "0zk" {
+      return Err(anyhow!("Invalid HRP for Railgun address"));
+   }
+   if variant != Variant::Bech32m {
+      return Err(anyhow!("Expected Bech32m address"));
+   }
+
+   // Use the crate's FromBase32 (symmetric to the to_base32 used in encode_address)
+   let bytes: Vec<u8> = Vec::<u8>::from_base32(&data)
+      .map_err(|e| anyhow!("bech32 from_base32 conversion failed: {:?}", e))?;
+
+   if bytes.len() != 73 {
+      return Err(anyhow!(
+         "Invalid decoded address length, expected 73 bytes, got {}",
+         bytes.len()
+      ));
+   }
+
+   let version = bytes[0];
+   let master_bytes: [u8; 32] = bytes[1..33].try_into().map_err(|_| anyhow!("bad master"))?;
+   let _network_bytes: [u8; 8] = bytes[33..41].try_into().map_err(|_| anyhow!("bad network"))?;
+   let viewing_bytes: [u8; 32] = bytes[41..73].try_into().map_err(|_| anyhow!("bad viewing"))?;
+
+   let master_public_key = U256::from_be_bytes(master_bytes);
+
+   Ok(AddressData {
+      version,
+      master_public_key,
+      viewing_public_key: viewing_bytes,
+      chain: None,
+   })
+}
+
+pub fn babyjub_shared_secret(
+   random_priv: &[u8; 32],
+   broadcaster_viewing_pub: &[u8; 32],
+) -> Result<([u8; 32], [u8; 32]), anyhow::Error> {
+   // Re-implementation of the ECDH using the crate's BabyJub primitives (clamped priv, mul)
+   let mut priv_clamped = [0u8; 32];
+   priv_clamped.copy_from_slice(random_priv);
+   priv_clamped[0] &= 248;
+   priv_clamped[31] &= 127;
+   priv_clamped[31] |= 64;
+
+   // Treat the viewing pub as point coords for mul (simplified from prior working version)
+   let pub_x = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
+   let pub_y = Fq::from_be_bytes_mod_order(broadcaster_viewing_pub);
+   let pub_point = BabyJubPoint { x: pub_x, y: pub_y };
+
+   let priv_big = num_bigint::BigUint::from_bytes_be(&priv_clamped);
+   let shared_point = mul_point_escalar(pub_point, priv_big.clone());
+
+   let mut shared = [0u8; 32];
+   let sx = shared_point.x.into_bigint().to_bytes_be();
+   if sx.len() >= 32 {
+      shared.copy_from_slice(&sx[sx.len() - 32..]);
+   }
+
+   // random pub for the ECDH pair
+   let base = *BASE8;
+   let rpub_point = mul_point_escalar(base, priv_big);
+   let mut rpub = [0u8; 32];
+   let rx = rpub_point.x.into_bigint().to_bytes_be();
+   if rx.len() >= 32 {
+      rpub.copy_from_slice(&rx[rx.len() - 32..]);
+   }
+
+   Ok((rpub, shared))
+}
+
+pub fn get_broadcaster_viewing_key(railgun_address: &str) -> Result<[u8; 32], anyhow::Error> {
+   let data = decode_address(railgun_address)?;
+   Ok(data.viewing_public_key)
+}
+
 #[cfg(test)]
 mod test {
    use super::*;
    use bip39::{Language, Mnemonic};
    use secure_types::SecureString;
-use zeus_wallet::*;
+   use zeus_wallet::*;
+
+   fn gen_wallet() -> SecureHDWallet {
+      let username = "dev";
+      let password = "dev";
+
+      let username = SecureString::from(username);
+      let password = SecureString::from(password);
+
+      let m_cost = 2048;
+      let t_cost = 1;
+      let p_cost = 4;
+
+      let seed = derive_seed(&username, &password, m_cost, t_cost, p_cost).unwrap();
+      let wallet = SecureHDWallet::new_from_seed(None, seed);
+      wallet
+   }
 
    #[test]
    fn test_against_railway() {
@@ -391,22 +491,33 @@ use zeus_wallet::*;
 
    #[test]
    fn test_zeus_wallet() {
-      let username = "dev";
-      let password = "dev";
-      
-      let username = SecureString::from(username);
-      let password = SecureString::from(password);
-
-      let m_cost = 2048;
-      let t_cost = 1;
-      let p_cost = 4;
-
-      let seed = derive_seed(&username, &password, m_cost, t_cost, p_cost).unwrap();
-      let wallet = SecureHDWallet::new_from_seed(None, seed);
+      let wallet = gen_wallet();
 
       let full_key = wallet.master_wallet.full_key().unwrap();
       let address = generate_address_data(full_key, 0, None).unwrap();
       let encoded_address = encode_address(&address).unwrap();
       println!("Address: {}", encoded_address);
+   }
+
+   #[test]
+   fn test_decode_specific_address() {
+
+      let wallet = gen_wallet();
+      let full_key = wallet.master_wallet.full_key().unwrap();
+      let address_data = generate_address_data(full_key, 0, None).unwrap();
+      let address = encode_address(&address_data).unwrap();
+
+      let decoded = decode_address(&address).expect("decode_address failed");
+
+      let viewing_key =
+         get_broadcaster_viewing_key(&address).expect("get_broadcaster_viewing_key failed");
+      println!(
+         "Viewing public key (hex): {}",
+         hex::encode(viewing_key)
+      );
+
+      assert_eq!(decoded.version, address_data.version);
+      assert_eq!(viewing_key.len(), address_data.viewing_public_key.len());
+      assert_eq!(decoded.viewing_public_key, address_data.viewing_public_key);
    }
 }

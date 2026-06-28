@@ -206,17 +206,5 @@ impl WakuSidecarClient {
       tx.send(self).await
    }
 
-   /// Try to decrypt any buffered transact-response messages using the given key.
-   /// This is a placeholder until we wire full response streaming from the sidecar.
-   pub async fn try_get_decrypted_transact_response(
-      &self,
-      response_key: &[u8],
-   ) -> Result<Option<WakuTransactResponse>> {
-      // In a complete implementation the sidecar would forward messages from the response topic
-      // and we would have a buffer of raw encrypted responses here.
-      // For the first pass we return None (the send loop above will keep polling after publish).
-      // You can extend the SidecarMessage enum + handler to populate an internal response queue.
-      let _ = response_key;
-      Ok(None)
-   }
 }
+
