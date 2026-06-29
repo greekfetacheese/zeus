@@ -58,7 +58,8 @@ struct RailgunScannerInner {
    nullifying_key: U256,
 
    /// Spending private key (used to derive nullifiers for spends we make).
-   spending_private: [u8; 32], // kept as bytes for now
+   #[allow(dead_code)]
+   spending_private: [u8; 32], // kept for future spend / nullifier signing in builders
 
    /// Local Poseidon Merkle tree of all commitments.
    pub merkle_tree: PoseidonMerkleTree,
@@ -125,12 +126,11 @@ impl RailgunScanner {
       })
    }
 
-   /// Load the scanner state (spent nullifiers + owned notes + last_synced_block)
-   /// from a simple binary file.
+   /// Load the scanner state from a simple binary file (legacy).
    ///
+   /// Prefer the unified redb path (`load_state` + single Database) for new code.
    /// If the file does not exist or is empty, the scanner keeps its current (empty) state.
-   /// Use together with `load_merkle_tree` for full persistence.
-   pub fn load_state_from_file(&mut self, path: &str) -> Result<()> {
+   pub fn load_state_from_file(&self, path: &str) -> Result<()> {
       let data = match std::fs::read(path) {
          Ok(d) => d,
          Err(_) => return Ok(()),
@@ -192,10 +192,15 @@ impl RailgunScanner {
       self.read_inner(|inner| inner.merkle_tree.clone())
    }
 
+   /// Current Merkle root (convenience for builders that need the root for txs).
+   pub fn merkle_root(&self) -> alloy_primitives::U256 {
+      self.read_inner(|inner| inner.merkle_tree.root())
+   }
+
    // ===================== Merkle tree redb persistence (delegates to PoseidonMerkleTree) =====================
 
    /// Load the Poseidon Merkle tree from the given redb database.
-   pub fn load_merkle_tree(&mut self, db: &Database, tree_id: &str) -> Result<()> {
+   pub fn load_merkle_tree(&self, db: &Database, tree_id: &str) -> Result<()> {
       let tree = PoseidonMerkleTree::load(db, tree_id)?;
       {
          let mut inner = self.inner.lock().unwrap();
@@ -217,7 +222,7 @@ impl RailgunScanner {
 
    /// Load full scanner state (nullifiers + owned notes + last_synced_block) from redb.
    /// Call this after load_merkle_tree when using a single redb file.
-   pub fn load_state(&mut self, db: &Database, tree_id: &str) -> Result<()> {
+   pub fn load_state(&self, db: &Database, tree_id: &str) -> Result<()> {
       let nulls = load_nullifiers_redb(db, tree_id)?;
       let notes = load_owned_notes_redb(db, tree_id)?;
       let last_opt = load_last_block_redb(db, tree_id);
@@ -258,7 +263,7 @@ impl RailgunScanner {
    /// if you want to call save_merkle_tree / save_state later.
    pub fn open(db_path: &str, keys: &RailgunKeys, chain_id: u64, tree_id: &str) -> Result<Self> {
       let db = Database::create(db_path)?;
-      let mut scanner = Self::new(keys, chain_id)?;
+      let scanner = Self::new(keys, chain_id)?;
       // Best effort load
       let _ = scanner.load_merkle_tree(&db, tree_id);
       let _ = scanner.load_state(&db, tree_id);
@@ -814,7 +819,7 @@ mod tests {
       scanner.save_merkle_tree(&db, tree_id).unwrap();
       scanner.save_state(&db, tree_id).unwrap();
 
-      let mut scanner2 = RailgunScanner::new(&keys, 1).unwrap();
+      let scanner2 = RailgunScanner::new(&keys, 1).unwrap();
       scanner2.load_merkle_tree(&db, tree_id).unwrap();
       scanner2.load_state(&db, tree_id).unwrap();
 

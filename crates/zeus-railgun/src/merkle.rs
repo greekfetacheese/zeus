@@ -6,8 +6,7 @@
 //! The tree stores only the list of leaves. On load it fully reconstructs
 //! the tree layers and root (the tree is small — Railgun uses depth 16).
 //!
-//! NOTE: The actual Railgun contracts use TREE_DEPTH = 16 (see Commitments.sol).
-//! We are currently using 32 for future-proofing, but should align eventually.
+//! Railgun contracts use TREE_DEPTH = 16 (Commitments.sol).
 
 use alloy_primitives::U256;
 use anyhow::{anyhow, Result};
@@ -17,7 +16,7 @@ use light_poseidon::{Poseidon, PoseidonHasher};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use std::path::Path;
 
-const TREE_DEPTH: usize = 32; // TODO: align to 16 to match real Railgun contracts
+const TREE_DEPTH: usize = 16; // Railgun standard (see Commitments.sol)
 
 /// Table that stores the serialized leaves for each tree id (e.g. "mainnet" or "chain:1")
 const MERKLE_LEAVES_TABLE: TableDefinition<&str, &[u8]> =

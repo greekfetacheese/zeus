@@ -32,6 +32,16 @@
 - A background `cargo check` (old proc) showed many "unknown field `merkle_tree` / `last_synced_block` etc." errors.
 - These were expected mid-refactor while changing `RailgunScanner` to use `Arc<Mutex<Inner>>`.
 - All such direct field accesses have been removed. Current `cargo check -p zeus-railgun` is clean and all 17 tests pass.
+**Code Review (pre-builders, 2026-06-29)**:
+- Full pass over zeus-railgun (address, note, contracts, merkle, scanner, lib, Cargo.toml).
+- **Fixed**: TREE_DEPTH changed from 32 (with TODO) to 16 to match real Railgun contracts (Commitments.sol). Updated docs/comments. Proofs and roots now correct size.
+- **Fixed**: load_* methods (load_state_from_file, load_merkle_tree, load_state) now take `&self` (were &mut). Consistent with thread-safe Arc<Mutex> design and other methods. open() and tests cleaned.
+- Added `RailgunScanner::merkle_root(&self)` convenience accessor (useful for builders).
+- Silenced dead_code warning on spending_private (intentionally kept for builder spend logic) with comment.
+- Updated placeholder comments (Polygon address, legacy file persistence).
+- Confirmed: Note has to_bytes/from_bytes (used by scanner redb + file persistence). get_proof exists on merkle. All reexports good. 17/17 tests pass post-fixes. cargo check clean.
+- No other major flaws found. State is solid for starting shield/unshield builders.
+- Legacy file persistence kept but redb unified is recommended and fully functional.
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 
@@ -96,7 +106,7 @@ See original long phases below only if needed for historical detail.
 
 ## Key Files
 
-- `crates/zeus-railgun/src/` — address.rs (current), keys.rs, notes.rs, engine/, contracts.rs (future)
+- `crates/zeus-railgun/src/` — address.rs, note.rs, contracts.rs, merkle.rs, scanner.rs
 - `crates/zeus-waku-broadcaster/src/client.rs` — integrated client (reference for encryption patterns)
 - `crates/zeus-railgun/src/lib.rs` — re-exports
 - `RAILGUN_ROADMAP.md` (this file)
@@ -121,7 +131,7 @@ See original long phases below only if needed for historical detail.
 - Keep sidecar dumb — all domain logic in Rust.
 - Use real vectors from TS repos for tests (no change-detector tests).
 - Address encoding must stay compatible with official 0zk format.
-- Secure key handling (secure-types already in use).
+- Secure key handling (secure-types already in use) and explcitly use `zeroize` on types that contain secrets if they are not `Secure`.
 
 ---
 

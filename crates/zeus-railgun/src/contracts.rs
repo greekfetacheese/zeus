@@ -10,7 +10,7 @@ use alloy_sol_types::sol;
 pub const ETHEREUM_MAINNET_RELAY: Address = address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9");
 
 // Polygon example (common)
-pub const POLYGON_MAINNET_RELAY: Address = address!("0x19cA1dF4a6A8aC8B0f9C6e3E2a2a2a2a2a2a2a2a"); // placeholder - update when confirmed
+pub const POLYGON_MAINNET_RELAY: Address = address!("0x19cA1dF4a6A8aC8B0f9C6e3E2a2a2a2a2a2a2a2a"); // TODO: replace with real Railgun proxy on Polygon (from deployments)
 
 sol! {
     #[derive(Debug, PartialEq, Eq)]
