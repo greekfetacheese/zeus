@@ -13,11 +13,13 @@
 //! candidate notes (from shield or from Waku messages).
 
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use alloy_rpc_types::Filter;
 use anyhow::{Result, anyhow};
+use redb::{Database, ReadableDatabase, TableDefinition};
 use zeus_eth::utils::client::RpcClient;
 
 use crate::{
@@ -36,8 +38,19 @@ pub struct OwnedNote {
    pub commitment: U256,
 }
 
-/// The Railgun scanner maintains private state.
-pub struct RailgunScanner {
+
+/// Tables for scanner state in the same redb file as the merkle tree
+const SCANNER_NULLIFIERS_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("railgun_scanner_nullifiers");
+
+const SCANNER_OWNED_NOTES_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("railgun_scanner_owned_notes");
+
+const SCANNER_META_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("railgun_scanner_meta");
+
+/// Internal state (protected by mutex for thread safety).
+struct RailgunScannerInner {
    /// Viewing private key used for decryption.
    viewing_private: [u8; 32],
 
@@ -66,6 +79,14 @@ pub struct RailgunScanner {
    pub railgun_address: Address,
 }
 
+/// The Railgun scanner maintains private state.
+/// 
+/// Thread-safe: can be cheaply cloned and used across threads.
+#[derive(Clone)]
+pub struct RailgunScanner {
+   inner: Arc<Mutex<RailgunScannerInner>>,
+}
+
 impl RailgunScanner {
    /// Create a new scanner for a given set of Railgun keys.
    pub fn new(keys: &RailgunKeys, chain_id: u64) -> Result<Self> {
@@ -87,7 +108,7 @@ impl RailgunScanner {
       let addr = railgun_address(chain_id)
          .ok_or_else(|| anyhow!("No known Railgun contract for chain {}", chain_id))?;
 
-      Ok(Self {
+      let inner = RailgunScannerInner {
          viewing_private,
          nullifying_key,
          spending_private,
@@ -97,6 +118,10 @@ impl RailgunScanner {
          last_synced_block: 0,
          chain_id,
          railgun_address: addr,
+      };
+
+      Ok(Self {
+         inner: Arc::new(Mutex::new(inner)),
       })
    }
 
@@ -116,46 +141,171 @@ impl RailgunScanner {
       }
 
       let (nulls, notes, last) = deserialize_scanner_state(&data)?;
-      self.spent_nullifiers = nulls;
-      self.owned_notes = notes;
-
-      if last > 0 {
-         self.last_synced_block = last;
+      {
+         let mut inner = self.inner.lock().unwrap();
+         inner.spent_nullifiers = nulls;
+         inner.owned_notes = notes;
+         if last > 0 {
+            inner.last_synced_block = last;
+         }
       }
-
       Ok(())
    }
 
    /// Save the full scanner state (nullifiers + owned notes + last block) to a binary file.
    /// Use together with `save_merkle_tree` (redb) for complete persistence.
    pub fn save_state_to_file(&self, path: &str) -> Result<()> {
-      let bytes = serialize_scanner_state(
-         &self.spent_nullifiers,
-         &self.owned_notes,
-         self.last_synced_block,
-      );
+      let (nulls, owned, last) = {
+         let inner = self.inner.lock().unwrap();
+         (
+            inner.spent_nullifiers.clone(),
+            inner.owned_notes.clone(),
+            inner.last_synced_block,
+         )
+      };
+      let bytes = serialize_scanner_state(&nulls, &owned, last);
       std::fs::write(path, &bytes)?;
       Ok(())
+   }
+
+
+   // ===================== Public accessors (thread-safe) =====================
+
+   pub fn chain_id(&self) -> u64 {
+      self.read_inner(|inner| inner.chain_id)
+   }
+
+   pub fn railgun_address(&self) -> Address {
+      self.read_inner(|inner| inner.railgun_address)
+   }
+
+   pub fn owned_notes_len(&self) -> usize {
+      self.read_inner(|inner| inner.owned_notes.len())
+   }
+
+   pub fn last_synced_block(&self) -> u64 {
+      self.read_inner(|inner| inner.last_synced_block)
+   }
+
+   /// Expose a clone of the merkle tree (for advanced use / testing).
+   pub fn merkle_tree(&self) -> PoseidonMerkleTree {
+      self.read_inner(|inner| inner.merkle_tree.clone())
+   }
+
+   // ===================== Merkle tree redb persistence (delegates to PoseidonMerkleTree) =====================
+
+   /// Load the Poseidon Merkle tree from the given redb database.
+   pub fn load_merkle_tree(&mut self, db: &Database, tree_id: &str) -> Result<()> {
+      let tree = PoseidonMerkleTree::load(db, tree_id)?;
+      {
+         let mut inner = self.inner.lock().unwrap();
+         inner.merkle_tree = tree;
+      }
+      Ok(())
+   }
+
+   /// Save the current Poseidon Merkle tree to the given redb database.
+   pub fn save_merkle_tree(&self, db: &Database, tree_id: &str) -> Result<()> {
+      let tree = {
+         let inner = self.inner.lock().unwrap();
+         inner.merkle_tree.clone()
+      };
+      tree.save(db, tree_id)
+   }
+
+   // ===================== Unified scanner state persistence in redb =====================
+
+   /// Load full scanner state (nullifiers + owned notes + last_synced_block) from redb.
+   /// Call this after load_merkle_tree when using a single redb file.
+   pub fn load_state(&mut self, db: &Database, tree_id: &str) -> Result<()> {
+      let nulls = load_nullifiers_redb(db, tree_id)?;
+      let notes = load_owned_notes_redb(db, tree_id)?;
+      let last_opt = load_last_block_redb(db, tree_id);
+      {
+         let mut inner = self.inner.lock().unwrap();
+         inner.spent_nullifiers = nulls;
+         inner.owned_notes = notes;
+         if let Some(b) = last_opt {
+            if b > 0 {
+               inner.last_synced_block = b;
+            }
+         }
+      }
+      Ok(())
+   }
+
+   /// Save full scanner state (nullifiers + owned notes + last block) to redb.
+   /// Use together with save_merkle_tree for complete persistence in one file.
+   pub fn save_state(&self, db: &Database, tree_id: &str) -> Result<()> {
+      let (nulls, notes, last) = {
+         let inner = self.inner.lock().unwrap();
+         (
+            inner.spent_nullifiers.clone(),
+            inner.owned_notes.clone(),
+            inner.last_synced_block,
+         )
+      };
+      save_nullifiers_redb(db, tree_id, &nulls)?;
+      save_owned_notes_redb(db, tree_id, &notes)?;
+      save_last_block_redb(db, tree_id, last)?;
+      Ok(())
+   }
+
+   /// Convenience: open a single redb database file and return a fully loaded (or fresh) scanner.
+   /// This is the recommended way to get started with unified persistence.
+   ///
+   /// Note: The returned scanner does **not** hold the Database. Keep the db around
+   /// if you want to call save_merkle_tree / save_state later.
+   pub fn open(db_path: &str, keys: &RailgunKeys, chain_id: u64, tree_id: &str) -> Result<Self> {
+      let db = Database::create(db_path)?;
+      let mut scanner = Self::new(keys, chain_id)?;
+      // Best effort load
+      let _ = scanner.load_merkle_tree(&db, tree_id);
+      let _ = scanner.load_state(&db, tree_id);
+      Ok(scanner)
+   }
+
+
+   /// Internal helper: read access to inner state.
+   fn read_inner<F, R>(&self, f: F) -> R
+   where
+      F: FnOnce(&RailgunScannerInner) -> R,
+   {
+      let guard = self.inner.lock().unwrap();
+      f(&guard)
+   }
+
+   /// Internal helper: mutable access to inner state.
+   fn write_inner<F, R>(&self, f: F) -> R
+   where
+      F: FnOnce(&mut RailgunScannerInner) -> R,
+   {
+      let mut guard = self.inner.lock().unwrap();
+      f(&mut guard)
    }
 
    /// Get current private balance (sum of unspent owned notes, in the base unit of the token).
    /// Note: This is a simplified version — real implementation groups by token.
    pub fn private_balance(&self) -> U256 {
-      self
-         .owned_notes
-         .iter()
-         .filter(|n| !self.spent_nullifiers.contains(&n.nullifier))
-         .map(|n| n.note.value)
-         .fold(U256::ZERO, |a, b| a + b)
+      self.read_inner(|inner| {
+         inner
+            .owned_notes
+            .iter()
+            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
+            .map(|n| n.note.value)
+            .fold(U256::ZERO, |a, b| a + b)
+      })
    }
 
    /// Number of unspent notes we currently control.
    pub fn unspent_note_count(&self) -> usize {
-      self
-         .owned_notes
-         .iter()
-         .filter(|n| !self.spent_nullifiers.contains(&n.nullifier))
-         .count()
+      self.read_inner(|inner| {
+         inner
+            .owned_notes
+            .iter()
+            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
+            .count()
+      })
    }
 
    /// Sync the Merkle tree and nullifier set from on-chain events.
@@ -163,12 +313,12 @@ impl RailgunScanner {
    /// This is the core "scanner" function.
    /// It fetches historical logs and updates the tree + spent set.
    pub async fn sync_from_block(
-      &mut self,
+      &self,
       client: RpcClient,
       from_block: u64,
       to_block: Option<u64>,
    ) -> Result<()> {
-      let contract = self.railgun_address;
+      let contract = self.read_inner(|inner| inner.railgun_address);
 
       let latest = if let Some(tb) = to_block {
          tb
@@ -237,17 +387,23 @@ impl RailgunScanner {
             <RailgunSmartWallet::Nullified as alloy_sol_types::SolEvent>::decode_log(&log.inner)
          {
             for n in decoded.data.nullifier {
-               self.spent_nullifiers.insert(U256::from_be_slice(&n[..]));
+               self.write_inner(|inner| {
+                  inner.spent_nullifiers.insert(U256::from_be_slice(&n[..]));
+               });
             }
             continue;
          }
       }
 
       if !new_commitments.is_empty() {
-         self.merkle_tree.insert_batch(&new_commitments)?;
+         self.write_inner(|inner| {
+            let _ = inner.merkle_tree.insert_batch(&new_commitments);
+         });
       }
 
-      self.last_synced_block = latest;
+      self.write_inner(|inner| {
+         inner.last_synced_block = latest;
+      });
       Ok(())
    }
 
@@ -257,7 +413,7 @@ impl RailgunScanner {
    /// `ciphertext` and `nonce` come from the encrypted note (V2 format).
    /// `blinded_receiver_viewing_key` is sent along with the note.
    pub fn try_decrypt_received_note(
-      &mut self,
+      &self,
       ciphertext: &[u8],
       nonce: &[u8],
       blinded_receiver_viewing_key: [u8; 32],
@@ -265,18 +421,26 @@ impl RailgunScanner {
       expected_commitment: Option<U256>,
       leaf_index_hint: Option<u64>,
    ) -> Result<Option<OwnedNote>> {
+      // Snapshot keys + tree length without holding lock for long
+      let (view_priv, null_key, tree_len) = self.read_inner(|inner| {
+         (
+            inner.viewing_private,
+            inner.nullifying_key,
+            inner.merkle_tree.len(),
+         )
+      });
+
       let shared_key = crate::note::derive_shared_symmetric_key(
-         &self.viewing_private,
+         &view_priv,
          &blinded_receiver_viewing_key,
       )?;
 
       let nonce12: &[u8; 12] = nonce.try_into().map_err(|_| anyhow!("nonce must be 12 bytes"))?;
       let decrypted = match decrypt_note_v2(ciphertext, nonce12, &shared_key) {
          Ok(n) => n,
-         Err(_) => return Ok(None), // not for us or bad data
+         Err(_) => return Ok(None),
       };
 
-      // Compute the commitment
       let token_hash = crate::note::compute_token_hash(&decrypted.token_data)?;
       let commitment = crate::note::compute_commitment(
          decrypted.note_public_key,
@@ -284,24 +448,20 @@ impl RailgunScanner {
          decrypted.value,
       )?;
 
-      // If we were given an expected commitment, verify
       if let Some(expected) = expected_commitment {
          if commitment != expected {
             return Ok(None);
          }
       }
 
-      // Compute nullifier
-      let leaf_index = leaf_index_hint.unwrap_or(self.merkle_tree.len() as u64);
-      let nullifier = compute_nullifier(self.nullifying_key, leaf_index)?;
+      let leaf_index = leaf_index_hint.unwrap_or(tree_len as u64);
+      let nullifier = compute_nullifier(null_key, leaf_index)?;
 
-      // Check if already spent
-      if self.spent_nullifiers.contains(&nullifier) {
+      // Check spent + push under lock
+      let already_spent = self.read_inner(|inner| inner.spent_nullifiers.contains(&nullifier));
+      if already_spent {
          return Ok(None);
       }
-
-      // Verify the commitment exists in our tree (best effort)
-      // In production we would also check the Merkle proof, but for now we trust the tree.
 
       let owned = OwnedNote {
          note: decrypted,
@@ -310,40 +470,47 @@ impl RailgunScanner {
          commitment,
       };
 
-      self.owned_notes.push(owned.clone());
+      self.write_inner(|inner| {
+         inner.owned_notes.push(owned.clone());
+      });
+
       Ok(Some(owned))
    }
 
    /// Add a note we created ourselves (e.g. after a successful shield).
    /// We already know the plaintext.
-   pub fn add_own_shielded_note(&mut self, note: Note, leaf_index: u64) -> Result<OwnedNote> {
-      let commitment = note.commitment;
-      let nullifier = compute_nullifier(self.nullifying_key, leaf_index)?;
-
-      let owned = OwnedNote {
-         note,
-         leaf_index,
-         nullifier,
-         commitment,
-      };
-
-      // Make sure it's in the tree (caller should have inserted via sync or manually)
-      self.owned_notes.push(owned.clone());
-      Ok(owned)
+   pub fn add_own_shielded_note(&self, note: Note, leaf_index: u64) -> Result<OwnedNote> {
+      self.write_inner(|inner| {
+         let nullifier = compute_nullifier(inner.nullifying_key, leaf_index)?;
+         let owned = OwnedNote {
+            note: note.clone(),
+            leaf_index,
+            nullifier,
+            commitment: note.commitment,
+         };
+         inner.owned_notes.push(owned.clone());
+         Ok(owned)
+      })
    }
 
    /// Mark a nullifier as spent (after we broadcast a spend transaction).
-   pub fn mark_nullifier_spent(&mut self, nullifier: U256) {
-      self.spent_nullifiers.insert(nullifier);
+   pub fn mark_nullifier_spent(&self, nullifier: U256) {
+      self.write_inner(|inner| {
+         inner.spent_nullifiers.insert(nullifier);
+      });
    }
 
    /// Get all currently unspent owned notes.
-   pub fn unspent_notes(&self) -> Vec<&OwnedNote> {
-      self
-         .owned_notes
-         .iter()
-         .filter(|n| !self.spent_nullifiers.contains(&n.nullifier))
-         .collect()
+   /// Returns owned copies (cloned) so the caller does not hold a lock.
+   pub fn unspent_notes(&self) -> Vec<OwnedNote> {
+      self.read_inner(|inner| {
+         inner
+            .owned_notes
+            .iter()
+            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
+            .cloned()
+            .collect()
+      })
    }
 }
 
@@ -433,6 +600,158 @@ fn deserialize_scanner_state(
    Ok((nulls, notes, last_block))
 }
 
+
+// ===================== Redb persistence for scanner state (nullifiers + owned notes + meta) =====================
+
+fn serialize_nullifiers(set: &HashSet<U256>) -> Vec<u8> {
+    let v: Vec<U256> = set.iter().copied().collect();
+    let mut b = Vec::with_capacity(8 + v.len() * 32);
+    b.extend_from_slice(&(v.len() as u64).to_le_bytes());
+    for x in &v {
+        b.extend_from_slice(&x.to_be_bytes::<32>());
+    }
+    b
+}
+
+fn deserialize_nullifiers(data: &[u8]) -> Result<HashSet<U256>> {
+    if data.len() < 8 {
+        return Ok(HashSet::new());
+    }
+    let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+    let mut s = HashSet::with_capacity(n);
+    let mut offset = 8;
+    for _ in 0..n {
+        if offset + 32 > data.len() { break; }
+        let mut buf = [0u8; 32];
+        buf.copy_from_slice(&data[offset..offset + 32]);
+        s.insert(U256::from_be_bytes(buf));
+        offset += 32;
+    }
+    Ok(s)
+}
+
+fn serialize_owned_notes_for_redb(notes: &[OwnedNote]) -> Vec<u8> {
+    // Reuse the existing binary format
+    let mut b = Vec::new();
+    b.extend_from_slice(&(notes.len() as u64).to_le_bytes());
+    for on in notes {
+        b.extend_from_slice(&on.leaf_index.to_le_bytes());
+        b.extend_from_slice(&on.nullifier.to_be_bytes::<32>());
+        b.extend_from_slice(&on.commitment.to_be_bytes::<32>());
+        let nb = on.note.to_bytes();
+        b.extend_from_slice(&(nb.len() as u32).to_le_bytes());
+        b.extend_from_slice(&nb);
+    }
+    b
+}
+
+fn deserialize_owned_notes_from_redb(data: &[u8]) -> Result<Vec<OwnedNote>> {
+    if data.len() < 8 {
+        return Ok(Vec::new());
+    }
+    let len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+    let mut notes = Vec::with_capacity(len);
+    let mut offset = 8;
+    for _ in 0..len {
+        if offset + 72 > data.len() { break; }
+        let li = u64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
+        offset += 8;
+        let mut nul = [0u8; 32]; nul.copy_from_slice(&data[offset..offset+32]); offset += 32;
+        let mut com = [0u8; 32]; com.copy_from_slice(&data[offset..offset+32]); offset += 32;
+        let nl = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+        offset += 4;
+        if offset + nl > data.len() { break; }
+        let note = Note::from_bytes(&data[offset..offset+nl])?;
+        offset += nl;
+        notes.push(OwnedNote {
+            note,
+            leaf_index: li,
+            nullifier: U256::from_be_bytes(nul),
+            commitment: U256::from_be_bytes(com),
+        });
+    }
+    Ok(notes)
+}
+
+fn load_nullifiers_redb(db: &Database, tree_id: &str) -> Result<HashSet<U256>> {
+    let read_txn = db.begin_read()?;
+    let table = match read_txn.open_table(SCANNER_NULLIFIERS_TABLE) {
+        Ok(t) => t,
+        Err(_) => return Ok(HashSet::new()),
+    };
+    match table.get(tree_id)? {
+        Some(value) => deserialize_nullifiers(value.value()),
+        None => Ok(HashSet::new()),
+    }
+}
+
+fn save_nullifiers_redb(db: &Database, tree_id: &str, set: &HashSet<U256>) -> Result<()> {
+    let write_txn = db.begin_write()?;
+    {
+        let mut table = write_txn.open_table(SCANNER_NULLIFIERS_TABLE)?;
+        let bytes = serialize_nullifiers(set);
+        table.insert(tree_id, bytes.as_slice())?;
+    }
+    write_txn.commit()?;
+    Ok(())
+}
+
+fn load_owned_notes_redb(db: &Database, tree_id: &str) -> Result<Vec<OwnedNote>> {
+    let read_txn = db.begin_read()?;
+    let table = match read_txn.open_table(SCANNER_OWNED_NOTES_TABLE) {
+        Ok(t) => t,
+        Err(_) => return Ok(Vec::new()),
+    };
+    match table.get(tree_id)? {
+        Some(value) => deserialize_owned_notes_from_redb(value.value()),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn save_owned_notes_redb(db: &Database, tree_id: &str, notes: &[OwnedNote]) -> Result<()> {
+    let write_txn = db.begin_write()?;
+    {
+        let mut table = write_txn.open_table(SCANNER_OWNED_NOTES_TABLE)?;
+        let bytes = serialize_owned_notes_for_redb(notes);
+        table.insert(tree_id, bytes.as_slice())?;
+    }
+    write_txn.commit()?;
+    Ok(())
+}
+
+fn load_last_block_redb(db: &Database, tree_id: &str) -> Option<u64> {
+    let read_txn = match db.begin_read() {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    let table = match read_txn.open_table(SCANNER_META_TABLE) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    match table.get(tree_id) {
+        Ok(Some(value)) => {
+            let b: &[u8] = value.value();
+            if b.len() >= 8 {
+                Some(u64::from_le_bytes(b[0..8].try_into().unwrap()))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn save_last_block_redb(db: &Database, tree_id: &str, block: u64) -> Result<()> {
+    let write_txn = db.begin_write()?;
+    {
+        let mut table = write_txn.open_table(SCANNER_META_TABLE)?;
+        table.insert(tree_id, &block.to_le_bytes()[..])?;
+    }
+    write_txn.commit()?;
+    Ok(())
+}
+
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -454,8 +773,8 @@ mod tests {
 
       let scanner = RailgunScanner::new(&keys, 1).unwrap();
 
-      assert_eq!(scanner.chain_id, 1);
-      assert_eq!(scanner.owned_notes.len(), 0);
+      assert_eq!(scanner.chain_id(), 1);
+      assert_eq!(scanner.owned_notes_len(), 0);
       assert_eq!(scanner.private_balance(), U256::ZERO);
    }
 
@@ -480,26 +799,29 @@ mod tests {
       let seed = dummy_seed();
       let keys = generate_railgun_keys(seed, 0, None).unwrap();
 
-      let mut scanner = RailgunScanner::new(&keys, 1).unwrap();
+      let db_path = "/tmp/zeus-railgun-unified-test.redb";
+      let tree_id = "test";
+      let _ = std::fs::remove_file(db_path);
 
-      // Populate some state
-      scanner.last_synced_block = 123456;
-      scanner.spent_nullifiers.insert(U256::from(999u64));
+      let db = redb::Database::create(db_path).unwrap();
+      let scanner = RailgunScanner::new(&keys, 1).unwrap();
 
-      let state_path = "/tmp/zeus-railgun-test-scanner.state";
+      scanner.write_inner(|inner| {
+         inner.last_synced_block = 98765;
+         inner.spent_nullifiers.insert(U256::from(777u64));
+      });
 
-      // Save
-      scanner.save_state_to_file(state_path).unwrap();
+      scanner.save_merkle_tree(&db, tree_id).unwrap();
+      scanner.save_state(&db, tree_id).unwrap();
 
-      // Load into a fresh scanner
       let mut scanner2 = RailgunScanner::new(&keys, 1).unwrap();
-      scanner2.load_state_from_file(state_path).unwrap();
+      scanner2.load_merkle_tree(&db, tree_id).unwrap();
+      scanner2.load_state(&db, tree_id).unwrap();
 
-      assert_eq!(scanner2.last_synced_block, 123456);
-      assert!(scanner2.spent_nullifiers.contains(&U256::from(999u64)));
-      assert_eq!(scanner2.owned_notes.len(), 0);
+      assert_eq!(scanner2.last_synced_block(), 98765);
+      assert!(scanner2.read_inner(|i| i.spent_nullifiers.contains(&U256::from(777u64))));
+      assert_eq!(scanner2.owned_notes_len(), 0);
 
-      // cleanup
-      let _ = std::fs::remove_file(state_path);
+      let _ = std::fs::remove_file(db_path);
    }
 }

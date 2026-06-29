@@ -16,12 +16,22 @@
   - `from_leaves` / `leaves()` helpers for roundtrips
   - `RailgunScanner` now has `load_merkle_tree(&db, tree_id)` and `save_merkle_tree(&db, tree_id)`
   - All tests passing (including persistence roundtrips)
-- **Disk persistence for scanner state (spent nullifiers + owned notes + last_synced_block) implemented** (simple binary file for reliability, works with redb tree).
-  - `RailgunScanner::load_state_from_file(path)` / `save_state_to_file(path)`
-  - Full roundtrip for nullifiers + owned notes (using Note::to_bytes / from_bytes) + last block
-  - Ser/de tested and passing
-  - Use together with the redb merkle tree persistence
-  - All tests passing (16/16)
+- **Unified redb persistence helper added**:
+  - Single `redb::Database` for both Merkle tree + scanner state (nullifiers + owned notes + last block)
+  - New methods: `RailgunScanner::load_state(&db, tree_id)`, `save_state(&db, tree_id)`
+  - New convenience: `RailgunScanner::open(db_path, keys, chain_id, tree_id)`
+  - `load_merkle_tree` / `save_merkle_tree` also available
+- **RailgunScanner is now fully thread-safe**:
+  - Uses `Arc<Mutex<RailgunScannerInner>>` (cheap Clone, Send + Sync)
+  - Matches the pattern used by `WakuSidecarClient`
+  - All public methods go through the lock
+  - Added safe accessors: `last_synced_block()`, `owned_notes_len()`, `merkle_tree()`, `chain_id()`, etc.
+  - `unspent_notes()` now returns `Vec<OwnedNote>` (cloned) to avoid holding locks
+- All tests passing (17/17)
+**Important note on 2026-06-29 refactor**:
+- A background `cargo check` (old proc) showed many "unknown field `merkle_tree` / `last_synced_block` etc." errors.
+- These were expected mid-refactor while changing `RailgunScanner` to use `Arc<Mutex<Inner>>`.
+- All such direct field accesses have been removed. Current `cargo check -p zeus-railgun` is clean and all 17 tests pass.
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 
@@ -69,7 +79,7 @@ Start building the actual privacy engine.
 **Immediate priorities**:
 1. ✅ Note / commitment model + viewing-key encryption/decryption (AES-GCM) — **done**.
 2. ✅ Proper blinded viewing keys (sender + receiver) + annotation data (AES-CTR) + nullifier calculation — **done**.
-3. Full integration of RailgunKeys with Note creation + scanning support.
+3. ✅ Full integration of RailgunKeys with Note creation + scanning support.
 3. Basic on-chain interaction: Railgun contract addresses/ABIs, shield/unshield calls (via alloy).
 4. Local state: Poseidon Merkle tree, commitment insertion, nullifier tracking.
 5. Scanner: listen to events, decrypt notes with viewing key, maintain private balance.
@@ -118,3 +128,23 @@ See original long phases below only if needed for historical detail.
 **Update this file after every milestone.** Use `todo` tool + memory for session tracking.
 
 Client phase complete. Engine phase now active. Let's go.
+## Latest Progress (2026-06-29, this session)
+
+**1. Unified redb helper for everything**
+- Added `RailgunScanner::open(db_path, keys, chain_id, tree_id)` — opens one redb file and loads both merkle tree + scanner state.
+- New methods:
+  - `load_state(&db, tree_id)` / `save_state(&db, tree_id)`
+  - `load_merkle_tree` / `save_merkle_tree` (were missing, now implemented)
+- Scanner state (spent nullifiers, owned notes, last_synced_block) is now persisted in the same redb file using dedicated tables.
+
+**2. RailgunScanner is now thread-safe**
+- Refactored to `Arc<Mutex<RailgunScannerInner>>`
+- Cheap to Clone
+- All mutation protected
+- Public accessors added: `last_synced_block()`, `owned_notes_len()`, `merkle_tree()`, `chain_id()`, etc.
+- `unspent_notes()` returns `Vec<OwnedNote>` (cloned copies)
+- Matches the exact pattern the user liked in the waku broadcaster client.
+
+All tests (17) passing.
+
+**Next focus**: Shield / Unshield transaction builders.
