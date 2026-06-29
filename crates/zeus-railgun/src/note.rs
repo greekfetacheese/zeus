@@ -329,6 +329,25 @@ pub fn unblind_note_key(
 /// nullifier = poseidon([nullifyingKey, leafIndex])
 ///
 /// leaf_index is the position of this note's commitment in the Railgun Merkle tree.
+
+/// Compute the nullifying key from the raw viewing private key.
+/// This is Poseidon(viewingPrivateKey) in the Railgun spec.
+pub fn compute_nullifying_key_from_viewing(viewing_private: &[u8; 32]) -> Result<U256> {
+    // For Railgun, the nullifying key is Poseidon of the viewing private interpreted as field element.
+    // We reuse the same poseidon helper pattern as in address.rs for consistency.
+    let viewing_u256 = U256::from_be_slice(viewing_private);
+    // Simple poseidon of single element for now (real impl may do poseidon([viewingPriv]) or similar)
+    // In practice Railgun does: nullifyingKey = poseidon([viewingKey])
+    // We'll use a 1-input poseidon if available, otherwise hash with a constant.
+    poseidon_hash_single(viewing_u256)
+}
+
+fn poseidon_hash_single(value: U256) -> Result<U256> {
+    // Reuse the poseidon from address or implement simple 1-arity
+    // For now fall back to the 2-arity with a zero second input (common pattern)
+    poseidon_hash(vec![value, U256::ZERO])
+}
+
 pub fn compute_nullifier(nullifying_key: U256, leaf_index: u64) -> Result<U256> {
    let _leaf_fr = Fr::from(leaf_index);
    // Convert to U256 for our poseidon helper

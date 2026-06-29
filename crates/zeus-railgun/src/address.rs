@@ -199,7 +199,7 @@ fn poseidon_hash(inputs: Vec<U256>) -> Result<U256, anyhow::Error> {
 pub fn generate_address_data(
    seed: SecureArray<u8, 64>,
    index: u32,
-   chain: Option<Chain>,
+   _chain: Option<Chain>,
 ) -> Result<AddressData, anyhow::Error> {
    let (spend_x, spend_y) = compute_spending_key(&seed, index).expect("Spending key");
    let (viewing_public_key, nullifying_key) =
@@ -212,7 +212,7 @@ pub fn generate_address_data(
    Ok(AddressData {
       master_public_key,
       viewing_public_key,
-      chain,
+      chain: _chain,
       version: ADDRESS_VERSION,
    })
 }
@@ -451,7 +451,7 @@ pub fn derive_viewing_private_key(seed: &Key64, index: u32) -> Result<Key, anyho
 pub fn generate_railgun_keys(
    seed: SecureArray<u8, 64>,
    index: u32,
-   chain: Option<Chain>,
+   _chain: Option<Chain>,
 ) -> Result<RailgunKeys, anyhow::Error> {
    let spending_priv = derive_spending_private_key(&seed, index)?;
    let viewing_priv = derive_viewing_private_key(&seed, index)?;

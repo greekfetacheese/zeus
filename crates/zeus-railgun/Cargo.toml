@@ -6,10 +6,13 @@ edition = "2024"
 [dependencies]
 
 # Alloy
-alloy-sol-types = "=1.6.0"
+alloy-sol-types = { version = "=1.6.0", features = ["json"] }
 alloy-primitives = "=1.6.0"
 alloy-rpc-types = "=2.0.5"
 alloy-provider = "=2.0.5"
+
+# Internal
+zeus-eth = { path = "../zeus-eth" }
 
 # Crypto
 sled = "0.34"
@@ -38,6 +41,7 @@ rand = "0.8"
 lazy_static = "1"
 anyhow = "=1.0.99"
 secure-types = "0.3"
+tokio = { version = "=1.47.1", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 bip39 = "2"

@@ -10642,6 +10642,8 @@ dependencies = [
  "sha2",
  "sha3 0.10.8",
  "sled",
+ "tokio",
+ "zeus-eth",
  "zeus-wallet",
 ]
 
