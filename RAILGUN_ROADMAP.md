@@ -1,6 +1,6 @@
 # Zeus + Railgun Integration Roadmap
 
-**Status (2026-06-28)**: Waku broadcaster client **complete & working**. Starting core Railgun engine in `zeus-railgun`.  
+**Status (2026-06-29)**: Waku client complete. **Note + commitment model + viewing-key encryption started** in zeus-railgun.  
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 
@@ -15,10 +15,15 @@
   - Confirmed working on mainnet (mesh 2-3 fast, historical fees delivered, selection works).
   - User: "The client seems to generally work it only needs 2 things: receive live fee messages and verify that the trasnact works."
 
-- **zeus-railgun**: Partial foundation.
-  - `0zk...` address generation + bech32m encoding (close to Railway wallet, not 1:1).
-  - BabyJubJub + viewing key derivation + shared secret (used by waku client for transact).
-  - No notes, no scanning, no shield/unshield, no proofs yet.
+- **zeus-railgun**: Foundation + Note model started.
+  - Full `RailgunKeys` (spend priv/pub, view priv/pub, nullifier, master pubkey).
+  - `0zk` address + decode working.
+  - **Note model** (new):
+    - `Note`, `TokenData`, `TokenType`
+    - `compute_note_public_key`, `compute_commitment`, `compute_token_hash`
+    - `derive_shared_symmetric_key` (viewing priv + blinded pub → AES key)
+    - `encrypt_note_v2` / `decrypt_note_v2` (AES-GCM)
+  - All tests passing.
 
 **Architecture (locked)**:
 - `zeus-waku-broadcaster`: Dumb-pipe sidecar + Rust Railgun broadcaster logic (fees + transact).
@@ -41,8 +46,9 @@
 Start building the actual privacy engine.
 
 **Immediate priorities**:
-1. Complete/refine address + full key derivation (spend key, viewing key, nullifier key). Multi-chain support. Strong tests.
-2. Note model: commitment, nullifier, encryption/decryption.
+1. ✅ Note / commitment model + viewing-key encryption/decryption (basic V2 AES-GCM) — **done**.
+2. Refine address module (full key exposure, better tests, blinded key helpers).
+3. Complete note encryption with annotation data + sender blinding.
 3. Basic on-chain interaction: Railgun contract addresses/ABIs, shield/unshield calls (via alloy).
 4. Local state: Poseidon Merkle tree, commitment insertion, nullifier tracking.
 5. Scanner: listen to events, decrypt notes with viewing key, maintain private balance.

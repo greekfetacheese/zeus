@@ -10614,6 +10614,7 @@ dependencies = [
 name = "zeus-railgun"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "alloy-primitives",
  "alloy-provider",
  "alloy-rpc-types",
