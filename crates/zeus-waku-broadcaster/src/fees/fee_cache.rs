@@ -30,6 +30,7 @@ pub struct CachedTokenFee {
 /// forNetwork -> forToken (lowercase) -> forBroadcaster (0zk addr) -> forIdentifier
 type Cache = HashMap<String, HashMap<String, HashMap<String, HashMap<String, CachedTokenFee>>>>;
 
+#[derive(Clone)]
 pub struct BroadcasterFeeCache {
    cache: Cache,
    last_fee_received_at: Option<u64>,

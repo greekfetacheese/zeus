@@ -15,7 +15,7 @@ pub mod fees;
 pub mod models;
 pub mod transact;
 
-pub use client::WakuSidecarClient;
+pub use client::{WakuSidecarClient, PeerInfo};
 pub use encryption::{
    aes_gcm_decrypt, aes_gcm_encrypt, encrypt_transact_payload, generate_response_key,
 };
@@ -25,6 +25,30 @@ pub use fees::{
 };
 pub use models::*;
 pub use transact::BroadcasterTransaction;
+
+pub fn default_topic() -> String {
+   "/railgun/v2/default/json".to_string()
+}
+
+pub fn fees_topic(chain: Chain) -> String {
+   format!("/railgun/v2/${}-${}-fees/json", chain.type_, chain.id)
+}
+
+pub fn transact_topic(chain: Chain) -> String {
+   format!("/railgun/v2/${}-${}-transact/json", chain.type_, chain.id)
+}
+
+pub fn trasnact_responce_topic(chain: Chain) -> String {
+   format!("/railgun/v2/${}-${}-transact-response/json", chain.type_, chain.id)
+}
+
+pub fn metrics_topic() -> String {
+   format!("/railgun/v2/metrics/json")
+}
+
+pub fn encrypted_topic(topic: &str) -> String {
+   format!("/railgun/v2/encrypted-${topic}/json")
+}
 
 /// Chain identifier used across Railgun (type + id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

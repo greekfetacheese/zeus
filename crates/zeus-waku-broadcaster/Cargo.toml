@@ -17,6 +17,7 @@ serde_json = "1"
 hex = "0.4"
 anyhow = "1"
 tracing = "0.1"
+kanal = "0.1.1"
 
 # Crypto for broadcaster encryption (AES-GCM + support for ECDH on viewing keys)
 aes-gcm = "0.10"

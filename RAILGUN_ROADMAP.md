@@ -1122,3 +1122,25 @@ This gets us closer to "client works as expected". Once live fees flow reliably 
 
 Official client relies heavily on the same ENR + peerExchange + store peers pattern; our sidecar is converging on it.
 
+
+
+## 2026-06-28 — Thread-safe client clone + get_peers API (user request)
+
+User switched to kanal (cloneable channels) and asked for:
+1. Make WakuSidecarClient thread-safe + cheap to Clone (no deep copies).
+2. Public API to get current connected peers + details.
+
+Done:
+- Restructured to `WakuSidecarClient { inner: Arc<Mutex<ClientInner>>, event_rx: AsyncReceiver, chain }`
+- `#[derive(Clone)]` — each clone shares the sidecar process and most state; each gets its own kanal rx clone.
+- All mutation goes through the lock; most public methods are now `&self` (async where needed).
+- New method: `pub async fn get_peers(&self) -> Result<Vec<PeerInfo>>`
+- `PeerInfo { peer_id: String, multiaddr: Option<String> }` (re-exported)
+- Sidecar JS now handles `get_peers` cmd using `waku.libp2p.getConnections()` and returns details.
+- Updated example to compile and demonstrate `get_peers()` after mesh wait.
+- `cargo check` clean for lib + example.
+
+This enables safely sharing one client across tasks / UI threads etc.
+
+Next per todo: continue with full transact response handling + dummy end-to-end test once user confirms.
+

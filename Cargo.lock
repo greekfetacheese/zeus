@@ -4663,6 +4663,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kanal"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e3953adf0cd667798b396c2fa13552d6d9b3269d7dd1154c4c416442d1ff574"
+dependencies = [
+ "futures-core",
+ "lock_api",
+]
+
+[[package]]
 name = "keccak"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10670,6 +10680,7 @@ dependencies = [
  "chrono",
  "curve25519-dalek",
  "hex",
+ "kanal",
  "rand 0.8.6",
  "serde",
  "serde_json",

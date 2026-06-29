@@ -32,8 +32,8 @@ use std::time::Duration;
 
 use tokio::time::sleep;
 use tracing::info;
-use zeus_waku_broadcaster::Chain;
 use zeus_waku_broadcaster::client::{SidecarMessage, WakuSidecarClient};
+use zeus_waku_broadcaster::{Chain, fees_topic};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -45,13 +45,13 @@ async fn main() -> anyhow::Result<()> {
 
    info!("=== Zeus Waku Sidecar Test ===");
 
-   let mut client = WakuSidecarClient::new(Chain::ETHEREUM_MAINNET);
+   let client = WakuSidecarClient::new(Chain::ETHEREUM_MAINNET);
 
    // Path is relative to the crate root when running via `cargo run --example`
    let sidecar_path = "crates/zeus-waku-broadcaster/js-sidecar/src/index.js";
 
    info!("Spawning sidecar: {}", sidecar_path);
-   let mut rx = match client.start_sidecar(sidecar_path).await {
+   let rx = match client.start_sidecar(sidecar_path).await {
       Ok(rx) => rx,
       Err(e) => {
          eprintln!("Failed to start sidecar. Make sure you ran `npm install` in js-sidecar/");
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
 
    loop {
       tokio::select! {
-          Some(msg) = rx.recv() => {
+          Ok(msg) = rx.recv() => {
               if let SidecarMessage::Ready { version } = msg {
                   info!("Sidecar ready (version {})", version);
                   break;
@@ -100,14 +100,14 @@ async fn main() -> anyhow::Result<()> {
    let start_deadline = std::time::Instant::now() + start_wait;
 
    while std::time::Instant::now() < start_deadline {
-      if let Ok(Some(msg)) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+      if let Ok(msg) = tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
          match msg {
-            SidecarMessage::Started {
+            Ok(SidecarMessage::Started {
                success,
                peer_id,
                error,
                ..
-            } => {
+            }) => {
                if success {
                   info!(
                      "Waku started successfully. Peer ID: {:?}",
@@ -135,10 +135,7 @@ async fn main() -> anyhow::Result<()> {
    }
 
    // Railgun fees topic for this chain
-   let fees_topic = format!(
-      "/railgun/v2/{}-{}-fees/json",
-      sidecar_chain.type_, sidecar_chain.id
-   );
+   let fees_topic = fees_topic(sidecar_chain);
    info!("Subscribing to fees topic: {}", fees_topic);
 
    let sub_id = client.subscribe(vec![fees_topic.clone()]).await?;
@@ -146,11 +143,18 @@ async fn main() -> anyhow::Result<()> {
 
    // Use the client's helper to wait for usable mesh (improves reliability)
    info!("Waiting for usable peer mesh (using client.wait_for_peers helper)...");
-   let mesh = client.wait_for_peers(&mut rx, 2, Duration::from_secs(90)).await?;
+   let mesh = client.wait_for_peers(2, Duration::from_secs(90)).await?;
    info!(
       "Mesh after wait: {} (proceeding to historical query + live feed)",
       mesh
    );
+
+   if let Ok(peers) = client.get_peers().await {
+      info!("get_peers() -> {} connected peers", peers.len());
+      for p in peers.iter().take(3) {
+         info!("  peer: {} @ {:?}", p.peer_id, p.multiaddr);
+      }
+   }
 
    if mesh < 2 {
       info!(
@@ -184,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
 
    while start_time.elapsed() < listen_duration {
       tokio::select! {
-          Some(msg) = rx.recv() => {
+          Ok(msg) = rx.recv() => {
               match msg {
                   SidecarMessage::Started { success, peer_id, error, .. } => {
                       if success {
@@ -224,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
                       match SignedBroadcasterFeeMessage::from_waku_payload(&decoded) {
                           Ok(signed) => {
                               if let Ok(fee_data) = signed.parse_inner_data() {
-                                  client.add_fee_message(&fee_data);
+                                  client.add_fee_message(fee_data.clone()).await;
 
                                   if message_count <= 8 {
                                       info!(
@@ -238,7 +242,7 @@ async fn main() -> anyhow::Result<()> {
 
                                   if message_count % 50 == 0 && message_count > 0 {
                                       let usdc = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
-                                      if let Some(best) = client.get_best_fee_quote(usdc) {
+                                      if let Some(best) = client.get_best_fee_quote(usdc).await {
                                           info!(
                                               "   📊 Best broadcaster for USDC (summary): {} @ {} gas units",
                                               &best.railgun_address[..30], best.token_fee.fee_per_unit_gas
@@ -260,7 +264,7 @@ async fn main() -> anyhow::Result<()> {
                           timestamp,
                           pubsub_topic: None,
                           source: source.clone(),
-                      });
+                      }).await;
                   }
                   SidecarMessage::PeerUpdate { mesh, pubsub } => {
                       info!("Peer update: mesh_peers={}, pubsub_peers={}", mesh, pubsub);
@@ -291,7 +295,7 @@ async fn main() -> anyhow::Result<()> {
                   let _ = client.get_status().await;
               }
 
-              let fees_removed = client.clear_expired_fees();
+              let fees_removed = client.clear_expired_fees().await;
               if fees_removed > 0 {
                   info!("Removed {} expired fees from cache", fees_removed);
               }
@@ -325,7 +329,7 @@ async fn main() -> anyhow::Result<()> {
    );
    info!(
       "Fee cache last updated: {:?}",
-      client.last_received_at()
+      client.last_received_at().await
    );
 
    // Final summary: show best for a few common tokens
@@ -340,7 +344,7 @@ async fn main() -> anyhow::Result<()> {
       ),
    ];
    for (name, addr) in tokens {
-      if let Some(best) = client.get_best_fee_quote(addr) {
+      if let Some(best) = client.get_best_fee_quote(addr).await {
          info!(
             "Best for {}: {} fee={}",
             name,

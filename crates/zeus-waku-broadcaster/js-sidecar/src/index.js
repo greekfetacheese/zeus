@@ -89,6 +89,22 @@ async function getConnectedPeerIds() {
 }
 
 
+async function getPeersDetails() {
+  if (!waku || !waku.libp2p) return [];
+  try {
+    const connections = (waku.libp2p.getConnections ? waku.libp2p.getConnections() : []);
+    return connections.map((conn) => {
+      const peerId = conn.remotePeer ? conn.remotePeer.toString() : 'unknown';
+      const multiaddr = conn.remoteAddr ? conn.remoteAddr.toString() : null;
+      return { peerId, multiaddr };
+    });
+  } catch (e) {
+    log('Error getting peers details:', e.message);
+    return [];
+  }
+}
+
+
 
 async function ensureStrongConnectivity() {
   if (!waku) return 0;
@@ -535,6 +551,12 @@ async function handleQueryHistorical(params) {
   }
 }
 
+
+async function handleGetPeers(id) {
+  const peers = await getPeersDetails();
+  send({ id, type: 'peers', peers });
+}
+
 async function handleCommand(line) {
   let msg;
   try {
@@ -561,6 +583,9 @@ async function handleCommand(line) {
       break;
     case 'query_historical':
       await handleQueryHistorical(params);
+      break;
+    case 'get_peers':
+      await handleGetPeers(id);
       break;
     case 'stop':
       if (waku) {
