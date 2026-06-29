@@ -407,6 +407,70 @@ pub fn decode_address(address: &str) -> Result<AddressData, anyhow::Error> {
    })
 }
 
+pub fn get_broadcaster_viewing_key(railgun_address: &str) -> Result<[u8; 32], anyhow::Error> {
+   let data = decode_address(railgun_address)?;
+   Ok(data.viewing_public_key)
+}
+
+/// Full set of Railgun keys derived from a seed + index.
+/// This is what the engine will use for note decryption, nullifier creation, etc.
+#[derive(Clone)]
+pub struct RailgunKeys {
+   /// Raw spending private key (before final BabyJub clamping for scalar).
+   pub spending_private: Key,
+   /// Spending public key point (x, y) on BabyJubJub.
+   pub spending_public: (U256, U256),
+   /// Raw viewing private key.
+   pub viewing_private: Key,
+   /// Viewing public key (compressed Ed25519 point, 32 bytes) - used in 0zk address.
+   pub viewing_public: [u8; 32],
+   /// Nullifying key = Poseidon(viewing private).
+   pub nullifying_key: U256,
+   /// Master public key = Poseidon(spend_x, spend_y, nullifying_key).
+   pub master_public_key: U256,
+}
+
+/// Derive the raw spending private key (before clamping).
+pub fn derive_spending_private_key(seed: &Key64, index: u32) -> Result<Key, anyhow::Error> {
+   let spending_path = format!("m/44'/1984'/0'/0'/{}'", index);
+   seed
+      .unlock(|seed_bytes| derive_private_key(seed_bytes, &spending_path))
+      .map_err(|e| anyhow!("Derive spending private key: {}", e))
+}
+
+/// Derive the raw viewing private key.
+pub fn derive_viewing_private_key(seed: &Key64, index: u32) -> Result<Key, anyhow::Error> {
+   let viewing_path = format!("m/420'/1984'/0'/0'/{}'", index);
+   seed
+      .unlock(|seed_bytes| derive_private_key(seed_bytes, &viewing_path))
+      .map_err(|e| anyhow!("Derive viewing private key: {}", e))
+}
+
+/// Generate the complete set of Railgun keys (private + public) for a given seed and index.
+/// This is the recommended entry point for the engine.
+pub fn generate_railgun_keys(
+   seed: SecureArray<u8, 64>,
+   index: u32,
+   chain: Option<Chain>,
+) -> Result<RailgunKeys, anyhow::Error> {
+   let spending_priv = derive_spending_private_key(&seed, index)?;
+   let viewing_priv = derive_viewing_private_key(&seed, index)?;
+
+   let (spend_x, spend_y) = compute_spending_key(&seed, index)?;
+   let (viewing_public, nullifying_key) = compute_viewing_key(&seed, index)?;
+
+   let master_public_key = poseidon_hash(vec![spend_x, spend_y, nullifying_key])?;
+
+   Ok(RailgunKeys {
+      spending_private: spending_priv,
+      spending_public: (spend_x, spend_y),
+      viewing_private: viewing_priv,
+      viewing_public,
+      nullifying_key,
+      master_public_key,
+   })
+}
+
 pub fn babyjub_shared_secret(
    random_priv: &[u8; 32],
    broadcaster_viewing_pub: &[u8; 32],
@@ -444,11 +508,6 @@ pub fn babyjub_shared_secret(
    Ok((rpub, shared))
 }
 
-pub fn get_broadcaster_viewing_key(railgun_address: &str) -> Result<[u8; 32], anyhow::Error> {
-   let data = decode_address(railgun_address)?;
-   Ok(data.viewing_public_key)
-}
-
 #[cfg(test)]
 mod test {
    use super::*;
@@ -482,11 +541,25 @@ mod test {
       let seed = mnemonic.to_seed("");
 
       let sec_seed = SecureArray::from_slice(&seed).unwrap();
-      let address_data = generate_address_data(sec_seed, 0, None).unwrap();
+      let address_data = generate_address_data(sec_seed.clone(), 0, None).unwrap();
 
       let encoded_address = encode_address(&address_data).unwrap();
       eprintln!("Encoded Address: {}", encoded_address);
       println!("Railway Address: {}", railway_address);
+
+      // Test new full key derivation
+      let keys = generate_railgun_keys(sec_seed, 0, None).expect("generate_railgun_keys failed");
+      assert_eq!(
+         keys.viewing_public,
+         address_data.viewing_public_key
+      );
+      assert_eq!(
+         keys.master_public_key,
+         address_data.master_public_key
+      );
+      // private keys should be 32 bytes when unlocked
+      let _ = keys.spending_private.unlock(|b| assert_eq!(b.len(), 32));
+      let _ = keys.viewing_private.unlock(|b| assert_eq!(b.len(), 32));
    }
 
    #[test]
@@ -501,7 +574,6 @@ mod test {
 
    #[test]
    fn test_decode_specific_address() {
-
       let wallet = gen_wallet();
       let full_key = wallet.master_wallet.full_key().unwrap();
       let address_data = generate_address_data(full_key, 0, None).unwrap();
@@ -517,7 +589,13 @@ mod test {
       );
 
       assert_eq!(decoded.version, address_data.version);
-      assert_eq!(viewing_key.len(), address_data.viewing_public_key.len());
-      assert_eq!(decoded.viewing_public_key, address_data.viewing_public_key);
+      assert_eq!(
+         viewing_key.len(),
+         address_data.viewing_public_key.len()
+      );
+      assert_eq!(
+         decoded.viewing_public_key,
+         address_data.viewing_public_key
+      );
    }
 }
