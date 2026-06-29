@@ -17,6 +17,9 @@ pub use contracts::{
 
 pub use merkle::PoseidonMerkleTree;
 
+// Re-export redb so users can easily open a Database for persistence
+pub use redb;
+
 pub use scanner::{OwnedNote, RailgunScanner};
 
 pub use note::{

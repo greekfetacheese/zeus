@@ -100,6 +100,44 @@ impl RailgunScanner {
       })
    }
 
+   /// Load the scanner state (spent nullifiers + owned notes + last_synced_block)
+   /// from a simple binary file.
+   ///
+   /// If the file does not exist or is empty, the scanner keeps its current (empty) state.
+   /// Use together with `load_merkle_tree` for full persistence.
+   pub fn load_state_from_file(&mut self, path: &str) -> Result<()> {
+      let data = match std::fs::read(path) {
+         Ok(d) => d,
+         Err(_) => return Ok(()),
+      };
+
+      if data.is_empty() {
+         return Ok(());
+      }
+
+      let (nulls, notes, last) = deserialize_scanner_state(&data)?;
+      self.spent_nullifiers = nulls;
+      self.owned_notes = notes;
+
+      if last > 0 {
+         self.last_synced_block = last;
+      }
+
+      Ok(())
+   }
+
+   /// Save the full scanner state (nullifiers + owned notes + last block) to a binary file.
+   /// Use together with `save_merkle_tree` (redb) for complete persistence.
+   pub fn save_state_to_file(&self, path: &str) -> Result<()> {
+      let bytes = serialize_scanner_state(
+         &self.spent_nullifiers,
+         &self.owned_notes,
+         self.last_synced_block,
+      );
+      std::fs::write(path, &bytes)?;
+      Ok(())
+   }
+
    /// Get current private balance (sum of unspent owned notes, in the base unit of the token).
    /// Note: This is a simplified version — real implementation groups by token.
    pub fn private_balance(&self) -> U256 {
@@ -157,7 +195,9 @@ impl RailgunScanner {
 
       for log in logs {
          // Shield: contains preimages. We must compute the actual leaf = poseidon(npk, tokenID, value)
-         if let Ok(decoded) = <RailgunSmartWallet::Shield as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
+         if let Ok(decoded) =
+            <RailgunSmartWallet::Shield as alloy_sol_types::SolEvent>::decode_log(&log.inner)
+         {
             for preimage in decoded.data.commitments {
                let token_data = crate::note::TokenData {
                   token_type: match preimage.token.tokenType {
@@ -183,7 +223,9 @@ impl RailgunScanner {
          }
 
          // Transact: hash[] are the pre-computed leaves (already hashed by the contract)
-         if let Ok(decoded) = <RailgunSmartWallet::Transact as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
+         if let Ok(decoded) =
+            <RailgunSmartWallet::Transact as alloy_sol_types::SolEvent>::decode_log(&log.inner)
+         {
             for h in decoded.data.hash {
                new_commitments.push(U256::from_be_slice(&h[..]));
             }
@@ -191,7 +233,9 @@ impl RailgunScanner {
          }
 
          // Nullified
-         if let Ok(decoded) = <RailgunSmartWallet::Nullified as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
+         if let Ok(decoded) =
+            <RailgunSmartWallet::Nullified as alloy_sol_types::SolEvent>::decode_log(&log.inner)
+         {
             for n in decoded.data.nullifier {
                self.spent_nullifiers.insert(U256::from_be_slice(&n[..]));
             }
@@ -303,6 +347,92 @@ impl RailgunScanner {
    }
 }
 
+// ===================== Simple binary serialization for scanner state =====================
+
+fn serialize_scanner_state(
+   nullifiers: &std::collections::HashSet<U256>,
+   owned: &[OwnedNote],
+   last_block: u64,
+) -> Vec<u8> {
+   let mut b = Vec::new();
+   b.extend_from_slice(&last_block.to_le_bytes());
+   let null_vec: Vec<U256> = nullifiers.iter().copied().collect();
+   b.extend_from_slice(&(null_vec.len() as u64).to_le_bytes());
+   for n in &null_vec {
+      b.extend_from_slice(&n.to_be_bytes::<32>());
+   }
+   b.extend_from_slice(&(owned.len() as u64).to_le_bytes());
+   for on in owned {
+      b.extend_from_slice(&on.leaf_index.to_le_bytes());
+      b.extend_from_slice(&on.nullifier.to_be_bytes::<32>());
+      b.extend_from_slice(&on.commitment.to_be_bytes::<32>());
+      let nb = on.note.to_bytes();
+      b.extend_from_slice(&(nb.len() as u32).to_le_bytes());
+      b.extend_from_slice(&nb);
+   }
+   b
+}
+
+fn deserialize_scanner_state(
+   data: &[u8],
+) -> Result<(
+   std::collections::HashSet<U256>,
+   Vec<OwnedNote>,
+   u64,
+)> {
+   if data.len() < 8 {
+      return Ok((Default::default(), vec![], 0));
+   }
+   let mut offset = 0;
+   let last_block = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+   offset += 8;
+   let nlen = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap()) as usize;
+   offset += 8;
+   let mut nulls = std::collections::HashSet::with_capacity(nlen);
+   for _ in 0..nlen {
+      if offset + 32 > data.len() {
+         break;
+      }
+      let mut buf = [0u8; 32];
+      buf.copy_from_slice(&data[offset..offset + 32]);
+      nulls.insert(U256::from_be_bytes(buf));
+      offset += 32;
+   }
+   if offset + 8 > data.len() {
+      return Ok((nulls, vec![], last_block));
+   }
+   let olen = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap()) as usize;
+   offset += 8;
+   let mut notes = Vec::with_capacity(olen);
+   for _ in 0..olen {
+      if offset + 72 > data.len() {
+         break;
+      }
+      let li = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+      offset += 8;
+      let mut nul = [0u8; 32];
+      nul.copy_from_slice(&data[offset..offset + 32]);
+      offset += 32;
+      let mut com = [0u8; 32];
+      com.copy_from_slice(&data[offset..offset + 32]);
+      offset += 32;
+      let nl = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+      offset += 4;
+      if offset + nl > data.len() {
+         break;
+      }
+      let note = Note::from_bytes(&data[offset..offset + nl])?;
+      offset += nl;
+      notes.push(OwnedNote {
+         note,
+         leaf_index: li,
+         nullifier: U256::from_be_bytes(nul),
+         commitment: U256::from_be_bytes(com),
+      });
+   }
+   Ok((nulls, notes, last_block))
+}
+
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -327,5 +457,49 @@ mod tests {
       assert_eq!(scanner.chain_id, 1);
       assert_eq!(scanner.owned_notes.len(), 0);
       assert_eq!(scanner.private_balance(), U256::ZERO);
+   }
+
+   #[test]
+   fn test_scanner_state_ser_de() {
+      let mut nulls = std::collections::HashSet::new();
+      nulls.insert(U256::from(42u64));
+      nulls.insert(U256::from(43u64));
+
+      let owned: Vec<OwnedNote> = vec![];
+      let bytes = serialize_scanner_state(&nulls, &owned, 123);
+      let (loaded_nulls, loaded_owned, last) = deserialize_scanner_state(&bytes).unwrap();
+
+      assert_eq!(last, 123);
+      assert_eq!(loaded_nulls.len(), 2);
+      assert!(loaded_owned.is_empty());
+      assert!(loaded_nulls.contains(&U256::from(42u64)));
+   }
+
+   #[test]
+   fn test_scanner_load_save_state_file() {
+      let seed = dummy_seed();
+      let keys = generate_railgun_keys(seed, 0, None).unwrap();
+
+      let mut scanner = RailgunScanner::new(&keys, 1).unwrap();
+
+      // Populate some state
+      scanner.last_synced_block = 123456;
+      scanner.spent_nullifiers.insert(U256::from(999u64));
+
+      let state_path = "/tmp/zeus-railgun-test-scanner.state";
+
+      // Save
+      scanner.save_state_to_file(state_path).unwrap();
+
+      // Load into a fresh scanner
+      let mut scanner2 = RailgunScanner::new(&keys, 1).unwrap();
+      scanner2.load_state_from_file(state_path).unwrap();
+
+      assert_eq!(scanner2.last_synced_block, 123456);
+      assert!(scanner2.spent_nullifiers.contains(&U256::from(999u64)));
+      assert_eq!(scanner2.owned_notes.len(), 0);
+
+      // cleanup
+      let _ = std::fs::remove_file(state_path);
    }
 }

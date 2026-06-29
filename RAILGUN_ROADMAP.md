@@ -10,7 +10,18 @@
   Removed legacy GeneratedCommitmentBatch / CommitmentBatch (not present in current contracts).
 - PoseidonMerkleTree implemented.
 - RailgunScanner updated to correctly decode real events, compute leaves for Shield (using our poseidon), insert direct hashes from Transact, track nullifiers.
-- References added: /home/cion/Railgun/Railgun contracts and /home/cion/Railgun/deployments  
+- References added: /home/cion/Railgun/Railgun contracts and /home/cion/Railgun/deployments
+- **Disk persistence for PoseidonMerkleTree implemented using redb** (stable pure-Rust DB).
+  - `PoseidonMerkleTree::open(path, tree_id)`, `load(db, tree_id)`, `save(db, tree_id)`
+  - `from_leaves` / `leaves()` helpers for roundtrips
+  - `RailgunScanner` now has `load_merkle_tree(&db, tree_id)` and `save_merkle_tree(&db, tree_id)`
+  - All tests passing (including persistence roundtrips)
+- **Disk persistence for scanner state (spent nullifiers + owned notes + last_synced_block) implemented** (simple binary file for reliability, works with redb tree).
+  - `RailgunScanner::load_state_from_file(path)` / `save_state_to_file(path)`
+  - Full roundtrip for nullifiers + owned notes (using Note::to_bytes / from_bytes) + last block
+  - Ser/de tested and passing
+  - Use together with the redb merkle tree persistence
+  - All tests passing (16/16)
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 

@@ -189,9 +189,219 @@ impl Note {
       )
    }
 
+
    /// Returns the note commitment (what goes into the UTXO Merkle tree).
    pub fn commitment(&self) -> U256 {
       self.commitment
+   }
+
+   // ===================== Serialization for persistence =====================
+
+   /// Serialize the Note to bytes (for redb / disk storage).
+   /// Format is custom but deterministic and versioned.
+   pub fn to_bytes(&self) -> Vec<u8> {
+      let mut buf = Vec::new();
+
+      // receiver_master_public_key
+      buf.extend_from_slice(&self.receiver_master_public_key.to_be_bytes::<32>());
+
+      // random [16]
+      buf.extend_from_slice(&self.random);
+
+      // value
+      buf.extend_from_slice(&self.value.to_be_bytes::<32>());
+
+      // token_data
+      buf.push(self.token_data.token_type as u8);
+      let addr_bytes = self.token_data.token_address.as_bytes();
+      buf.extend_from_slice(&(addr_bytes.len() as u32).to_le_bytes());
+      buf.extend_from_slice(addr_bytes);
+      buf.extend_from_slice(&self.token_data.token_sub_id.to_be_bytes::<32>());
+
+      // sender_address_data (Option<AddressData>)
+      if let Some(ref addr) = self.sender_address_data {
+         buf.push(1);
+         buf.extend_from_slice(&addr.master_public_key.to_be_bytes::<32>());
+         buf.extend_from_slice(&addr.viewing_public_key);
+         // chain + version (simple)
+         let chain_id = addr.chain.map(|c| c.id).unwrap_or(0);
+         buf.extend_from_slice(&chain_id.to_le_bytes());
+         buf.push(addr.version);
+      } else {
+         buf.push(0);
+      }
+
+      // memo
+      if let Some(ref m) = self.memo {
+         buf.push(1);
+         let mb = m.as_bytes();
+         buf.extend_from_slice(&(mb.len() as u32).to_le_bytes());
+         buf.extend_from_slice(mb);
+      } else {
+         buf.push(0);
+      }
+
+      // sender_random
+      if let Some(r) = self.sender_random {
+         buf.push(1);
+         buf.extend_from_slice(&r);
+      } else {
+         buf.push(0);
+      }
+
+      // blinded_keys
+      if let Some(ref bk) = self.blinded_keys {
+         buf.push(1);
+         buf.extend_from_slice(&bk.blinded_sender_viewing_key);
+         buf.extend_from_slice(&bk.blinded_receiver_viewing_key);
+      } else {
+         buf.push(0);
+      }
+
+      // derived fields
+      buf.extend_from_slice(&self.note_public_key.to_be_bytes::<32>());
+      buf.extend_from_slice(&self.commitment.to_be_bytes::<32>());
+      buf.extend_from_slice(&self.token_hash);
+
+      buf
+   }
+
+   /// Deserialize a Note from bytes.
+   pub fn from_bytes(data: &[u8]) -> Result<Self> {
+      if data.len() < 32 + 16 + 32 {
+         return Err(anyhow!("note bytes too short"));
+      }
+
+      let mut offset = 0;
+
+      let mut recv = [0u8; 32];
+      recv.copy_from_slice(&data[offset..offset+32]);
+      let receiver_master_public_key = U256::from_be_bytes(recv);
+      offset += 32;
+
+      let mut random = [0u8; 16];
+      random.copy_from_slice(&data[offset..offset+16]);
+      offset += 16;
+
+      let mut val = [0u8; 32];
+      val.copy_from_slice(&data[offset..offset+32]);
+      let value = U256::from_be_bytes(val);
+      offset += 32;
+
+      let token_type = TokenType::from(data[offset]);
+      offset += 1;
+
+      let addr_len = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+      offset += 4;
+      let token_address = String::from_utf8(data[offset..offset+addr_len].to_vec())
+         .map_err(|_| anyhow!("bad token address utf8"))?;
+      offset += addr_len;
+
+      let mut sub = [0u8; 32];
+      sub.copy_from_slice(&data[offset..offset+32]);
+      let token_sub_id = U256::from_be_bytes(sub);
+      offset += 32;
+
+      let token_data = TokenData { token_type, token_address, token_sub_id };
+
+      // sender_address_data
+      let has_sender = data[offset];
+      offset += 1;
+      let sender_address_data = if has_sender == 1 {
+         let mut mpk = [0u8; 32];
+         mpk.copy_from_slice(&data[offset..offset+32]);
+         offset += 32;
+         let mut vpk = [0u8; 32];
+         vpk.copy_from_slice(&data[offset..offset+32]);
+         offset += 32;
+
+         let chain_id = u64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
+         offset += 8;
+         let version = data[offset];
+         offset += 1;
+
+         Some(AddressData {
+            master_public_key: U256::from_be_bytes(mpk),
+            viewing_public_key: vpk,
+            chain: if chain_id == 0 { None } else { Some(crate::address::Chain { type_: 0, id: chain_id }) },
+            version,
+         })
+      } else {
+         None
+      };
+
+      // memo
+      let has_memo = data[offset];
+      offset += 1;
+      let memo = if has_memo == 1 {
+         let mlen = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+         offset += 4;
+         let m = String::from_utf8(data[offset..offset+mlen].to_vec()).ok();
+         offset += mlen;
+         m
+      } else {
+         None
+      };
+
+      // sender_random
+      let has_sr = data[offset];
+      offset += 1;
+      let sender_random = if has_sr == 1 {
+         let mut sr = [0u8; 32];
+         sr.copy_from_slice(&data[offset..offset+32]);
+         offset += 32;
+         Some(sr)
+      } else {
+         None
+      };
+
+      // blinded_keys
+      let has_bk = data[offset];
+      offset += 1;
+      let blinded_keys = if has_bk == 1 {
+         let mut bs = [0u8; 32];
+         bs.copy_from_slice(&data[offset..offset+32]);
+         offset += 32;
+         let mut br = [0u8; 32];
+         br.copy_from_slice(&data[offset..offset+32]);
+         offset += 32;
+         Some(BlindedViewingKeys {
+            blinded_sender_viewing_key: bs,
+            blinded_receiver_viewing_key: br,
+         })
+      } else {
+         None
+      };
+
+      // derived
+      let mut npk = [0u8; 32];
+      npk.copy_from_slice(&data[offset..offset+32]);
+      let note_public_key = U256::from_be_bytes(npk);
+      offset += 32;
+
+      let mut comm = [0u8; 32];
+      comm.copy_from_slice(&data[offset..offset+32]);
+      let commitment = U256::from_be_bytes(comm);
+      offset += 32;
+
+      let mut th = [0u8; 32];
+      th.copy_from_slice(&data[offset..offset+32]);
+      let token_hash = th;
+      // offset += 32; not needed
+
+      Ok(Self {
+         receiver_master_public_key,
+         random,
+         value,
+         token_data,
+         sender_address_data,
+         memo,
+         sender_random,
+         blinded_keys,
+         note_public_key,
+         commitment,
+         token_hash,
+      })
    }
 }
 
