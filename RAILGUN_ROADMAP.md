@@ -1,10 +1,16 @@
 # Zeus + Railgun Integration Roadmap
 
-**Status (2026-06-29)**: 
+**Status (2026-06-29)**:
 - Note model + blinded keys + nullifiers complete.
-- Contract ABIs brought in via `sol!` (key events: Shield, Transact, Nullifiers, etc.).
-- PoseidonMerkleTree implemented (32 levels, batch inserts, proofs).
-- RailgunScanner started: uses RpcClient from zeus-eth, syncs tree + nullifiers from logs, supports decrypting received notes (from Waku), tracks owned unspent notes + private balance.  
+- **Contract ABIs verified & corrected** against actual RailgunLogic.sol + Globals.sol (pulled from Etherscan) + deployments/implementation.ts.
+  Correct events:
+  - Shield(treeNumber, startPosition, CommitmentPreimage[], ShieldCiphertext[], fees[])
+  - Transact(treeNumber, startPosition, hash[] (leaves), CommitmentCiphertext[])
+  - Unshield + Nullified(uint16, bytes32[])
+  Removed legacy GeneratedCommitmentBatch / CommitmentBatch (not present in current contracts).
+- PoseidonMerkleTree implemented.
+- RailgunScanner updated to correctly decode real events, compute leaves for Shield (using our poseidon), insert direct hashes from Transact, track nullifiers.
+- References added: /home/cion/Railgun/Railgun contracts and /home/cion/Railgun/deployments  
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 

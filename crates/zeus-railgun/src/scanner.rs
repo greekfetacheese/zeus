@@ -17,7 +17,6 @@ use std::collections::HashSet;
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use alloy_rpc_types::Filter;
-use alloy_sol_types::SolEvent;
 use anyhow::{Result, anyhow};
 use zeus_eth::utils::client::RpcClient;
 
@@ -143,14 +142,13 @@ impl RailgunScanner {
          return Ok(());
       }
 
-      // Build filter for Railgun events
+      // Build filter for Railgun events (current contract signatures)
       let filter =
          Filter::new().address(contract).from_block(from_block).to_block(latest).events([
-            "Shield(uint256,uint256,(uint256,uint256,uint256)[])",
-            "Transact(uint256,uint256,bytes32[])",
-            "GeneratedCommitmentBatch(uint256,uint256,(uint256,uint256,uint256)[])",
-            "CommitmentBatch(uint256,uint256,uint256[])",
-            "Nullifiers(uint256,uint256[])",
+            "Shield(uint256,uint256,(uint8,address,uint256)[],(bytes32[3],bytes32)[],uint256[])",
+            "Transact(uint256,uint256,bytes32[],(bytes32[4],bytes32,bytes32,bytes,bytes)[])",
+            "Unshield(address,(uint8,address,uint256),uint256,uint256)",
+            "Nullified(uint16,bytes32[])",
          ]);
 
       let logs = client.get_logs(&filter).await?;
@@ -158,38 +156,44 @@ impl RailgunScanner {
       let mut new_commitments: Vec<U256> = Vec::new();
 
       for log in logs {
-         // Try to decode as Railgun events using our sol! types
-         if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log.inner) {
-            for c in decoded.data.commitments {
-               let _commitment = U256::from(c.npk); // simplified; real commitment is poseidon(npk, token, value)
-               // Actually the event already contains the pre-hashed commitment in some versions.
-               // For V2.1 the Shield event gives raw commitments that we must hash ourselves?
-               // For now we treat the npk field loosely — real impl needs to reconstruct the commitment.
-               new_commitments.push(U256::from(c.npk));
+         // Shield: contains preimages. We must compute the actual leaf = poseidon(npk, tokenID, value)
+         if let Ok(decoded) = <RailgunSmartWallet::Shield as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
+            for preimage in decoded.data.commitments {
+               let token_data = crate::note::TokenData {
+                  token_type: match preimage.token.tokenType {
+                     0 => crate::note::TokenType::ERC20,
+                     1 => crate::note::TokenType::ERC721,
+                     _ => crate::note::TokenType::ERC1155,
+                  },
+                  token_address: format!("0x{:x}", preimage.token.tokenAddress),
+                  token_sub_id: preimage.token.tokenSubID,
+               };
+
+               if let Ok(token_hash) = crate::note::compute_token_hash(&token_data) {
+                  if let Ok(leaf) = crate::note::compute_commitment(
+                     U256::from_be_slice(&preimage.npk[..]),
+                     token_hash,
+                     U256::from(preimage.value),
+                  ) {
+                     new_commitments.push(leaf);
+                  }
+               }
             }
             continue;
          }
 
-         if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner) {
-            // Transact events give hashes (already the note commitments in many cases)
+         // Transact: hash[] are the pre-computed leaves (already hashed by the contract)
+         if let Ok(decoded) = <RailgunSmartWallet::Transact as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
             for h in decoded.data.hash {
                new_commitments.push(U256::from_be_slice(&h[..]));
             }
             continue;
          }
 
-         if let Ok(decoded) =
-            <RailgunSmartWallet::GeneratedCommitmentBatch as SolEvent>::decode_log(&log.inner)
-         {
-            for c in decoded.data.commitments {
-               new_commitments.push(U256::from(c.npk));
-            }
-            continue;
-         }
-
-         if let Ok(decoded) = <RailgunSmartWallet::Nullifiers as SolEvent>::decode_log(&log.inner) {
+         // Nullified
+         if let Ok(decoded) = <RailgunSmartWallet::Nullified as alloy_sol_types::SolEvent>::decode_log(&log.inner) {
             for n in decoded.data.nullifier {
-               self.spent_nullifiers.insert(U256::from(n));
+               self.spent_nullifiers.insert(U256::from_be_slice(&n[..]));
             }
             continue;
          }
