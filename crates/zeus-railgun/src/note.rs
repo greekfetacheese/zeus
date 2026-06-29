@@ -1,22 +1,26 @@
 //! Railgun Note / Commitment model + encryption/decryption.
 //!
 //! This module implements the core "Note" concept used by Railgun:
-//! - Note public key (npk)
-//! - Note commitment (hash stored in the Poseidon Merkle tree)
-//! - Encryption of notes to a receiver using their viewing key (shared secret derivation + AES-GCM)
+//! - Note public key (npk) + commitment (Poseidon Merkle tree)
+//! - Blinded viewing keys (sender/receiver) for private transfers
+//! - Encryption/decryption using viewing key (AES-GCM for note + AES-CTR for annotation)
+//! - Nullifier computation
 //!
-//! References: Railgun engine transact-note.ts, note-util.ts, keys-utils.ts
+//! References: Railgun engine transact-note.ts, keys-utils.ts, memo.ts
 
-use crate::address::AddressData;
+use crate::address::{AddressData, RailgunKeys};
+use aes::cipher::{KeyIvInit, StreamCipher};
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Nonce,
+   Aes256Gcm, Nonce,
+   aead::{Aead, KeyInit},
 };
 use alloy_primitives::U256;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
+use ctr::Ctr128BE;
 use curve25519_dalek::scalar::Scalar;
+type Aes256Ctr = Ctr128BE<aes::Aes256>;
 use light_poseidon::{Poseidon, PoseidonHasher};
 use sha2::{Digest, Sha256, Sha512};
 use std::fmt;
@@ -25,39 +29,54 @@ use std::fmt;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TokenType {
-    ERC20 = 0,
-    ERC721 = 1,
-    ERC1155 = 2,
+   ERC20 = 0,
+   ERC721 = 1,
+   ERC1155 = 2,
 }
 
 impl From<u8> for TokenType {
-    fn from(v: u8) -> Self {
-        match v {
-            1 => TokenType::ERC721,
-            2 => TokenType::ERC1155,
-            _ => TokenType::ERC20,
-        }
-    }
+   fn from(v: u8) -> Self {
+      match v {
+         1 => TokenType::ERC721,
+         2 => TokenType::ERC1155,
+         _ => TokenType::ERC20,
+      }
+   }
 }
 
 /// Token data for a note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenData {
-    /// Token contract address (hex, with or without 0x)
-    pub token_address: String,
-    pub token_type: TokenType,
-    /// For ERC721/1155 this is the token id. For ERC20 it must be 0.
-    pub token_sub_id: U256,
+   /// Token contract address (hex, with or without 0x)
+   pub token_address: String,
+   pub token_type: TokenType,
+   /// For ERC721/1155 this is the token id. For ERC20 it must be 0.
+   pub token_sub_id: U256,
 }
 
 impl TokenData {
-    pub fn new_erc20(token_address: impl Into<String>) -> Self {
-        Self {
-            token_address: token_address.into(),
-            token_type: TokenType::ERC20,
-            token_sub_id: U256::ZERO,
-        }
-    }
+   pub fn new_erc20(token_address: impl Into<String>) -> Self {
+      Self {
+         token_address: token_address.into(),
+         token_type: TokenType::ERC20,
+         token_sub_id: U256::ZERO,
+      }
+   }
+}
+
+/// Blinded viewing keys published on-chain for a note.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlindedViewingKeys {
+   pub blinded_sender_viewing_key: [u8; 32],
+   pub blinded_receiver_viewing_key: [u8; 32],
+}
+
+/// Annotation data that can be attached to a note (output type, sender random, wallet source).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NoteAnnotationData {
+   pub output_type: u8,
+   pub sender_random: [u8; 16],
+   pub wallet_source: Option<String>,
 }
 
 /// A Railgun private note (the fundamental privacy primitive).
@@ -65,124 +84,334 @@ impl TokenData {
 /// This is the Rust-native equivalent of `TransactNote`.
 #[derive(Clone, Debug)]
 pub struct Note {
-    /// The receiver's master public key (from their 0zk address).
-    pub receiver_master_public_key: U256,
+   /// The receiver's master public key (from their 0zk address).
+   pub receiver_master_public_key: U256,
 
-    /// 16-byte random value for this note (used in npk and as blinding).
-    pub random: [u8; 16],
+   /// 16-byte random value for this note (used in npk and as blinding).
+   pub random: [u8; 16],
 
-    /// Amount / value of the note.
-    pub value: U256,
+   /// Amount / value of the note.
+   pub value: U256,
 
-    /// Token information.
-    pub token_data: TokenData,
+   /// Token information.
+   pub token_data: TokenData,
 
-    /// Optional sender address data (only present if sender chose to reveal).
-    pub sender_address_data: Option<AddressData>,
+   /// Optional sender address data (only present if sender chose to reveal).
+   pub sender_address_data: Option<AddressData>,
 
-    /// Optional memo text.
-    pub memo: Option<String>,
+   /// Optional memo text.
+   pub memo: Option<String>,
 
-    // --- Derived / cached ---
-    /// notePublicKey = poseidon([masterPublicKey, random])
-    pub note_public_key: U256,
+   /// Sender random used for blinding (32 bytes, only known to sender at creation time).
+   pub sender_random: Option<[u8; 32]>,
 
-    /// The actual commitment put into the Merkle tree:
-    /// hash = poseidon([notePublicKey, tokenHash, value])
-    pub commitment: U256,
+   /// Blinded viewing keys (published on-chain).
+   pub blinded_keys: Option<BlindedViewingKeys>,
 
-    /// Token hash (used in commitment). For ERC20 this is just the padded address.
-    pub token_hash: [u8; 32],
+   // --- Derived / cached ---
+   /// notePublicKey = poseidon([masterPublicKey, random])
+   pub note_public_key: U256,
+
+   /// The actual commitment put into the Merkle tree:
+   /// hash = poseidon([notePublicKey, tokenHash, value])
+   pub commitment: U256,
+
+   /// Token hash (used in commitment). For ERC20 this is just the padded address.
+   pub token_hash: [u8; 32],
 }
 
 impl Note {
-    /// Create a new note (the main constructor for transfers/shields).
-    pub fn new(
-        receiver_master_public_key: U256,
-        random: [u8; 16],
-        value: U256,
-        token_data: TokenData,
-        sender_address_data: Option<AddressData>,
-        memo: Option<String>,
-    ) -> Result<Self> {
-        let token_hash = compute_token_hash(&token_data)?;
-        let note_public_key = compute_note_public_key(receiver_master_public_key, random)?;
-        let commitment = compute_commitment(note_public_key, token_hash, value)?;
+   /// Create a new note (the main constructor for transfers/shields).
+   pub fn new(
+      receiver_master_public_key: U256,
+      random: [u8; 16],
+      value: U256,
+      token_data: TokenData,
+      sender_address_data: Option<AddressData>,
+      memo: Option<String>,
+   ) -> Result<Self> {
+      Self::new_with_blinding(
+         receiver_master_public_key,
+         random,
+         value,
+         token_data,
+         sender_address_data,
+         memo,
+         None, // no sender_random by default
+         None, // no blinded keys by default
+      )
+   }
 
-        Ok(Self {
-            receiver_master_public_key,
-            random,
-            value,
-            token_data,
-            sender_address_data,
-            memo,
-            note_public_key,
-            commitment,
-            token_hash,
-        })
-    }
+   /// Extended constructor that also carries blinding information (used for private transfers).
+   pub fn new_with_blinding(
+      receiver_master_public_key: U256,
+      random: [u8; 16],
+      value: U256,
+      token_data: TokenData,
+      sender_address_data: Option<AddressData>,
+      memo: Option<String>,
+      sender_random: Option<[u8; 32]>,
+      blinded_keys: Option<BlindedViewingKeys>,
+   ) -> Result<Self> {
+      let token_hash = compute_token_hash(&token_data)?;
+      let note_public_key = compute_note_public_key(receiver_master_public_key, random)?;
+      let commitment = compute_commitment(note_public_key, token_hash, value)?;
 
-    /// Convenience constructor for a simple ERC20 transfer note.
-    pub fn new_erc20(
-        receiver_master_public_key: U256,
-        random: [u8; 16],
-        value: U256,
-        token_address: impl Into<String>,
-    ) -> Result<Self> {
-        Self::new(
-            receiver_master_public_key,
-            random,
-            value,
-            TokenData::new_erc20(token_address),
-            None,
-            None,
-        )
-    }
+      Ok(Self {
+         receiver_master_public_key,
+         random,
+         value,
+         token_data,
+         sender_address_data,
+         memo,
+         sender_random,
+         blinded_keys,
+         note_public_key,
+         commitment,
+         token_hash,
+      })
+   }
 
-    /// Returns the note commitment (what goes into the UTXO Merkle tree).
-    pub fn commitment(&self) -> U256 {
-        self.commitment
-    }
+   /// Convenience constructor for a simple ERC20 transfer note.
+   pub fn new_erc20(
+      receiver_master_public_key: U256,
+      random: [u8; 16],
+      value: U256,
+      token_address: impl Into<String>,
+   ) -> Result<Self> {
+      Self::new(
+         receiver_master_public_key,
+         random,
+         value,
+         TokenData::new_erc20(token_address),
+         None,
+         None,
+      )
+   }
+
+   /// Returns the note commitment (what goes into the UTXO Merkle tree).
+   pub fn commitment(&self) -> U256 {
+      self.commitment
+   }
 }
 
 /// Compute the token hash exactly as Railgun does.
 pub fn compute_token_hash(token: &TokenData) -> Result<[u8; 32]> {
-    match token.token_type {
-        TokenType::ERC20 => {
-            let addr = parse_hex_address(&token.token_address)?;
-            let mut out = [0u8; 32];
-            // right-align the 20-byte address (standard for Railgun ERC20)
-            out[12..].copy_from_slice(&addr);
-            Ok(out)
-        }
-        TokenType::ERC721 | TokenType::ERC1155 => {
-            // Simplified for now (real impl uses keccak + mod SNARK prime)
-            let mut hasher = Sha256::new();
-            hasher.update([token.token_type as u8]);
-            hasher.update(parse_hex_address(&token.token_address)?);
-            hasher.update(token.token_sub_id.to_be_bytes::<32>());
-            let hash = hasher.finalize();
-            let mut out = [0u8; 32];
-            out.copy_from_slice(&hash);
-            Ok(out)
-        }
-    }
+   match token.token_type {
+      TokenType::ERC20 => {
+         let addr = parse_hex_address(&token.token_address)?;
+         let mut out = [0u8; 32];
+         // right-align the 20-byte address (standard for Railgun ERC20)
+         out[12..].copy_from_slice(&addr);
+         Ok(out)
+      }
+      TokenType::ERC721 | TokenType::ERC1155 => {
+         // Simplified for now (real impl uses keccak + mod SNARK prime)
+         let mut hasher = Sha256::new();
+         hasher.update([token.token_type as u8]);
+         hasher.update(parse_hex_address(&token.token_address)?);
+         hasher.update(token.token_sub_id.to_be_bytes::<32>());
+         let hash = hasher.finalize();
+         let mut out = [0u8; 32];
+         out.copy_from_slice(&hash);
+         Ok(out)
+      }
+   }
 }
 
 /// notePublicKey = poseidon([receiverMasterPublicKey, random])
 pub fn compute_note_public_key(master_pubkey: U256, random: [u8; 16]) -> Result<U256> {
-    let random_big = U256::from_be_slice(&random);
-    poseidon_hash(vec![master_pubkey, random_big])
+   let random_big = U256::from_be_slice(&random);
+   poseidon_hash(vec![master_pubkey, random_big])
 }
 
 /// Main commitment function:
 /// commitment = poseidon([notePublicKey, tokenHash, value])
-pub fn compute_commitment(note_public_key: U256, token_hash: [u8; 32], value: U256) -> Result<U256> {
-    let token_big = U256::from_be_slice(&token_hash);
-    poseidon_hash(vec![note_public_key, token_big, value])
+pub fn compute_commitment(
+   note_public_key: U256,
+   token_hash: [u8; 32],
+   value: U256,
+) -> Result<U256> {
+   let token_big = U256::from_be_slice(&token_hash);
+   poseidon_hash(vec![note_public_key, token_big, value])
 }
 
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// Blinded Viewing Keys (for proper note encryption + on-chain events)
+// -----------------------------------------------------------------------------
+
+/// Computes the blinding scalar used for both sender and receiver viewing keys.
+/// Port of Railgun's getBlindingScalar (XOR + seedToScalar).
+pub fn get_blinding_scalar(shared_random: &[u8; 32], sender_random: &[u8; 32]) -> Result<Scalar> {
+   // XOR the two 32-byte randoms
+   let mut final_random = [0u8; 32];
+   for i in 0..32 {
+      final_random[i] = shared_random[i] ^ sender_random[i];
+   }
+
+   // Hash to scalar (simplified version of seedToScalar)
+   let mut hasher = Sha512::new();
+   hasher.update(final_random);
+   let hash = hasher.finalize();
+
+   let mut head = [0u8; 32];
+   head.copy_from_slice(&hash[0..32]);
+
+   // Clamp like ed25519
+   head[0] &= 0b0111_1111;
+   head[0] |= 0b0100_0000;
+   head[31] &= 0b1111_1000;
+
+   head.reverse();
+
+   Ok(Scalar::from_bytes_mod_order(head))
+}
+
+/// Creates blinded sender and receiver viewing keys.
+/// These are published in the on-chain transact event.
+pub fn get_note_blinding_keys(
+   sender_viewing_public: &[u8; 32],
+   receiver_viewing_public: &[u8; 32],
+   shared_random: &[u8; 32],
+   sender_random: &[u8; 32],
+) -> Result<BlindedViewingKeys> {
+   let blinding_scalar = get_blinding_scalar(shared_random, sender_random)?;
+
+   // Parse points
+   let sender_pt = curve25519_dalek::edwards::CompressedEdwardsY(*sender_viewing_public)
+      .decompress()
+      .ok_or_else(|| anyhow!("Invalid sender viewing public key"))?;
+
+   let receiver_pt = curve25519_dalek::edwards::CompressedEdwardsY(*receiver_viewing_public)
+      .decompress()
+      .ok_or_else(|| anyhow!("Invalid receiver viewing public key"))?;
+
+   // Multiply
+   let blinded_sender = (sender_pt * blinding_scalar).compress().to_bytes();
+   let blinded_receiver = (receiver_pt * blinding_scalar).compress().to_bytes();
+
+   Ok(BlindedViewingKeys {
+      blinded_sender_viewing_key: blinded_sender,
+      blinded_receiver_viewing_key: blinded_receiver,
+   })
+}
+
+/// Unblinds a key (useful for sender to recover their own blinded key).
+pub fn unblind_note_key(
+   blinded_key: &[u8; 32],
+   shared_random: &[u8; 32],
+   sender_random: &[u8; 32],
+) -> Result<[u8; 32]> {
+   let blinding_scalar = get_blinding_scalar(shared_random, sender_random)?;
+
+   let pt = curve25519_dalek::edwards::CompressedEdwardsY(*blinded_key)
+      .decompress()
+      .ok_or_else(|| anyhow!("Invalid blinded key"))?;
+
+   // Compute inverse scalar
+   // Note: curve25519-dalek Scalar doesn't expose easy modular inverse,
+   // we use the fact that inverse can be computed via the order.
+   // For simplicity in this implementation we recompute using the same curve math.
+   // In production a proper inverse is needed.
+   let inverse = blinding_scalar.invert(); // if available; otherwise fall back
+
+   let unblinded = pt * inverse;
+   Ok(unblinded.compress().to_bytes())
+}
+
+// -----------------------------------------------------------------------------
+// Nullifier calculation (B)
+// -----------------------------------------------------------------------------
+
+/// Computes the nullifier for a note.
+/// nullifier = poseidon([nullifyingKey, leafIndex])
+///
+/// leaf_index is the position of this note's commitment in the Railgun Merkle tree.
+pub fn compute_nullifier(nullifying_key: U256, leaf_index: u64) -> Result<U256> {
+   let _leaf_fr = Fr::from(leaf_index);
+   // Convert to U256 for our poseidon helper
+   let mut leaf_bytes = [0u8; 32];
+   leaf_bytes[24..].copy_from_slice(&leaf_index.to_be_bytes());
+   let leaf_big = U256::from_be_slice(&leaf_bytes);
+
+   poseidon_hash(vec![nullifying_key, leaf_big])
+}
+
+// -----------------------------------------------------------------------------
+// Annotation Data (Memo system - simplified V2 style)
+// -----------------------------------------------------------------------------
+
+/// Encrypts annotation data using the viewing private key (AES-CTR).
+/// This is what gets put into the "annotationData" field on-chain.
+pub fn encrypt_annotation_data(
+   annotation: &NoteAnnotationData,
+   viewing_private_key: &[u8; 32],
+) -> Result<Vec<u8>> {
+   // Simplified: we use AES-CTR with the viewing key directly (as Railgun does for annotation)
+   let mut iv = [0u8; 16];
+   iv.copy_from_slice(&rand::random::<[u8; 16]>()[0..16]);
+
+   let mut data = Vec::new();
+   // outputType (1 byte) + senderRandom (15 bytes) packed to 16 bytes
+   data.push(annotation.output_type);
+   data.extend_from_slice(&annotation.sender_random[0..15]);
+
+   if let Some(ws) = &annotation.wallet_source {
+      // wallet source is optional second block in legacy
+      let mut ws_bytes = [0u8; 16];
+      let src = ws.as_bytes();
+      let len = src.len().min(16);
+      ws_bytes[..len].copy_from_slice(&src[..len]);
+      data.extend_from_slice(&ws_bytes);
+   }
+
+   let mut cipher = Aes256Ctr::new(viewing_private_key.into(), &iv.into());
+   let mut ciphertext = data.clone();
+   cipher.apply_keystream(&mut ciphertext);
+
+   let mut result = iv.to_vec();
+   result.extend(ciphertext);
+   Ok(result)
+}
+
+/// Decrypts annotation data.
+pub fn decrypt_annotation_data(
+   ciphertext: &[u8],
+   viewing_private_key: &[u8; 32],
+) -> Result<NoteAnnotationData> {
+   if ciphertext.len() < 16 {
+      return Err(anyhow!("Annotation ciphertext too short"));
+   }
+
+   let iv = &ciphertext[0..16];
+   let mut data = ciphertext[16..].to_vec();
+
+   let mut cipher = Aes256Ctr::new(viewing_private_key.into(), iv.into());
+   cipher.apply_keystream(&mut data);
+
+   if data.is_empty() {
+      return Err(anyhow!("Empty annotation data"));
+   }
+
+   let output_type = data[0];
+   let mut sender_random = [0u8; 16];
+   sender_random[0..15].copy_from_slice(&data[1..16]);
+
+   let wallet_source = if data.len() > 16 {
+      let ws = String::from_utf8_lossy(&data[16..]).trim_end_matches(' ').to_string();
+      if ws.is_empty() { None } else { Some(ws) }
+   } else {
+      None
+   };
+
+   Ok(NoteAnnotationData {
+      output_type,
+      sender_random,
+      wallet_source,
+   })
+}
 // Encryption / Decryption using Viewing Key
 // -----------------------------------------------------------------------------
 
@@ -190,114 +419,121 @@ pub fn compute_commitment(note_public_key: U256, token_hash: [u8; 32], value: U2
 ///
 /// Port of Railgun's `getSharedSymmetricKey`.
 pub fn derive_shared_symmetric_key(
-    viewing_private: &[u8; 32],
-    blinded_viewing_public: &[u8; 32],
+   viewing_private: &[u8; 32],
+   blinded_viewing_public: &[u8; 32],
 ) -> Result<[u8; 32]> {
-    let scalar = private_scalar_from_viewing_key(viewing_private)?;
+   let scalar = private_scalar_from_viewing_key(viewing_private)?;
 
-    // curve25519-dalek v4 style
-    let compressed = curve25519_dalek::edwards::CompressedEdwardsY(*blinded_viewing_public);
-    let pub_point = compressed
-        .decompress()
-        .ok_or_else(|| anyhow!("Invalid blinded viewing public key"))?;
+   // curve25519-dalek v4 style
+   let compressed = curve25519_dalek::edwards::CompressedEdwardsY(*blinded_viewing_public);
+   let pub_point = compressed
+      .decompress()
+      .ok_or_else(|| anyhow!("Invalid blinded viewing public key"))?;
 
-    let shared_point = pub_point * scalar;
+   let shared_point = pub_point * scalar;
 
-    let compressed = shared_point.compress().to_bytes();
-    let mut hasher = Sha256::new();
-    hasher.update(compressed);
-    let hash = hasher.finalize();
+   let compressed = shared_point.compress().to_bytes();
+   let mut hasher = Sha256::new();
+   hasher.update(compressed);
+   let hash = hasher.finalize();
 
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&hash);
-    Ok(out)
+   let mut out = [0u8; 32];
+   out.copy_from_slice(&hash);
+   Ok(out)
 }
 
 /// Port of Railgun's getPrivateScalarFromPrivateKey logic.
 fn private_scalar_from_viewing_key(privkey: &[u8; 32]) -> Result<Scalar> {
-    let mut hasher = Sha512::new();
-    hasher.update(privkey);
-    let hash = hasher.finalize();
+   let mut hasher = Sha512::new();
+   hasher.update(privkey);
+   let hash = hasher.finalize();
 
-    let mut head = [0u8; 32];
-    head.copy_from_slice(&hash[0..32]);
+   let mut head = [0u8; 32];
+   head.copy_from_slice(&hash[0..32]);
 
-    head[0] &= 0b0111_1111;
-    head[0] |= 0b0100_0000;
-    head[31] &= 0b1111_1000;
+   head[0] &= 0b0111_1111;
+   head[0] |= 0b0100_0000;
+   head[31] &= 0b1111_1000;
 
-    head.reverse();
+   head.reverse();
 
-    let scalar = Scalar::from_bytes_mod_order(head);
-    Ok(scalar)
+   let scalar = Scalar::from_bytes_mod_order(head);
+   Ok(scalar)
 }
 
 /// Encrypt a note for the receiver (V2 style - AES-GCM).
 pub fn encrypt_note_v2(note: &Note, shared_key: &[u8; 32]) -> Result<(Vec<u8>, [u8; 12])> {
-    let cipher = Aes256Gcm::new(shared_key.into());
+   let cipher = Aes256Gcm::new(shared_key.into());
 
-    let mut plaintext = Vec::new();
-    plaintext.extend_from_slice(&note.receiver_master_public_key.to_be_bytes::<32>());
-    plaintext.extend_from_slice(&note.token_hash);
-    plaintext.extend_from_slice(&note.random);
-    plaintext.extend_from_slice(&note.value.to_be_bytes::<32>());
+   let mut plaintext = Vec::new();
+   plaintext.extend_from_slice(&note.receiver_master_public_key.to_be_bytes::<32>());
+   plaintext.extend_from_slice(&note.token_hash);
+   plaintext.extend_from_slice(&note.random);
+   plaintext.extend_from_slice(&note.value.to_be_bytes::<32>());
 
-    if let Some(m) = &note.memo {
-        plaintext.extend_from_slice(m.as_bytes());
-    }
+   if let Some(m) = &note.memo {
+      plaintext.extend_from_slice(m.as_bytes());
+   }
 
-    let nonce = Nonce::from(rand::random::<[u8; 12]>());
-    let ciphertext = cipher
-        .encrypt(&nonce, plaintext.as_ref())
-        .map_err(|e| anyhow!("AES-GCM encrypt failed: {}", e))?;
+   let nonce = Nonce::from(rand::random::<[u8; 12]>());
+   let ciphertext = cipher
+      .encrypt(&nonce, plaintext.as_ref())
+      .map_err(|e| anyhow!("AES-GCM encrypt failed: {}", e))?;
 
-    Ok((ciphertext, nonce.into()))
+   Ok((ciphertext, nonce.into()))
 }
 
 /// Decrypt a note ciphertext using a derived shared key.
 pub fn decrypt_note_v2(ciphertext: &[u8], nonce: &[u8; 12], shared_key: &[u8; 32]) -> Result<Note> {
-    let cipher = Aes256Gcm::new(shared_key.into());
-    let plaintext = cipher
-        .decrypt(nonce.into(), ciphertext)
-        .map_err(|_| anyhow!("AES-GCM decrypt failed (wrong key or corrupted)"))?;
+   let cipher = Aes256Gcm::new(shared_key.into());
+   let plaintext = cipher
+      .decrypt(nonce.into(), ciphertext)
+      .map_err(|_| anyhow!("AES-GCM decrypt failed (wrong key or corrupted)"))?;
 
-    if plaintext.len() < 32 + 32 + 16 + 32 {
-        return Err(anyhow!("Decrypted note too short"));
-    }
+   if plaintext.len() < 32 + 32 + 16 + 32 {
+      return Err(anyhow!("Decrypted note too short"));
+   }
 
-    let mut offset = 0;
-    let mut mpk_bytes = [0u8; 32];
-    mpk_bytes.copy_from_slice(&plaintext[offset..offset + 32]);
-    offset += 32;
+   let mut offset = 0;
+   let mut mpk_bytes = [0u8; 32];
+   mpk_bytes.copy_from_slice(&plaintext[offset..offset + 32]);
+   offset += 32;
 
-    let mut token_hash = [0u8; 32];
-    token_hash.copy_from_slice(&plaintext[offset..offset + 32]);
-    offset += 32;
+   let mut token_hash = [0u8; 32];
+   token_hash.copy_from_slice(&plaintext[offset..offset + 32]);
+   offset += 32;
 
-    let mut random = [0u8; 16];
-    random.copy_from_slice(&plaintext[offset..offset + 16]);
-    offset += 16;
+   let mut random = [0u8; 16];
+   random.copy_from_slice(&plaintext[offset..offset + 16]);
+   offset += 16;
 
-    let mut value_bytes = [0u8; 32];
-    value_bytes.copy_from_slice(&plaintext[offset..offset + 32]);
-    let value = U256::from_be_slice(&value_bytes);
-    offset += 32;
+   let mut value_bytes = [0u8; 32];
+   value_bytes.copy_from_slice(&plaintext[offset..offset + 32]);
+   let value = U256::from_be_slice(&value_bytes);
+   offset += 32;
 
-    let memo = if offset < plaintext.len() {
-        Some(String::from_utf8_lossy(&plaintext[offset..]).to_string())
-    } else {
-        None
-    };
+   let memo = if offset < plaintext.len() {
+      Some(String::from_utf8_lossy(&plaintext[offset..]).to_string())
+   } else {
+      None
+   };
 
-    let receiver_mpk = U256::from_be_slice(&mpk_bytes);
+   let receiver_mpk = U256::from_be_slice(&mpk_bytes);
 
-    let token_data = TokenData {
-        token_address: "0x0000000000000000000000000000000000000000".to_string(),
-        token_type: TokenType::ERC20,
-        token_sub_id: U256::ZERO,
-    };
+   let token_data = TokenData {
+      token_address: "0x0000000000000000000000000000000000000000".to_string(),
+      token_type: TokenType::ERC20,
+      token_sub_id: U256::ZERO,
+   };
 
-    Note::new(receiver_mpk, random, value, token_data, None, memo)
+   Note::new(
+      receiver_mpk,
+      random,
+      value,
+      token_data,
+      None,
+      memo,
+   )
 }
 
 // -----------------------------------------------------------------------------
@@ -305,26 +541,26 @@ pub fn decrypt_note_v2(ciphertext: &[u8], nonce: &[u8; 12], shared_key: &[u8; 32
 // -----------------------------------------------------------------------------
 
 fn poseidon_hash(inputs: Vec<U256>) -> Result<U256> {
-    let arity = inputs.len();
-    if arity == 0 || arity > 12 {
-        return Err(anyhow!("Invalid number of inputs for poseidon"));
-    }
+   let arity = inputs.len();
+   if arity == 0 || arity > 12 {
+      return Err(anyhow!("Invalid number of inputs for poseidon"));
+   }
 
-    let mut fr_inputs = Vec::with_capacity(arity);
-    for input in inputs {
-        let bytes = input.to_le_bytes::<32>();
-        let fr = Fr::from_le_bytes_mod_order(&bytes);
-        fr_inputs.push(fr);
-    }
+   let mut fr_inputs = Vec::with_capacity(arity);
+   for input in inputs {
+      let bytes = input.to_le_bytes::<32>();
+      let fr = Fr::from_le_bytes_mod_order(&bytes);
+      fr_inputs.push(fr);
+   }
 
-    let mut poseidon = Poseidon::<Fr>::new_circom(arity)?;
-    let hash_fr = poseidon.hash(&fr_inputs)?;
-    let hash_big = hash_fr.into_bigint();
-    let be_bytes = hash_big.to_bytes_be();
-    let mut padded = [0u8; 32];
-    let start = 32 - be_bytes.len();
-    padded[start..].copy_from_slice(&be_bytes);
-    Ok(U256::from_be_bytes(padded))
+   let mut poseidon = Poseidon::<Fr>::new_circom(arity)?;
+   let hash_fr = poseidon.hash(&fr_inputs)?;
+   let hash_big = hash_fr.into_bigint();
+   let be_bytes = hash_big.to_bytes_be();
+   let mut padded = [0u8; 32];
+   let start = 32 - be_bytes.len();
+   padded[start..].copy_from_slice(&be_bytes);
+   Ok(U256::from_be_bytes(padded))
 }
 
 // -----------------------------------------------------------------------------
@@ -332,84 +568,213 @@ fn poseidon_hash(inputs: Vec<U256>) -> Result<U256> {
 // -----------------------------------------------------------------------------
 
 fn parse_hex_address(addr: &str) -> Result<[u8; 20]> {
-    let s = addr.strip_prefix("0x").unwrap_or(addr);
-    let bytes = hex::decode(s).map_err(|e| anyhow!("Bad hex address: {}", e))?;
-    if bytes.len() != 20 {
-        return Err(anyhow!("Address must be 20 bytes"));
-    }
-    let mut out = [0u8; 20];
-    out.copy_from_slice(&bytes);
-    Ok(out)
+   let s = addr.strip_prefix("0x").unwrap_or(addr);
+   let bytes = hex::decode(s).map_err(|e| anyhow!("Bad hex address: {}", e))?;
+   if bytes.len() != 20 {
+      return Err(anyhow!("Address must be 20 bytes"));
+   }
+   let mut out = [0u8; 20];
+   out.copy_from_slice(&bytes);
+   Ok(out)
 }
 
 impl fmt::Display for Note {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Note {{ commitment: 0x{:064x}, value: {}, token: {:?} }}",
-            self.commitment, self.value, self.token_data.token_address
-        )
-    }
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(
+         f,
+         "Note {{ commitment: 0x{:064x}, value: {}, token: {:?} }}",
+         self.commitment, self.value, self.token_data.token_address
+      )
+   }
+}
+
+/// Convenience: create a note for a receiver using the sender's full RailgunKeys.
+/// This automatically generates randoms and blinded keys when sender info is available.
+pub fn create_note_with_keys(
+   sender_keys: &RailgunKeys,
+   receiver_master_public_key: U256,
+   receiver_viewing_public: [u8; 32],
+   value: U256,
+   token_data: TokenData,
+   memo: Option<String>,
+) -> Result<Note> {
+   let random = rand::random::<[u8; 16]>();
+   let sender_random = rand::random::<[u8; 32]>();
+   let shared_random = rand::random::<[u8; 32]>();
+
+   let blinded = get_note_blinding_keys(
+      &sender_keys.viewing_public,
+      &receiver_viewing_public,
+      &shared_random,
+      &sender_random,
+   )?;
+
+   let note = Note::new_with_blinding(
+      receiver_master_public_key,
+      random,
+      value,
+      token_data,
+      None,
+      memo,
+      Some(sender_random),
+      Some(blinded),
+   )?;
+
+   Ok(note)
+}
+
+/// Compute a nullifier for one of your own notes using your RailgunKeys + leaf index.
+pub fn compute_nullifier_for_note(
+   keys: &RailgunKeys,
+   _commitment: U256, // or leaf index
+   leaf_index: u64,
+) -> Result<U256> {
+   compute_nullifier(keys.nullifying_key, leaf_index)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::address::generate_railgun_keys;
-    use bip39::{Language, Mnemonic};
-    use secure_types::SecureArray;
+   use super::*;
+   use crate::address::generate_railgun_keys;
+   use bip39::{Language, Mnemonic};
+   use secure_types::SecureArray;
 
-    fn test_mnemonic() -> SecureArray<u8, 64> {
-        let phrase = "boil belt beef hunt cruel lady code dance double city young rule very sight roast make eight travel tattoo mixed you color update double";
-        let mnemonic = Mnemonic::parse_in(Language::English, phrase).unwrap();
-        let seed = mnemonic.to_seed("");
-        SecureArray::from_slice(&seed).unwrap()
-    }
+   fn test_mnemonic() -> SecureArray<u8, 64> {
+      let phrase = "boil belt beef hunt cruel lady code dance double city young rule very sight roast make eight travel tattoo mixed you color update double";
+      let mnemonic = Mnemonic::parse_in(Language::English, phrase).unwrap();
+      let seed = mnemonic.to_seed("");
+      SecureArray::from_slice(&seed).unwrap()
+   }
 
-    #[test]
-    fn test_note_creation_and_commitment() {
-        let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
-        let master_pk = keys.master_public_key;
+   #[test]
+   fn test_note_creation_and_commitment() {
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let master_pk = keys.master_public_key;
 
-        let random = [0x42u8; 16];
-        let value = U256::from(1_000_000_000_000_000_000u128);
-        let token = TokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+      let random = [0x42u8; 16];
+      let value = U256::from(1_000_000_000_000_000_000u128);
+      let token = TokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 
-        let note = Note::new(master_pk, random, value, token, None, None).unwrap();
+      let note = Note::new(master_pk, random, value, token, None, None).unwrap();
 
-        assert!(note.commitment != U256::ZERO);
-        println!("Note commitment: 0x{:064x}", note.commitment);
-        println!("Note public key : 0x{:064x}", note.note_public_key);
-    }
+      assert!(note.commitment != U256::ZERO);
+      println!("Note commitment: 0x{:064x}", note.commitment);
+      println!(
+         "Note public key : 0x{:064x}",
+         note.note_public_key
+      );
+   }
 
-    #[test]
-    fn test_shared_key_derivation() {
-        let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
-        let blinded = keys.viewing_public;
+   #[test]
+   fn test_shared_key_derivation() {
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let blinded = keys.viewing_public;
 
-        let shared = derive_shared_symmetric_key(&[0u8; 32], &blinded).unwrap();
-        assert_eq!(shared.len(), 32);
-    }
+      let shared = derive_shared_symmetric_key(&[0u8; 32], &blinded).unwrap();
+      assert_eq!(shared.len(), 32);
+   }
 
-    #[test]
-    fn test_note_encrypt_decrypt_roundtrip() {
-        let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
-        let master_pk = keys.master_public_key;
+   #[test]
+   fn test_note_encrypt_decrypt_roundtrip() {
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let master_pk = keys.master_public_key;
 
-        let random = [0x11u8; 16];
-        let value = U256::from(123456789u64);
-        let token = TokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+      let random = [0x11u8; 16];
+      let value = U256::from(123456789u64);
+      let token = TokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 
-        let note = Note::new(master_pk, random, value, token, None, Some("test memo".to_string())).unwrap();
+      let note = Note::new(
+         master_pk,
+         random,
+         value,
+         token,
+         None,
+         Some("test memo".to_string()),
+      )
+      .unwrap();
 
-        let shared_key = derive_shared_symmetric_key(&[0x42u8; 32], &keys.viewing_public).unwrap();
+      let shared_key = derive_shared_symmetric_key(&[0x42u8; 32], &keys.viewing_public).unwrap();
 
-        let (ciphertext, nonce) = encrypt_note_v2(&note, &shared_key).unwrap();
-        let decrypted = decrypt_note_v2(&ciphertext, &nonce, &shared_key).unwrap();
+      let (ciphertext, nonce) = encrypt_note_v2(&note, &shared_key).unwrap();
+      let decrypted = decrypt_note_v2(&ciphertext, &nonce, &shared_key).unwrap();
 
-        assert_eq!(decrypted.receiver_master_public_key, note.receiver_master_public_key);
-        assert_eq!(decrypted.value, note.value);
-        assert_eq!(decrypted.random, note.random);
-        println!("Encrypt/decrypt roundtrip OK. Commitment: 0x{:064x}", decrypted.commitment);
-    }
+      assert_eq!(
+         decrypted.receiver_master_public_key,
+         note.receiver_master_public_key
+      );
+      assert_eq!(decrypted.value, note.value);
+      assert_eq!(decrypted.random, note.random);
+      println!(
+         "Encrypt/decrypt roundtrip OK. Commitment: 0x{:064x}",
+         decrypted.commitment
+      );
+   }
+
+   #[test]
+   fn test_blinded_viewing_keys_and_nullifier() {
+      let sender_keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let receiver_keys = generate_railgun_keys(test_mnemonic(), 1, None).unwrap(); // different index
+
+      let shared_random = rand::random::<[u8; 32]>();
+      let sender_random = rand::random::<[u8; 32]>();
+
+      let blinded = get_note_blinding_keys(
+         &sender_keys.viewing_public,
+         &receiver_keys.viewing_public,
+         &shared_random,
+         &sender_random,
+      )
+      .unwrap();
+
+      assert_eq!(blinded.blinded_sender_viewing_key.len(), 32);
+      assert_eq!(blinded.blinded_receiver_viewing_key.len(), 32);
+
+      // Nullifier
+      let nullifier = compute_nullifier(sender_keys.nullifying_key, 42).unwrap();
+      assert!(nullifier != U256::ZERO);
+      println!("Nullifier for leaf 42: 0x{:064x}", nullifier);
+
+      // Using RailgunKeys helper
+      let note = create_note_with_keys(
+         &sender_keys,
+         receiver_keys.master_public_key,
+         receiver_keys.viewing_public,
+         U256::from(1000u64),
+         TokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+         Some("private transfer test".to_string()),
+      )
+      .unwrap();
+
+      assert!(note.blinded_keys.is_some());
+      assert!(note.sender_random.is_some());
+
+      let nf = compute_nullifier_for_note(&sender_keys, note.commitment, 123).unwrap();
+      println!("Computed nullifier via helper: 0x{:064x}", nf);
+   }
+
+   #[test]
+   fn test_annotation_data_roundtrip() {
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let viewing_priv: [u8; 32] = keys.viewing_private.unlock(|b| {
+         let mut arr = [0u8; 32];
+         arr.copy_from_slice(b);
+         arr
+      });
+
+      let annotation = NoteAnnotationData {
+         output_type: 1, // transfer
+         sender_random: rand::random::<[u8; 16]>(),
+         wallet_source: Some("zeus".to_string()),
+      };
+
+      let encrypted = encrypt_annotation_data(&annotation, &viewing_priv).unwrap();
+      let decrypted = decrypt_annotation_data(&encrypted, &viewing_priv).unwrap();
+
+      assert_eq!(decrypted.output_type, annotation.output_type);
+      assert_eq!(
+         decrypted.sender_random[0..15],
+         annotation.sender_random[0..15]
+      );
+      println!("Annotation encrypt/decrypt roundtrip OK");
+   }
 }

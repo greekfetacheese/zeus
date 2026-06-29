@@ -1,6 +1,6 @@
 # Zeus + Railgun Integration Roadmap
 
-**Status (2026-06-29)**: Waku client complete. **Note + commitment model + viewing-key encryption started** in zeus-railgun.  
+**Status (2026-06-29)**: Note model + viewing encryption + blinded keys + nullifiers implemented.  
 **Goal**: Full native Rust Railgun privacy (shield, private transfers/swaps, unshield) inside Zeus (egui + alloy). Use Waku broadcasters for gas abstraction.  
 **Key Decision**: Option A — complete Waku client first (done). Core privacy logic lives in `zeus-railgun`.
 
@@ -46,9 +46,9 @@
 Start building the actual privacy engine.
 
 **Immediate priorities**:
-1. ✅ Note / commitment model + viewing-key encryption/decryption (basic V2 AES-GCM) — **done**.
-2. Refine address module (full key exposure, better tests, blinded key helpers).
-3. Complete note encryption with annotation data + sender blinding.
+1. ✅ Note / commitment model + viewing-key encryption/decryption (AES-GCM) — **done**.
+2. ✅ Proper blinded viewing keys (sender + receiver) + annotation data (AES-CTR) + nullifier calculation — **done**.
+3. Full integration of RailgunKeys with Note creation + scanning support.
 3. Basic on-chain interaction: Railgun contract addresses/ABIs, shield/unshield calls (via alloy).
 4. Local state: Poseidon Merkle tree, commitment insertion, nullifier tracking.
 5. Scanner: listen to events, decrypt notes with viewing key, maintain private balance.

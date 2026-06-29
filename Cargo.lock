@@ -10614,6 +10614,7 @@ dependencies = [
 name = "zeus-railgun"
 version = "0.1.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "alloy-primitives",
  "alloy-provider",
@@ -10627,6 +10628,7 @@ dependencies = [
  "bip39",
  "blake2",
  "chacha20poly1305",
+ "ctr",
  "curve25519-dalek",
  "hex",
  "hmac",
