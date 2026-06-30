@@ -193,3 +193,17 @@ This completes the immediate prerequisite for using Railgun in Zeus (shield/unsh
 - create_note_with_keys reused. 19 tests green.
 - Skipped: full knapsack select, transact batch builder.
 
+
+
+## RailgunEngine + Initial Waku Wiring (2026-06-30)
+
+- Added `RailgunEngine` high-level wrapper (owns keys + scanner, high-level `prepare_shield` / `prepare_unshield`, `apply_*`, persistence helpers).
+- Refined builders for broadcaster path:
+  - New `PreparedBroadcasterUnshield`
+  - `prepare_unshield_for_broadcaster(...)`
+  - `RailgunEngine::prepare_unshield_gas_sponsored(...)` (takes fees_id + broadcaster info from waku client)
+- Optional gas-sponsored unshield support started (only on unshield, as requested).
+- No direct crate dependency added (avoids cycle — broadcaster already depends on railgun).
+- Next: flesh out full `transact` calldata builder so the prepared data can be directly fed to `WakuSidecarClient::transact(...)`.
+- All checks and 19 tests still green.
+

@@ -14,6 +14,7 @@
 
 use alloy_primitives::{Address, FixedBytes, U256, Uint};
 use anyhow::{Result, anyhow};
+use redb::Database;
 
 use crate::address::RailgunKeys;
 use crate::contracts::{CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData};
@@ -58,6 +59,25 @@ pub struct PreparedUnshield {
    /// Change note if selected notes exceeded requested amount (for transact output).
    pub change_note: Option<Note>,
 }
+
+/// Prepared data for an unshield that will be sent via a gas-sponsored broadcaster (Waku).
+///
+/// This is the output when the user opts into using a broadcaster for the unshield.
+/// The engine produces the nullifiers, proofs, change note, and (later) the full calldata
+/// for RailgunSmartWallet.transact(...).
+#[derive(Debug, Clone)]
+pub struct PreparedBroadcasterUnshield {
+    pub prepared_unshield: PreparedUnshield,
+    /// Fees ID from the selected broadcaster (required for the transact request).
+    pub fees_id: String,
+    /// The selected broadcaster's railgun address (for reference / logging).
+    pub broadcaster_address: String,
+    /// Minimum gas price the broadcaster should use.
+    pub min_gas_price: U256,
+    /// The calldata (or will be) for the transact call. For now contains a note that full assembly is pending.
+    pub transact_calldata: Option<Vec<u8>>,
+}
+
 
 /// Prepare a shield (deposit).
 ///
@@ -257,6 +277,39 @@ pub fn prepare_unshield(
 
 /// Convenience: build a complete shield request ready for the contract call.
 /// Returns the arrays the RailgunSmartWallet.shield(...) expects.
+
+/// Prepare an unshield that will use a gas-sponsored broadcaster.
+///
+/// `fees_id` and `broadcaster_address` come from the waku client's `get_best_fee_quote`.
+/// This is optional — only call this path when the user explicitly wants broadcaster sponsorship.
+///
+/// For now this wraps the normal unshield + attaches the fee metadata.
+/// Full `transact` calldata assembly will be added in the next iteration.
+pub fn prepare_unshield_for_broadcaster(
+    scanner: &RailgunScanner,
+    keys: &RailgunKeys,
+    to: Address,
+    token: TokenData,
+    amount: U256,
+    fees_id: String,
+    broadcaster_address: String,
+    min_gas_price: U256,
+) -> Result<PreparedBroadcasterUnshield> {
+    let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount)?;
+
+    // TODO: build real calldata for RailgunSmartWallet.transact here using the nullifiers + unshield_preimage + change note
+    // For the moment we leave transact_calldata as None; the caller can still use the pieces.
+
+    Ok(PreparedBroadcasterUnshield {
+        prepared_unshield,
+        fees_id,
+        broadcaster_address,
+        min_gas_price,
+        transact_calldata: None,
+    })
+}
+
+
 pub fn build_shield_call_data(
    receiver_keys: &RailgunKeys,
    token: TokenData,
@@ -294,47 +347,108 @@ pub fn apply_shield_to_scanner(
 }
 
 /// High-level Railgun engine: wraps scanner state + builders for simple APIs.
-/// 
+///
 /// One type to rule the protocol interaction.
 /// Automatically updates scanner + merkle on apply (see add_own_shielded_note).
 #[derive(Clone)]
 pub struct RailgunEngine {
-    /// The underlying scanner (public for advanced use / sync).
-    pub scanner: RailgunScanner,
+   /// The underlying scanner (public for advanced use / sync).
+   pub scanner: RailgunScanner,
 
-    /// The RailgunKeys used for shield/unshield (viewing private + spending private).
-    keys: RailgunKeys,
+   /// The RailgunKeys used for shield/unshield (viewing private + spending private).
+   keys: RailgunKeys,
 }
 
 impl RailgunEngine {
-    /// Create engine for the given keys (owns scanner + keys).
-    pub fn new(keys: RailgunKeys, chain_id: u64) -> Result<Self> {
-        let scanner = RailgunScanner::new(&keys, chain_id)?;
-        Ok(Self { scanner, keys })
+   /// Create engine for the given keys (owns scanner + keys).
+   pub fn new(keys: RailgunKeys, chain_id: u64) -> Result<Self> {
+      let scanner = RailgunScanner::new(&keys, chain_id)?;
+      Ok(Self { scanner, keys })
+   }
+
+   /// Convenience: open a single redb database file and return a fully loaded (or fresh) scanner.
+   /// This is the recommended way to get started with unified persistence.
+   ///
+   /// Note: The returned scanner does **not** hold the Database. Keep the db around
+   /// if you want to call save_merkle_tree / save_state later.
+   pub fn from_db(db_path: &str, keys: RailgunKeys, chain_id: u64, tree_id: &str) -> Result<Self> {
+      let db = Database::create(db_path)?;
+      let scanner = RailgunScanner::new(&keys, chain_id)?;
+      // Best effort load
+      let _ = scanner.load_merkle_tree(&db, tree_id);
+      let _ = scanner.load_state(&db, tree_id);
+
+      Ok(Self {
+         scanner,
+         keys: keys,
+      })
+   }
+
+   /// Save the full scanner state (nullifiers + owned notes + last block) to a redb Database.
+   pub fn save_state(&self, db: &Database, tree_id: &str) -> Result<()> {
+      self.scanner.save_state(db, tree_id)?;
+      self.scanner.save_merkle_tree(db, tree_id)
+   }
+
+   /// High-level shield.
+   pub fn prepare_shield(
+      &self,
+      token: TokenData,
+      value: U256,
+      memo: Option<String>,
+   ) -> Result<PreparedShield> {
+      prepare_shield(&self.keys, token, value, memo)
+   }
+
+   /// High-level unshield (multi-note + change note support).
+   pub fn prepare_unshield(
+      &self,
+      to: Address,
+      token: TokenData,
+      amount: U256,
+   ) -> Result<PreparedUnshield> {
+      prepare_unshield(&self.scanner, &self.keys, to, token, amount)
+   }
+
+   /// Apply shield result: updates owned notes + merkle tree automatically.
+   pub fn apply_shield(&self, prepared: &PreparedShield, leaf_index: u64) -> Result<OwnedNote> {
+      apply_shield_to_scanner(&self.scanner, prepared, leaf_index)
+   }
+
+   /// Apply unshield result: marks nullifiers spent.
+   pub fn apply_unshield(&self, prepared: &PreparedUnshield) {
+      apply_unshield_to_scanner(&self.scanner, prepared);
+      // ponytail: if change_note exists, caller can shield it or keep in scanner via other means
+   }
+
+    /// High-level gas-sponsored unshield (optional broadcaster path).
+    ///
+    /// Pass the fee information obtained from the waku broadcaster client
+    /// (via `get_best_fee_quote` or `find_broadcasters_for_token`).
+    ///
+    /// This is only for unshield operations. Shields are almost always self-broadcast.
+    pub fn prepare_unshield_gas_sponsored(
+        &self,
+        to: Address,
+        token: TokenData,
+        amount: U256,
+        fees_id: String,
+        broadcaster_address: String,
+        min_gas_price: U256,
+    ) -> Result<PreparedBroadcasterUnshield> {
+        prepare_unshield_for_broadcaster(
+            &self.scanner,
+            &self.keys,
+            to,
+            token,
+            amount,
+            fees_id,
+            broadcaster_address,
+            min_gas_price,
+        )
     }
 
-    /// High-level shield.
-    pub fn prepare_shield(&self, token: TokenData, value: U256, memo: Option<String>) -> Result<PreparedShield> {
-        prepare_shield(&self.keys, token, value, memo)
-    }
-
-    /// High-level unshield (multi-note + change note support).
-    pub fn prepare_unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<PreparedUnshield> {
-        prepare_unshield(&self.scanner, &self.keys, to, token, amount)
-    }
-
-    /// Apply shield result: updates owned notes + merkle tree automatically.
-    pub fn apply_shield(&self, prepared: &PreparedShield, leaf_index: u64) -> Result<OwnedNote> {
-        apply_shield_to_scanner(&self.scanner, prepared, leaf_index)
-    }
-
-    /// Apply unshield result: marks nullifiers spent.
-    pub fn apply_unshield(&self, prepared: &PreparedUnshield) {
-        apply_unshield_to_scanner(&self.scanner, prepared);
-        // ponytail: if change_note exists, caller can shield it or keep in scanner via other means
-    }
 }
-
 
 #[cfg(test)]
 mod tests {
