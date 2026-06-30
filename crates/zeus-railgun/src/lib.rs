@@ -12,8 +12,17 @@ pub use address::{
 };
 
 pub use contracts::{
-   CommitmentCiphertext, CommitmentPreimage, RailgunEvent, RailgunSmartWallet, ShieldCiphertext,
-   TokenData as ContractTokenData, railgun_address,
+   BoundParams,
+   CommitmentCiphertext,
+   CommitmentPreimage,
+   RailgunEvent,
+   RailgunSmartWallet,
+   ShieldCiphertext,
+   SnarkProof,
+   TokenData as ContractTokenData,
+   Transaction,
+   UnshieldType,
+   railgun_address,
 };
 
 pub use merkle::PoseidonMerkleTree;
@@ -25,6 +34,7 @@ pub use scanner::{OwnedNote, RailgunScanner};
 
 pub use builders::{
     apply_shield_to_scanner, apply_unshield_to_scanner, build_shield_call_data,
+    build_unshield_transact_calldata,
     prepare_shield, prepare_unshield, prepare_unshield_for_broadcaster,
     PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield, RailgunEngine,
 };

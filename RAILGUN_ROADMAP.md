@@ -207,3 +207,24 @@ This completes the immediate prerequisite for using Railgun in Zeus (shield/unsh
 - Next: flesh out full `transact` calldata builder so the prepared data can be directly fed to `WakuSidecarClient::transact(...)`.
 - All checks and 19 tests still green.
 
+
+
+## Real Transact Calldata + use_broadcaster Flag (2026-06-30)
+
+- Added full `transact(Transaction[])` definition + supporting structs (`Transaction`, `BoundParams`, `SnarkProof`, `G1Point`/`G2Point`, `UnshieldType`) to the `sol!` block in `contracts.rs`.
+- Implemented `build_unshield_transact_calldata(...)` that takes `PreparedUnshield` + scanner state and produces the exact encoded calldata for `RailgunSmartWallet.transact(...)`.
+  - Handles nullifiers, commitments (from change note), merkle root, unshieldPreimage, BoundParams (with minGasPrice and unshield type).
+  - Uses placeholder proof (real ZK proof generation is future work).
+- Updated low-level `prepare_unshield(...)` to accept `use_broadcaster: bool` (currently informational).
+- Updated high-level `RailgunEngine::prepare_unshield(to, token, amount, use_broadcaster: bool)`.
+- Updated `prepare_unshield_for_broadcaster` to actually call the new builder and attach `transact_calldata`.
+- Added `RailgunEngine::build_unshield_transact_calldata(...)` convenience method.
+- `cargo check -p zeus-railgun` clean, 19/19 tests still pass.
+- The `use_broadcaster` flag is now part of the main unshield high-level API as requested (only affects unshield path).
+
+Next logical steps:
+- Wire real chain_id into the builders.
+- Pass actual fee quote data (from waku) into the BoundParams.
+- Implement proper note selection / change note for broadcaster case.
+- Start integrating with zeus-waku-broadcaster for the actual `transact` submission.
+

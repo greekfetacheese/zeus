@@ -13,11 +13,15 @@
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
 use alloy_primitives::{Address, FixedBytes, U256, Uint};
+use alloy_sol_types::SolCall;
 use anyhow::{Result, anyhow};
 use redb::Database;
 
 use crate::address::RailgunKeys;
-use crate::contracts::{CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData};
+use crate::contracts::{
+   BoundParams, CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData, Transaction,
+   UnshieldType,
+};
 use crate::note::{
    Note, TokenData, create_note_with_keys, derive_shared_symmetric_key, encrypt_note_v2,
    get_note_blinding_keys,
@@ -67,17 +71,16 @@ pub struct PreparedUnshield {
 /// for RailgunSmartWallet.transact(...).
 #[derive(Debug, Clone)]
 pub struct PreparedBroadcasterUnshield {
-    pub prepared_unshield: PreparedUnshield,
-    /// Fees ID from the selected broadcaster (required for the transact request).
-    pub fees_id: String,
-    /// The selected broadcaster's railgun address (for reference / logging).
-    pub broadcaster_address: String,
-    /// Minimum gas price the broadcaster should use.
-    pub min_gas_price: U256,
-    /// The calldata (or will be) for the transact call. For now contains a note that full assembly is pending.
-    pub transact_calldata: Option<Vec<u8>>,
+   pub prepared_unshield: PreparedUnshield,
+   /// Fees ID from the selected broadcaster (required for the transact request).
+   pub fees_id: String,
+   /// The selected broadcaster's railgun address (for reference / logging).
+   pub broadcaster_address: String,
+   /// Minimum gas price the broadcaster should use.
+   pub min_gas_price: U256,
+   /// The calldata (or will be) for the transact call. For now contains a note that full assembly is pending.
+   pub transact_calldata: Option<Vec<u8>>,
 }
-
 
 /// Prepare a shield (deposit).
 ///
@@ -195,6 +198,7 @@ pub fn prepare_unshield(
    to: Address,
    token: TokenData,
    amount: U256,
+   _use_broadcaster: bool,
 ) -> Result<PreparedUnshield> {
    let unspent = scanner.unspent_notes();
 
@@ -286,29 +290,35 @@ pub fn prepare_unshield(
 /// For now this wraps the normal unshield + attaches the fee metadata.
 /// Full `transact` calldata assembly will be added in the next iteration.
 pub fn prepare_unshield_for_broadcaster(
-    scanner: &RailgunScanner,
-    keys: &RailgunKeys,
-    to: Address,
-    token: TokenData,
-    amount: U256,
-    fees_id: String,
-    broadcaster_address: String,
-    min_gas_price: U256,
+   scanner: &RailgunScanner,
+   keys: &RailgunKeys,
+   to: Address,
+   token: TokenData,
+   amount: U256,
+   fees_id: String,
+   broadcaster_address: String,
+   min_gas_price: U256,
 ) -> Result<PreparedBroadcasterUnshield> {
-    let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount)?;
+   let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount, true)?;
 
-    // TODO: build real calldata for RailgunSmartWallet.transact here using the nullifiers + unshield_preimage + change note
-    // For the moment we leave transact_calldata as None; the caller can still use the pieces.
+   // Build the real transact calldata (this is what the broadcaster will submit)
+   let calldata = build_unshield_transact_calldata(
+      scanner,
+      &prepared_unshield,
+      /* chain_id */ 1, // TODO: pass real chain id
+      min_gas_price,
+      true,
+   )
+   .ok();
 
-    Ok(PreparedBroadcasterUnshield {
-        prepared_unshield,
-        fees_id,
-        broadcaster_address,
-        min_gas_price,
-        transact_calldata: None,
-    })
+   Ok(PreparedBroadcasterUnshield {
+      prepared_unshield,
+      fees_id,
+      broadcaster_address,
+      min_gas_price,
+      transact_calldata: calldata,
+   })
 }
-
 
 pub fn build_shield_call_data(
    receiver_keys: &RailgunKeys,
@@ -401,13 +411,24 @@ impl RailgunEngine {
    }
 
    /// High-level unshield (multi-note + change note support).
+   ///
+   /// `use_broadcaster`: if true, the unshield is prepared for gas-sponsored
+   /// execution via a Waku broadcaster (use `build_unshield_transact_calldata` after).
    pub fn prepare_unshield(
       &self,
       to: Address,
       token: TokenData,
       amount: U256,
+      _use_broadcaster: bool,
    ) -> Result<PreparedUnshield> {
-      prepare_unshield(&self.scanner, &self.keys, to, token, amount)
+      prepare_unshield(
+         &self.scanner,
+         &self.keys,
+         to,
+         token,
+         amount,
+         _use_broadcaster,
+      )
    }
 
    /// Apply shield result: updates owned notes + merkle tree automatically.
@@ -421,33 +442,120 @@ impl RailgunEngine {
       // ponytail: if change_note exists, caller can shield it or keep in scanner via other means
    }
 
-    /// High-level gas-sponsored unshield (optional broadcaster path).
-    ///
-    /// Pass the fee information obtained from the waku broadcaster client
-    /// (via `get_best_fee_quote` or `find_broadcasters_for_token`).
-    ///
-    /// This is only for unshield operations. Shields are almost always self-broadcast.
-    pub fn prepare_unshield_gas_sponsored(
-        &self,
-        to: Address,
-        token: TokenData,
-        amount: U256,
-        fees_id: String,
-        broadcaster_address: String,
-        min_gas_price: U256,
-    ) -> Result<PreparedBroadcasterUnshield> {
-        prepare_unshield_for_broadcaster(
-            &self.scanner,
-            &self.keys,
-            to,
-            token,
-            amount,
-            fees_id,
-            broadcaster_address,
-            min_gas_price,
-        )
-    }
+   /// High-level gas-sponsored unshield (optional broadcaster path).
+   ///
+   /// Pass the fee information obtained from the waku broadcaster client
+   /// (via `get_best_fee_quote` or `find_broadcasters_for_token`).
+   ///
+   /// This is only for unshield operations. Shields are almost always self-broadcast.
+   pub fn prepare_unshield_gas_sponsored(
+      &self,
+      to: Address,
+      token: TokenData,
+      amount: U256,
+      fees_id: String,
+      broadcaster_address: String,
+      min_gas_price: U256,
+   ) -> Result<PreparedBroadcasterUnshield> {
+      prepare_unshield_for_broadcaster(
+         &self.scanner,
+         &self.keys,
+         to,
+         token,
+         amount,
+         fees_id,
+         broadcaster_address,
+         min_gas_price,
+      )
+   }
 
+   /// Build the full `transact` calldata for an unshield (used for gas-sponsored via broadcaster).
+   ///
+   /// Call this after `prepare_unshield(..., use_broadcaster: true)`.
+   pub fn build_unshield_transact_calldata(
+      &self,
+      prepared: &PreparedUnshield,
+      chain_id: u64,
+      min_gas_price: U256,
+      _use_broadcaster: bool,
+   ) -> Result<Vec<u8>> {
+      build_unshield_transact_calldata(
+         &self.scanner,
+         prepared,
+         chain_id,
+         min_gas_price,
+         _use_broadcaster,
+      )
+   }
+}
+
+/// Build the calldata for `RailgunSmartWallet.transact(Transaction[])` from a prepared unshield.
+///
+/// This turns a PreparedUnshield (with optional change note) into the exact
+/// arguments expected by the on-chain transact function. This is what gets
+/// passed (via the broadcaster) for gas-sponsored unshield operations.
+pub fn build_unshield_transact_calldata(
+   scanner: &RailgunScanner,
+   prepared: &PreparedUnshield,
+   chain_id: u64,
+   min_gas_price: U256,
+   _use_broadcaster: bool,
+) -> Result<Vec<u8>> {
+   let merkle_root = scanner.merkle_tree().root();
+
+   let nullifiers: Vec<alloy_primitives::FixedBytes<32>> = prepared
+      .nullifiers
+      .iter()
+      .map(|n| alloy_primitives::FixedBytes::<32>::from(n.to_be_bytes::<32>()))
+      .collect();
+
+   let mut commitments: Vec<alloy_primitives::FixedBytes<32>> = vec![];
+   if let Some(change) = &prepared.change_note {
+      commitments.push(alloy_primitives::FixedBytes::<32>::from(
+         change.commitment.to_be_bytes::<32>(),
+      ));
+   }
+
+   let unshield_preimage = prepared.unshield_preimage.clone();
+
+   let bound = BoundParams {
+      treeNumber: 0,
+      minGasPrice: Uint::<72, 2>::from(min_gas_price.to::<u64>() as u128),
+      unshield: UnshieldType::NORMAL,
+      chainID: chain_id,
+      adaptContract: alloy_primitives::Address::ZERO,
+      adaptParams: alloy_primitives::FixedBytes::<32>::ZERO,
+      commitmentCiphertext: vec![],
+   };
+
+   // Placeholder proof until we implement ZK proof generation
+   let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
+      x: U256::ZERO,
+      y: U256::ZERO,
+   };
+   let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
+      x: [U256::ZERO, U256::ZERO],
+      y: [U256::ZERO, U256::ZERO],
+   };
+   let proof = crate::contracts::RailgunSmartWallet::SnarkProof {
+      a: zero_g1.clone(),
+      b: zero_g2.clone(),
+      c: zero_g1,
+   };
+
+   let tx = Transaction {
+      proof,
+      merkleRoot: merkle_root.to_be_bytes::<32>().into(),
+      nullifiers,
+      commitments,
+      boundParams: bound,
+      unshieldPreimage: unshield_preimage,
+   };
+
+   let call = crate::contracts::RailgunSmartWallet::transactCall {
+      _transactions: vec![tx],
+   };
+   Ok(call.abi_encode())
 }
 
 #[cfg(test)]

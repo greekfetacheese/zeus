@@ -68,6 +68,53 @@ sol! {
             bytes annotationData;
             bytes memo;
         }
+
+        // --- Transact / gas-sponsored support (from Globals.sol) ---
+        enum UnshieldType {
+            NONE,
+            NORMAL,
+            REDIRECT
+        }
+
+        struct G1Point {
+            uint256 x;
+            uint256 y;
+        }
+
+        struct G2Point {
+            uint256[2] x;
+            uint256[2] y;
+        }
+
+        struct SnarkProof {
+            G1Point a;
+            G2Point b;
+            G1Point c;
+        }
+
+        struct BoundParams {
+            uint16 treeNumber;
+            uint72 minGasPrice; // Only for type 0 transactions
+            UnshieldType unshield;
+            uint64 chainID;
+            address adaptContract;
+            bytes32 adaptParams;
+            // For unshields do not include an element in ciphertext array
+            // Ciphertext array length = commitments - unshields
+            CommitmentCiphertext[] commitmentCiphertext;
+        }
+
+        struct Transaction {
+            SnarkProof proof;
+            bytes32 merkleRoot;
+            bytes32[] nullifiers;
+            bytes32[] commitments;
+            BoundParams boundParams;
+            CommitmentPreimage unshieldPreimage;
+        }
+
+        /// Main entry point for private actions + unshield (used heavily for broadcaster-sponsored gas abstraction)
+        function transact(Transaction[] calldata _transactions) external;
     }
 }
 
@@ -111,5 +158,12 @@ pub enum RailgunEvent {
 
 // Re-exports for convenience
 pub use RailgunSmartWallet::{
-   CommitmentCiphertext, CommitmentPreimage, ShieldCiphertext, TokenData,
+   BoundParams,
+   CommitmentCiphertext,
+   CommitmentPreimage,
+   ShieldCiphertext,
+   SnarkProof,
+   TokenData,
+   Transaction,
+   UnshieldType,
 };
