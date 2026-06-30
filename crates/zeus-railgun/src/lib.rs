@@ -6,6 +6,7 @@ pub mod scanner;
 pub mod builders;
 
 pub use address::{
+   poseidon_hash,
    AddressData, Chain, RailgunKeys, babyjub_shared_secret, decode_address,
    derive_spending_private_key, derive_viewing_private_key, encode_address, generate_address_data,
    generate_railgun_keys, get_broadcaster_viewing_key,
@@ -35,6 +36,7 @@ pub use scanner::{OwnedNote, RailgunScanner};
 pub use builders::{
     apply_shield_to_scanner, apply_unshield_to_scanner, build_shield_call_data,
     build_unshield_transact_calldata,
+    build_unshield_proof_request,
     prepare_shield, prepare_unshield, prepare_unshield_for_broadcaster,
     PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield, RailgunEngine,
 };
@@ -45,4 +47,10 @@ pub use note::{
    compute_nullifying_key_from_viewing, compute_token_hash, create_note_with_keys,
    decrypt_annotation_data, decrypt_note_v2, derive_shared_symmetric_key, encrypt_annotation_data,
    encrypt_note_v2, get_blinding_scalar, get_note_blinding_keys,
+};
+
+
+// Re-export witness types so users of zeus-railgun can build ProofRequests without adding the prover crate explicitly.
+pub use zeus_railgun_prover::{
+    FormattedCircuitInputsRailgun, PrivateInputsRailgun, ProofRequest, PublicInputsRailgun,
 };

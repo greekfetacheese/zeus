@@ -310,3 +310,36 @@ This is the pragmatic path to real, on-chain-valid proofs without months of reve
 - JS sidecar is significantly more production-ready for artifact management and feedback.
 - Rust now has the correct witness shape so we can start mapping `PreparedUnshield` → `ProofRequest` in the next phase.
 
+
+
+## Map Real Data to Prover Witness (2026-06-30)
+
+- Augmented `PreparedUnshield` with `leaf_indices`, `input_randoms`, `input_values` (populated inside `prepare_unshield`).
+- Added `build_unshield_proof_request(scanner, keys, prepared, circuit_variant?) -> ProofRequest`
+- Added convenience `RailgunEngine::build_unshield_proof_request(&self, prepared, variant)`.
+- Re-exports the `ProofRequest`, `PublicInputsRailgun`, `PrivateInputsRailgun`, `FormattedCircuitInputsRailgun` from `zeus-railgun`.
+- `compute_bound_params_hash` (simplified placeholder; TODO exact match to TS/circuit).
+- All 21 lib tests still pass.
+- `zeus-railgun` now depends on `zeus-railgun-prover` (one-way) for the witness types.
+- Next: feed a real `PreparedUnshield` (with actual notes in scanner) into the sidecar and verify we get past "Assert Failed" with better data.
+
+Status: Mapping complete. Real public_key derivation + exact boundParamsHash + signature still need work for *valid* on-chain proofs.
+
+## Mapping Real Data to Prover Inputs (2026-06-30)
+
+- `PreparedUnshield` extended with `leaf_indices`, `input_randoms`, `input_values` (filled during `prepare_unshield` from `OwnedNote` data).
+- `build_unshield_proof_request(scanner, keys, prepared, circuit?) -> ProofRequest` implemented.
+- `RailgunEngine::build_unshield_proof_request` convenience method added.
+- The function assembles:
+  - `PublicInputsRailgun` (merkleRoot, boundParamsHash, nullifiers, commitmentsOut)
+  - `PrivateInputsRailgun` (token, public_key [placeholder], randomIn, valueIn, pathElements, leavesIndices, nullifyingKey, npkOut, valueOut)
+- Re-exports of `ProofRequest`, `PublicInputsRailgun`, `PrivateInputsRailgun`, `FormattedCircuitInputsRailgun` added to `zeus-railgun`.
+- All 21 tests continue to pass.
+- The sidecar can now be fed data that comes from the actual RailgunEngine.
+
+**Remaining for valid proofs:**
+- Real BabyJub spending public key (x,y) derivation from spending private key.
+- Exact `bound_params_hash` matching the Railgun circuit (currently a simple poseidon).
+- Proper signature for the authorization in the witness.
+
+This completes the "Map real data from RailgunEngine / PreparedUnshield into ProofRequest + FormattedCircuitInputsRailgun" milestone.

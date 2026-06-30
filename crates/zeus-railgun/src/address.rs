@@ -170,7 +170,7 @@ fn derive_private_key(seed: &[u8], path: &str) -> Result<Key, anyhow::Error> {
    Ok(current_key)
 }
 
-fn poseidon_hash(inputs: Vec<U256>) -> Result<U256, anyhow::Error> {
+pub fn poseidon_hash(inputs: Vec<U256>) -> Result<U256, anyhow::Error> {
    let arity = inputs.len();
 
    if arity == 0 || arity > 12 {

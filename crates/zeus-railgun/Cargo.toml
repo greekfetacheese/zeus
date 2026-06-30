@@ -13,6 +13,7 @@ alloy-provider = "=2.0.5"
 
 # Internal
 zeus-eth = { path = "../zeus-eth" }
+zeus-railgun-prover = { path = "../zeus-railgun-prover" }
 
 
 # Crypto

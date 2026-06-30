@@ -27,6 +27,7 @@ use crate::note::{
    get_note_blinding_keys,
 };
 use crate::scanner::{OwnedNote, RailgunScanner};
+use zeus_railgun_prover::{ProofRequest, PrivateInputsRailgun, PublicInputsRailgun};
 
 /// Creates a placeholder SnarkProof.
 ///
@@ -80,6 +81,9 @@ pub struct PreparedUnshield {
    pub nullifiers: Vec<U256>,
    /// Merkle proofs (one per note): (leaf, path_elements, path_indices)
    pub proofs: Vec<(U256, Vec<U256>, Vec<u8>)>,
+   pub leaf_indices: Vec<u64>,
+   pub input_randoms: Vec<[u8; 16]>,
+   pub input_values: Vec<U256>,
    /// Unshield preimage (for the unshield output in transact or direct unshield).
    pub unshield_preimage: CommitmentPreimage,
    /// Recipient address (public).
@@ -264,6 +268,9 @@ pub fn prepare_unshield(
 
    let mut nullifiers = Vec::new();
    let mut proofs = Vec::new();
+   let mut leaf_indices = Vec::new();
+   let mut input_randoms = Vec::new();
+   let mut input_values = Vec::new();
 
    for owned in &selected {
       let nullifier = owned.nullifier;
@@ -271,6 +278,9 @@ pub fn prepare_unshield(
       let merkle = scanner.merkle_tree();
       let proof = merkle.get_proof(owned.leaf_index as usize)?;
       proofs.push(proof);
+      leaf_indices.push(owned.leaf_index);
+      input_randoms.push(owned.note.random);
+      input_values.push(owned.note.value);
    }
 
    // Change note if over-selected (for remaining private balance in transact)
@@ -311,6 +321,9 @@ pub fn prepare_unshield(
    Ok(PreparedUnshield {
       nullifiers,
       proofs,
+      leaf_indices,
+      input_randoms,
+      input_values,
       unshield_preimage,
       to,
       amount,
@@ -608,6 +621,55 @@ pub fn build_unshield_transact_calldata(
       _transactions: vec![tx],
    };
    Ok(call.abi_encode())
+}
+
+fn compute_bound_params_hash(prepared: &PreparedUnshield, chain_id: u64) -> Result<String> {
+   let data = vec![U256::from(chain_id), prepared.amount];
+   crate::address::poseidon_hash(data).map(|h| h.to_string())
+}
+
+/// Maps PreparedUnshield (from RailgunEngine) into the prover witness format.
+pub fn build_unshield_proof_request(
+   scanner: &RailgunScanner,
+   keys: &RailgunKeys,
+   prepared: &PreparedUnshield,
+   circuit_variant: Option<&str>,
+) -> Result<ProofRequest> {
+   let root = scanner.merkle_tree().root().to_string();
+   let nulls = prepared.nullifiers.iter().map(|n| n.to_string()).collect();
+   let coms = prepared.change_note.as_ref().map(|c| vec![c.commitment.to_string()]).unwrap_or_default();
+
+   let public = PublicInputsRailgun {
+      merkle_root: root,
+      bound_params_hash: compute_bound_params_hash(prepared, scanner.chain_id()).unwrap_or_else(|_| "0".into()),
+      nullifiers: nulls,
+      commitments_out: coms,
+   };
+
+   let priv_in = PrivateInputsRailgun {
+      token_address: prepared.unshield_preimage.token.tokenAddress.to_string(),
+      public_key: vec!["0".into(), "0".into()],
+      random_in: prepared.input_randoms.iter().map(|r| { let mut p=[0u8;32]; p[16..].copy_from_slice(r); U256::from_be_bytes(p).to_string() }).collect(),
+      value_in: prepared.input_values.iter().map(|v| v.to_string()).collect(),
+      path_elements: prepared.proofs.iter().map(|(_,e,_)| e.iter().map(|x|x.to_string()).collect()).collect(),
+      leaves_indices: prepared.leaf_indices.iter().map(|i|i.to_string()).collect(),
+      nullifying_key: keys.nullifying_key.to_string(),
+      npk_out: prepared.change_note.as_ref().map(|c|vec![c.note_public_key.to_string()]).unwrap_or_default(),
+      value_out: prepared.change_note.as_ref().map(|c|vec![c.value.to_string()]).unwrap_or_default(),
+   };
+
+   Ok(ProofRequest {
+      public_inputs: public,
+      private_inputs: priv_in,
+      signature: vec!["0".into(), "0".into(), "0".into()],
+      circuit_variant: circuit_variant.unwrap_or("01x01").to_string(),
+   })
+}
+
+impl RailgunEngine {
+   pub fn build_unshield_proof_request(&self, prepared: &PreparedUnshield, v: Option<&str>) -> Result<ProofRequest> {
+      build_unshield_proof_request(&self.scanner, &self.keys, prepared, v)
+   }
 }
 
 #[cfg(test)]

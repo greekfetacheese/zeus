@@ -8,7 +8,7 @@ readme = "README.md"
 
 [dependencies]
 # Will depend on zeus-railgun for witness types later
-zeus-railgun = { path = "../zeus-railgun" }
+# zeus-railgun = { path = "../zeus-railgun" }  # not here to avoid cycle; railgun depends on us for types
 
 # Core
 tokio = { version = "1", features = ["full"] }
