@@ -3,6 +3,7 @@ pub mod note;
 pub mod contracts;
 pub mod merkle;
 pub mod scanner;
+pub mod builders;
 
 pub use address::{
    AddressData, Chain, RailgunKeys, babyjub_shared_secret, decode_address,
@@ -21,6 +22,11 @@ pub use merkle::PoseidonMerkleTree;
 pub use redb;
 
 pub use scanner::{OwnedNote, RailgunScanner};
+
+pub use builders::{
+    apply_shield_to_scanner, apply_unshield_to_scanner, build_shield_call_data,
+    prepare_shield, prepare_unshield, PreparedShield, PreparedUnshield,
+};
 
 pub use note::{
    BlindedViewingKeys, Note, NoteAnnotationData, TokenData, TokenType, compute_commitment,

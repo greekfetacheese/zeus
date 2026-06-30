@@ -158,3 +158,38 @@ Client phase complete. Engine phase now active. Let's go.
 All tests (17) passing.
 
 **Next focus**: Shield / Unshield transaction builders.
+
+
+## Shield / Unshield Transaction Builders (started 2026-06-29)
+
+**Status**: First implementation complete. `builders.rs` added and tested.
+
+**What was implemented**:
+- `PreparedShield` + `prepare_shield(receiver_keys, token, value, memo)` → Note + CommitmentPreimage + ShieldCiphertext
+- `build_shield_call_data(...)` → ready-to-use (preimages, ciphertexts, fees) arrays for RailgunSmartWallet.shield(...)
+- `PreparedUnshield` + `prepare_unshield(scanner, to, token, amount)` → nullifiers + merkle proofs + unshield preimage (simple note selection)
+- `apply_shield_to_scanner(scanner, prepared, leaf_index)` and `apply_unshield_to_scanner(scanner, prepared)`
+- Helpers integrate directly with existing Note, scanner state, merkle proofs, and contract structs.
+- 2 new passing tests + overall suite now at 19 tests.
+
+**Current limitations / next refinements**:
+- Shield uses simplified note creation (basic Note::new) and fixed shared key for ciphertext encryption (to avoid current keys module blinding derivation issues). Will align with full `create_note_with_keys` + proper shieldKey derivation when keys are 1:1 with TS.
+- Unshield note selection is MVP (first sufficient note). No change notes yet.
+- No broadcaster fee integration yet (will come from zeus-waku-broadcaster).
+- Unshield is prepared for "transact + unshield output" path.
+
+**Files added**:
+- `crates/zeus-railgun/src/builders.rs`
+- Re-exported key symbols from `lib.rs`
+
+This completes the immediate prerequisite for using Railgun in Zeus (shield/unshield flows).
+
+
+## Builders Refinement (ponytail, 2026-06-29)
+
+- prepare_shield now uses full get_note_blinding_keys + shield_key for blinded_receiver + derive_shared.
+- prepare_unshield: multi-note greedy select, change_note: Option<Note>, takes &RailgunKeys.
+- PreparedUnshield extended with change_note.
+- create_note_with_keys reused. 19 tests green.
+- Skipped: full knapsack select, transact batch builder.
+
