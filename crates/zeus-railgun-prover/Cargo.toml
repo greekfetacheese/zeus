@@ -1,0 +1,28 @@
+[package]
+name = "zeus-railgun-prover"
+version = "0.1.0"
+edition = "2024"
+description = "Rust client for Railgun ZK proof generation via Node.js sidecar (snarkjs / native-prover)"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+# Will depend on zeus-railgun for witness types later
+zeus-railgun = { path = "../zeus-railgun" }
+
+# Core
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+anyhow = "1"
+tracing = "0.1"
+kanal = "0.1.1"
+
+# Misc
+chrono = "0.4"
+base64 = "0.22.1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

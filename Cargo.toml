@@ -7,7 +7,8 @@ members = [
     "crates/zeus-bip32",
     "crates/zeus-wallet",
     "crates/zeus-railgun",
-    "crates/zeus-ui-components", "crates/zeus-waku-broadcaster",
+    "crates/zeus-waku-broadcaster",
+    "crates/zeus-railgun-prover",
 ]
 
 [package]

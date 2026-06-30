@@ -248,3 +248,32 @@ Next logical steps:
 
 All of the above makes the engine much more solid before wiring the waku broadcaster client.
 
+
+## Prover Sidecar (ZK Proof Generation) — Architecture Decision (2026-06-30)
+
+**Problem**: Railgun requires a valid Groth16 proof for `transact(...)`. We have excellent witness data in `build_unshield_transact_calldata`, but no way to generate a proof the on-chain verifier will accept (no circuit source, no Rust prover for their specific artifacts).
+
+**Solution chosen**: Replicate the exact **sidecar architecture** that worked for Waku.
+
+- Create new crate: `zeus-railgun-prover`
+- **JS sidecar** (`js-sidecar/`):
+  - Downloads artifacts from the same IPFS sources used by the official Railgun SDK (`@railgun-community/wallet` + `artifact-util.ts`).
+  - Uses `snarkjs` (or calls the native-prover when available) to run `groth16.fullProve`.
+  - Pure "dumb prover" — receives formatted witness, returns `SnarkProof` (pi_a/pi_b/pi_c).
+- **Rust side** (`zeus-railgun-prover`):
+  - Owns witness construction (builds `FormattedCircuitInputsRailgun` from our `PreparedUnshield` + scanner + keys).
+  - Spawns and manages the Node sidecar over line-delimited JSON (same pattern as `WakuSidecarClient`).
+  - High-level API: `prove_unshield(prepared, ...)` → returns real `SnarkProof`.
+- Benefits:
+  - Leverages the battle-tested proving artifacts and libraries the entire Railgun ecosystem uses.
+  - Keeps heavy proving + artifact management out of pure Rust.
+  - Consistent architecture across the project (Waku + Prover sidecars).
+  - Rust still owns all privacy primitives and calldata logic.
+
+**Status**:
+- Decision made after deep review of `engine/src/prover/prover.ts`, artifact downloaders, and how Railway + official wallet invoke the prover.
+- Next: Scaffold the crate following `zeus-waku-broadcaster` patterns (client.rs, models, js-sidecar/index.js).
+- Will integrate later with `RailgunEngine` and the `build_unshield_transact_calldata` path (replace the dummy proof).
+
+This is the pragmatic path to real, on-chain-valid proofs without months of reverse-engineering the circuit.
+

@@ -1,4 +1,5 @@
 /crates/zeus-waku-broadcaster/js-sidecar/node_modules
+/crates/zeus-railgun-prover/js-sidecar/node_modules
 /target
 /data
 /logs

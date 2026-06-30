@@ -10579,6 +10579,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "zeus-railgun-prover"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "kanal",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-test",
+ "tracing",
+ "tracing-subscriber 0.3.20",
+ "zeus-railgun",
+]
+
+[[package]]
 name = "zeus-theme"
 version = "0.4.1"
 dependencies = [

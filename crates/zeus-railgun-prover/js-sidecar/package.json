@@ -1,0 +1,15 @@
+{
+  "name": "zeus-railgun-prover-sidecar",
+  "version": "0.1.0",
+  "description": "Minimal Node.js sidecar for Railgun Groth16 proof generation (snarkjs + artifact downloader)",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "snarkjs": "^0.7.4",
+    "axios": "^1.0.0",
+    "brotli": "^1.3.3"
+  }
+}
