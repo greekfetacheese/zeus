@@ -372,3 +372,15 @@ This completes the "Map real data from RailgunEngine / PreparedUnshield into Pro
 All 21 tests pass. `cargo check` clean.
 
 Next: conversion helper from sidecar ProofResponse → contracts::SnarkProof, and end-to-end test with real (non-dummy) witness data.
+
+## snark_proof_from_sidecar helper + full flow test (2026-06-30)
+
+- Added `pub fn snark_proof_from_sidecar(proof_value: serde_json::Value) -> Result<SnarkProof>`
+  in builders (re-exported). It consumes the exact `{pi_a, pi_b, pi_c}` object the sidecar emits.
+- Updated one test (`test_full_prepare_proof_request_to_calldata_flow`) that exercises:
+  1. construct PreparedUnshield
+  2. `build_unshield_proof_request` (real BabyJub + correct bound hash)
+  3. dummy proof + `snark_proof_from_sidecar` sample
+  4. `build_unshield_transact_calldata(..., proof, ..., use_broadcaster: true)`
+- All 22 tests pass.
+

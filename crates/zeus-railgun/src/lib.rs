@@ -38,6 +38,7 @@ pub use builders::{
     build_unshield_transact_calldata,
     build_unshield_proof_request,
     prepare_shield, prepare_unshield, prepare_unshield_for_broadcaster,
+    snark_proof_from_sidecar,
     PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield, RailgunEngine,
 };
 
