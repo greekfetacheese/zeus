@@ -130,6 +130,7 @@ impl RailgunScanner {
    ///
    /// Prefer the unified redb path (`load_state` + single Database) for new code.
    /// If the file does not exist or is empty, the scanner keeps its current (empty) state.
+   #[deprecated(since = "0.1.0", note = "use `load_state` instead")]
    pub fn load_state_from_file(&self, path: &str) -> Result<()> {
       let data = match std::fs::read(path) {
          Ok(d) => d,
@@ -154,6 +155,7 @@ impl RailgunScanner {
 
    /// Save the full scanner state (nullifiers + owned notes + last block) to a binary file.
    /// Use together with `save_merkle_tree` (redb) for complete persistence.
+   #[deprecated(since = "0.1.0", note = "use `save_state` instead")]
    pub fn save_state_to_file(&self, path: &str) -> Result<()> {
       let (nulls, owned, last) = {
          let inner = self.inner.lock().unwrap();
@@ -494,6 +496,8 @@ impl RailgunScanner {
             commitment: note.commitment,
          };
          inner.owned_notes.push(owned.clone());
+         // ponytail: auto-update merkle so local shields give correct root/proofs immediately
+         let _ = inner.merkle_tree.insert(note.commitment);
          Ok(owned)
       })
    }

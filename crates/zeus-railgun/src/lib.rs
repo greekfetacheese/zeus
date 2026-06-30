@@ -25,7 +25,7 @@ pub use scanner::{OwnedNote, RailgunScanner};
 
 pub use builders::{
     apply_shield_to_scanner, apply_unshield_to_scanner, build_shield_call_data,
-    prepare_shield, prepare_unshield, PreparedShield, PreparedUnshield,
+    prepare_shield, prepare_unshield, PreparedShield, PreparedUnshield, RailgunEngine,
 };
 
 pub use note::{

@@ -293,6 +293,49 @@ pub fn apply_shield_to_scanner(
    scanner.add_own_shielded_note(prepared.note.clone(), leaf_index)
 }
 
+/// High-level Railgun engine: wraps scanner state + builders for simple APIs.
+/// 
+/// One type to rule the protocol interaction.
+/// Automatically updates scanner + merkle on apply (see add_own_shielded_note).
+#[derive(Clone)]
+pub struct RailgunEngine {
+    /// The underlying scanner (public for advanced use / sync).
+    pub scanner: RailgunScanner,
+
+    /// The RailgunKeys used for shield/unshield (viewing private + spending private).
+    keys: RailgunKeys,
+}
+
+impl RailgunEngine {
+    /// Create engine for the given keys (owns scanner + keys).
+    pub fn new(keys: RailgunKeys, chain_id: u64) -> Result<Self> {
+        let scanner = RailgunScanner::new(&keys, chain_id)?;
+        Ok(Self { scanner, keys })
+    }
+
+    /// High-level shield.
+    pub fn prepare_shield(&self, token: TokenData, value: U256, memo: Option<String>) -> Result<PreparedShield> {
+        prepare_shield(&self.keys, token, value, memo)
+    }
+
+    /// High-level unshield (multi-note + change note support).
+    pub fn prepare_unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<PreparedUnshield> {
+        prepare_unshield(&self.scanner, &self.keys, to, token, amount)
+    }
+
+    /// Apply shield result: updates owned notes + merkle tree automatically.
+    pub fn apply_shield(&self, prepared: &PreparedShield, leaf_index: u64) -> Result<OwnedNote> {
+        apply_shield_to_scanner(&self.scanner, prepared, leaf_index)
+    }
+
+    /// Apply unshield result: marks nullifiers spent.
+    pub fn apply_unshield(&self, prepared: &PreparedUnshield) {
+        apply_unshield_to_scanner(&self.scanner, prepared);
+        // ponytail: if change_note exists, caller can shield it or keep in scanner via other means
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
    use super::*;
