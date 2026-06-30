@@ -1,15 +1,19 @@
 {
   "name": "zeus-railgun-prover-sidecar",
   "version": "0.1.0",
-  "description": "Minimal Node.js sidecar for Railgun Groth16 proof generation (snarkjs + artifact downloader)",
+  "description": "Node.js sidecar for Railgun Groth16 proof generation (snarkjs + optional native-prover + artifact caching)",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "install:artifacts": "echo 'Artifacts are downloaded on first use'"
   },
   "dependencies": {
     "snarkjs": "^0.7.4",
-    "axios": "^1.0.0",
+    "axios": "^1.6.0",
     "brotli": "^1.3.3"
+  },
+  "optionalDependencies": {
+    "@railgun-privacy/native-prover": "latest"
   }
 }

@@ -277,3 +277,36 @@ All of the above makes the engine much more solid before wiring the waku broadca
 
 This is the pragmatic path to real, on-chain-valid proofs without months of reverse-engineering the circuit.
 
+
+## Prover Sidecar Improvements (2026-06-30)
+
+**1. Improved JS sidecar**
+- Persistent disk caching of artifacts in `~/.railgun/artifacts-v2.1/` (survives restarts).
+- Progress reporting: sidecar now emits `{type: "progress", stage: "download"|"proving", percent}` events.
+- Better native-prover support:
+  - Attempts to dynamically load `@railgun-privacy/native-prover` (optionalDependency).
+  - Falls back gracefully to snarkjs.
+  - Includes a `getNativeCircuitId` mapper and `convertWitnessForNative`.
+- Updated `package.json` with optionalDependencies.
+
+**2. Proper FormattedCircuitInputs / witness types**
+- Created `src/models.rs` with types directly modeled after Railgun's engine:
+  - `FormattedCircuitInputsRailgun` (the flat shape passed to `snarkjs.groth16.fullProve`)
+  - `PublicInputsRailgun`
+  - `PrivateInputsRailgun`
+  - `ProofRequest` + `ProofResponse`
+- Added `FormattedCircuitInputsRailgun::from_parts(...)` that exactly mirrors the TS `formatRailgunInputs` logic (including `pathElements.flat(2)`).
+- Re-exported from lib.rs.
+- Added typed `prove_with_inputs` helper on the client.
+
+**3. Example / Test exercising the sidecar**
+- Added `tests/sidecar_test.rs`:
+  - `test_formatted_inputs_construction` (unit test, always runs).
+  - `test_prover_client_starts_and_proves_dummy` (integration — gracefully skips if sidecar can't start).
+- Test can be run with: `cargo test -p zeus-railgun-prover --test sidecar_test`
+
+**Status**
+- All changes compile cleanly.
+- JS sidecar is significantly more production-ready for artifact management and feedback.
+- Rust now has the correct witness shape so we can start mapping `PreparedUnshield` → `ProofRequest` in the next phase.
+
