@@ -12,8 +12,8 @@
 //!
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
-use alloy_primitives::{Address, FixedBytes, U256, Uint};
-use alloy_sol_types::SolCall;
+use alloy_primitives::{keccak256, Address, FixedBytes, U256, Uint};
+use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
 use redb::Database;
 
@@ -27,6 +27,14 @@ use crate::note::{
    get_note_blinding_keys,
 };
 use crate::scanner::{OwnedNote, RailgunScanner};
+
+const SNARK_SCALAR_FIELD: U256 = U256::from_limbs([
+    0x43e1f593f0000001,
+    0x2833e84879b97091,
+    0xb85045b68181585d,
+    0x30644e72e131a029,
+]);
+
 use zeus_railgun_prover::{ProofRequest, PrivateInputsRailgun, PublicInputsRailgun};
 
 /// Creates a placeholder SnarkProof.
@@ -356,9 +364,11 @@ pub fn prepare_unshield_for_broadcaster(
 
    // Build the real transact calldata (this is what the broadcaster will submit)
    let chain_id = scanner.chain_id();
+   let dummy_proof = create_dummy_snark_proof();
    let calldata = build_unshield_transact_calldata(
       scanner,
       &prepared_unshield,
+      dummy_proof,
       chain_id,
       min_gas_price,
       true,
@@ -536,12 +546,14 @@ impl RailgunEngine {
    pub fn build_unshield_transact_calldata(
       &self,
       prepared: &PreparedUnshield,
+      proof: crate::contracts::SnarkProof,
       min_gas_price: U256,
       use_broadcaster: bool,
    ) -> Result<Vec<u8>> {
       build_unshield_transact_calldata(
          &self.scanner,
          prepared,
+         proof,
          self.chain_id(),
          min_gas_price,
          use_broadcaster,
@@ -552,6 +564,7 @@ impl RailgunEngine {
    pub fn build_unshield_transact_calldata_with_chain(
       &self,
       prepared: &PreparedUnshield,
+      proof: crate::contracts::SnarkProof,
       chain_id: u64,
       min_gas_price: U256,
       use_broadcaster: bool,
@@ -559,6 +572,7 @@ impl RailgunEngine {
       build_unshield_transact_calldata(
          &self.scanner,
          prepared,
+         proof,
          chain_id,
          min_gas_price,
          use_broadcaster,
@@ -568,12 +582,15 @@ impl RailgunEngine {
 
 /// Build the calldata for `RailgunSmartWallet.transact(Transaction[])` from a prepared unshield.
 ///
-/// This turns a PreparedUnshield (with optional change note) into the exact
-/// arguments expected by the on-chain transact function. This is what gets
-/// passed (via the broadcaster) for gas-sponsored unshield operations.
+/// Pass a **real** `SnarkProof` obtained from the prover sidecar after calling
+/// `build_unshield_proof_request` + `RailgunProverClient::prove_with_inputs`.
+///
+/// `use_broadcaster` flag is forwarded for future Waku integration decisions
+/// (e.g. whether to include fee or use redirect unshield).
 pub fn build_unshield_transact_calldata(
    scanner: &RailgunScanner,
    prepared: &PreparedUnshield,
+   proof: crate::contracts::SnarkProof,
    chain_id: u64,
    min_gas_price: U256,
    _use_broadcaster: bool,
@@ -605,9 +622,6 @@ pub fn build_unshield_transact_calldata(
       commitmentCiphertext: vec![],
    };
 
-   // Use dummy proof for now (see create_dummy_snark_proof)
-   let proof = create_dummy_snark_proof();
-
    let tx = Transaction {
       proof,
       merkleRoot: merkle_root.to_be_bytes::<32>().into(),
@@ -623,10 +637,16 @@ pub fn build_unshield_transact_calldata(
    Ok(call.abi_encode())
 }
 
-fn compute_bound_params_hash(prepared: &PreparedUnshield, chain_id: u64) -> Result<String> {
-   let data = vec![U256::from(chain_id), prepared.amount];
-   crate::address::poseidon_hash(data).map(|h| h.to_string())
+/// Computes boundParamsHash exactly as the Railgun circuit / Verifier.sol expects.
+/// hash = uint256(keccak256(abi.encode(boundParams))) % SNARK_SCALAR_FIELD
+fn compute_bound_params_hash(bound_params: &BoundParams) -> Result<String> {
+   let encoded = bound_params.abi_encode();
+   let hash = keccak256(&encoded);
+   let hash_u256 = U256::from_be_bytes(hash.0);
+   let result = hash_u256 % SNARK_SCALAR_FIELD;
+   Ok(result.to_string())
 }
+
 
 /// Maps PreparedUnshield (from RailgunEngine) into the prover witness format.
 pub fn build_unshield_proof_request(
@@ -639,16 +659,30 @@ pub fn build_unshield_proof_request(
    let nulls = prepared.nullifiers.iter().map(|n| n.to_string()).collect();
    let coms = prepared.change_note.as_ref().map(|c| vec![c.commitment.to_string()]).unwrap_or_default();
 
+   // Build BoundParams exactly as we will for calldata (for consistent hash)
+   let bound_for_hash = BoundParams {
+      treeNumber: 0,
+      minGasPrice: Uint::<72, 2>::from(0u64),
+      unshield: UnshieldType::NORMAL,
+      chainID: scanner.chain_id(),
+      adaptContract: alloy_primitives::Address::ZERO,
+      adaptParams: alloy_primitives::FixedBytes::<32>::ZERO,
+      commitmentCiphertext: vec![],
+   };
+
    let public = PublicInputsRailgun {
       merkle_root: root,
-      bound_params_hash: compute_bound_params_hash(prepared, scanner.chain_id()).unwrap_or_else(|_| "0".into()),
+      bound_params_hash: compute_bound_params_hash(&bound_for_hash).unwrap_or_else(|_| "0".into()),
       nullifiers: nulls,
       commitments_out: coms,
    };
 
    let priv_in = PrivateInputsRailgun {
       token_address: prepared.unshield_preimage.token.tokenAddress.to_string(),
-      public_key: vec!["0".into(), "0".into()],
+      public_key: vec![
+         keys.spending_public.0.to_string(),
+         keys.spending_public.1.to_string(),
+      ],
       random_in: prepared.input_randoms.iter().map(|r| { let mut p=[0u8;32]; p[16..].copy_from_slice(r); U256::from_be_bytes(p).to_string() }).collect(),
       value_in: prepared.input_values.iter().map(|v| v.to_string()).collect(),
       path_elements: prepared.proofs.iter().map(|(_,e,_)| e.iter().map(|x|x.to_string()).collect()).collect(),

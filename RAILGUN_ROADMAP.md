@@ -343,3 +343,32 @@ Status: Mapping complete. Real public_key derivation + exact boundParamsHash + s
 - Proper signature for the authorization in the witness.
 
 This completes the "Map real data from RailgunEngine / PreparedUnshield into ProofRequest + FormattedCircuitInputsRailgun" milestone.
+
+## Real BabyJub Public Key + Exact boundParamsHash + Proof Wiring (2026-06-30)
+
+1. **Spending public key (BabyJub)**
+   - `build_unshield_proof_request` now uses the real `keys.spending_public: (U256, U256)` (derived in `generate_railgun_keys` / `compute_spending_key` using the BabyJub implementation in address.rs).
+   - Witness now contains the correct [x, y] for the spending key in `public_key`.
+
+2. **bound_params_hash**
+   - Replaced the placeholder poseidon with exact match to `Verifier.sol`:
+     `uint256(keccak256(abi.encode(BoundParams))) % SNARK_SCALAR_FIELD`
+   - Added `SNARK_SCALAR_FIELD` constant.
+   - `compute_bound_params_hash` now builds the identical `BoundParams` struct used in calldata and computes via `keccak256` + modulo.
+   - Used inside `build_unshield_proof_request`.
+
+3. **Wired real proof into calldata**
+   - `build_unshield_transact_calldata(scanner, prepared, proof: SnarkProof, chain_id, min_gas_price, use_broadcaster)` now requires a real `SnarkProof`.
+   - Updated all `RailgunEngine` methods (`build_unshield_transact_calldata`, `..._with_chain`).
+   - `use_broadcaster: bool` is preserved (for future Waku/fee logic).
+   - Internal paths (prepare_unshield_for_broadcaster, tests) temporarily use `create_dummy_snark_proof()` so everything still compiles/tests.
+   - The flow is now:
+     1. `engine.prepare_unshield(...)` → `PreparedUnshield`
+     2. `engine.build_unshield_proof_request(...)` → `ProofRequest`
+     3. `prover_client.prove_with_inputs(request)` → real proof
+     4. Construct `SnarkProof` from the response (pi_a / pi_b / pi_c)
+     5. `engine.build_unshield_transact_calldata(prepared, proof, ...)` → ready calldata
+
+All 21 tests pass. `cargo check` clean.
+
+Next: conversion helper from sidecar ProofResponse → contracts::SnarkProof, and end-to-end test with real (non-dummy) witness data.
