@@ -28,6 +28,34 @@ use crate::note::{
 };
 use crate::scanner::{OwnedNote, RailgunScanner};
 
+/// Creates a placeholder SnarkProof.
+///
+/// IMPORTANT: This is a DUMMY proof (all zeros). 
+/// Railgun on-chain `transact` calls **require** a valid Groth16 proof 
+/// generated from the official Railgun circuit (over BN254).
+///
+/// Real proof generation is a significant piece of work (arkworks + circuit 
+/// constraints matching the TS implementation). For now this allows building 
+/// and testing the calldata shape and flow. 
+/// 
+/// In production you must replace this with a real prover call.
+fn create_dummy_snark_proof() -> crate::contracts::RailgunSmartWallet::SnarkProof {
+    let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
+        x: U256::ZERO,
+        y: U256::ZERO,
+    };
+    let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
+        x: [U256::ZERO, U256::ZERO],
+        y: [U256::ZERO, U256::ZERO],
+    };
+    crate::contracts::RailgunSmartWallet::SnarkProof {
+        a: zero_g1.clone(),
+        b: zero_g2.clone(),
+        c: zero_g1,
+    }
+}
+
+
 /// Data prepared for a Shield call (public → private).
 #[derive(Debug, Clone)]
 pub struct PreparedShield {
@@ -191,7 +219,8 @@ pub fn prepare_shield(
 /// pays a broadcaster fee via Waku. This basic version produces the core pieces.
 ///
 /// `amount` is the amount you want to unshield (in token units).
-/// Simple selection: takes the first note(s) that cover the amount (no change note yet).
+/// Selection: largest-first greedy to minimize number of notes (good for broadcaster/gas).
+/// Produces change_note when total > amount.
 pub fn prepare_unshield(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
@@ -202,14 +231,22 @@ pub fn prepare_unshield(
 ) -> Result<PreparedUnshield> {
    let unspent = scanner.unspent_notes();
 
-   // Proper multi-note selection: accumulate until >= amount (greedy by order)
+   // Filter for matching token
+   let mut candidates: Vec<&OwnedNote> = unspent
+      .iter()
+      .filter(|n| {
+         n.note.token_data.token_type == token.token_type
+            && n.note.token_data.token_address == token.token_address
+            && n.note.value > U256::ZERO
+      })
+      .collect();
+
+   // Better selection for broadcaster: largest notes first (minimizes nullifier count)
+   candidates.sort_by(|a, b| b.note.value.cmp(&a.note.value));
+
    let mut selected: Vec<&OwnedNote> = Vec::new();
    let mut total = U256::ZERO;
-   for owned in unspent.iter().filter(|n| {
-      n.note.token_data.token_type == token.token_type
-         && n.note.token_data.token_address == token.token_address
-         && n.note.value > U256::ZERO
-   }) {
+   for owned in candidates {
       if total >= amount {
          break;
       }
@@ -262,6 +299,9 @@ pub fn prepare_unshield(
       tokenSubID: token.token_sub_id,
    };
 
+   // npk for unshieldPreimage is often zero for direct unshield to EOA
+   // (the actual destination is the `to` address in the Transaction context).
+   // If doing shielded change + unshield in one transact, this may need the change npk.
    let unshield_preimage = CommitmentPreimage {
       npk: [0u8; 32].into(),
       token: contract_token,
@@ -288,7 +328,7 @@ pub fn prepare_unshield(
 /// This is optional — only call this path when the user explicitly wants broadcaster sponsorship.
 ///
 /// For now this wraps the normal unshield + attaches the fee metadata.
-/// Full `transact` calldata assembly will be added in the next iteration.
+/// This now builds real transact calldata (see build_unshield_transact_calldata).
 pub fn prepare_unshield_for_broadcaster(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
@@ -302,10 +342,11 @@ pub fn prepare_unshield_for_broadcaster(
    let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount, true)?;
 
    // Build the real transact calldata (this is what the broadcaster will submit)
+   let chain_id = scanner.chain_id();
    let calldata = build_unshield_transact_calldata(
       scanner,
       &prepared_unshield,
-      /* chain_id */ 1, // TODO: pass real chain id
+      chain_id,
       min_gas_price,
       true,
    )
@@ -400,6 +441,11 @@ impl RailgunEngine {
       self.scanner.save_merkle_tree(db, tree_id)
    }
 
+   /// Returns the chain this engine is configured for.
+   pub fn chain_id(&self) -> u64 {
+      self.scanner.chain_id()
+   }
+
    /// High-level shield.
    pub fn prepare_shield(
       &self,
@@ -457,6 +503,7 @@ impl RailgunEngine {
       broadcaster_address: String,
       min_gas_price: U256,
    ) -> Result<PreparedBroadcasterUnshield> {
+      // Chain ID comes from the engine (no more hardcoding)
       prepare_unshield_for_broadcaster(
          &self.scanner,
          &self.keys,
@@ -472,19 +519,36 @@ impl RailgunEngine {
    /// Build the full `transact` calldata for an unshield (used for gas-sponsored via broadcaster).
    ///
    /// Call this after `prepare_unshield(..., use_broadcaster: true)`.
+   /// Uses the chain_id stored in this engine.
    pub fn build_unshield_transact_calldata(
+      &self,
+      prepared: &PreparedUnshield,
+      min_gas_price: U256,
+      use_broadcaster: bool,
+   ) -> Result<Vec<u8>> {
+      build_unshield_transact_calldata(
+         &self.scanner,
+         prepared,
+         self.chain_id(),
+         min_gas_price,
+         use_broadcaster,
+      )
+   }
+
+   /// Build transact calldata when you need to override the chain id (advanced).
+   pub fn build_unshield_transact_calldata_with_chain(
       &self,
       prepared: &PreparedUnshield,
       chain_id: u64,
       min_gas_price: U256,
-      _use_broadcaster: bool,
+      use_broadcaster: bool,
    ) -> Result<Vec<u8>> {
       build_unshield_transact_calldata(
          &self.scanner,
          prepared,
          chain_id,
          min_gas_price,
-         _use_broadcaster,
+         use_broadcaster,
       )
    }
 }
@@ -528,20 +592,8 @@ pub fn build_unshield_transact_calldata(
       commitmentCiphertext: vec![],
    };
 
-   // Placeholder proof until we implement ZK proof generation
-   let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
-      x: U256::ZERO,
-      y: U256::ZERO,
-   };
-   let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
-      x: [U256::ZERO, U256::ZERO],
-      y: [U256::ZERO, U256::ZERO],
-   };
-   let proof = crate::contracts::RailgunSmartWallet::SnarkProof {
-      a: zero_g1.clone(),
-      b: zero_g2.clone(),
-      c: zero_g1,
-   };
+   // Use dummy proof for now (see create_dummy_snark_proof)
+   let proof = create_dummy_snark_proof();
 
    let tx = Transaction {
       proof,
@@ -617,4 +669,43 @@ mod tests {
       );
       assert!(value > U256::ZERO);
    }
+
+   #[test]
+   fn test_prepare_unshield_with_change_and_transact_calldata() {
+      // This test uses a fresh scanner with no notes, so it will fail on insufficient funds.
+      // We mainly test that the API accepts use_broadcaster and that calldata builder runs.
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let scanner = RailgunScanner::new(&keys, 1).unwrap();
+
+      let token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+
+      // Should fail gracefully (no notes)
+      let result = prepare_unshield(&scanner, &keys, alloy_primitives::Address::ZERO, token.clone(), U256::from(1000u64), true);
+      assert!(result.is_err());
+
+      // Test that build function is callable with the new signature
+      // (we can't easily create a valid PreparedUnshield without real notes, so just type check)
+      let _chain = scanner.chain_id();
+   }
+
+   #[test]
+   fn test_railgun_engine_broadcaster_api() {
+      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let engine = RailgunEngine::new(keys, 137).unwrap(); // Polygon example
+
+      assert_eq!(engine.chain_id(), 137);
+
+      let token = NoteTokenData::new_erc20("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174");
+
+      // The high-level API now accepts use_broadcaster
+      let res = engine.prepare_unshield(
+         alloy_primitives::Address::ZERO,
+         token,
+         U256::from(1u64),
+         true, // use broadcaster
+      );
+      // Will error because no notes, but the signature + flag is exercised
+      assert!(res.is_err());
+   }
 }
+

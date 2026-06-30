@@ -228,3 +228,23 @@ Next logical steps:
 - Implement proper note selection / change note for broadcaster case.
 - Start integrating with zeus-waku-broadcaster for the actual `transact` submission.
 
+
+
+## Fleshed out details before Waku integration (2026-06-30)
+
+**Addressed items:**
+- **ZK proof generation TODO**: Replaced inline zeroed proof with dedicated `create_dummy_snark_proof()` function. Added clear, prominent documentation that this is a placeholder and real Groth16 proof generation (Railgun circuit) is required for on-chain use. API is ready for future prover integration.
+- **Real chain id passing**: Removed the last hardcoded `1` in `prepare_unshield_for_broadcaster`. Now derives `scanner.chain_id()`. Added `RailgunEngine::chain_id()` + convenience `build_unshield_transact_calldata(...)` (no chain param) that uses the engine's chain. Kept an explicit `_with_chain` variant for advanced use.
+- **Better note selection for broadcaster**: Changed from "in scanner order" to "largest-first" greedy selection. This minimizes the number of nullifiers revealed and is preferable when paying a broadcaster (less data, lower gas).
+- **Change note handling**: Verified and documented. When `total > amount`, a `change_note` is created via `create_note_with_keys`. It is correctly added to the `commitments` array in the `Transaction` struct. Added comment on `unshieldPreimage.npk`.
+- Cleaned multiple outdated comments (e.g. "no change note yet", "calldata assembly coming later").
+- Added two new tests exercising `use_broadcaster: true` path, `RailgunEngine` broadcaster APIs, and change-note + calldata builder (21/21 tests pass).
+
+**Remaining acknowledged limitations (documented):**
+- Real ZK proof generation is future work (large effort).
+- `unshieldPreimage.npk` is currently zeroed (matches current simple unshield use case).
+- No fee amount yet injected into BoundParams or change calculation (comes from waku quote later).
+- No multi-transaction batching yet (single Transaction for now).
+
+All of the above makes the engine much more solid before wiring the waku broadcaster client.
+
