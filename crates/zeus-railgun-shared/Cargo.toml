@@ -1,30 +1,24 @@
 [package]
-name = "zeus-railgun"
+name = "zeus-railgun-shared"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-
 # Alloy
-alloy-sol-types = { version = "=1.6.0", features = ["json"] }
 alloy-primitives = "=1.6.0"
-alloy-rpc-types = "=2.0.5"
-alloy-provider = "=2.0.5"
-
-# Internal
-zeus-eth = { path = "../zeus-eth" }
-zeus-railgun-prover = { path = "../zeus-railgun-prover" }
-zeus-railgun-shared = { path = "../zeus-railgun-shared" }
-
 
 # Crypto
 chacha20poly1305 = "0.10"
+bech32 = "0.9"
 hex = "=0.4.3"
 sha2 = "0.10.9"
 aes-gcm = "0.10"
 aes = "0.8"
 ctr = "0.9"
 hmac = "0.12.1"
+jubjub = "0.10.0"
+ark-ed-on-bn254 = "0.5.0"
+blake2 = "0.10.6"
 curve25519-dalek = "4"
 num-bigint = "0.4"
 ark-ff = "0.5.0"
@@ -33,15 +27,13 @@ light-poseidon = "0.4.0"
 k256 = "=0.13.4"
 sha3 = "=0.10.8"
 
-
 # Misc
-redb = "4"
 rand = "0.8"
 lazy_static = "1"
 anyhow = "=1.0.99"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 secure-types = "0.3"
-tokio = { version = "=1.47.1", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 bip39 = "2"

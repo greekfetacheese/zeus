@@ -8,7 +8,7 @@ members = [
     "crates/zeus-wallet",
     "crates/zeus-railgun",
     "crates/zeus-waku-broadcaster",
-    "crates/zeus-railgun-prover",
+    "crates/zeus-railgun-prover", "crates/zeus-railgun-shared",
 ]
 
 [package]

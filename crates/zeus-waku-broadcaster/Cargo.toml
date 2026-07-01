@@ -8,7 +8,8 @@ readme = "README.md"
 
 [dependencies]
 # Railgun address decoding + BabyJubJub viewing key extraction (for broadcaster ECDH)
-zeus-railgun = { path = "../zeus-railgun" }
+zeus-railgun-shared = { path = "../zeus-railgun-shared" }
+
 
 # Core
 tokio = { version = "1", features = ["full"] }

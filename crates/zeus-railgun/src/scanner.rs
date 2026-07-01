@@ -21,9 +21,9 @@ use alloy_rpc_types::Filter;
 use anyhow::{Result, anyhow};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use zeus_eth::utils::client::RpcClient;
+use zeus_railgun_shared::RailgunKeys;
 
 use crate::{
-   RailgunKeys,
    contracts::{RailgunSmartWallet, railgun_address},
    merkle::PoseidonMerkleTree,
    note::{Note, compute_nullifier, decrypt_note_v2},
@@ -38,16 +38,15 @@ pub struct OwnedNote {
    pub commitment: U256,
 }
 
-
 /// Tables for scanner state in the same redb file as the merkle tree
 const SCANNER_NULLIFIERS_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("railgun_scanner_nullifiers");
+   TableDefinition::new("railgun_scanner_nullifiers");
 
 const SCANNER_OWNED_NOTES_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("railgun_scanner_owned_notes");
+   TableDefinition::new("railgun_scanner_owned_notes");
 
 const SCANNER_META_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("railgun_scanner_meta");
+   TableDefinition::new("railgun_scanner_meta");
 
 /// Internal state (protected by mutex for thread safety).
 struct RailgunScannerInner {
@@ -81,7 +80,7 @@ struct RailgunScannerInner {
 }
 
 /// The Railgun scanner maintains private state.
-/// 
+///
 /// Thread-safe: can be cheaply cloned and used across threads.
 #[derive(Clone)]
 pub struct RailgunScanner {
@@ -169,7 +168,6 @@ impl RailgunScanner {
       std::fs::write(path, &bytes)?;
       Ok(())
    }
-
 
    // ===================== Public accessors (thread-safe) =====================
 
@@ -271,7 +269,6 @@ impl RailgunScanner {
       let _ = scanner.load_state(&db, tree_id);
       Ok(scanner)
    }
-
 
    /// Internal helper: read access to inner state.
    fn read_inner<F, R>(&self, f: F) -> R
@@ -437,10 +434,8 @@ impl RailgunScanner {
          )
       });
 
-      let shared_key = crate::note::derive_shared_symmetric_key(
-         &view_priv,
-         &blinded_receiver_viewing_key,
-      )?;
+      let shared_key =
+         crate::note::derive_shared_symmetric_key(&view_priv, &blinded_receiver_viewing_key)?;
 
       let nonce12: &[u8; 12] = nonce.try_into().map_err(|_| anyhow!("nonce must be 12 bytes"))?;
       let decrypted = match decrypt_note_v2(ciphertext, nonce12, &shared_key) {
@@ -609,162 +604,169 @@ fn deserialize_scanner_state(
    Ok((nulls, notes, last_block))
 }
 
-
 // ===================== Redb persistence for scanner state (nullifiers + owned notes + meta) =====================
 
 fn serialize_nullifiers(set: &HashSet<U256>) -> Vec<u8> {
-    let v: Vec<U256> = set.iter().copied().collect();
-    let mut b = Vec::with_capacity(8 + v.len() * 32);
-    b.extend_from_slice(&(v.len() as u64).to_le_bytes());
-    for x in &v {
-        b.extend_from_slice(&x.to_be_bytes::<32>());
-    }
-    b
+   let v: Vec<U256> = set.iter().copied().collect();
+   let mut b = Vec::with_capacity(8 + v.len() * 32);
+   b.extend_from_slice(&(v.len() as u64).to_le_bytes());
+   for x in &v {
+      b.extend_from_slice(&x.to_be_bytes::<32>());
+   }
+   b
 }
 
 fn deserialize_nullifiers(data: &[u8]) -> Result<HashSet<U256>> {
-    if data.len() < 8 {
-        return Ok(HashSet::new());
-    }
-    let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-    let mut s = HashSet::with_capacity(n);
-    let mut offset = 8;
-    for _ in 0..n {
-        if offset + 32 > data.len() { break; }
-        let mut buf = [0u8; 32];
-        buf.copy_from_slice(&data[offset..offset + 32]);
-        s.insert(U256::from_be_bytes(buf));
-        offset += 32;
-    }
-    Ok(s)
+   if data.len() < 8 {
+      return Ok(HashSet::new());
+   }
+   let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+   let mut s = HashSet::with_capacity(n);
+   let mut offset = 8;
+   for _ in 0..n {
+      if offset + 32 > data.len() {
+         break;
+      }
+      let mut buf = [0u8; 32];
+      buf.copy_from_slice(&data[offset..offset + 32]);
+      s.insert(U256::from_be_bytes(buf));
+      offset += 32;
+   }
+   Ok(s)
 }
 
 fn serialize_owned_notes_for_redb(notes: &[OwnedNote]) -> Vec<u8> {
-    // Reuse the existing binary format
-    let mut b = Vec::new();
-    b.extend_from_slice(&(notes.len() as u64).to_le_bytes());
-    for on in notes {
-        b.extend_from_slice(&on.leaf_index.to_le_bytes());
-        b.extend_from_slice(&on.nullifier.to_be_bytes::<32>());
-        b.extend_from_slice(&on.commitment.to_be_bytes::<32>());
-        let nb = on.note.to_bytes();
-        b.extend_from_slice(&(nb.len() as u32).to_le_bytes());
-        b.extend_from_slice(&nb);
-    }
-    b
+   // Reuse the existing binary format
+   let mut b = Vec::new();
+   b.extend_from_slice(&(notes.len() as u64).to_le_bytes());
+   for on in notes {
+      b.extend_from_slice(&on.leaf_index.to_le_bytes());
+      b.extend_from_slice(&on.nullifier.to_be_bytes::<32>());
+      b.extend_from_slice(&on.commitment.to_be_bytes::<32>());
+      let nb = on.note.to_bytes();
+      b.extend_from_slice(&(nb.len() as u32).to_le_bytes());
+      b.extend_from_slice(&nb);
+   }
+   b
 }
 
 fn deserialize_owned_notes_from_redb(data: &[u8]) -> Result<Vec<OwnedNote>> {
-    if data.len() < 8 {
-        return Ok(Vec::new());
-    }
-    let len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-    let mut notes = Vec::with_capacity(len);
-    let mut offset = 8;
-    for _ in 0..len {
-        if offset + 72 > data.len() { break; }
-        let li = u64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
-        offset += 8;
-        let mut nul = [0u8; 32]; nul.copy_from_slice(&data[offset..offset+32]); offset += 32;
-        let mut com = [0u8; 32]; com.copy_from_slice(&data[offset..offset+32]); offset += 32;
-        let nl = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
-        offset += 4;
-        if offset + nl > data.len() { break; }
-        let note = Note::from_bytes(&data[offset..offset+nl])?;
-        offset += nl;
-        notes.push(OwnedNote {
-            note,
-            leaf_index: li,
-            nullifier: U256::from_be_bytes(nul),
-            commitment: U256::from_be_bytes(com),
-        });
-    }
-    Ok(notes)
+   if data.len() < 8 {
+      return Ok(Vec::new());
+   }
+   let len = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
+   let mut notes = Vec::with_capacity(len);
+   let mut offset = 8;
+   for _ in 0..len {
+      if offset + 72 > data.len() {
+         break;
+      }
+      let li = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
+      offset += 8;
+      let mut nul = [0u8; 32];
+      nul.copy_from_slice(&data[offset..offset + 32]);
+      offset += 32;
+      let mut com = [0u8; 32];
+      com.copy_from_slice(&data[offset..offset + 32]);
+      offset += 32;
+      let nl = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+      offset += 4;
+      if offset + nl > data.len() {
+         break;
+      }
+      let note = Note::from_bytes(&data[offset..offset + nl])?;
+      offset += nl;
+      notes.push(OwnedNote {
+         note,
+         leaf_index: li,
+         nullifier: U256::from_be_bytes(nul),
+         commitment: U256::from_be_bytes(com),
+      });
+   }
+   Ok(notes)
 }
 
 fn load_nullifiers_redb(db: &Database, tree_id: &str) -> Result<HashSet<U256>> {
-    let read_txn = db.begin_read()?;
-    let table = match read_txn.open_table(SCANNER_NULLIFIERS_TABLE) {
-        Ok(t) => t,
-        Err(_) => return Ok(HashSet::new()),
-    };
-    match table.get(tree_id)? {
-        Some(value) => deserialize_nullifiers(value.value()),
-        None => Ok(HashSet::new()),
-    }
+   let read_txn = db.begin_read()?;
+   let table = match read_txn.open_table(SCANNER_NULLIFIERS_TABLE) {
+      Ok(t) => t,
+      Err(_) => return Ok(HashSet::new()),
+   };
+   match table.get(tree_id)? {
+      Some(value) => deserialize_nullifiers(value.value()),
+      None => Ok(HashSet::new()),
+   }
 }
 
 fn save_nullifiers_redb(db: &Database, tree_id: &str, set: &HashSet<U256>) -> Result<()> {
-    let write_txn = db.begin_write()?;
-    {
-        let mut table = write_txn.open_table(SCANNER_NULLIFIERS_TABLE)?;
-        let bytes = serialize_nullifiers(set);
-        table.insert(tree_id, bytes.as_slice())?;
-    }
-    write_txn.commit()?;
-    Ok(())
+   let write_txn = db.begin_write()?;
+   {
+      let mut table = write_txn.open_table(SCANNER_NULLIFIERS_TABLE)?;
+      let bytes = serialize_nullifiers(set);
+      table.insert(tree_id, bytes.as_slice())?;
+   }
+   write_txn.commit()?;
+   Ok(())
 }
 
 fn load_owned_notes_redb(db: &Database, tree_id: &str) -> Result<Vec<OwnedNote>> {
-    let read_txn = db.begin_read()?;
-    let table = match read_txn.open_table(SCANNER_OWNED_NOTES_TABLE) {
-        Ok(t) => t,
-        Err(_) => return Ok(Vec::new()),
-    };
-    match table.get(tree_id)? {
-        Some(value) => deserialize_owned_notes_from_redb(value.value()),
-        None => Ok(Vec::new()),
-    }
+   let read_txn = db.begin_read()?;
+   let table = match read_txn.open_table(SCANNER_OWNED_NOTES_TABLE) {
+      Ok(t) => t,
+      Err(_) => return Ok(Vec::new()),
+   };
+   match table.get(tree_id)? {
+      Some(value) => deserialize_owned_notes_from_redb(value.value()),
+      None => Ok(Vec::new()),
+   }
 }
 
 fn save_owned_notes_redb(db: &Database, tree_id: &str, notes: &[OwnedNote]) -> Result<()> {
-    let write_txn = db.begin_write()?;
-    {
-        let mut table = write_txn.open_table(SCANNER_OWNED_NOTES_TABLE)?;
-        let bytes = serialize_owned_notes_for_redb(notes);
-        table.insert(tree_id, bytes.as_slice())?;
-    }
-    write_txn.commit()?;
-    Ok(())
+   let write_txn = db.begin_write()?;
+   {
+      let mut table = write_txn.open_table(SCANNER_OWNED_NOTES_TABLE)?;
+      let bytes = serialize_owned_notes_for_redb(notes);
+      table.insert(tree_id, bytes.as_slice())?;
+   }
+   write_txn.commit()?;
+   Ok(())
 }
 
 fn load_last_block_redb(db: &Database, tree_id: &str) -> Option<u64> {
-    let read_txn = match db.begin_read() {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    let table = match read_txn.open_table(SCANNER_META_TABLE) {
-        Ok(t) => t,
-        Err(_) => return None,
-    };
-    match table.get(tree_id) {
-        Ok(Some(value)) => {
-            let b: &[u8] = value.value();
-            if b.len() >= 8 {
-                Some(u64::from_le_bytes(b[0..8].try_into().unwrap()))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+   let read_txn = match db.begin_read() {
+      Ok(t) => t,
+      Err(_) => return None,
+   };
+   let table = match read_txn.open_table(SCANNER_META_TABLE) {
+      Ok(t) => t,
+      Err(_) => return None,
+   };
+   match table.get(tree_id) {
+      Ok(Some(value)) => {
+         let b: &[u8] = value.value();
+         if b.len() >= 8 {
+            Some(u64::from_le_bytes(b[0..8].try_into().unwrap()))
+         } else {
+            None
+         }
+      }
+      _ => None,
+   }
 }
 
 fn save_last_block_redb(db: &Database, tree_id: &str, block: u64) -> Result<()> {
-    let write_txn = db.begin_write()?;
-    {
-        let mut table = write_txn.open_table(SCANNER_META_TABLE)?;
-        table.insert(tree_id, &block.to_le_bytes()[..])?;
-    }
-    write_txn.commit()?;
-    Ok(())
+   let write_txn = db.begin_write()?;
+   {
+      let mut table = write_txn.open_table(SCANNER_META_TABLE)?;
+      table.insert(tree_id, &block.to_le_bytes()[..])?;
+   }
+   write_txn.commit()?;
+   Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::generate_railgun_keys;
    use secure_types::SecureArray;
 
    fn dummy_seed() -> SecureArray<u8, 64> {
@@ -778,7 +780,7 @@ mod tests {
    #[tokio::test]
    async fn test_scanner_creation_and_basic_state() {
       let seed = dummy_seed();
-      let keys = generate_railgun_keys(seed, 0, None).unwrap();
+      let keys = RailgunKeys::new(seed, 0).unwrap();
 
       let scanner = RailgunScanner::new(&keys, 1).unwrap();
 
@@ -806,7 +808,7 @@ mod tests {
    #[test]
    fn test_scanner_load_save_state_file() {
       let seed = dummy_seed();
-      let keys = generate_railgun_keys(seed, 0, None).unwrap();
+      let keys = RailgunKeys::new(seed, 0).unwrap();
 
       let db_path = "/tmp/zeus-railgun-unified-test.redb";
       let tree_id = "test";

@@ -1,28 +1,12 @@
-pub mod address;
-pub mod note;
+pub mod builders;
 pub mod contracts;
 pub mod merkle;
+pub mod note;
 pub mod scanner;
-pub mod builders;
-
-pub use address::{
-   poseidon_hash,
-   AddressData, Chain, RailgunKeys, babyjub_shared_secret, decode_address,
-   derive_spending_private_key, derive_viewing_private_key, encode_address, generate_address_data,
-   generate_railgun_keys, get_broadcaster_viewing_key,
-};
 
 pub use contracts::{
-   BoundParams,
-   CommitmentCiphertext,
-   CommitmentPreimage,
-   RailgunEvent,
-   RailgunSmartWallet,
-   ShieldCiphertext,
-   SnarkProof,
-   TokenData as ContractTokenData,
-   Transaction,
-   UnshieldType,
+   BoundParams, CommitmentCiphertext, CommitmentPreimage, RailgunEvent, RailgunSmartWallet,
+   ShieldCiphertext, SnarkProof, TokenData as ContractTokenData, Transaction, UnshieldType,
    railgun_address,
 };
 
@@ -36,19 +20,20 @@ pub use scanner::{OwnedNote, RailgunScanner};
 // Preferred high-level API.
 // Use `RailgunEngine` for almost all operations (one clean entry point per action).
 pub use builders::{
-    RailgunEngine,
+   // Prepared data (return types from the high-level methods)
+   PreparedBroadcasterUnshield,
+   PreparedShield,
+   PreparedUnshield,
 
-    // Prepared data (return types from the high-level methods)
-    PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield,
+   RailgunEngine,
 
-    // Supporting helpers (for proof generation and advanced calldata)
-    apply_shield_to_scanner,
-    apply_unshield_to_scanner,
-    build_unshield_proof_request,
-    build_unshield_transact_calldata,
-    snark_proof_from_sidecar,
+   // Supporting helpers (for proof generation and advanced calldata)
+   apply_shield_to_scanner,
+   apply_unshield_to_scanner,
+   build_unshield_proof_request,
+   build_unshield_transact_calldata,
+   snark_proof_from_sidecar,
 };
-
 
 pub use note::{
    BlindedViewingKeys, Note, NoteAnnotationData, TokenData, TokenType, compute_commitment,
@@ -58,8 +43,7 @@ pub use note::{
    encrypt_note_v2, get_blinding_scalar, get_note_blinding_keys,
 };
 
-
 // Re-export witness types so users of zeus-railgun can build ProofRequests without adding the prover crate explicitly.
 pub use zeus_railgun_prover::{
-    FormattedCircuitInputsRailgun, PrivateInputsRailgun, ProofRequest, PublicInputsRailgun,
+   FormattedCircuitInputsRailgun, PrivateInputsRailgun, ProofRequest, PublicInputsRailgun,
 };

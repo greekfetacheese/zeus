@@ -8,7 +8,6 @@
 //!
 //! References: Railgun engine transact-note.ts, keys-utils.ts, memo.ts
 
-use crate::address::{AddressData, RailgunKeys};
 use aes::cipher::{KeyIvInit, StreamCipher};
 use aes_gcm::{
    Aes256Gcm, Nonce,
@@ -20,6 +19,7 @@ use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ctr::Ctr128BE;
 use curve25519_dalek::scalar::Scalar;
+use zeus_railgun_shared::{Chain, RailgunAddress, RailgunKeys, encode_address};
 type Aes256Ctr = Ctr128BE<aes::Aes256>;
 use light_poseidon::{Poseidon, PoseidonHasher};
 use sha2::{Digest, Sha256, Sha512};
@@ -97,7 +97,7 @@ pub struct Note {
    pub token_data: TokenData,
 
    /// Optional sender address data (only present if sender chose to reveal).
-   pub sender_address_data: Option<AddressData>,
+   pub sender_address_data: Option<RailgunAddress>,
 
    /// Optional memo text.
    pub memo: Option<String>,
@@ -127,7 +127,7 @@ impl Note {
       random: [u8; 16],
       value: U256,
       token_data: TokenData,
-      sender_address_data: Option<AddressData>,
+      sender_address_data: Option<RailgunAddress>,
       memo: Option<String>,
    ) -> Result<Self> {
       Self::new_with_blinding(
@@ -148,7 +148,7 @@ impl Note {
       random: [u8; 16],
       value: U256,
       token_data: TokenData,
-      sender_address_data: Option<AddressData>,
+      sender_address_data: Option<RailgunAddress>,
       memo: Option<String>,
       sender_random: Option<[u8; 32]>,
       blinded_keys: Option<BlindedViewingKeys>,
@@ -188,7 +188,6 @@ impl Note {
          None,
       )
    }
-
 
    /// Returns the note commitment (what goes into the UTXO Merkle tree).
    pub fn commitment(&self) -> U256 {
@@ -275,57 +274,75 @@ impl Note {
       let mut offset = 0;
 
       let mut recv = [0u8; 32];
-      recv.copy_from_slice(&data[offset..offset+32]);
+      recv.copy_from_slice(&data[offset..offset + 32]);
       let receiver_master_public_key = U256::from_be_bytes(recv);
       offset += 32;
 
       let mut random = [0u8; 16];
-      random.copy_from_slice(&data[offset..offset+16]);
+      random.copy_from_slice(&data[offset..offset + 16]);
       offset += 16;
 
       let mut val = [0u8; 32];
-      val.copy_from_slice(&data[offset..offset+32]);
+      val.copy_from_slice(&data[offset..offset + 32]);
       let value = U256::from_be_bytes(val);
       offset += 32;
 
       let token_type = TokenType::from(data[offset]);
       offset += 1;
 
-      let addr_len = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+      let addr_len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
       offset += 4;
-      let token_address = String::from_utf8(data[offset..offset+addr_len].to_vec())
+      let token_address = String::from_utf8(data[offset..offset + addr_len].to_vec())
          .map_err(|_| anyhow!("bad token address utf8"))?;
       offset += addr_len;
 
       let mut sub = [0u8; 32];
-      sub.copy_from_slice(&data[offset..offset+32]);
+      sub.copy_from_slice(&data[offset..offset + 32]);
       let token_sub_id = U256::from_be_bytes(sub);
       offset += 32;
 
-      let token_data = TokenData { token_type, token_address, token_sub_id };
+      let token_data = TokenData {
+         token_type,
+         token_address,
+         token_sub_id,
+      };
 
       // sender_address_data
       let has_sender = data[offset];
       offset += 1;
       let sender_address_data = if has_sender == 1 {
          let mut mpk = [0u8; 32];
-         mpk.copy_from_slice(&data[offset..offset+32]);
+         mpk.copy_from_slice(&data[offset..offset + 32]);
          offset += 32;
          let mut vpk = [0u8; 32];
-         vpk.copy_from_slice(&data[offset..offset+32]);
+         vpk.copy_from_slice(&data[offset..offset + 32]);
          offset += 32;
 
-         let chain_id = u64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
+         let chain_id = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
          offset += 8;
          let version = data[offset];
          offset += 1;
 
-         Some(AddressData {
+         let chain = if chain_id == 0 {
+            None
+         } else {
+            Some(Chain {
+               type_: 0,
+               id: chain_id,
+            })
+         };
+
+         let mut railgun_address = RailgunAddress {
             master_public_key: U256::from_be_bytes(mpk),
             viewing_public_key: vpk,
-            chain: if chain_id == 0 { None } else { Some(crate::address::Chain { type_: 0, id: chain_id }) },
+            chain,
             version,
-         })
+            address: String::new(),
+         };
+
+         railgun_address.address = encode_address(&railgun_address)?;
+
+         Some(railgun_address)
       } else {
          None
       };
@@ -334,9 +351,9 @@ impl Note {
       let has_memo = data[offset];
       offset += 1;
       let memo = if has_memo == 1 {
-         let mlen = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap()) as usize;
+         let mlen = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
          offset += 4;
-         let m = String::from_utf8(data[offset..offset+mlen].to_vec()).ok();
+         let m = String::from_utf8(data[offset..offset + mlen].to_vec()).ok();
          offset += mlen;
          m
       } else {
@@ -348,7 +365,7 @@ impl Note {
       offset += 1;
       let sender_random = if has_sr == 1 {
          let mut sr = [0u8; 32];
-         sr.copy_from_slice(&data[offset..offset+32]);
+         sr.copy_from_slice(&data[offset..offset + 32]);
          offset += 32;
          Some(sr)
       } else {
@@ -360,10 +377,10 @@ impl Note {
       offset += 1;
       let blinded_keys = if has_bk == 1 {
          let mut bs = [0u8; 32];
-         bs.copy_from_slice(&data[offset..offset+32]);
+         bs.copy_from_slice(&data[offset..offset + 32]);
          offset += 32;
          let mut br = [0u8; 32];
-         br.copy_from_slice(&data[offset..offset+32]);
+         br.copy_from_slice(&data[offset..offset + 32]);
          offset += 32;
          Some(BlindedViewingKeys {
             blinded_sender_viewing_key: bs,
@@ -375,17 +392,17 @@ impl Note {
 
       // derived
       let mut npk = [0u8; 32];
-      npk.copy_from_slice(&data[offset..offset+32]);
+      npk.copy_from_slice(&data[offset..offset + 32]);
       let note_public_key = U256::from_be_bytes(npk);
       offset += 32;
 
       let mut comm = [0u8; 32];
-      comm.copy_from_slice(&data[offset..offset+32]);
+      comm.copy_from_slice(&data[offset..offset + 32]);
       let commitment = U256::from_be_bytes(comm);
       offset += 32;
 
       let mut th = [0u8; 32];
-      th.copy_from_slice(&data[offset..offset+32]);
+      th.copy_from_slice(&data[offset..offset + 32]);
       let token_hash = th;
       // offset += 32; not needed
 
@@ -543,19 +560,19 @@ pub fn unblind_note_key(
 /// Compute the nullifying key from the raw viewing private key.
 /// This is Poseidon(viewingPrivateKey) in the Railgun spec.
 pub fn compute_nullifying_key_from_viewing(viewing_private: &[u8; 32]) -> Result<U256> {
-    // For Railgun, the nullifying key is Poseidon of the viewing private interpreted as field element.
-    // We reuse the same poseidon helper pattern as in address.rs for consistency.
-    let viewing_u256 = U256::from_be_slice(viewing_private);
-    // Simple poseidon of single element for now (real impl may do poseidon([viewingPriv]) or similar)
-    // In practice Railgun does: nullifyingKey = poseidon([viewingKey])
-    // We'll use a 1-input poseidon if available, otherwise hash with a constant.
-    poseidon_hash_single(viewing_u256)
+   // For Railgun, the nullifying key is Poseidon of the viewing private interpreted as field element.
+   // We reuse the same poseidon helper pattern as in address.rs for consistency.
+   let viewing_u256 = U256::from_be_slice(viewing_private);
+   // Simple poseidon of single element for now (real impl may do poseidon([viewingPriv]) or similar)
+   // In practice Railgun does: nullifyingKey = poseidon([viewingKey])
+   // We'll use a 1-input poseidon if available, otherwise hash with a constant.
+   poseidon_hash_single(viewing_u256)
 }
 
 fn poseidon_hash_single(value: U256) -> Result<U256> {
-    // Reuse the poseidon from address or implement simple 1-arity
-    // For now fall back to the 2-arity with a zero second input (common pattern)
-    poseidon_hash(vec![value, U256::ZERO])
+   // Reuse the poseidon from address or implement simple 1-arity
+   // For now fall back to the 2-arity with a zero second input (common pattern)
+   poseidon_hash(vec![value, U256::ZERO])
 }
 
 pub fn compute_nullifier(nullifying_key: U256, leaf_index: u64) -> Result<U256> {
@@ -864,7 +881,6 @@ pub fn compute_nullifier_for_note(
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::address::generate_railgun_keys;
    use bip39::{Language, Mnemonic};
    use secure_types::SecureArray;
 
@@ -877,7 +893,7 @@ mod tests {
 
    #[test]
    fn test_note_creation_and_commitment() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let master_pk = keys.master_public_key;
 
       let random = [0x42u8; 16];
@@ -896,7 +912,7 @@ mod tests {
 
    #[test]
    fn test_shared_key_derivation() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let blinded = keys.viewing_public;
 
       let shared = derive_shared_symmetric_key(&[0u8; 32], &blinded).unwrap();
@@ -905,7 +921,7 @@ mod tests {
 
    #[test]
    fn test_note_encrypt_decrypt_roundtrip() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let master_pk = keys.master_public_key;
 
       let random = [0x11u8; 16];
@@ -941,8 +957,8 @@ mod tests {
 
    #[test]
    fn test_blinded_viewing_keys_and_nullifier() {
-      let sender_keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
-      let receiver_keys = generate_railgun_keys(test_mnemonic(), 1, None).unwrap(); // different index
+      let sender_keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
+      let receiver_keys = RailgunKeys::new(test_mnemonic(), 1).unwrap(); // different index
 
       let shared_random = rand::random::<[u8; 32]>();
       let sender_random = rand::random::<[u8; 32]>();
@@ -983,7 +999,7 @@ mod tests {
 
    #[test]
    fn test_annotation_data_roundtrip() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let viewing_priv: [u8; 32] = keys.viewing_private.unlock(|b| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(b);

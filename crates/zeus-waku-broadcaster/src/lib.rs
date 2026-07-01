@@ -26,6 +26,8 @@ pub use fees::{
 pub use models::*;
 pub use transact::BroadcasterTransaction;
 
+use zeus_railgun_shared::Chain;
+
 pub fn default_topic() -> String {
    "/railgun/v2/default/json".to_string()
 }
@@ -48,19 +50,6 @@ pub fn metrics_topic() -> String {
 
 pub fn encrypted_topic(topic: &str) -> String {
    format!("/railgun/v2/encrypted-${topic}/json")
-}
-
-/// Chain identifier used across Railgun (type + id).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct Chain {
-   #[serde(rename = "type")]
-   pub type_: u8,
-   pub id: u64,
-}
-
-impl Chain {
-   pub const ETHEREUM_MAINNET: Self = Self { type_: 0, id: 1 };
-   pub const POLYGON_MAINNET: Self = Self { type_: 0, id: 137 };
 }
 
 /// Common token addresses (for convenience in examples/tests).

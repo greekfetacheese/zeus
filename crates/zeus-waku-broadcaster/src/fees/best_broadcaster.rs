@@ -2,7 +2,7 @@
 //! Ported/adapted from TS `search/best-broadcaster.ts`.
 //! For Phase 1B we keep it simple and focus on historical data.
 
-use crate::Chain;
+use zeus_railgun_shared::{Chain, RailgunAddress};
 use crate::fees::{BroadcasterFeeCache, CachedTokenFee, fee_is_usable};
 
 /// A selected broadcaster for a specific token.
@@ -87,7 +87,11 @@ pub fn find_broadcasters_for_token(
    for (broadcaster_addr, identifiers) in token_fees {
       for (_id, fee) in identifiers {
          if fee_is_usable(fee) {
-            let viewing_pk = zeus_railgun::address::get_broadcaster_viewing_key(&broadcaster_addr).ok();
+            let viewing_pk = match RailgunAddress::from_zk_address(&broadcaster_addr) {
+               Ok(addr) => Some(addr.viewing_public_key),
+               Err(_) => None,
+            };
+
             result.push(SelectedBroadcaster {
                railgun_address: broadcaster_addr.clone(),
                token_fee: fee.clone(),

@@ -10553,17 +10553,13 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "ark-bn254",
- "ark-ed-on-bn254",
  "ark-ff 0.5.0",
- "bech32",
  "bip39",
- "blake2",
  "chacha20poly1305",
  "ctr",
  "curve25519-dalek",
  "hex",
  "hmac",
- "jubjub",
  "k256",
  "lazy_static",
  "light-poseidon",
@@ -10577,6 +10573,7 @@ dependencies = [
  "tokio",
  "zeus-eth",
  "zeus-railgun-prover",
+ "zeus-railgun-shared",
  "zeus-wallet",
 ]
 
@@ -10595,6 +10592,39 @@ dependencies = [
  "tokio-test",
  "tracing",
  "tracing-subscriber 0.3.20",
+]
+
+[[package]]
+name = "zeus-railgun-shared"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "aes-gcm",
+ "alloy-primitives",
+ "anyhow",
+ "ark-bn254",
+ "ark-ed-on-bn254",
+ "ark-ff 0.5.0",
+ "bech32",
+ "bip39",
+ "blake2",
+ "chacha20poly1305",
+ "ctr",
+ "curve25519-dalek",
+ "hex",
+ "hmac",
+ "jubjub",
+ "k256",
+ "lazy_static",
+ "light-poseidon",
+ "num-bigint",
+ "rand 0.8.6",
+ "secure-types",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sha3 0.10.8",
+ "zeus-wallet",
 ]
 
 [[package]]
@@ -10645,7 +10675,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber 0.3.20",
  "x25519-dalek",
- "zeus-railgun",
+ "zeus-railgun-shared",
 ]
 
 [[package]]

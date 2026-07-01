@@ -33,7 +33,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
 use zeus_waku_broadcaster::client::{SidecarMessage, WakuSidecarClient};
-use zeus_waku_broadcaster::{Chain, fees_topic};
+use zeus_waku_broadcaster::fees_topic;
+use zeus_railgun_shared::Chain;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

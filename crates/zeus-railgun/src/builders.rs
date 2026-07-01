@@ -38,7 +38,7 @@ use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
 use redb::Database;
 
-use crate::address::RailgunKeys;
+use zeus_railgun_shared::RailgunKeys;
 use crate::contracts::{
    BoundParams, CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData, Transaction,
    UnshieldType,
@@ -768,7 +768,6 @@ impl RailgunEngine {
 #[cfg(test)]
 mod tests {
    use super::*;
-   use crate::address::generate_railgun_keys;
    use crate::note::TokenData as NoteTokenData;
    use secure_types::SecureArray;
 
@@ -783,7 +782,7 @@ mod tests {
 
    #[test]
    fn test_prepare_shield_basic() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
 
       let token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"); // USDC
       let value = U256::from(1_000_000u64); // 1 USDC (6 decimals)
@@ -829,7 +828,7 @@ mod tests {
    fn test_prepare_unshield_with_change_and_transact_calldata() {
       // This test uses a fresh scanner with no notes, so it will fail on insufficient funds.
       // We mainly test that the API accepts use_broadcaster and that calldata builder runs.
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let scanner = RailgunScanner::new(&keys, 1).unwrap();
 
       let token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
@@ -845,7 +844,7 @@ mod tests {
 
    #[test]
    fn test_railgun_engine_broadcaster_api() {
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let engine = RailgunEngine::new(keys, 137).unwrap(); // Polygon example
 
       assert_eq!(engine.chain_id(), 137);
@@ -867,7 +866,7 @@ mod tests {
    fn test_full_prepare_proof_request_to_calldata_flow() {
       // Full requested flow using (dummy) proof:
       // prepare data → build_unshield_proof_request → (convert) proof → build_unshield_transact_calldata
-      let keys = generate_railgun_keys(test_mnemonic(), 0, None).unwrap();
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
       let scanner = RailgunScanner::new(&keys, 1).unwrap();
 
       let _token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");

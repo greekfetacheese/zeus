@@ -7,6 +7,7 @@
 //! - Sends { pubkey: randomPubKey, encryptedData }
 //! - Broadcaster responds encrypted with the responseKey (symmetric).
 
+use zeus_railgun_shared::crypto::babyjub_shared_secret;
 use aes_gcm::{
    Aes256Gcm, Nonce,
    aead::{Aead, KeyInit, OsRng},
@@ -29,8 +30,7 @@ pub fn derive_shared_key(broadcaster_viewing_pubkey: &[u8; 32]) -> Result<([u8; 
    let mut random_priv = [0u8; 32];
    OsRng.fill_bytes(&mut random_priv);
 
-   // Use the real implementation from zeus-railgun
-   zeus_railgun::address::babyjub_shared_secret(&random_priv, broadcaster_viewing_pubkey)
+   babyjub_shared_secret(&random_priv, broadcaster_viewing_pubkey)
 }
 
 /// Encrypts arbitrary JSON with AES-256-GCM.
