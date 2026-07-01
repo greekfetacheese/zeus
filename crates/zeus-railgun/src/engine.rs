@@ -10,10 +10,7 @@ use zeus_waku_broadcaster::WakuSidecarClient;
 use crate::builders::*;
 use crate::note::TokenData;
 use crate::scanner::{OwnedNote, RailgunScanner};
-
-// TODO: This will not work in production because the sidecars are not distributed with the Zeus binary
-const PROVER_SIDECAR_PATH: &str = "crates/zeus-railgun-prover/js-sidecar/src/index.js";
-const WAKU_SIDECAR_PATH: &str = "crates/zeus-waku-broadcaster/js-sidecar/src/index.js";
+use crate::sidecar_assets;
 
 /// High-level Railgun engine: wraps scanner state + builders for simple APIs.
 ///
@@ -53,13 +50,14 @@ impl RailgunEngine {
    }
 
    /// Load the engine state from a database
-   pub fn from_db(db_path: &str, keys: RailgunKeys, chain_id: u64, tree_id: &str) -> Result<Self> {
+   pub fn from_db(db_path: &str, keys: RailgunKeys, chain_id: u64) -> Result<Self> {
       let db = Database::create(db_path)?;
       let scanner = RailgunScanner::new(&keys, chain_id)?;
+      let tree_id = RailgunEngine::tree_id(chain_id);
 
       // Best effort load
-      let _ = scanner.load_merkle_tree(&db, tree_id);
-      let _ = scanner.load_state(&db, tree_id);
+      let _ = scanner.load_merkle_tree(&db, &tree_id);
+      let _ = scanner.load_state(&db, &tree_id);
 
       let waku_client = WakuSidecarClient::new(Chain::from(chain_id));
       let prover_client = RailgunProverClient::new();
@@ -81,16 +79,43 @@ impl RailgunEngine {
       self.prover_client = client;
    }
 
-   /// Starts the waku and prover clients
+   /// Returns the tree id based on the chain
+   fn tree_id(chain: u64) -> String {
+      format!("railgun:{}", chain)
+   }
+
+   /// Starts the waku and prover clients.
+   ///
+   /// This function:
+   /// 1. Extracts the embedded sidecar sources (only if they changed or are missing)
+   /// 2. Automatically runs `npm install --production` if `node_modules` is missing
+   /// 3. Starts the two Node.js sidecars
+   ///
+   /// If Node.js / npm is not installed on the user's machine, a clear
+   /// error message is returned pointing to https://nodejs.org.
    pub async fn start_clients(&mut self) -> Result<(), anyhow::Error> {
       if self.clients_started {
          return Ok(());
       }
 
-      let _ = self.waku_client.start_sidecar(WAKU_SIDECAR_PATH).await?;
+      // Smart extraction + automatic npm install when needed.
+      // This is where we get a nice error if npm is missing.
+      let (prover_dir, waku_dir) = sidecar_assets::ensure_sidecars_ready()?;
+
+      // Extra early check (defensive)
+      if !sidecar_assets::is_node_available() {
+         return Err(anyhow!(
+            "Node.js is required for Railgun privacy features.\n\n             Please install Node.js from https://nodejs.org and restart Zeus."
+         ));
+      }
+
+      // Start Waku sidecar
+      let waku_entry = waku_dir.join("src/index.js");
+      let _ = self.waku_client.start_sidecar(waku_entry.to_string_lossy().as_ref()).await?;
       let _ = self.waku_client.start_waku(self.chain_id().into(), None).await?;
 
-      let _ = self.prover_client.start(PROVER_SIDECAR_PATH).await?;
+      // Start prover sidecar
+      let _ = self.prover_client.start(prover_dir.to_string_lossy().as_ref()).await?;
 
       self.clients_started = true;
 
@@ -105,11 +130,11 @@ impl RailgunEngine {
       Ok(())
    }
 
-   // @greekfetacheese: Where do we get the tree_id from?
    /// Save the full engine state to a redb Database.
-   pub fn save_state(&self, db: &Database, tree_id: &str) -> Result<()> {
-      self.scanner.save_state(db, tree_id)?;
-      self.scanner.save_merkle_tree(db, tree_id)
+   pub fn save_state(&self, db: &Database) -> Result<()> {
+      let tree_id = RailgunEngine::tree_id(self.chain_id());
+      self.scanner.save_state(db, &tree_id)?;
+      self.scanner.save_merkle_tree(db, &tree_id)
    }
 
    /// Returns the chain this engine is configured for.
@@ -120,6 +145,32 @@ impl RailgunEngine {
    /// Access the underlying scanner (for advanced state inspection / sync).
    pub fn scanner(&self) -> &RailgunScanner {
       &self.scanner
+   }
+
+   /// Returns whether Node.js is available on this system.
+   /// Useful for showing a friendly warning in the UI before enabling Privacy Mode.
+   pub fn is_node_available(&self) -> bool {
+      sidecar_assets::is_node_available()
+   }
+
+   /// Ensures the sidecars are extracted and npm dependencies are installed,
+   /// without actually starting the clients yet.
+   /// Returns the paths to the two sidecar directories.
+   pub fn ensure_sidecars_ready(
+      &self,
+   ) -> Result<(std::path::PathBuf, std::path::PathBuf), anyhow::Error> {
+      sidecar_assets::ensure_sidecars_ready()
+   }
+
+   /// Explicitly extract the embedded sidecars to the Zeus data directory.
+   ///
+   /// Returns (prover_dir, waku_dir).
+   /// This is useful if you want to pre-extract or inspect the sidecars
+   /// before calling `start_clients()`.
+   pub fn extract_sidecars(
+      &self,
+   ) -> Result<(std::path::PathBuf, std::path::PathBuf), anyhow::Error> {
+      sidecar_assets::extract_sidecars_to_zeus_data()
    }
 
    /// High-level shield.

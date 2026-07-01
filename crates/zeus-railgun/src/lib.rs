@@ -1,9 +1,10 @@
 pub mod builders;
 pub mod contracts;
+pub mod engine;
 pub mod merkle;
 pub mod note;
 pub mod scanner;
-pub mod engine;
+pub mod sidecar_assets;
 
 pub use contracts::{
    BoundParams, CommitmentCiphertext, CommitmentPreimage, RailgunEvent, RailgunSmartWallet,
@@ -43,6 +44,20 @@ pub use note::{
 };
 
 pub use engine::RailgunEngine;
+
+/// Sidecar embedding, extraction and Node.js dependency helpers.
+/// 
+/// Most applications should just call `RailgunEngine::start_clients()`.
+/// These are exposed for advanced use cases (e.g. pre-flight checks in the UI).
+pub use sidecar_assets::{
+    current_sidecars_hash, ensure_npm_dependencies, ensure_sidecars_extracted,
+    ensure_sidecars_ready, extract_sidecars_to_zeus_data, is_node_available,
+};
+
+// Sidecar embedding & extraction utilities (see sidecar_assets module).
+// Recommended: call `zeus_railgun::sidecar_assets::extract_sidecars_to_zeus_data()`
+// before or inside RailgunEngine::start_clients().
+
 
 // Re-export witness types so users of zeus-railgun can build ProofRequests without adding the prover crate explicitly.
 pub use zeus_railgun_prover::{
