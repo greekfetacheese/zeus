@@ -12,6 +12,27 @@
 //!
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
+// =============================================================================
+// PUBLIC HIGH-LEVEL API (preferred)
+//
+// For most use cases, use `RailgunEngine` as the single entry point.
+// It owns keys + scanner state and provides clean methods for each operation:
+//
+//   engine.prepare_shield(...)
+//   engine.prepare_unshield(...)
+//   engine.prepare_unshield_gas_sponsored(...)
+//   engine.build_unshield_proof_request(...)
+//   engine.build_unshield_transact_calldata(...)
+//   engine.apply_shield(...) / apply_unshield(...)
+//
+// Lower level free functions are now crate-private to avoid duplication in the
+// public surface. Use the Engine methods.
+//
+// Advanced users can still access some helpers (build_unshield_proof_request,
+// snark_proof_from_sidecar, apply_*, build_unshield_transact_calldata) if needed.
+// =============================================================================
+
+
 use alloy_primitives::{keccak256, Address, FixedBytes, U256, Uint};
 use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
@@ -130,7 +151,7 @@ pub struct PreparedBroadcasterUnshield {
 /// `receiver_keys` are the RailgunKeys of the person who will own the private note.
 /// `token` and `value` describe what is being shielded.
 /// `memo` is optional public memo stored in the note.
-pub fn prepare_shield(
+pub(crate) fn prepare_shield(
    receiver_keys: &RailgunKeys,
    token: TokenData,
    value: U256,
@@ -233,7 +254,7 @@ pub fn prepare_shield(
 /// `amount` is the amount you want to unshield (in token units).
 /// Selection: largest-first greedy to minimize number of notes (good for broadcaster/gas).
 /// Produces change_note when total > amount.
-pub fn prepare_unshield(
+pub(crate) fn prepare_unshield(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
    to: Address,
@@ -350,7 +371,7 @@ pub fn prepare_unshield(
 ///
 /// For now this wraps the normal unshield + attaches the fee metadata.
 /// This now builds real transact calldata (see build_unshield_transact_calldata).
-pub fn prepare_unshield_for_broadcaster(
+pub(crate) fn prepare_unshield_for_broadcaster(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
    to: Address,
@@ -364,6 +385,7 @@ pub fn prepare_unshield_for_broadcaster(
 
    // Build the real transact calldata (this is what the broadcaster will submit)
    let chain_id = scanner.chain_id();
+   // TODO: use a real proof from the sidecar prover
    let dummy_proof = create_dummy_snark_proof();
    let calldata = build_unshield_transact_calldata(
       scanner,
@@ -384,7 +406,7 @@ pub fn prepare_unshield_for_broadcaster(
    })
 }
 
-pub fn build_shield_call_data(
+pub(crate) fn build_shield_call_data(
    receiver_keys: &RailgunKeys,
    token: TokenData,
    value: U256,
@@ -427,7 +449,7 @@ pub fn apply_shield_to_scanner(
 #[derive(Clone)]
 pub struct RailgunEngine {
    /// The underlying scanner (public for advanced use / sync).
-   pub scanner: RailgunScanner,
+   scanner: RailgunScanner,
 
    /// The RailgunKeys used for shield/unshield (viewing private + spending private).
    keys: RailgunKeys,
@@ -440,11 +462,7 @@ impl RailgunEngine {
       Ok(Self { scanner, keys })
    }
 
-   /// Convenience: open a single redb database file and return a fully loaded (or fresh) scanner.
-   /// This is the recommended way to get started with unified persistence.
-   ///
-   /// Note: The returned scanner does **not** hold the Database. Keep the db around
-   /// if you want to call save_merkle_tree / save_state later.
+   /// Load the engine state from a database
    pub fn from_db(db_path: &str, keys: RailgunKeys, chain_id: u64, tree_id: &str) -> Result<Self> {
       let db = Database::create(db_path)?;
       let scanner = RailgunScanner::new(&keys, chain_id)?;
@@ -469,8 +487,15 @@ impl RailgunEngine {
       self.scanner.chain_id()
    }
 
+
+   /// Access the underlying scanner (for advanced state inspection / sync).
+   pub fn scanner(&self) -> &RailgunScanner {
+      &self.scanner
+   }
+
+
    /// High-level shield.
-   pub fn prepare_shield(
+   pub(crate) fn prepare_shield(
       &self,
       token: TokenData,
       value: U256,
@@ -483,7 +508,7 @@ impl RailgunEngine {
    ///
    /// `use_broadcaster`: if true, the unshield is prepared for gas-sponsored
    /// execution via a Waku broadcaster (use `build_unshield_transact_calldata` after).
-   pub fn prepare_unshield(
+   pub(crate) fn prepare_unshield(
       &self,
       to: Address,
       token: TokenData,

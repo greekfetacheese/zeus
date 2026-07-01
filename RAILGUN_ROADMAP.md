@@ -384,3 +384,22 @@ Next: conversion helper from sidecar ProofResponse → contracts::SnarkProof, an
   4. `build_unshield_transact_calldata(..., proof, ..., use_broadcaster: true)`
 - All 22 tests pass.
 
+
+## Code Review & Cleanup — zeus-railgun (2026-07-01)
+
+**Goal:** Reduce redundant functions, provide one clear high-level public API per operation.
+
+**Changes made:**
+- Made low-level free functions crate-private (`pub(crate)`):
+  - `prepare_shield`
+  - `prepare_unshield`
+  - `prepare_unshield_for_broadcaster`
+  - `build_shield_call_data`
+- `RailgunEngine` is now the **recommended single high-level entry point**.
+  - Methods: `prepare_shield`, `prepare_unshield`, `prepare_unshield_gas_sponsored`, `build_unshield_proof_request`, `build_unshield_transact_calldata`, `apply_*`, etc.
+- Made `scanner` field private on `RailgunEngine`; added `scanner(&self)` accessor for advanced use.
+- Cleaned re-exports in `lib.rs`.
+- Added guidance comments.
+
+All 22 tests pass.
+

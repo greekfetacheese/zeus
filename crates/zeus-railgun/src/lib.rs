@@ -33,14 +33,22 @@ pub use redb;
 
 pub use scanner::{OwnedNote, RailgunScanner};
 
+// Preferred high-level API.
+// Use `RailgunEngine` for almost all operations (one clean entry point per action).
 pub use builders::{
-    apply_shield_to_scanner, apply_unshield_to_scanner, build_shield_call_data,
-    build_unshield_transact_calldata,
+    RailgunEngine,
+
+    // Prepared data (return types from the high-level methods)
+    PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield,
+
+    // Supporting helpers (for proof generation and advanced calldata)
+    apply_shield_to_scanner,
+    apply_unshield_to_scanner,
     build_unshield_proof_request,
-    prepare_shield, prepare_unshield, prepare_unshield_for_broadcaster,
+    build_unshield_transact_calldata,
     snark_proof_from_sidecar,
-    PreparedBroadcasterUnshield, PreparedShield, PreparedUnshield, RailgunEngine,
 };
+
 
 pub use note::{
    BlindedViewingKeys, Note, NoteAnnotationData, TokenData, TokenType, compute_commitment,
