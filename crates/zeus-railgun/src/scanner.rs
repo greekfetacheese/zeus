@@ -17,10 +17,9 @@ use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
-use alloy_rpc_types::Filter;
 use anyhow::{Result, anyhow};
 use redb::{Database, ReadableDatabase, TableDefinition};
-use zeus_eth::utils::client::RpcClient;
+use zeus_eth::utils::{client::RpcClient, get_logs_for};
 use zeus_railgun_shared::RailgunKeys;
 
 use crate::{
@@ -334,16 +333,29 @@ impl RailgunScanner {
          return Ok(());
       }
 
-      // Build filter for Railgun events (current contract signatures)
-      let filter =
-         Filter::new().address(contract).from_block(from_block).to_block(latest).events([
-            "Shield(uint256,uint256,(uint8,address,uint256)[],(bytes32[3],bytes32)[],uint256[])",
-            "Transact(uint256,uint256,bytes32[],(bytes32[4],bytes32,bytes32,bytes,bytes)[])",
-            "Unshield(address,(uint8,address,uint256),uint256,uint256)",
-            "Nullified(uint16,bytes32[])",
-         ]);
+      // TODO: Make these configurable
+      let concurrency = 1;
+      let block_range = 50_000;
 
-      let logs = client.get_logs(&filter).await?;
+      // Build filter for Railgun events (current contract signatures)
+      let target_address = vec![contract];
+      let events = vec![
+         "Shield(uint256,uint256,(uint8,address,uint256)[],(bytes32[3],bytes32)[],uint256[])",
+         "Transact(uint256,uint256,bytes32[],(bytes32[4],bytes32,bytes32,bytes,bytes)[])",
+         "Unshield(address,(uint8,address,uint256),uint256,uint256)",
+         "Nullified(uint16,bytes32[])",
+      ];
+
+      let logs = get_logs_for(
+         client,
+         target_address,
+         events,
+         from_block,
+         Some(latest),
+         concurrency,
+         block_range,
+      )
+      .await?;
 
       let mut new_commitments: Vec<U256> = Vec::new();
 
@@ -359,6 +371,7 @@ impl RailgunScanner {
                      1 => crate::note::TokenType::ERC721,
                      _ => crate::note::TokenType::ERC1155,
                   },
+                  // @greekfetacheese: Do we need to prefix the address with 0x?
                   token_address: format!("0x{:x}", preimage.token.tokenAddress),
                   token_sub_id: preimage.token.tokenSubID,
                };

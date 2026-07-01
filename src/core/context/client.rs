@@ -1177,6 +1177,7 @@ async fn get_logs_check(
          vec![weth_address],
          vec![weth9::Deposit::SIGNATURE],
          latest_block,
+         None,
          1,
          block_range,
       )

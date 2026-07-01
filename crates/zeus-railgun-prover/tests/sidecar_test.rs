@@ -22,9 +22,10 @@ use zeus_railgun_prover::{
 #[tokio::test]
 async fn test_prover_client_starts_and_proves_dummy() {
    let sidecar_path = concat!(env!("CARGO_MANIFEST_DIR"), "/js-sidecar");
+   let client = RailgunProverClient::new();
 
    println!("[test] Starting Railgun prover sidecar...");
-   let client = match RailgunProverClient::start(sidecar_path).await {
+   match client.start(sidecar_path).await {
       Ok(c) => c,
       Err(e) => {
          eprintln!("[test] FAILED to start sidecar: {}", e);

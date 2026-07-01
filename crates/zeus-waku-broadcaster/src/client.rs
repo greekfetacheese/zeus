@@ -315,6 +315,10 @@ impl WakuSidecarClient {
       Ok(())
    }
 
+   pub fn event_rx(&self) -> AsyncReceiver<SidecarMessage> {
+      self.event_rx.clone()
+   }
+
    pub async fn start_waku(&self, chain: Chain, options: Option<SidecarOptions>) -> Result<u64> {
       let id = self.next_id().await;
       let cmd = SidecarCommand::Start {

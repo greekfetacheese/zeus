@@ -43,6 +43,7 @@ pub async fn get_logs_for<P, N>(
    target_address: Vec<Address>,
    events: impl IntoIterator<Item = impl AsRef<[u8]>>,
    from_block: u64,
+   to_block: Option<u64>,
    concurrency: usize,
    block_range: u64,
 ) -> Result<Vec<Log>, anyhow::Error>
@@ -50,29 +51,29 @@ where
    P: Provider<N> + Clone + 'static,
    N: Network,
 {
-   let latest_block = client.get_block_number().await?;
+   let to_block = to_block.unwrap_or(client.get_block_number().await?);
 
    tracing::debug!(target: "zeus_eth::utils::lib",
       "Fetching logs from block {} to {}",
-      from_block, latest_block
+      from_block, to_block
    );
 
    let filter = Filter::new()
       .address(target_address)
       .events(events)
       .from_block(BlockNumberOrTag::Number(from_block))
-      .to_block(BlockNumberOrTag::Number(latest_block));
+      .to_block(BlockNumberOrTag::Number(to_block));
 
    let logs = Arc::new(Mutex::new(Vec::new()));
    let semaphore = Arc::new(Semaphore::new(concurrency));
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
 
-   if latest_block.saturating_sub(from_block) > block_range {
+   if to_block.saturating_sub(from_block) > block_range {
       let mut start_block = from_block;
 
-      while start_block <= latest_block {
-         let end_block = std::cmp::min(start_block + block_range, latest_block);
+      while start_block <= to_block {
+         let end_block = std::cmp::min(start_block + block_range, to_block);
          let client = client.clone();
          let logs_clone = Arc::clone(&logs);
          let filter_clone = filter.clone();

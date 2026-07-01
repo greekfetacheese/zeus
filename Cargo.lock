@@ -10574,6 +10574,7 @@ dependencies = [
  "zeus-eth",
  "zeus-railgun-prover",
  "zeus-railgun-shared",
+ "zeus-waku-broadcaster",
  "zeus-wallet",
 ]
 

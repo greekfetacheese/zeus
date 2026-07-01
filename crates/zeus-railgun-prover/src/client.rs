@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use kanal::{AsyncReceiver, unbounded};
+use kanal::{AsyncReceiver, AsyncSender, unbounded};
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -43,15 +43,34 @@ pub struct ProverEvent {
    pub percent: Option<u8>,
 }
 
+#[derive(Clone)]
 pub struct RailgunProverClient {
-   stdin: Arc<Mutex<ChildStdin>>,
-   child: Arc<Mutex<Child>>,
-   next_id: Arc<Mutex<u64>>,
+   inner: Arc<Mutex<ProverClientInner>>,
    response_rx: AsyncReceiver<ProverEvent>,
+   tx: AsyncSender<ProverEvent>,
+}
+
+struct ProverClientInner {
+   child: Option<Child>,
+   stdin: Option<ChildStdin>,
+   next_id: u64,
 }
 
 impl RailgunProverClient {
-   pub async fn start(sidecar_path: &str) -> Result<Self> {
+   pub fn new() -> Self {
+      let (tx, rx) = unbounded::<ProverEvent>();
+      Self {
+         inner: Arc::new(Mutex::new(ProverClientInner {
+            child: None,
+            stdin: None,
+            next_id: 1,
+         })),
+         response_rx: rx.to_async(),
+         tx: tx.to_async(),
+      }
+   }
+
+   pub async fn start(&self, sidecar_path: &str) -> Result<(), anyhow::Error> {
       let mut cmd = Command::new("node");
       cmd.arg("src/index.js")
          .current_dir(sidecar_path)
@@ -63,8 +82,8 @@ impl RailgunProverClient {
       let stdin = child.stdin.take().ok_or_else(|| anyhow!("failed to open stdin"))?;
       let stdout = child.stdout.take().ok_or_else(|| anyhow!("failed to open stdout"))?;
 
-      let (tx, rx) = unbounded::<ProverEvent>();
-      let rx = rx.to_async();
+      let tx = self.tx.clone();
+      let rx = self.response_rx.clone();
 
       tokio::spawn(async move {
          let reader = BufReader::new(stdout);
@@ -82,18 +101,22 @@ impl RailgunProverClient {
          }
       });
 
-      let client = Self {
-         stdin: Arc::new(Mutex::new(stdin)),
-         child: Arc::new(Mutex::new(child)),
-         next_id: Arc::new(Mutex::new(1)),
-         response_rx: rx,
+      let inner = ProverClientInner {
+         child: Some(child),
+         stdin: Some(stdin),
+         next_id: 1,
       };
 
-      client.send_command(ProverCommand::Start { id: 0 }).await?;
+      {
+         let mut inner_guard = self.inner.lock().await;
+         *inner_guard = inner;
+      }
+
+      self.send_command(ProverCommand::Start { id: 0 }).await?;
 
       // Wait briefly for "started" confirmation
       let deadline = Duration::from_secs(5);
-      match timeout(deadline, client.response_rx.recv()).await {
+      match timeout(deadline, rx.recv()).await {
          Ok(Ok(event)) => {
             if event.r#type.as_deref() == Some("started") || event.success {
                info!("Railgun prover sidecar started successfully");
@@ -106,19 +129,20 @@ impl RailgunProverClient {
          }
       }
 
-      Ok(client)
+      Ok(())
    }
 
    async fn next_id(&self) -> u64 {
-      let mut id = self.next_id.lock().await;
-      let cur = *id;
-      *id += 1;
+      let mut inner = self.inner.lock().await;
+      let cur = inner.next_id;
+      inner.next_id += 1;
       cur
    }
 
    async fn send_command(&self, cmd: ProverCommand) -> Result<()> {
       let json = serde_json::to_string(&cmd)? + "\n";
-      let mut stdin = self.stdin.lock().await;
+      let mut inner = self.inner.lock().await;
+      let stdin = inner.stdin.as_mut().ok_or_else(|| anyhow!("Prover not started"))?;
       stdin.write_all(json.as_bytes()).await?;
       stdin.flush().await?;
       Ok(())
@@ -224,7 +248,8 @@ impl RailgunProverClient {
    pub async fn stop(&self) -> Result<()> {
       let id = self.next_id().await;
       let _ = self.send_command(ProverCommand::Stop { id }).await;
-      let mut child = self.child.lock().await;
+      let mut inner = self.inner.lock().await;
+      let child = inner.child.as_mut().ok_or_else(|| anyhow!("Prover not started"))?;
       let _ = child.kill().await;
       Ok(())
    }

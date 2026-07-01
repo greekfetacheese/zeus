@@ -216,6 +216,7 @@ where
       vec![target_addr],
       events,
       from_block,
+      None,
       concurrency,
       block_range,
    )

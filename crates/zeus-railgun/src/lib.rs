@@ -3,6 +3,7 @@ pub mod contracts;
 pub mod merkle;
 pub mod note;
 pub mod scanner;
+pub mod engine;
 
 pub use contracts::{
    BoundParams, CommitmentCiphertext, CommitmentPreimage, RailgunEvent, RailgunSmartWallet,
@@ -25,8 +26,6 @@ pub use builders::{
    PreparedShield,
    PreparedUnshield,
 
-   RailgunEngine,
-
    // Supporting helpers (for proof generation and advanced calldata)
    apply_shield_to_scanner,
    apply_unshield_to_scanner,
@@ -42,6 +41,8 @@ pub use note::{
    decrypt_annotation_data, decrypt_note_v2, derive_shared_symmetric_key, encrypt_annotation_data,
    encrypt_note_v2, get_blinding_scalar, get_note_blinding_keys,
 };
+
+pub use engine::RailgunEngine;
 
 // Re-export witness types so users of zeus-railgun can build ProofRequests without adding the prover crate explicitly.
 pub use zeus_railgun_prover::{
