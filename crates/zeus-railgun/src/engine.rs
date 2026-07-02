@@ -138,19 +138,29 @@ impl RailgunEngine {
       Ok(())
    }
 
-   /// Start syncing the scanner and merkle tree
-   pub async fn sync(&mut self, client: RpcClient) -> Result<(), anyhow::Error> {
+   /// Sync the scanner from the last known block (with a small reorg buffer) to latest.
+   ///
+   /// This is the recommended way to update after a shield or unshield transaction:
+   /// - Processes new Shield/Transact commitments into the Merkle tree.
+   /// - Processes Nullified events → removes spent notes from the unspent list
+   ///   (exactly the Kohaku indexer model).
+   ///
+   /// Safe: does not optimistically change balances before on-chain confirmation.
+   /// Use this (or the lower-level scanner.sync_from_block) after you have a tx receipt.
+   pub async fn sync(&mut self, client: RpcClient) -> Result<()> {
       if self.syncing {
          info!("Railgun engine already syncing");
          return Ok(());
       }
 
       self.syncing = true;
-      let last_synced_block = self.scanner.last_synced_block();
-      self.scanner.sync_from_block(client, last_synced_block, None).await?;
+
+      let last = self.scanner.last_synced_block();
+      // Start a bit earlier to tolerate small reorgs / missed logs
+      let from = last.saturating_sub(128);
+      self.scanner.sync_from_block(client, from, None).await?;
 
       self.syncing = false;
-
       Ok(())
    }
 
@@ -430,10 +440,14 @@ impl RailgunEngine {
    // Final High-Level Shield / Unshield APIs
    // =================================================================
 
-   /// Shield (public → private). Returns calldata only.
-   /// Caller is responsible for signing and sending the tx.
+   /// Shield (public → private). Returns the transact calldata.
+   /// Caller is responsible for signing + broadcasting the tx.
    ///
-   /// `client` is used to estimate a realistic minGasPrice for the BoundParams.
+   /// After the transaction confirms:
+   ///   - Extract leaf_index from the emitted Shield event, then call `apply_shield(...)`, **or**
+   ///   - Call `sync(client).await` to at least update the Merkle tree.
+   ///
+   /// `client` is used for realistic gas price estimation.
    pub async fn shield(
       &self,
       client: &RpcClient,
@@ -459,10 +473,14 @@ impl RailgunEngine {
       )
    }
 
-   /// Simple unshield (self-pay gas, fallback for when you don't need broadcaster).
+   /// Simple unshield (self-pay gas).
    /// Returns the raw transact calldata.
    ///
-   /// `client` is used to compute a realistic minGasPrice (base + priority + buffer).
+   /// After broadcasting and confirmation, prefer calling `sync(client).await`
+   /// so the scanner processes the Nullified event(s) and removes the spent notes
+   /// (correct private balance update, no optimistic risk if the tx reverts).
+   ///
+   /// `client` is used for realistic gas price estimation.
    pub async fn unshield(
       &self,
       client: &RpcClient,
@@ -492,15 +510,16 @@ impl RailgunEngine {
 
    /// Full private unshield via broadcaster (gas-sponsored + maximum anonymity).
    ///
-   /// Complete flow:
-   /// 1. Get best fee quote from Waku
-   /// 2. Prepare unshield (with change handling)
-   /// 3. Generate real ZK proof via sidecar
-   /// 4. Build calldata with realistic minGasPrice
-   /// 5. Encrypt + publish transact message over Waku
-   /// 6. Wait for broadcaster response
+   /// Complete flow (see above). Returns WakuTransactResponse (contains tx hash on success).
    ///
-   /// `client` is used for realistic on-chain gas price estimation (next base fee + priority).
+   /// **Balance update strategy**:
+   /// Do **not** optimistically mark notes spent here. After you receive a successful
+   /// response (and the tx is confirmed on-chain), call:
+   ///   engine.sync(&client).await
+   /// This lets the scanner see the on-chain Nullified event(s), matching Kohaku behavior.
+   /// This prevents showing an incorrect (too-low) private balance if the tx fails.
+   ///
+   /// `client` is used for realistic on-chain gas price estimation.
    pub async fn unshield_via_broadcaster(
       &mut self,
       client: &RpcClient,

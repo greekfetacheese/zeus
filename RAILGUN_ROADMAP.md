@@ -228,3 +228,28 @@ Next for full alignment:
 Poseidon/crypto alignment review ongoing (inputs match; will verify with side-by-side if needed).
 
 Updated before proceeding to GUI integration.
+
+
+## Kohaku Alignment Polish: Nullified handling + Sync strategy (2026-07-02)
+
+Implemented:
+
+1. **Nullified event wired in sync_from_block**
+   - Now calls `scanner.mark_nullified(nullifier)` (removes note from `owned_notes`).
+   - Previously only inserted into the legacy spent set.
+   - Matches Kohaku `IndexedAccount::handle_nullified_event`.
+
+2. **Post-tx sync is the recommended balance update path (no aggressive optimistic marking)**
+   - High-level `shield()`, `unshield()`, `unshield_via_broadcaster()` do **not** auto-mark notes.
+   - Improved `engine.sync(&mut self, client)` with 128-block reorg buffer.
+   - `apply_unshield()` / `apply_shield()` still exist as *optional immediate* helpers.
+   - Docs strongly recommend running `sync()` after confirmation so on-chain Nullified events are the source of truth.
+   - Prevents showing incorrect (too-low) balance if a tx fails/reverts.
+
+3 & 4 (optional, evaluated)
+   - Detailed data model comment added in `RailgunScannerInner`.
+   - `spent_nullifiers` kept for now (persistence compat). TODO to drop after migration.
+   - No per-TokenData internal grouping yet (linear scan is fine; realistic wallets have few notes).
+   - Will revisit only if we see perf issues with large note counts.
+
+Updated scanner docs, engine high-level docs, apply comments, and sync method.

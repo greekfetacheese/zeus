@@ -8,7 +8,7 @@
 //!
 //! After a successful on-chain shield/unshield, update the scanner:
 //!   - scanner.add_own_shielded_note(note, leaf_index) for shields you created
-//!   - scanner.mark_nullifier_spent(nullifier) for spends
+//!   - After success: engine.sync(client) (recommended) or apply_unshield
 //!
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
@@ -349,8 +349,13 @@ pub(crate) fn prepare_unshield_for_broadcaster(
    })
 }
 
-/// Mark the nullifiers from a PreparedUnshield as spent in the scanner.
-/// Call this after the unshield transaction succeeds on-chain.
+/// Mark the nullifiers from a PreparedUnshield as spent (removes from unspent notes).
+///
+/// Call this for **immediate** UI update after you have a successful receipt.
+///
+/// Preferred for correctness: after tx confirmation, call `engine.sync(&client).await`
+/// instead. The scanner will process the on-chain Nullified event and remove the notes
+/// (exactly like Kohaku's indexer). This avoids showing wrong balance if the tx reverted.
 pub fn apply_unshield_to_scanner(scanner: &RailgunScanner, unshield: &PreparedUnshield) {
    for &nullifier in &unshield.nullifiers {
       scanner.mark_nullifier_spent(nullifier);

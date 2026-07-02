@@ -1,16 +1,17 @@
 //! Railgun Scanner + Poseidon Merkle Tree state management.
 //!
-//! Responsibilities:
-//! - Sync on-chain events (Shield, Transact, Nullifiers, etc.) using an RPC client.
-//! - Maintain a local Poseidon Merkle tree of all commitments.
-//! - Track spent nullifiers.
-//! - Attempt to decrypt notes that belong to us (using viewing key + blinded keys).
-//! - Provide private balance and list of owned unspent notes.
+//! Responsibilities (aligned with Kohaku Railgun indexer patterns):
+//! - Sync on-chain events (Shield, Transact, Nullified, etc.).
+//! - Maintain local Poseidon Merkle tree of commitments (for ZK proofs).
+//! - Track **unspent** owned notes (`owned_notes` vec = current unspent only).
+//! - On Nullified events: remove notes from the unspent list (no separate "spent" filter at query time).
+//! - Decrypt notes belonging to us (shield + private transact via Waku).
+//! - Provide per-`TokenData` private balances and note selection for unshield.
 //!
-//! The actual encrypted note payloads for received private transfers are delivered
-//! via the Waku broadcaster (separate from on-chain events). This scanner focuses
-//! on the on-chain state (tree + nullifiers) and provides hooks for adding
-//! candidate notes (from shield or from Waku messages).
+//! Primary unspent source: the `owned_notes` vector (notes are removed on nullification).
+//! The legacy `spent_nullifiers` set is kept only for persistence compatibility for now.
+//!
+//! Encrypted private transfer notes come via Waku (separate from this on-chain scanner).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -49,6 +50,17 @@ const SCANNER_META_TABLE: TableDefinition<&str, &[u8]> =
    TableDefinition::new("railgun_scanner_meta");
 
 /// Internal state (protected by mutex for thread safety).
+///
+/// Data model (Kohaku-aligned):
+/// - `owned_notes`: the source of truth for **currently unspent** notes.
+///   When we see a Nullified event (or call mark_nullified), we remove the note.
+/// - `spent_nullifiers`: legacy set. Still populated for backward compat with
+///   existing redb files. No longer used for filtering balances/notes.
+///   TODO (perf): after a persistence migration we can drop this entirely.
+///
+/// Grouping by TokenData: not done yet. With typical private wallet note counts
+/// (usually < 50-100), a linear scan in private_balances() is fine.
+/// If we ever reach thousands of notes we can add `HashMap<TokenData, Vec<OwnedNote>>`.
 struct RailgunScannerInner {
    /// Viewing private key used for decryption.
    viewing_private: [u8; 32],
@@ -64,9 +76,10 @@ struct RailgunScannerInner {
    pub merkle_tree: PoseidonMerkleTree,
 
    /// Notes we have successfully decrypted and that belong to us.
+   /// This vec contains ONLY unspent notes (notes are removed on nullification).
    pub owned_notes: Vec<OwnedNote>,
 
-   /// Set of spent nullifiers we know about.
+   /// Legacy spent set (see struct doc above).
    pub spent_nullifiers: HashSet<U256>,
 
    /// Last block we have fully synced up to.
@@ -301,11 +314,7 @@ impl RailgunScanner {
    /// Prefer private_balances() or private_balance_for() for per-token info.
    pub fn private_balance(&self) -> U256 {
       self.read_inner(|inner| {
-         inner
-            .owned_notes
-            .iter()
-            .map(|n| n.note.value)
-            .fold(U256::ZERO, |a, b| a + b)
+         inner.owned_notes.iter().map(|n| n.note.value).fold(U256::ZERO, |a, b| a + b)
       })
    }
 
@@ -377,10 +386,14 @@ impl RailgunScanner {
       }
    }
 
-   /// Sync the Merkle tree and nullifier set from on-chain events.
+   /// Sync the Merkle tree and unspent notes from on-chain events.
    ///
-   /// This is the core "scanner" function.
-   /// It fetches historical logs and updates the tree + spent set.
+   /// Fetches Shield/Transact/Nullified/Unshield logs.
+   /// - Inserts new commitments into the local Merkle tree.
+   /// - On Nullified events: removes matching notes from `owned_notes` (Kohaku style).
+   ///
+   /// Recommended after a successful shield/unshield tx to update balances correctly.
+   /// This is the safe way (no optimistic updates that could be wrong if tx reverts).
    pub async fn sync_from_block(
       &self,
       client: RpcClient,
@@ -446,7 +459,7 @@ impl RailgunScanner {
                      1 => crate::note::TokenType::ERC721,
                      _ => crate::note::TokenType::ERC1155,
                   },
-                  token_address:preimage.token.tokenAddress.to_string(),
+                  token_address: preimage.token.tokenAddress.to_string(),
                   token_sub_id: preimage.token.tokenSubID,
                };
 
@@ -473,14 +486,15 @@ impl RailgunScanner {
             continue;
          }
 
-         // Nullified
+         // Nullified: on-chain spend of one or more notes (from Transact / unshield).
+         // Remove matching notes from our unspent list (Kohaku `handle_nullified_event` pattern).
+         // This is how private balances are correctly reduced after a successful spend.
          if let Ok(decoded) =
             <RailgunSmartWallet::Nullified as alloy_sol_types::SolEvent>::decode_log(&log.inner)
          {
             for n in decoded.data.nullifier {
-               self.write_inner(|inner| {
-                  inner.spent_nullifiers.insert(U256::from_be_slice(&n[..]));
-               });
+               let nullifier = U256::from_be_slice(&n[..]);
+               self.mark_nullified(nullifier);
             }
             continue;
          }
@@ -596,7 +610,6 @@ impl RailgunScanner {
          inner.spent_nullifiers.insert(nullifier);
       });
    }
-
 }
 
 // ===================== Simple binary serialization for scanner state =====================
