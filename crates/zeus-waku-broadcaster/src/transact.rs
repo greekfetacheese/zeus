@@ -22,6 +22,7 @@ use crate::models::transact::{
    BroadcastMessageData, BroadcasterEncryptedMethodParams, BroadcasterRawParamsTransact,
    BroadcasterTransactRequestType, WakuTransactResponse,
 };
+use zeus_railgun_shared::TxidVersion;
 
 /// High-level transact object. Holds the encrypted message ready to send.
 pub struct BroadcasterTransaction {
@@ -41,7 +42,7 @@ impl BroadcasterTransaction {
    /// `broadcaster` comes from `client.get_best_fee_quote(...)`.
    /// `to` and `data` are the target contract + calldata produced by the Railgun engine.
    pub async fn create(
-      txid_version: &str,
+      txid_version: TxidVersion,
       to: &str,
       data: &str,
       broadcaster: &SelectedBroadcaster,
@@ -183,7 +184,7 @@ impl WakuSidecarClient {
    /// Convenience: create + send in one go.
    pub async fn transact(
       &mut self,
-      txid_version: &str,
+      txid_version: TxidVersion,
       to: &str,
       data: &str,
       broadcaster: &SelectedBroadcaster,

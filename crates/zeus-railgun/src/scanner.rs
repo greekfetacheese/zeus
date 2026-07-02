@@ -24,11 +24,13 @@ use zeus_eth::utils::{client::RpcClient, get_logs_for};
 use zeus_railgun_shared::RailgunKeys;
 
 use crate::contracts::deployment_block;
+use crate::{compute_nullifying_key_from_viewing, derive_shared_symmetric_key};
 use crate::{
    contracts::{RailgunSmartWallet, railgun_address},
    merkle::PoseidonMerkleTree,
-   note::{Note, TokenData, compute_nullifier, decrypt_note_v2},
+   note::{Note, TokenData, TokenType, compute_nullifier, decrypt_note_v2},
 };
+use secure_types::{SecureArray, Zeroize};
 
 /// A single decrypted note that we own, plus its position in the tree.
 #[derive(Debug, Clone)]
@@ -51,20 +53,16 @@ const SCANNER_META_TABLE: TableDefinition<&str, &[u8]> =
 /// - `owned_notes`: the source of truth for **currently unspent** notes.
 ///   When we see a Nullified event (or call mark_nullified), we remove the note.
 /// The `owned_notes` vec is the sole source of truth for currently spendable notes (Kohaku style).
-///
-/// Grouping by TokenData: not done yet. With typical private wallet note counts
-/// (usually < 50-100), a linear scan in private_balances() is fine.
-/// If we ever reach thousands of notes we can add `HashMap<TokenData, Vec<OwnedNote>>`.
 struct RailgunScannerInner {
    /// Viewing private key used for decryption.
-   viewing_private: [u8; 32],
+   viewing_private: SecureArray<u8, 32>,
 
    /// Nullifying key (Poseidon hash of viewing private).
    nullifying_key: U256,
 
    /// Spending private key (used to derive nullifiers for spends we make).
-   #[allow(dead_code)]
-   spending_private: [u8; 32], // kept for future spend / nullifier signing in builders
+   // kept for future spend / nullifier signing in builders
+   _spending_private: SecureArray<u8, 32>,
 
    /// Local Poseidon Merkle tree of all commitments.
    pub merkle_tree: PoseidonMerkleTree,
@@ -94,20 +92,19 @@ pub struct RailgunScanner {
 impl RailgunScanner {
    /// Create a new scanner for a given set of Railgun keys.
    pub fn new(keys: &RailgunKeys, chain_id: u64) -> Result<Self> {
-      let viewing_private = keys.viewing_private.unlock(|b| {
-         let mut arr = [0u8; 32];
-         arr.copy_from_slice(b);
-         arr
-      });
+      let viewing_private = keys.viewing_private.clone();
 
       // Compute nullifying key the same way the TS engine does (Poseidon of viewing priv)
-      let nullifying_key = crate::note::compute_nullifying_key_from_viewing(&viewing_private)?;
-
-      let spending_private = keys.spending_private.unlock(|b| {
+      let mut arr = viewing_private.unlock(|b| {
          let mut arr = [0u8; 32];
          arr.copy_from_slice(b);
          arr
       });
+
+      let nullifying_key = compute_nullifying_key_from_viewing(&arr)?;
+      arr.zeroize();
+
+      let _spending_private = keys.spending_private.clone();
 
       // Use known address if available; fall back to ZERO for unknown/test chains.
       // The broadcaster path will error later if a real contract address is required.
@@ -116,7 +113,7 @@ impl RailgunScanner {
       let inner = RailgunScannerInner {
          viewing_private,
          nullifying_key,
-         spending_private,
+         _spending_private,
          merkle_tree: PoseidonMerkleTree::new()?,
          owned_notes: Vec::new(),
          last_synced_block: 0,
@@ -387,15 +384,16 @@ impl RailgunScanner {
             <RailgunSmartWallet::Shield as alloy_sol_types::SolEvent>::decode_log(&log.inner)
          {
             for preimage in decoded.data.commitments {
-               let token_data = crate::note::TokenData {
-                  token_type: match preimage.token.tokenType {
-                     0 => crate::note::TokenType::ERC20,
-                     1 => crate::note::TokenType::ERC721,
-                     _ => crate::note::TokenType::ERC1155,
-                  },
-                  token_address: preimage.token.tokenAddress.to_string(),
-                  token_sub_id: preimage.token.tokenSubID,
+               let token_type = match preimage.token.tokenType {
+                  0 => TokenType::ERC20,
+                  1 => TokenType::ERC721,
+                  _ => TokenType::ERC1155,
                };
+
+               let token_address = preimage.token.tokenAddress.to_string();
+               let token_sub_id = preimage.token.tokenSubID;
+
+               let token_data = TokenData::new(token_address, token_type, token_sub_id);
 
                if let Ok(token_hash) = crate::note::compute_token_hash(&token_data) {
                   if let Ok(leaf) = crate::note::compute_commitment(
@@ -463,14 +461,21 @@ impl RailgunScanner {
       // Snapshot keys + tree length without holding lock for long
       let (view_priv, null_key, tree_len) = self.read_inner(|inner| {
          (
-            inner.viewing_private,
+            inner.viewing_private.clone(),
             inner.nullifying_key,
             inner.merkle_tree.len(),
          )
       });
 
-      let shared_key =
-         crate::note::derive_shared_symmetric_key(&view_priv, &blinded_receiver_viewing_key)?;
+      let shared_key = view_priv.unlock(|b| {
+         let mut arr = [0u8; 32];
+         arr.copy_from_slice(b);
+
+         let key = derive_shared_symmetric_key(&arr, &blinded_receiver_viewing_key);
+         arr.zeroize();
+
+         key
+      })?;
 
       let nonce12: &[u8; 12] = nonce.try_into().map_err(|_| anyhow!("nonce must be 12 bytes"))?;
       let decrypted = match decrypt_note_v2(ciphertext, nonce12, &shared_key) {
@@ -543,7 +548,6 @@ impl RailgunScanner {
 // ===================== Redb persistence for scanner state (nullifiers + owned notes + meta) =====================
 
 fn serialize_owned_notes_for_redb(notes: &[OwnedNote]) -> Vec<u8> {
-   // Reuse the existing binary format
    let mut b = Vec::new();
    b.extend_from_slice(&(notes.len() as u64).to_le_bytes());
    for on in notes {

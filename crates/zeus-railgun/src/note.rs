@@ -48,19 +48,39 @@ impl From<u8> for TokenType {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TokenData {
    /// Token contract address (hex, with or without 0x)
-   pub token_address: String,
-   pub token_type: TokenType,
+   token_address: String,
+   token_type: TokenType,
    /// For ERC721/1155 this is the token id. For ERC20 it must be 0.
-   pub token_sub_id: U256,
+   token_sub_id: U256,
 }
 
 impl TokenData {
+   pub fn new(address: impl Into<String>, token_type: TokenType, token_sub_id: U256) -> Self {
+      Self {
+         token_address: address.into(),
+         token_type,
+         token_sub_id,
+      }
+   }
+
    pub fn new_erc20(token_address: impl Into<String>) -> Self {
       Self {
          token_address: token_address.into(),
          token_type: TokenType::ERC20,
          token_sub_id: U256::ZERO,
       }
+   }
+
+   pub fn address(&self) -> &str {
+      &self.token_address
+   }
+
+   pub fn token_type(&self) -> TokenType {
+      self.token_type
+   }
+
+   pub fn token_sub_id(&self) -> U256 {
+      self.token_sub_id
    }
 }
 
@@ -766,6 +786,7 @@ pub fn decrypt_note_v2(ciphertext: &[u8], nonce: &[u8; 12], shared_key: &[u8; 32
 
    let receiver_mpk = U256::from_be_slice(&mpk_bytes);
 
+   // TODO: Get the actual token data?
    let token_data = TokenData {
       token_address: "0x0000000000000000000000000000000000000000".to_string(),
       token_type: TokenType::ERC20,
@@ -791,6 +812,8 @@ fn poseidon_hash(inputs: Vec<U256>) -> Result<U256> {
    if arity == 0 || arity > 12 {
       return Err(anyhow!("Invalid number of inputs for poseidon"));
    }
+
+   // TODO: zeroize all inputs
 
    let mut fr_inputs = Vec::with_capacity(arity);
    for input in inputs {

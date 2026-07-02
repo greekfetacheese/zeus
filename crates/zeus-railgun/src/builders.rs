@@ -12,10 +12,13 @@
 //!
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
+use std::str::FromStr;
+
 use alloy_primitives::{Address, FixedBytes, U256, Uint, keccak256};
 use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
 
+use crate::TokenType;
 use crate::contracts::{
    BoundParams, CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData, Transaction,
    UnshieldType,
@@ -101,17 +104,18 @@ pub(crate) fn prepare_shield(
 
    // Build CommitmentPreimage
    let npk: [u8; 32] = note.note_public_key.to_be_bytes::<32>();
+   let token_type = match token.token_type() {
+      TokenType::ERC20 => 0,
+      TokenType::ERC721 => 1,
+      TokenType::ERC1155 => 2,
+   };
+   let token_sub_id = token.token_sub_id();
+   let token_address = Address::from_str(&token.address())?;
+
    let contract_token = ContractTokenData {
-      tokenType: match token.token_type {
-         crate::note::TokenType::ERC20 => 0,
-         crate::note::TokenType::ERC721 => 1,
-         crate::note::TokenType::ERC1155 => 2,
-      },
-      tokenAddress: token
-         .token_address
-         .parse()
-         .map_err(|e| anyhow!("Invalid token address in shield: {}", e))?,
-      tokenSubID: token.token_sub_id,
+      tokenType: token_type,
+      tokenAddress: token_address,
+      tokenSubID: token_sub_id,
    };
 
    let preimage = CommitmentPreimage {
@@ -199,8 +203,8 @@ pub(crate) fn prepare_unshield(
    let mut candidates: Vec<&OwnedNote> = unspent
       .iter()
       .filter(|n| {
-         n.note.token_data.token_type == token.token_type
-            && n.note.token_data.token_address == token.token_address
+         n.note.token_data.token_type() == token.token_type()
+            && n.note.token_data.address() == token.address()
             && n.note.value > U256::ZERO
       })
       .collect();
@@ -222,7 +226,7 @@ pub(crate) fn prepare_unshield(
       return Err(anyhow!(
          "Insufficient unspent notes for unshield of {} {}",
          amount,
-         token.token_address
+         token.address()
       ));
    }
 
@@ -259,14 +263,17 @@ pub(crate) fn prepare_unshield(
    };
 
    // Unshield preimage for the requested public amount
+   let token_type = match token.token_type() {
+      TokenType::ERC20 => 0,
+      TokenType::ERC721 => 1,
+      TokenType::ERC1155 => 2,
+   };
+   let token_sub_id = token.token_sub_id();
+   let token_address = Address::from_str(&token.address())?;
    let contract_token = ContractTokenData {
-      tokenType: match token.token_type {
-         crate::note::TokenType::ERC20 => 0,
-         crate::note::TokenType::ERC721 => 1,
-         crate::note::TokenType::ERC1155 => 2,
-      },
-      tokenAddress: token.token_address.parse().map_err(|e| anyhow!("bad token addr: {}", e))?,
-      tokenSubID: token.token_sub_id,
+      tokenType: token_type,
+      tokenAddress: token_address,
+      tokenSubID: token_sub_id,
    };
 
    // npk for unshieldPreimage is often zero for direct unshield to EOA
@@ -721,7 +728,7 @@ mod tests {
 
       // Direct call would require valid keys; we just assert the API shape here.
       assert_eq!(
-         token.token_address,
+         token.address(),
          "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
       );
       assert!(value > U256::ZERO);

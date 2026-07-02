@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use zeus_eth::utils::client::RpcClient;
 use zeus_eth::utils::get_next_base_fee;
 use zeus_railgun_prover::RailgunProverClient;
-use zeus_railgun_shared::{Chain, RailgunKeys};
+use zeus_railgun_shared::{Chain, TxidVersion, RailgunKeys};
 use zeus_waku_broadcaster::{SelectedBroadcaster, WakuSidecarClient, WakuTransactResponse};
 
 use crate::SnarkProof;
@@ -443,10 +443,10 @@ impl RailgunEngine {
          ));
       }
 
-      let quote = self.get_best_fee_quote(&token.token_address).await.ok_or_else(|| {
+      let quote = self.get_best_fee_quote(token.address()).await.ok_or_else(|| {
          anyhow!(
             "No fee quote available for token {}. Wait for fee messages from the Waku broadcaster or use unshield() for self-broadcast.",
-            token.token_address
+            token.address()
          )
       })?;
 
@@ -481,11 +481,12 @@ impl RailgunEngine {
       );
 
       let overall_min_gp = min_gas_price.to::<u128>();
+      let txid_version = TxidVersion::V2PoseidonMerkle;
 
       self
          .waku_client
          .transact(
-            "V2_PoseidonMerkle",
+            txid_version,
             &railgun_contract_hex,
             &calldata_hex,
             &quote,

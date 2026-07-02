@@ -1,4 +1,5 @@
 use secure_types::SecureArray;
+use serde::{Deserialize, Serialize};
 
 pub mod address;
 pub mod keys;
@@ -12,8 +13,25 @@ pub use address::{RailgunAddress, encode_address};
 pub use keys::RailgunKeys;
 pub use crypto::poseidon_hash;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TxidVersion {
+    #[serde(rename = "V2_PoseidonMerkle")]
+    V2PoseidonMerkle,
+    #[serde(rename = "V3_PoseidonMerkle")]
+    V3PoseidonMerkle,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+impl TxidVersion {
+    pub fn to_string(&self) -> String {
+        match self {
+            TxidVersion::V2PoseidonMerkle => "V2_PoseidonMerkle".to_string(),
+            TxidVersion::V3PoseidonMerkle => "V3_PoseidonMerkle".to_string(),
+        }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Chain {
    pub type_: u8,
    pub id: u64,
