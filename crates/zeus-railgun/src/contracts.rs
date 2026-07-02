@@ -6,6 +6,7 @@
 use alloy_primitives::{Address, U256, address};
 use alloy_sol_types::sol;
 
+/// https://docs.railgun.org/wiki/learn/helpful-links
 // Railgun contract address (proxy)
 pub const ETHEREUM_MAINNET_RELAY: Address = address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9");
 
