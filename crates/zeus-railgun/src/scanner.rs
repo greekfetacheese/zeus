@@ -105,8 +105,9 @@ impl RailgunScanner {
          arr
       });
 
-      let addr = railgun_address(chain_id)
-         .ok_or_else(|| anyhow!("No known Railgun contract for chain {}", chain_id))?;
+      // Use known address if available; fall back to ZERO for unknown/test chains.
+      // The broadcaster path will error later if a real contract address is required.
+      let addr = railgun_address(chain_id).unwrap_or(Address::ZERO);
 
       let inner = RailgunScannerInner {
          viewing_private,

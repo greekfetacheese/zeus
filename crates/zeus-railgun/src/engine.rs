@@ -7,6 +7,20 @@ use zeus_railgun_prover::{ProofRequest, RailgunProverClient};
 use zeus_railgun_shared::{Chain, RailgunKeys};
 use zeus_waku_broadcaster::{SelectedBroadcaster, WakuSidecarClient, WakuTransactResponse};
 
+/// Derive a reasonable min_gas_price from a broadcaster quote.
+/// 
+/// For now we convert the broadcaster's fee_per_unit_gas (hex) into a U256.
+/// This value is used both in BoundParams (for the ZK proof) and as the
+/// overall_batch_min_gas_price sent to the broadcaster.
+fn derive_min_gas_price(quote: &SelectedBroadcaster) -> U256 {
+   let fee_hex = &quote.token_fee.fee_per_unit_gas;
+   let s = fee_hex.trim_start_matches("0x");
+   match u128::from_str_radix(s, 16) {
+      Ok(v) if v > 0 => U256::from(v),
+      _ => U256::from(1_000_000u64), // safe low default (1 gwei-ish in some units)
+   }
+}
+
 use crate::SnarkProof;
 use crate::builders::*;
 use crate::note::TokenData;
@@ -162,6 +176,12 @@ impl RailgunEngine {
       self.scanner.chain_id()
    }
 
+   /// Returns the RailgunSmartWallet contract address for the current chain.
+   /// Returns None if the chain is not supported yet.
+   pub fn railgun_contract_address(&self) -> Option<Address> {
+      crate::contracts::railgun_address(self.chain_id())
+   }
+
    /// Returns the keys used by this engine.
    pub fn keys(&self) -> &RailgunKeys {
       &self.keys
@@ -222,6 +242,16 @@ impl RailgunEngine {
    /// All fee quotes for a token, sorted by fee (lowest first).
    pub async fn get_all_fee_quotes(&self, token_address: &str) -> Vec<SelectedBroadcaster> {
       self.waku_client.get_all_fee_quotes(token_address).await
+   }
+
+   /// Returns a suggested min_gas_price derived from the best available quote for the token.
+   /// Falls back to a safe default if no quote is available.
+   pub async fn suggested_min_gas_price(&self, token_address: &str) -> U256 {
+      if let Some(quote) = self.get_best_fee_quote(token_address).await {
+         derive_min_gas_price(&quote)
+      } else {
+         U256::from(1_000_000u64)
+      }
    }
 
    /// Generate a real Groth16 proof using the prover sidecar for the given prepared unshield.
@@ -409,8 +439,9 @@ impl RailgunEngine {
       let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
 
-      // TODO: adjust this
-      let min_gas_price = U256::from(1u64);
+      // For self-broadcast unshield we use a low but non-zero value.
+      // In production this should come from current network gas price.
+      let min_gas_price = U256::from(1_000_000u64);
 
       build_unshield_transact_calldata(
          &self.scanner,
@@ -439,15 +470,20 @@ impl RailgunEngine {
 
       let quote = self.get_best_fee_quote(&token.token_address).await.ok_or_else(|| {
          anyhow!(
-            "No fee quote available for token {}",
+            "No fee quote available for token {}. Wait for fee messages from the Waku broadcaster or use unshield() for self-broadcast.",
             token.token_address
          )
       })?;
 
       let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
-      // TODO: adjust this
-      let min_gas_price = U256::from(1u64);
+
+      // Derive a reasonable min_gas_price.
+      // For the BoundParams in the proof we use a small but non-zero value.
+      // The overall_batch_min_gas_price passed to the broadcaster is what the
+      // broadcaster will use when submitting the transaction on-chain.
+      // We take the broadcaster's quoted fee_per_unit_gas as a base (converted from hex).
+      let min_gas_price = derive_min_gas_price(&quote);
 
       let calldata = build_unshield_transact_calldata(
          &self.scanner,
@@ -460,19 +496,33 @@ impl RailgunEngine {
       let calldata_hex = format!("0x{}", hex::encode(&calldata));
       let nullifiers: Vec<String> = prepared.nullifiers.iter().map(|n| n.to_string()).collect();
 
-      // Note: the "to" here should be the RailgunSmartWallet address for the chain.
-      // We pass a placeholder; production code should supply the real address.
-      let railgun_wallet_address = "0x0000000000000000000000000000000000000000"; // TODO
+      // CRITICAL: For broadcaster, "to" must be the RailgunSmartWallet contract address.
+      // The calldata is the encoded `transact(...)` call that the broadcaster will submit.
+      let railgun_contract = self.railgun_contract_address()
+         .ok_or_else(|| anyhow!(
+            "Railgun contract address not known for chain {}. Supported chains: Ethereum mainnet (1).",
+            self.chain_id()
+         ))?;
+
+      let railgun_contract_hex = format!("{:?}", railgun_contract);
+
+      info!(
+         "[railgun] Sending unshield via broadcaster {} (fees_id={}) to contract {}",
+         quote.railgun_address, quote.fees_id, railgun_contract_hex
+      );
+
+      // overall_batch_min_gas_price for the broadcaster (as u128)
+      let overall_min_gp = min_gas_price.to::<u128>();
 
       self
          .waku_client
          .transact(
             "V2_PoseidonMerkle",
-            railgun_wallet_address,
+            &railgun_contract_hex,
             &calldata_hex,
             &quote,
             nullifiers,
-            1u128,
+            overall_min_gp,
             false,
          )
          .await

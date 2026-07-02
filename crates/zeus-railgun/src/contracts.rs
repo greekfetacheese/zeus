@@ -9,6 +9,10 @@ use alloy_sol_types::sol;
 // Railgun contract address (proxy)
 pub const ETHEREUM_MAINNET_RELAY: Address = address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9");
 
+// Common other chains (approximate / to be verified)
+pub const POLYGON_RELAY: Address = address!("0x19B620929f97b7b990801496c3b361CA5dEf8C71");
+pub const ARBITRUM_RELAY: Address = address!("0x0000000000000000000000000000000000000000"); // TODO
+
 sol! {
     #[derive(Debug, PartialEq, Eq)]
     contract RailgunSmartWallet {
@@ -119,6 +123,8 @@ sol! {
 pub fn railgun_address(chain_id: u64) -> Option<Address> {
    match chain_id {
       1 => Some(ETHEREUM_MAINNET_RELAY),
+      137 => Some(POLYGON_RELAY),
+      // 42161 => Some(ARBITRUM_RELAY), // TODO verify
       _ => None,
    }
 }

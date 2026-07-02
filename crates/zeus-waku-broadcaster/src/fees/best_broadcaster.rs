@@ -39,12 +39,16 @@ pub fn find_best_broadcaster(
 
          // TODO: later add version check, POI check, trusted signer variance etc.
 
+         let viewing_pk = RailgunAddress::from_zk_address(&broadcaster_addr)
+            .ok()
+            .map(|a| hex::encode(a.viewing_public_key));
+
          candidates.push(SelectedBroadcaster {
             railgun_address: broadcaster_addr.clone(),
             token_fee: fee.clone(),
             token_address: token_address.to_string(),
             fees_id: fee.fees_id.clone(),
-            viewing_public_key: None, // populated later from fee message if needed
+            viewing_public_key: viewing_pk,
          });
       }
    }

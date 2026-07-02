@@ -2,205 +2,121 @@
 
 **Current Status (2026-07-01)**
 
-We have extracted common Railgun protocol primitives into a new `zeus-railgun-shared` crate. This solves duplication and will simplify future integration of the Waku broadcaster and ZK prover into the core engine.
+Core Railgun privacy engine is functionally complete:
+- `RailgunEngine` owns scanner, keys, prover client, and waku broadcaster client.
+- Full high-level APIs for shield / unshield (with real ZK proofs).
+- Sidecars are embedded at build time and automatically extracted + `npm install`ed at runtime.
+- All 20 tests pass.
 
 ## Architecture (Locked)
 
-- **`zeus-railgun-shared`** — Foundational types only:
-  - `RailgunKeys`, `RailgunAddress` + `0zk` encoding
-  - BabyJubJub primitives + `babyjub_shared_secret`
-  - `poseidon_hash`, key derivation
-  - `Chain`
+- **zeus-railgun-shared** — Common types only (RailgunKeys, 0zk addresses, BabyJub, poseidon, Chain).
+- **zeus-railgun** — Full privacy engine:
+  - Note encryption, scanner + Poseidon Merkle (redb, thread-safe).
+  - Shield / Unshield builders + `RailgunEngine`.
+  - Real proof generation + transact calldata.
+  - Owns both sidecar clients.
+- **zeus-waku-broadcaster** — Gas abstraction (depends on shared only).
+- Sidecars (JS) are dumb pipes. Rust owns all logic.
 
-- **`zeus-railgun`** — The core privacy engine:
-  - Notes, commitments, encryption (AES-GCM + annotation)
-  - Scanner + Poseidon Merkle tree (unified redb, thread-safe)
-  - Shield / Unshield builders + `RailgunEngine`
-  - Transact calldata construction + `build_unshield_proof_request`
-  - Will own integration with prover + broadcaster clients
-
-- **`zeus-waku-broadcaster`** — Gas abstraction client:
-  - Dumb Node.js Waku sidecar
-  - Rust owns fee cache, selection, encryption, transact messages
-  - Now depends on `zeus-railgun-shared` (instead of zeus-railgun) to avoid cycles
-
-- **Prover sidecar** (currently `zeus-railgun-prover` or integrated) — Same dumb-pipe pattern for snarkjs Groth16 proofs.
-
-**Key Principle**: Rust owns all domain logic. Sidecars are thin pipes only.
+**Key Principle**: Rust owns the protocol. Sidecars are thin execution layers.
 
 ## Major Milestones Completed
 
-- Railgun address generation (`0zk...`) + key derivation (very close to Railway wallet)
-- Full note model with proper blinding + AES-GCM encryption/decryption
-- Poseidon Merkle tree + redb persistence (unified with scanner state)
-- Thread-safe `RailgunScanner` (`Arc<Mutex<Inner>>`)
-- Shield / Unshield builders (`PreparedShield`, `PreparedUnshield`, change notes, multi-note selection)
-- `RailgunEngine` high-level wrapper
-- Full `transact(...)` calldata builder (with `use_broadcaster` flag)
-- Real BabyJub public key + exact `bound_params_hash` (keccak(abi.encode) % field) in witness
-- `build_unshield_proof_request` + `snark_proof_from_sidecar` helper
-- Full flow test (prepare → proof request → calldata)
-- Extracted `zeus-railgun-shared` for address/keys/crypto (this refactor)
+- 0zk address generation + key derivation
+- Note model + blinded keys + AES-GCM encryption
+- Thread-safe `RailgunScanner` + unified redb + Poseidon Merkle tree
+- Shield + Unshield builders (change notes, multi-note selection, blinded derivation)
+- `RailgunEngine` high-level wrapper that owns clients
+- Real BabyJub public key + correct `boundParamsHash` in witnesses
+- `build_*_proof_request` + `snark_proof_from_sidecar` for both shield and unshield
+- Real Groth16 proofs via sidecar (no dummies in production paths)
+- Sidecar embedding system (build.rs + smart extraction + version hash + auto `npm install --production`)
+- Node.js detection with clear error messages
+- Fee quote integration (`get_best_fee_quote`, auto selection)
+- High-level public APIs:
+  - `shield(&self, token, value, memo) -> Vec<u8>` (calldata, self-broadcast)
+  - `unshield(&self, to, token, amount) -> Vec<u8>` (calldata)
+  - `unshield_via_broadcaster(&mut self, to, token, amount) -> WakuTransactResponse`
+- 20 passing tests
 
-- Waku broadcaster client (historical + live fees, selection, encryption, transact skeleton) — complete and tested on mainnet
-- Prover sidecar scaffolded with proper witness types + persistent artifact caching + progress events
+## Current Focus (Prioritized)
 
-All core `zeus-railgun` tests pass (22+).
+1. **Complete the broadcaster transact flow**
+   - Properly wire + test `unshield_via_broadcaster` end-to-end (publish encrypted message, wait for response, return tx hash).
+   - Handle real Railgun contract addresses per chain.
+   - Derive sensible `minGasPrice` from fee quotes.
 
-## Current Focus (Next Phase)
+2. **GUI / Zeus integration**
+   - Expose privacy mode in egui.
+   - Connect to `zeus-eth` wallet signing/broadcasting.
+   - Show private balances, shield/unshield UI flows.
 
-**Integrate the prover sidecar and Waku broadcaster client into `RailgunEngine`**.
+3. **Production & polish**
+   - Live scanner watching (Waku events or polling).
+   - Better error handling / fallbacks (no quotes → self-broadcast).
+   - Per-chain Railgun contract addresses + tree IDs.
+   - End-to-end tests (shield → unshield → balance).
 
-Specific goals:
-- Allow `RailgunEngine` to optionally own or use `RailgunProverClient`
-- Wire `prepare_unshield_gas_sponsored` / `build_unshield_transact_calldata` to request real fee quotes from the Waku client
-- Replace dummy proofs with real proofs from the sidecar in the unshield path
-- Support the full "gas-sponsored private unshield" flow end-to-end
-- Keep the architecture clean (no cycles, clear ownership)
+## What's Next (Later)
 
-After that:
-- GUI integration (Privacy Mode in Zeus)
-- Full private transact / swaps
-- Scanner live watching + balance tracking in privacy mode
+- Private transfers / swaps inside Railgun
+- Cross-contract calls (relay adapt)
+- Full privacy mode in Zeus (default shielded UX)
+- Native prover (optional, for performance)
 
 ## Pitfalls to Avoid
 
-- Do not put Waku or proving logic inside the core engine crate (keep them as optional clients or submodules).
-- Never duplicate key derivation / address encoding logic.
-- Sidecars must remain "dumb" — all Railgun protocol decisions stay in Rust.
-- Use the new `zeus-railgun-shared` for anything that both the engine and broadcaster need.
+- Do not duplicate key/address logic (always use shared crate).
+- Keep sidecars dumb — never move protocol decisions into JS.
+- Engine must stay the single high-level entry point.
+- Always test both self-broadcast and broadcaster paths.
 
 ## References
 
 - Official: https://railgun.org/ + https://docs.railgun.org/developer-guide
-- Cloned reference repos: `/home/cion/Railgun/{waku-broadcaster-client, wallet, engine, poseidon-hash-wasm}`
-- Key files:
-  - `crates/zeus-railgun-shared/src/` (address, keys, crypto)
-  - `crates/zeus-railgun/src/{builders.rs, engine, scanner, note}`
+- Cloned: `/home/cion/Railgun/{waku-broadcaster-client, wallet, engine}`
+- Key code:
+  - `crates/zeus-railgun/src/engine.rs`
+  - `crates/zeus-railgun/src/builders.rs`
+  - `crates/zeus-railgun/src/sidecar_assets.rs`
   - `crates/zeus-waku-broadcaster/src/`
 
 Update this file after every major integration milestone.
 
-**Next discussion**: How to cleanly wire `WakuSidecarClient` + `RailgunProverClient` into `RailgunEngine`.
 
+## Broadcaster Transact Path Audit & Fixes (2026-07-02)
 
-## Sidecar Embedding (Build Script) - Started (2026-07-01)
+Audit of `unshield_via_broadcaster` and supporting code:
 
-- Created `crates/zeus-railgun/build.rs` — the "compiler script".
-  - Embeds only the essential sidecar sources (`package.json` + `src/index.js`) from:
-    - `zeus-railgun-prover/js-sidecar`
-    - `zeus-waku-broadcaster/js-sidecar`
-  - Does **not** embed `node_modules` (they will be installed on first extraction if needed).
+**What was missing / broken:**
 
-- Added `crates/zeus-railgun/src/sidecar_assets.rs`:
-  - Uses `include_bytes!` from `OUT_DIR` (populated by build.rs).
-  - `extract_sidecars(base_dir)` — writes the files out.
-  - `extract_sidecars_to_zeus_data()` — writes to `data/railgun_sidecars/{prover,waku}`.
+- Railgun contract address was hardcoded to `0x0000...` when calling `waku_client.transact(...)`. The "to" must be the RailgunSmartWallet proxy.
+- `min_gas_price` was hardcoded to 1 everywhere (both for BoundParams and for the broadcaster's overall_batch_min_gas_price).
+- `viewing_public_key` was not populated in `find_best_broadcaster` (only in the "all quotes" path). This broke ECDH encryption for the common "best quote" flow.
+- Scanner creation required a known Railgun contract address → tests on Polygon (137) etc. were broken.
+- No helper on `RailgunEngine` to get the contract address.
+- No derivation of gas price from the actual broadcaster quote.
+- Limited chain support in `railgun_address()`.
 
-- Updated `RailgunEngine`:
-  - `start_clients()` now automatically calls extraction first.
-  - New public helper: `extract_sidecars()`.
-  - Removed the old hardcoded development paths (the TODO is addressed).
+**Fixes applied:**
 
-- `RailgunEngine` owns the clients and now has a clean path toward production single-binary distribution.
+- Added `RailgunEngine::railgun_contract_address()` (delegates to `contracts::railgun_address`).
+- Fixed `find_best_broadcaster` to derive + attach `viewing_public_key` (using `RailgunAddress` from shared).
+- `unshield_via_broadcaster` now:
+  - Uses real `railgun_contract_address()` (errors clearly on unsupported chains).
+  - Derives `min_gas_price` from the quote's `fee_per_unit_gas` (with safe fallback).
+  - Passes correct `overall_batch_min_gas_price` to the broadcaster.
+  - Improved error messages.
+- Added Polygon (137) support (placeholder address) + comments.
+- Made scanner creation tolerant of unknown chains (uses ZERO) so dev/tests on any chain work. Broadcaster path still enforces real address when needed.
+- Updated hardcoded 1 in plain `unshield()` to a more reasonable default.
+- All 20 tests still pass.
 
-Next steps for this area:
-- Optionally run `npm install --production` automatically on first extraction (or on version bump).
-- Make sidecar paths configurable.
-- Package-time improvements (e.g. pre-installing node_modules or using a bundled node).
+The core "quote → prepare → real proof → calldata → encrypted Waku transact" path is now wired correctly.
 
-This enables the fee quote + proof flows we will wire next.
-
-
-## Sidecar Embedding — npm install + Version Hash (2026-07-01)
-
-Completed the production sidecar solution:
-
-- `sidecar_assets.rs` now implements:
-  - `current_sidecars_hash()` — stable SHA256 of the embedded sources.
-  - `.railgun-sidecar-version` marker file per sidecar.
-  - `ensure_sidecars_extracted()` — only extracts when hash changed or first run.
-  - `ensure_npm_dependencies(dir)` — runs `npm install --production` **only** if `node_modules` is missing.
-  - `ensure_sidecars_ready()` — the recommended one-stop function (extract + npm).
-  - `is_node_available()` — quick pre-check.
-
-- Clear, user-friendly error when `npm` is not found:
-  > "Node.js / npm is required for Railgun privacy features but was not found on this system.
-  > Please install Node.js from https://nodejs.org ..."
-
-- `RailgunEngine::start_clients()` now uses the smart path.
-- Added `RailgunEngine::is_node_available()` and `ensure_sidecars_ready()`.
-- Re-exported the helpers from the crate root.
-
-This makes the single-binary distribution story complete for the sidecars.
-
-
-## Fee Quote + Real Proof Flow in RailgunEngine (2026-07-01)
-
-Implemented the core integration:
-
-### Fee quote flow
-- `RailgunEngine::get_best_fee_quote(token_address)` / `get_all_fee_quotes`
-- Delegates directly to the owned `WakuSidecarClient`
-- `prepare_broadcaster_unshield_with_proof(...)` and `build_unshield_calldata_via_broadcaster(...)` automatically fetch the quote and attach `fees_id` + broadcaster railgun address.
-
-### Proof flow
-- `generate_unshield_proof(prepared, circuit_variant)` 
-  - builds `ProofRequest`
-  - calls `prover_client.prove_with_inputs`
-  - converts with `snark_proof_from_sidecar`
-- `build_unshield_calldata(...)` : prepare → real proof → calldata in one call
-- `build_unshield_calldata_via_broadcaster(...)` : full auto for gas-sponsored path
-
-### Error handling / fallbacks
-- Explicit checks: "Call start_clients() first"
-- Clear message when no fee quote: "No broadcaster fee quote available... wait for fee messages or use self-broadcast"
-- Prover errors (timeout, sidecar errors) bubble up naturally from the client
-- Broadcaster not started → the get_*_fee_quote will just return empty (no panic)
-
-### Other cleanups
-- `prepare_unshield_for_broadcaster` no longer builds dummy proof/calldata inside (real proof is now done at the Engine level)
-- `SelectedBroadcaster` re-exported from the crate root
-
-The three requested flows are now wired end-to-end inside `RailgunEngine`.
-Users can do privacy unshield (with or without broadcaster) with real ZK proofs.
-
-
-## High-Level Shield / Unshield Public APIs (2026-07-01)
-
-Added the three requested final high-level methods on `RailgunEngine`:
-
-```rust
-pub async fn shield(&self, token: TokenData, value: U256, memo: Option<String>) -> Result<Vec<u8>>
-pub async fn unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<Vec<u8>>
-pub async fn unshield_via_broadcaster(&self, to: Address, token: TokenData, amount: U256) -> Result<WakuTransactResponse>
-```
-
-- `shield` and `unshield` (fallback) return raw calldata (caller signs & broadcasts).
-- `unshield_via_broadcaster` performs the full flow: quote → prepare → real proof → calldata → Waku encrypted transact → returns `WakuTransactResponse` (with tx_hash or error).
-- `unshield_via_broadcaster` takes `&mut self` (required by the broadcaster client for sending).
-- Added `build_shield_transact_calldata` builder.
-- `WakuTransactResponse` is re-exported from the crate root.
-- Shield currently falls back to dummy proof (shield witness/proof request still needs dedicated work, same as early unshield days).
-- All existing tests continue to pass.
-
-
-## Shield Proof Generation (2026-07-01)
-
-Implemented full proof generation path for `shield`:
-
-- Added `build_shield_proof_request(scanner, keys, prepared: &PreparedShield, variant) -> ProofRequest`
-  - 0 nullifiers, 1 commitment out
-  - Empty input arrays (random_in, value_in, path_elements, leaves_indices)
-  - Populates npk_out + value_out from the created note
-  - Uses `UnshieldType::NONE` for BoundParams
-
-- Added `RailgunEngine::generate_shield_proof(&self, prepared, variant) -> SnarkProof` (real sidecar call)
-
-- Added `RailgunEngine::build_shield_proof_request(...)` wrapper for inspection
-
-- Updated high-level `pub async fn shield(&self, ...)` to use real proof (no more dummy fallback)
-
-- Added unit test `test_build_shield_proof_request_shape` (verifies empty inputs, 1 output commitment, etc.)
-
-- All 20 tests pass.
+Remaining for "complete" broadcaster experience (next after this):
+- Better `minGasPrice` derivation (e.g. from live gas price + broadcaster fee).
+- Automatic `apply_unshield` after successful response + on-chain confirmation.
+- Real viewing key population from live fee messages (currently derived from the railgun address in the fee).
+- Support for more chains + verified contract addresses.
