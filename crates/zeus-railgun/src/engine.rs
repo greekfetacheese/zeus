@@ -145,6 +145,11 @@ impl RailgunEngine {
       self.scanner.chain_id()
    }
 
+   /// Returns the keys used by this engine.
+   pub fn keys(&self) -> &RailgunKeys {
+      &self.keys
+   }
+
    /// Access the underlying scanner (for advanced state inspection / sync).
    pub fn scanner(&self) -> &RailgunScanner {
       &self.scanner
@@ -176,37 +181,6 @@ impl RailgunEngine {
       sidecar_assets::extract_sidecars_to_zeus_data()
    }
 
-   /// High-level shield.
-   pub(crate) fn prepare_shield(
-      &self,
-      token: TokenData,
-      value: U256,
-      memo: Option<String>,
-   ) -> Result<PreparedShield> {
-      prepare_shield(&self.keys, token, value, memo)
-   }
-
-   /// High-level unshield (multi-note + change note support).
-   ///
-   /// `use_broadcaster`: if true, the unshield is prepared for gas-sponsored
-   /// execution via a Waku broadcaster (use `build_unshield_transact_calldata` after).
-   pub(crate) fn prepare_unshield(
-      &self,
-      to: Address,
-      token: TokenData,
-      amount: U256,
-      _use_broadcaster: bool,
-   ) -> Result<PreparedUnshield> {
-      prepare_unshield(
-         &self.scanner,
-         &self.keys,
-         to,
-         token,
-         amount,
-         _use_broadcaster,
-      )
-   }
-
    /// Apply shield result: updates owned notes + merkle tree automatically.
    pub fn apply_shield(&self, prepared: &PreparedShield, leaf_index: u64) -> Result<OwnedNote> {
       apply_shield_to_scanner(&self.scanner, prepared, leaf_index)
@@ -216,70 +190,6 @@ impl RailgunEngine {
    pub fn apply_unshield(&self, prepared: &PreparedUnshield) {
       apply_unshield_to_scanner(&self.scanner, prepared);
       // ponytail: if change_note exists, caller can shield it or keep in scanner via other means
-   }
-
-   /// High-level gas-sponsored unshield (optional broadcaster path).
-   ///
-   /// Pass the fee information obtained from the waku broadcaster client
-   /// (via `get_best_fee_quote` or `find_broadcasters_for_token`).
-   ///
-   /// This is only for unshield operations. Shields are almost always self-broadcast.
-   pub fn prepare_unshield_gas_sponsored(
-      &self,
-      to: Address,
-      token: TokenData,
-      amount: U256,
-      fees_id: String,
-      broadcaster_address: String,
-      min_gas_price: U256,
-   ) -> Result<PreparedBroadcasterUnshield> {
-      prepare_unshield_for_broadcaster(
-         &self.scanner,
-         &self.keys,
-         to,
-         token,
-         amount,
-         fees_id,
-         broadcaster_address,
-         min_gas_price,
-      )
-   }
-
-   /// Build the full `transact` calldata for an unshield (used for gas-sponsored via broadcaster).
-   ///
-   /// Call this after `prepare_unshield(..., use_broadcaster: true)`.
-   /// Uses the chain_id stored in this engine.
-   pub fn build_unshield_transact_calldata(
-      &self,
-      prepared: &PreparedUnshield,
-      proof: crate::contracts::SnarkProof,
-      min_gas_price: U256,
-      use_broadcaster: bool,
-   ) -> Result<Vec<u8>> {
-      build_unshield_transact_calldata(
-         &self.scanner,
-         prepared,
-         proof,
-         self.chain_id(),
-         min_gas_price,
-         use_broadcaster,
-      )
-   }
-
-   pub fn build_unshield_proof_request(
-      &self,
-      prepared: &PreparedUnshield,
-      v: Option<&str>,
-   ) -> Result<ProofRequest> {
-      build_unshield_proof_request(&self.scanner, &self.keys, prepared, v)
-   }
-
-   pub fn build_shield_proof_request(
-      &self,
-      prepared: &PreparedShield,
-      v: Option<&str>,
-   ) -> Result<ProofRequest> {
-      build_shield_proof_request(&self.scanner, &self.keys, prepared, v)
    }
 
    /// Returns the best (lowest fee) broadcaster quote for a token.
@@ -313,7 +223,12 @@ impl RailgunEngine {
          ));
       }
 
-      let req = self.build_unshield_proof_request(prepared, circuit_variant)?;
+      let req = build_unshield_proof_request(
+         &self.scanner,
+         &self.keys,
+         prepared,
+         circuit_variant,
+      )?;
       let proof_value = self.prover_client.prove_with_inputs(req).await?;
 
       // proof_value from sidecar should be the {"pi_a":..., "pi_b":..., "pi_c":...}
@@ -346,34 +261,6 @@ impl RailgunEngine {
       snark_proof_from_sidecar(proof_value)
    }
 
-   /// High-level proof + calldata flow for a normal (or broadcaster) unshield.
-   ///
-   /// 1. Prepares the unshield (selects notes, creates change if needed)
-   /// 2. Generates real ZK proof via sidecar
-   /// 3. Builds the transact calldata
-   ///
-   /// For gas-sponsored unshield, pass use_broadcaster=true and a min_gas_price (from fee quote).
-   /// You are still responsible for sending the calldata via the broadcaster using the fees_id (see get_best_fee_quote).
-   pub async fn build_unshield_calldata(
-      &self,
-      to: Address,
-      token: TokenData,
-      amount: U256,
-      min_gas_price: U256,
-      use_broadcaster: bool,
-   ) -> Result<Vec<u8>> {
-      if !self.clients_started {
-         return Err(anyhow!(
-            "Call start_clients() before generating private calldata."
-         ));
-      }
-
-      let prepared = self.prepare_unshield(to, token, amount, use_broadcaster)?;
-      let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
-
-      self.build_unshield_transact_calldata(&prepared, proof, min_gas_price, use_broadcaster)
-   }
-
    /// Convenience for the full gas-sponsored (broadcaster) flow.
    ///
    /// - Fetches the best fee quote automatically from the waku broadcaster client.
@@ -385,7 +272,8 @@ impl RailgunEngine {
    /// the broadcaster client to post the transact message with the fees_id).
    ///
    /// Error if no fee quote is available.
-   pub async fn build_unshield_calldata_via_broadcaster(
+   // TODO: remove this?
+   pub async fn _build_unshield_calldata_via_broadcaster(
       &self,
       to: Address,
       token: TokenData,
@@ -415,16 +303,23 @@ impl RailgunEngine {
       );
 
       // Prepare + real proof + calldata
-      let prepared = self.prepare_unshield(to, token, amount, true)?;
+      let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
 
       // Note: we could also construct a PreparedBroadcasterUnshield here with the quote info
-      self.build_unshield_transact_calldata(&prepared, proof, min_gas_price, true)
+      build_unshield_transact_calldata(
+         &self.scanner,
+         &prepared,
+         proof,
+         self.chain_id(),
+         min_gas_price,
+      )
    }
 
    /// Returns a PreparedBroadcasterUnshield that includes a real proof and calldata.
    /// Useful if you want to keep the fees_id + broadcaster info together with the calldata.
-   pub async fn prepare_broadcaster_unshield_with_proof(
+   // TODO: remove this?
+   pub async fn _prepare_broadcaster_unshield_with_proof(
       &self,
       to: Address,
       token: TokenData,
@@ -436,20 +331,26 @@ impl RailgunEngine {
          .await
          .ok_or_else(|| anyhow!("No broadcaster fee quote available"))?;
 
-      let prepared_unshield = self.prepare_unshield(to, token, amount, true)?;
-      let proof = self.generate_unshield_proof(&prepared_unshield, Some("01x01")).await?;
+      let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
+      let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
 
-      let calldata =
-         self.build_unshield_transact_calldata(&prepared_unshield, proof, min_gas_price, true)?;
+      let calldata = build_unshield_transact_calldata(
+         &self.scanner,
+         &prepared,
+         proof,
+         self.chain_id(),
+         min_gas_price,
+      )?;
 
       Ok(PreparedBroadcasterUnshield {
-         prepared_unshield,
+         prepared_unshield: prepared,
          fees_id: quote.fees_id,
          broadcaster_address: quote.railgun_address,
          min_gas_price,
          transact_calldata: Some(calldata),
       })
    }
+
    // =================================================================
    // Final High-Level Shield / Unshield APIs
    // =================================================================
@@ -482,7 +383,25 @@ impl RailgunEngine {
 
    /// Simple unshield (self-pay gas). Returns calldata.
    pub async fn unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<Vec<u8>> {
-      self.build_unshield_calldata(to, token, amount, U256::from(1u64), false).await
+      if !self.clients_started {
+         return Err(anyhow!(
+            "Call start_clients() before generating private calldata."
+         ));
+      }
+
+      let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
+      let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
+
+      // TODO: adjust this
+      let min_gas_price = U256::from(1u64);
+
+      build_unshield_transact_calldata(
+         &self.scanner,
+         &prepared,
+         proof,
+         self.chain_id(),
+         min_gas_price,
+      )
    }
 
    /// Full gas-abstracted private unshield via broadcaster.
@@ -508,10 +427,18 @@ impl RailgunEngine {
          )
       })?;
 
-      let prepared = self.prepare_unshield(to, token, amount, true)?;
+      let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
-      let calldata =
-         self.build_unshield_transact_calldata(&prepared, proof, U256::from(1u64), true)?;
+      // TODO: adjust this
+      let min_gas_price = U256::from(1u64);
+
+      let calldata = build_unshield_transact_calldata(
+         &self.scanner,
+         &prepared,
+         proof,
+         self.chain_id(),
+         min_gas_price,
+      )?;
 
       let calldata_hex = format!("0x{}", hex::encode(&calldata));
       let nullifiers: Vec<String> = prepared.nullifiers.iter().map(|n| n.to_string()).collect();

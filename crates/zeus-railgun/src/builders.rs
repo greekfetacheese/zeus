@@ -12,26 +12,6 @@
 //!
 //! Fees (broadcaster) are not yet integrated — they come from the waku client later.
 
-// =============================================================================
-// PUBLIC HIGH-LEVEL API (preferred)
-//
-// For most use cases, use `RailgunEngine` as the single entry point.
-// It owns keys + scanner state and provides clean methods for each operation:
-//
-//   engine.prepare_shield(...)
-//   engine.prepare_unshield(...)
-//   engine.prepare_unshield_gas_sponsored(...)
-//   engine.build_unshield_proof_request(...)
-//   engine.build_unshield_transact_calldata(...)
-//   engine.apply_shield(...) / apply_unshield(...)
-//
-// Lower level free functions are now crate-private to avoid duplication in the
-// public surface. Use the Engine methods.
-//
-// Advanced users can still access some helpers (build_unshield_proof_request,
-// snark_proof_from_sidecar, apply_*, build_unshield_transact_calldata) if needed.
-// =============================================================================
-
 use alloy_primitives::{Address, FixedBytes, U256, Uint, keccak256};
 use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
@@ -55,33 +35,6 @@ const SNARK_SCALAR_FIELD: U256 = U256::from_limbs([
 ]);
 
 use zeus_railgun_prover::{PrivateInputsRailgun, ProofRequest, PublicInputsRailgun};
-
-/// Creates a placeholder SnarkProof.
-///
-/// IMPORTANT: This is a DUMMY proof (all zeros).
-/// Railgun on-chain `transact` calls **require** a valid Groth16 proof
-/// generated from the official Railgun circuit (over BN254).
-///
-/// Real proof generation is a significant piece of work (arkworks + circuit
-/// constraints matching the TS implementation). For now this allows building
-/// and testing the calldata shape and flow.
-///
-/// In production you must replace this with a real prover call.
-pub(crate) fn create_dummy_snark_proof() -> crate::contracts::RailgunSmartWallet::SnarkProof {
-   let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
-      x: U256::ZERO,
-      y: U256::ZERO,
-   };
-   let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
-      x: [U256::ZERO, U256::ZERO],
-      y: [U256::ZERO, U256::ZERO],
-   };
-   crate::contracts::RailgunSmartWallet::SnarkProof {
-      a: zero_g1.clone(),
-      b: zero_g2.clone(),
-      c: zero_g1,
-   }
-}
 
 /// Data prepared for a Shield call (public → private).
 #[derive(Debug, Clone)]
@@ -257,7 +210,6 @@ pub(crate) fn prepare_unshield(
    to: Address,
    token: TokenData,
    amount: U256,
-   _use_broadcaster: bool,
 ) -> Result<PreparedUnshield> {
    let unspent = scanner.unspent_notes();
 
@@ -375,6 +327,7 @@ pub(crate) fn prepare_unshield(
 /// to get a real proof and the final calldata.
 ///
 /// `fees_id` and `broadcaster_address` typically come from `engine.get_best_fee_quote(...)`.
+// TODO: remove this?
 pub(crate) fn prepare_unshield_for_broadcaster(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
@@ -385,7 +338,7 @@ pub(crate) fn prepare_unshield_for_broadcaster(
    broadcaster_address: String,
    min_gas_price: U256,
 ) -> Result<PreparedBroadcasterUnshield> {
-   let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount, true)?;
+   let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount)?;
 
    Ok(PreparedBroadcasterUnshield {
       prepared_unshield,
@@ -394,24 +347,6 @@ pub(crate) fn prepare_unshield_for_broadcaster(
       min_gas_price,
       transact_calldata: None, // filled later after real proof
    })
-}
-
-pub(crate) fn build_shield_call_data(
-   receiver_keys: &RailgunKeys,
-   token: TokenData,
-   value: U256,
-   memo: Option<String>,
-) -> Result<(
-   Vec<CommitmentPreimage>,
-   Vec<ShieldCiphertext>,
-   Vec<U256>,
-)> {
-   let prepared = prepare_shield(receiver_keys, token, value, memo)?;
-   Ok((
-      vec![prepared.preimage],
-      vec![prepared.ciphertext],
-      vec![prepared.fee],
-   ))
 }
 
 /// Mark the nullifiers from a PreparedUnshield as spent in the scanner.
@@ -445,7 +380,6 @@ pub fn build_unshield_transact_calldata(
    proof: crate::contracts::SnarkProof,
    chain_id: u64,
    min_gas_price: U256,
-   _use_broadcaster: bool,
 ) -> Result<Vec<u8>> {
    let merkle_root = scanner.merkle_tree().root();
 
@@ -755,6 +689,22 @@ mod tests {
       SecureArray::from_slice(&seed).unwrap()
    }
 
+   pub(crate) fn create_dummy_snark_proof() -> crate::contracts::RailgunSmartWallet::SnarkProof {
+      let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
+         x: U256::ZERO,
+         y: U256::ZERO,
+      };
+      let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
+         x: [U256::ZERO, U256::ZERO],
+         y: [U256::ZERO, U256::ZERO],
+      };
+      crate::contracts::RailgunSmartWallet::SnarkProof {
+         a: zero_g1.clone(),
+         b: zero_g2.clone(),
+         c: zero_g1,
+      }
+   }
+
    #[test]
    fn test_prepare_shield_basic() {
       let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
@@ -847,7 +797,6 @@ mod tests {
          alloy_primitives::Address::ZERO,
          token.clone(),
          U256::from(1000u64),
-         true,
       );
       assert!(result.is_err());
 
@@ -865,12 +814,12 @@ mod tests {
 
       let token = NoteTokenData::new_erc20("0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174");
 
-      // The high-level API now accepts use_broadcaster
-      let res = engine.prepare_unshield(
-         alloy_primitives::Address::ZERO,
+      let res = prepare_unshield(
+         engine.scanner(),
+         engine.keys(),
+         Address::ZERO,
          token,
          U256::from(1u64),
-         true, // use broadcaster
       );
       // Will error because no notes, but the signature + flag is exercised
       assert!(res.is_err());
@@ -937,7 +886,6 @@ mod tests {
          proof,
          scanner.chain_id(),
          U256::from(1u64),
-         true,
       )
       .unwrap();
 
