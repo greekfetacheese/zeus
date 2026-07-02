@@ -12,7 +12,7 @@
 //! on the on-chain state (tree + nullifiers) and provides hooks for adding
 //! candidate notes (from shield or from Waku messages).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, U256};
@@ -26,7 +26,7 @@ use crate::contracts::deployment_block;
 use crate::{
    contracts::{RailgunSmartWallet, railgun_address},
    merkle::PoseidonMerkleTree,
-   note::{Note, compute_nullifier, decrypt_note_v2},
+   note::{Note, TokenData, compute_nullifier, decrypt_note_v2},
 };
 
 /// A single decrypted note that we own, plus its position in the tree.
@@ -297,28 +297,84 @@ impl RailgunScanner {
       f(&mut guard)
    }
 
-   /// Get current private balance (sum of unspent owned notes, in the base unit of the token).
-   /// Note: This is a simplified version — real implementation groups by token.
+   /// Total private balance across all tokens (sum of all unspent owned notes).
+   /// Prefer private_balances() or private_balance_for() for per-token info.
    pub fn private_balance(&self) -> U256 {
       self.read_inner(|inner| {
          inner
             .owned_notes
             .iter()
-            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
             .map(|n| n.note.value)
             .fold(U256::ZERO, |a, b| a + b)
       })
    }
 
-   /// Number of unspent notes we currently control.
-   pub fn unspent_note_count(&self) -> usize {
+   /// Private balances broken down by TokenData (ERC20 address + type + sub-id).
+   /// This matches the Kohaku RailgunProvider / BalanceEntry model (per AssetId).
+   pub fn private_balances(&self) -> HashMap<TokenData, U256> {
+      self.read_inner(|inner| {
+         let mut map: HashMap<TokenData, U256> = HashMap::new();
+         for n in &inner.owned_notes {
+            *map.entry(n.note.token_data.clone()).or_insert(U256::ZERO) += n.note.value;
+         }
+         map
+      })
+   }
+
+   /// Private balance for one specific token.
+   pub fn private_balance_for(&self, token: &TokenData) -> U256 {
       self.read_inner(|inner| {
          inner
             .owned_notes
             .iter()
-            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
-            .count()
+            .filter(|n| &n.note.token_data == token)
+            .map(|n| n.note.value)
+            .fold(U256::ZERO, |a, b| a + b)
       })
+   }
+
+   /// Total number of unspent notes across all tokens.
+   pub fn unspent_note_count(&self) -> usize {
+      self.read_inner(|inner| inner.owned_notes.len())
+   }
+
+   /// Unspent notes for a specific token (used for note selection in unshield).
+   pub fn unspent_notes_for(&self, token: &TokenData) -> Vec<OwnedNote> {
+      self.read_inner(|inner| {
+         inner
+            .owned_notes
+            .iter()
+            .filter(|n| &n.note.token_data == token)
+            .cloned()
+            .collect()
+      })
+   }
+
+   /// All currently unspent notes we control.
+   pub fn unspent_notes(&self) -> Vec<OwnedNote> {
+      self.read_inner(|inner| inner.owned_notes.clone())
+   }
+
+   /// Remove a note from our unspent list because its nullifier was observed on-chain
+   /// (or because we just spent it in a local unshield).
+   ///
+   /// Matches Kohaku's `handle_nullified_event` + `notes.retain(...)`.
+   pub fn mark_nullified(&self, nullifier: U256) {
+      self.write_inner(|inner| {
+         let before = inner.owned_notes.len();
+         inner.owned_notes.retain(|n| n.nullifier != nullifier);
+         if inner.owned_notes.len() != before {
+            // also record in spent set for any legacy code (will be removed)
+            inner.spent_nullifiers.insert(nullifier);
+         }
+      });
+   }
+
+   /// Mark multiple nullifiers at once (e.g. from a Transact that spends several notes).
+   pub fn mark_nullified_many(&self, nullifiers: &[U256]) {
+      for n in nullifiers {
+         self.mark_nullified(*n);
+      }
    }
 
    /// Sync the Merkle tree and nullifier set from on-chain events.
@@ -515,6 +571,13 @@ impl RailgunScanner {
    pub fn add_own_shielded_note(&self, note: Note, leaf_index: u64) -> Result<OwnedNote> {
       self.write_inner(|inner| {
          let nullifier = compute_nullifier(inner.nullifying_key, leaf_index)?;
+         // Avoid duplicates (Kohaku style: the list is the current unspent set)
+         if inner.owned_notes.iter().any(|n| n.nullifier == nullifier) {
+            // already have it, return existing
+            if let Some(existing) = inner.owned_notes.iter().find(|n| n.nullifier == nullifier) {
+               return Ok(existing.clone());
+            }
+         }
          let owned = OwnedNote {
             note: note.clone(),
             leaf_index,
@@ -522,7 +585,6 @@ impl RailgunScanner {
             commitment: note.commitment,
          };
          inner.owned_notes.push(owned.clone());
-         // ponytail: auto-update merkle so local shields give correct root/proofs immediately
          let _ = inner.merkle_tree.insert(note.commitment);
          Ok(owned)
       })
@@ -535,18 +597,6 @@ impl RailgunScanner {
       });
    }
 
-   /// Get all currently unspent owned notes.
-   /// Returns owned copies (cloned) so the caller does not hold a lock.
-   pub fn unspent_notes(&self) -> Vec<OwnedNote> {
-      self.read_inner(|inner| {
-         inner
-            .owned_notes
-            .iter()
-            .filter(|n| !inner.spent_nullifiers.contains(&n.nullifier))
-            .cloned()
-            .collect()
-      })
-   }
 }
 
 // ===================== Simple binary serialization for scanner state =====================

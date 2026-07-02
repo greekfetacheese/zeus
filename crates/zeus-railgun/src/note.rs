@@ -26,7 +26,7 @@ use sha2::{Digest, Sha256, Sha512};
 use std::fmt;
 
 /// Token types supported by Railgun notes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum TokenType {
    ERC20 = 0,
@@ -45,7 +45,7 @@ impl From<u8> for TokenType {
 }
 
 /// Token data for a note.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TokenData {
    /// Token contract address (hex, with or without 0x)
    pub token_address: String,

@@ -136,3 +136,95 @@ Implemented proper gas price estimation for BoundParams and broadcaster `overall
 - All use the realistic value instead of hardcoded 1 or quote-fee mis-use.
 - `suggested_min_gas_price` now returns a safe default (callers in GUI should use the estimate method with live client).
 - 20/20 tests still pass.
+
+
+## Kohaku Railgun Review & Protocol Alignment (Started 2026-07-02)
+
+**Goal before GUI integration**: Validate our `RailgunScanner`, Merkle tree, note model, commitment handling, nullifier tracking, and private balance logic against a more complete independent Rust implementation of the Railgun protocol.
+
+Kohaku (Ethereum Foundation / kohaku roadmap privacy tooling) takes a slightly different approach for broadcasting (third-party paymaster instead of Waku broadcaster), but the on-chain event processing, UTXO model, Merkle trees, note decryption, and nullification logic should be authoritative.
+
+**Key Kohaku modules for Merkle / Notes / Commitments / Syncing (reference these):**
+
+- `indexer/utxo_indexer.rs` — Central state: `utxo_trees: BTreeMap<u32, UtxoMerkleTree>`, list of `IndexedAccount`, sync logic, event dispatch.
+- `indexer/indexed_account.rs` — Per-account state (`IndexedAccountState { notes: Vec<UtxoNote>, synced_block }`). Handles:
+  - `handle_shield_event`
+  - `handle_transact_event`
+  - `handle_nullified_event` (removes matching note by nullifier from the notes vec — no separate spent set)
+- `indexer/syncer/` (chained.rs, rpc.rs, subsquid.rs, mod.rs) — Event sources and normalization.
+- `merkle_tree/`
+  - `utxo_tree.rs` + `merkle_tree.rs` (TREE_DEPTH = 16, Poseidon hash, `UtxoMerkleTree`)
+  - `verifier.rs`
+- `note/utxo.rs` — `UtxoNote` struct (tree_number, leaf_index, value, asset, nullifier, blinded_commitment, note_public_key, etc.). Decryption + nullifier computation.
+- `note/mod.rs` — `Note` + `EncryptableNote` traits.
+- `provider.rs` — High-level `RailgunProvider`:
+  - `balance(address) -> Vec<BalanceEntry>` (grouped by `AssetId` / token)
+  - `notes(address) -> Vec<NoteEntry>`
+  - `unspent(...)` (filters via the indexer)
+- `database/` — persistence of trees + account state.
+
+**Current differences observed (to investigate):**
+
+- Our scanner keeps **all** `owned_notes` + separate `spent_nullifiers: HashSet`. Kohaku **removes** notes from the list on nullification events.
+- Our `private_balance()` and `unspent_note_count()` are currently global (sum all tokens). Kohaku returns per-`AssetId` (TokenType).
+- How commitments are reconstructed and how `blinded_commitment` vs on-chain commitment is used.
+- Tree numbering / multiple trees per chain.
+- Nullifier derivation details.
+
+**References added:**
+- Kohaku repo: `/home/cion/Railgun/kohaku`
+- Focus crate: `/home/cion/Railgun/kohaku/crates/railgun`
+- Specific files listed above.
+
+**Next step after review**: Decide on scanner redesign (if needed) so that `private_balance` and note selection for unshield are per-token and match the protocol exactly. Then proceed to GUI.
+
+Update this section after the review is complete.
+
+
+## Kohaku Crypto References (2026-07-02)
+
+For Poseidon, note commitments, nullifiers, blinded keys and Merkle:
+- `/home/cion/Railgun/kohaku/crates/crypto` — High level wrappers:
+  - `src/poseidon.rs` (wraps poseidon-rust)
+  - `src/merkle_tree/` (UtxoMerkleTree using Poseidon)
+  - `src/babyjubjub.rs`, pedersen, etc.
+- `/home/cion/Railgun/kohaku/crates/poseidon-rust` — The actual BN254 Circom-compatible Poseidon implementation (t2..t14 params, full optimized permutation).
+  - Uses explicit Circom-generated round constants and MDS matrices.
+  - `poseidon_hash(&[Fr]) -> Fr`
+
+Our current implementation uses `light-poseidon` + `new_circom(arity)`. The input ordering for:
+- nullifier = poseidon([nullifying_key, leaf_index])
+- npk = poseidon([master_public_key, random])
+- commitment = poseidon([npk, token_hash, value])
+appears to match Kohaku's `note/utxo.rs`.
+
+We will verify byte-for-byte equivalence for critical cases. If mismatch is found, we will port/fork the poseidon-rust + crypto logic into `zeus-railgun-shared`.
+
+Added to references for all future crypto validation.
+
+
+## Scanner Redesign for Spent Notes + Per-Token Balances (2026-07-02)
+
+Adopted Kohaku patterns:
+
+- `owned_notes: Vec<OwnedNote>` now represents **only unspent notes** (no separate filtering at query time).
+- New methods on `RailgunScanner` (and exposed on `RailgunEngine`):
+  - `private_balances() -> HashMap<TokenData, U256>`
+  - `private_balance_for(&TokenData) -> U256`
+  - `unspent_notes() -> Vec<OwnedNote>`
+  - `unspent_notes_for(&TokenData) -> Vec<OwnedNote>`
+  - `mark_nullified(nullifier)` + `mark_nullified_many` (removes from list + legacy spent set)
+- `add_own_shielded_note` now avoids duplicates.
+- Old `private_balance()` / `unspent_note_count()` kept for compatibility but now total across tokens.
+- TokenData and TokenType now derive Hash (so they can be map keys).
+
+This matches Kohaku's `IndexedAccount.unspent()` (just the notes vec) and `provider.balance()` (per AssetId).
+
+Next for full alignment:
+- Wire Nullified event decoding in `sync_from_block` to call mark_nullified.
+- When building unshield, call mark after note selection (optimistic).
+- Consider dropping the spent_nullifiers HashSet entirely after persistence migration.
+
+Poseidon/crypto alignment review ongoing (inputs match; will verify with side-by-side if needed).
+
+Updated before proceeding to GUI integration.

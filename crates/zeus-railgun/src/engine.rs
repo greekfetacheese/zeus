@@ -2,14 +2,14 @@ use alloy_primitives::{Address, U256};
 use alloy_provider::Provider;
 use anyhow::{Result, anyhow};
 use redb::Database;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use zeus_eth::utils::client::RpcClient;
 use zeus_eth::utils::get_next_base_fee;
 use zeus_railgun_prover::RailgunProverClient;
 use zeus_railgun_shared::{Chain, RailgunKeys};
 use zeus_waku_broadcaster::{SelectedBroadcaster, WakuSidecarClient, WakuTransactResponse};
-
-
 
 use crate::SnarkProof;
 use crate::builders::*;
@@ -121,7 +121,7 @@ impl RailgunEngine {
       // Extra early check (defensive)
       if !sidecar_assets::is_node_available() {
          return Err(anyhow!(
-            "Node.js is required for Railgun privacy features.\n\n             Please install Node.js from https://nodejs.org and restart Zeus."
+            "Node.js is required for Railgun privacy features.\n\n Please install Node.js from https://nodejs.org and restart Zeus."
          ));
       }
 
@@ -141,7 +141,7 @@ impl RailgunEngine {
    /// Start syncing the scanner and merkle tree
    pub async fn sync(&mut self, client: RpcClient) -> Result<(), anyhow::Error> {
       if self.syncing {
-        info!("Railgun engine already syncing");
+         info!("Railgun engine already syncing");
          return Ok(());
       }
 
@@ -178,8 +178,34 @@ impl RailgunEngine {
    }
 
    /// Access the underlying scanner (for advanced state inspection / sync).
+
    pub fn scanner(&self) -> &RailgunScanner {
       &self.scanner
+   }
+
+   /// Current private balances per token (recommended for UI).
+   pub fn private_balances(&self) -> HashMap<TokenData, U256> {
+      self.scanner.private_balances()
+   }
+
+   /// Private balance for one token.
+   pub fn private_balance_for(&self, token: &TokenData) -> U256 {
+      self.scanner.private_balance_for(token)
+   }
+
+   /// All unspent notes (for advanced selection).
+   pub fn unspent_notes(&self) -> Vec<OwnedNote> {
+      self.scanner.unspent_notes()
+   }
+
+   /// Unspent notes for a token (used when building unshield).
+   pub fn unspent_notes_for(&self, token: &TokenData) -> Vec<crate::scanner::OwnedNote> {
+      self.scanner.unspent_notes_for(token)
+   }
+
+   /// Mark a note as spent locally (call after successful unshield).
+   pub fn mark_nullified(&mut self, nullifier: U256) {
+      self.scanner.mark_nullified(nullifier);
    }
 
    /// Returns whether Node.js is available on this system.
@@ -191,9 +217,7 @@ impl RailgunEngine {
    /// Ensures the sidecars are extracted and npm dependencies are installed,
    /// without actually starting the clients yet.
    /// Returns the paths to the two sidecar directories.
-   pub fn ensure_sidecars_ready(
-      &self,
-   ) -> Result<(std::path::PathBuf, std::path::PathBuf), anyhow::Error> {
+   pub fn ensure_sidecars_ready(&self) -> Result<(PathBuf, PathBuf), anyhow::Error> {
       sidecar_assets::ensure_sidecars_ready()
    }
 
@@ -202,9 +226,7 @@ impl RailgunEngine {
    /// Returns (prover_dir, waku_dir).
    /// This is useful if you want to pre-extract or inspect the sidecars
    /// before calling `start_clients()`.
-   pub fn extract_sidecars(
-      &self,
-   ) -> Result<(std::path::PathBuf, std::path::PathBuf), anyhow::Error> {
+   pub fn extract_sidecars(&self) -> Result<(PathBuf, PathBuf), anyhow::Error> {
       sidecar_assets::extract_sidecars_to_zeus_data()
    }
 
@@ -248,7 +270,7 @@ impl RailgunEngine {
 
       let priority: U256 = match client.get_max_priority_fee_per_gas().await {
          Ok(f) => {
-            let p: u128 = f;   // may be u128 from the provider
+            let p: u128 = f; // may be u128 from the provider
             U256::from(p)
          }
          Err(_) => U256::from(1_000_000_000u64),
