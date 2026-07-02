@@ -253,3 +253,16 @@ Implemented:
    - Will revisit only if we see perf issues with large note counts.
 
 Updated scanner docs, engine high-level docs, apply comments, and sync method.
+
+## Dropped spent_nullifiers entirely (2026-07-02)
+
+Per user decision:
+- Removed `spent_nullifiers: HashSet<U256>` from RailgunScannerInner.
+- Removed SCANNER_NULLIFIERS_TABLE and all related serialize/deserialize/load/save code for nullifiers.
+- `mark_nullified` now purely does `owned_notes.retain(...)`.
+- Updated all load/save (redb + legacy file), tests, builders.rs (apply now calls mark_nullified).
+- try_decrypt_received_note now dedups by checking owned_notes instead of spent set.
+- Back-compat not needed (user has no persisted state yet).
+- Point 4 (internal HashMap by TokenData) intentionally left out — linear scan is fine.
+
+All changes keep the "owned_notes = current unspent only" model matching Kohaku.

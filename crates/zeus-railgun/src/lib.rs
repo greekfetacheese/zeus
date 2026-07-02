@@ -23,7 +23,6 @@ pub use scanner::{OwnedNote, RailgunScanner};
 // Use `RailgunEngine` for almost all operations (one clean entry point per action).
 pub use builders::{
    // Prepared data (return types from the high-level methods)
-   PreparedBroadcasterUnshield,
    PreparedShield,
    PreparedUnshield,
 

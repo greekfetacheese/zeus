@@ -75,24 +75,6 @@ pub struct PreparedUnshield {
    pub change_note: Option<Note>,
 }
 
-/// Prepared data for an unshield that will be sent via a gas-sponsored broadcaster (Waku).
-///
-/// This is the output when the user opts into using a broadcaster for the unshield.
-/// The engine produces the nullifiers, proofs, change note, and (later) the full calldata
-/// for RailgunSmartWallet.transact(...).
-#[derive(Debug, Clone)]
-pub struct PreparedBroadcasterUnshield {
-   pub prepared_unshield: PreparedUnshield,
-   /// Fees ID from the selected broadcaster (required for the transact request).
-   pub fees_id: String,
-   /// The selected broadcaster's railgun address (for reference / logging).
-   pub broadcaster_address: String,
-   /// Minimum gas price the broadcaster should use.
-   pub min_gas_price: U256,
-   /// The calldata (or will be) for the transact call. For now contains a note that full assembly is pending.
-   pub transact_calldata: Option<Vec<u8>>,
-}
-
 /// Prepare a shield (deposit).
 ///
 /// Creates a new private note for the receiver (usually yourself) and
@@ -310,55 +292,14 @@ pub(crate) fn prepare_unshield(
    })
 }
 
-/// Convenience: build a complete shield request ready for the contract call.
-/// Returns the arrays the RailgunSmartWallet.shield(...) expects.
-
-/// Prepare an unshield that will use a gas-sponsored broadcaster.
+/// Mark the nullifiers from a PreparedUnshield (remove the notes from unspent).
 ///
-/// `fees_id` and `broadcaster_address` come from the waku client's `get_best_fee_quote`.
-/// This is optional — only call this path when the user explicitly wants broadcaster sponsorship.
-///
-/// For now this wraps the normal unshield + attaches the fee metadata.
-/// This now builds real transact calldata (see build_unshield_transact_calldata).
-/// Prepare the unshield data + attach broadcaster fee metadata.
-///
-/// This does **not** generate the ZK proof or calldata.
-/// Use `RailgunEngine::prepare_broadcaster_unshield_with_proof` (or the proof + calldata methods)
-/// to get a real proof and the final calldata.
-///
-/// `fees_id` and `broadcaster_address` typically come from `engine.get_best_fee_quote(...)`.
-// TODO: remove this?
-pub(crate) fn prepare_unshield_for_broadcaster(
-   scanner: &RailgunScanner,
-   keys: &RailgunKeys,
-   to: Address,
-   token: TokenData,
-   amount: U256,
-   fees_id: String,
-   broadcaster_address: String,
-   min_gas_price: U256,
-) -> Result<PreparedBroadcasterUnshield> {
-   let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount)?;
-
-   Ok(PreparedBroadcasterUnshield {
-      prepared_unshield,
-      fees_id,
-      broadcaster_address,
-      min_gas_price,
-      transact_calldata: None, // filled later after real proof
-   })
-}
-
-/// Mark the nullifiers from a PreparedUnshield as spent (removes from unspent notes).
-///
-/// Call this for **immediate** UI update after you have a successful receipt.
-///
-/// Preferred for correctness: after tx confirmation, call `engine.sync(&client).await`
-/// instead. The scanner will process the on-chain Nullified event and remove the notes
-/// (exactly like Kohaku's indexer). This avoids showing wrong balance if the tx reverted.
+/// This is an *immediate* local update.
+/// Preferred: after tx confirmation call `engine.sync(&client).await` so the scanner
+/// processes the on-chain Nullified event (Kohaku style, no risk of wrong balance on revert).
 pub fn apply_unshield_to_scanner(scanner: &RailgunScanner, unshield: &PreparedUnshield) {
    for &nullifier in &unshield.nullifiers {
-      scanner.mark_nullifier_spent(nullifier);
+      scanner.mark_nullified(nullifier);
    }
 }
 

@@ -8,12 +8,12 @@
 //! - Decrypt notes belonging to us (shield + private transact via Waku).
 //! - Provide per-`TokenData` private balances and note selection for unshield.
 //!
-//! Primary unspent source: the `owned_notes` vector (notes are removed on nullification).
-//! The legacy `spent_nullifiers` set is kept only for persistence compatibility for now.
+//! Primary (and only) source of unspent notes: the `owned_notes` vector.
+//! Notes are removed from this list when their nullifier is seen in a Nullified event or via mark_nullified().
 //!
 //! Encrypted private transfer notes come via Waku (separate from this on-chain scanner).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use alloy_primitives::{Address, U256};
@@ -39,10 +39,6 @@ pub struct OwnedNote {
    pub commitment: U256,
 }
 
-/// Tables for scanner state in the same redb file as the merkle tree
-const SCANNER_NULLIFIERS_TABLE: TableDefinition<&str, &[u8]> =
-   TableDefinition::new("railgun_scanner_nullifiers");
-
 const SCANNER_OWNED_NOTES_TABLE: TableDefinition<&str, &[u8]> =
    TableDefinition::new("railgun_scanner_owned_notes");
 
@@ -54,9 +50,7 @@ const SCANNER_META_TABLE: TableDefinition<&str, &[u8]> =
 /// Data model (Kohaku-aligned):
 /// - `owned_notes`: the source of truth for **currently unspent** notes.
 ///   When we see a Nullified event (or call mark_nullified), we remove the note.
-/// - `spent_nullifiers`: legacy set. Still populated for backward compat with
-///   existing redb files. No longer used for filtering balances/notes.
-///   TODO (perf): after a persistence migration we can drop this entirely.
+/// The `owned_notes` vec is the sole source of truth for currently spendable notes (Kohaku style).
 ///
 /// Grouping by TokenData: not done yet. With typical private wallet note counts
 /// (usually < 50-100), a linear scan in private_balances() is fine.
@@ -78,9 +72,6 @@ struct RailgunScannerInner {
    /// Notes we have successfully decrypted and that belong to us.
    /// This vec contains ONLY unspent notes (notes are removed on nullification).
    pub owned_notes: Vec<OwnedNote>,
-
-   /// Legacy spent set (see struct doc above).
-   pub spent_nullifiers: HashSet<U256>,
 
    /// Last block we have fully synced up to.
    pub last_synced_block: u64,
@@ -128,7 +119,6 @@ impl RailgunScanner {
          spending_private,
          merkle_tree: PoseidonMerkleTree::new()?,
          owned_notes: Vec::new(),
-         spent_nullifiers: HashSet::new(),
          last_synced_block: 0,
          chain_id,
          railgun_address: addr,
@@ -137,50 +127,6 @@ impl RailgunScanner {
       Ok(Self {
          inner: Arc::new(Mutex::new(inner)),
       })
-   }
-
-   /// Load the scanner state from a simple binary file (legacy).
-   ///
-   /// Prefer the unified redb path (`load_state` + single Database) for new code.
-   /// If the file does not exist or is empty, the scanner keeps its current (empty) state.
-   #[deprecated(since = "0.1.0", note = "use `load_state` instead")]
-   pub fn load_state_from_file(&self, path: &str) -> Result<()> {
-      let data = match std::fs::read(path) {
-         Ok(d) => d,
-         Err(_) => return Ok(()),
-      };
-
-      if data.is_empty() {
-         return Ok(());
-      }
-
-      let (nulls, notes, last) = deserialize_scanner_state(&data)?;
-      {
-         let mut inner = self.inner.lock().unwrap();
-         inner.spent_nullifiers = nulls;
-         inner.owned_notes = notes;
-         if last > 0 {
-            inner.last_synced_block = last;
-         }
-      }
-      Ok(())
-   }
-
-   /// Save the full scanner state (nullifiers + owned notes + last block) to a binary file.
-   /// Use together with `save_merkle_tree` (redb) for complete persistence.
-   #[deprecated(since = "0.1.0", note = "use `save_state` instead")]
-   pub fn save_state_to_file(&self, path: &str) -> Result<()> {
-      let (nulls, owned, last) = {
-         let inner = self.inner.lock().unwrap();
-         (
-            inner.spent_nullifiers.clone(),
-            inner.owned_notes.clone(),
-            inner.last_synced_block,
-         )
-      };
-      let bytes = serialize_scanner_state(&nulls, &owned, last);
-      std::fs::write(path, &bytes)?;
-      Ok(())
    }
 
    // ===================== Public accessors (thread-safe) =====================
@@ -245,12 +191,10 @@ impl RailgunScanner {
    /// Load full scanner state (nullifiers + owned notes + last_synced_block) from redb.
    /// Call this after load_merkle_tree when using a single redb file.
    pub fn load_state(&self, db: &Database, tree_id: &str) -> Result<()> {
-      let nulls = load_nullifiers_redb(db, tree_id)?;
       let notes = load_owned_notes_redb(db, tree_id)?;
       let last_opt = load_last_block_redb(db, tree_id);
       {
          let mut inner = self.inner.lock().unwrap();
-         inner.spent_nullifiers = nulls;
          inner.owned_notes = notes;
          if let Some(b) = last_opt {
             if b > 0 {
@@ -264,15 +208,10 @@ impl RailgunScanner {
    /// Save full scanner state (nullifiers + owned notes + last block) to redb.
    /// Use together with save_merkle_tree for complete persistence in one file.
    pub fn save_state(&self, db: &Database, tree_id: &str) -> Result<()> {
-      let (nulls, notes, last) = {
+      let (notes, last) = {
          let inner = self.inner.lock().unwrap();
-         (
-            inner.spent_nullifiers.clone(),
-            inner.owned_notes.clone(),
-            inner.last_synced_block,
-         )
+         (inner.owned_notes.clone(), inner.last_synced_block)
       };
-      save_nullifiers_redb(db, tree_id, &nulls)?;
       save_owned_notes_redb(db, tree_id, &notes)?;
       save_last_block_redb(db, tree_id, last)?;
       Ok(())
@@ -367,19 +306,14 @@ impl RailgunScanner {
    /// Remove a note from our unspent list because its nullifier was observed on-chain
    /// (or because we just spent it in a local unshield).
    ///
-   /// Matches Kohaku's `handle_nullified_event` + `notes.retain(...)`.
+   /// This is the Kohaku-style model: the `owned_notes` vec itself is the set of current unspent notes.
    pub fn mark_nullified(&self, nullifier: U256) {
       self.write_inner(|inner| {
-         let before = inner.owned_notes.len();
          inner.owned_notes.retain(|n| n.nullifier != nullifier);
-         if inner.owned_notes.len() != before {
-            // also record in spent set for any legacy code (will be removed)
-            inner.spent_nullifiers.insert(nullifier);
-         }
       });
    }
 
-   /// Mark multiple nullifiers at once (e.g. from a Transact that spends several notes).
+   /// Mark multiple nullifiers at once (remove the corresponding notes from unspent).
    pub fn mark_nullified_many(&self, nullifiers: &[U256]) {
       for n in nullifiers {
          self.mark_nullified(*n);
@@ -560,9 +494,10 @@ impl RailgunScanner {
       let leaf_index = leaf_index_hint.unwrap_or(tree_len as u64);
       let nullifier = compute_nullifier(null_key, leaf_index)?;
 
-      // Check spent + push under lock
-      let already_spent = self.read_inner(|inner| inner.spent_nullifiers.contains(&nullifier));
-      if already_spent {
+      // Avoid adding duplicate note (nullifier already known as unspent)
+      let already_have =
+         self.read_inner(|inner| inner.owned_notes.iter().any(|n| n.nullifier == nullifier));
+      if already_have {
          return Ok(None);
       }
 
@@ -603,131 +538,9 @@ impl RailgunScanner {
          Ok(owned)
       })
    }
-
-   /// Mark a nullifier as spent (after we broadcast a spend transaction).
-   pub fn mark_nullifier_spent(&self, nullifier: U256) {
-      self.write_inner(|inner| {
-         inner.spent_nullifiers.insert(nullifier);
-      });
-   }
-}
-
-// ===================== Simple binary serialization for scanner state =====================
-
-fn serialize_scanner_state(
-   nullifiers: &std::collections::HashSet<U256>,
-   owned: &[OwnedNote],
-   last_block: u64,
-) -> Vec<u8> {
-   let mut b = Vec::new();
-   b.extend_from_slice(&last_block.to_le_bytes());
-   let null_vec: Vec<U256> = nullifiers.iter().copied().collect();
-   b.extend_from_slice(&(null_vec.len() as u64).to_le_bytes());
-   for n in &null_vec {
-      b.extend_from_slice(&n.to_be_bytes::<32>());
-   }
-   b.extend_from_slice(&(owned.len() as u64).to_le_bytes());
-   for on in owned {
-      b.extend_from_slice(&on.leaf_index.to_le_bytes());
-      b.extend_from_slice(&on.nullifier.to_be_bytes::<32>());
-      b.extend_from_slice(&on.commitment.to_be_bytes::<32>());
-      let nb = on.note.to_bytes();
-      b.extend_from_slice(&(nb.len() as u32).to_le_bytes());
-      b.extend_from_slice(&nb);
-   }
-   b
-}
-
-fn deserialize_scanner_state(
-   data: &[u8],
-) -> Result<(
-   std::collections::HashSet<U256>,
-   Vec<OwnedNote>,
-   u64,
-)> {
-   if data.len() < 8 {
-      return Ok((Default::default(), vec![], 0));
-   }
-   let mut offset = 0;
-   let last_block = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
-   offset += 8;
-   let nlen = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap()) as usize;
-   offset += 8;
-   let mut nulls = std::collections::HashSet::with_capacity(nlen);
-   for _ in 0..nlen {
-      if offset + 32 > data.len() {
-         break;
-      }
-      let mut buf = [0u8; 32];
-      buf.copy_from_slice(&data[offset..offset + 32]);
-      nulls.insert(U256::from_be_bytes(buf));
-      offset += 32;
-   }
-   if offset + 8 > data.len() {
-      return Ok((nulls, vec![], last_block));
-   }
-   let olen = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap()) as usize;
-   offset += 8;
-   let mut notes = Vec::with_capacity(olen);
-   for _ in 0..olen {
-      if offset + 72 > data.len() {
-         break;
-      }
-      let li = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
-      offset += 8;
-      let mut nul = [0u8; 32];
-      nul.copy_from_slice(&data[offset..offset + 32]);
-      offset += 32;
-      let mut com = [0u8; 32];
-      com.copy_from_slice(&data[offset..offset + 32]);
-      offset += 32;
-      let nl = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
-      offset += 4;
-      if offset + nl > data.len() {
-         break;
-      }
-      let note = Note::from_bytes(&data[offset..offset + nl])?;
-      offset += nl;
-      notes.push(OwnedNote {
-         note,
-         leaf_index: li,
-         nullifier: U256::from_be_bytes(nul),
-         commitment: U256::from_be_bytes(com),
-      });
-   }
-   Ok((nulls, notes, last_block))
 }
 
 // ===================== Redb persistence for scanner state (nullifiers + owned notes + meta) =====================
-
-fn serialize_nullifiers(set: &HashSet<U256>) -> Vec<u8> {
-   let v: Vec<U256> = set.iter().copied().collect();
-   let mut b = Vec::with_capacity(8 + v.len() * 32);
-   b.extend_from_slice(&(v.len() as u64).to_le_bytes());
-   for x in &v {
-      b.extend_from_slice(&x.to_be_bytes::<32>());
-   }
-   b
-}
-
-fn deserialize_nullifiers(data: &[u8]) -> Result<HashSet<U256>> {
-   if data.len() < 8 {
-      return Ok(HashSet::new());
-   }
-   let n = u64::from_le_bytes(data[0..8].try_into().unwrap()) as usize;
-   let mut s = HashSet::with_capacity(n);
-   let mut offset = 8;
-   for _ in 0..n {
-      if offset + 32 > data.len() {
-         break;
-      }
-      let mut buf = [0u8; 32];
-      buf.copy_from_slice(&data[offset..offset + 32]);
-      s.insert(U256::from_be_bytes(buf));
-      offset += 32;
-   }
-   Ok(s)
-}
 
 fn serialize_owned_notes_for_redb(notes: &[OwnedNote]) -> Vec<u8> {
    // Reuse the existing binary format
@@ -778,29 +591,6 @@ fn deserialize_owned_notes_from_redb(data: &[u8]) -> Result<Vec<OwnedNote>> {
       });
    }
    Ok(notes)
-}
-
-fn load_nullifiers_redb(db: &Database, tree_id: &str) -> Result<HashSet<U256>> {
-   let read_txn = db.begin_read()?;
-   let table = match read_txn.open_table(SCANNER_NULLIFIERS_TABLE) {
-      Ok(t) => t,
-      Err(_) => return Ok(HashSet::new()),
-   };
-   match table.get(tree_id)? {
-      Some(value) => deserialize_nullifiers(value.value()),
-      None => Ok(HashSet::new()),
-   }
-}
-
-fn save_nullifiers_redb(db: &Database, tree_id: &str, set: &HashSet<U256>) -> Result<()> {
-   let write_txn = db.begin_write()?;
-   {
-      let mut table = write_txn.open_table(SCANNER_NULLIFIERS_TABLE)?;
-      let bytes = serialize_nullifiers(set);
-      table.insert(tree_id, bytes.as_slice())?;
-   }
-   write_txn.commit()?;
-   Ok(())
 }
 
 fn load_owned_notes_redb(db: &Database, tree_id: &str) -> Result<Vec<OwnedNote>> {
@@ -884,22 +674,6 @@ mod tests {
    }
 
    #[test]
-   fn test_scanner_state_ser_de() {
-      let mut nulls = std::collections::HashSet::new();
-      nulls.insert(U256::from(42u64));
-      nulls.insert(U256::from(43u64));
-
-      let owned: Vec<OwnedNote> = vec![];
-      let bytes = serialize_scanner_state(&nulls, &owned, 123);
-      let (loaded_nulls, loaded_owned, last) = deserialize_scanner_state(&bytes).unwrap();
-
-      assert_eq!(last, 123);
-      assert_eq!(loaded_nulls.len(), 2);
-      assert!(loaded_owned.is_empty());
-      assert!(loaded_nulls.contains(&U256::from(42u64)));
-   }
-
-   #[test]
    fn test_scanner_load_save_state_file() {
       let seed = dummy_seed();
       let keys = RailgunKeys::new(seed, 0).unwrap();
@@ -913,7 +687,6 @@ mod tests {
 
       scanner.write_inner(|inner| {
          inner.last_synced_block = 98765;
-         inner.spent_nullifiers.insert(U256::from(777u64));
       });
 
       scanner.save_merkle_tree(&db, tree_id).unwrap();
@@ -924,7 +697,6 @@ mod tests {
       scanner2.load_state(&db, tree_id).unwrap();
 
       assert_eq!(scanner2.last_synced_block(), 98765);
-      assert!(scanner2.read_inner(|i| i.spent_nullifiers.contains(&U256::from(777u64))));
       assert_eq!(scanner2.owned_notes_len(), 0);
 
       let _ = std::fs::remove_file(db_path);
