@@ -120,3 +120,19 @@ Remaining for "complete" broadcaster experience (next after this):
 - Automatic `apply_unshield` after successful response + on-chain confirmation.
 - Real viewing key population from live fee messages (currently derived from the railgun address in the fee).
 - Support for more chains + verified contract addresses.
+
+
+## Realistic minGasPrice (2026-07-02)
+
+Implemented proper gas price estimation for BoundParams and broadcaster `overall_batch_min_gas_price`:
+
+- Added `RailgunEngine::estimate_min_gas_price(&self, client: &RpcClient) -> Result<U256>`
+- Ethereum mainnet: `get_next_base_fee()` (from zeus-eth) + `get_max_priority_fee_per_gas()` + ~12% buffer
+- Other chains: `get_gas_price()` + `get_max_priority_fee_per_gas()` + buffer
+- Updated high-level APIs:
+  - `shield(client, ...)`
+  - `unshield(client, ...)`
+  - `unshield_via_broadcaster(client, ...)`
+- All use the realistic value instead of hardcoded 1 or quote-fee mis-use.
+- `suggested_min_gas_price` now returns a safe default (callers in GUI should use the estimate method with live client).
+- 20/20 tests still pass.

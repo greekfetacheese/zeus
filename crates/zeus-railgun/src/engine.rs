@@ -1,25 +1,15 @@
 use alloy_primitives::{Address, U256};
+use alloy_provider::Provider;
 use anyhow::{Result, anyhow};
 use redb::Database;
 
 use zeus_eth::utils::client::RpcClient;
-use zeus_railgun_prover::{ProofRequest, RailgunProverClient};
+use zeus_eth::utils::get_next_base_fee;
+use zeus_railgun_prover::RailgunProverClient;
 use zeus_railgun_shared::{Chain, RailgunKeys};
 use zeus_waku_broadcaster::{SelectedBroadcaster, WakuSidecarClient, WakuTransactResponse};
 
-/// Derive a reasonable min_gas_price from a broadcaster quote.
-/// 
-/// For now we convert the broadcaster's fee_per_unit_gas (hex) into a U256.
-/// This value is used both in BoundParams (for the ZK proof) and as the
-/// overall_batch_min_gas_price sent to the broadcaster.
-fn derive_min_gas_price(quote: &SelectedBroadcaster) -> U256 {
-   let fee_hex = &quote.token_fee.fee_per_unit_gas;
-   let s = fee_hex.trim_start_matches("0x");
-   match u128::from_str_radix(s, 16) {
-      Ok(v) if v > 0 => U256::from(v),
-      _ => U256::from(1_000_000u64), // safe low default (1 gwei-ish in some units)
-   }
-}
+
 
 use crate::SnarkProof;
 use crate::builders::*;
@@ -244,14 +234,30 @@ impl RailgunEngine {
       self.waku_client.get_all_fee_quotes(token_address).await
    }
 
-   /// Returns a suggested min_gas_price derived from the best available quote for the token.
-   /// Falls back to a safe default if no quote is available.
-   pub async fn suggested_min_gas_price(&self, token_address: &str) -> U256 {
-      if let Some(quote) = self.get_best_fee_quote(token_address).await {
-         derive_min_gas_price(&quote)
+   pub async fn estimate_min_gas_price(&self, client: &RpcClient) -> Result<U256> {
+      let chain_id = self.chain_id();
+
+      let base_or_legacy: U256 = if chain_id == 1 {
+         let next_base = get_next_base_fee(client.clone()).await? as u128;
+         U256::from(next_base)
       } else {
-         U256::from(1_000_000u64)
-      }
+         // get_gas_price can return u128 in this project's provider setup
+         let gp: u128 = client.get_gas_price().await.map_err(|e| anyhow::anyhow!("{:?}", e))?;
+         U256::from(gp)
+      };
+
+      let priority: U256 = match client.get_max_priority_fee_per_gas().await {
+         Ok(f) => {
+            let p: u128 = f;   // may be u128 from the provider
+            U256::from(p)
+         }
+         Err(_) => U256::from(1_000_000_000u64),
+      };
+
+      let combined = base_or_legacy + priority;
+      // 10% buffer
+      let buffered = combined * U256::from(110) / U256::from(100);
+      Ok(std::cmp::max(buffered, U256::from(1_000_000u64)))
    }
 
    /// Generate a real Groth16 proof using the prover sidecar for the given prepared unshield.
@@ -404,8 +410,11 @@ impl RailgunEngine {
 
    /// Shield (public → private). Returns calldata only.
    /// Caller is responsible for signing and sending the tx.
+   ///
+   /// `client` is used to estimate a realistic minGasPrice for the BoundParams.
    pub async fn shield(
       &self,
+      client: &RpcClient,
       token: TokenData,
       value: U256,
       memo: Option<String>,
@@ -416,20 +425,29 @@ impl RailgunEngine {
 
       let prepared = prepare_shield(&self.keys, token, value, memo)?;
 
-      // Real proof via the prover sidecar (0-input / 1-output shield witness)
       let proof = self.generate_shield_proof(&prepared, Some("01x01")).await?;
+      let min_gas_price = self.estimate_min_gas_price(client).await?;
 
       build_shield_transact_calldata(
          &self.scanner,
          &prepared,
          proof,
          self.chain_id(),
-         U256::from(1u64),
+         min_gas_price,
       )
    }
 
-   /// Simple unshield (self-pay gas). Returns calldata.
-   pub async fn unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<Vec<u8>> {
+   /// Simple unshield (self-pay gas, fallback for when you don't need broadcaster).
+   /// Returns the raw transact calldata.
+   ///
+   /// `client` is used to compute a realistic minGasPrice (base + priority + buffer).
+   pub async fn unshield(
+      &self,
+      client: &RpcClient,
+      to: Address,
+      token: TokenData,
+      amount: U256,
+   ) -> Result<Vec<u8>> {
       if !self.clients_started {
          return Err(anyhow!(
             "Call start_clients() before generating private calldata."
@@ -439,9 +457,7 @@ impl RailgunEngine {
       let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
 
-      // For self-broadcast unshield we use a low but non-zero value.
-      // In production this should come from current network gas price.
-      let min_gas_price = U256::from(1_000_000u64);
+      let min_gas_price = self.estimate_min_gas_price(client).await?;
 
       build_unshield_transact_calldata(
          &self.scanner,
@@ -452,12 +468,20 @@ impl RailgunEngine {
       )
    }
 
-   /// Full gas-abstracted private unshield via broadcaster.
+   /// Full private unshield via broadcaster (gas-sponsored + maximum anonymity).
    ///
-   /// Handles quote → prepare → proof → calldata → Waku transact in one call.
-   /// Returns the response from the broadcaster (tx_hash or error).
+   /// Complete flow:
+   /// 1. Get best fee quote from Waku
+   /// 2. Prepare unshield (with change handling)
+   /// 3. Generate real ZK proof via sidecar
+   /// 4. Build calldata with realistic minGasPrice
+   /// 5. Encrypt + publish transact message over Waku
+   /// 6. Wait for broadcaster response
+   ///
+   /// `client` is used for realistic on-chain gas price estimation (next base fee + priority).
    pub async fn unshield_via_broadcaster(
       &mut self,
+      client: &RpcClient,
       to: Address,
       token: TokenData,
       amount: U256,
@@ -478,12 +502,8 @@ impl RailgunEngine {
       let prepared = prepare_unshield(&self.scanner, &self.keys, to, token, amount)?;
       let proof = self.generate_unshield_proof(&prepared, Some("01x01")).await?;
 
-      // Derive a reasonable min_gas_price.
-      // For the BoundParams in the proof we use a small but non-zero value.
-      // The overall_batch_min_gas_price passed to the broadcaster is what the
-      // broadcaster will use when submitting the transaction on-chain.
-      // We take the broadcaster's quoted fee_per_unit_gas as a base (converted from hex).
-      let min_gas_price = derive_min_gas_price(&quote);
+      // Use realistic on-chain gas price (mainnet uses get_next_base_fee + priority)
+      let min_gas_price = self.estimate_min_gas_price(client).await?;
 
       let calldata = build_unshield_transact_calldata(
          &self.scanner,
@@ -496,22 +516,19 @@ impl RailgunEngine {
       let calldata_hex = format!("0x{}", hex::encode(&calldata));
       let nullifiers: Vec<String> = prepared.nullifiers.iter().map(|n| n.to_string()).collect();
 
-      // CRITICAL: For broadcaster, "to" must be the RailgunSmartWallet contract address.
-      // The calldata is the encoded `transact(...)` call that the broadcaster will submit.
       let railgun_contract = self.railgun_contract_address()
          .ok_or_else(|| anyhow!(
-            "Railgun contract address not known for chain {}. Supported chains: Ethereum mainnet (1).",
+            "Railgun contract address not known for chain {}. Supported chains: Ethereum mainnet (1), Polygon (137), etc.",
             self.chain_id()
          ))?;
 
       let railgun_contract_hex = format!("{:?}", railgun_contract);
 
       info!(
-         "[railgun] Sending unshield via broadcaster {} (fees_id={}) to contract {}",
-         quote.railgun_address, quote.fees_id, railgun_contract_hex
+         "[railgun] Sending unshield via broadcaster {} (fees_id={}) to contract {} | minGasPrice={}",
+         quote.railgun_address, quote.fees_id, railgun_contract_hex, min_gas_price
       );
 
-      // overall_batch_min_gas_price for the broadcaster (as u128)
       let overall_min_gp = min_gas_price.to::<u128>();
 
       self

@@ -5,18 +5,39 @@ pub mod client;
 pub mod price_feed;
 
 use alloy_contract::private::{Network, Provider};
+use alloy_network::Ethereum;
 use alloy_primitives::{
    Address, U256,
    utils::{format_units, parse_units},
 };
+use alloy_rpc_types::BlockId;
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log};
 use serde::{Deserialize, Serialize};
 
+use crate::utils::block::calculate_next_block_base_fee;
+use anyhow::anyhow;
 use std::sync::Arc;
 use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
+
+/// Get the next base fee for Ethereum mainnet
+pub async fn get_next_base_fee<P>(client: P) -> Result<u64, anyhow::Error>
+where
+   P: Provider<Ethereum> + Clone + 'static,
+{
+   let block_opt = client.get_block(BlockId::latest()).await?;
+
+   let block = match block_opt {
+      Some(block) => block,
+      None => return Err(anyhow!("No block found")),
+   };
+
+   let next_base_fee = calculate_next_block_base_fee(block);
+
+   Ok(next_base_fee)
+}
 
 /// Is this token a base token?
 ///
