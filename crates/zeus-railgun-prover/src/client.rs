@@ -254,3 +254,14 @@ impl RailgunProverClient {
       Ok(())
    }
 }
+
+// TODO: Maybe send a SIGABRT to make sure we dont leave a zombie process?
+impl Drop for RailgunProverClient {
+   fn drop(&mut self) {
+      if let Ok(mut inner) = self.inner.try_lock() {
+         if let Some(mut child) = inner.child.take() {
+            let _ = child.start_kill();
+         }
+      }
+   }
+}

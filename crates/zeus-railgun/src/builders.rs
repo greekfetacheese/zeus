@@ -32,12 +32,10 @@
 // snark_proof_from_sidecar, apply_*, build_unshield_transact_calldata) if needed.
 // =============================================================================
 
-
-use alloy_primitives::{keccak256, Address, FixedBytes, U256, Uint};
+use alloy_primitives::{Address, FixedBytes, U256, Uint, keccak256};
 use alloy_sol_types::{SolCall, SolValue};
 use anyhow::{Result, anyhow};
 
-use zeus_railgun_shared::RailgunKeys;
 use crate::contracts::{
    BoundParams, CommitmentPreimage, ShieldCiphertext, TokenData as ContractTokenData, Transaction,
    UnshieldType,
@@ -47,43 +45,43 @@ use crate::note::{
    get_note_blinding_keys,
 };
 use crate::scanner::{OwnedNote, RailgunScanner};
+use zeus_railgun_shared::RailgunKeys;
 
 const SNARK_SCALAR_FIELD: U256 = U256::from_limbs([
-    0x43e1f593f0000001,
-    0x2833e84879b97091,
-    0xb85045b68181585d,
-    0x30644e72e131a029,
+   0x43e1f593f0000001,
+   0x2833e84879b97091,
+   0xb85045b68181585d,
+   0x30644e72e131a029,
 ]);
 
-use zeus_railgun_prover::{ProofRequest, PrivateInputsRailgun, PublicInputsRailgun};
+use zeus_railgun_prover::{PrivateInputsRailgun, ProofRequest, PublicInputsRailgun};
 
 /// Creates a placeholder SnarkProof.
 ///
-/// IMPORTANT: This is a DUMMY proof (all zeros). 
-/// Railgun on-chain `transact` calls **require** a valid Groth16 proof 
+/// IMPORTANT: This is a DUMMY proof (all zeros).
+/// Railgun on-chain `transact` calls **require** a valid Groth16 proof
 /// generated from the official Railgun circuit (over BN254).
 ///
-/// Real proof generation is a significant piece of work (arkworks + circuit 
-/// constraints matching the TS implementation). For now this allows building 
-/// and testing the calldata shape and flow. 
-/// 
+/// Real proof generation is a significant piece of work (arkworks + circuit
+/// constraints matching the TS implementation). For now this allows building
+/// and testing the calldata shape and flow.
+///
 /// In production you must replace this with a real prover call.
-fn create_dummy_snark_proof() -> crate::contracts::RailgunSmartWallet::SnarkProof {
-    let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
-        x: U256::ZERO,
-        y: U256::ZERO,
-    };
-    let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
-        x: [U256::ZERO, U256::ZERO],
-        y: [U256::ZERO, U256::ZERO],
-    };
-    crate::contracts::RailgunSmartWallet::SnarkProof {
-        a: zero_g1.clone(),
-        b: zero_g2.clone(),
-        c: zero_g1,
-    }
+pub(crate) fn create_dummy_snark_proof() -> crate::contracts::RailgunSmartWallet::SnarkProof {
+   let zero_g1 = crate::contracts::RailgunSmartWallet::G1Point {
+      x: U256::ZERO,
+      y: U256::ZERO,
+   };
+   let zero_g2 = crate::contracts::RailgunSmartWallet::G2Point {
+      x: [U256::ZERO, U256::ZERO],
+      y: [U256::ZERO, U256::ZERO],
+   };
+   crate::contracts::RailgunSmartWallet::SnarkProof {
+      a: zero_g1.clone(),
+      b: zero_g2.clone(),
+      c: zero_g1,
+   }
 }
-
 
 /// Data prepared for a Shield call (public → private).
 #[derive(Debug, Clone)]
@@ -370,6 +368,13 @@ pub(crate) fn prepare_unshield(
 ///
 /// For now this wraps the normal unshield + attaches the fee metadata.
 /// This now builds real transact calldata (see build_unshield_transact_calldata).
+/// Prepare the unshield data + attach broadcaster fee metadata.
+///
+/// This does **not** generate the ZK proof or calldata.
+/// Use `RailgunEngine::prepare_broadcaster_unshield_with_proof` (or the proof + calldata methods)
+/// to get a real proof and the final calldata.
+///
+/// `fees_id` and `broadcaster_address` typically come from `engine.get_best_fee_quote(...)`.
 pub(crate) fn prepare_unshield_for_broadcaster(
    scanner: &RailgunScanner,
    keys: &RailgunKeys,
@@ -382,26 +387,12 @@ pub(crate) fn prepare_unshield_for_broadcaster(
 ) -> Result<PreparedBroadcasterUnshield> {
    let prepared_unshield = prepare_unshield(scanner, keys, to, token, amount, true)?;
 
-   // Build the real transact calldata (this is what the broadcaster will submit)
-   let chain_id = scanner.chain_id();
-   // TODO: use a real proof from the sidecar prover
-   let dummy_proof = create_dummy_snark_proof();
-   let calldata = build_unshield_transact_calldata(
-      scanner,
-      &prepared_unshield,
-      dummy_proof,
-      chain_id,
-      min_gas_price,
-      true,
-   )
-   .ok();
-
    Ok(PreparedBroadcasterUnshield {
       prepared_unshield,
       fees_id,
       broadcaster_address,
       min_gas_price,
-      transact_calldata: calldata,
+      transact_calldata: None, // filled later after real proof
    })
 }
 
@@ -440,8 +431,6 @@ pub fn apply_shield_to_scanner(
 ) -> Result<crate::scanner::OwnedNote> {
    scanner.add_own_shielded_note(prepared.note.clone(), leaf_index)
 }
-
-
 
 /// Build the calldata for `RailgunSmartWallet.transact(Transaction[])` from a prepared unshield.
 ///
@@ -500,6 +489,57 @@ pub fn build_unshield_transact_calldata(
    Ok(call.abi_encode())
 }
 
+/// Build the calldata for a shield `transact` call.
+///
+/// Similar to unshield, but for depositing (public -> private).
+/// Requires a real SnarkProof from the prover sidecar.
+pub fn build_shield_transact_calldata(
+   scanner: &RailgunScanner,
+   prepared: &PreparedShield,
+   proof: crate::contracts::SnarkProof,
+   chain_id: u64,
+   min_gas_price: U256,
+) -> Result<Vec<u8>> {
+   let merkle_root = scanner.merkle_tree().root();
+
+   let commitments: Vec<alloy_primitives::FixedBytes<32>> =
+      vec![alloy_primitives::FixedBytes::<32>::from(
+         prepared.note.commitment.to_be_bytes::<32>(),
+      )];
+
+   let bound = BoundParams {
+      treeNumber: 0,
+      minGasPrice: Uint::<72, 2>::from(min_gas_price.to::<u64>() as u128),
+      unshield: UnshieldType::NONE,
+      chainID: chain_id,
+      adaptContract: alloy_primitives::Address::ZERO,
+      adaptParams: alloy_primitives::FixedBytes::<32>::ZERO,
+      commitmentCiphertext: vec![], // for pure shield we can leave empty or fill if needed
+   };
+
+   let tx = Transaction {
+      proof,
+      merkleRoot: merkle_root.to_be_bytes::<32>().into(),
+      nullifiers: vec![],
+      commitments,
+      boundParams: bound,
+      unshieldPreimage: CommitmentPreimage {
+         npk: alloy_primitives::FixedBytes::<32>::ZERO,
+         token: ContractTokenData {
+            tokenType: 0,
+            tokenAddress: alloy_primitives::Address::ZERO,
+            tokenSubID: U256::ZERO,
+         },
+         value: Uint::<120, 2>::ZERO,
+      },
+   };
+
+   let call = crate::contracts::RailgunSmartWallet::transactCall {
+      _transactions: vec![tx],
+   };
+   Ok(call.abi_encode())
+}
+
 /// Computes boundParamsHash exactly as the Railgun circuit / Verifier.sol expects.
 /// hash = uint256(keccak256(abi.encode(boundParams))) % SNARK_SCALAR_FIELD
 fn compute_bound_params_hash(bound_params: &BoundParams) -> Result<String> {
@@ -509,8 +549,6 @@ fn compute_bound_params_hash(bound_params: &BoundParams) -> Result<String> {
    let result = hash_u256 % SNARK_SCALAR_FIELD;
    Ok(result.to_string())
 }
-
-
 
 /// Converts the raw `proof` object returned by the zeus-railgun-prover sidecar
 /// (the value inside `proof_generated.proof`) into the `SnarkProof` struct
@@ -523,46 +561,44 @@ fn compute_bound_params_hash(bound_params: &BoundParams) -> Result<String> {
 ///   "pi_c": ["x", "y"]
 /// }
 pub fn snark_proof_from_sidecar(
-    proof_value: serde_json::Value,
+   proof_value: serde_json::Value,
 ) -> Result<crate::contracts::RailgunSmartWallet::SnarkProof> {
-    let pi_a: Vec<String> = serde_json::from_value(
-        proof_value.get("pi_a").cloned().unwrap_or(serde_json::json!([]))
-    )?;
-    let pi_b: Vec<Vec<String>> = serde_json::from_value(
-        proof_value.get("pi_b").cloned().unwrap_or(serde_json::json!([]))
-    )?;
-    let pi_c: Vec<String> = serde_json::from_value(
-        proof_value.get("pi_c").cloned().unwrap_or(serde_json::json!([]))
-    )?;
+   let pi_a: Vec<String> =
+      serde_json::from_value(proof_value.get("pi_a").cloned().unwrap_or(serde_json::json!([])))?;
+   let pi_b: Vec<Vec<String>> =
+      serde_json::from_value(proof_value.get("pi_b").cloned().unwrap_or(serde_json::json!([])))?;
+   let pi_c: Vec<String> =
+      serde_json::from_value(proof_value.get("pi_c").cloned().unwrap_or(serde_json::json!([])))?;
 
-    if pi_a.len() != 2 || pi_c.len() != 2 || pi_b.len() != 2 {
-        return Err(anyhow!("bad proof shape from sidecar (expected pi_a[2], pi_b[2x2], pi_c[2])"));
-    }
+   if pi_a.len() != 2 || pi_c.len() != 2 || pi_b.len() != 2 {
+      return Err(anyhow!(
+         "bad proof shape from sidecar (expected pi_a[2], pi_b[2x2], pi_c[2])"
+      ));
+   }
 
-    let a = crate::contracts::RailgunSmartWallet::G1Point {
-        x: U256::from_str_radix(&pi_a[0], 10)?,
-        y: U256::from_str_radix(&pi_a[1], 10)?,
-    };
+   let a = crate::contracts::RailgunSmartWallet::G1Point {
+      x: U256::from_str_radix(&pi_a[0], 10)?,
+      y: U256::from_str_radix(&pi_a[1], 10)?,
+   };
 
-    let b = crate::contracts::RailgunSmartWallet::G2Point {
-        x: [
-            U256::from_str_radix(&pi_b[0][0], 10)?,
-            U256::from_str_radix(&pi_b[0][1], 10)?,
-        ],
-        y: [
-            U256::from_str_radix(&pi_b[1][0], 10)?,
-            U256::from_str_radix(&pi_b[1][1], 10)?,
-        ],
-    };
+   let b = crate::contracts::RailgunSmartWallet::G2Point {
+      x: [
+         U256::from_str_radix(&pi_b[0][0], 10)?,
+         U256::from_str_radix(&pi_b[0][1], 10)?,
+      ],
+      y: [
+         U256::from_str_radix(&pi_b[1][0], 10)?,
+         U256::from_str_radix(&pi_b[1][1], 10)?,
+      ],
+   };
 
-    let c = crate::contracts::RailgunSmartWallet::G1Point {
-        x: U256::from_str_radix(&pi_c[0], 10)?,
-        y: U256::from_str_radix(&pi_c[1], 10)?,
-    };
+   let c = crate::contracts::RailgunSmartWallet::G1Point {
+      x: U256::from_str_radix(&pi_c[0], 10)?,
+      y: U256::from_str_radix(&pi_c[1], 10)?,
+   };
 
-    Ok(crate::contracts::RailgunSmartWallet::SnarkProof { a, b, c })
+   Ok(crate::contracts::RailgunSmartWallet::SnarkProof { a, b, c })
 }
-
 
 /// Maps PreparedUnshield (from RailgunEngine) into the prover witness format.
 pub fn build_unshield_proof_request(
@@ -573,7 +609,11 @@ pub fn build_unshield_proof_request(
 ) -> Result<ProofRequest> {
    let root = scanner.merkle_tree().root().to_string();
    let nulls = prepared.nullifiers.iter().map(|n| n.to_string()).collect();
-   let coms = prepared.change_note.as_ref().map(|c| vec![c.commitment.to_string()]).unwrap_or_default();
+   let coms = prepared
+      .change_note
+      .as_ref()
+      .map(|c| vec![c.commitment.to_string()])
+      .unwrap_or_default();
 
    // Build BoundParams exactly as we will for calldata (for consistent hash)
    let bound_for_hash = BoundParams {
@@ -599,13 +639,33 @@ pub fn build_unshield_proof_request(
          keys.spending_public.0.to_string(),
          keys.spending_public.1.to_string(),
       ],
-      random_in: prepared.input_randoms.iter().map(|r| { let mut p=[0u8;32]; p[16..].copy_from_slice(r); U256::from_be_bytes(p).to_string() }).collect(),
+      random_in: prepared
+         .input_randoms
+         .iter()
+         .map(|r| {
+            let mut p = [0u8; 32];
+            p[16..].copy_from_slice(r);
+            U256::from_be_bytes(p).to_string()
+         })
+         .collect(),
       value_in: prepared.input_values.iter().map(|v| v.to_string()).collect(),
-      path_elements: prepared.proofs.iter().map(|(_,e,_)| e.iter().map(|x|x.to_string()).collect()).collect(),
-      leaves_indices: prepared.leaf_indices.iter().map(|i|i.to_string()).collect(),
+      path_elements: prepared
+         .proofs
+         .iter()
+         .map(|(_, e, _)| e.iter().map(|x| x.to_string()).collect())
+         .collect(),
+      leaves_indices: prepared.leaf_indices.iter().map(|i| i.to_string()).collect(),
       nullifying_key: keys.nullifying_key.to_string(),
-      npk_out: prepared.change_note.as_ref().map(|c|vec![c.note_public_key.to_string()]).unwrap_or_default(),
-      value_out: prepared.change_note.as_ref().map(|c|vec![c.value.to_string()]).unwrap_or_default(),
+      npk_out: prepared
+         .change_note
+         .as_ref()
+         .map(|c| vec![c.note_public_key.to_string()])
+         .unwrap_or_default(),
+      value_out: prepared
+         .change_note
+         .as_ref()
+         .map(|c| vec![c.value.to_string()])
+         .unwrap_or_default(),
    };
 
    Ok(ProofRequest {
@@ -616,6 +676,68 @@ pub fn build_unshield_proof_request(
    })
 }
 
+/// Maps PreparedShield into the prover witness format for the Railgun circuit.
+///
+/// For a shield (public → private):
+/// - No nullifiers are spent (empty)
+/// - One commitment is created (the shielded note)
+/// - No Merkle path / input notes are used
+///
+/// This mirrors the structure of build_unshield_proof_request but for 0-input, 1-output.
+pub fn build_shield_proof_request(
+   scanner: &RailgunScanner,
+   keys: &RailgunKeys,
+   prepared: &PreparedShield,
+   circuit_variant: Option<&str>,
+) -> Result<ProofRequest> {
+   let root = scanner.merkle_tree().root().to_string();
+
+   // Shield: no nullifiers, one new commitment
+   let nulls: Vec<String> = vec![];
+   let coms = vec![prepared.commitment.to_string()];
+
+   // BoundParams for a pure shield (no unshield)
+   let bound_for_hash = BoundParams {
+      treeNumber: 0,
+      minGasPrice: Uint::<72, 2>::from(0u64),
+      unshield: UnshieldType::NONE,
+      chainID: scanner.chain_id(),
+      adaptContract: alloy_primitives::Address::ZERO,
+      adaptParams: alloy_primitives::FixedBytes::<32>::ZERO,
+      commitmentCiphertext: vec![],
+   };
+
+   let public = PublicInputsRailgun {
+      merkle_root: root,
+      bound_params_hash: compute_bound_params_hash(&bound_for_hash).unwrap_or_else(|_| "0".into()),
+      nullifiers: nulls,
+      commitments_out: coms,
+   };
+
+   let priv_in = PrivateInputsRailgun {
+      token_address: prepared.preimage.token.tokenAddress.to_string(),
+      public_key: vec![
+         keys.spending_public.0.to_string(),
+         keys.spending_public.1.to_string(),
+      ],
+      // No input notes for a shield
+      random_in: vec![],
+      value_in: vec![],
+      path_elements: vec![],
+      leaves_indices: vec![],
+      nullifying_key: keys.nullifying_key.to_string(),
+      // The new shielded note
+      npk_out: vec![prepared.note.note_public_key.to_string()],
+      value_out: vec![prepared.note.value.to_string()],
+   };
+
+   Ok(ProofRequest {
+      public_inputs: public,
+      private_inputs: priv_in,
+      signature: vec!["0".into(), "0".into(), "0".into()],
+      circuit_variant: circuit_variant.unwrap_or("01x01").to_string(),
+   })
+}
 
 #[cfg(test)]
 mod tests {
@@ -659,6 +781,38 @@ mod tests {
    }
 
    #[test]
+   fn test_build_shield_proof_request_shape() {
+      let keys = RailgunKeys::new(test_mnemonic(), 0).unwrap();
+      let scanner = RailgunScanner::new(&keys, 1).unwrap();
+
+      let token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+      let value = U256::from(1_000_000u64);
+
+      let prepared = prepare_shield(
+         &keys,
+         token,
+         value,
+         Some("shield proof test".into()),
+      )
+      .unwrap();
+
+      let req = build_shield_proof_request(&scanner, &keys, &prepared, Some("01x01")).unwrap();
+
+      assert_eq!(req.circuit_variant, "01x01");
+      assert!(
+         req.public_inputs.nullifiers.is_empty(),
+         "shield must have zero nullifiers"
+      );
+      assert_eq!(req.public_inputs.commitments_out.len(), 1);
+      assert!(req.private_inputs.random_in.is_empty());
+      assert!(req.private_inputs.value_in.is_empty());
+      assert!(req.private_inputs.path_elements.is_empty());
+      assert_eq!(req.private_inputs.npk_out.len(), 1);
+      assert_eq!(req.private_inputs.value_out.len(), 1);
+      assert_eq!(req.private_inputs.public_key.len(), 2);
+   }
+
+   #[test]
    fn test_build_shield_call_data() {
       // Use a simple master public key to avoid current keys derivation issues in blinding.
       // In real use you will pass real RailgunKeys.
@@ -687,7 +841,14 @@ mod tests {
       let token = NoteTokenData::new_erc20("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 
       // Should fail gracefully (no notes)
-      let result = prepare_unshield(&scanner, &keys, alloy_primitives::Address::ZERO, token.clone(), U256::from(1000u64), true);
+      let result = prepare_unshield(
+         &scanner,
+         &keys,
+         alloy_primitives::Address::ZERO,
+         token.clone(),
+         U256::from(1000u64),
+         true,
+      );
       assert!(result.is_err());
 
       // Test that build function is callable with the new signature
@@ -771,12 +932,16 @@ mod tests {
 
       // Step 4: build calldata with the proof (and use_broadcaster=true)
       let calldata = build_unshield_transact_calldata(
-         &scanner, &prepared, proof, scanner.chain_id(), U256::from(1u64), true
-      ).unwrap();
+         &scanner,
+         &prepared,
+         proof,
+         scanner.chain_id(),
+         U256::from(1u64),
+         true,
+      )
+      .unwrap();
 
       assert!(!calldata.is_empty());
       assert!(calldata.len() > 4);
    }
-
 }
-

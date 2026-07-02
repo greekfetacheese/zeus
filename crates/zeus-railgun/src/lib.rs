@@ -45,6 +45,9 @@ pub use note::{
 
 pub use engine::RailgunEngine;
 
+// Re-export broadcaster types needed for fee quote flow
+pub use zeus_waku_broadcaster::{SelectedBroadcaster, WakuTransactResponse};
+
 /// Sidecar embedding, extraction and Node.js dependency helpers.
 /// 
 /// Most applications should just call `RailgunEngine::start_clients()`.

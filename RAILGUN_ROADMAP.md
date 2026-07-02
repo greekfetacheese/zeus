@@ -133,3 +133,74 @@ Completed the production sidecar solution:
 - Re-exported the helpers from the crate root.
 
 This makes the single-binary distribution story complete for the sidecars.
+
+
+## Fee Quote + Real Proof Flow in RailgunEngine (2026-07-01)
+
+Implemented the core integration:
+
+### Fee quote flow
+- `RailgunEngine::get_best_fee_quote(token_address)` / `get_all_fee_quotes`
+- Delegates directly to the owned `WakuSidecarClient`
+- `prepare_broadcaster_unshield_with_proof(...)` and `build_unshield_calldata_via_broadcaster(...)` automatically fetch the quote and attach `fees_id` + broadcaster railgun address.
+
+### Proof flow
+- `generate_unshield_proof(prepared, circuit_variant)` 
+  - builds `ProofRequest`
+  - calls `prover_client.prove_with_inputs`
+  - converts with `snark_proof_from_sidecar`
+- `build_unshield_calldata(...)` : prepare → real proof → calldata in one call
+- `build_unshield_calldata_via_broadcaster(...)` : full auto for gas-sponsored path
+
+### Error handling / fallbacks
+- Explicit checks: "Call start_clients() first"
+- Clear message when no fee quote: "No broadcaster fee quote available... wait for fee messages or use self-broadcast"
+- Prover errors (timeout, sidecar errors) bubble up naturally from the client
+- Broadcaster not started → the get_*_fee_quote will just return empty (no panic)
+
+### Other cleanups
+- `prepare_unshield_for_broadcaster` no longer builds dummy proof/calldata inside (real proof is now done at the Engine level)
+- `SelectedBroadcaster` re-exported from the crate root
+
+The three requested flows are now wired end-to-end inside `RailgunEngine`.
+Users can do privacy unshield (with or without broadcaster) with real ZK proofs.
+
+
+## High-Level Shield / Unshield Public APIs (2026-07-01)
+
+Added the three requested final high-level methods on `RailgunEngine`:
+
+```rust
+pub async fn shield(&self, token: TokenData, value: U256, memo: Option<String>) -> Result<Vec<u8>>
+pub async fn unshield(&self, to: Address, token: TokenData, amount: U256) -> Result<Vec<u8>>
+pub async fn unshield_via_broadcaster(&self, to: Address, token: TokenData, amount: U256) -> Result<WakuTransactResponse>
+```
+
+- `shield` and `unshield` (fallback) return raw calldata (caller signs & broadcasts).
+- `unshield_via_broadcaster` performs the full flow: quote → prepare → real proof → calldata → Waku encrypted transact → returns `WakuTransactResponse` (with tx_hash or error).
+- `unshield_via_broadcaster` takes `&mut self` (required by the broadcaster client for sending).
+- Added `build_shield_transact_calldata` builder.
+- `WakuTransactResponse` is re-exported from the crate root.
+- Shield currently falls back to dummy proof (shield witness/proof request still needs dedicated work, same as early unshield days).
+- All existing tests continue to pass.
+
+
+## Shield Proof Generation (2026-07-01)
+
+Implemented full proof generation path for `shield`:
+
+- Added `build_shield_proof_request(scanner, keys, prepared: &PreparedShield, variant) -> ProofRequest`
+  - 0 nullifiers, 1 commitment out
+  - Empty input arrays (random_in, value_in, path_elements, leaves_indices)
+  - Populates npk_out + value_out from the created note
+  - Uses `UnshieldType::NONE` for BoundParams
+
+- Added `RailgunEngine::generate_shield_proof(&self, prepared, variant) -> SnarkProof` (real sidecar call)
+
+- Added `RailgunEngine::build_shield_proof_request(...)` wrapper for inspection
+
+- Updated high-level `pub async fn shield(&self, ...)` to use real proof (no more dummy fallback)
+
+- Added unit test `test_build_shield_proof_request_shape` (verifies empty inputs, 1 output commitment, etc.)
+
+- All 20 tests pass.

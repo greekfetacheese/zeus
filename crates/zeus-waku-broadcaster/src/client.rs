@@ -656,6 +656,7 @@ impl Default for WakuSidecarClient {
    }
 }
 
+// TODO: Maybe send a SIGABRT to make sure we dont leave a zombie process?
 impl Drop for WakuSidecarClient {
    fn drop(&mut self) {
       // Best effort: try to take the child without blocking
