@@ -22,6 +22,7 @@ use redb::{Database, ReadableDatabase, TableDefinition};
 use zeus_eth::utils::{client::RpcClient, get_logs_for};
 use zeus_railgun_shared::RailgunKeys;
 
+use crate::contracts::deployment_block;
 use crate::{
    contracts::{RailgunSmartWallet, railgun_address},
    merkle::PoseidonMerkleTree,
@@ -183,7 +184,15 @@ impl RailgunScanner {
    }
 
    pub fn last_synced_block(&self) -> u64 {
-      self.read_inner(|inner| inner.last_synced_block)
+      let last_synced = self.read_inner(|inner| inner.last_synced_block);
+
+      let block = if last_synced == 0 {
+         deployment_block(self.chain_id()).unwrap_or(0)
+      } else {
+         last_synced
+      };
+
+      block
    }
 
    /// Expose a clone of the merkle tree (for advanced use / testing).
@@ -321,7 +330,16 @@ impl RailgunScanner {
       from_block: u64,
       to_block: Option<u64>,
    ) -> Result<()> {
-      let contract = self.read_inner(|inner| inner.railgun_address);
+      let (contract, chain_id) = self.read_inner(|inner| (inner.railgun_address, inner.chain_id));
+
+      let client_chain_id = client.get_chain_id().await?;
+      if client_chain_id != chain_id {
+         return Err(anyhow!(
+            "Client chain ID {} does not match scanner chain ID {}",
+            client_chain_id,
+            chain_id
+         ));
+      }
 
       let latest = if let Some(tb) = to_block {
          tb
@@ -371,8 +389,7 @@ impl RailgunScanner {
                      1 => crate::note::TokenType::ERC721,
                      _ => crate::note::TokenType::ERC1155,
                   },
-                  // @greekfetacheese: Do we need to prefix the address with 0x?
-                  token_address: format!("0x{:x}", preimage.token.tokenAddress),
+                  token_address:preimage.token.tokenAddress.to_string(),
                   token_sub_id: preimage.token.tokenSubID,
                };
 

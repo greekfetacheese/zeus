@@ -9,9 +9,6 @@ use alloy_sol_types::sol;
 // Railgun contract address (proxy)
 pub const ETHEREUM_MAINNET_RELAY: Address = address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9");
 
-// Polygon example (common)
-pub const POLYGON_MAINNET_RELAY: Address = address!("0x19cA1dF4a6A8aC8B0f9C6e3E2a2a2a2a2a2a2a2a"); // TODO: replace with real Railgun proxy on Polygon (from deployments)
-
 sol! {
     #[derive(Debug, PartialEq, Eq)]
     contract RailgunSmartWallet {
@@ -122,7 +119,14 @@ sol! {
 pub fn railgun_address(chain_id: u64) -> Option<Address> {
    match chain_id {
       1 => Some(ETHEREUM_MAINNET_RELAY),
-      137 => Some(POLYGON_MAINNET_RELAY), // update with real address
+      _ => None,
+   }
+}
+
+/// The deployment block of the implementation contract
+pub fn deployment_block(chain_id: u64) -> Option<u64> {
+   match chain_id {
+      1 => Some(15964145),
       _ => None,
    }
 }
@@ -158,12 +162,6 @@ pub enum RailgunEvent {
 
 // Re-exports for convenience
 pub use RailgunSmartWallet::{
-   BoundParams,
-   CommitmentCiphertext,
-   CommitmentPreimage,
-   ShieldCiphertext,
-   SnarkProof,
-   TokenData,
-   Transaction,
-   UnshieldType,
+   BoundParams, CommitmentCiphertext, CommitmentPreimage, ShieldCiphertext, SnarkProof, TokenData,
+   Transaction, UnshieldType,
 };

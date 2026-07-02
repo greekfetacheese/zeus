@@ -34,6 +34,8 @@ pub struct RailgunEngine {
    prover_client: RailgunProverClient,
 
    clients_started: bool,
+
+   syncing: bool,
 }
 
 impl RailgunEngine {
@@ -49,6 +51,7 @@ impl RailgunEngine {
          waku_client,
          prover_client,
          clients_started: false,
+         syncing: false,
       })
    }
 
@@ -71,6 +74,7 @@ impl RailgunEngine {
          waku_client,
          prover_client,
          clients_started: false,
+         syncing: false,
       })
    }
 
@@ -87,6 +91,10 @@ impl RailgunEngine {
       format!("railgun:{}", chain)
    }
 
+   pub fn is_syncing(&self) -> bool {
+      self.syncing
+   }
+
    /// Starts the waku and prover clients.
    ///
    /// This function:
@@ -98,6 +106,7 @@ impl RailgunEngine {
    /// error message is returned pointing to https://nodejs.org.
    pub async fn start_clients(&mut self) -> Result<(), anyhow::Error> {
       if self.clients_started {
+         info!("Railgun engine already started");
          return Ok(());
       }
 
@@ -127,8 +136,16 @@ impl RailgunEngine {
 
    /// Start syncing the scanner and merkle tree
    pub async fn sync(&mut self, client: RpcClient) -> Result<(), anyhow::Error> {
+      if self.syncing {
+        info!("Railgun engine already syncing");
+         return Ok(());
+      }
+
+      self.syncing = true;
       let last_synced_block = self.scanner.last_synced_block();
       self.scanner.sync_from_block(client, last_synced_block, None).await?;
+
+      self.syncing = false;
 
       Ok(())
    }
