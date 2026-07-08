@@ -4,9 +4,11 @@ members = [
     "crates/zeus-theme",
     "crates/zeus-eth",
     "crates/zeus-widgets",
+    "crates/zeus-railgun",
     "crates/zeus-bip32",
     "crates/zeus-wallet",
     "crates/zeus-ui-components",
+    "crates/zeus-poseidon",
 ]
 
 [package]
