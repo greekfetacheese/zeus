@@ -1,15 +1,18 @@
 pub mod abi;
 pub mod account;
+pub mod adapter_data;
 pub mod caip;
+pub mod chain_config;
 pub mod circuit;
 pub mod crypto;
 pub mod database;
+pub mod indexer;
 pub mod merkle_tree;
 pub mod note;
 pub mod poi;
+pub mod provider;
 pub mod transact;
 pub mod types;
-pub mod indexer;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait MaybeSend: Send + Sync {}

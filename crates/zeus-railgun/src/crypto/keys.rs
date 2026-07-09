@@ -372,6 +372,10 @@ impl MasterPublicKey {
       MasterPublicKey::from_u256(hash)
    }
 
+   pub fn from_bytes(bytes: [u8; 32]) -> Self {
+      Self(bytes)
+   }
+
    pub fn as_bytes(&self) -> &[u8; 32] {
       &self.0
    }

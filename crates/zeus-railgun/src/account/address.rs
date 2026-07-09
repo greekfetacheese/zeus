@@ -16,13 +16,25 @@ const ALL_CHAINS_NETWORK_ID: &str = "ffffffffffffffff";
 const RAILGUN_XOR: [u8; 8] = [b'r', b'a', b'i', b'l', b'g', b'u', b'n', 0];
 const ADDRESS_VERSION: u8 = 1;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RailgunAddress {
    pub address: String,
    pub master_public_key: MasterPublicKey,
    pub viewing_public_key: ViewingPublicKey,
    pub chain: Option<Chain>,
    pub version: u8,
+}
+
+impl std::hash::Hash for RailgunAddress {
+   fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+      self.address.hash(state);
+   }
+}
+
+impl std::fmt::Display for RailgunAddress {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "{}", self.address)
+   }
 }
 
 impl std::fmt::Debug for RailgunAddress {
@@ -58,6 +70,28 @@ impl RailgunAddress {
          address,
          master_public_key: master_pubkey,
          viewing_public_key: viewing_key.public_key(),
+         chain,
+         version: ADDRESS_VERSION,
+      }
+   }
+
+   pub fn from_public_keys(
+      master_pubkey: MasterPublicKey,
+      viewing_pubkey: ViewingPublicKey,
+      chain: Option<Chain>,
+   ) -> Self {
+      let address = encode_address(
+         ADDRESS_VERSION,
+         master_pubkey,
+         viewing_pubkey,
+         chain,
+      )
+      .unwrap();
+
+      RailgunAddress {
+         address,
+         master_public_key: master_pubkey,
+         viewing_public_key: viewing_pubkey,
          chain,
          version: ADDRESS_VERSION,
       }

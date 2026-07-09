@@ -9,6 +9,7 @@ members = [
     "crates/zeus-wallet",
     "crates/zeus-ui-components",
     "crates/zeus-poseidon",
+    "crates/zeus-userop-kit",
 ]
 
 [package]

@@ -36,7 +36,7 @@ impl TxidVersion {
    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Chain {
    pub type_: u8,
    pub id: u64,
