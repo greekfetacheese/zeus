@@ -57,7 +57,7 @@ pub struct LegacyCommitment {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct Operation {
+pub struct Operation {
    pub block_number: u64,
    pub nullifiers: Vec<U256>,
    pub commitment_hashes: Vec<U256>,
@@ -72,7 +72,7 @@ pub(crate) struct Operation {
 pub struct SyncerError(#[source] Box<dyn std::error::Error + Send + Sync>);
 
 impl SyncerError {
-   pub(crate) fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
+   pub fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
       SyncerError(Box::new(e))
    }
 }
