@@ -1,35 +1,38 @@
-use alloy_primitives::U256;
 use anyhow::anyhow;
-use ark_ed_on_bn254::Fr as BabyJubScalar;
-use ark_ff::{BigInteger, PrimeField};
 use bech32::{FromBase32, ToBase32, Variant};
-use blake_hash::{Blake512, Digest as BlakeDigest};
-use curve25519_dalek::{EdwardsPoint, Scalar, constants::ED25519_BASEPOINT_TABLE};
-use num_bigint::BigUint;
-use secure_types::{SecureArray, Zeroize};
-use sha2::Digest;
+use secure_types::SecureArray;
 
-use super::derive_private_key;
-use crate::crypto::*;
-use crate::types::{Chain, Key64};
+use crate::types::Chain;
+use crate::{
+   account::{
+      compute_public_spending_key,
+      keys::{spending_key_path, viewing_key_path},
+   },
+   crypto::keys::{MasterPublicKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
+};
 
 const PREFIX: &str = "0zk";
 const ALL_CHAINS_NETWORK_ID: &str = "ffffffffffffffff";
 const RAILGUN_XOR: [u8; 8] = [b'r', b'a', b'i', b'l', b'g', b'u', b'n', 0];
 const ADDRESS_VERSION: u8 = 1;
 
-type SpendX = U256;
-type SpendY = U256;
-type NullifyingKey = U256;
-type ViewPublicKey = [u8; 32];
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct RailgunAddress {
    pub address: String,
-   pub master_public_key: U256,
-   pub viewing_public_key: [u8; 32],
+   pub master_public_key: MasterPublicKey,
+   pub viewing_public_key: ViewingPublicKey,
    pub chain: Option<Chain>,
    pub version: u8,
+}
+
+impl std::fmt::Debug for RailgunAddress {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(
+         f,
+         "RailgunAddress {{ address: {:?}, master_public_key: {:?}, viewing_public_key: {:?}, chain: {:?}, version: {:?} }}",
+         self.address, self.master_public_key, self.viewing_public_key, self.chain, self.version
+      )
+   }
 }
 
 impl RailgunAddress {
@@ -38,13 +41,21 @@ impl RailgunAddress {
       index: u32,
       _chain: Option<Chain>,
    ) -> Result<Self, anyhow::Error> {
-      let (spend_x, spend_y) = compute_public_spending_key(&seed, index).expect("Spending key");
-      let (viewing_public_key, nullifying_key) =
-         compute_public_viewing_key(&seed, index).expect("Viewing key");
+      let spending_path = spending_key_path(index);
+      let viewing_path = viewing_key_path(index);
 
-      // Compute master public key
-      let master_public_key = poseidon_hash(&vec![spend_x, spend_y, nullifying_key])
-         .map_err(|e| anyhow!("Poseidon hash {}", e))?;
+      let (spend_x, spend_y) =
+         compute_public_spending_key(&seed, &spending_path).expect("Spending key");
+
+      let viewing_priv = seed.unlock(|seed_bytes| ViewingKey::derive(seed_bytes, &viewing_path))?;
+      let nullifying_key = viewing_priv.nullifying_key();
+      let viewing_public_key = viewing_priv.public_key();
+
+      let x = spend_x.to_be_bytes();
+      let y = spend_y.to_be_bytes();
+      let spending_public_key = SpendingPublicKey::new(x, y);
+
+      let master_public_key = MasterPublicKey::new(spending_public_key, nullifying_key);
 
       let mut data = RailgunAddress {
          master_public_key,
@@ -92,13 +103,14 @@ impl RailgunAddress {
       let _network_bytes: [u8; 8] = bytes[33..41].try_into().map_err(|_| anyhow!("bad network"))?;
       let viewing_bytes: [u8; 32] = bytes[41..73].try_into().map_err(|_| anyhow!("bad viewing"))?;
 
-      let master_public_key = U256::from_be_bytes(master_bytes);
+      let master_public_key = MasterPublicKey(master_bytes);
+      let viewing_public_key = ViewingPublicKey(viewing_bytes);
 
       Ok(Self {
          address: address.to_string(),
          version,
          master_public_key,
-         viewing_public_key: viewing_bytes,
+         viewing_public_key,
          chain: None,
       })
    }
@@ -106,14 +118,14 @@ impl RailgunAddress {
 
 pub fn encode_address(
    version: u8,
-   master_public_key: U256,
-   viewing_public_key: [u8; 32],
+   master_public_key: MasterPublicKey,
+   viewing_public_key: ViewingPublicKey,
    chain: Option<Chain>,
 ) -> Result<String, anyhow::Error> {
    let version_hex = format!("{:02x}", version);
-   let master_hex = hex::encode(master_public_key.to_be_bytes::<32>());
+   let master_hex = master_public_key.to_hex();
    let network_hex = xor_network_id(&chain_to_network_id(chain))?;
-   let viewing_hex = hex::encode(viewing_public_key);
+   let viewing_hex = viewing_public_key.to_hex();
 
    let address_string = format!(
       "{}{}{}{}",
@@ -133,96 +145,6 @@ pub fn encode_address(
    let address = bech32::encode(PREFIX, base32_data, Variant::Bech32m)?;
 
    Ok(address)
-}
-
-pub fn compute_public_viewing_key(
-   seed: &Key64,
-   index: u32,
-) -> Result<(ViewPublicKey, NullifyingKey), anyhow::Error> {
-   let viewing_path = format!("m/420'/1984'/0'/0'/{}'", index);
-   let viewing_priv_res = seed.unlock(|seed_bytes| derive_private_key(seed_bytes, &viewing_path));
-
-   let viewing_priv = viewing_priv_res.map_err(|e| anyhow!("Derive viewing key {}", e))?;
-   let mut view_priv_bytes = viewing_priv.unlock(|bytes| {
-      let mut slice = [0u8; 32];
-      slice.copy_from_slice(bytes);
-      slice
-   });
-
-   // Compute scalar per Ed25519 spec (SHA-512 hash, clamp lower 32 bytes)
-   let h_view = sha2::Sha512::digest(&view_priv_bytes);
-   let mut scalar_bytes: [u8; 32] = [0; 32];
-   scalar_bytes.copy_from_slice(&h_view[0..32]);
-   scalar_bytes[0] &= 248;
-   scalar_bytes[31] &= 127;
-   scalar_bytes[31] |= 64;
-
-   let scalar = Scalar::from_bytes_mod_order(scalar_bytes);
-   let point: EdwardsPoint = ED25519_BASEPOINT_TABLE * &scalar;
-
-   let viewing_public_key = point.compress().to_bytes();
-   let view_priv_u256 = U256::from_be_bytes(view_priv_bytes);
-   view_priv_bytes.zeroize();
-
-   let nullifying_key = poseidon_hash(&vec![view_priv_u256])?;
-
-   Ok((viewing_public_key, nullifying_key))
-}
-
-pub fn compute_public_spending_key(
-   seed: &Key64,
-   index: u32,
-) -> Result<(SpendX, SpendY), anyhow::Error> {
-   let spending_path = format!("m/44'/1984'/0'/0'/{}'", index);
-
-   let spending_priv_res = seed.unlock(|seed_bytes| derive_private_key(seed_bytes, &spending_path));
-   let spending_priv = spending_priv_res.map_err(|e| anyhow!("Derive spending key {}", e))?;
-
-   let mut scalar_bytes = spending_priv.unlock(|priv_bytes| {
-      let hash = Blake512::digest(priv_bytes);
-      let mut sb = [0u8; 32];
-      sb.copy_from_slice(&hash[..32]);
-      // prune / clamp
-      sb[0] &= 248;
-      sb[31] &= 127;
-      sb[31] |= 64;
-      sb
-   });
-
-   // LE bigint
-   let scalar_big = BigUint::from_bytes_le(&scalar_bytes);
-   scalar_bytes.zeroize();
-   let scalar_shifted: BigUint = scalar_big >> 3;
-
-   // Convert back to Fr
-   let scalar_bytes_shifted = scalar_shifted.to_bytes_le();
-   let mut padded = [0u8; 32];
-   padded[0..scalar_bytes_shifted.len()].copy_from_slice(&scalar_bytes_shifted);
-   let scalar = BabyJubScalar::from_le_bytes_mod_order(&padded);
-
-   padded.zeroize();
-
-   let point = mul_point_escalar(*BASE8, scalar.into_bigint().into());
-   let affine = point;
-
-   let mut x_bytes = affine.x.into_bigint().to_bytes_le();
-   let mut y_bytes = affine.y.into_bigint().to_bytes_le();
-
-   let mut spend_x_bytes = [0u8; 32];
-   let mut spend_y_bytes = [0u8; 32];
-
-   spend_x_bytes[0..x_bytes.len()].copy_from_slice(&x_bytes);
-   spend_y_bytes[0..y_bytes.len()].copy_from_slice(&y_bytes);
-
-   let spend_x = U256::from_le_bytes(spend_x_bytes);
-   let spend_y = U256::from_le_bytes(spend_y_bytes);
-
-   x_bytes.zeroize();
-   y_bytes.zeroize();
-   spend_x_bytes.zeroize();
-   spend_y_bytes.zeroize();
-
-   Ok((spend_x, spend_y))
 }
 
 fn chain_to_network_id(chain: Option<Chain>) -> String {
@@ -323,7 +245,7 @@ mod test {
       let address = encode_address(
          1,
          keys.master_public_key,
-         keys.viewing_public,
+         keys.viewing_public_key,
          None,
       )
       .unwrap();

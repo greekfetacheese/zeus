@@ -41,16 +41,16 @@ pub(crate) struct SharedKey([u8; 32]);
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub(crate) struct BlindedKey([u8; 32]);
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct ViewingPublicKey([u8; 32]);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct ViewingPublicKey(pub [u8; 32]);
 
 /// Key for nullifier derivation.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub(crate) struct NullifyingKey([u8; 32]);
+pub struct NullifyingKey([u8; 32]);
 
 /// Master public key (wallet identifier).
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct MasterPublicKey([u8; 32]);
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Clone)]
@@ -273,8 +273,12 @@ impl NullifyingKey {
 }
 
 impl ViewingPublicKey {
-   fn to_hex(&self) -> String {
+   pub fn to_hex(&self) -> String {
       hex::encode(self.0)
+   }
+
+   pub fn as_bytes(&self) -> &[u8; 32] {
+      &self.0
    }
 
    fn from_hex(hex: &str) -> Result<Self, KeyError> {
