@@ -104,3 +104,6 @@ debug = []
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
+
+[patch.crates-io]
+ruint = { git = "https://github.com/Robert-MacWha/ruint" } # Adds ark-ff-06 support for ark 0.6

@@ -1,4 +1,6 @@
 use anyhow::anyhow;
+use rand::Rng;
+use rand::distr::{Distribution, StandardUniform};
 use sha2::{Digest, Sha256, Sha512};
 use std::hash::Hash;
 
@@ -35,17 +37,17 @@ pub enum KeyError {
 
 /// Symmetric key for AES encryption.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub(crate) struct SharedKey([u8; 32]);
+pub struct SharedKey([u8; 32]);
 
 /// Blinded public key for stealth addresses.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub(crate) struct BlindedKey([u8; 32]);
+pub struct BlindedKey([u8; 32]);
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ViewingPublicKey(pub [u8; 32]);
 
 /// Key for nullifier derivation.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NullifyingKey([u8; 32]);
 
 /// Master public key (wallet identifier).
@@ -85,6 +87,11 @@ impl Hash for SpendingKey {
 impl SpendingKey {
    pub fn new(key: SecureArray<u8, 32>) -> Self {
       Self(key)
+   }
+
+   pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
+      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      Self(sec_array)
    }
 
    pub fn derive(seed: &[u8], path: &str) -> Result<Self, anyhow::Error> {
@@ -139,6 +146,12 @@ impl SpendingKey {
 #[derive(Clone)]
 pub struct ViewingKey(pub SecureArray<u8, 32>);
 
+impl std::fmt::Debug for ViewingKey {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "ViewingKey **** SECRET ****")
+   }
+}
+
 impl Eq for ViewingKey {}
 
 impl PartialEq for ViewingKey {
@@ -174,6 +187,11 @@ impl ViewingKey {
       let key = derive_private_key(seed, path)?;
 
       Ok(Self(key))
+   }
+
+   pub fn from_bytes(mut bytes: [u8; 32]) -> Self {
+      let sec_array = SecureArray::from_slice_mut(&mut bytes).unwrap();
+      Self(sec_array)
    }
 
    pub fn public_key(&self) -> ViewingPublicKey {
@@ -258,13 +276,27 @@ impl NullifyingKey {
       NullifyingKey::from_u256(hash)
    }
 
-   fn to_u256(&self) -> U256 {
+   pub fn to_u256(&self) -> U256 {
       U256::from_be_bytes(self.0)
    }
 
-   fn from_u256(value: U256) -> Self {
+   pub fn from_u256(value: U256) -> Self {
       let bytes = value.to_be_bytes::<32>();
       Self(bytes)
+   }
+
+   pub fn to_hex(&self) -> String {
+      hex::encode(self.0)
+   }
+}
+
+impl BlindedKey {
+   pub fn from_bytes(bytes: [u8; 32]) -> Self {
+      Self(bytes)
+   }
+
+   pub fn to_u256(&self) -> U256 {
+      U256::from_be_bytes(self.0)
    }
 
    pub fn to_hex(&self) -> String {
@@ -277,11 +309,19 @@ impl ViewingPublicKey {
       hex::encode(self.0)
    }
 
+   pub fn from_bytes(bytes: [u8; 32]) -> Self {
+      Self(bytes)
+   }
+
    pub fn as_bytes(&self) -> &[u8; 32] {
       &self.0
    }
 
-   fn from_hex(hex: &str) -> Result<Self, KeyError> {
+   pub fn to_u256(&self) -> U256 {
+      U256::from_be_bytes(self.0)
+   }
+
+   pub fn from_hex(hex: &str) -> Result<Self, KeyError> {
       let hex = hex.strip_prefix("0x").unwrap_or(hex);
 
       if hex.len() != 64 {
@@ -332,6 +372,14 @@ impl MasterPublicKey {
       MasterPublicKey::from_u256(hash)
    }
 
+   pub fn as_bytes(&self) -> &[u8; 32] {
+      &self.0
+   }
+
+   pub fn to_u256(&self) -> U256 {
+      U256::from_be_bytes(self.0)
+   }
+
    fn from_u256(value: U256) -> Self {
       let bytes = value.to_be_bytes::<32>();
       Self(bytes)
@@ -346,6 +394,16 @@ impl MasterPublicKey {
 pub struct SpendingPublicKey {
    x: [u8; 32],
    y: [u8; 32],
+}
+
+impl std::fmt::Debug for SpendingPublicKey {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(
+         f,
+         "SpendingPublicKey {{ x: {:?}, y: {:?} }}",
+         self.x, self.y
+      )
+   }
 }
 
 impl SpendingPublicKey {
@@ -367,6 +425,24 @@ impl SpendingPublicKey {
 
    pub fn y_u256(&self) -> U256 {
       U256::from_be_bytes(self.y)
+   }
+}
+
+impl Distribution<ViewingKey> for StandardUniform {
+   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> ViewingKey {
+      let mut bytes: [u8; 32] = rng.random();
+      bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
+      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      ViewingKey(array)
+   }
+}
+
+impl Distribution<SpendingKey> for StandardUniform {
+   fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> SpendingKey {
+      let mut bytes: [u8; 32] = rng.random();
+      bytes[0] &= 0x1F; // Mask for BN254 range (matching kohaku)
+      let array = SecureArray::from_slice(&bytes).expect("32 byte array is valid");
+      SpendingKey(array)
    }
 }
 

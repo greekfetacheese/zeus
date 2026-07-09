@@ -7,10 +7,17 @@ use alloy_primitives::U256;
 use secure_types::SecureArray;
 
 /// A railgun signer which can sign transactions and provide the associated 0xzk address.
+#[derive(Clone)]
 pub struct RailgunSigner {
    keys: RailgunKeys,
    address: RailgunAddress,
    chain: Chain,
+}
+
+impl std::fmt::Debug for RailgunSigner {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      write!(f, "RailgunSigner {{ address: {:?}, chain: {:?} }}", self.address, self.chain)
+   }
 }
 
 impl RailgunSigner {

@@ -8,7 +8,7 @@ use crate::{
       compute_public_spending_key,
       keys::{spending_key_path, viewing_key_path},
    },
-   crypto::keys::{MasterPublicKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
+   crypto::keys::{MasterPublicKey, SpendingKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
 };
 
 const PREFIX: &str = "0zk";
@@ -36,6 +36,33 @@ impl std::fmt::Debug for RailgunAddress {
 }
 
 impl RailgunAddress {
+   pub fn from_private_keys(
+      spending_key: SpendingKey,
+      viewing_key: ViewingKey,
+      chain: Option<Chain>,
+   ) -> Self {
+      let master_pubkey = MasterPublicKey::new(
+         spending_key.public_key(),
+         viewing_key.nullifying_key(),
+      );
+
+      let address = encode_address(
+         ADDRESS_VERSION,
+         master_pubkey,
+         viewing_key.public_key(),
+         chain,
+      )
+      .unwrap();
+
+      RailgunAddress {
+         address,
+         master_public_key: master_pubkey,
+         viewing_public_key: viewing_key.public_key(),
+         chain,
+         version: ADDRESS_VERSION,
+      }
+   }
+
    pub fn new(
       seed: &SecureArray<u8, 64>,
       index: u32,
@@ -113,6 +140,14 @@ impl RailgunAddress {
          viewing_public_key,
          chain: None,
       })
+   }
+
+   pub fn viewing_pubkey(&self) -> ViewingPublicKey {
+      self.viewing_public_key
+   }
+
+   pub fn master_pubkey(&self) -> MasterPublicKey {
+      self.master_public_key
    }
 }
 
