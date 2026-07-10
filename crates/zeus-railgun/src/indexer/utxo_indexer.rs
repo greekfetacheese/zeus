@@ -87,6 +87,7 @@ impl UtxoIndexer {
       for account in self.accounts.iter() {
          min_synced = min_synced.min(account.synced_block());
       }
+      // TODO: if block is zero set it to the deployment block
       min_synced
    }
 
