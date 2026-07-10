@@ -29,12 +29,16 @@ mod tests {
 
       let chain_config = ChainConfig::mainnet();
       let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-      let utxo_syncer = Syncer::new(client.clone(), chain_config.railgun_smart_wallet);
+      let rpc_syncer = Syncer::new(client.clone(), chain_config.railgun_smart_wallet);
+      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(SubsquidSyncer::new(
+         &chain_config.subsquid_endpoint,
+      )));
 
       let database = RedbDatabase::new(db_file)?;
       let utxo_indexer = UtxoIndexer::new(
          Arc::new(database),
-         Arc::new(utxo_syncer),
+         Arc::new(rpc_syncer),
+         subsquid_syncer,
          Arc::new(utxo_verifier),
       )
       .await?;
@@ -73,10 +77,10 @@ mod tests {
       // Do a lite sync
       // Pass None for from_block so we resume from the last persisted synced_block + account states in the DB.
       let latest_block = client.get_block_number().await?;
-      let to_block = chain_config.deployment_block + 1_000_000;
+      let to_block = chain_config.deployment_block + 2_000_000;
       println!("To Block {}", to_block);
 
-      railgun_provider.sync_to(None, to_block).await?;
+      railgun_provider.sync_to(None, to_block, true).await?; // using SubsquidSyncer
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);

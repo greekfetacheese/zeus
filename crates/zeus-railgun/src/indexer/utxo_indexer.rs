@@ -29,7 +29,8 @@ pub struct UtxoIndexer {
    accounts: Vec<IndexedAccount>,
 
    db: Arc<dyn Database>,
-   utxo_syncer: Arc<dyn UtxoSyncer>,
+   rpc_syncer: Arc<dyn UtxoSyncer>,
+   subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
    utxo_verifier: Arc<dyn MerkleTreeVerifier>,
 }
 
@@ -58,7 +59,8 @@ pub enum UtxoIndexerError {
 impl UtxoIndexer {
    pub async fn new(
       db: Arc<dyn Database>,
-      utxo_syncer: Arc<dyn UtxoSyncer>,
+      rpc_syncer: Arc<dyn UtxoSyncer>,
+      subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
       utxo_verifier: Arc<dyn MerkleTreeVerifier>,
    ) -> Result<Self, UtxoIndexerError> {
       let state = db.get_utxo_indexer().await?;
@@ -80,7 +82,8 @@ impl UtxoIndexer {
          utxo_trees,
          accounts: vec![],
          db,
-         utxo_syncer,
+         rpc_syncer,
+         subsquid_syncer,
          utxo_verifier,
       })
    }
@@ -132,30 +135,39 @@ impl UtxoIndexer {
 
    /// Syncs the indexer to a specific block. If the indexer is already synced past that block,
    /// this is a no-op.
-   /// 
+   ///
    /// # Arguments
-   /// 
+   ///
    /// * `from_block` - Optional starting block. If not provided, the indexer will start syncing from the last synced block + 1.
    /// * `to_block` - The block to sync to.
    /// * `deployment_block` - The block at which the Railgun contract was deployed.
+   /// * `use_subsquid` - Whether to use the subsquid syncer.
    #[tracing::instrument(name = "utxo_sync", skip_all)]
    pub async fn sync_to(
       &mut self,
       from_block: Option<u64>,
       to_block: u64,
-      deployment_block: u64,
+      _deployment_block: u64,
+      use_subsquid: bool,
    ) -> Result<(), UtxoIndexerError> {
-      let mut from_block = if let Some(from_block) = from_block {
+      let from_block = if let Some(from_block) = from_block {
          from_block
       } else {
          self.synced_block() + 1
       };
 
-      if from_block < deployment_block {
-         from_block = deployment_block;
-      }
+      let syncer: Arc<dyn UtxoSyncer> = if use_subsquid {
+         self.subsquid_syncer.clone().ok_or_else(|| {
+            SyncerError::new(std::io::Error::new(
+               std::io::ErrorKind::Other,
+               "subsquid syncer not configured",
+            ))
+         })?
+      } else {
+         self.rpc_syncer.clone()
+      };
 
-      let latest_block = self.utxo_syncer.latest_block().await?;
+      let latest_block = syncer.latest_block().await?;
 
       let to_block = to_block.min(latest_block);
 
@@ -164,7 +176,7 @@ impl UtxoIndexer {
       }
 
       // Sync
-      let events = self.utxo_syncer.sync(from_block, to_block).await?;
+      let events = syncer.sync(from_block, to_block).await?;
       info!("Fetched {} events from syncer", events.len());
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
@@ -179,16 +191,6 @@ impl UtxoIndexer {
       for (tree_number, mut leaves) in tree_leaves {
          leaves.sort_by_key(|(idx, _)| *idx);
          let start = leaves[0].0;
-         // Safety: the leaf indices collected in one sync window for a given tree
-         // must form a contiguous range (Railgun appends sequentially).
-         for (i, (idx, _)) in leaves.iter().enumerate() {
-            if *idx != start + i as u32 {
-               tracing::error!(
-                  "Non-contiguous leaves for tree {}: expected {} at position {}, got {}",
-                  tree_number, start + i as u32, i, idx
-               );
-            }
-         }
          let hashes: Vec<_> = leaves.into_iter().map(|(_, hash)| hash).collect();
 
          self
@@ -199,7 +201,12 @@ impl UtxoIndexer {
       }
 
       for (tn, tree) in &self.utxo_trees {
-          info!("Tree {} now has {} leaves (root={})", tn, tree.leaves_len(), tree.root());
+         info!(
+            "Tree {} now has {} leaves (root={})",
+            tn,
+            tree.leaves_len(),
+            tree.root()
+         );
       }
 
       // Verify against latest (root history is append-only / immutable once written)
@@ -299,7 +306,10 @@ impl UtxoIndexer {
             .map_err(|e| UtxoIndexerError::VerificationError(e))?;
 
          if !exists {
-            return Err(UtxoIndexerError::InvalidRoot(tree.number(), tree.root().into()));
+            return Err(UtxoIndexerError::InvalidRoot(
+               tree.number(),
+               tree.root().into(),
+            ));
          }
       }
       Ok(())

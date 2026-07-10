@@ -137,14 +137,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Syncs the provider to the latest block.
    pub async fn sync(&mut self) -> Result<(), RailgunProviderError> {
-      self.sync_to(None, u64::MAX).await
+      self.sync_to(None, u64::MAX, false).await
    }
 
    /// Syncs the provider to the specified block.
-   pub async fn sync_to(&mut self, from_block: Option<u64>, to_block: u64) -> Result<(), RailgunProviderError> {
+   pub async fn sync_to(&mut self, from_block: Option<u64>, to_block: u64, use_subsquid: bool) -> Result<(), RailgunProviderError> {
       let deployment_block = self.chain.deployment_block;
 
-      self.utxo_indexer.sync_to(from_block, to_block, deployment_block).await?;
+      self.utxo_indexer.sync_to(from_block, to_block, deployment_block, use_subsquid).await?;
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;

@@ -1,4 +1,6 @@
 pub mod normalize_tree_position;
+pub mod subsquid;
+pub mod subsquid_types;
 pub mod types;
 
 pub use types::*;
