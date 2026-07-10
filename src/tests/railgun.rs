@@ -58,6 +58,7 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = 1;
+      let chain_config = ChainConfig::mainnet();
 
       let client = ctx.get_client(chain).await?;
       let wallet = create_wallet();
@@ -70,9 +71,12 @@ mod tests {
       railgun_provider.register(signer).await?;
 
       // Do a lite sync
+      // Pass None for from_block so we resume from the last persisted synced_block + account states in the DB.
       let latest_block = client.get_block_number().await?;
-      let to_block = latest_block - 20_000;
-      railgun_provider.sync_to(Some(latest_block), to_block).await?;
+      let to_block = chain_config.deployment_block + 1_000_000;
+      println!("To Block {}", to_block);
+
+      railgun_provider.sync_to(None, to_block).await?;
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);

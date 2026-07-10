@@ -96,11 +96,19 @@ impl UtxoIndexer {
 
    /// Registers a signer with the indexer. The indexer will track UTXOs for the associated
    /// address.
+   ///
+   /// The account state (including any previously decrypted notes and its synced_block)
+   /// is loaded from the database. We immediately persist the (possibly loaded) account
+   /// state so that progress for this account survives process restarts.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
-      let addr = signer.address();
-      let state = self.db.get_account(&addr).await?;
+      // Borrow only for the lookup; the address value is owned after this statement.
+      let state = self.db.get_account(&signer.address()).await?;
 
       let account = IndexedAccount::from_state(signer, state);
+      let addr = account.address();
+
+      // Persist right away. This records the account's notes + its per-account synced_block on disk.
+      self.db.set_account(&addr, &account.state()).await?;
       self.accounts.push(account);
       Ok(())
    }
@@ -171,6 +179,16 @@ impl UtxoIndexer {
       for (tree_number, mut leaves) in tree_leaves {
          leaves.sort_by_key(|(idx, _)| *idx);
          let start = leaves[0].0;
+         // Safety: the leaf indices collected in one sync window for a given tree
+         // must form a contiguous range (Railgun appends sequentially).
+         for (i, (idx, _)) in leaves.iter().enumerate() {
+            if *idx != start + i as u32 {
+               tracing::error!(
+                  "Non-contiguous leaves for tree {}: expected {} at position {}, got {}",
+                  tree_number, start + i as u32, i, idx
+               );
+            }
+         }
          let hashes: Vec<_> = leaves.into_iter().map(|(_, hash)| hash).collect();
 
          self
@@ -180,10 +198,13 @@ impl UtxoIndexer {
             .insert_leaves(&hashes, start as usize);
       }
 
-      // Verify
+      for (tn, tree) in &self.utxo_trees {
+          info!("Tree {} now has {} leaves (root={})", tn, tree.leaves_len(), tree.root());
+      }
+
+      // Verify against latest (root history is append-only / immutable once written)
       info!("Verifying UTXO trees");
-      let block_id = BlockId::number(to_block);
-      self.verify(Some(block_id)).await?;
+      self.verify(None).await?;
 
       info!("Synced to block {}", to_block);
       self.synced_block = to_block;

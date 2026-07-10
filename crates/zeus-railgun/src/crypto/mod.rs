@@ -106,11 +106,7 @@ pub fn poseidon_hash(inputs: &[U256]) -> Result<U256, poseidon_rust::error::Erro
       .map(|i| Fr::from_be_bytes_mod_order(&i.to_be_bytes::<32>()))
       .collect();
    let hash = poseidon_rust::poseidon_hash(&inputs)?;
-   let hash_bytes = hash.into_bigint().to_bytes_be();
-   let mut arr = [0u8; 32];
-   let start = 32usize.saturating_sub(hash_bytes.len());
-   arr[start..].copy_from_slice(&hash_bytes);
-   Ok(U256::from_be_bytes(arr))
+   Ok(hash.into_bigint().into())
 }
 
 pub fn add_point(a: BabyJubPoint, b: BabyJubPoint) -> BabyJubPoint {

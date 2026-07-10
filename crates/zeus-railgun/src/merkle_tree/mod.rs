@@ -12,7 +12,7 @@ pub use tree::{MerkleTree, MerkleTreeError, RailgunMerkleTree, RailgunMerkleTree
 pub use txid_tree::{TxidLeafHash, TxidMerkleTree, UtxoTreeIndex};
 pub use utxo_tree::{UtxoLeafHash, UtxoMerkleTree};
 
-use alloy_primitives::{U256, Address};
+use alloy_primitives::Address;
 use alloy_provider::{Provider, network::Ethereum};
 use alloy_rpc_types::{BlockId, TransactionRequest};
 
@@ -57,19 +57,27 @@ impl<P: Provider<Ethereum> + Clone + 'static> MerkleTreeVerifier for RootVerifie
       block_id: Option<BlockId>,
    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>> {
       let block_id = block_id.unwrap_or(BlockId::latest());
-      let root: U256 = root.into();
-      let tree_number = U256::from(tree_number);
+
+      let tree_number = alloy_primitives::U256::from(tree_number);
+
+      // Explicit conversion to avoid any endian/bytes32 mismatch.
+      // Merkle roots are poseidon outputs stored as 32-byte values.
+      let root_u: alloy_primitives::U256 = root.into();
+      let root_fb = alloy_primitives::FixedBytes::<32>::from(root_u.to_be_bytes());
 
       let call = RailgunSmartWallet::rootHistoryCall {
          treeNumber: tree_number,
-         root: root.into(),
-      }
-      .abi_encode();
+         root: root_fb,
+      };
 
-      let tx = TransactionRequest::default().to(self.railgun_address).input(call.into());
+      let tx = TransactionRequest::default()
+         .to(self.railgun_address)
+         .input(call.abi_encode().into());
+
       let data = self.provider.call(tx).block(block_id).await?;
 
-      let exists = RailgunSmartWallet::rootHistoryCall::abi_decode_returns(&data)?;
+      // Explicit bool decode is more robust across alloy versions.
+      let exists = <bool as alloy_sol_types::SolValue>::abi_decode(&data)?;
 
       Ok(exists)
    }

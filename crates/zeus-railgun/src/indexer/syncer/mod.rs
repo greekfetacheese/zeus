@@ -52,8 +52,8 @@ impl<P: Provider<Ethereum> + Clone + 'static> Syncer<P> {
          provider,
          railgun_address,
          syncing: Arc::new(Mutex::new(false)),
-         concurrency: Arc::new(Mutex::new(1)),
-         block_range: Arc::new(Mutex::new(20_000)),
+         concurrency: Arc::new(Mutex::new(2)),
+         block_range: Arc::new(Mutex::new(30_000)),
       }
    }
 
@@ -273,7 +273,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for Syncer<P> {
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = self.parse_nullified(&decoded.data, block_number)?;
+            let mut null_events = self.parse_nullified(&decoded.data, block_timestamp)?;
             events.append(&mut null_events);
             continue;
          }
