@@ -4,6 +4,7 @@ use std::{
    u64,
 };
 
+use alloy_rpc_types::BlockId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
@@ -159,7 +160,8 @@ impl UtxoIndexer {
 
       // Verify
       info!("Verifying UTXO trees");
-      self.verify().await?;
+      let block_id = BlockId::number(to_block);
+      self.verify(Some(block_id)).await?;
 
       info!("Synced to block {}", to_block);
       self.synced_block = to_block;
@@ -241,7 +243,7 @@ impl UtxoIndexer {
       // TODO: Forward legacy to accounts
    }
 
-   async fn verify(&self) -> Result<(), UtxoIndexerError> {
+   async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
       for tree in self.utxo_trees.values() {
          if tree.leaves_len() == 0 {
             continue;
@@ -249,11 +251,7 @@ impl UtxoIndexer {
 
          self
             .utxo_verifier
-            .verify_root(
-               tree.number(),
-               tree.leaves_len() as u32 - 1,
-               tree.root(),
-            )
+            .verify_root(tree.number(), 0, tree.root(), block_id)
             .await
             .map_err(|e| UtxoIndexerError::VerificationError(e))?;
       }

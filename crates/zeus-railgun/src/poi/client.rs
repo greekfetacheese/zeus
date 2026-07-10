@@ -7,6 +7,7 @@ use std::{
 };
 
 use alloy_primitives::ChainId;
+use alloy_rpc_types::BlockId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 
@@ -261,6 +262,7 @@ impl MerkleTreeVerifier for PoiClient {
       tree_number: u32,
       tree_index: u32,
       root: MerkleRoot,
+      _block_id: Option<BlockId>,
    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>> {
       Ok(self.validate_txid_merkleroot(tree_number, tree_index, root).await?)
    }

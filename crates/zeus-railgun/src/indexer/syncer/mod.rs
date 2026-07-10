@@ -33,10 +33,10 @@ pub trait UtxoSyncer: crate::MaybeSend {
    async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError>;
 }
 
-/// An implementation of a syncer that uses a Json RPC client 
-/// 
+/// An implementation of a syncer that uses a Json RPC client
+///
 /// and fetches all the `SyncEvent` from the Railgun contract on-chain.
-/// 
+///
 /// Requires an archive node.
 pub struct Syncer<P: Provider<Ethereum>> {
    provider: P,
@@ -59,6 +59,10 @@ impl<P: Provider<Ethereum> + Clone + 'static> Syncer<P> {
 
    pub async fn is_syncing(&self) -> bool {
       *self.syncing.lock().await
+   }
+
+   pub async fn set_syncing(&self, syncing: bool) {
+      *self.syncing.lock().await = syncing;
    }
 
    pub async fn concurrency(&self) -> usize {
@@ -241,6 +245,13 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for Syncer<P> {
    }
 
    async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
+      if self.is_syncing().await {
+         tracing::info!("Syncer is already syncing");
+         return Ok(vec![]);
+      }
+
+      self.set_syncing(true).await;
+
       let logs = self.get_logs(from_block, to_block).await?;
 
       let mut events = Vec::new();
@@ -267,6 +278,8 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for Syncer<P> {
             continue;
          }
       }
+
+      self.set_syncing(false).await;
 
       Ok(events)
    }
