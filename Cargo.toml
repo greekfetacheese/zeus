@@ -34,6 +34,7 @@ image = "=0.25.10"
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
 zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
+zeus-railgun = { path = "crates/zeus-railgun" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"] }
 zeus-widgets = { path = "crates/zeus-widgets", features = ["secure-types"] }
 zeus-ui-components = { path = "crates/zeus-ui-components", features = [

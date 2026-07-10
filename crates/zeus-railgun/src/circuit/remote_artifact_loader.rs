@@ -88,6 +88,13 @@ impl RemoteArtifactLoader {
       }
    }
 
+   pub fn with_cache_dir(self, dir: Option<PathBuf>) -> Self {
+      Self {
+         cache_dir: dir,
+         ..self
+      }
+   }
+
    pub async fn load_wasm(&self, circuit_name: &str) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
       info!("Loading WASM: {}", circuit_name);
       let url = format!("{}/{}/wasm.br", self.base_url, circuit_name);

@@ -4,6 +4,7 @@ use std::{
    u64,
 };
 
+use alloy_primitives::U256;
 use alloy_rpc_types::BlockId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -50,6 +51,8 @@ pub enum UtxoIndexerError {
    DatabaseError(#[from] DatabaseError),
    #[error("Timed out waiting for commitments")]
    Timeout,
+   #[error("Invalid root for tree {0} root {1}")]
+   InvalidRoot(u32, U256),
 }
 
 impl UtxoIndexer {
@@ -88,7 +91,6 @@ impl UtxoIndexer {
       for account in self.accounts.iter() {
          min_synced = min_synced.min(account.synced_block());
       }
-      // TODO: if block is zero set it to the deployment block
       min_synced
    }
 
@@ -122,11 +124,31 @@ impl UtxoIndexer {
 
    /// Syncs the indexer to a specific block. If the indexer is already synced past that block,
    /// this is a no-op.
+   /// 
+   /// # Arguments
+   /// 
+   /// * `from_block` - Optional starting block. If not provided, the indexer will start syncing from the last synced block + 1.
+   /// * `to_block` - The block to sync to.
+   /// * `deployment_block` - The block at which the Railgun contract was deployed.
    #[tracing::instrument(name = "utxo_sync", skip_all)]
-   pub async fn sync_to(&mut self, to_block: u64) -> Result<(), UtxoIndexerError> {
-      let from_block = self.synced_block() + 1;
+   pub async fn sync_to(
+      &mut self,
+      from_block: Option<u64>,
+      to_block: u64,
+      deployment_block: u64,
+   ) -> Result<(), UtxoIndexerError> {
+      let mut from_block = if let Some(from_block) = from_block {
+         from_block
+      } else {
+         self.synced_block() + 1
+      };
+
+      if from_block < deployment_block {
+         from_block = deployment_block;
+      }
 
       let latest_block = self.utxo_syncer.latest_block().await?;
+
       let to_block = to_block.min(latest_block);
 
       if from_block > to_block {
@@ -243,17 +265,21 @@ impl UtxoIndexer {
       // TODO: Forward legacy to accounts
    }
 
-   async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
+   pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
       for tree in self.utxo_trees.values() {
          if tree.leaves_len() == 0 {
             continue;
          }
 
-         self
+         let exists = self
             .utxo_verifier
             .verify_root(tree.number(), 0, tree.root(), block_id)
             .await
             .map_err(|e| UtxoIndexerError::VerificationError(e))?;
+
+         if !exists {
+            return Err(UtxoIndexerError::InvalidRoot(tree.number(), tree.root().into()));
+         }
       }
       Ok(())
    }

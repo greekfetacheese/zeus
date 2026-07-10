@@ -12189,6 +12189,7 @@ dependencies = [
  "warp",
  "zeus-bip32",
  "zeus-eth",
+ "zeus-railgun",
  "zeus-theme",
  "zeus-ui-components",
  "zeus-wallet",

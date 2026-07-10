@@ -55,6 +55,22 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
+pub fn railgun_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join("railgun");
+   if !dir.exists() {
+      std::fs::create_dir_all(dir.clone())?;
+   }
+
+   Ok(dir)
+}
+
+pub fn railgun_db_file(chain: u64) -> Result<PathBuf, anyhow::Error> {
+   let dir = railgun_dir()?;
+   let file_name = format!("railgun:{}.db", chain);
+   let file = dir.join(file_name);
+   Ok(file)
+}
+
 pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(THEME_FILE);
    Ok(dir)

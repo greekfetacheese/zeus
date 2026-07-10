@@ -2,10 +2,11 @@ use std::collections::HashMap;
 
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_provider::{Provider, network::Ethereum};
-use alloy_rpc_types::TransactionRequest;
+use alloy_rpc_types::{BlockId, TransactionRequest};
 use alloy_sol_types::SolCall;
 
 use rand::Rng;
+use anyhow::anyhow;
 use serde::Serialize;
 use thiserror::Error;
 use tracing::{info, warn};
@@ -83,7 +84,7 @@ impl NoteEntry {
 pub struct RailgunProvider<P: Provider<Ethereum>> {
    chain: ChainConfig,
    provider: P,
-   utxo_indexer: UtxoIndexer,
+   pub utxo_indexer: UtxoIndexer,
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
 }
@@ -111,7 +112,7 @@ pub enum RailgunProviderError {
 }
 
 impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
-   pub(crate) async fn new(
+   pub async fn new(
       chain: ChainConfig,
       provider: P,
       utxo_indexer: UtxoIndexer,
@@ -136,12 +137,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Syncs the provider to the latest block.
    pub async fn sync(&mut self) -> Result<(), RailgunProviderError> {
-      self.sync_to(u64::MAX).await
+      self.sync_to(None, u64::MAX).await
    }
 
    /// Syncs the provider to the specified block.
-   pub async fn sync_to(&mut self, to_block: u64) -> Result<(), RailgunProviderError> {
-      self.utxo_indexer.sync_to(to_block).await?;
+   pub async fn sync_to(&mut self, from_block: Option<u64>, to_block: u64) -> Result<(), RailgunProviderError> {
+      let deployment_block = self.chain.deployment_block;
+
+      self.utxo_indexer.sync_to(from_block, to_block, deployment_block).await?;
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;
@@ -149,6 +152,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
       Ok(())
    }
+
+   /// Verify root withing the given `block_id`
+   /// 
+   /// If `block_id` is none the latest block will be used
+   pub async fn verify_root(&self, block_id: Option<BlockId>) -> Result<(), anyhow::Error> {
+      self.utxo_indexer.verify(block_id).await.map_err(|e| anyhow!("{:?}", e))
+   }
+   
 
    /// Returns all unspent notes for the given address.
    pub async fn notes(&mut self, address: RailgunAddress) -> Vec<NoteEntry> {
@@ -441,7 +452,7 @@ async fn estimate_paymaster_verification_gas_limit<P: Provider<Ethereum>>(
    user_op: &SignableUserOperation,
 ) -> Result<u128, RailgunProviderError> {
    let entry_point = user_op.entry_point;
-   let Some(paymaster) = user_op.user_op.paymaster else {
+   let Some(_paymaster) = user_op.user_op.paymaster else {
       return Ok(0);
    };
 
