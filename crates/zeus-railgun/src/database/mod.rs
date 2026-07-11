@@ -13,6 +13,9 @@ pub trait Database: crate::MaybeSend {
     async fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, DatabaseError>;
     async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), DatabaseError>;
     async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError>;
+    async fn compact(&self) -> Result<bool, DatabaseError> {
+        Ok(false)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

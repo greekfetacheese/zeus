@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_primitives::{Address, B256, Bytes, U256, Log};
 use alloy_provider::{Provider, network::Ethereum};
 use alloy_rpc_types::{BlockId, TransactionRequest};
 use alloy_sol_types::SolCall;
@@ -18,22 +18,13 @@ use userop_kit::{
 };
 
 use crate::{
-   account::{address::RailgunAddress, signer::RailgunSigner},
-   adapter_data::{encode_paymaster_data, encode_railgun_adapter_data, paymaster_railgun_address},
-   caip::AssetId,
-   chain_config::ChainConfig,
-   circuit::groth16_prover::Groth16Prover,
-   indexer::utxo_indexer::{UtxoIndexer, UtxoIndexerError},
-   note::{Note, utxo::UtxoNote},
-   poi::{
+   account::{address::RailgunAddress, signer::RailgunSigner}, adapter_data::{encode_paymaster_data, encode_railgun_adapter_data, paymaster_railgun_address}, caip::AssetId, chain_config::ChainConfig, circuit::groth16_prover::Groth16Prover, database::DatabaseError, indexer::utxo_indexer::{UtxoIndexer, UtxoIndexerError}, note::{Note, utxo::UtxoNote}, poi::{
       provider::{PoiProvider, PoiProviderError},
       types::{BlindedCommitmentType, PoiStatus},
-   },
-   transact::{
+   }, transact::{
       ShieldBuilder, TransactionBuilder, TransactionBuilderError,
       proved_transaction::{ProvedOperation, ProvedTx},
-   },
-   types::Chain,
+   }, types::Chain
 };
 
 #[derive(Debug, Serialize)]
@@ -128,6 +119,16 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       })
    }
 
+   /// Returns the shield fee in %
+   pub fn shield_fee(&self) -> f64 {
+      0.25
+   }
+
+   /// Returns the unshield fee in %
+   pub fn unshield_fee(&self) -> f64 {
+      0.25
+   }
+
    /// Register a signer with the provider. The provider will index and track
    /// UTXOs for the associated address.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), RailgunProviderError> {
@@ -155,6 +156,26 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       }
 
       Ok(())
+   }
+
+   /// Syncs the provider directly from logs
+   /// 
+   /// This should only be used for evm simulations on a instance of the provider that
+   /// will not be used for real transactions.
+   pub fn sync_from_logs(
+      &mut self,
+      logs: Vec<Log>,
+      synced_block: u64,
+      timestamp: u64,
+   ) -> Result<(), RailgunProviderError> {
+      self.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
+
+      Ok(())
+   }
+
+   /// Compact the db to save space
+   pub async fn compact(&self) -> Result<bool, DatabaseError> {
+      self.utxo_indexer.compact().await
    }
 
    /// Verify root withing the given `block_id`

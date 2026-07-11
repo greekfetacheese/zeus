@@ -89,25 +89,29 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn test_load_state() -> Result<(), anyhow::Error> {
+   async fn test_load_state(){
       tracing_subscriber::fmt().with_env_filter("info,error,debug").init();
 
       let ctx = ZeusCtx::new();
       let chain = 1;
 
       let wallet = create_wallet();
-      let seed = wallet.seed()?;
-      let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
+      let seed = wallet.seed().unwrap();
+      let signer = RailgunSigner::from_seed(&seed, 0, chain).unwrap();
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain).await?;
+         create_railgun_provider(ctx, chain).await.unwrap();
 
-      railgun_provider.register(signer).await?;
+      railgun_provider.register(signer).await.unwrap();
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);
 
-      Ok(())
+      loop {
+         std::thread::sleep(std::time::Duration::from_secs(1));
+         println!("Press ctrl-c to exit");
+      }
+
    }
 
    #[tokio::test]
@@ -152,7 +156,7 @@ mod tests {
       let mut railgun_provider: RailgunProvider<RpcClient> =
          create_railgun_provider(ctx.clone(), chain).await?;
 
-      railgun_provider.register(signer).await?;
+      railgun_provider.register(signer.clone()).await?;
 
       let amount = NumericValue::parse_to_wei("1", 18);
       let weth = ERC20Token::weth();
@@ -223,22 +227,63 @@ mod tests {
          eprintln!("Call Reverted: {}", err);
          eprintln!("Output: {:?}", output);
          eprintln!("Gas Used: {}", res.tx_gas_used());
-         panic!("Call Failed");
+         panic!("Shield Call Failed");
       } else {
-         eprintln!("Railgun Call Successful");
+         eprintln!("Shield Call Successful");
          eprintln!("Gas Used: {}", res.tx_gas_used());
       }
 
       let logs = res.logs().to_vec();
       railgun_provider.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
 
-      let balance = railgun_provider.balance_erc20(railgun_address, weth_id).await;
-      let balance_fmt = NumericValue::format_wei(U256::from(balance), weth.decimals);
+      let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
+      let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);
 
       // Expected balance after 0.25% fee
       let expected_balance = amount.calc_slippage(0.25, weth.decimals);
-      println!("Private Balance: {}", balance_fmt.f64());
-      assert_eq!(balance_fmt.wei(), expected_balance.wei());
+      println!("Private Balance: {}", priv_balance_fmt.f64());
+      assert_eq!(priv_balance_fmt.wei(), expected_balance.wei());
+
+      // Prepare the unshield transaction
+      let tx_builder =
+         railgun_provider
+            .transact()
+            .unshield(signer, wallet.address(), weth_id, priv_balance)?;
+
+      let unshield_tx = railgun_provider.build(tx_builder, &mut rng).await?;
+
+      // Execute the unshield transaction
+      evm.tx.data = unshield_tx.tx_data.data.clone().into();
+
+      let res = evm.transact_commit(evm.tx.clone()).unwrap();
+      let output = res.output().unwrap();
+      if !res.is_success() {
+         let err = revert_msg(&output);
+         eprintln!("Call Reverted: {}", err);
+         eprintln!("Output: {:?}", output);
+         eprintln!("Gas Used: {}", res.tx_gas_used());
+         panic!("Unshield Call Failed");
+      } else {
+         eprintln!("Unshield Call Successful");
+         eprintln!("Gas Used: {}", res.tx_gas_used());
+      }
+
+      // Expected balance after 0.25% fee
+      let expected_balance = priv_balance_fmt.calc_slippage(0.25, weth.decimals);
+
+      let weth_balance = erc20_balance(&mut evm, weth.address, wallet.address())?;
+      let weth_balance_fmt = NumericValue::format_wei(U256::from(weth_balance), weth.decimals);
+      println!("Weth Balance: {}", weth_balance_fmt.f64());
+      assert_eq!(weth_balance_fmt.wei(), expected_balance.wei());
+
+      // Sync the indexer
+      let logs = res.logs().to_vec();
+      railgun_provider.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
+
+      let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
+      let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);
+      println!("Private Balance: {}", priv_balance_fmt.f64());
+      assert_eq!(priv_balance_fmt.wei(), 0);
 
       Ok(())
    }

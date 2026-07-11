@@ -5,8 +5,6 @@ pub mod types;
 
 pub use types::*;
 
-use crate::indexer::syncer::normalize_tree_position::normalize_tree_position;
-
 use alloy_primitives::Address;
 use alloy_provider::{Provider, network::Ethereum};
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log as RpcLog};
@@ -17,7 +15,10 @@ use tokio::{
    task::JoinHandle,
 };
 
-use crate::abi::railgun::RailgunSmartWallet;
+use crate::{
+   abi::railgun::RailgunSmartWallet,
+   indexer::{parse_nullified, parse_shield, parse_transact},
+};
 
 /// Syncers that fetch full operation data.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -152,90 +153,6 @@ impl<P: Provider<Ethereum> + Clone + 'static> Syncer<P> {
       let logs = client.get_logs(&filter).await.map_err(SyncerError::new)?;
       Ok(logs)
    }
-
-   fn parse_shield(
-      &self,
-      event: &RailgunSmartWallet::Shield,
-      block_number: u64,
-   ) -> Result<Vec<SyncEvent>, SyncerError> {
-      let tree_number = event.treeNumber.to::<u32>();
-      let start_position = event.startPosition.to::<u32>();
-
-      let mut events = Vec::new();
-
-      for (i, commitment) in event.commitments.iter().enumerate() {
-         let shield_ciphertext = &event.shieldCiphertext[i];
-
-         let (tree_number, leaf_index) =
-            normalize_tree_position(tree_number, start_position + i as u32);
-         let token = commitment.token.clone().into();
-
-         let shield = Shield {
-            tree_number,
-            leaf_index,
-            npk: commitment.npk.into(),
-            token,
-            value: commitment.value.saturating_to(),
-            ciphertext: shield_ciphertext.clone().into(),
-            shield_key: shield_ciphertext.shieldKey.into(),
-            hash: None,
-         };
-
-         events.push(SyncEvent::Shield(shield, block_number));
-      }
-
-      Ok(events)
-   }
-
-   fn parse_transact(
-      &self,
-      event: &RailgunSmartWallet::Transact,
-      block_timestamp: u64,
-   ) -> Result<Vec<SyncEvent>, SyncerError> {
-      let tree_number = event.treeNumber.saturating_to();
-      let start_position = event.startPosition.saturating_to::<u32>();
-
-      let mut events = Vec::new();
-      for (i, ciphertext) in event.ciphertext.clone().into_iter().enumerate() {
-         let hash = event.hash[i].clone();
-         let (tree_number, leaf_index) =
-            normalize_tree_position(tree_number, start_position + i as u32);
-
-         events.push(SyncEvent::Transact(
-            Transact {
-               tree_number,
-               leaf_index,
-               hash: hash.into(),
-               ciphertext: ciphertext.clone().into(),
-               blinded_receiver_viewing_key: ciphertext.blindedReceiverViewingKey.into(),
-               blinded_sender_viewing_key: ciphertext.blindedSenderViewingKey.into(),
-               annotation_data: ciphertext.annotationData.into(),
-            },
-            block_timestamp,
-         ));
-      }
-      Ok(events)
-   }
-
-   fn parse_nullified(
-      &self,
-      event: &RailgunSmartWallet::Nullified,
-      block_timestamp: u64,
-   ) -> Result<Vec<SyncEvent>, SyncerError> {
-      let tree_number = event.treeNumber as u32;
-
-      let mut events = Vec::new();
-      for nullifier in event.nullifier.clone().into_iter() {
-         events.push(SyncEvent::Nullified(
-            Nullified {
-               tree_number: tree_number,
-               nullifier: nullifier,
-            },
-            block_timestamp,
-         ));
-      }
-      Ok(events)
-   }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -263,19 +180,19 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for Syncer<P> {
          let block_timestamp = log.block_timestamp.unwrap_or(0);
 
          if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log.inner) {
-            let mut shield_events = self.parse_shield(&decoded.data, block_number)?;
+            let mut shield_events = parse_shield(&decoded.data, block_number)?;
             events.append(&mut shield_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner) {
-            let mut tx_events = self.parse_transact(&decoded.data, block_timestamp)?;
+            let mut tx_events = parse_transact(&decoded.data, block_timestamp)?;
             events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = self.parse_nullified(&decoded.data, block_timestamp)?;
+            let mut null_events = parse_nullified(&decoded.data, block_timestamp)?;
             events.append(&mut null_events);
             continue;
          }

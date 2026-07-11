@@ -223,6 +223,14 @@ impl UtxoIndexer {
       // Save
       self.save().await?;
 
+      match self.db.compact().await {
+         Ok(true) => info!("Database compaction performed"),
+         Ok(false) => {
+            info!("Database does need compaction");
+         }
+         Err(e) => tracing::warn!("Compaction failed: {}", e),
+      }
+
       Ok(())
    }
 
@@ -365,6 +373,11 @@ impl UtxoIndexer {
          }
       }
       Ok(())
+   }
+
+   /// Compact the db to save space
+   pub async fn compact(&self) -> Result<bool, DatabaseError> {
+      self.db.compact().await
    }
 
    /// Saves the current state of the indexer to the database.
