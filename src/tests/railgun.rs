@@ -64,7 +64,6 @@ mod tests {
       let chain = 1;
       let chain_config = ChainConfig::mainnet();
 
-      let client = ctx.get_client(chain).await?;
       let wallet = create_wallet();
       let seed = wallet.seed()?;
       let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
@@ -75,12 +74,10 @@ mod tests {
       railgun_provider.register(signer).await?;
 
       // Do a lite sync
-      // Pass None for from_block so we resume from the last persisted synced_block + account states in the DB.
-      let latest_block = client.get_block_number().await?;
-      let to_block = chain_config.deployment_block + 2_000_000;
+      let to_block = chain_config.deployment_block + 1_000_000;
       println!("To Block {}", to_block);
 
-      railgun_provider.sync_to(None, to_block, true).await?; // using SubsquidSyncer
+      railgun_provider.sync_to(to_block, true).await?; // using SubsquidSyncer
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);

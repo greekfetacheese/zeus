@@ -5,8 +5,8 @@ use alloy_provider::{Provider, network::Ethereum};
 use alloy_rpc_types::{BlockId, TransactionRequest};
 use alloy_sol_types::SolCall;
 
-use rand::Rng;
 use anyhow::anyhow;
+use rand::Rng;
 use serde::Serialize;
 use thiserror::Error;
 use tracing::{info, warn};
@@ -137,14 +137,18 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
    /// Syncs the provider to the latest block.
    pub async fn sync(&mut self) -> Result<(), RailgunProviderError> {
-      self.sync_to(None, u64::MAX, false).await
+      self.sync_to(u64::MAX, false).await
    }
 
    /// Syncs the provider to the specified block.
-   pub async fn sync_to(&mut self, from_block: Option<u64>, to_block: u64, use_subsquid: bool) -> Result<(), RailgunProviderError> {
+   pub async fn sync_to(
+      &mut self,
+      to_block: u64,
+      use_subsquid: bool,
+   ) -> Result<(), RailgunProviderError> {
       let deployment_block = self.chain.deployment_block;
 
-      self.utxo_indexer.sync_to(from_block, to_block, deployment_block, use_subsquid).await?;
+      self.utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;
@@ -154,12 +158,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    /// Verify root withing the given `block_id`
-   /// 
+   ///
    /// If `block_id` is none the latest block will be used
    pub async fn verify_root(&self, block_id: Option<BlockId>) -> Result<(), anyhow::Error> {
       self.utxo_indexer.verify(block_id).await.map_err(|e| anyhow!("{:?}", e))
    }
-   
 
    /// Returns all unspent notes for the given address.
    pub async fn notes(&mut self, address: RailgunAddress) -> Vec<NoteEntry> {

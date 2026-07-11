@@ -59,15 +59,11 @@ impl<P: Provider<Ethereum> + Clone + 'static> MerkleTreeVerifier for RootVerifie
       let block_id = block_id.unwrap_or(BlockId::latest());
 
       let tree_number = alloy_primitives::U256::from(tree_number);
-
-      // Explicit conversion to avoid any endian/bytes32 mismatch.
-      // Merkle roots are poseidon outputs stored as 32-byte values.
       let root_u: alloy_primitives::U256 = root.into();
-      let root_fb = alloy_primitives::FixedBytes::<32>::from(root_u.to_be_bytes());
 
       let call = RailgunSmartWallet::rootHistoryCall {
          treeNumber: tree_number,
-         root: root_fb,
+         root: root_u.into(),
       };
 
       let tx = TransactionRequest::default()

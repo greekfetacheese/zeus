@@ -11,232 +11,288 @@ use super::proof::*;
 pub type RailgunMerkleTree = MerkleTree<RailgunMerkleConfig>;
 pub type RailgunMerkleTreeState = MerkleTreeState<RailgunMerkleConfig>;
 
-
 /// Configurable sparse Merkle tree implementation with fixed depth and zero values
 #[derive(Debug, Clone)]
 pub struct MerkleTree<C: MerkleConfig> {
-    number: u32,
-    zeros: Vec<U256>,
-    tree: Vec<Vec<U256>>,
-    dirty_parents: BTreeSet<usize>,
+   number: u32,
+   zeros: Vec<U256>,
+   tree: Vec<Vec<U256>>,
+   dirty_parents: BTreeSet<usize>,
 
-    phantom: std::marker::PhantomData<C>,
+   phantom: std::marker::PhantomData<C>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MerkleTreeState<C: MerkleConfig> {
-    pub number: u32,
-    pub tree: Vec<Vec<U256>>,
+   pub number: u32,
+   pub tree: Vec<Vec<U256>>,
 
-    #[serde(skip)]
-    phantom: std::marker::PhantomData<C>,
+   #[serde(skip)]
+   phantom: std::marker::PhantomData<C>,
 }
 
 #[derive(Debug, Error)]
 pub enum MerkleTreeError {
-    #[error("Element not found in tree: {0}")]
-    ElementNotFound(String),
-    #[error("Invalid proof")]
-    InvalidProof,
+   #[error("Element not found in tree: {0}")]
+   ElementNotFound(String),
+   #[error("Invalid proof")]
+   InvalidProof,
 }
 
 impl<C: MerkleConfig> MerkleTree<C> {
-    pub fn new(tree_number: u32) -> Self {
-        let zeros = zero_value_levels::<C>();
-        let mut tree: Vec<Vec<U256>> = (0..=C::DEPTH).map(|_| Vec::new()).collect();
+   pub fn new(tree_number: u32) -> Self {
+      let zeros = zero_value_levels::<C>();
+      let mut tree: Vec<Vec<U256>> = (0..=C::DEPTH).map(|_| Vec::new()).collect();
 
-        let root = C::hash(zeros[C::DEPTH - 1], zeros[C::DEPTH - 1]);
-        tree[C::DEPTH].insert(0, root);
-        MerkleTree::<C> {
-            number: tree_number,
-            zeros,
-            tree,
-            dirty_parents: BTreeSet::new(),
-            phantom: std::marker::PhantomData,
-        }
-    }
+      let root = C::hash(zeros[C::DEPTH - 1], zeros[C::DEPTH - 1]);
+      tree[C::DEPTH].insert(0, root);
+      MerkleTree::<C> {
+         number: tree_number,
+         zeros,
+         tree,
+         dirty_parents: BTreeSet::new(),
+         phantom: std::marker::PhantomData,
+      }
+   }
 
-    pub fn depth() -> usize {
-        C::DEPTH
-    }
+   pub fn depth() -> usize {
+      C::DEPTH
+   }
 
-    pub fn total_leaves() -> usize {
-        1 << C::DEPTH
-    }
+   pub fn total_leaves() -> usize {
+      1 << C::DEPTH
+   }
 
-    pub fn zero() -> U256 {
-        C::zero()
-    }
+   pub fn zero() -> U256 {
+      C::zero()
+   }
 
-    pub fn from_state(state: MerkleTreeState<C>) -> Self {
-        let mut tree = MerkleTree::<C>::new(state.number);
-        tree.tree = state.tree;
-        tree
-    }
+   pub fn from_state(state: MerkleTreeState<C>) -> Self {
+      let mut tree = MerkleTree::<C>::new(state.number);
+      tree.tree = state.tree;
+      tree
+   }
 
-    pub fn number(&self) -> u32 {
-        self.number
-    }
+   pub fn number(&self) -> u32 {
+      self.number
+   }
 
-    pub fn root(&self) -> MerkleRoot {
-        debug_assert!(
-            self.dirty_parents.is_empty(),
-            "Merkle tree has dirty parents, root may be outdated"
-        );
+   pub fn root(&self) -> MerkleRoot {
+      debug_assert!(
+         self.dirty_parents.is_empty(),
+         "Merkle tree has dirty parents, root may be outdated"
+      );
 
-        self.tree[C::DEPTH][0].into()
-    }
+      self.tree[C::DEPTH][0].into()
+   }
 
-    /// Returns the current number of leaves in the sparse tree
-    pub fn leaves_len(&self) -> usize {
-        self.tree[0].len()
-    }
+   /// Returns the current number of leaves in the sparse tree
+   pub fn leaves_len(&self) -> usize {
+      self.tree[0].len()
+   }
 
-    pub fn state(&self) -> MerkleTreeState<C> {
-        self.clone().into_state()
-    }
+   pub fn state(&self) -> MerkleTreeState<C> {
+      self.clone().into_state()
+   }
 
-    pub fn into_state(self) -> MerkleTreeState<C> {
-        MerkleTreeState::<C> {
-            number: self.number,
-            tree: self.tree,
-            phantom: std::marker::PhantomData,
-        }
-    }
+   pub fn into_state(self) -> MerkleTreeState<C> {
+      MerkleTreeState::<C> {
+         number: self.number,
+         tree: self.tree,
+         phantom: std::marker::PhantomData,
+      }
+   }
 
-    pub fn generate_proof(&self, element: U256) -> Result<MerkleProof<C>, MerkleTreeError> {
-        debug_assert!(
-            self.dirty_parents.is_empty(),
-            "Merkle tree has dirty parents, root may be outdated"
-        );
+   pub fn generate_proof(&self, element: U256) -> Result<MerkleProof<C>, MerkleTreeError> {
+      debug_assert!(
+         self.dirty_parents.is_empty(),
+         "Merkle tree has dirty parents, root may be outdated"
+      );
 
-        if !self.dirty_parents.is_empty() {
-            warn!("Merkle tree has dirty parents, root may be outdated");
-        }
+      if !self.dirty_parents.is_empty() {
+         warn!("Merkle tree has dirty parents, root may be outdated");
+      }
 
-        let initial_index = self.tree[0]
-            .iter()
-            .position(|val| *val == element)
-            .ok_or(MerkleTreeError::ElementNotFound(format!("{:?}", element)))?;
+      let initial_index = self.tree[0].iter().position(|val| *val == element).ok_or(
+         MerkleTreeError::ElementNotFound(format!("{:?}", element)),
+      )?;
 
-        let mut elements = Vec::with_capacity(C::DEPTH);
-        let mut index = initial_index;
+      let mut elements = Vec::with_capacity(C::DEPTH);
+      let mut index = initial_index;
 
-        for level in 0..C::DEPTH {
-            let is_left_child = index % 2 == 0;
-            let siblings_index = if is_left_child { index + 1 } else { index - 1 };
+      for level in 0..C::DEPTH {
+         let is_left_child = index % 2 == 0;
+         let siblings_index = if is_left_child { index + 1 } else { index - 1 };
 
-            let sibling = self.tree[level]
-                .get(siblings_index)
-                .copied()
-                .unwrap_or(self.zeros[level]);
+         let sibling = self.tree[level].get(siblings_index).copied().unwrap_or(self.zeros[level]);
 
-            elements.push(sibling);
-            index /= 2;
-        }
+         elements.push(sibling);
+         index /= 2;
+      }
 
-        let proof = MerkleProof::new(element, elements, U256::from(initial_index), self.root());
-        if !proof.verify() {
-            return Err(MerkleTreeError::InvalidProof);
-        }
+      let proof = MerkleProof::new(
+         element,
+         elements,
+         U256::from(initial_index),
+         self.root(),
+      );
+      if !proof.verify() {
+         return Err(MerkleTreeError::InvalidProof);
+      }
 
-        Ok(proof)
-    }
+      Ok(proof)
+   }
 
-    /// Inserts leaves starting at the given position
-    pub fn insert_leaves(&mut self, leaves: &[U256], start_position: usize) {
-        if leaves.is_empty() {
-            return;
-        }
+   /// Inserts leaves starting at the given position
+   pub fn insert_leaves(&mut self, leaves: &[U256], start_position: usize) {
+      if leaves.is_empty() {
+         return;
+      }
 
-        let end_position = start_position + leaves.len();
-        if self.tree[0].len() < end_position {
-            self.tree[0].resize(end_position, self.zeros[0]);
-        }
+      let end_position = start_position + leaves.len();
+      if self.tree[0].len() < end_position {
+         self.tree[0].resize(end_position, self.zeros[0]);
+      }
 
-        for (i, leaf) in leaves.iter().enumerate() {
-            let leaf_index = start_position + i;
-            self.tree[0][leaf_index] = *leaf;
-            self.dirty_parents.insert(leaf_index / 2);
-        }
+      for (i, leaf) in leaves.iter().enumerate() {
+         let leaf_index = start_position + i;
+         self.tree[0][leaf_index] = *leaf;
+         self.dirty_parents.insert(leaf_index / 2);
+      }
 
-        self.rebuild();
-    }
+      self.rebuild();
+   }
 
-    fn rebuild(&mut self) {
-        if self.dirty_parents.is_empty() {
-            return;
-        }
+   fn rebuild(&mut self) {
+      if self.dirty_parents.is_empty() {
+         return;
+      }
 
-        let mut dirty = std::mem::take(&mut self.dirty_parents);
+      let mut dirty = std::mem::take(&mut self.dirty_parents);
 
-        for level in 0..C::DEPTH {
-            let child_width = self.tree[level].len();
-            let parent_width = child_width.div_ceil(2);
+      for level in 0..C::DEPTH {
+         let child_width = self.tree[level].len();
+         let parent_width = child_width.div_ceil(2);
 
-            if self.tree[level + 1].len() < parent_width {
-                self.tree[level + 1].resize(parent_width, self.zeros[level + 1]);
-            }
+         if self.tree[level + 1].len() < parent_width {
+            self.tree[level + 1].resize(parent_width, self.zeros[level + 1]);
+         }
 
-            let mut next_dirty = BTreeSet::new();
+         let mut next_dirty = BTreeSet::new();
 
-            for &parent_idx in &dirty {
-                let left_idx = parent_idx * 2;
-                let right_idx = left_idx + 1;
+         for &parent_idx in &dirty {
+            let left_idx = parent_idx * 2;
+            let right_idx = left_idx + 1;
 
-                let left = if left_idx < child_width {
-                    self.tree[level][left_idx]
-                } else {
-                    self.zeros[level]
-                };
-                let right = if right_idx < child_width {
-                    self.tree[level][right_idx]
-                } else {
-                    self.zeros[level]
-                };
+            let left = if left_idx < child_width {
+               self.tree[level][left_idx]
+            } else {
+               self.zeros[level]
+            };
+            let right = if right_idx < child_width {
+               self.tree[level][right_idx]
+            } else {
+               self.zeros[level]
+            };
 
-                self.tree[level + 1][parent_idx] = C::hash(left, right);
-                next_dirty.insert(parent_idx / 2);
-            }
+            self.tree[level + 1][parent_idx] = C::hash(left, right);
+            next_dirty.insert(parent_idx / 2);
+         }
 
-            dirty = next_dirty;
-        }
-    }
+         dirty = next_dirty;
+      }
+   }
 }
 
 fn zero_value_levels<C: MerkleConfig>() -> Vec<U256> {
-    let mut levels = Vec::with_capacity(C::DEPTH + 1);
-    let mut current = C::zero();
+   let mut levels = Vec::with_capacity(C::DEPTH + 1);
+   let mut current = C::zero();
 
-    for _ in 0..=C::DEPTH {
-        levels.push(current);
-        current = C::hash(current, current);
-    }
+   for _ in 0..=C::DEPTH {
+      levels.push(current);
+      current = C::hash(current, current);
+   }
 
-    levels
+   levels
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::merkle_tree::config::TestMerkleConfig;
+   use super::*;
+   use crate::merkle_tree::config::TestMerkleConfig;
+   use ruint::uint;
 
-    #[test]
-    fn test_merkle_tree() {
-        let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
-        let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
-        tree.insert_leaves(&leaves, 0);
+   #[test]
+   fn test_merkle_tree() {
+      let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
+      let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
+      tree.insert_leaves(&leaves, 0);
+   }
 
-    }
+   #[test]
+   fn test_railgun_merkle_tree_zero() {
+      let zero = RailgunMerkleConfig::zero();
+      let expected =
+         uint!(2051258411002736885948763699317990061539314419500486054347250703186609807356_U256);
+      assert_eq!(zero, expected);
+   }
 
-    #[test]
-    fn test_serialize_deserialize() {
-        let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
-        let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
-        tree.insert_leaves(&leaves, 0);
+   #[test]
+   fn test_empty_merkleroot() {
+      let tree = RailgunMerkleTree::new(0);
+      let expected_root: MerkleRoot =
+         uint!(9493149700940509817378043077993653487291699154667385859234945399563579865744_U256)
+            .into();
 
-        let state = tree.state();
-        let deserialized_tree = MerkleTree::<TestMerkleConfig>::from_state(state.clone());
-        assert_eq!(tree.state(), deserialized_tree.state());
-    }
+      assert_eq!(tree.root(), expected_root);
+   }
+
+   #[test]
+   fn test_merkle_tree_insert_and_proof() {
+      let mut tree = RailgunMerkleTree::new(0);
+      let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
+      let expected_root: MerkleRoot =
+         uint!(13360826432759445967430837006844965422592495092152969583910134058984357610665_U256)
+            .into();
+
+      tree.insert_leaves(&leaves, 0);
+
+      let root = tree.root();
+      assert_eq!(root, expected_root);
+
+      for &leaf in &leaves {
+         let proof = tree.generate_proof(leaf).unwrap();
+         assert!(
+            proof.verify(),
+            "Proof invalid for leaf: {:?}",
+            leaf
+         );
+      }
+
+      let tree_leaves_len = tree.leaves_len();
+      assert_eq!(tree_leaves_len, leaves.len());
+   }
+
+   #[test]
+   fn test_state() {
+      let mut tree = RailgunMerkleTree::new(0);
+      let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
+      tree.insert_leaves(&leaves, 0);
+
+      let state = tree.state();
+      let rebuilt_tree = RailgunMerkleTree::from_state(state);
+
+      assert_eq!(tree.root(), rebuilt_tree.root());
+   }
+
+   #[test]
+   fn test_serialize_deserialize() {
+      let mut tree = MerkleTree::<TestMerkleConfig>::new(0);
+      let leaves = vec![U256::from(1), U256::from(2), U256::from(3), U256::from(4)];
+      tree.insert_leaves(&leaves, 0);
+
+      let state = tree.state();
+      let deserialized_tree = MerkleTree::<TestMerkleConfig>::from_state(state.clone());
+      assert_eq!(tree.state(), deserialized_tree.state());
+   }
 }

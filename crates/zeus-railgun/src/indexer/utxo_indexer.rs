@@ -138,23 +138,22 @@ impl UtxoIndexer {
    ///
    /// # Arguments
    ///
-   /// * `from_block` - Optional starting block. If not provided, the indexer will start syncing from the last synced block + 1.
    /// * `to_block` - The block to sync to.
    /// * `deployment_block` - The block at which the Railgun contract was deployed.
    /// * `use_subsquid` - Whether to use the subsquid syncer.
    #[tracing::instrument(name = "utxo_sync", skip_all)]
    pub async fn sync_to(
       &mut self,
-      from_block: Option<u64>,
       to_block: u64,
       _deployment_block: u64,
       use_subsquid: bool,
    ) -> Result<(), UtxoIndexerError> {
-      let from_block = if let Some(from_block) = from_block {
-         from_block
-      } else {
-         self.synced_block() + 1
-      };
+      let from_block = self.synced_block() + 1;
+
+      info!(
+         "Effective sync range for utxo: from_block={} to_block={} use_subsquid={}",
+         from_block, to_block, use_subsquid
+      );
 
       let syncer: Arc<dyn UtxoSyncer> = if use_subsquid {
          self.subsquid_syncer.clone().ok_or_else(|| {
