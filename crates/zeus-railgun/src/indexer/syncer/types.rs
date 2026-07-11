@@ -9,6 +9,7 @@ use crate::{
    merkle_tree::UtxoLeafHash,
 };
 
+// TODO: impl a snapshot to store all the SyncEvent for faster syncing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncEvent {
    Shield(Shield, u64),
@@ -49,11 +50,24 @@ pub struct Nullified {
    pub nullifier: FixedBytes<32>,
 }
 
+
+/// Legacy ciphertext format from pre-Mar23 CommitmentBatch events.
+/// (ciphertext[4], ephemeralKeys[2], memo[])
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegacyCiphertext {
+   pub ciphertext: [U256; 4],
+   pub ephemeral_keys: [U256; 2],
+   pub memo: Vec<U256>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LegacyCommitment {
    pub hash: U256,
    pub tree_number: u32,
    pub leaf_index: u32,
+   /// Present only when decoded from legacy CommitmentBatch (RPC path).
+   /// Subsquid path currently only provides the hash.
+   pub ciphertext: Option<LegacyCiphertext>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

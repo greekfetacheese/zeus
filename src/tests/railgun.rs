@@ -31,7 +31,7 @@ mod tests {
 
       let chain_config = ChainConfig::mainnet();
       let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-      let rpc_syncer = Syncer::new(client.clone(), chain_config.railgun_smart_wallet);
+      let rpc_syncer = RpcSyncer::new(client.clone(), chain_config.railgun_smart_wallet);
       let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(SubsquidSyncer::new(
          &chain_config.subsquid_endpoint,
       )));
@@ -77,10 +77,11 @@ mod tests {
 
       let client = ctx.get_client(chain).await?;
       let latest_block = client.get_block_number().await?;
+      let to_block = latest_block;
 
-      println!("To Block {}", latest_block);
+      println!("To Block {}", to_block);
 
-      railgun_provider.sync_to(latest_block, true).await?; // using SubsquidSyncer
+      railgun_provider.sync_to(to_block, false).await?; // using SubsquidSyncer
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);

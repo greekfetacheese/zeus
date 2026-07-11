@@ -107,6 +107,18 @@ impl IndexedAccount {
          note.nullifier != nullifier // Keep notes that don't match the nullifier
       });
    }
+
+   /// Attempt to decrypt a legacy encrypted commitment.
+   /// Currently a no-op stub — full implementation requires legacy key
+   /// derivation (ephemeralKeys + different AES usage).
+   pub fn handle_legacy_event(&mut self, _event: &syncer::LegacyCommitment) -> Result<(), NoteError> {
+      // TODO: Implement proper legacy decryption using LegacyCiphertext
+      // if let Some(ct) = &_event.ciphertext {
+      //     let note = UtxoNote::decrypt_legacy(self.signer.clone(), _event, ct)?;
+      //     self.inner.notes.push(note);
+      // }
+      Ok(())
+   }
 }
 
 #[cfg(test)]

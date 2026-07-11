@@ -201,6 +201,7 @@ impl From<Commitment> for syncer::SyncEvent {
                hash: value.hash.into(),
                tree_number,
                leaf_index,
+               ciphertext: None,
             },
             value.block_number,
          ),

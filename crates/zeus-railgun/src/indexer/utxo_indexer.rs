@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::{
-   abi::railgun::RailgunSmartWallet,
+   abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
    database::{Database, DatabaseError, RailgunDB},
    indexer::{
@@ -106,7 +106,6 @@ impl UtxoIndexer {
    /// is loaded from the database. We immediately persist the (possibly loaded) account
    /// state so that progress for this account survives process restarts.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
-      // Borrow only for the lookup; the address value is owned after this statement.
       let state = self.db.get_account(&signer.address()).await?;
 
       let account = IndexedAccount::from_state(signer, state);
@@ -147,10 +146,14 @@ impl UtxoIndexer {
    pub async fn sync_to(
       &mut self,
       to_block: u64,
-      _deployment_block: u64,
+      deployment_block: u64,
       use_subsquid: bool,
    ) -> Result<(), UtxoIndexerError> {
-      let from_block = self.synced_block() + 1;
+      let mut from_block = self.synced_block() + 1;
+
+      if from_block == 1 && !use_subsquid {
+         from_block = deployment_block;
+      }
 
       info!(
          "Effective sync range for utxo: from_block={} to_block={} use_subsquid={}",
@@ -226,7 +229,7 @@ impl UtxoIndexer {
       match self.db.compact().await {
          Ok(true) => info!("Database compaction performed"),
          Ok(false) => {
-            info!("Database does need compaction");
+            info!("Database does not need compaction");
          }
          Err(e) => tracing::warn!("Compaction failed: {}", e),
       }
@@ -261,6 +264,45 @@ impl UtxoIndexer {
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log) {
             let mut null_events = super::parse_nullified(&decoded.data, timestamp)?;
             events.append(&mut null_events);
+            continue;
+         }
+
+         // Legacy events
+         if let Ok(decoded) = <RailgunLegacy::CommitmentBatch as SolEvent>::decode_log(&log) {
+            let mut legacy_events = super::parse_legacy_commitment_batch(&decoded.data, block)?;
+            events.append(&mut legacy_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log) {
+            let mut null_events = super::parse_legacy_nullifiers(&decoded.data, timestamp)?;
+            events.append(&mut null_events);
+            continue;
+         }
+
+         if let Ok(decoded) =
+            <RailgunLegacy::GeneratedCommitmentBatch as SolEvent>::decode_log(&log)
+         {
+            let mut legacy_events =
+               super::parse_legacy_generated_commitment_batch(&decoded.data, block)?;
+            events.append(&mut legacy_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log) {
+            let mut tx_events = super::parse_legacy_transact(&decoded.data, timestamp)?;
+            events.append(&mut tx_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunLegacy::Shield as SolEvent>::decode_log(&log) {
+            let mut shield_events = super::parse_legacy_shield(&decoded.data, block)?;
+            events.append(&mut shield_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunLegacy::Unshield as SolEvent>::decode_log(&log) {
+            let _ = super::parse_legacy_unshield(&decoded.data, block);
             continue;
          }
       }
@@ -340,17 +382,29 @@ impl UtxoIndexer {
       }
    }
 
+   // This is still WIP ( see handle_legacy_event )
    fn handle_legacy(
       &mut self,
-      _event: &syncer::LegacyCommitment,
+      event: &syncer::LegacyCommitment,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
    ) {
       tree_leaves
-         .entry(_event.tree_number)
+         .entry(event.tree_number)
          .or_default()
-         .push((_event.leaf_index, _event.hash.into()));
+         .push((event.leaf_index, event.hash.into()));
 
-      // TODO: Forward legacy to accounts
+      // Forward to accounts so they can attempt decryption for private balances
+      // (only when we have the ciphertext from legacy CommitmentBatch)
+      if event.ciphertext.is_some() {
+         for account in self.accounts.iter_mut() {
+            if let Err(e) = account.handle_legacy_event(event) {
+               // Ignore decryption failures (not our note) — same pattern as shield/transact
+               if !matches!(e, NoteError::Aes(_)) {
+                  tracing::debug!("Legacy note handling error: {}", e);
+               }
+            }
+         }
+      }
    }
 
    pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
