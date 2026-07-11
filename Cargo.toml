@@ -20,7 +20,6 @@ version = "0.8.20"
 edition = "2024"
 default-run = "zeus"
 
-
 [dependencies]
 
 # GUI
@@ -28,7 +27,6 @@ eframe = { version = "=0.34.3", features = ["wgpu"] }
 egui = { version = "=0.34.3", features = ["serde"] }
 egui_extras = { version = "=0.34.3", features = ["image"] }
 image = "=0.25.10"
-
 
 # Zeus Crates
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
@@ -48,7 +46,6 @@ alloy-signer-local = { version = "=2.0.5", features = ["mnemonic"] }
 alloy-eips = "=2.0.5"
 alloy-sol-types = { version = "=1.6.0", features = ["json"] }
 
-
 # Crypto
 rand = "=0.8"
 generic-array = { version = "=1.2.0", features = ["zeroize"] }
@@ -59,7 +56,6 @@ ncrypt-me = "0.3"
 
 # Memory
 secure-types = "0.3"
-
 
 # Tracing
 tracing = "=0.1.41"
@@ -72,7 +68,6 @@ warp = { version = "=0.4.2", features = ["server"] }
 futures = "=0.3.31"
 reqwest = { version = "=0.12.23", features = ["json"] }
 
-
 # Misc
 zip = "=6.0.0"
 tempfile = "=3.23.0"
@@ -81,7 +76,7 @@ self_update = "0.42"
 qrcodegen-no-heap = "1.8.1"
 sysinfo = "=0.37.2"
 chrono = "0.4.42"
-either = "=1.15.0"
+either = "1.15.0"
 rayon = "=1.11.0"
 anyhow = "=1.0.99"
 serde = { version = "=1.0.228", features = ["derive"] }
@@ -98,7 +93,6 @@ strip = true
 opt-level = 2
 debug = false
 lto = "fat"
-
 
 [features]
 dev = []

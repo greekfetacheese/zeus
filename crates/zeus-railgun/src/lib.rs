@@ -22,6 +22,14 @@ pub use merkle_tree::RootVerifier;
 pub use indexer::{utxo_indexer::UtxoIndexer, syncer::Syncer, syncer::{UtxoSyncer, subsquid::SubsquidSyncer}};
 pub use circuit::groth16_prover::Groth16Prover;
 
+/// Re-export of the `rand` crate version used internally by zeus-railgun.
+/// 
+/// Use this when you need to construct an RNG to pass to railgun builder methods
+/// (e.g. `ShieldBuilder::build`, `RailgunProvider::build`).
+///
+/// This ensures you get a compatible `rand` version (currently 0.9).
+pub use rand;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub trait MaybeSend: Send + Sync {}
 #[cfg(not(target_arch = "wasm32"))]

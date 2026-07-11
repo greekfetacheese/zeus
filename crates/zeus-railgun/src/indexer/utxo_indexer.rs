@@ -4,13 +4,15 @@ use std::{
    u64,
 };
 
-use alloy_primitives::U256;
+use alloy_primitives::{Log, U256};
 use alloy_rpc_types::BlockId;
+use alloy_sol_types::SolEvent;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 
 use crate::{
+   abi::railgun::RailgunSmartWallet,
    account::{address::RailgunAddress, signer::RailgunSigner},
    database::{Database, DatabaseError, RailgunDB},
    indexer::{
@@ -220,6 +222,57 @@ impl UtxoIndexer {
 
       // Save
       self.save().await?;
+
+      Ok(())
+   }
+
+   /// Syncs the indexer directly from logs
+   ///
+   /// This should be used only for evm simulations on a new instance of the indexer
+   pub fn sync_from_logs(
+      &mut self,
+      logs: Vec<Log>,
+      block: u64,
+      timestamp: u64,
+   ) -> Result<(), UtxoIndexerError> {
+      let mut events = Vec::new();
+
+      for log in logs {
+         if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
+            let mut shield_events = super::parse_shield(&decoded.data, block)?;
+            events.append(&mut shield_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log) {
+            let mut tx_events = super::parse_transact(&decoded.data, timestamp)?;
+            events.append(&mut tx_events);
+            continue;
+         }
+
+         if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log) {
+            let mut null_events = super::parse_nullified(&decoded.data, timestamp)?;
+            events.append(&mut null_events);
+            continue;
+         }
+      }
+
+      let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
+      for (_, event) in events.iter().enumerate() {
+         self.handle_event(&event, &mut tree_leaves)?;
+      }
+
+      for (tree_number, mut leaves) in tree_leaves {
+         leaves.sort_by_key(|(idx, _)| *idx);
+         let start = leaves[0].0;
+         let hashes: Vec<_> = leaves.into_iter().map(|(_, hash)| hash).collect();
+
+         self
+            .utxo_trees
+            .entry(tree_number)
+            .or_insert(UtxoMerkleTree::new(tree_number))
+            .insert_leaves(&hashes, start as usize);
+      }
 
       Ok(())
    }

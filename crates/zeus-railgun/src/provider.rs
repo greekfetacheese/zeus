@@ -193,6 +193,19 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          .collect()
    }
 
+   /// Returns the balance for the given railgun address and erc20 token.
+   pub async fn balance_erc20(&mut self, address: RailgunAddress, token: AssetId) -> u128 {
+      let mut balance_map = HashMap::new();
+      for note in self.notes(address).await {
+         *balance_map.entry((note.asset, note.poi_status)).or_insert(0) += note.amount;
+      }
+      balance_map
+         .into_iter()
+         .filter(|((asset, _), _)| asset == &token)
+         .map(|(_, amount)| amount)
+         .sum()
+   }
+
    /// Helper to create a shield builder.
    pub fn shield(&self) -> ShieldBuilder {
       ShieldBuilder::new(self.chain.clone())
