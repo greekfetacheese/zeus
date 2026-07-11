@@ -81,7 +81,7 @@ mod tests {
 
       println!("To Block {}", to_block);
 
-      railgun_provider.sync_to(to_block, false).await?; // using SubsquidSyncer
+      railgun_provider.sync_to(to_block, true).await?; // using SubsquidSyncer
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);
@@ -90,7 +90,7 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn test_load_state(){
+   async fn test_load_state() {
       tracing_subscriber::fmt().with_env_filter("info,error,debug").init();
 
       let ctx = ZeusCtx::new();
@@ -108,11 +108,16 @@ mod tests {
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);
 
+      match railgun_provider.compact().await {
+         Ok(true) => println!("Database compaction performed"),
+         Ok(false) => println!("Database does not need compaction"),
+         Err(e) => eprintln!("Compaction failed: {}", e),
+      }
+
       loop {
          std::thread::sleep(std::time::Duration::from_secs(1));
          println!("Press ctrl-c to exit");
       }
-
    }
 
    #[tokio::test]

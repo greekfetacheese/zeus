@@ -1,3 +1,4 @@
+use bincode_next::serde::{decode_from_slice, encode_to_vec};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -21,15 +22,11 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(Default::default());
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(serde_json::from_value(envelope.data)?),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned(&bytes)
    }
 
    async fn set_utxo_indexer(&self, state: &UtxoIndexerState) -> Result<(), DatabaseError> {
-      self.write_envelope(&utxo_indexer_key(), 1, state).await
+      self.write_envelope(&utxo_indexer_key(), 2, state).await
    }
 
    async fn get_account(
@@ -41,11 +38,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(Default::default());
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(serde_json::from_value(envelope.data)?),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned(&bytes)
    }
 
    async fn set_account(
@@ -53,7 +46,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       addr: &RailgunAddress,
       state: &IndexedAccountState,
    ) -> Result<(), DatabaseError> {
-      self.write_envelope(&account_key(addr), 1, state).await
+      self.write_envelope(&account_key(addr), 2, state).await
    }
 
    async fn get_utxo_tree(
@@ -65,11 +58,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(None);
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(Some(serde_json::from_value(envelope.data)?)),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned_tree(&bytes)
    }
 
    async fn set_utxo_tree(
@@ -77,7 +66,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       tree_number: u32,
       state: RailgunMerkleTreeState,
    ) -> Result<(), DatabaseError> {
-      self.write_envelope(&utxo_tree_key(tree_number), 1, &state).await
+      self.write_envelope(&utxo_tree_key(tree_number), 2, &state).await
    }
 
    async fn get_txid_indexer(&self) -> Result<TxidIndexerState, DatabaseError> {
@@ -86,15 +75,11 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(Default::default());
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(serde_json::from_value(envelope.data)?),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned(&bytes)
    }
 
    async fn set_txid_indexer(&self, state: &TxidIndexerState) -> Result<(), DatabaseError> {
-      self.write_envelope(&txid_indexer_key(), 1, state).await
+      self.write_envelope(&txid_indexer_key(), 2, state).await
    }
 
    async fn get_txid_tree(
@@ -106,11 +91,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(None);
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(Some(serde_json::from_value(envelope.data)?)),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned_tree(&bytes)
    }
 
    async fn set_txid_tree(
@@ -118,7 +99,7 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       tree_number: u32,
       state: RailgunMerkleTreeState,
    ) -> Result<(), DatabaseError> {
-      self.write_envelope(&txid_tree_key(tree_number), 1, &state).await
+      self.write_envelope(&txid_tree_key(tree_number), 2, &state).await
    }
 
    async fn get_poi_provider(&self) -> Result<PoiProviderState, DatabaseError> {
@@ -127,15 +108,11 @@ pub trait RailgunDB: Database + crate::MaybeSend {
          return Ok(Default::default());
       };
 
-      let envelope: Envelope = serde_json::from_slice(&bytes)?;
-      match envelope.v {
-         1 => Ok(serde_json::from_value(envelope.data)?),
-         v => Err(DatabaseError::UnsupportedVersion(v)),
-      }
+      deserialize_versioned(&bytes)
    }
 
    async fn set_poi_provider(&self, state: &PoiProviderState) -> Result<(), DatabaseError> {
-      self.write_envelope(&poi_provider_key(), 1, state).await
+      self.write_envelope(&poi_provider_key(), 2, state).await
    }
 
    async fn write_envelope<S: Serialize + crate::MaybeSend>(
@@ -152,18 +129,85 @@ pub trait RailgunDB: Database + crate::MaybeSend {
 
 impl<D: Database + ?Sized> RailgunDB for D {}
 
+// v1: legacy JSON (for reading old DBs)
+// v2: bincode (compact binary, used for all new writes)
+
 #[derive(Serialize, Deserialize)]
-struct Envelope {
+struct JsonEnvelope {
    pub v: u32,
    pub data: serde_json::Value,
 }
 
+#[derive(Serialize, Deserialize)]
+struct BincodeEnvelope {
+   pub v: u32,
+   pub data: Vec<u8>,
+}
+
 fn serialize_envelope<T: Serialize>(version: u32, data: &T) -> Result<Vec<u8>, DatabaseError> {
-   let envelope = Envelope {
-      v: version,
-      data: serde_json::to_value(data)?,
-   };
-   Ok(serde_json::to_vec(&envelope)?)
+   match version {
+      // v2 and above use bincode for the payload
+      v if v >= 2 => {
+         let payload = encode_to_vec(data, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let env = BincodeEnvelope { v, data: payload };
+         encode_to_vec(&env, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))
+      }
+      // v1 uses JSON (legacy)
+      1 => {
+         let env = JsonEnvelope {
+            v: 1,
+            data: serde_json::to_value(data)?,
+         };
+         Ok(serde_json::to_vec(&env)?)
+      }
+      _ => Err(DatabaseError::UnsupportedVersion(version)),
+   }
+}
+
+/// Deserialize small states (indexers, accounts, poi)
+fn deserialize_versioned<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, DatabaseError> {
+   // Try bincode v2+ first
+   if let Ok((env, _)) =
+      decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
+   {
+      if env.v >= 2 {
+         let (val, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         return Ok(val);
+      }
+   }
+
+   // Fallback to legacy JSON v1
+   let env: JsonEnvelope = serde_json::from_slice(bytes)?;
+   match env.v {
+      1 => serde_json::from_value(env.data).map_err(Into::into),
+      v => Err(DatabaseError::UnsupportedVersion(v)),
+   }
+}
+
+/// Deserialize tree states (big Vec<Vec<U256>> benefit a lot from bincode)
+fn deserialize_versioned_tree(
+   bytes: &[u8],
+) -> Result<Option<RailgunMerkleTreeState>, DatabaseError> {
+   // Try bincode v2+
+   if let Ok((env, _)) =
+      decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
+   {
+      if env.v >= 2 {
+         let (state, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         return Ok(Some(state));
+      }
+   }
+
+   // Legacy JSON
+   let env: JsonEnvelope = serde_json::from_slice(bytes)?;
+   match env.v {
+      1 => Ok(Some(serde_json::from_value(env.data)?)),
+      v => Err(DatabaseError::UnsupportedVersion(v)),
+   }
 }
 
 fn utxo_indexer_key() -> Vec<u8> {

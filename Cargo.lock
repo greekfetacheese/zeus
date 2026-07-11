@@ -12263,6 +12263,7 @@ dependencies = [
  "ark-std 0.6.0",
  "async-trait",
  "bech32",
+ "bincode-next",
  "bip39",
  "blake-hash",
  "brotli",

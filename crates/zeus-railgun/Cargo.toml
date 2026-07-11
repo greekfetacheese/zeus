@@ -47,6 +47,7 @@ k256 = "=0.13.4"
 sha3 = "=0.10.8"
 
 # Misc
+bincode-next = { version = "3", features = ["serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 web-time = "1.1"
 wasmer = { version = "6.1", default-features = false }
