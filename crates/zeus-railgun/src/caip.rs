@@ -8,7 +8,6 @@ use crate::abi::railgun::{TokenData, TokenType};
 
 /// CAIP-10 style Asset ID.  ERC721 and ERC1155 sub-id represented as hex strings.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
 pub enum AssetId {
    Erc20(Address),
    Erc721(Address, U256),

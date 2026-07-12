@@ -9,6 +9,7 @@ mod tests {
    use zeus_railgun::caip::AssetId;
    use zeus_railgun::*;
 
+   use std::time::Instant;
    use zeus_eth::alloy_primitives::{TxKind, U256};
    use zeus_eth::alloy_provider::Provider;
    use zeus_eth::{currency::ERC20Token, revm_utils::*, utils::NumericValue};
@@ -29,12 +30,20 @@ mod tests {
 
       let client = ctx.get_client(chain).await?;
 
+      let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
       let chain_config = ChainConfig::mainnet();
       let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-      let rpc_syncer = RpcSyncer::new(client.clone(), chain_config.railgun_smart_wallet);
-      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(SubsquidSyncer::new(
-         &chain_config.subsquid_endpoint,
-      )));
+      let rpc_syncer = RpcSyncer::new(
+         client.clone(),
+         chain,
+         chain_config.railgun_smart_wallet,
+      )
+      .with_snapshot_loader(snapshot_loader.clone());
+
+      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+         SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+            .with_snapshot_loader(snapshot_loader),
+      ));
 
       let database = RedbDatabase::new(db_file)?;
       let utxo_indexer = UtxoIndexer::new(
@@ -60,7 +69,10 @@ mod tests {
 
    #[tokio::test]
    async fn test_sync() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt().with_env_filter("info,error,debug").init();
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
 
       let ctx = ZeusCtx::new();
       let chain = 1;
@@ -78,15 +90,46 @@ mod tests {
       let client = ctx.get_client(chain).await?;
       let latest_block = client.get_block_number().await?;
       let to_block = latest_block;
+      let use_subsquid = false;
 
       println!("To Block {}", to_block);
 
-      railgun_provider.sync_to(to_block, true).await?; // using SubsquidSyncer
+      railgun_provider.sync_to(to_block, use_subsquid).await?;
 
       let synced_block = railgun_provider.utxo_indexer.synced_block();
       println!("Synced block: {}", synced_block);
 
       Ok(())
+   }
+
+   #[tokio::test]
+   async fn test_snapshot_loader() {
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
+
+      let chain = 1;
+      let dir = railgun_dir().unwrap();
+      let loader = SnapshotLoader::new(dir);
+
+      let time = Instant::now();
+      let snapshot = loader.load(chain).await.unwrap();
+      println!(
+         "Snapshot loaded in {}ms",
+         time.elapsed().as_millis()
+      );
+
+      println!(
+         "Events {} | latest block {}",
+         snapshot.events.len(),
+         snapshot.block_number
+      );
+
+      loop {
+         std::thread::sleep(std::time::Duration::from_secs(1));
+         println!("Press ctrl-c to exit");
+      }
    }
 
    #[tokio::test]

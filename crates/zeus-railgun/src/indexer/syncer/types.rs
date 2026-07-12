@@ -9,7 +9,6 @@ use crate::{
    merkle_tree::UtxoLeafHash,
 };
 
-// TODO: impl a snapshot to store all the SyncEvent for faster syncing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncEvent {
    Shield(Shield, u64),
@@ -50,7 +49,6 @@ pub struct Nullified {
    pub nullifier: FixedBytes<32>,
 }
 
-
 /// Legacy ciphertext format from pre-Mar23 CommitmentBatch events.
 /// (ciphertext[4], ephemeralKeys[2], memo[])
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -88,6 +86,17 @@ pub struct SyncerError(#[source] Box<dyn std::error::Error + Send + Sync>);
 impl SyncerError {
    pub fn new<E: std::error::Error + Send + Sync + 'static>(e: E) -> Self {
       SyncerError(Box::new(e))
+   }
+}
+
+impl SyncEvent {
+   pub fn block_number(&self) -> u64 {
+      match self {
+         SyncEvent::Shield(_, b) => *b,
+         SyncEvent::Transact(_, b) => *b,
+         SyncEvent::Nullified(_, b) => *b,
+         SyncEvent::Legacy(_, b) => *b,
+      }
    }
 }
 

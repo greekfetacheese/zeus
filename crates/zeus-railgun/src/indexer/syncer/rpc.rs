@@ -7,6 +7,7 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
+use tracing::{error, debug, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -14,7 +15,10 @@ use crate::{
       parse_legacy_commitment_batch, parse_legacy_generated_commitment_batch,
       parse_legacy_nullifiers, parse_legacy_shield, parse_legacy_transact, parse_legacy_unshield,
       parse_nullified, parse_shield, parse_transact,
-      syncer::{SyncEvent, SyncerError, UtxoSyncer},
+      syncer::{
+         SyncEvent, SyncerError, UtxoSyncer,
+         snapshot::{EventsSnapshot, SnapshotLoader},
+      },
    },
 };
 
@@ -37,21 +41,30 @@ const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 /// Requires an archive node.
 pub struct RpcSyncer<P: Provider<Ethereum>> {
    provider: P,
+   chain_id: u64,
    railgun_address: Address,
    syncing: Arc<Mutex<bool>>,
    concurrency: Arc<Mutex<usize>>,
    block_range: Arc<Mutex<u64>>,
+   snapshot_loader: Option<SnapshotLoader>,
 }
 
 impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
-   pub fn new(provider: P, railgun_address: Address) -> Self {
+   pub fn new(provider: P, chain_id: u64, railgun_address: Address) -> Self {
       Self {
          provider,
+         chain_id,
          railgun_address,
          syncing: Arc::new(Mutex::new(false)),
          concurrency: Arc::new(Mutex::new(2)),
          block_range: Arc::new(Mutex::new(DEFAULT_BLOCK_RANGE)),
+         snapshot_loader: None,
       }
+   }
+
+   pub fn with_snapshot_loader(mut self, snapshot_loader: SnapshotLoader) -> Self {
+      self.snapshot_loader = Some(snapshot_loader);
+      self
    }
 
    pub async fn is_syncing(&self) -> bool {
@@ -79,10 +92,9 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
    }
 
    async fn get_logs(&self, from_block: u64, to_block: u64) -> Result<Vec<RpcLog>, SyncerError> {
-      tracing::debug!(
+      debug!(
          "Fetching logs from block {} to {}",
-         from_block,
-         to_block
+         from_block, to_block
       );
 
       let address = self.railgun_address;
@@ -112,7 +124,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
 
             let task: tokio::task::JoinHandle<Result<(), SyncerError>> = tokio::spawn(async move {
                let _permit = semaphore.acquire_owned().await.map_err(SyncerError::new)?;
-               tracing::debug!(
+               debug!(
                   "Quering Logs for block range: {} - {}",
                   start_block,
                   end_block
@@ -137,7 +149,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
             match task.await {
                Ok(_) => {}
                Err(e) => {
-                  tracing::error!("Error fetching logs: {:?}", e);
+                  error!("Error fetching logs: {:?}", e);
                }
             }
          }
@@ -159,86 +171,160 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for RpcSyncer<P> {
    }
 
    async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
-      if self.is_syncing().await {
-         tracing::info!("Syncer is already syncing");
+      if from_block > to_block {
          return Ok(vec![]);
       }
 
+      if self.is_syncing().await {
+         debug!("Syncer is already syncing");
+         return Ok(vec![]);
+      }
+
+      debug!(
+         "Starting RPC sync from {} to {}",
+         from_block, to_block
+      );
+
       self.set_syncing(true).await;
 
-      let logs = self.get_logs(from_block, to_block).await?;
+      // Load any previously saved snapshot of historical SyncEvents.
+      // This allows very fast "from scratch" syncs for new signers.
+      let mut snapshot = EventsSnapshot::default();
+      if let Some(loader) = &self.snapshot_loader {
+         match loader.load(self.chain_id).await {
+            Ok(s) => snapshot = s,
+            Err(e) => warn!(
+               "Failed to load event snapshot (will start fresh): {}",
+               e
+            ),
+         }
+      }
 
       let mut events = Vec::new();
+      let cached_events = std::mem::take(&mut snapshot.events);
+      let snapshot_block = snapshot.block_number;
+      debug!("Latest snapshot block {}", snapshot_block);
 
-      for log in logs {
-         let block_number = log.block_number.unwrap_or(0);
-         let block_timestamp = log.block_timestamp.unwrap_or(0);
-         let tx_hash = log.transaction_hash.unwrap_or_default();
-         let topic = log.topics().first().clone().unwrap_or_default();
+      let missing = to_block.saturating_sub(snapshot_block);
+      debug!("Missing blocks {} ", missing);
 
-         if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log.inner) {
-            let mut shield_events = parse_shield(&decoded.data, block_number)?;
-            events.append(&mut shield_events);
-            continue;
+      // Serve any relevant historical events from the snapshot
+      for ev in &cached_events {
+         let b = ev.block_number();
+         if b >= from_block && b <= to_block {
+            events.push(ev.clone());
+         }
+      }
+
+      // Only fetch the delta we don't have yet
+      let fetch_from = snapshot_block.saturating_add(1).max(from_block);
+      debug!(
+         "Fetching delta from {} to {}",
+         fetch_from, to_block
+      );
+
+      if fetch_from <= to_block {
+         let logs = self.get_logs(fetch_from, to_block).await?;
+
+         let mut delta = Vec::new();
+
+         for log in logs {
+            let block_number = log.block_number.unwrap_or(0);
+            let block_timestamp = log.block_timestamp.unwrap_or(0);
+            let tx_hash = log.transaction_hash.unwrap_or_default();
+            let topic = log.topics().first().clone().unwrap_or_default();
+
+            if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log.inner) {
+               let mut shield_events = parse_shield(&decoded.data, block_number)?;
+               delta.append(&mut shield_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner)
+            {
+               let mut tx_events = parse_transact(&decoded.data, block_timestamp)?;
+               delta.append(&mut tx_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner)
+            {
+               let mut null_events = parse_nullified(&decoded.data, block_timestamp)?;
+               delta.append(&mut null_events);
+               continue;
+            }
+
+            // Legacy events
+            if let Ok(decoded) =
+               <RailgunLegacy::CommitmentBatch as SolEvent>::decode_log(&log.inner)
+            {
+               let mut legacy_events = parse_legacy_commitment_batch(&decoded.data, block_number)?;
+               delta.append(&mut legacy_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log.inner) {
+               let mut null_events = parse_legacy_nullifiers(&decoded.data, block_timestamp)?;
+               delta.append(&mut null_events);
+               continue;
+            }
+
+            if let Ok(decoded) =
+               <RailgunLegacy::GeneratedCommitmentBatch as SolEvent>::decode_log(&log.inner)
+            {
+               let mut legacy_events =
+                  parse_legacy_generated_commitment_batch(&decoded.data, block_number)?;
+               delta.append(&mut legacy_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log.inner) {
+               let mut tx_events = parse_legacy_transact(&decoded.data, block_timestamp)?;
+               delta.append(&mut tx_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunLegacy::Shield as SolEvent>::decode_log(&log.inner) {
+               let mut shield_events = parse_legacy_shield(&decoded.data, block_number)?;
+               delta.append(&mut shield_events);
+               continue;
+            }
+
+            if let Ok(decoded) = <RailgunLegacy::Unshield as SolEvent>::decode_log(&log.inner) {
+               let _ = parse_legacy_unshield(&decoded.data, block_number); // parsed for completeness
+               continue;
+            }
+
+            debug!(
+               "Unknown Log block_number: {} tx_hash: {} topic: {}",
+               block_number,
+               tx_hash,
+               topic
+            );
          }
 
-         if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner) {
-            let mut tx_events = parse_transact(&decoded.data, block_timestamp)?;
-            events.append(&mut tx_events);
-            continue;
-         }
+         debug!("Delta Events len {}", delta.len());
 
-         if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = parse_nullified(&decoded.data, block_timestamp)?;
-            events.append(&mut null_events);
-            continue;
-         }
+         events.extend(delta.clone());
 
-         // Legacy events
-         if let Ok(decoded) = <RailgunLegacy::CommitmentBatch as SolEvent>::decode_log(&log.inner) {
-            let mut legacy_events = parse_legacy_commitment_batch(&decoded.data, block_number)?;
-            events.append(&mut legacy_events);
-            continue;
-         }
+         // Merge delta into the full historical list and persist
+         let mut full_events = cached_events;
+         full_events.extend(delta);
+         debug!("Full Events len {}", full_events.len());
 
-         if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = parse_legacy_nullifiers(&decoded.data, block_timestamp)?;
-            events.append(&mut null_events);
-            continue;
-         }
+         let updated = EventsSnapshot {
+            events: full_events,
+            block_number: to_block,
+         };
 
-         if let Ok(decoded) =
-            <RailgunLegacy::GeneratedCommitmentBatch as SolEvent>::decode_log(&log.inner)
-         {
-            let mut legacy_events =
-               parse_legacy_generated_commitment_batch(&decoded.data, block_number)?;
-            events.append(&mut legacy_events);
-            continue;
+         if let Some(loader) = &self.snapshot_loader {
+            if let Err(e) = loader.save(self.chain_id, updated).await {
+               warn!("Failed to save event snapshot: {}", e);
+            }
          }
-
-         if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log.inner) {
-            let mut tx_events = parse_legacy_transact(&decoded.data, block_timestamp)?;
-            events.append(&mut tx_events);
-            continue;
-         }
-
-         if let Ok(decoded) = <RailgunLegacy::Shield as SolEvent>::decode_log(&log.inner) {
-            let mut shield_events = parse_legacy_shield(&decoded.data, block_number)?;
-            events.append(&mut shield_events);
-            continue;
-         }
-
-         if let Ok(decoded) = <RailgunLegacy::Unshield as SolEvent>::decode_log(&log.inner) {
-            let _ = parse_legacy_unshield(&decoded.data, block_number); // parsed for completeness
-            continue;
-         }
-
-         tracing::debug!(
-            "Unknown Log block_number: {} tx_hash: {} topic: {}",
-            block_number,
-            tx_hash,
-            topic
-         );
+      } else {
+         // No delta to fetch. We still "covered" up to to_block via the snapshot.
+         // (We don't rewrite the snapshot file here to avoid unnecessary IO.)
       }
 
       self.set_syncing(false).await;
