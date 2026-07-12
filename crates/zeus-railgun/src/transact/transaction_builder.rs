@@ -442,7 +442,7 @@ async fn prove_operation(
    let inputs = TransactCircuitInputs::from_inputs(
       utxo_tree,
       bound_params.hash(),
-      operation.from.clone(),
+      &operation.from,
       operation.asset,
       operation.in_notes(),
       &operation.out_notes(),

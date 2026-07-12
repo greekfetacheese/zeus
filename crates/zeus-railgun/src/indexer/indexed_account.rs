@@ -54,7 +54,7 @@ impl IndexedAccount {
    }
 
    pub fn handle_shield_event(&mut self, event: &syncer::Shield) -> Result<(), NoteError> {
-      let note = UtxoNote::decrypt_shield(self.signer.clone(), event);
+      let note = UtxoNote::decrypt_shield(&self.signer, event);
       let note = match note {
          Err(NoteError::Aes(_)) => {
             return Ok(());
@@ -76,7 +76,7 @@ impl IndexedAccount {
    }
 
    pub fn handle_transact_event(&mut self, event: &syncer::Transact) -> Result<(), NoteError> {
-      let note = UtxoNote::decrypt_transact(self.signer.clone(), &event);
+      let note = UtxoNote::decrypt_transact(&self.signer, &event);
 
       let note = match note {
          Err(NoteError::Aes(_)) => {

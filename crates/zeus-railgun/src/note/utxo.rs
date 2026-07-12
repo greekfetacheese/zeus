@@ -57,7 +57,7 @@ impl UtxoNote {
    pub fn new(
       tree_number: u32,
       leaf_index: u32,
-      signer: RailgunSigner,
+      signer: &RailgunSigner,
       asset: AssetId,
       value: u128,
       random: [u8; 16],
@@ -91,7 +91,7 @@ impl UtxoNote {
    }
 
    /// Decrypt a transact note into a Note
-   pub fn decrypt_transact(signer: RailgunSigner, transact: &Transact) -> Result<Self, NoteError> {
+   pub fn decrypt_transact(signer: &RailgunSigner, transact: &Transact) -> Result<Self, NoteError> {
       let blinded_sender = BlindedKey::from_bytes(transact.blinded_sender_viewing_key);
       let shared_key =
          signer.keys().viewing_private_key.derive_shared_key_blinded(blinded_sender)?;
@@ -130,7 +130,7 @@ impl UtxoNote {
    }
 
    /// Decrypts a shield note into a Note
-   pub fn decrypt_shield(signer: RailgunSigner, shield: &Shield) -> Result<Self, NoteError> {
+   pub fn decrypt_shield(signer: &RailgunSigner, shield: &Shield) -> Result<Self, NoteError> {
       let shield_key = ViewingPublicKey::from_bytes(shield.shield_key);
       let shared_key = signer.keys().viewing_private_key.derive_shared_key(shield_key)?;
 
@@ -226,7 +226,7 @@ pub fn test_note() -> UtxoNote {
    UtxoNote::new(
       1,
       0,
-      signer,
+      &signer,
       AssetId::Erc20(alloy_primitives::address!(
          "0x1234567890123456789012345678901234567890"
       )),

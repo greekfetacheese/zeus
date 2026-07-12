@@ -46,7 +46,7 @@ impl TransactCircuitInputs {
    pub fn from_inputs(
       merkle_tree: &UtxoMerkleTree,
       bound_params_hash: U256,
-      signer: RailgunSigner,
+      signer: &RailgunSigner,
       asset: AssetId,
       notes_in: &[UtxoNote],
       notes_out: &[Box<dyn Note>],
