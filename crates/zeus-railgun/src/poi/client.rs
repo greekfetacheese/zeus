@@ -7,6 +7,7 @@ use std::{
 };
 
 use alloy_primitives::ChainId;
+use alloy_provider::{DynProvider, network::Ethereum};
 use alloy_rpc_types::BlockId;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
@@ -265,6 +266,10 @@ impl MerkleTreeVerifier for PoiClient {
       _block_id: Option<BlockId>,
    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync + 'static>> {
       Ok(self.validate_txid_merkleroot(tree_number, tree_index, root).await?)
+   }
+
+   async fn set_provider(&self, _provider: DynProvider<Ethereum>) {
+      // PoiClient uses its own JSON-RPC client, not an alloy provider; no-op.
    }
 }
 

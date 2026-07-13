@@ -90,6 +90,8 @@ pub struct RailgunProvider<P: Provider<Ethereum>> {
    pub utxo_indexer: Arc<RwLock<UtxoIndexer>>,
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
+   is_syncing: Arc<RwLock<bool>>,
+   is_verifying: Arc<RwLock<bool>>,
 }
 
 #[derive(Debug, Error)]
@@ -128,6 +130,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          utxo_indexer: Arc::new(RwLock::new(utxo_indexer)),
          prover,
          poi_provider,
+         is_syncing: Arc::new(RwLock::new(false)),
+         is_verifying: Arc::new(RwLock::new(false)),
       })
    }
 
@@ -141,11 +145,25 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       0.25
    }
 
+   pub fn set_provider(&mut self, provider: P) {
+      self.provider = provider;
+   }
+
    /// Register a signer with the provider. The provider will index and track
    /// UTXOs for the associated address.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), RailgunProviderError> {
       self.utxo_indexer.write().await.register(signer).await?;
       Ok(())
+   }
+
+   /// Returns true if the [UtxoIndexer] is syncing
+   pub async fn is_syncing(&self) -> bool {
+      *self.is_syncing.read().await
+   }
+
+   /// Returns true if the [UtxoIndexer] is verifying
+   pub async fn is_verifying(&self) -> bool {
+      *self.is_verifying.read().await
    }
 
    /// Syncs the provider to the latest block.
@@ -162,12 +180,22 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       let deployment_block = self.chain.deployment_block;
 
       {
+         let mut is_syncing = self.is_syncing.write().await;
+         *is_syncing = true;
+      }
+
+      {
          let mut utxo_indexer = self.utxo_indexer.write().await;
          utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
       }
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;
+      }
+
+      {
+         let mut is_syncing = self.is_syncing.write().await;
+         *is_syncing = false;
       }
 
       Ok(())
@@ -198,8 +226,20 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    ///
    /// If `block_id` is none the latest block will be used
    pub async fn verify_root(&self, block_id: Option<BlockId>) -> Result<(), anyhow::Error> {
+      {
+         let mut is_verifying = self.is_verifying.write().await;
+         *is_verifying = true;
+      }
+
       let utxo_indexer = self.utxo_indexer.read().await;
-      utxo_indexer.verify(block_id).await.map_err(|e| anyhow!("{:?}", e))
+      let res = utxo_indexer.verify(block_id).await;
+
+      {
+         let mut is_verifying = self.is_verifying.write().await;
+         *is_verifying = false;
+      }
+
+      res.map_err(|e| anyhow!("{:?}", e))
    }
 
    /// Returns all unspent notes for the given address.

@@ -31,9 +31,9 @@ pub struct UtxoIndexer {
    accounts: Vec<IndexedAccount>,
 
    db: Arc<dyn Database>,
-   rpc_syncer: Arc<dyn UtxoSyncer>,
+   pub rpc_syncer: Arc<dyn UtxoSyncer>,
    subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
-   utxo_verifier: Arc<dyn MerkleTreeVerifier>,
+   pub utxo_verifier: Arc<dyn MerkleTreeVerifier>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -408,6 +408,7 @@ impl UtxoIndexer {
    }
 
    pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
+      // TODO: Make this a batch call
       for tree in self.utxo_trees.values() {
          if tree.leaves_len() == 0 {
             continue;

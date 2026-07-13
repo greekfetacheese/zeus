@@ -208,14 +208,32 @@ impl ZeusCtx {
       &self,
       chain: u64,
    ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      let client = self.get_client(chain).await?;
+
       let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
-      if let Some(provider) = provider_opt {
+      if let Some(mut provider) = provider_opt {
+         provider.set_provider(client.clone());
+
+         let is_syncing = provider.is_syncing().await;
+         let is_verifying = provider.is_verifying().await;
+
+         if !is_syncing && !is_verifying {
+            {
+               let indexer = provider.utxo_indexer.write().await;
+               indexer.rpc_syncer.set_provider(client.clone().erased()).await;
+               indexer.utxo_verifier.set_provider(client.clone().erased()).await;
+            }
+         }
+
+         tracing::info!(
+            "Got Railgun provider for chain {} from cache",
+            chain
+         );
          return Ok(provider);
       }
 
       let db_file = railgun_db_file(chain)?;
       let railgun_dir = railgun_dir()?;
-      let client = self.get_client(chain).await?;
 
       let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
       let chain_config = match ChainConfig::from_chain_id(chain) {

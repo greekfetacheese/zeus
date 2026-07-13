@@ -77,6 +77,7 @@ mod tests {
       let ctx = ZeusCtx::new();
       let chain = 1;
       let _chain_config = ChainConfig::mainnet();
+      let client = ctx.get_client(chain).await?;
 
       let wallet = create_wallet();
       let seed = wallet.seed()?;
@@ -86,8 +87,14 @@ mod tests {
          create_railgun_provider(ctx.clone(), chain).await?;
 
       railgun_provider.register(signer).await?;
+      railgun_provider.set_provider(client.clone());
 
-      let client = ctx.get_client(chain).await?;
+      {
+         let indexer = railgun_provider.utxo_indexer.write().await;
+         indexer.rpc_syncer.set_provider(client.clone().erased()).await;
+         indexer.utxo_verifier.set_provider(client.clone().erased()).await;
+      }
+
       let latest_block = client.get_block_number().await?;
       let to_block = latest_block;
       let use_subsquid = false;
@@ -331,7 +338,11 @@ mod tests {
 
       // Sync the indexer
       let logs = res.logs().to_vec();
-      railgun_provider.utxo_indexer.write().await.sync_from_logs(logs, synced_block, timestamp)?;
+      railgun_provider
+         .utxo_indexer
+         .write()
+         .await
+         .sync_from_logs(logs, synced_block, timestamp)?;
 
       let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
       let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);

@@ -1,5 +1,5 @@
 use alloy_primitives::Address;
-use alloy_provider::{Provider, network::Ethereum};
+use alloy_provider::{DynProvider, Provider, network::Ethereum};
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log as RpcLog};
 use alloy_sol_types::SolEvent;
 use std::sync::Arc;
@@ -7,7 +7,7 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::{error, debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -39,8 +39,12 @@ const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 /// and fetches all the `SyncEvent` from the Railgun contract on-chain.
 ///
 /// Requires an archive node.
-pub struct RpcSyncer<P: Provider<Ethereum>> {
-   provider: P,
+pub struct RpcSyncer {
+   /// Type-erased provider so it can be swapped at runtime via [`UtxoSyncer::set_provider`].
+   ///
+   /// Stored behind a shared `Mutex` so the swap works through `Arc<dyn UtxoSyncer>`
+   /// (which only offers `&self`).
+   provider: Arc<Mutex<DynProvider<Ethereum>>>,
    chain_id: u64,
    railgun_address: Address,
    syncing: Arc<Mutex<bool>>,
@@ -49,10 +53,14 @@ pub struct RpcSyncer<P: Provider<Ethereum>> {
    snapshot_loader: Option<SnapshotLoader>,
 }
 
-impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
-   pub fn new(provider: P, chain_id: u64, railgun_address: Address) -> Self {
+impl RpcSyncer {
+   pub fn new(
+      provider: impl Provider<Ethereum> + 'static,
+      chain_id: u64,
+      railgun_address: Address,
+   ) -> Self {
       Self {
-         provider,
+         provider: Arc::new(Mutex::new(DynProvider::new(provider))),
          chain_id,
          railgun_address,
          syncing: Arc::new(Mutex::new(false)),
@@ -65,6 +73,10 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
    pub fn with_snapshot_loader(mut self, snapshot_loader: SnapshotLoader) -> Self {
       self.snapshot_loader = Some(snapshot_loader);
       self
+   }
+
+   pub async fn set_provider(&self, provider: DynProvider<Ethereum>) {
+      *self.provider.lock().await = provider;
    }
 
    pub async fn is_syncing(&self) -> bool {
@@ -108,7 +120,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
 
       let logs = Arc::new(Mutex::new(Vec::new()));
       let semaphore = Arc::new(Semaphore::new(concurrency));
-      let client = self.provider.clone();
+      let client = self.provider.lock().await.clone();
 
       let mut tasks: Vec<JoinHandle<Result<(), SyncerError>>> = Vec::new();
 
@@ -126,8 +138,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
                let _permit = semaphore.acquire_owned().await.map_err(SyncerError::new)?;
                debug!(
                   "Quering Logs for block range: {} - {}",
-                  start_block,
-                  end_block
+                  start_block, end_block
                );
 
                let local_filter = filter_clone
@@ -164,10 +175,16 @@ impl<P: Provider<Ethereum> + Clone + 'static> RpcSyncer<P> {
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for RpcSyncer<P> {
+impl UtxoSyncer for RpcSyncer {
    async fn latest_block(&self) -> Result<u64, SyncerError> {
-      let latest = self.provider.get_block_number().await.map_err(|e| SyncerError::new(e))?;
+      let client = self.provider.lock().await.clone();
+      let latest = client.get_block_number().await.map_err(|e| SyncerError::new(e))?;
       Ok(latest)
+   }
+
+   async fn set_provider(&self, provider: DynProvider<Ethereum>) {
+      let provider_cell = self.provider.clone();
+      *provider_cell.lock().await = provider;
    }
 
    async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError> {
@@ -297,9 +314,7 @@ impl<P: Provider<Ethereum> + Clone + 'static> UtxoSyncer for RpcSyncer<P> {
 
             debug!(
                "Unknown Log block_number: {} tx_hash: {} topic: {}",
-               block_number,
-               tx_hash,
-               topic
+               block_number, tx_hash, topic
             );
          }
 

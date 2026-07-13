@@ -1,3 +1,4 @@
+use alloy_provider::{DynProvider, network::Ethereum};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{debug, error, info, warn};
 use web_time::Duration;
@@ -146,6 +147,10 @@ impl UtxoSyncer for SubsquidSyncer {
       }
 
       Ok(events)
+   }
+
+   async fn set_provider(&self, _provider: DynProvider<Ethereum>) {
+      // SubsquidSyncer uses a reqwest client, not an alloy provider; no-op.
    }
 }
 
