@@ -1,4 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 use alloy_primitives::ChainId;
 use ruint::aliases::U256;
@@ -30,11 +31,12 @@ use crate::{
    transact::proved_transaction::ProvedOperation,
 };
 
+#[derive(Clone)]
 pub struct PoiProvider {
-   inner: PoiProviderState,
+   inner: Arc<RwLock<PoiProviderState>>,
    db: Arc<dyn Database>,
    poi_client: PoiClient,
-   txid_indexer: TxidIndexer,
+   txid_indexer: Arc<RwLock<TxidIndexer>>,
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -111,10 +113,10 @@ impl PoiProvider {
       let poi_client = PoiClient::new(chain_id, poi_endpoint, list_keys);
 
       Ok(Self {
-         inner,
+         inner: Arc::new(RwLock::new(inner)),
          db,
-         poi_client,
-         txid_indexer,
+         poi_client: poi_client,
+         txid_indexer: Arc::new(RwLock::new(txid_indexer)),
       })
    }
 
@@ -123,8 +125,8 @@ impl PoiProvider {
       prover: &Groth16Prover,
       to_block: u64,
    ) -> Result<(), PoiProviderError> {
-      let poi_client = self.poi_client.clone();
-      self.txid_indexer.sync_to(to_block, &poi_client).await?;
+      let poi_client = &self.poi_client;
+      self.txid_indexer.write().await.sync_to(to_block, poi_client).await?;
       self.submit_pending(prover).await;
       self.save().await?;
       Ok(())
@@ -136,7 +138,7 @@ impl PoiProvider {
    ) -> Result<(), PoiProviderError> {
       let list_keys = self.poi_client.list_keys();
       for op in operations {
-         self.register(op, list_keys.clone());
+         self.register(op, list_keys.clone()).await;
       }
       self.save().await?;
       Ok(())
@@ -167,7 +169,7 @@ impl PoiProvider {
       Ok(worst)
    }
 
-   fn register(&mut self, op: &ProvedOperation, list_keys: Vec<ListKey>) {
+   async fn register(&mut self, op: &ProvedOperation, list_keys: Vec<ListKey>) {
       let spending_pubkey = op.inner.from.keys().spending_public_key.clone();
       let txid = Txid::from_operation(op);
       let in_notes = op.inner.in_notes().to_vec();
@@ -178,7 +180,7 @@ impl PoiProvider {
          "Registered POI for {:?}",
          op.circuit_inputs.bound_params_hash
       );
-      self.inner.pending.push(PendingPoiEntry {
+      self.inner.write().await.pending.push(PendingPoiEntry {
          txid,
          spending_pubkey,
          nullifying_key: op.inner.from.keys().nullifying_key.clone(),
@@ -195,12 +197,13 @@ impl PoiProvider {
    }
 
    async fn submit_pending(&mut self, prover: &Groth16Prover) {
-      for i in (0..self.inner.pending.len()).rev() {
-         let entry = self.inner.pending[i].clone();
+      let mut inner = self.inner.write().await;
+      for i in (0..inner.pending.len()).rev() {
+         let entry = inner.pending[i].clone();
          match self.submit_poi(prover, &entry).await {
             Ok(_) => {
                info!("Submitted POI for {:?}", entry.txid);
-               self.inner.pending.remove(i);
+               inner.pending.remove(i);
             }
             Err(PendingPoiError::MissingTxid(_)) => {
                info!("Waiting for txid to be indexed: {:?}", entry.txid);
@@ -217,12 +220,14 @@ impl PoiProvider {
       prover: &Groth16Prover,
       entry: &PendingPoiEntry,
    ) -> Result<(), PendingPoiError> {
-      let txid_tree_number = match self.txid_indexer.txid_position(&entry.txid) {
+      let txid_indexer = self.txid_indexer.read().await;
+
+      let txid_tree_number = match txid_indexer.txid_position(&entry.txid) {
          Some((tree_number, _)) => tree_number,
          None => return Err(PendingPoiError::MissingTxid(entry.txid)),
       };
 
-      let (utxo_tree_number, utxo_leaf_index) = match self.txid_indexer.utxo_position(&entry.txid) {
+      let (utxo_tree_number, utxo_leaf_index) = match txid_indexer.utxo_position(&entry.txid) {
          Some((tree_number, leaf_index)) => (tree_number, leaf_index),
          None => {
             return Err(PendingPoiError::MissingUtxoTree(
@@ -231,7 +236,7 @@ impl PoiProvider {
          }
       };
 
-      let txid_tree = match self.txid_indexer.tree(txid_tree_number) {
+      let txid_tree = match txid_indexer.tree(txid_tree_number) {
          Some(tree) => tree,
          None => return Err(PendingPoiError::MissingTxidTree(txid_tree_number)),
       };
@@ -319,7 +324,8 @@ impl PoiProvider {
    }
 
    async fn save(&self) -> Result<(), PoiProviderError> {
-      self.db.set_poi_provider(&self.inner).await?;
+      let inner = self.inner.read().await;
+      self.db.set_poi_provider(&inner).await?;
       Ok(())
    }
 }

@@ -1,6 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
-use alloy_primitives::{Address, B256, Bytes, U256, Log};
+use alloy_primitives::{Address, B256, Bytes, Log, U256};
 use alloy_provider::{Provider, network::Ethereum};
 use alloy_rpc_types::{BlockId, TransactionRequest};
 use alloy_sol_types::SolCall;
@@ -18,13 +19,23 @@ use userop_kit::{
 };
 
 use crate::{
-   account::{address::RailgunAddress, signer::RailgunSigner}, adapter_data::{encode_paymaster_data, encode_railgun_adapter_data, paymaster_railgun_address}, caip::AssetId, chain_config::ChainConfig, circuit::groth16_prover::Groth16Prover, database::DatabaseError, indexer::utxo_indexer::{UtxoIndexer, UtxoIndexerError}, note::{Note, utxo::UtxoNote}, poi::{
+   account::{address::RailgunAddress, signer::RailgunSigner},
+   adapter_data::{encode_paymaster_data, encode_railgun_adapter_data, paymaster_railgun_address},
+   caip::AssetId,
+   chain_config::ChainConfig,
+   circuit::groth16_prover::Groth16Prover,
+   database::DatabaseError,
+   indexer::utxo_indexer::{UtxoIndexer, UtxoIndexerError},
+   note::{Note, utxo::UtxoNote},
+   poi::{
       provider::{PoiProvider, PoiProviderError},
       types::{BlindedCommitmentType, PoiStatus},
-   }, transact::{
+   },
+   transact::{
       ShieldBuilder, TransactionBuilder, TransactionBuilderError,
       proved_transaction::{ProvedOperation, ProvedTx},
-   }, types::Chain
+   },
+   types::Chain,
 };
 
 #[derive(Debug, Serialize)]
@@ -72,10 +83,11 @@ impl NoteEntry {
 }
 
 /// Interfaces with the RAILGUN protocol.
+#[derive(Clone)]
 pub struct RailgunProvider<P: Provider<Ethereum>> {
    chain: ChainConfig,
    provider: P,
-   pub utxo_indexer: UtxoIndexer,
+   pub utxo_indexer: Arc<RwLock<UtxoIndexer>>,
    prover: Groth16Prover,
    poi_provider: Option<PoiProvider>,
 }
@@ -113,7 +125,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       Ok(Self {
          chain,
          provider,
-         utxo_indexer,
+         utxo_indexer: Arc::new(RwLock::new(utxo_indexer)),
          prover,
          poi_provider,
       })
@@ -132,7 +144,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    /// Register a signer with the provider. The provider will index and track
    /// UTXOs for the associated address.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), RailgunProviderError> {
-      self.utxo_indexer.register(signer).await?;
+      self.utxo_indexer.write().await.register(signer).await?;
       Ok(())
    }
 
@@ -149,7 +161,10 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    ) -> Result<(), RailgunProviderError> {
       let deployment_block = self.chain.deployment_block;
 
-      self.utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
+      {
+         let mut utxo_indexer = self.utxo_indexer.write().await;
+         utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
+      }
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;
@@ -159,30 +174,32 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    /// Syncs the provider directly from logs
-   /// 
+   ///
    /// This should only be used for evm simulations on a instance of the provider that
    /// will not be used for real transactions.
-   pub fn sync_from_logs(
+   pub async fn sync_from_logs(
       &mut self,
       logs: Vec<Log>,
       synced_block: u64,
       timestamp: u64,
    ) -> Result<(), RailgunProviderError> {
-      self.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
+      let mut utxo_indexer = self.utxo_indexer.write().await;
+      utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
 
       Ok(())
    }
 
    /// Compact the db to save space
    pub async fn compact(&self) -> Result<bool, DatabaseError> {
-      self.utxo_indexer.compact().await
+      self.utxo_indexer.write().await.compact().await
    }
 
    /// Verify root withing the given `block_id`
    ///
    /// If `block_id` is none the latest block will be used
    pub async fn verify_root(&self, block_id: Option<BlockId>) -> Result<(), anyhow::Error> {
-      self.utxo_indexer.verify(block_id).await.map_err(|e| anyhow!("{:?}", e))
+      let utxo_indexer = self.utxo_indexer.read().await;
+      utxo_indexer.verify(block_id).await.map_err(|e| anyhow!("{:?}", e))
    }
 
    /// Returns all unspent notes for the given address.
@@ -382,7 +399,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    async fn all_unspent(&mut self) -> Vec<(UtxoNote, Option<PoiStatus>)> {
-      let addresses = self.utxo_indexer.registered();
+      let addresses = self.utxo_indexer.read().await.registered();
       let mut all_notes = Vec::new();
 
       for address in addresses {
@@ -393,7 +410,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
    }
 
    async fn unspent(&mut self, address: RailgunAddress) -> Vec<(UtxoNote, Option<PoiStatus>)> {
-      let notes = self.utxo_indexer.unspent(address);
+      let notes = self.utxo_indexer.read().await.unspent(address);
 
       let Some(poi_provider) = &mut self.poi_provider else {
          return notes.into_iter().map(|note| (note, None)).collect();
@@ -437,12 +454,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          in_notes.into_iter().map(|(note, _)| note).collect()
       };
 
+      let utxo_indexer = self.utxo_indexer.read().await;
+
       let operations = builder
          .build(
             &self.prover,
             self.chain.id,
             &spendable_notes,
-            &self.utxo_indexer.utxo_trees,
+            &utxo_indexer.utxo_trees,
             rng,
          )
          .await?;

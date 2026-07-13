@@ -16,6 +16,7 @@ use crate::circuit::{
    witness::{CalculateWitnessError, calculate_witness},
 };
 
+#[derive(Clone)]
 pub struct Groth16Prover {
    artifact_loader: RemoteArtifactLoader,
 }

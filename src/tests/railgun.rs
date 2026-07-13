@@ -96,7 +96,7 @@ mod tests {
 
       railgun_provider.sync_to(to_block, use_subsquid).await?;
 
-      let synced_block = railgun_provider.utxo_indexer.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
       println!("Synced block: {}", synced_block);
 
       Ok(())
@@ -148,7 +148,7 @@ mod tests {
 
       railgun_provider.register(signer).await.unwrap();
 
-      let synced_block = railgun_provider.utxo_indexer.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
       println!("Synced block: {}", synced_block);
 
       match railgun_provider.compact().await {
@@ -179,7 +179,7 @@ mod tests {
 
       railgun_provider.register(signer).await?;
 
-      let synced_block = railgun_provider.utxo_indexer.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
       println!("Synced block: {}", synced_block);
 
       let block_id = BlockId::number(synced_block);
@@ -220,7 +220,7 @@ mod tests {
          key: wallet.key.to_signer(),
       };
 
-      let synced_block = railgun_provider.utxo_indexer.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
       let fork_block = BlockId::number(synced_block);
       let full_block = client.get_block(fork_block).await.unwrap();
       let timestamp = full_block.unwrap().header.timestamp;
@@ -283,7 +283,11 @@ mod tests {
       }
 
       let logs = res.logs().to_vec();
-      railgun_provider.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
+      railgun_provider
+         .utxo_indexer
+         .write()
+         .await
+         .sync_from_logs(logs, synced_block, timestamp)?;
 
       let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
       let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);
@@ -327,7 +331,7 @@ mod tests {
 
       // Sync the indexer
       let logs = res.logs().to_vec();
-      railgun_provider.utxo_indexer.sync_from_logs(logs, synced_block, timestamp)?;
+      railgun_provider.utxo_indexer.write().await.sync_from_logs(logs, synced_block, timestamp)?;
 
       let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
       let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);
