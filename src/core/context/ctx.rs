@@ -29,6 +29,10 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, address_book, client::RpcClient},
 };
+use zeus_railgun::{
+   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer,
+   SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+};
 
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -193,6 +197,73 @@ impl ZeusCtx {
       self.read(|ctx| ctx.server_running)
    }
 
+   pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
+      match chain {
+         ChainId::Ethereum => true,
+         _ => false,
+      }
+   }
+
+   pub async fn get_railgun_provider(
+      &self,
+      chain: u64,
+   ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
+      if let Some(provider) = provider_opt {
+         return Ok(provider);
+      }
+
+      let db_file = railgun_db_file(chain)?;
+      let railgun_dir = railgun_dir()?;
+      let client = self.get_client(chain).await?;
+
+      let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+      let chain_config = match ChainConfig::from_chain_id(chain) {
+         Some(chain_config) => chain_config,
+         None => {
+            return Err(anyhow!("Chain {} not supported", chain));
+         }
+      };
+
+      let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
+      let rpc_syncer = RpcSyncer::new(
+         client.clone(),
+         chain,
+         chain_config.railgun_smart_wallet,
+      )
+      .with_snapshot_loader(snapshot_loader.clone());
+
+      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+         SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+            .with_snapshot_loader(snapshot_loader),
+      ));
+
+      let database = RedbDatabase::new(db_file)?;
+      let utxo_indexer = UtxoIndexer::new(
+         Arc::new(database),
+         Arc::new(rpc_syncer),
+         subsquid_syncer,
+         Arc::new(utxo_verifier),
+      )
+      .await?;
+      let prover = Groth16Prover::new(Some(railgun_dir));
+
+      let railgun_provider = RailgunProvider::new(
+         chain_config,
+         client.clone(),
+         utxo_indexer,
+         prover,
+         None,
+      )
+      .await?;
+
+      self.write(|ctx| {
+         ctx.railgun_provider.insert(chain, railgun_provider.clone());
+      });
+
+      Ok(railgun_provider)
+   }
+
    /// Encrypt and save the vault
    ///
    /// If `new_vault` is None, the current vault will be encrypted
@@ -302,8 +373,9 @@ impl ZeusCtx {
       self.read(|ctx| ctx.current_wallet.clone())
    }
 
-   pub fn current_wallet_info(&self) -> WalletInfo {
-      let wallet = self.read(|ctx| WalletInfo::from_wallet(&ctx.current_wallet));
+   pub fn current_wallet_info(&self, generate_railgun_address: bool) -> WalletInfo {
+      let wallet =
+         self.read(|ctx| WalletInfo::from_wallet(&ctx.current_wallet, generate_railgun_address));
       wallet
    }
 
@@ -312,12 +384,19 @@ impl ZeusCtx {
    }
 
    /// Get the wallet info for the given address, without cloning the private key
-   pub fn get_wallet_info_by_address(&self, address: Address) -> Option<WalletInfo> {
+   pub fn get_wallet_info_by_address(
+      &self,
+      address: Address,
+      generate_railgun_address: bool,
+   ) -> Option<WalletInfo> {
       let mut info = None;
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
             if wallet.address() == address {
-               info = Some(WalletInfo::from_wallet(&wallet));
+               info = Some(WalletInfo::from_wallet(
+                  &wallet,
+                  generate_railgun_address,
+               ));
                break;
             }
          }
@@ -325,12 +404,29 @@ impl ZeusCtx {
       info
    }
 
+   /// Get the wallet name for the given address
+   pub fn get_wallet_name(&self, address: Address) -> Option<String> {
+      let mut name = None;
+      self.read(|ctx| {
+         for wallet in ctx.vault_ref().all_wallets() {
+            if wallet.address() == address {
+               name = Some(wallet.name.clone());
+               break;
+            }
+         }
+      });
+      name
+   }
+
    /// Get all wallets info without cloning the private key
-   pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
+   pub fn get_all_wallets_info(&self, generate_railgun_address: bool) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
-            info.push(WalletInfo::from_wallet(&wallet));
+            info.push(WalletInfo::from_wallet(
+               &wallet,
+               generate_railgun_address,
+            ));
          }
       });
       info
@@ -694,9 +790,9 @@ impl ZeusCtx {
 
    /// Return the name of this address if its known
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      let wallet = self.get_wallet_info_by_address(address);
-      if wallet.is_some() {
-         return Some(wallet.unwrap().name());
+      let name = self.get_wallet_name(address);
+      if name.is_some() {
+         return Some(name.unwrap());
       }
 
       let contact = self.get_contact_by_address(&address.to_string());
@@ -1505,29 +1601,53 @@ impl Contact {
 }
 
 pub struct ZeusContext {
+   /// Client manager that handles almost all the RPC calls in Zeus
    pub client: ZeusClient,
 
    /// The current selected chain from the GUI
    pub chain: ChainId,
+
+   /// True if the privacy mode is enabled (Railgun)
+   pub privacy_mode: bool,
+
+   /// Railgun provider mapped by chain
+   pub railgun_provider: HashMap<u64, RailgunProvider<RpcClient>>,
 
    /// The current selected wallet from the GUI
    pub current_wallet: Wallet,
 
    /// Loaded Vault
    vault: Vault,
+   /// Flag to indicate that the vault is being saved
+   /// to prevent any race conditions
    pub save_vault_in_progress: bool,
+   /// True if a vault exists in the data directory
    pub vault_exists: bool,
+   /// True if the vault is unlocked,
+   /// only then the Zeus UI unlocks
    pub vault_unlocked: bool,
+   /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
+   /// Holds all portfolios
    pub portfolio_db: PortfolioDB,
+   /// Tx history
    pub tx_db: TransactionsDB,
+   /// Pool manager used for the Uniswap UI
+   /// and price manager
    pub pool_manager: PoolManagerHandle,
+   /// Calculate the $USD price of an ERC20 token
+   /// based purely on the on-chain pool data
+   /// no 3rd party APIs
    pub price_manager: PriceManagerHandle,
+   /// Fetch and stores ETH and ERC20 balances
    pub balance_manager: BalanceManagerHandle,
    pub data_syncing: bool,
    pub dex_syncing: bool,
    pub on_startup_syncing: bool,
+   /// Cached base fees for each chain
    pub base_fee: HashMap<u64, BaseFee>,
+
+   // Cached data for the wallet connector
    pub latest_block: HashMap<u64, Block>,
    pub eth_calls: HashMap<(u64, TransactionRequest), EthCall>,
    pub estimate_gas: HashMap<(u64, TransactionRequest), EstimateGas>,
@@ -1535,13 +1655,25 @@ pub struct ZeusContext {
    pub storage: HashMap<(u64, u64, Address, U256), U256>,
    pub transactions: HashMap<(u64, FixedBytes<32>), Transaction>,
    pub receipts: HashMap<(u64, FixedBytes<32>), TransactionReceipt>,
+
+   /// Cached priority fees for each chain
    pub priority_fee: PriorityFee,
+   /// Currently connected dapps
    pub connected_dapps: ConnectedDapps,
+   /// Currently delegated wallets
    pub delegated_wallets: DelegatedWallets,
+
+   // TODO: Currenly unused
    pub server_port: u16,
+   /// True if the local server that communicates with the wallet connector (browser extension) is running
    pub server_running: bool,
+
+   // TODO: Remove these, they dont belong here
+   /// True if the transaction confirmation window is open
    pub tx_confirm_window_open: bool,
+   /// True if the sign message window is open
    pub sign_msg_window_open: bool,
+
    /// Private Key and Address Qr Code
    pub qr_image_data: Arc<[u8]>,
 
@@ -1632,6 +1764,8 @@ impl ZeusContext {
       Self {
          client,
          chain: ChainId::new(1).unwrap(),
+         privacy_mode: false,
+         railgun_provider: HashMap::new(),
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          vault: Vault::default(),
          save_vault_in_progress: false,

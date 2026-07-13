@@ -455,7 +455,7 @@ impl SwapUi {
       }
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.current_wallet_info().address;
+      let owner = ctx.current_wallet_info(false).address;
       let simulate_mode = settings.simulate_mode;
 
       if simulate_mode {
@@ -740,7 +740,7 @@ impl SwapUi {
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
-      let sender = ctx.current_wallet_info().address;
+      let sender = ctx.current_wallet_info(false).address;
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
       let amount = self.amount_in_field.amount_wei;
       balance.wei() >= amount
@@ -753,7 +753,7 @@ impl SwapUi {
          });
 
          let manager = ctx.balance_manager();
-         let owner = ctx.current_wallet_info().address;
+         let owner = ctx.current_wallet_info(false).address;
          let chain = currency.chain_id();
 
          if currency.is_erc20() {
@@ -1220,7 +1220,7 @@ impl SwapUi {
 
    fn swap(&self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
       let action = self.action();
-      let from = ctx.current_wallet_info().address;
+      let from = ctx.current_wallet_info(false).address;
       let chain = ctx.chain();
 
       if action.is_wrap() {

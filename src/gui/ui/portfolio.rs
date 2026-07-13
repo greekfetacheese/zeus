@@ -12,9 +12,10 @@ use eframe::egui::{
 };
 use std::collections::HashMap;
 use std::sync::Arc;
+use zeus_railgun::caip::AssetId;
 
 use zeus_eth::{
-   alloy_primitives::Address,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
@@ -28,7 +29,7 @@ type Price = NumericValue;
 type TokenList = Vec<(ERC20Token, Balance, Value, Price)>;
 type TokenMap = HashMap<u64, HashMap<Address, TokenList>>;
 
-fn process_tokens(ctx: ZeusCtx, chain_id: u64, owner: Address) -> TokenList {
+fn process_public_tokens(ctx: ZeusCtx, chain_id: u64, owner: Address) -> TokenList {
    let portfolio = ctx.get_portfolio(chain_id, owner);
    let tokens = portfolio.tokens;
 
@@ -48,13 +49,59 @@ fn process_tokens(ctx: ZeusCtx, chain_id: u64, owner: Address) -> TokenList {
    token_list
 }
 
+async fn process_private_tokens(
+   ctx: ZeusCtx,
+   chain_id: u64,
+   owner: Address,
+) -> Result<TokenList, anyhow::Error> {
+   let mut token_list: TokenList = Vec::new();
+
+   if !ctx.railgun_is_supported(chain_id.into()) {
+      return Ok(token_list);
+   }
+
+   let mut provider = ctx.get_railgun_provider(chain_id).await?;
+   let wallet_info = ctx.get_wallet_info_by_address(owner, true);
+
+   if wallet_info.is_none() {
+      return Ok(token_list);
+   }
+
+   let wallet_info = wallet_info.unwrap();
+
+   if let Some(address) = wallet_info.railgun_address {
+      let private_balances = provider.balance(address).await;
+
+      for entry in private_balances {
+         let token_address = match entry.asset {
+            AssetId::Erc20(address) => address,
+            _ => continue,
+         };
+
+         let erc20 = ctx.get_token(chain_id, token_address).await?;
+         let balance = NumericValue::format_wei(U256::from(entry.amount), erc20.decimals);
+         let price = ctx.get_token_price(&erc20);
+         let value = NumericValue::value(balance.f64(), price.f64());
+         token_list.push((erc20.clone(), balance, value, price));
+      }
+
+      token_list
+         .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
+   }
+
+   Ok(token_list)
+}
+
 pub struct PortfolioUi {
    open: bool,
    loading: bool,
    pub show_spinner: bool,
 
-   /// Cached and sorted list of tokens by value
-   pub tokens: TokenMap,
+   /// Cached and sorted list of public tokens by value
+   pub public_tokens: TokenMap,
+
+   /// Cached and sorted list of private tokens by value
+   pub private_tokens: TokenMap,
 }
 
 impl PortfolioUi {
@@ -63,7 +110,8 @@ impl PortfolioUi {
          open: false,
          loading: false,
          show_spinner: false,
-         tokens: HashMap::new(),
+         public_tokens: HashMap::new(),
+         private_tokens: HashMap::new(),
       }
    }
 
@@ -75,7 +123,7 @@ impl PortfolioUi {
       self.open = true;
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.current_wallet_info().address;
+      let owner = ctx.current_wallet_info(false).address;
       self.process_tokens(ctx, chain_id, owner);
    }
 
@@ -86,23 +134,48 @@ impl PortfolioUi {
    pub fn process_tokens(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
       self.loading = true;
 
-      RT.spawn_blocking(move || {
-         let tokens = process_tokens(ctx.clone(), chain_id, owner);
+      RT.spawn(async move {
+         let tokens = process_public_tokens(ctx.clone(), chain_id, owner);
+         let private = false;
 
          SHARED_GUI.write(|gui| {
-            gui.portofolio.add_token_list(chain_id, owner, tokens);
+            gui.portofolio.add_token_list(private, chain_id, owner, tokens);
+         });
+
+         let tokens = match process_private_tokens(ctx.clone(), chain_id, owner).await {
+            Ok(tokens) => tokens,
+            Err(e) => {
+               tracing::error!("Failed to process private tokens: {:?}", e);
+               Vec::new()
+            }
+         };
+
+         let private = true;
+
+         SHARED_GUI.write(|gui| {
+            gui.portofolio.add_token_list(private, chain_id, owner, tokens);
             gui.portofolio.loading = false;
          });
       });
    }
 
-   pub fn add_token_list(&mut self, chain_id: u64, owner: Address, list: TokenList) {
-      if let Some(tokens) = self.tokens.get_mut(&chain_id) {
-         tokens.insert(owner, list);
+   pub fn add_token_list(&mut self, private: bool, chain_id: u64, owner: Address, list: TokenList) {
+      if !private {
+         if let Some(tokens) = self.public_tokens.get_mut(&chain_id) {
+            tokens.insert(owner, list);
+         } else {
+            let mut tokens = HashMap::new();
+            tokens.insert(owner, list);
+            self.public_tokens.insert(chain_id, tokens);
+         }
       } else {
-         let mut tokens = HashMap::new();
-         tokens.insert(owner, list);
-         self.tokens.insert(chain_id, tokens);
+         if let Some(tokens) = self.private_tokens.get_mut(&chain_id) {
+            tokens.insert(owner, list);
+         } else {
+            let mut tokens = HashMap::new();
+            tokens.insert(owner, list);
+            self.private_tokens.insert(chain_id, tokens);
+         }
       }
    }
 
@@ -119,7 +192,7 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let wallet_info = ctx.current_wallet_info();
+      let wallet_info = ctx.current_wallet_info(false);
       let owner = wallet_info.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
 
@@ -233,9 +306,14 @@ impl PortfolioUi {
 
                         ui.end_row();
 
+                        let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
                         let empty_map = HashMap::new();
                         let empty_list = Vec::new();
-                        let token_map = self.tokens.get(&chain_id).unwrap_or(&empty_map);
+                        let token_map = if is_privacy_mode {
+                           self.private_tokens.get(&chain_id).unwrap_or(&empty_map)
+                        } else {
+                           self.public_tokens.get(&chain_id).unwrap_or(&empty_map)
+                        };
                         let token_list = token_map.get(&owner).unwrap_or(&empty_list);
 
                         // Show the rest of the tokens

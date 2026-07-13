@@ -90,7 +90,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             .min_size(button_size);
 
          if ui.add(wallets).clicked() {
-            gui.wallet_ui.open(ctx);
+            gui.wallet_ui.open(ctx.clone());
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
@@ -108,7 +108,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          .min_size(button_size);
 
          if ui.add(tx_history).clicked() {
-            gui.tx_history.open();
+            gui.tx_history.open(ctx);
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();

@@ -1,5 +1,7 @@
 use zeus_eth::alloy_primitives::Address;
-use zeus_wallet::{Wallet, ZkAddress};
+use zeus_wallet::Wallet;
+
+use zeus_railgun::RailgunAddress;
 
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
@@ -15,7 +17,7 @@ pub const DEV_P_COST: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WalletInfo {
    pub address: Address,
-   pub zk_address: Option<ZkAddress>,
+   pub railgun_address: Option<RailgunAddress>,
    name: String,
    pub is_master: bool,
    pub is_child: bool,
@@ -23,10 +25,22 @@ pub struct WalletInfo {
 }
 
 impl WalletInfo {
-   pub fn from_wallet(wallet: &Wallet) -> Self {
+   pub fn from_wallet(wallet: &Wallet, generate_railgun_address: bool) -> Self {
+      let mut railgun_address = None;
+
+      if generate_railgun_address {
+         if let Ok(seed) = wallet.seed() {
+            let res = RailgunAddress::new(&seed, 0, None);
+            match res {
+               Ok(address) => railgun_address = Some(address),
+               Err(_) => {}
+            }
+         }
+      }
+
       Self {
          address: wallet.address(),
-         zk_address: None,
+         railgun_address,
          name: wallet.name.clone(),
          is_master: wallet.is_master(),
          is_child: wallet.is_child(),
@@ -67,8 +81,12 @@ impl WalletInfo {
    }
 
    pub fn zk_address_truncated(&self) -> String {
-      match &self.zk_address {
-         Some(zk_address) => format!("{}...{}", &zk_address[..6], &zk_address[121..]),
+      match &self.railgun_address {
+         Some(railgun_address) => format!(
+            "{}...{}",
+            &railgun_address.address[..6],
+            &railgun_address.address[121..]
+         ),
          None => "zkAddress not available".to_string(),
       }
    }

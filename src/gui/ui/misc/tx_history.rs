@@ -16,6 +16,7 @@ pub struct TxHistory {
    pub txs_per_page: usize,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
+   wallets: Vec<WalletInfo>,
 }
 
 impl TxHistory {
@@ -26,6 +27,7 @@ impl TxHistory {
          txs_per_page: DEFAULT_TXS_PER_PAGE,
          selected_wallet: None,
          selected_chain: None,
+         wallets: vec![],
       }
    }
 
@@ -33,7 +35,9 @@ impl TxHistory {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, ctx: ZeusCtx) {
+      let wallets = ctx.get_all_wallets_info(false);
+      self.wallets = wallets;
       self.open = true;
    }
 
@@ -42,9 +46,9 @@ impl TxHistory {
    }
 
    fn wallet_name_or_address(&self, ctx: ZeusCtx, address: Address) -> String {
-      let wallet_info = ctx.get_wallet_info_by_address(address);
-      if let Some(info) = wallet_info {
-         info.name()
+      let name_opt = ctx.get_wallet_name(address);
+      if let Some(name) = name_opt {
+         name
       } else {
          truncate_address(address.to_string())
       }
@@ -80,7 +84,7 @@ impl TxHistory {
             let expansion = Some(6.0);
 
             // Wallet Filter
-            let wallets = ctx.get_all_wallets_info();
+            let wallets = &self.wallets;
             let selected_wallet_name = self
                .selected_wallet
                .clone()
@@ -123,7 +127,7 @@ impl TxHistory {
 
                      if ui.add(label).clicked() {
                         if self.selected_wallet != Some(wallet.clone()) {
-                           self.selected_wallet = Some(wallet);
+                           self.selected_wallet = Some(wallet.clone());
                            self.current_page = 0;
                         }
                      }
@@ -223,11 +227,11 @@ impl TxHistory {
          ui.add_space(10.0);
 
          // --- Transaction Data Fetching and Filtering ---
-         let all_wallets = ctx.get_all_wallets_info();
+         let all_wallets = &self.wallets;
          let filtered_txs: Vec<TransactionRich> = ctx.read(|ctx_read| {
             let mut txs = Vec::new();
 
-            for wallet in &all_wallets {
+            for wallet in all_wallets {
                if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
                   continue;
                }
@@ -366,6 +370,7 @@ impl TxHistory {
 
                         for tx in txs_on_page {
                            // Wallet Name Column
+                           // TODO: Tweak this its very bad
                            let name = self.wallet_name_or_address(ctx.clone(), tx.sender());
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[0]);

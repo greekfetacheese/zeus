@@ -2,8 +2,12 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{Contact, WalletInfo, ZeusCtx};
+use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
-use eframe::egui::{Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Ui, Window, vec2};
+use crate::utils::RT;
+use eframe::egui::{
+   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Window, vec2,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -13,6 +17,7 @@ use zeus_widgets::{Button, SecureTextEdit};
 
 pub struct RecipientSelectionWindow {
    open: bool,
+   loading: bool,
    overlay: OverlayManager,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
@@ -31,6 +36,7 @@ impl RecipientSelectionWindow {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         loading: false,
          overlay,
          contacts_tab_open: true,
          wallets_tab_open: false,
@@ -52,45 +58,52 @@ impl RecipientSelectionWindow {
       if !self.open {
          self.overlay.window_opened();
       }
+
       self.open = true;
+      self.loading = true;
 
-      let mut wallets = ctx.get_all_wallets_info();
-      let mut portfolios = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address));
+      RT.spawn_blocking(move || {
+         let mut wallets = ctx.get_all_wallets_info(false);
+         let mut portfolios = Vec::new();
+         for chain in SUPPORTED_CHAINS {
+            for wallet in &wallets {
+               portfolios.push(ctx.get_portfolio(chain, wallet.address));
+            }
          }
-      }
 
-      wallets.sort_by(|a, b| {
-         let wallet_a = a.address;
-         let wallet_b = b.address;
+         wallets.sort_by(|a, b| {
+            let wallet_a = a.address;
+            let wallet_b = b.address;
 
-         let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
-         let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+            let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
+            let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
 
-         // Sort in descending order (highest value first)
-         value_b
-            .f64()
-            .partial_cmp(&value_a.f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name().cmp(&b.name()))
+            // Sort in descending order (highest value first)
+            value_b
+               .f64()
+               .partial_cmp(&value_a.f64())
+               .unwrap_or(std::cmp::Ordering::Equal)
+               .then_with(|| a.name().cmp(&b.name()))
+         });
+
+         let mut wallet_value = HashMap::new();
+         let mut wallet_chains = HashMap::new();
+
+         for wallet in &wallets {
+            let value = ctx.get_portfolio_value_all_chains(wallet.address);
+            wallet_value.insert(wallet.address, value);
+
+            let chains = ctx.get_chains_that_have_balance(wallet.address);
+            wallet_chains.insert(wallet.address, chains);
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.recipient_selection.loading = false;
+            gui.recipient_selection.wallets = wallets;
+            gui.recipient_selection.wallet_value = wallet_value;
+            gui.recipient_selection.wallet_chains = wallet_chains;
+         });
       });
-
-      let mut wallet_value = HashMap::new();
-      let mut wallet_chains = HashMap::new();
-
-      for wallet in &wallets {
-         let value = ctx.get_portfolio_value_all_chains(wallet.address);
-         wallet_value.insert(wallet.address, value);
-
-         let chains = ctx.get_chains_that_have_balance(wallet.address);
-         wallet_chains.insert(wallet.address, chains);
-      }
-
-      self.wallets = wallets;
-      self.wallet_value = wallet_value;
-      self.wallet_chains = wallet_chains;
    }
 
    pub fn close(&mut self) {
@@ -158,6 +171,11 @@ impl RecipientSelectionWindow {
 
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
+
+               if self.loading {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  return;
+               }
 
                let text = RichText::new("Add a contact").size(theme.text_sizes.normal);
                let add_contact = Button::new(text).visuals(button_visuals);

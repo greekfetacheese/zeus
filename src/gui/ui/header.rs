@@ -113,7 +113,7 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain();
-      let wallet = ctx.current_wallet_info();
+      let wallet = ctx.current_wallet_info(false);
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
@@ -255,7 +255,7 @@ impl Header {
 
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
-                  let owner = ctx.current_wallet_info().address;
+                  let owner = ctx.current_wallet_info(false).address;
                   let currency: Currency = NativeCurrency::from(new_chain.id()).into();
                   gui.send_crypto.set_currency(currency.clone());
 
@@ -294,7 +294,7 @@ impl Header {
             });
 
             RT.spawn_blocking(move || {
-               let owner = ctx.current_wallet_info().address;
+               let owner = ctx.current_wallet_info(false).address;
                let chain_id = ctx.chain().id();
 
                SHARED_GUI.write(|gui| {
