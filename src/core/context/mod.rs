@@ -4,10 +4,12 @@ pub mod ctx;
 pub mod currencies;
 pub mod misc;
 pub mod pool_manager;
+pub mod portfolio;
 pub mod price_manager;
 
 pub use balance_manager::BalanceManagerHandle;
-pub use misc::{DiscoveredWallets, Portfolio, PortfolioDB, TransactionsDB};
+pub use misc::{DiscoveredWallets, TransactionsDB};
+pub use portfolio::{PortfolioDB, WalletValue, WalletPortfolio};
 
 pub use client::ZeusClient;
 pub use ctx::*;

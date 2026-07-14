@@ -780,19 +780,12 @@ async fn update_balances(
             .update_tokens_balance(ctx.clone(), chain, recipient, vec![token], true)
             .await?;
       }
-      ctx.calculate_portfolio_value(chain, recipient);
+      ctx.update_public_data(chain, recipient);
    }
 
-   ctx.calculate_portfolio_value(chain, sender);
+   ctx.update_public_data(chain, sender);
    ctx.save_balance_manager();
    ctx.save_portfolio_db();
-
-   SHARED_GUI.write(|gui| {
-      gui.portofolio.process_tokens(ctx.clone(), chain, sender);
-      if exists {
-         gui.portofolio.process_tokens(ctx, chain, recipient);
-      }
-   });
 
    Ok(())
 }

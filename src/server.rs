@@ -1563,7 +1563,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), recipient);
+            ctx.update_public_data(chain.id(), recipient);
          }
       }
 
@@ -1583,7 +1583,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), src);
+            ctx.update_public_data(chain.id(), src);
          }
       }
 
@@ -1611,7 +1611,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), sender);
+            ctx.update_public_data(chain.id(), sender);
          }
 
          if recipient_exists {
@@ -1631,11 +1631,11 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), recipient);
+            ctx.update_public_data(chain.id(), recipient);
          }
 
          if transact_to_exists {
-            ctx.calculate_portfolio_value(chain.id(), transact_to);
+            ctx.update_public_data(chain.id(), transact_to);
          }
 
          ctx.save_balance_manager();

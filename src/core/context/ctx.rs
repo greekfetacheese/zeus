@@ -1,8 +1,9 @@
 use super::{
-   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, ZeusClient, misc::*,
-   price_manager::PriceManagerHandle,
+   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
+   misc::*, price_manager::PriceManagerHandle,
 };
 
+use crate::core::WalletValue;
 use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, state::test_and_measure_rpcs};
@@ -654,7 +655,7 @@ impl ZeusCtx {
       self.read(|ctx| ctx.currency_db.get_currencies(chain))
    }
 
-   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Portfolio {
+   pub fn get_portfolio(&self, chain: u64, owner: Address) -> WalletPortfolio {
       self.read(|ctx| ctx.portfolio_db.get(chain, owner))
    }
 
@@ -662,17 +663,23 @@ impl ZeusCtx {
       self.read(|ctx| ctx.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
-   /// Get the portfolio value across all chains
-   pub fn get_portfolio_value_all_chains(&self, owner: Address) -> NumericValue {
-      let mut value = 0.0;
-      let chains = SUPPORTED_CHAINS.to_vec();
+   /// Get the total value for the given owner across all of its wallets and chains
+   pub fn get_total_value(&self, owner: Address) -> WalletValue {
+      let mut total_public = 0.0;
+      let mut total_private = 0.0;
 
-      for chain in chains {
+      for chain in SUPPORTED_CHAINS {
          let portfolio = self.get_portfolio(chain, owner);
-         value += portfolio.value.f64();
+         total_public += portfolio.public_value().f64();
+         total_private += portfolio.private_value().f64();
       }
 
-      NumericValue::from_f64(value)
+      let owner_value = WalletValue {
+         public: NumericValue::from_f64(total_public),
+         private: NumericValue::from_f64(total_private),
+      };
+
+      owner_value
    }
 
    /// Get all tokens in all portfolios
@@ -681,32 +688,35 @@ impl ZeusCtx {
       let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
-         let erc_tokens = portfolio.tokens.iter().map(|token| token.clone()).collect::<Vec<_>>();
+         let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
          tokens.extend(erc_tokens);
       }
       tokens
    }
 
-   /// Calculate and update the portfolio value
-   pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
+   /// Update the public data of a portfolio for the given chain and owner
+   ///
+   /// What it does:
+   ///
+   /// - Calculates the public token list and sorts it by value
+   /// - Updates the portfolio public value based on the latest price data
+   pub fn update_public_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
-      let mut value = 0.0;
+      portfolio.update_public_data(self.clone());
+      self.write(|ctx| {
+         ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      });
+   }
 
-      for token in &portfolio.tokens {
-         let price = self.get_token_price(token).f64();
-         let balance = self.get_token_balance(chain, owner, token.address).f64();
-         value += NumericValue::value(balance, price).f64()
-      }
-
-      let eth_balance = self.get_eth_balance(chain, owner);
-      let eth_price = self.get_currency_price(&Currency::wrapped_native(chain));
-
-      let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
-      value += eth_value.f64();
-
-      let new_value = NumericValue::from_f64(value);
-      portfolio.value = new_value;
-
+   /// Update the private data of a portfolio for the given chain and owner
+   ///
+   /// What it does:
+   ///
+   /// - Indexes the private tokens and sorts them by value
+   /// - Updates the portfolio private value based on the latest price data
+   pub async fn update_private_data(&self, chain: u64, owner: Address) {
+      let mut portfolio = self.get_portfolio(chain, owner);
+      portfolio.update_private_data(self.clone()).await;
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });

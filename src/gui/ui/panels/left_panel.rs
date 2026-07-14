@@ -26,7 +26,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             .min_size(button_size);
 
          if ui.add(home).clicked() {
-            gui.portofolio.open(ctx.clone());
+            gui.portofolio.open();
             gui.uniswap.close();
             gui.send_crypto.close();
             gui.settings.close();

@@ -1,4 +1,4 @@
-use crate::core::{BaseFee, ZeusCtx, context::Portfolio};
+use crate::core::{BaseFee, ZeusCtx, WalletPortfolio};
 use crate::utils::RT;
 use anyhow::anyhow;
 
@@ -107,7 +107,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
          let ctx_clone = ctx_clone.clone();
          let portfolios = ctx_clone.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
-            ctx_clone.calculate_portfolio_value(chain, portfolio.owner);
+            ctx_clone.update_public_data(chain, portfolio.owner());
          }
       }
       ctx_clone.write(|ctx| {
@@ -160,7 +160,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
          let balance = ctx.get_eth_balance(chain, wallet.address);
          if !balance.is_zero() && !has_portfolio {
-            let portfolio = Portfolio::new(wallet.address, chain);
+            let portfolio = WalletPortfolio::new(wallet.address, chain);
             ctx.write(|ctx| {
                ctx.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
             });
@@ -171,7 +171,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
       for portfolio in &portfolios {
-         ctx.calculate_portfolio_value(chain, portfolio.owner);
+         ctx.update_public_data(chain, portfolio.owner());
       }
    }
 }
@@ -278,7 +278,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
          for chain in SUPPORTED_CHAINS {
             let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
-               ctx.calculate_portfolio_value(chain, portfolio.owner);
+               ctx.update_public_data(chain, portfolio.owner());
             }
          }
 
@@ -464,7 +464,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       for chain in SUPPORTED_CHAINS {
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
-            ctx.calculate_portfolio_value(chain, portfolio.owner);
+            ctx.update_public_data(chain, portfolio.owner());
          }
       }
       ctx.save_portfolio_db();

@@ -189,9 +189,10 @@ impl DeleteWalletUi {
                ui.label(RichText::new(wallet.name()).size(theme.text_sizes.normal));
                ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
 
-               let value = ctx.get_portfolio_value_all_chains(wallet.address);
+               // TODO: Maybe adjust for privacy mode
+               let value = ctx.get_total_value(wallet.address);
                ui.label(
-                  RichText::new(format!("Value ${}", value.abbreviated()))
+                  RichText::new(format!("Value ${}", value.public.abbreviated()))
                      .size(theme.text_sizes.normal),
                );
 

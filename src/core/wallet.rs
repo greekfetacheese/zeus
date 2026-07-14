@@ -14,7 +14,7 @@ pub const DEV_T_COST: u32 = 16;
 pub const DEV_P_COST: u32 = 1;
 
 /// Helper struct to store info for a wallet (name, address, etc)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct WalletInfo {
    pub address: Address,
    pub railgun_address: Option<RailgunAddress>,
@@ -72,7 +72,7 @@ impl WalletInfo {
       format!("{} {}", self.name, id)
    }
 
-   pub fn address_truncated(&self) -> String {
+   pub fn evm_address_truncated(&self) -> String {
       format!(
          "{}...{}",
          &self.address.to_string()[..6],

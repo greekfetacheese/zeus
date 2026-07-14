@@ -151,7 +151,7 @@ impl UnlockVault {
                ctx.set_vault(vault);
 
                SHARED_GUI.write(|gui| {
-                  gui.portofolio.open(ctx.clone());
+                  gui.portofolio.open();
                });
             }
             Err(e) => {
@@ -545,7 +545,7 @@ impl RecoverHDWallet {
             let current_wallet = vault.get_master_wallet();
             SHARED_GUI.write(|gui| {
                gui.recover_wallet_ui.show_tips = false;
-               gui.portofolio.open(ctx.clone());
+               gui.portofolio.open();
                gui.header.open();
                gui.header.set_current_wallet(current_wallet);
 

@@ -968,7 +968,7 @@ async fn across_bridge(
          }
       }
 
-      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.update_public_data(chain.id(), from);
       ctx_clone.save_balance_manager();
       ctx_clone.save_portfolio_db();
    });
@@ -1003,7 +1003,7 @@ async fn across_bridge(
             }
          }
 
-         ctx.calculate_portfolio_value(dest_chain.id(), recipient);
+         ctx.update_public_data(dest_chain.id(), recipient);
       }
 
       ctx.save_balance_manager();

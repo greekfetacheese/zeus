@@ -71,17 +71,18 @@ impl RecipientSelectionWindow {
             }
          }
 
+         // TODO: Adjust for Privacy mode
          wallets.sort_by(|a, b| {
             let wallet_a = a.address;
             let wallet_b = b.address;
 
-            let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
-            let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+            let value_a = ctx.get_total_value(wallet_a);
+            let value_b = ctx.get_total_value(wallet_b);
 
             // Sort in descending order (highest value first)
-            value_b
+            value_b.public
                .f64()
-               .partial_cmp(&value_a.f64())
+               .partial_cmp(&value_a.public.f64())
                .unwrap_or(std::cmp::Ordering::Equal)
                .then_with(|| a.name().cmp(&b.name()))
          });
@@ -90,8 +91,8 @@ impl RecipientSelectionWindow {
          let mut wallet_chains = HashMap::new();
 
          for wallet in &wallets {
-            let value = ctx.get_portfolio_value_all_chains(wallet.address);
-            wallet_value.insert(wallet.address, value);
+            let value = ctx.get_total_value(wallet.address);
+            wallet_value.insert(wallet.address, value.public);
 
             let chains = ctx.get_chains_that_have_balance(wallet.address);
             wallet_chains.insert(wallet.address, chains);

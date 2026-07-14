@@ -1626,12 +1626,7 @@ pub async fn wrap_eth(
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
 
-      ctx.calculate_portfolio_value(chain.id(), from);
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), from);
-      });
-
+      ctx.update_public_data(chain.id(), from);
       ctx.save_balance_manager();
    });
 
@@ -1806,12 +1801,7 @@ pub async fn unwrap_weth(
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
 
-      ctx.calculate_portfolio_value(chain.id(), from);
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), from);
-      });
-
+      ctx.update_public_data(chain.id(), from);
       ctx.save_balance_manager();
    });
 
@@ -2306,13 +2296,9 @@ async fn swap_via_ur(
          ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio));
       }
 
-      ctx.calculate_portfolio_value(chain.id(), signer_address);
+      ctx.update_public_data(chain.id(), signer_address);
       ctx.save_balance_manager();
       ctx.save_portfolio_db();
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), signer_address);
-      });
    });
 
    Ok(())
