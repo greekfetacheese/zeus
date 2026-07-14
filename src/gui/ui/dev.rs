@@ -1,33 +1,21 @@
-use bincode_next::{config::standard, decode_from_slice, encode_to_vec};
 use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Window, vec2};
 use zeus_widgets::Label;
 
 use crate::assets::Icons;
-use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusCtx, currencies::TokenData};
+use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::RT;
 use crate::utils::self_update::UpdateInfo;
 
-use zeus_eth::{
-   alloy_primitives::Address,
-   amm::uniswap::{DexKind, UniswapPool},
-   currency::ERC20Token,
-   types::SUPPORTED_CHAINS,
-   utils::NumericValue,
-};
+use zeus_eth::currency::ERC20Token;
 
-use super::sync::SyncPoolsUi;
-use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_theme::Theme;
 
 pub struct DevUi {
    pub open: bool,
-   pub sync_pools: SyncPoolsUi,
    pub ui_testing: UiTesting,
-   pub loaded_token_data: Vec<TokenData>,
-   pub filtering_tokens: bool,
    pub size: (f32, f32),
 }
 
@@ -35,10 +23,7 @@ impl DevUi {
    pub fn new() -> Self {
       Self {
          open: false,
-         sync_pools: SyncPoolsUi::new(),
          ui_testing: UiTesting::new(),
-         loaded_token_data: Vec::new(),
-         filtering_tokens: false,
          size: (550.0, 500.0),
       }
    }
@@ -60,7 +45,6 @@ impl DevUi {
          return;
       }
 
-      self.show_sync_pools(ctx.clone(), theme, ui);
       self.show_ui_testing(ctx.clone(), theme, icons, ui);
 
       ui.vertical_centered(|ui| {
@@ -80,81 +64,7 @@ impl DevUi {
          if ui.add(button).clicked() {
             self.ui_testing.open();
          }
-
-         let button =
-            Button::new(RichText::new("Sync Pools").size(text_size)).min_size(button_size);
-
-         if ui.add(button).clicked() {
-            self.sync_pools.open();
-         }
-
-         let button =
-            Button::new(RichText::new("Filter Tokens").size(text_size)).min_size(button_size);
-
-         if ui.add(button).clicked() {
-            self.filtering_tokens = true;
-            let tokens = self.loaded_token_data.clone();
-            RT.spawn(async move {
-               SHARED_GUI.write(|gui| {
-                  gui.loading_window.open("Filtering Tokens");
-               });
-
-               match filter_tokens(ctx.clone(), tokens).await {
-                  Ok(_) => {
-                     SHARED_GUI.write(|gui| {
-                        gui.dev.filtering_tokens = false;
-                        gui.loading_window.reset();
-                     });
-                  }
-                  Err(e) => {
-                     tracing::error!("Error filtering tokens: {:?}", e);
-                     SHARED_GUI.write(|gui| {
-                        gui.dev.filtering_tokens = false;
-                        gui.loading_window.reset();
-                     });
-                  }
-               }
-            });
-         }
-
-         ui.ctx().input(|i| {
-            if let Some(dropped_file) = i.raw.dropped_files.first() {
-               let path = dropped_file.path.clone();
-
-               RT.spawn_blocking(move || {
-                  if let Some(path) = path {
-                     let data = std::fs::read(path).unwrap();
-                     let (token_data, _b): (Vec<TokenData>, usize) =
-                        decode_from_slice(&data, standard()).unwrap();
-
-                     tracing::info!("Loaded {} tokens", token_data.len());
-                     SHARED_GUI.write(|gui| {
-                        gui.dev.loaded_token_data = token_data;
-                     });
-                  }
-               });
-            }
-         });
       });
-   }
-
-   fn show_sync_pools(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      let mut open = self.sync_pools.is_open();
-      let title = RichText::new("Sync Pools").size(theme.text_sizes.heading);
-      Window::new(title)
-         .open(&mut open)
-         .resizable(false)
-         .collapsible(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .frame(Frame::window(ui.style()))
-         .show(ui.ctx(), |ui| {
-            self.sync_pools.show(ctx.clone(), theme, ui);
-         });
-
-      if !open {
-         self.sync_pools.close();
-      }
    }
 
    fn show_ui_testing(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -175,142 +85,6 @@ impl DevUi {
          self.ui_testing.close();
       }
    }
-}
-
-async fn filter_tokens(ctx: ZeusCtx, mut token_data: Vec<TokenData>) -> Result<(), anyhow::Error> {
-   if token_data.is_empty() {
-      RT.spawn_blocking(move || {
-         SHARED_GUI.write(|gui| {
-            gui.open_msg_window("Token Data is empty", "");
-         });
-      });
-      return Ok(());
-   }
-
-   let mut good_tokens = Vec::new();
-
-   for chain in SUPPORTED_CHAINS {
-      if chain == 56 {
-         continue;
-      }
-
-      if chain == 1 {
-         ctx.write(|ctx| ctx.pool_manager.set_concurrency(4));
-      } else {
-         ctx.write(|ctx| ctx.pool_manager.set_concurrency(2));
-      }
-
-      tracing::info!("Processing ChainId {}", chain);
-      let manager = ctx.pool_manager();
-      let tokens = token_data.iter().filter(|token| token.chain_id == chain);
-
-      let mut erc20_tokens = Vec::new();
-      let _dexes = DexKind::main_dexes(chain);
-
-      for token in tokens {
-         let address = Address::from_str(&token.address)?;
-
-         let erc20 = ERC20Token {
-            chain_id: chain,
-            address,
-            name: token.name.clone().into(),
-            symbol: token.symbol.clone().into(),
-            decimals: token.decimals,
-            total_supply: Default::default(),
-         };
-
-         erc20_tokens.push(erc20);
-      }
-
-      tracing::info!(
-         "Syncing pools for {} tokens on ChainId {}",
-         erc20_tokens.len(),
-         chain
-      );
-
-      /*
-      match manager.sync_pools_for_tokens(ctx.clone(), erc20_tokens.clone(), dexes).await {
-         Ok(_) => {
-            tracing::info!("Synced pools for ChainId {}", chain);
-         }
-         Err(e) => {
-            tracing::error!("Failed to sync pools for ChainId {}: {}", chain, e);
-         }
-      }
-      */
-
-      let currencies = erc20_tokens.iter().map(|t| t.clone().into()).collect();
-      match manager.update_for_currencies(ctx.clone(), chain, currencies).await {
-         Ok(_) => {
-            tracing::info!("Updated pools for ChainId {}", chain);
-         }
-         Err(e) => {
-            tracing::error!(
-               "Failed to update pools for ChainId {}: {}",
-               chain,
-               e
-            );
-         }
-      }
-
-      for token in erc20_tokens {
-         let pools = manager.get_pools_that_have_currency(&token.clone().into());
-
-         if pools.is_empty() {
-            tracing::info!(
-               "No pools found for token {}, skipping",
-               token.symbol
-            );
-            continue;
-         }
-
-         for pool in &pools {
-            if pool.state().is_none() {
-               tracing::info!("Pool for token {} is not synced", token.symbol);
-               continue;
-            }
-
-            let threshold = 50_000.0;
-            let base_balance = pool.base_balance();
-            let base_price = ctx.get_token_price(&pool.base_currency().to_erc20());
-            let base_value = NumericValue::value(base_balance.f64(), base_price.f64());
-
-            if base_value.f64() >= threshold {
-               tracing::info!(
-                  "Token {} is good, found at least 1 pool",
-                  token.symbol
-               );
-               good_tokens.push(token.clone());
-               break;
-            } else {
-               tracing::info!("Token {} is not good", token.symbol);
-            }
-         }
-      }
-   }
-
-   tracing::info!("Found {} good tokens", good_tokens.len());
-
-   // Save the good tokens
-   token_data.retain(|token| {
-      good_tokens.contains(&ERC20Token {
-         chain_id: token.chain_id,
-         address: Address::from_str(&token.address).unwrap(),
-         name: token.name.clone().into(),
-         symbol: token.symbol.clone().into(),
-         decimals: token.decimals,
-         total_supply: Default::default(),
-      })
-   });
-
-   let file_name = "token_data.data";
-   let data = encode_to_vec(&token_data, standard())?;
-   let dir = std::env::current_dir()?;
-   std::fs::write(dir.join(file_name), data)?;
-   ctx.save_pool_manager();
-   tracing::info!("Token data saved successfully!");
-
-   Ok(())
 }
 
 pub struct UiTesting {

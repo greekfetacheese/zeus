@@ -19,7 +19,7 @@ use crate::gui::{
    SHARED_GUI,
    ui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      misc::AmountFieldWithCurrencySelect,
+      common::AmountField,
    },
 };
 use crate::utils::simulate::fetch_accounts_info;
@@ -43,7 +43,7 @@ const POOL_UPDATE_TIMEOUT: u64 = 60;
 pub struct SendCryptoUi {
    open: bool,
    pub currency: Currency,
-   pub amount_field: AmountFieldWithCurrencySelect,
+   pub amount_field: AmountField,
    pub recipient: String,
    pub recipient_name: Option<String>,
    pub search_query: String,
@@ -59,7 +59,7 @@ impl SendCryptoUi {
       Self {
          open: false,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
-         amount_field: AmountFieldWithCurrencySelect::new(),
+         amount_field: AmountField::new(),
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),

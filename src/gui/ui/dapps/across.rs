@@ -4,7 +4,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, data_dir, send_transaction};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, misc::AmountFieldWithCurrencySelect},
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
 };
 use crate::utils::{RT, estimate_tx_cost};
 use anyhow::anyhow;
@@ -88,7 +88,7 @@ pub struct AcrossBridge {
    open: bool,
    pub overlay: OverlayManager,
    pub currency: Currency,
-   pub amount_field: AmountFieldWithCurrencySelect,
+   pub amount_field: AmountField,
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
    pub balance_syncing: bool,
@@ -114,7 +114,7 @@ impl AcrossBridge {
          open: false,
          overlay,
          currency: NativeCurrency::from(1).into(),
-         amount_field: AmountFieldWithCurrencySelect::new(),
+         amount_field: AmountField::new(),
          from_chain,
          to_chain,
          balance_syncing: false,

@@ -15,7 +15,7 @@ use crate::gui::ui::{
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    dapps::{across::AcrossBridge, uniswap::UniswapUi},
-   misc::dev::DevUi,
+   dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    sign_msg_window::SignMsgWindow,
    tx_history::TxHistory,
@@ -104,7 +104,7 @@ impl GUI {
 
       let msg_window = ui::MsgWindow::new(overlay_manager.clone());
       let loading_window = ui::LoadingWindow::new(overlay_manager.clone());
-      let confirm_window = ui::misc::ConfirmWindow::new(overlay_manager.clone());
+      let confirm_window = ui::common::ConfirmWindow::new(overlay_manager.clone());
       let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
       let tx_window = TxWindow::new(overlay_manager.clone());
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());

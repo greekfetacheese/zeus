@@ -1,4 +1,4 @@
-//! An amount field with a slider to adjust the amount and a currency selector
+//! An amount field with an optional currency selector and customizable balance & max amount logic.
 
 use crate::assets::icons::Icons;
 use crate::core::ZeusCtx;
@@ -14,13 +14,17 @@ use zeus_eth::{
 use zeus_theme::Theme;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
-pub struct AmountFieldWithCurrencySelect {
+/// An amount field with an optional currency selector and customizable balance & max amount logic.
+pub struct AmountField {
+   /// The selected amount % from the slider
    pub amount_percent: f64,
+   /// The amount in String
    pub amount: String,
+   /// The amount in Wei
    pub amount_wei: U256,
 }
 
-impl AmountFieldWithCurrencySelect {
+impl AmountField {
    pub fn new() -> Self {
       Self {
          amount_percent: 0.0,
@@ -33,6 +37,7 @@ impl AmountFieldWithCurrencySelect {
       *self = Self::new();
    }
 
+   // TODO: Reduce the number of arguments, make it a little nicer
    /// Helper function to draw an amount field with optional currency selector and customizable balance/max logic.
    ///
    /// Arguments:

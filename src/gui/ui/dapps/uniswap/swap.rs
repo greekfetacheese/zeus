@@ -259,8 +259,8 @@ pub struct SwapUi {
    pub size: (f32, f32),
    pub currency_in: Currency,
    pub currency_out: Currency,
-   pub amount_in_field: AmountFieldWithCurrencySelect,
-   pub amount_out_field: AmountFieldWithCurrencySelect,
+   pub amount_in_field: AmountField,
+   pub amount_out_field: AmountField,
    /// Last time pool state was updated
    pub last_pool_state_updated: Option<Instant>,
    /// Last time quote was updated
@@ -288,8 +288,8 @@ impl SwapUi {
          size: (450.0, 550.0),
          currency_in,
          currency_out,
-         amount_in_field: AmountFieldWithCurrencySelect::new(),
-         amount_out_field: AmountFieldWithCurrencySelect::new(),
+         amount_in_field: AmountField::new(),
+         amount_out_field: AmountField::new(),
          last_pool_state_updated: None,
          last_quote_updated: None,
          pool_data_syncing: false,
