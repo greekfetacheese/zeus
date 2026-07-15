@@ -60,6 +60,16 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       ui,
    );
 
+   gui.shield_ui.show(
+      ctx.clone(),
+      theme,
+      icons.clone(),
+      token_selection,
+      recipient_selection,
+      contacts_ui,
+      ui,
+   );
+
    gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
    gui.connected_dapps.show(ctx.clone(), theme, ui);
 

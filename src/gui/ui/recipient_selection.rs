@@ -134,6 +134,7 @@ impl RecipientSelectionWindow {
       ctx: ZeusCtx,
       theme: &Theme,
       _icons: Arc<Icons>,
+      privacy_mode: bool,
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
@@ -143,7 +144,6 @@ impl RecipientSelectionWindow {
       }
 
       let mut close_window = false;
-      let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
       contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
@@ -151,7 +151,7 @@ impl RecipientSelectionWindow {
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
 
-         if !is_privacy_mode {
+         if !privacy_mode {
             self.recipient = contact.evm_address;
          } else {
             self.recipient = contact.zk_address;
@@ -241,16 +241,16 @@ impl RecipientSelectionWindow {
                ui.add_space(15.0);
 
                if self.contacts_tab_open {
-                  self.contacts_tab(ctx.clone(), theme, &mut close_window, ui);
+                  self.contacts_tab(ctx.clone(), theme, privacy_mode, &mut close_window, ui);
                }
 
                if self.wallets_tab_open {
-                  self.wallets_tab(ctx.clone(), theme, &mut close_window, ui);
+                  self.wallets_tab(ctx.clone(), theme, privacy_mode, &mut close_window, ui);
                }
 
                // TODO: Move this from the main thread to avoid blocking the GUI
                if !&self.search_query.is_empty() {
-                  if !is_privacy_mode {
+                  if !privacy_mode {
                      if let Ok(address) = Address::from_str(&self.search_query) {
                         if ctx.wallet_exists(address)
                            || ctx.get_contact_by_address(&address.to_string()).is_some()
@@ -311,7 +311,7 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn contacts_tab(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn contacts_tab(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
       let contacts = ctx.contacts();
       let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &self.search_query));
 
@@ -321,14 +321,13 @@ impl RecipientSelectionWindow {
          .max_width(ui.available_width())
          .show(ui, |ui| {
             if are_valid_contacts {
-               self.show_contacts(ctx.clone(), theme, close_window, ui);
+               self.show_contacts(ctx.clone(), theme, privacy_mode, close_window, ui);
             }
          });
    }
 
-   fn show_contacts(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn show_contacts(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
       let contacts = ctx.contacts();
-      let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -339,12 +338,12 @@ impl RecipientSelectionWindow {
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, &self.search_query);
 
-         let address = match is_privacy_mode {
+         let address = match privacy_mode {
             false => contact.evm_address.clone(),
             true => contact.zk_address_truncated(),
          };
 
-         let address_full = match is_privacy_mode {
+         let address_full = match privacy_mode {
             false => contact.evm_address.clone(),
             true => contact.zk_address.clone(),
          };
@@ -381,7 +380,7 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn wallets_tab(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn wallets_tab(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
       let wallets = &self.wallets;
       let are_valid_wallets =
          !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, &self.search_query));
@@ -392,12 +391,12 @@ impl RecipientSelectionWindow {
          .max_width(ui.available_width())
          .show(ui, |ui| {
             if are_valid_wallets {
-               self.show_wallets(ctx, theme, close_window, ui);
+               self.show_wallets(ctx, theme, privacy_mode, close_window, ui);
             }
          });
    }
 
-   fn show_wallets(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn show_wallets(&mut self, _ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -405,18 +404,17 @@ impl RecipientSelectionWindow {
       let visuals = theme.frame2_visuals;
 
       let wallets = &self.wallets;
-      let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
          let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
 
-         let address = match is_privacy_mode {
+         let address = match privacy_mode {
             false => wallet.address.to_string(),
             true => wallet.zk_address_truncated(),
          };
 
-         let address_full = match is_privacy_mode {
+         let address_full = match privacy_mode {
             false => wallet.address.to_string(),
             true => wallet.zk_address(),
          };

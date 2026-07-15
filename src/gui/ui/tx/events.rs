@@ -374,6 +374,63 @@ fn transfer_event_ui(
    }
 }
 
+fn shield_event_ui(
+   _ctx: ZeusCtx,
+   _chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &ShieldParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+
+   // Token to Shield
+   ui.allocate_ui(size, |ui| {
+      ui.vertical_centered(|ui| {
+         if params.erc20.is_some() {
+            let token = params.erc20.as_ref().unwrap();
+            let amount = params.amount.as_ref().unwrap();
+            let show_usd_value = params.amount_usd.is_some();
+
+            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let text = if show_usd_value {
+               let amount_usd = params.amount_usd.as_ref().unwrap();
+               RichText::new(format!(
+                  "{} {} ~ ${}",
+                  amount.abbreviated(),
+                  token.symbol,
+                  amount_usd.abbreviated()
+               ))
+               .size(theme.text_sizes.normal)
+            } else {
+               RichText::new(format!(
+                  "{} {}",
+                  amount.abbreviated(),
+                  token.symbol
+               ))
+               .size(theme.text_sizes.normal)
+            };
+
+            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            ui.add(label);
+         } else {
+            let address = params.asset.address();
+            let amount = params.amount_wei;
+
+            let addr_text = RichText::new(address.to_string()).size(theme.text_sizes.normal);
+            let amount_text = RichText::new(amount.to_string()).size(theme.text_sizes.small);
+
+            let label = Label::new(addr_text, None).image_on_left().interactive(false);
+            ui.add(label);
+
+            let label = Label::new(amount_text, None).image_on_left().interactive(false);
+            ui.add(label);
+         }
+      });
+   });
+}
+
 fn bridge_event_ui(
    ctx: ZeusCtx,
    chain: ChainId,
@@ -899,5 +956,10 @@ pub fn show_event(
    if event.is_eoa_delegate() {
       let params = event.eoa_delegate_params();
       eoa_delegate_event_ui(ctx.clone(), chain, theme, params, ui);
+   }
+
+   if event.is_shield() {
+      let params = event.shield_params();
+      shield_event_ui(ctx.clone(), chain, theme, icons.clone(), params, ui);
    }
 }

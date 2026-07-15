@@ -145,6 +145,16 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       0.25
    }
 
+   /// Returns the chain id
+   pub fn chain_id(&self) -> u64 {
+      self.chain.id
+   }
+
+   /// Returns the chain configuration
+   pub fn chain_config(&self) -> ChainConfig {
+      self.chain.clone()
+   }
+
    /// Returns the railgun contract address based on the chain configuration
    pub fn railgun_address(&self) -> Address {
       self.chain.railgun_smart_wallet

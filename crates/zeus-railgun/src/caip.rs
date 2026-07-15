@@ -31,6 +31,14 @@ impl AssetId {
       matches!(self, AssetId::Erc1155(_, _))
    }
 
+   pub fn address(&self) -> Address {
+      match self {
+         AssetId::Erc20(addr) => *addr,
+         AssetId::Erc721(addr, _) => *addr,
+         AssetId::Erc1155(addr, _) => *addr,
+      }
+   }
+
    pub fn erc20_address(&self) -> Option<Address> {
       match self {
          AssetId::Erc20(addr) => Some(*addr),

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
+use zeus_eth::revm_utils::simulate::erc20_balance;
 use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
@@ -25,7 +26,6 @@ use crate::utils::{
 use crate::utils::{simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
 
 use zeus_eth::{
-   abi,
    alloy_primitives::{Address, U256, address},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
@@ -1515,6 +1515,7 @@ pub async fn wrap_eth(
 
    let eth_balance_after;
    let sim_res;
+   let weth_received;
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
@@ -1538,29 +1539,25 @@ pub async fn wrap_eth(
       } else {
          U256::ZERO
       };
+
+      let received = erc20_balance(&mut evm, weth.address, from)?;
+      weth_received = NumericValue::format_wei(received, weth.decimals);
+   }
+
+   if weth_received.wei() < amount.wei() {
+      return Err(anyhow!(
+         "Received less WETH than requested (expected {}, got {})",
+         amount.abbreviated(),
+         weth_received.abbreviated()
+      ));
    }
 
    let logs = sim_res.clone().into_logs();
 
    let wrapped: Currency = weth.clone().into();
    let eth_balance_before = eth_balance_before_fut.await?;
-   let eth_wrapped_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
-   let mut weth_received = None;
+   let weth_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
 
-   for log in &logs {
-      if let Ok(decoded) = abi::weth9::decode_deposit_log(log) {
-         weth_received = Some(decoded.wad);
-         break;
-      }
-   }
-
-   if weth_received.is_none() {
-      return Err(anyhow::anyhow!(
-         "Failed to decode weth deposit log"
-      ));
-   }
-
-   let weth_received = NumericValue::format_wei(weth_received.unwrap(), wrapped.decimals());
    let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &wrapped);
 
    let contract_interact = Some(true);
@@ -1570,7 +1567,7 @@ pub async fn wrap_eth(
       chain: chain.id(),
       recipient: from,
       eth_wrapped: amount,
-      eth_wrapped_usd: Some(eth_wrapped_usd),
+      eth_wrapped_usd: Some(weth_usd),
       weth_received,
       weth_received_usd: Some(weth_received_usd),
    };
@@ -1716,27 +1713,28 @@ pub async fn unwrap_weth(
       };
    }
 
-   let logs = sim_res.clone().into_logs();
-
    let eth_balance_before = eth_balance_before_fut.await?;
-   let mut eth_received = None;
 
-   for log in &logs {
-      if let Ok(decoded) = abi::weth9::decode_withdraw_log(log) {
-         eth_received = Some(decoded.wad);
-         break;
-      }
-   }
+   let eth_received = if eth_balance_after > eth_balance_before {
+      NumericValue::format_wei(
+         eth_balance_after - eth_balance_before,
+         weth.decimals,
+      )
+   } else {
+      NumericValue::default()
+   };
 
-   if eth_received.is_none() {
-      return Err(anyhow::anyhow!(
-         "Failed to decode weth withdraw log"
+   if eth_received.wei() < amount.wei() {
+      return Err(anyhow!(
+         "Received less ETH than requested (expected {}, got {})",
+         amount.abbreviated(),
+         eth_received.abbreviated()
       ));
    }
 
-   let eth_received = NumericValue::format_wei(eth_received.unwrap(), weth.decimals);
-   let wrapped_c: Currency = weth.clone().into();
-   let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &wrapped_c);
+   let logs = sim_res.clone().into_logs();
+
+   let eth_received_usd = ctx.get_token_value_for_amount(eth_received.f64(), &weth);
 
    let contract_interact = Some(true);
    let auth_list = Vec::new();

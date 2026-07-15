@@ -4,7 +4,6 @@ use eframe::egui::{
 
 use std::{
    collections::HashMap,
-   str::FromStr,
    sync::Arc,
    time::{Duration, Instant},
 };
@@ -84,10 +83,7 @@ impl ShieldUi {
    }
 
    pub fn close(&mut self) {
-      self.open = false;
-      self.clear_recipient();
-      self.amount_field.reset();
-      self.clear_search_query();
+      *self = Self::new();
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -106,8 +102,8 @@ impl ShieldUi {
    pub fn show(
       &mut self,
       ctx: ZeusCtx,
-      icons: Arc<Icons>,
       theme: &Theme,
+      icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
       recipient_selection: &mut RecipientSelectionWindow,
       contacts_ui: &mut ContactsUi,
@@ -135,7 +131,7 @@ impl ShieldUi {
 
                   let text_edit_visuals = theme.text_edit_visuals();
 
-                  ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
+                  ui.label(RichText::new("Shield").size(theme.text_sizes.heading));
 
                   let owner = ctx.current_wallet_info(false).address;
 
@@ -210,7 +206,7 @@ impl ShieldUi {
                      self.sync_balance(owner, ctx.clone());
                   }
 
-                  recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
+                  recipient_selection.show(ctx.clone(), theme, icons.clone(), true, contacts_ui, ui);
                   let recipient = recipient_selection.get_recipient();
                   let recipient_name = recipient_selection.get_recipient_name();
 
@@ -272,13 +268,13 @@ impl ShieldUi {
                      });
                   });
 
-                  self.send_button(ctx, theme, owner, recipient, ui);
+                  self.shield_button(ctx, theme, owner, recipient, ui);
                });
             });
          });
    }
 
-   fn send_button(
+   fn shield_button(
       &mut self,
       ctx: ZeusCtx,
       theme: &Theme,
@@ -288,32 +284,16 @@ impl ShieldUi {
    ) {
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
-      let recipient_is_sender = self.recipient_is_sender(owner, &recipient);
-      let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx.clone(), owner);
       let has_entered_amount = !self.amount_field.amount.is_empty();
-      let has_entered_recipient = !recipient.is_empty();
 
-      let valid_inputs = valid_recipient
-         && !recipient_is_sender
-         && has_balance
-         && has_entered_amount
-         && valid_amount
-         && !sending_tx;
+      let valid_inputs = has_balance && has_entered_amount && valid_amount && !sending_tx;
 
-      let mut button_text = "Send".to_string();
+      let mut button_text = "Shield".to_string();
 
       if has_entered_amount && !valid_amount {
          button_text = "Invalid Amount".to_string();
-      }
-
-      if has_entered_recipient && !valid_recipient {
-         button_text = "Invalid Recipient".to_string();
-      }
-
-      if has_entered_recipient && recipient_is_sender {
-         button_text = "Cannot send to yourself".to_string();
       }
 
       if !has_balance {
@@ -327,27 +307,14 @@ impl ShieldUi {
 
       if ui.add_enabled(valid_inputs, send).clicked() {
          self.sending_tx = true;
-
-         match self.send_transaction(ctx, recipient) {
-            Ok(_) => {}
-            Err(e) => {
-               self.sending_tx = false;
-
-               RT.spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Error while sending transaction", e.to_string());
-                  });
-               });
-            }
-         }
+         self.send_transaction(ctx, recipient);
       }
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
+   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
       let chain = ctx.chain();
       let from = ctx.current_wallet_info(false).address;
       let currency = self.currency.clone();
-      let recipient_address = Address::from_str(&recipient)?;
       let amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -359,9 +326,32 @@ impl ShieldUi {
             gui.request_repaint();
          });
 
-         // TODO:
+         match shield(
+            ctx.clone(),
+            chain,
+            currency,
+            amount,
+            from,
+            recipient,
+         )
+         .await
+         {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.shield_ui.sending_tx = false;
+               });
+            }
+            Err(e) => {
+               SHARED_GUI.write(|gui| {
+                  gui.shield_ui.sending_tx = false;
+                  gui.notification.reset();
+                  gui.loading_window.reset();
+                  gui.msg_window.open("Transaction Error", e.to_string());
+                  gui.request_repaint();
+               });
+            }
+         }
       });
-      Ok(())
    }
 
    fn should_calculate_price(&self, currency: &Currency) -> bool {
@@ -403,7 +393,7 @@ impl ShieldUi {
             }
          }
          SHARED_GUI.write(|gui| {
-            gui.send_crypto.syncing_balance = false;
+            gui.shield_ui.syncing_balance = false;
          });
       });
    }
@@ -414,16 +404,6 @@ impl ShieldUi {
       let fee = ctx.get_priority_fee(ctx.chain().id()).unwrap_or_default();
       let (cost_in_wei, _) = estimate_tx_cost(ctx.clone(), ctx.chain().id(), gas_used, fee.wei());
       cost_in_wei
-   }
-
-   fn valid_recipient(&self, recipient: &str) -> bool {
-      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
-      recipient != Address::ZERO
-   }
-
-   fn recipient_is_sender(&self, owner: Address, recipient: &str) -> bool {
-      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
-      recipient == owner
    }
 
    fn valid_amount(&self) -> bool {
@@ -473,12 +453,12 @@ fn value(
          {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
-                  gui.send_crypto.price_syncing = false;
+                  gui.shield_ui.price_syncing = false;
                });
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.send_crypto.price_syncing = false;
+                  gui.shield_ui.price_syncing = false;
                });
                tracing::error!("Error calculating price: {:?}", e);
             }
@@ -495,7 +475,7 @@ async fn shield(
    currency: Currency,
    amount: NumericValue,
    from: Address,
-   recipient: RailgunAddress,
+   recipient: String,
 ) -> Result<(), anyhow::Error> {
    let is_supported = ctx.railgun_is_supported(chain);
 
@@ -506,7 +486,23 @@ async fn shield(
       ));
    }
 
+   let recipient = match RailgunAddress::from_zk_address(&recipient) {
+      Ok(address) => address,
+      Err(e) => {
+         return Err(anyhow!("Invalid Railgun Address {}", e));
+      }
+   };
+
    let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+
+   if railgun_provider.chain_id() != chain.id() {
+      return Err(anyhow!(
+         "Railgun provider chain id {} does not match the current chain id {}",
+         railgun_provider.chain_id(),
+         chain.id()
+      ));
+   }
+
    let railgun_address = railgun_provider.railgun_address();
    let client = ctx.get_client(chain.id()).await?;
 
@@ -520,6 +516,11 @@ async fn shield(
    if currency.is_native() {
       wrap_eth(ctx.clone(), from, chain, amount.clone()).await?;
    }
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+   });
 
    let allowance = allowance_fut.await?;
 
@@ -547,14 +548,21 @@ async fn shield(
       .await?;
    }
 
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+   });
+
    let asset = AssetId::Erc20(token.address);
    let amount_u128: u128 = amount.wei().try_into()?;
-   let mut rng = rand::rng();
 
-   let shield_tx = railgun_provider
-      .shield()
-      .shield(recipient.clone(), asset, amount_u128)
-      .build(&mut rng)?;
+   let shield_tx = {
+      let mut rng = rand::rng();
+      railgun_provider
+         .shield()
+         .shield(recipient, asset, amount_u128)
+         .build(&mut rng)?
+   };
    let calldata = shield_tx[0].data.clone();
 
    let interact_to = railgun_provider.railgun_address();
@@ -642,6 +650,8 @@ async fn shield(
          shield_events.extend(params);
       }
    }
+
+   tracing::info!("Shield Events {:?}", shield_events);
 
    // Should not happen
    if shield_events.len() > 1 {

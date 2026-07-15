@@ -153,6 +153,7 @@ impl DecodedEvent {
       Self::Shield(ShieldParams {
          chain,
          asset: asset_id,
+         amount_wei: amount.wei(),
          erc20: Some(token),
          amount: Some(amount),
          amount_usd: Some(amount_usd),
@@ -398,6 +399,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn shield_params(&self) -> &ShieldParams {
+      match self {
+         Self::Shield(params) => params,
+         _ => panic!("Action is not a Shield"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -442,6 +450,10 @@ impl DecodedEvent {
 
    pub fn is_permit(&self) -> bool {
       matches!(self, Self::Permit(_))
+   }
+
+   pub fn is_shield(&self) -> bool {
+      matches!(self, Self::Shield(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -1328,6 +1340,7 @@ impl UniswapPositionParams {
 pub struct ShieldParams {
    pub chain: u64,
    pub asset: AssetId,
+   pub amount_wei: U256,
    pub erc20: Option<ERC20Token>,
    pub amount: Option<NumericValue>,
    pub amount_usd: Option<NumericValue>,
@@ -1340,7 +1353,7 @@ impl ShieldParams {
       if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
          for commitment in decoded.commitments.iter() {
             let asset: AssetId = commitment.token.clone().into();
-            let amount: U256 = commitment.value.saturating_to();
+            let amount_wei: U256 = commitment.value.saturating_to();
             let mut erc20 = None;
             let mut amount_fmt_opt = None;
             let mut amount_usd_opt = None;
@@ -1350,7 +1363,7 @@ impl ShieldParams {
                let token_addr = asset.erc20_address().unwrap();
                let token = ctx.get_token(chain, token_addr).await?;
 
-               let amount = NumericValue::format_wei(amount, token.decimals);
+               let amount = NumericValue::format_wei(amount_wei, token.decimals);
                let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
 
                amount_fmt_opt = Some(amount);
@@ -1361,6 +1374,7 @@ impl ShieldParams {
             let event = ShieldParams {
                chain,
                asset,
+               amount_wei,
                erc20,
                amount: amount_fmt_opt,
                amount_usd: amount_usd_opt,
