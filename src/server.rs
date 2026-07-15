@@ -304,7 +304,7 @@ impl JsonRpcError {
 // Handler for GET /status
 async fn status_handler(ctx: ZeusCtx) -> Result<impl warp::Reply, Infallible> {
    let chain = ctx.chain().id_as_hex();
-   let accounts = vec![ctx.current_wallet_info().address.to_string()];
+   let accounts = vec![ctx.current_wallet_info(false).address.to_string()];
    let connected_origins = ctx.get_connected_dapps();
 
    let res = json!({
@@ -322,7 +322,7 @@ async fn request_accounts(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let current_wallet = ctx.current_wallet_info().address;
+   let current_wallet = ctx.current_wallet_info(false).address;
    let connected = ctx.is_dapp_connected(origin);
 
    if connected {
@@ -347,7 +347,7 @@ async fn get_permissions(
    origin: &str,
    payload: JsonRpcRequest,
 ) -> Result<JsonRpcResponse, Infallible> {
-   let current_wallet = ctx.current_wallet_info().address.to_string();
+   let current_wallet = ctx.current_wallet_info(false).address.to_string();
    let connected = ctx.is_dapp_connected(origin);
 
    if connected {
@@ -433,7 +433,7 @@ async fn connect(
 
    ctx.connect_dapp(origin.clone());
 
-   let current_wallet = ctx.current_wallet_info().address.to_string();
+   let current_wallet = ctx.current_wallet_info(false).address.to_string();
 
    let result = match method {
       RequestMethod::RequestAccounts => Some(json!(vec![current_wallet])),
@@ -941,7 +941,7 @@ async fn eth_call(ctx: ZeusCtx, payload: JsonRpcRequest) -> Result<JsonRpcRespon
       }
    };
 
-   let from = ctx.current_wallet_info().address;
+   let from = ctx.current_wallet_info(false).address;
 
    let tx = TransactionRequest::default().with_from(from).with_to(to).with_input(calldata);
 
@@ -1212,7 +1212,7 @@ async fn personal_sign(
    };
 
    // Ensure the address matches the current wallet
-   let current_wallet = ctx.current_wallet_info().address;
+   let current_wallet = ctx.current_wallet_info(false).address;
    if address != current_wallet {
       error!(
          "personal_sign: Address mismatch - requested {} but current is {}",
@@ -1563,7 +1563,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), recipient);
+            ctx.update_public_data(chain.id(), recipient);
          }
       }
 
@@ -1583,7 +1583,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), src);
+            ctx.update_public_data(chain.id(), src);
          }
       }
 
@@ -1611,7 +1611,7 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), sender);
+            ctx.update_public_data(chain.id(), sender);
          }
 
          if recipient_exists {
@@ -1631,11 +1631,11 @@ async fn eth_send_transaction(
                }
             }
 
-            ctx.calculate_portfolio_value(chain.id(), recipient);
+            ctx.update_public_data(chain.id(), recipient);
          }
 
          if transact_to_exists {
-            ctx.calculate_portfolio_value(chain.id(), transact_to);
+            ctx.update_public_data(chain.id(), transact_to);
          }
 
          ctx.save_balance_manager();

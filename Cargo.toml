@@ -4,9 +4,12 @@ members = [
     "crates/zeus-theme",
     "crates/zeus-eth",
     "crates/zeus-widgets",
+    "crates/zeus-railgun",
     "crates/zeus-bip32",
     "crates/zeus-wallet",
     "crates/zeus-ui-components",
+    "crates/zeus-poseidon",
+    "crates/zeus-userop-kit",
 ]
 
 [package]
@@ -17,7 +20,6 @@ version = "0.8.20"
 edition = "2024"
 default-run = "zeus"
 
-
 [dependencies]
 
 # GUI
@@ -26,11 +28,11 @@ egui = { version = "=0.34.3", features = ["serde"] }
 egui_extras = { version = "=0.34.3", features = ["image"] }
 image = "=0.25.10"
 
-
 # Zeus Crates
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
 zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
+zeus-railgun = { path = "crates/zeus-railgun" }
 zeus-theme = { path = "crates/zeus-theme", features = ["serde"] }
 zeus-widgets = { path = "crates/zeus-widgets", features = ["secure-types"] }
 zeus-ui-components = { path = "crates/zeus-ui-components", features = [
@@ -44,7 +46,6 @@ alloy-signer-local = { version = "=2.0.5", features = ["mnemonic"] }
 alloy-eips = "=2.0.5"
 alloy-sol-types = { version = "=1.6.0", features = ["json"] }
 
-
 # Crypto
 rand = "=0.8"
 generic-array = { version = "=1.2.0", features = ["zeroize"] }
@@ -55,7 +56,6 @@ ncrypt-me = "0.3"
 
 # Memory
 secure-types = "0.3"
-
 
 # Tracing
 tracing = "=0.1.41"
@@ -68,7 +68,6 @@ warp = { version = "=0.4.2", features = ["server"] }
 futures = "=0.3.31"
 reqwest = { version = "=0.12.23", features = ["json"] }
 
-
 # Misc
 zip = "=6.0.0"
 tempfile = "=3.23.0"
@@ -77,7 +76,7 @@ self_update = "0.42"
 qrcodegen-no-heap = "1.8.1"
 sysinfo = "=0.37.2"
 chrono = "0.4.42"
-either = "=1.15.0"
+either = "1.15.0"
 rayon = "=1.11.0"
 anyhow = "=1.0.99"
 serde = { version = "=1.0.228", features = ["derive"] }
@@ -95,10 +94,12 @@ opt-level = 2
 debug = false
 lto = "fat"
 
-
 [features]
 dev = []
 debug = []
 
 [lints]
 clippy = { new_without_default = "allow", too_many_arguments = "allow", unnecessary_unwrap = "allow", needless_return = "allow", needless_borrow = "deny" }
+
+[patch.crates-io]
+ruint = { git = "https://github.com/Robert-MacWha/ruint" } # Adds ark-ff-06 support for ark 0.6

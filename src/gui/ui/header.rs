@@ -9,6 +9,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx, delegate_to};
+use crate::gui::ui::dapps::railgun::RailgunMode;
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
@@ -47,6 +48,7 @@ pub struct Header {
    size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
+   wallet_info: WalletInfo,
    qrcode_window: QRCodeWindow,
    delegate_window_open: bool,
    delegate_to: String,
@@ -65,6 +67,7 @@ impl Header {
          size,
          chain_select,
          wallet_select,
+         wallet_info: WalletInfo::default(),
          qrcode_window: QRCodeWindow::new(overlay),
          delegate_window_open: false,
          delegate_to: String::new(),
@@ -96,8 +99,14 @@ impl Header {
       self.delegate_window_open = false;
    }
 
+   pub fn set_wallet_info(&mut self, wallet_info: WalletInfo) {
+      self.wallet_info = wallet_info;
+   }
+
    pub fn set_current_wallet(&mut self, wallet: Wallet) {
+      let wallet_info = WalletInfo::from_wallet(&wallet, true);
       self.wallet_select.wallet = wallet;
+      self.wallet_info = wallet_info;
    }
 
    pub fn set_current_chain(&mut self, chain: ChainId) {
@@ -113,19 +122,14 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain();
-      let wallet = ctx.current_wallet_info();
+      let mut privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
       let frame = theme.frame1.outer_margin(Margin::same(10));
+      let evm_addr = self.wallet_info.address;
 
-      self.show_deleg_settings_window(
-         ctx.clone(),
-         theme,
-         icons.clone(),
-         wallet.address,
-         ui,
-      );
+      self.show_deleg_settings_window(ctx.clone(), theme, icons.clone(), evm_addr, ui);
 
       self.qrcode_window.show(ctx.clone(), theme, ui);
 
@@ -139,9 +143,14 @@ impl Header {
                self.show_wallet_select(ctx.clone(), theme, icons.clone(), ui);
             });
 
+            let wallet = &self.wallet_info;
+
             // Wallet address, on click copy it to the clipboard
             ui.horizontal(|ui| {
-               let address = wallet.address_truncated();
+               let address = match privacy_mode {
+                  false => wallet.evm_address_truncated(),
+                  true => wallet.zk_address_truncated(),
+               };
 
                let address_text = RichText::new(address).size(theme.text_sizes.normal);
                let label = Button::selectable(false, address_text).visuals(button_visuals);
@@ -152,7 +161,6 @@ impl Header {
 
                ui.add_space(7.0);
 
-               // QR Code
                let icon = match theme.dark_mode {
                   true => icons.qrcode_white_x18(tint),
                   false => icons.qrcode_dark_x18(tint),
@@ -161,6 +169,7 @@ impl Header {
                let button = Button::image(icon).visuals(button_visuals);
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
+               // QR Code Window
                if res.clicked() {
                   self.qrcode_window.open(ctx.clone(), wallet.clone());
                }
@@ -231,6 +240,48 @@ impl Header {
                   }
                });
             });
+
+            // Privacy mode switch button
+            if cfg!(feature = "dev") {
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(8.0, 8.0);
+
+                  let text = format!(
+                     "Switch to {} mode",
+                     if privacy_mode { "Public" } else { "Privacy" }
+                  );
+                  let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+                  let button = Button::new(rich_text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
+                     privacy_mode = !privacy_mode;
+
+                     ctx.write(|ctx| {
+                        ctx.privacy_mode = privacy_mode;
+                     });
+
+                     RT.spawn_blocking(move || {
+                        let chain = ctx.chain();
+                        let owner = ctx.current_wallet_info(false).address;
+
+                        let new_mode = match privacy_mode {
+                           false => RailgunMode::Shield,
+                           true => RailgunMode::Unshield,
+                        };
+
+                        SHARED_GUI.write(|gui| {
+                           gui.shield_ui.set_mode(new_mode);
+                           gui.token_selection.process_currencies(
+                              ctx.clone(),
+                              privacy_mode,
+                              chain.id(),
+                              owner,
+                           );
+                        });
+                     });
+                  }
+               });
+            }
          });
       });
    }
@@ -253,18 +304,21 @@ impl Header {
                ctx.chain = new_chain;
             });
 
-            RT.spawn_blocking(move || {
+            RT.spawn(async move {
+               let owner = ctx.current_wallet_info(false).address;
+               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+
                SHARED_GUI.write(|gui| {
-                  let owner = ctx.current_wallet_info().address;
                   let currency: Currency = NativeCurrency::from(new_chain.id()).into();
                   gui.send_crypto.set_currency(currency.clone());
 
                   if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(ctx.clone(), new_chain.id(), owner);
-                  }
-
-                  if gui.portofolio.is_open() {
-                     gui.portofolio.process_tokens(ctx, new_chain.id(), owner);
+                     gui.token_selection.process_currencies(
+                        ctx.clone(),
+                        privacy_mode,
+                        new_chain.id(),
+                        owner,
+                     );
                   }
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
@@ -272,6 +326,9 @@ impl Header {
                   // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
                   // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
                });
+
+               ctx.update_public_data(new_chain.id(), owner);
+               ctx.update_private_data(new_chain.id(), owner).await;
             });
          }
       });
@@ -293,19 +350,27 @@ impl Header {
                ctx.current_wallet = self.wallet_select.wallet.clone();
             });
 
-            RT.spawn_blocking(move || {
-               let owner = ctx.current_wallet_info().address;
+            RT.spawn(async move {
+               let current_wallet = ctx.current_wallet_info(true);
+               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+               let owner = current_wallet.address;
                let chain_id = ctx.chain().id();
 
                SHARED_GUI.write(|gui| {
-                  if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(ctx.clone(), chain_id, owner);
-                  }
+                  gui.header.set_wallet_info(current_wallet);
 
-                  if gui.portofolio.is_open() {
-                     gui.portofolio.process_tokens(ctx, chain_id, owner);
+                  if gui.token_selection.is_open() {
+                     gui.token_selection.process_currencies(
+                        ctx.clone(),
+                        privacy_mode,
+                        chain_id,
+                        owner,
+                     );
                   }
                });
+
+               ctx.update_public_data(chain_id, owner);
+               ctx.update_private_data(chain_id, owner).await;
             });
          }
       });

@@ -1,5 +1,7 @@
 use zeus_eth::alloy_primitives::Address;
-use zeus_wallet::{Wallet, ZkAddress};
+use zeus_wallet::Wallet;
+
+use zeus_railgun::RailgunAddress;
 
 // Argon2 parameters used to derive the seed from the credentials
 // Hash lenght is always 64 bytes (512 bits)
@@ -12,10 +14,10 @@ pub const DEV_T_COST: u32 = 16;
 pub const DEV_P_COST: u32 = 1;
 
 /// Helper struct to store info for a wallet (name, address, etc)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
 pub struct WalletInfo {
    pub address: Address,
-   pub zk_address: Option<ZkAddress>,
+   pub railgun_address: Option<RailgunAddress>,
    name: String,
    pub is_master: bool,
    pub is_child: bool,
@@ -23,10 +25,22 @@ pub struct WalletInfo {
 }
 
 impl WalletInfo {
-   pub fn from_wallet(wallet: &Wallet) -> Self {
+   pub fn from_wallet(wallet: &Wallet, generate_railgun_address: bool) -> Self {
+      let mut railgun_address = None;
+
+      if generate_railgun_address {
+         if let Ok(seed) = wallet.seed() {
+            let res = RailgunAddress::new(&seed, 0, None);
+            match res {
+               Ok(address) => railgun_address = Some(address),
+               Err(_) => {}
+            }
+         }
+      }
+
       Self {
          address: wallet.address(),
-         zk_address: None,
+         railgun_address,
          name: wallet.name.clone(),
          is_master: wallet.is_master(),
          is_child: wallet.is_child(),
@@ -58,7 +72,7 @@ impl WalletInfo {
       format!("{} {}", self.name, id)
    }
 
-   pub fn address_truncated(&self) -> String {
+   pub fn evm_address_truncated(&self) -> String {
       format!(
          "{}...{}",
          &self.address.to_string()[..6],
@@ -67,8 +81,19 @@ impl WalletInfo {
    }
 
    pub fn zk_address_truncated(&self) -> String {
-      match &self.zk_address {
-         Some(zk_address) => format!("{}...{}", &zk_address[..6], &zk_address[121..]),
+      match &self.railgun_address {
+         Some(railgun_address) => format!(
+            "{}...{}",
+            &railgun_address.address[..6],
+            &railgun_address.address[121..]
+         ),
+         None => "zkAddress not available".to_string(),
+      }
+   }
+
+   pub fn zk_address(&self) -> String {
+      match &self.railgun_address {
+         Some(railgun_address) => railgun_address.address.clone(),
          None => "zkAddress not available".to_string(),
       }
    }

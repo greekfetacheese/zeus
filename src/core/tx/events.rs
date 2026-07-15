@@ -1,5 +1,6 @@
-use crate::core::{Dapp, ZeusCtx};
+use crate::core::{types::Dapp, ZeusCtx};
 use crate::utils::{TimeStamp, truncate_address};
+use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
 use std::str::FromStr;
 use zeus_eth::{
@@ -9,6 +10,7 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
+use zeus_railgun::{abi::railgun::RailgunSmartWallet, caip::AssetId};
 
 use alloy_eips::eip7702::SignedAuthorization;
 
@@ -42,6 +44,9 @@ pub enum DecodedEvent {
 
    /// Permit2 approval
    Permit(PermitParams),
+
+   /// Railgun Shield
+   Shield(ShieldParams),
 
    #[default]
    Other,
@@ -135,6 +140,23 @@ impl DecodedEvent {
          weth_unwrapped_usd: Some(weth_unwrapped_usd.clone()),
          eth_received: weth_unwrapped,
          eth_received_usd: Some(weth_unwrapped_usd),
+      })
+   }
+
+   pub fn dummy_shield() -> Self {
+      let chain = 1;
+      let token = ERC20Token::weth();
+      let amount = NumericValue::parse_to_wei("1", 18);
+      let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+      let asset_id = AssetId::Erc20(token.address);
+
+      Self::Shield(ShieldParams {
+         chain,
+         asset: asset_id,
+         amount_wei: amount.wei(),
+         erc20: Some(token),
+         amount: Some(amount),
+         amount_usd: Some(amount_usd),
       })
    }
 
@@ -281,29 +303,18 @@ impl DecodedEvent {
    }
 
    pub fn name(&self) -> String {
-      if self.is_native_transfer() {
-         return "Transfer".to_string();
-      } else if self.is_erc20_transfer() {
-         return "ERC20 Transfer".to_string();
-      } else if self.is_swap() {
-         return "Swap".to_string();
-      } else if self.is_bridge() {
-         return "Bridge".to_string();
-      } else if self.is_token_approval() {
-         return "Token Approval".to_string();
-      } else if self.is_wrap_eth() {
-         return "Wrap ETH".to_string();
-      } else if self.is_unwrap_weth() {
-         return "Unwrap WETH".to_string();
-      } else if self.is_uniswap_position_op() {
-         let op = self.uniswap_position_params();
-         return op.name();
-      } else if self.is_eoa_delegate() {
-         return "Wallet Delegation".to_string();
-      } else if self.is_permit() {
-         return self.permit_params().event_name.clone();
-      } else {
-         return "Unknown interaction".to_string();
+      match self {
+         Self::Transfer(p) => p.name(),
+         Self::WrapETH(_) => "Wrap ETH".to_string(),
+         Self::UnwrapWETH(_) => "Unwrap WETH".to_string(),
+         Self::Bridge(_) => "Bridge".to_string(),
+         Self::SwapToken(_) => "Swap".to_string(),
+         Self::UniswapPositionOperation(p) => p.name(),
+         Self::EOADelegate(_) => "Wallet Delegation".to_string(),
+         Self::Permit(p) => p.event_name.clone(),
+         Self::TokenApprove(_) => "Token Approval".to_string(),
+         Self::Shield(_) => "Shield".to_string(),
+         Self::Other => "Unknown Interaction".to_string(),
       }
    }
 
@@ -388,6 +399,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn shield_params(&self) -> &ShieldParams {
+      match self {
+         Self::Shield(params) => params,
+         _ => panic!("Action is not a Shield"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -432,6 +450,10 @@ impl DecodedEvent {
 
    pub fn is_permit(&self) -> bool {
       matches!(self, Self::Permit(_))
+   }
+
+   pub fn is_shield(&self) -> bool {
+      matches!(self, Self::Shield(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -779,6 +801,14 @@ pub struct TransferParams {
 }
 
 impl TransferParams {
+   pub fn name(&self) -> String {
+      if self.currency.is_native() {
+         return "Transfer".to_string();
+      } else {
+         return "ERC20 Transfer".to_string();
+      }
+   }
+
    pub async fn new(
       ctx: ZeusCtx,
       chain: u64,
@@ -1305,6 +1335,59 @@ impl UniswapPositionParams {
    }
 }
 
+/// Decoded Railgun shield event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShieldParams {
+   pub chain: u64,
+   pub asset: AssetId,
+   pub amount_wei: U256,
+   pub erc20: Option<ERC20Token>,
+   pub amount: Option<NumericValue>,
+   pub amount_usd: Option<NumericValue>,
+}
+
+impl ShieldParams {
+   pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Vec<Self>, anyhow::Error> {
+      let mut events = Vec::new();
+
+      if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
+         for commitment in decoded.commitments.iter() {
+            let asset: AssetId = commitment.token.clone().into();
+            let amount_wei: U256 = commitment.value.saturating_to();
+            let mut erc20 = None;
+            let mut amount_fmt_opt = None;
+            let mut amount_usd_opt = None;
+
+            // TODO: Add support for ERC721 and ERC1155
+            if asset.is_erc20() {
+               let token_addr = asset.erc20_address().unwrap();
+               let token = ctx.get_token(chain, token_addr).await?;
+
+               let amount = NumericValue::format_wei(amount_wei, token.decimals);
+               let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
+
+               amount_fmt_opt = Some(amount);
+               amount_usd_opt = Some(amount_usd);
+               erc20 = Some(token);
+            }
+
+            let event = ShieldParams {
+               chain,
+               asset,
+               amount_wei,
+               erc20,
+               amount: amount_fmt_opt,
+               amount_usd: amount_usd_opt,
+            };
+
+            events.push(event);
+         }
+      }
+
+      Ok(events)
+   }
+}
+
 /// Represents both the Permit & Approval event of the Permit2 contract
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermitParams {
@@ -1334,6 +1417,7 @@ impl PermitParams {
          name = "Permit Approval".to_string();
       }
 
+      // TODO: Wtf is this?
       if decoded_permit.is_none() && decoded_approval.is_none() {
          return Err(anyhow!("Failed to decode log"));
       }

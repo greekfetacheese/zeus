@@ -3,8 +3,8 @@ use crate::core::{WalletInfo, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Vec2, Window,
-   vec2,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Vec2,
+   Window, vec2,
 };
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
@@ -25,6 +25,7 @@ pub use export::ExportKeyUi;
 /// Ui to manage the wallets
 pub struct WalletUi {
    open: bool,
+   loading: bool,
    overlay: OverlayManager,
    main_ui: bool,
    rename_wallet: bool,
@@ -46,6 +47,7 @@ impl WalletUi {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         loading: false,
          overlay: overlay.clone(),
          main_ui: true,
          rename_wallet: false,
@@ -83,44 +85,54 @@ impl WalletUi {
 
    pub fn open(&mut self, ctx: ZeusCtx) {
       self.open = true;
+      self.loading = true;
 
-      let mut wallets = ctx.get_all_wallets_info();
-      let mut portfolios = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address));
+      // TODO: This op is the same as the one in RecipientSelectionWindow
+      // We should make it a helper function at some point
+      RT.spawn_blocking(move || {
+         let mut wallets = ctx.get_all_wallets_info(false);
+         let mut portfolios = Vec::new();
+         for chain in SUPPORTED_CHAINS {
+            for wallet in &wallets {
+               portfolios.push(ctx.get_portfolio(chain, wallet.address));
+            }
          }
-      }
 
-      wallets.sort_by(|a, b| {
-         let wallet_a = a.address;
-         let wallet_b = b.address;
+         // TODO: Adjust for Privacy mode
+         wallets.sort_by(|a, b| {
+            let wallet_a = a.address;
+            let wallet_b = b.address;
 
-         let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
-         let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+            let value_a = ctx.get_total_value(wallet_a);
+            let value_b = ctx.get_total_value(wallet_b);
 
-         // Sort in descending order (highest value first)
-         value_b
-            .f64()
-            .partial_cmp(&value_a.f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name().cmp(&b.name()))
+            // Sort in descending order (highest value first)
+            value_b
+               .public
+               .f64()
+               .partial_cmp(&value_a.public.f64())
+               .unwrap_or(std::cmp::Ordering::Equal)
+               .then_with(|| a.name().cmp(&b.name()))
+         });
+
+         let mut wallet_value = HashMap::new();
+         let mut wallet_chains = HashMap::new();
+
+         for wallet in &wallets {
+            let value = ctx.get_total_value(wallet.address);
+            wallet_value.insert(wallet.address, value.public);
+
+            let chains = ctx.get_chains_that_have_balance(wallet.address);
+            wallet_chains.insert(wallet.address, chains);
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.wallet_ui.loading = false;
+            gui.wallet_ui.wallets = wallets;
+            gui.wallet_ui.wallet_value = wallet_value;
+            gui.wallet_ui.wallet_chains = wallet_chains;
+         });
       });
-
-      let mut wallet_value = HashMap::new();
-      let mut wallet_chains = HashMap::new();
-
-      for wallet in &wallets {
-         let value = ctx.get_portfolio_value_all_chains(wallet.address);
-         wallet_value.insert(wallet.address, value);
-
-         let chains = ctx.get_chains_that_have_balance(wallet.address);
-         wallet_chains.insert(wallet.address, chains);
-      }
-
-      self.wallets = wallets;
-      self.wallet_value = wallet_value;
-      self.wallet_chains = wallet_chains;
    }
 
    pub fn close(&mut self) {
@@ -165,6 +177,11 @@ impl WalletUi {
             let text_edit_visuals = theme.text_edit_visuals();
 
             ui.vertical_centered(|ui| {
+               if self.loading {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  return;
+               }
+
                // Add Wallet Button
                let text = RichText::new("Add Wallet").size(theme.text_sizes.normal);
                let button = Button::new(text).visuals(button_visuals);
@@ -173,7 +190,7 @@ impl WalletUi {
                   self.add_wallet_ui.open();
                }
 
-               let current_wallet = ctx.current_wallet_info();
+               let current_wallet = ctx.current_wallet_info(false);
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
@@ -301,7 +318,8 @@ impl WalletUi {
 
             // Address and value
             ui.horizontal(|ui| {
-               let text = RichText::new(wallet.address_truncated()).size(theme.text_sizes.small);
+               let text =
+                  RichText::new(wallet.evm_address_truncated()).size(theme.text_sizes.small);
                let label = Button::selectable(false, text).visuals(button_visuals);
 
                if ui.add(label).clicked() {

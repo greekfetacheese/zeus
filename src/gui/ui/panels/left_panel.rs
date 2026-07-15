@@ -1,5 +1,5 @@
 use crate::core::ZeusCtx;
-use crate::gui::GUI;
+use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
 use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
 use egui::{FontId, Margin, Stroke};
 use zeus_theme::{OverlayManager, Theme};
@@ -7,6 +7,7 @@ use zeus_widgets::{Button, SecureTextEdit};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
+   let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
    let theme = &gui.theme;
    ui.set_width(140.0);
 
@@ -26,7 +27,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             .min_size(button_size);
 
          if ui.add(home).clicked() {
-            gui.portofolio.open(ctx.clone());
+            gui.portofolio.open();
             gui.uniswap.close();
             gui.send_crypto.close();
             gui.settings.close();
@@ -34,6 +35,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.tx_history.close();
             gui.across_bridge.close();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.send_crypto.is_open();
@@ -51,6 +53,37 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.dev.close();
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
+            gui.shield_ui.close();
+         }
+
+         let is_open = gui.shield_ui.is_open();
+         let title = match privacy_mode {
+            false => "Shield",
+            true => "Unshield",
+         };
+
+         let mode = match privacy_mode {
+            false => RailgunMode::Shield,
+            true => RailgunMode::Unshield,
+         };
+
+         let shield =
+            Button::selectable(is_open, RichText::new(title).size(text_size)).min_size(button_size);
+
+         if cfg!(feature = "dev") {
+            if ui.add(shield).clicked() {
+               gui.shield_ui.open(mode);
+               gui.portofolio.close();
+               gui.uniswap.close();
+               gui.send_crypto.close();
+               gui.settings.close();
+               gui.wallet_ui.close();
+               gui.tx_history.close();
+               gui.across_bridge.close();
+               gui.dev.close();
+               // This is shared, so reset it to avoid any issues
+               gui.recipient_selection.reset();
+            }
          }
 
          let is_open = gui.uniswap.is_open();
@@ -66,6 +99,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.tx_history.close();
             gui.across_bridge.close();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.across_bridge.is_open();
@@ -83,6 +117,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.wallet_ui.is_open();
@@ -90,7 +125,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             .min_size(button_size);
 
          if ui.add(wallets).clicked() {
-            gui.wallet_ui.open(ctx);
+            gui.wallet_ui.open(ctx.clone());
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
@@ -98,6 +133,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.tx_history.close();
             gui.across_bridge.close();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.tx_history.is_open();
@@ -108,7 +144,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          .min_size(button_size);
 
          if ui.add(tx_history).clicked() {
-            gui.tx_history.open();
+            gui.tx_history.open(ctx);
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
@@ -116,6 +152,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.wallet_ui.close();
             gui.across_bridge.close();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.settings.is_open();
@@ -131,6 +168,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.tx_history.close();
             gui.across_bridge.close();
             gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let connected_dapps = Button::selectable(
@@ -169,6 +207,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
                   gui.tx_history.close();
                   gui.across_bridge.close();
                   gui.settings.close();
+                  gui.shield_ui.close();
                }
             }
          }

@@ -10,11 +10,12 @@ use std::sync::Arc;
 use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
+use zeus_eth::revm_utils::simulate::erc20_balance;
 use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
-   Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
+   types::Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
    WrapETHParams, ZeusCtx, send_transaction, sign_message, signature::Permit2Info,
 };
 use crate::utils::{
@@ -25,7 +26,6 @@ use crate::utils::{
 use crate::utils::{simulate::*, swap_quoter::*, universal_router_v2::encode_swap};
 
 use zeus_eth::{
-   abi,
    alloy_primitives::{Address, U256, address},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
@@ -259,8 +259,8 @@ pub struct SwapUi {
    pub size: (f32, f32),
    pub currency_in: Currency,
    pub currency_out: Currency,
-   pub amount_in_field: AmountFieldWithCurrencySelect,
-   pub amount_out_field: AmountFieldWithCurrencySelect,
+   pub amount_in_field: AmountField,
+   pub amount_out_field: AmountField,
    /// Last time pool state was updated
    pub last_pool_state_updated: Option<Instant>,
    /// Last time quote was updated
@@ -288,8 +288,8 @@ impl SwapUi {
          size: (450.0, 550.0),
          currency_in,
          currency_out,
-         amount_in_field: AmountFieldWithCurrencySelect::new(),
-         amount_out_field: AmountFieldWithCurrencySelect::new(),
+         amount_in_field: AmountField::new(),
+         amount_out_field: AmountField::new(),
          last_pool_state_updated: None,
          last_quote_updated: None,
          pool_data_syncing: false,
@@ -455,7 +455,7 @@ impl SwapUi {
       }
 
       let chain_id = ctx.chain().id();
-      let owner = ctx.current_wallet_info().address;
+      let owner = ctx.current_wallet_info(false).address;
       let simulate_mode = settings.simulate_mode;
 
       if simulate_mode {
@@ -529,10 +529,12 @@ impl SwapUi {
                let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
                let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
                let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+               let privacy_mode = false;
 
                inner_frame.show(ui, |ui| {
                   let changed = self.amount_in_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),
@@ -572,6 +574,7 @@ impl SwapUi {
                inner_frame.show(ui, |ui| {
                   self.amount_out_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),
@@ -740,7 +743,7 @@ impl SwapUi {
    }
 
    fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
-      let sender = ctx.current_wallet_info().address;
+      let sender = ctx.current_wallet_info(false).address;
       let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
       let amount = self.amount_in_field.amount_wei;
       balance.wei() >= amount
@@ -753,7 +756,7 @@ impl SwapUi {
          });
 
          let manager = ctx.balance_manager();
-         let owner = ctx.current_wallet_info().address;
+         let owner = ctx.current_wallet_info(false).address;
          let chain = currency.chain_id();
 
          if currency.is_erc20() {
@@ -1220,7 +1223,7 @@ impl SwapUi {
 
    fn swap(&self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
       let action = self.action();
-      let from = ctx.current_wallet_info().address;
+      let from = ctx.current_wallet_info(false).address;
       let chain = ctx.chain();
 
       if action.is_wrap() {
@@ -1515,6 +1518,7 @@ pub async fn wrap_eth(
 
    let eth_balance_after;
    let sim_res;
+   let weth_received;
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
@@ -1538,29 +1542,25 @@ pub async fn wrap_eth(
       } else {
          U256::ZERO
       };
+
+      let received = erc20_balance(&mut evm, weth.address, from)?;
+      weth_received = NumericValue::format_wei(received, weth.decimals);
+   }
+
+   if weth_received.wei() < amount.wei() {
+      return Err(anyhow!(
+         "Received less WETH than requested (expected {}, got {})",
+         amount.abbreviated(),
+         weth_received.abbreviated()
+      ));
    }
 
    let logs = sim_res.clone().into_logs();
 
    let wrapped: Currency = weth.clone().into();
    let eth_balance_before = eth_balance_before_fut.await?;
-   let eth_wrapped_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
-   let mut weth_received = None;
+   let weth_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
 
-   for log in &logs {
-      if let Ok(decoded) = abi::weth9::decode_deposit_log(log) {
-         weth_received = Some(decoded.wad);
-         break;
-      }
-   }
-
-   if weth_received.is_none() {
-      return Err(anyhow::anyhow!(
-         "Failed to decode weth deposit log"
-      ));
-   }
-
-   let weth_received = NumericValue::format_wei(weth_received.unwrap(), wrapped.decimals());
    let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &wrapped);
 
    let contract_interact = Some(true);
@@ -1570,7 +1570,7 @@ pub async fn wrap_eth(
       chain: chain.id(),
       recipient: from,
       eth_wrapped: amount,
-      eth_wrapped_usd: Some(eth_wrapped_usd),
+      eth_wrapped_usd: Some(weth_usd),
       weth_received,
       weth_received_usd: Some(weth_received_usd),
    };
@@ -1626,12 +1626,7 @@ pub async fn wrap_eth(
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
 
-      ctx.calculate_portfolio_value(chain.id(), from);
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), from);
-      });
-
+      ctx.update_public_data(chain.id(), from);
       ctx.save_balance_manager();
    });
 
@@ -1721,27 +1716,28 @@ pub async fn unwrap_weth(
       };
    }
 
-   let logs = sim_res.clone().into_logs();
-
    let eth_balance_before = eth_balance_before_fut.await?;
-   let mut eth_received = None;
 
-   for log in &logs {
-      if let Ok(decoded) = abi::weth9::decode_withdraw_log(log) {
-         eth_received = Some(decoded.wad);
-         break;
-      }
-   }
+   let eth_received = if eth_balance_after > eth_balance_before {
+      NumericValue::format_wei(
+         eth_balance_after - eth_balance_before,
+         weth.decimals,
+      )
+   } else {
+      NumericValue::default()
+   };
 
-   if eth_received.is_none() {
-      return Err(anyhow::anyhow!(
-         "Failed to decode weth withdraw log"
+   if eth_received.wei() < amount.wei() {
+      return Err(anyhow!(
+         "Received less ETH than requested (expected {}, got {})",
+         amount.abbreviated(),
+         eth_received.abbreviated()
       ));
    }
 
-   let eth_received = NumericValue::format_wei(eth_received.unwrap(), weth.decimals);
-   let wrapped_c: Currency = weth.clone().into();
-   let eth_received_usd = ctx.get_currency_value_for_amount(eth_received.f64(), &wrapped_c);
+   let logs = sim_res.clone().into_logs();
+
+   let eth_received_usd = ctx.get_token_value_for_amount(eth_received.f64(), &weth);
 
    let contract_interact = Some(true);
    let auth_list = Vec::new();
@@ -1806,12 +1802,7 @@ pub async fn unwrap_weth(
          Err(e) => tracing::error!("Error updating eth balance: {:?}", e),
       }
 
-      ctx.calculate_portfolio_value(chain.id(), from);
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), from);
-      });
-
+      ctx.update_public_data(chain.id(), from);
       ctx.save_balance_manager();
    });
 
@@ -2306,13 +2297,9 @@ async fn swap_via_ur(
          ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio));
       }
 
-      ctx.calculate_portfolio_value(chain.id(), signer_address);
+      ctx.update_public_data(chain.id(), signer_address);
       ctx.save_balance_manager();
       ctx.save_portfolio_db();
-
-      SHARED_GUI.write(|gui| {
-         gui.portofolio.process_tokens(ctx.clone(), chain.id(), signer_address);
-      });
    });
 
    Ok(())

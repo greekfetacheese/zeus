@@ -1,7 +1,7 @@
 //! UI that allows the user to discover and derive child wallets from a master wallet (BIP32 HD)
 
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, Portfolio, ZeusCtx};
+use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
@@ -478,7 +478,7 @@ impl DiscoverChildWallets {
                      let value = if !exists {
                         NumericValue::from_f64(total_value)
                      } else {
-                        ctx.get_portfolio_value_all_chains(child.address)
+                        ctx.get_total_value(child.address).public
                      };
 
                      ui.horizontal(|ui| {
@@ -588,7 +588,7 @@ impl DiscoverChildWallets {
                            ctx.portfolio_db.insert_portfolio(
                               chain,
                               address,
-                              Portfolio::new(address, chain),
+                              WalletPortfolio::new(address, chain),
                            );
                         });
                      }

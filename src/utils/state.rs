@@ -1,4 +1,4 @@
-use crate::core::{BaseFee, ZeusCtx, context::Portfolio};
+use crate::core::{types::BaseFee, ZeusCtx, WalletPortfolio};
 use crate::utils::RT;
 use anyhow::anyhow;
 
@@ -107,7 +107,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
          let ctx_clone = ctx_clone.clone();
          let portfolios = ctx_clone.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
-            ctx_clone.calculate_portfolio_value(chain, portfolio.owner);
+            ctx_clone.update_public_data(chain, portfolio.owner());
          }
       }
       ctx_clone.write(|ctx| {
@@ -154,13 +154,13 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
       std::thread::sleep(Duration::from_millis(100));
    }
 
-   let wallets = ctx.get_all_wallets_info();
+   let wallets = ctx.get_all_wallets_info(false);
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
          let balance = ctx.get_eth_balance(chain, wallet.address);
          if !balance.is_zero() && !has_portfolio {
-            let portfolio = Portfolio::new(wallet.address, chain);
+            let portfolio = WalletPortfolio::new(wallet.address, chain);
             ctx.write(|ctx| {
                ctx.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
             });
@@ -171,14 +171,14 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
       for portfolio in &portfolios {
-         ctx.calculate_portfolio_value(chain, portfolio.owner);
+         ctx.update_public_data(chain, portfolio.owner());
       }
    }
 }
 
 /// Check the smart account status for all wallets across all chains
 async fn check_smart_account_status(ctx: ZeusCtx) {
-   let accounts = ctx.get_all_wallets_info();
+   let accounts = ctx.get_all_wallets_info(false);
    let mut tasks = Vec::new();
 
    for chain in SUPPORTED_CHAINS {
@@ -278,7 +278,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
          for chain in SUPPORTED_CHAINS {
             let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
-               ctx.calculate_portfolio_value(chain, portfolio.owner);
+               ctx.update_public_data(chain, portfolio.owner());
             }
          }
 
@@ -464,7 +464,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       for chain in SUPPORTED_CHAINS {
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
-            ctx.calculate_portfolio_value(chain, portfolio.owner);
+            ctx.update_public_data(chain, portfolio.owner());
          }
       }
       ctx.save_portfolio_db();

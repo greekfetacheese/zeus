@@ -1,20 +1,38 @@
-use alloy_provider::{Provider, ProviderBuilder};
-use alloy_rpc_types::{Filter, Log};
-use alloy_sol_types::{sol, SolEvent};
-use chacha20poly1305::{aead::{Aead, KeyInit}, ChaCha20Poly1305, Nonce};
-use curve25519_dalek::{EdwardsPoint, Scalar as DalekScalar};
-use sha2::{Sha256, Digest};
-use sled::Db;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+pub mod abi;
+pub mod account;
+pub mod adapter_data;
+pub mod caip;
+pub mod chain_config;
+pub mod circuit;
+pub mod crypto;
+pub mod database;
+pub mod indexer;
+pub mod merkle_tree;
+pub mod note;
+pub mod poi;
+pub mod provider;
+pub mod transact;
+pub mod types;
 
+pub use account::{address::RailgunAddress, signer::RailgunSigner};
+pub use chain_config::ChainConfig;
+pub use circuit::groth16_prover::Groth16Prover;
+pub use database::RedbDatabase;
+pub use indexer::{
+   syncer::{RpcSyncer, UtxoSyncer, snapshot::SnapshotLoader, subsquid::syncer::SubsquidSyncer},
+   utxo_indexer::UtxoIndexer,
+};
+pub use merkle_tree::RootVerifier;
+pub use provider::{BalanceEntry, RailgunProvider};
 
-pub mod address;
+pub use rand;
 
-/* 
-sol! {
-    event CommitmentBatch(uint256 indexed treeNumber, uint256 startPosition, bytes32[] hashes, bytes ciphertext);
-    event GeneratedCommitmentBatch(uint256 indexed treeNumber, uint256 startPosition, (bytes32 hash)[] commitments);
-    event Nullifier(bytes32 indexed nullifier);
-}
-    */
+#[cfg(not(target_arch = "wasm32"))]
+pub trait MaybeSend: Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + Sync> MaybeSend for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait MaybeSend {}
+#[cfg(target_arch = "wasm32")]
+impl<T> MaybeSend for T {}

@@ -1,9 +1,10 @@
 use super::{
-   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, ZeusClient, misc::*,
-   price_manager::PriceManagerHandle,
+   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
+   misc::*, price_manager::PriceManagerHandle,
 };
 
-use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
+use crate::core::WalletValue;
+use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, state::test_and_measure_rpcs};
 use anyhow::anyhow;
@@ -29,8 +30,11 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, address_book, client::RpcClient},
 };
+use zeus_railgun::{
+   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RedbDatabase, RootVerifier,
+   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+};
 
-use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SERVER_PORT_FILE: &str = "server_port.json";
@@ -42,7 +46,7 @@ const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
-const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
+pub const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -53,6 +57,22 @@ pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
    }
 
    Ok(dir)
+}
+
+pub fn railgun_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join("railgun");
+   if !dir.exists() {
+      std::fs::create_dir_all(dir.clone())?;
+   }
+
+   Ok(dir)
+}
+
+pub fn railgun_db_file(chain: u64) -> Result<PathBuf, anyhow::Error> {
+   let dir = railgun_dir()?;
+   let file_name = format!("railgun:{}.db", chain);
+   let file = dir.join(file_name);
+   Ok(file)
 }
 
 pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
@@ -177,6 +197,95 @@ impl ZeusCtx {
       self.read(|ctx| ctx.server_running)
    }
 
+   pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
+      match chain {
+         ChainId::Ethereum => true,
+         _ => false,
+      }
+   }
+
+   pub async fn get_railgun_provider(
+      &self,
+      chain: u64,
+   ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      if !cfg!(feature = "dev") {
+         return Err(anyhow!("Railgun is not supported in this build"));
+      }
+      
+      let client = self.get_client(chain).await?;
+
+      let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
+      if let Some(mut provider) = provider_opt {
+         provider.set_provider(client.clone());
+
+         let is_syncing = provider.is_syncing().await;
+         let is_verifying = provider.is_verifying().await;
+
+         if !is_syncing && !is_verifying {
+            {
+               let indexer = provider.utxo_indexer.write().await;
+               indexer.rpc_syncer.set_provider(client.clone().erased()).await;
+               indexer.utxo_verifier.set_provider(client.clone().erased()).await;
+            }
+         }
+
+         tracing::info!(
+            "Got Railgun provider for chain {} from cache",
+            chain
+         );
+         return Ok(provider);
+      }
+
+      let db_file = railgun_db_file(chain)?;
+      let railgun_dir = railgun_dir()?;
+
+      let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+      let chain_config = match ChainConfig::from_chain_id(chain) {
+         Some(chain_config) => chain_config,
+         None => {
+            return Err(anyhow!("Chain {} not supported", chain));
+         }
+      };
+
+      let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
+      let rpc_syncer = RpcSyncer::new(
+         client.clone(),
+         chain,
+         chain_config.railgun_smart_wallet,
+      )
+      .with_snapshot_loader(snapshot_loader.clone());
+
+      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+         SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+            .with_snapshot_loader(snapshot_loader),
+      ));
+
+      let database = RedbDatabase::new(db_file)?;
+      let utxo_indexer = UtxoIndexer::new(
+         Arc::new(database),
+         Arc::new(rpc_syncer),
+         subsquid_syncer,
+         Arc::new(utxo_verifier),
+      )
+      .await?;
+      let prover = Groth16Prover::new(Some(railgun_dir));
+
+      let railgun_provider = RailgunProvider::new(
+         chain_config,
+         client.clone(),
+         utxo_indexer,
+         prover,
+         None,
+      )
+      .await?;
+
+      self.write(|ctx| {
+         ctx.railgun_provider.insert(chain, railgun_provider.clone());
+      });
+
+      Ok(railgun_provider)
+   }
+
    /// Encrypt and save the vault
    ///
    /// If `new_vault` is None, the current vault will be encrypted
@@ -286,8 +395,9 @@ impl ZeusCtx {
       self.read(|ctx| ctx.current_wallet.clone())
    }
 
-   pub fn current_wallet_info(&self) -> WalletInfo {
-      let wallet = self.read(|ctx| WalletInfo::from_wallet(&ctx.current_wallet));
+   pub fn current_wallet_info(&self, generate_railgun_address: bool) -> WalletInfo {
+      let wallet =
+         self.read(|ctx| WalletInfo::from_wallet(&ctx.current_wallet, generate_railgun_address));
       wallet
    }
 
@@ -295,13 +405,24 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.wallet_address_exists(address))
    }
 
+   pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
+      self.read(|ctx| ctx.vault.wallet_with_zk_address_exists(zk_address))
+   }
+
    /// Get the wallet info for the given address, without cloning the private key
-   pub fn get_wallet_info_by_address(&self, address: Address) -> Option<WalletInfo> {
+   pub fn get_wallet_info_by_address(
+      &self,
+      address: Address,
+      generate_railgun_address: bool,
+   ) -> Option<WalletInfo> {
       let mut info = None;
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
             if wallet.address() == address {
-               info = Some(WalletInfo::from_wallet(&wallet));
+               info = Some(WalletInfo::from_wallet(
+                  &wallet,
+                  generate_railgun_address,
+               ));
                break;
             }
          }
@@ -309,12 +430,29 @@ impl ZeusCtx {
       info
    }
 
+   /// Get the wallet name for the given address
+   pub fn get_wallet_name(&self, address: Address) -> Option<String> {
+      let mut name = None;
+      self.read(|ctx| {
+         for wallet in ctx.vault_ref().all_wallets() {
+            if wallet.address() == address {
+               name = Some(wallet.name.clone());
+               break;
+            }
+         }
+      });
+      name
+   }
+
    /// Get all wallets info without cloning the private key
-   pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
+   pub fn get_all_wallets_info(&self, generate_railgun_address: bool) -> Vec<WalletInfo> {
       let mut info = Vec::new();
       self.read(|ctx| {
          for wallet in ctx.vault_ref().all_wallets() {
-            info.push(WalletInfo::from_wallet(&wallet));
+            info.push(WalletInfo::from_wallet(
+               &wallet,
+               generate_railgun_address,
+            ));
          }
       });
       info
@@ -324,9 +462,9 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.contacts.clone())
    }
 
-   pub fn remove_contact(&self, address: &str) {
+   pub fn remove_contact(&self, evm_address: &str) {
       self.write(|ctx| {
-         ctx.vault.contacts.retain(|c| c.address != address);
+         ctx.vault.contacts.retain(|c| c.evm_address != evm_address);
       });
    }
 
@@ -347,10 +485,10 @@ impl ZeusCtx {
             "Contact with name {} already exists",
             contact.name
          ));
-      } else if contacts.iter().any(|c| c.address == contact.address) {
+      } else if contacts.iter().any(|c| c.evm_address == contact.evm_address) {
          return Err(anyhow!(
             "Contact with address {} already exists",
-            contact.address
+            contact.evm_address
          ));
       }
 
@@ -361,10 +499,25 @@ impl ZeusCtx {
    }
 
    /// Get a contact by it's address
-   pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
-      let address = address.to_lowercase();
+   pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
+      let evm_address = evm_address.to_lowercase();
       self.read(|ctx| {
-         ctx.vault.contacts.iter().find(|c| c.address.to_lowercase() == address).cloned()
+         ctx.vault
+            .contacts
+            .iter()
+            .find(|c| c.evm_address.to_lowercase() == evm_address)
+            .cloned()
+      })
+   }
+
+   pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
+      let zk_address = zk_address.to_lowercase();
+      self.read(|ctx| {
+         ctx.vault
+            .contacts
+            .iter()
+            .find(|c| c.zk_address.to_lowercase() == zk_address)
+            .cloned()
       })
    }
 
@@ -524,7 +677,7 @@ impl ZeusCtx {
       self.read(|ctx| ctx.currency_db.get_currencies(chain))
    }
 
-   pub fn get_portfolio(&self, chain: u64, owner: Address) -> Portfolio {
+   pub fn get_portfolio(&self, chain: u64, owner: Address) -> WalletPortfolio {
       self.read(|ctx| ctx.portfolio_db.get(chain, owner))
    }
 
@@ -532,17 +685,23 @@ impl ZeusCtx {
       self.read(|ctx| ctx.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
-   /// Get the portfolio value across all chains
-   pub fn get_portfolio_value_all_chains(&self, owner: Address) -> NumericValue {
-      let mut value = 0.0;
-      let chains = SUPPORTED_CHAINS.to_vec();
+   /// Get the total value for the given owner across all of its wallets and chains
+   pub fn get_total_value(&self, owner: Address) -> WalletValue {
+      let mut total_public = 0.0;
+      let mut total_private = 0.0;
 
-      for chain in chains {
+      for chain in SUPPORTED_CHAINS {
          let portfolio = self.get_portfolio(chain, owner);
-         value += portfolio.value.f64();
+         total_public += portfolio.public_value().f64();
+         total_private += portfolio.private_value().f64();
       }
 
-      NumericValue::from_f64(value)
+      let owner_value = WalletValue {
+         public: NumericValue::from_f64(total_public),
+         private: NumericValue::from_f64(total_private),
+      };
+
+      owner_value
    }
 
    /// Get all tokens in all portfolios
@@ -551,32 +710,35 @@ impl ZeusCtx {
       let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
-         let erc_tokens = portfolio.tokens.iter().map(|token| token.clone()).collect::<Vec<_>>();
+         let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
          tokens.extend(erc_tokens);
       }
       tokens
    }
 
-   /// Calculate and update the portfolio value
-   pub fn calculate_portfolio_value(&self, chain: u64, owner: Address) {
+   /// Update the public data of a portfolio for the given chain and owner
+   ///
+   /// What it does:
+   ///
+   /// - Calculates the public token list and sorts it by value
+   /// - Updates the portfolio public value based on the latest price data
+   pub fn update_public_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
-      let mut value = 0.0;
+      portfolio.update_public_data(self.clone());
+      self.write(|ctx| {
+         ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      });
+   }
 
-      for token in &portfolio.tokens {
-         let price = self.get_token_price(token).f64();
-         let balance = self.get_token_balance(chain, owner, token.address).f64();
-         value += NumericValue::value(balance, price).f64()
-      }
-
-      let eth_balance = self.get_eth_balance(chain, owner);
-      let eth_price = self.get_currency_price(&Currency::wrapped_native(chain));
-
-      let eth_value = NumericValue::value(eth_balance.f64(), eth_price.f64());
-      value += eth_value.f64();
-
-      let new_value = NumericValue::from_f64(value);
-      portfolio.value = new_value;
-
+   /// Update the private data of a portfolio for the given chain and owner
+   ///
+   /// What it does:
+   ///
+   /// - Indexes the private tokens and sorts them by value
+   /// - Updates the portfolio private value based on the latest price data
+   pub async fn update_private_data(&self, chain: u64, owner: Address) {
+      let mut portfolio = self.get_portfolio(chain, owner);
+      portfolio.update_private_data(self.clone()).await;
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
@@ -678,9 +840,9 @@ impl ZeusCtx {
 
    /// Return the name of this address if its known
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      let wallet = self.get_wallet_info_by_address(address);
-      if wallet.is_some() {
-         return Some(wallet.unwrap().name());
+      let name = self.get_wallet_name(address);
+      if name.is_some() {
+         return Some(name.unwrap());
       }
 
       let contact = self.get_contact_by_address(&address.to_string());
@@ -1298,220 +1460,54 @@ impl ZeusCtx {
    }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ConnectedDapps {
-   pub dapps: Vec<String>,
-}
-
-impl ConnectedDapps {
-   pub fn connected_dapps(&self) -> Vec<String> {
-      self.dapps.clone()
-   }
-
-   pub fn connect_dapp(&mut self, dapp: String) {
-      self.dapps.push(dapp);
-   }
-
-   pub fn disconnect_dapp(&mut self, dapp: &str) {
-      self.dapps.retain(|d| d != dapp);
-   }
-
-   pub fn disconnect_all(&mut self) {
-      self.dapps.clear();
-   }
-
-   pub fn is_connected(&self, dapp: &str) -> bool {
-      self.dapps.contains(&dapp.to_string())
-   }
-}
-
-/// Holds addresses that are delegated to a smart contract
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DelegatedWallets {
-   #[serde(with = "serde_hashmap")]
-   /// Map of (chain, account) to delegated address
-   pub map: HashMap<(u64, Address), Address>,
-   /// Last time we checked the smart account status
-   /// Time is in UNIX timestamp
-   pub last_check: HashMap<(u64, Address), u64>,
-}
-
-impl DelegatedWallets {
-   pub fn new() -> Self {
-      Self {
-         map: HashMap::new(),
-         last_check: HashMap::new(),
-      }
-   }
-
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = delegated_wallets_dir()?;
-      let data = std::fs::read(dir)?;
-      let smart_accounts = serde_json::from_slice(&data)?;
-      Ok(smart_accounts)
-   }
-
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let data = serde_json::to_string(self)?;
-      let dir = delegated_wallets_dir()?;
-      std::fs::write(dir, data)?;
-      Ok(())
-   }
-
-   pub fn add(&mut self, chain: u64, account: Address, delegated_address: Address) {
-      self.map.insert((chain, account), delegated_address);
-   }
-
-   pub fn remove(&mut self, chain: u64, account: Address) {
-      self.map.remove(&(chain, account));
-   }
-
-   pub fn should_check(&self, chain: u64, account: Address) -> bool {
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-      let last_check = self.last_check.get(&(chain, account)).cloned();
-      if last_check.is_none() {
-         return true;
-      }
-
-      let last_check = last_check.unwrap();
-      let time_passed = now.saturating_sub(last_check);
-      time_passed > DELEGATE_WALLET_CHECK_TIMEOUT
-   }
-
-   pub fn get(&self, chain: u64, account: Address) -> Option<Address> {
-      self.map.get(&(chain, account)).cloned()
-   }
-}
-
-#[derive(Clone)]
-pub struct Block {
-   pub number: u64,
-   pub timestamp: u64,
-}
-
-impl Block {
-   pub fn new(number: u64, timestamp: u64) -> Self {
-      Self { number, timestamp }
-   }
-}
-
-#[derive(Clone)]
-pub struct EthCall {
-   pub timestamp: u64,
-   pub result: Bytes,
-}
-
-#[derive(Clone)]
-pub struct EstimateGas {
-   pub timestamp: u64,
-   pub gas: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct BaseFee {
-   pub current: u64,
-   pub next: u64,
-}
-
-impl Default for BaseFee {
-   fn default() -> Self {
-      Self {
-         current: 1,
-         next: 1,
-      }
-   }
-}
-
-impl BaseFee {
-   pub fn new(current: u64, next: u64) -> Self {
-      Self { current, next }
-   }
-}
-
-/// Suggested priority fees for each chain
-#[derive(Debug, Clone)]
-pub struct PriorityFee {
-   pub fee: HashMap<u64, NumericValue>,
-}
-
-impl PriorityFee {
-   pub fn get(&self, chain: u64) -> Option<&NumericValue> {
-      self.fee.get(&chain)
-   }
-}
-
-impl Default for PriorityFee {
-   fn default() -> Self {
-      let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
-      // Eth
-      map.insert(1, NumericValue::parse_to_gwei("1"));
-
-      // Optimism
-      map.insert(10, NumericValue::parse_to_gwei("0.002"));
-
-      // BSC (Legacy Tx)
-      map.insert(56, NumericValue::parse_to_gwei("0"));
-
-      // Base
-      map.insert(8453, NumericValue::parse_to_gwei("0.002"));
-
-      // Arbitrum (Legacy Tx)
-      map.insert(42161, NumericValue::parse_to_gwei("0"));
-
-      Self { fee: map }
-   }
-}
-
-/// Saved contact by the user
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Contact {
-   pub name: String,
-   pub address: String,
-}
-
-impl Contact {
-   pub fn new(name: String, address: String) -> Self {
-      Self { name, address }
-   }
-
-   pub fn address_short(&self, start: usize, end: usize) -> String {
-      let address_str = self.address.as_str();
-
-      if address_str.len() < start + end {
-         return address_str.to_string();
-      }
-
-      let start_part = &address_str[..start];
-      let end_part = &address_str[address_str.len() - end..];
-
-      format!("{}...{}", start_part, end_part)
-   }
-}
-
 pub struct ZeusContext {
+   /// Client manager that handles almost all the RPC calls in Zeus
    pub client: ZeusClient,
 
    /// The current selected chain from the GUI
    pub chain: ChainId,
+
+   /// True if the privacy mode is enabled (Railgun)
+   pub privacy_mode: bool,
+
+   /// Railgun provider mapped by chain
+   pub railgun_provider: HashMap<u64, RailgunProvider<RpcClient>>,
 
    /// The current selected wallet from the GUI
    pub current_wallet: Wallet,
 
    /// Loaded Vault
    vault: Vault,
+   /// Flag to indicate that the vault is being saved
+   /// to prevent any race conditions
    pub save_vault_in_progress: bool,
+   /// True if a vault exists in the data directory
    pub vault_exists: bool,
+   /// True if the vault is unlocked,
+   /// only then the Zeus UI unlocks
    pub vault_unlocked: bool,
+   /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
+   /// Holds all portfolios
    pub portfolio_db: PortfolioDB,
+   /// Tx history
    pub tx_db: TransactionsDB,
+   /// Pool manager used for the Uniswap UI
+   /// and price manager
    pub pool_manager: PoolManagerHandle,
+   /// Calculate the $USD price of an ERC20 token
+   /// based purely on the on-chain pool data
+   /// no 3rd party APIs
    pub price_manager: PriceManagerHandle,
+   /// Fetch and stores ETH and ERC20 balances
    pub balance_manager: BalanceManagerHandle,
    pub data_syncing: bool,
    pub dex_syncing: bool,
    pub on_startup_syncing: bool,
+   /// Cached base fees for each chain
    pub base_fee: HashMap<u64, BaseFee>,
+
+   // Cached data for the wallet connector
    pub latest_block: HashMap<u64, Block>,
    pub eth_calls: HashMap<(u64, TransactionRequest), EthCall>,
    pub estimate_gas: HashMap<(u64, TransactionRequest), EstimateGas>,
@@ -1519,13 +1515,25 @@ pub struct ZeusContext {
    pub storage: HashMap<(u64, u64, Address, U256), U256>,
    pub transactions: HashMap<(u64, FixedBytes<32>), Transaction>,
    pub receipts: HashMap<(u64, FixedBytes<32>), TransactionReceipt>,
+
+   /// Cached priority fees for each chain
    pub priority_fee: PriorityFee,
+   /// Currently connected dapps
    pub connected_dapps: ConnectedDapps,
+   /// Currently delegated wallets
    pub delegated_wallets: DelegatedWallets,
+
+   // TODO: Currenly unused
    pub server_port: u16,
+   /// True if the local server that communicates with the wallet connector (browser extension) is running
    pub server_running: bool,
+
+   // TODO: Remove these, they dont belong here
+   /// True if the transaction confirmation window is open
    pub tx_confirm_window_open: bool,
+   /// True if the sign message window is open
    pub sign_msg_window_open: bool,
+
    /// Private Key and Address Qr Code
    pub qr_image_data: Arc<[u8]>,
 
@@ -1616,6 +1624,8 @@ impl ZeusContext {
       Self {
          client,
          chain: ChainId::new(1).unwrap(),
+         privacy_mode: false,
+         railgun_provider: HashMap::new(),
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          vault: Vault::default(),
          save_vault_in_progress: false,

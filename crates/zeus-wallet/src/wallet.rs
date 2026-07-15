@@ -1,7 +1,8 @@
 use super::secure_key::SecureKey;
 use alloy_primitives::Address;
 use alloy_signer_local::{
-   LocalSignerError, MnemonicBuilder, PrivateKeySigner, coins_bip39::English,
+   LocalSignerError, MnemonicBuilder, PrivateKeySigner,
+   coins_bip39::{English, Mnemonic},
 };
 use anyhow::anyhow;
 use argon2_rs::Argon2;
@@ -53,6 +54,8 @@ pub fn derive_seed(
 #[derive(Clone)]
 pub struct Wallet {
    pub name: String,
+   #[cfg_attr(feature = "serde", serde(default))]
+   pub seed_phrase: Option<SecureString>,
    pub key: SecureKey,
    pub xkey_info: Option<XKeyInfo>,
 }
@@ -66,9 +69,15 @@ impl PartialEq for Wallet {
 impl Eq for Wallet {}
 
 impl Wallet {
-   pub fn new(name: String, key: SecureKey, xkey_info: Option<XKeyInfo>) -> Self {
+   pub fn new(
+      name: String,
+      seed_phrase: Option<SecureString>,
+      key: SecureKey,
+      xkey_info: Option<XKeyInfo>,
+   ) -> Self {
       Self {
          name,
+         seed_phrase,
          key,
          xkey_info,
       }
@@ -95,16 +104,28 @@ impl Wallet {
       Ok(full_key)
    }
 
-   /*
-   /// Return the zkAddress of the wallet
-   pub fn zk_address(&self) -> Result<ZkAddress, anyhow::Error> {
-      let full_key = self.full_key()?;
-      let data = zk::generate_address_data(full_key, 0, None)?;
+   /// Generate the seed needed to derive the RailgunKeys and the RailgunAddress
+   pub fn seed(&self) -> Result<SecureArray<u8, 64>, anyhow::Error> {
+      if self.xkey_info.is_some() {
+         let key = self.full_key()?;
+         return Ok(key);
+      }
 
-      let address = zk::encode_address(&data)?;
-      Ok(address)
+      if self.seed_phrase.is_some() {
+         let seed = self.seed_phrase.as_ref().unwrap();
+         let mnemonic = seed.unlock_str(|seed_str| {
+            let mnemonic = Mnemonic::<English>::new_from_phrase(seed_str);
+            mnemonic
+         })?;
+         let mut bytes = mnemonic.to_seed("".into())?;
+         let sec_bytes = SecureArray::from_slice_mut(&mut bytes)?;
+         return Ok(sec_bytes);
+      }
+
+      Err(anyhow!(
+         "Could not derive seed, The wallet must be either Master/Child or imported from a seed phrase"
+      ))
    }
-   */
 
    pub fn name_with_id(&self) -> String {
       let id = if self.is_master() {
@@ -135,6 +156,7 @@ impl Wallet {
       let key = SecureKey::random();
       Self {
          name,
+         seed_phrase: None,
          key,
          xkey_info: None,
       }
@@ -147,6 +169,7 @@ impl Wallet {
 
       Ok(Self {
          name,
+         seed_phrase: None,
          key,
          xkey_info: None,
       })
@@ -167,6 +190,7 @@ impl Wallet {
 
       Ok(Self {
          name,
+         seed_phrase: Some(phrase),
          key,
          xkey_info: None,
       })
@@ -265,6 +289,7 @@ impl SecureHDWallet {
 
       let master_wallet = Wallet {
          name: "Master Wallet".to_string(),
+         seed_phrase: None,
          key: signer,
          xkey_info: Some(key_info),
       };
@@ -298,6 +323,7 @@ impl SecureHDWallet {
 
       let master_wallet = Wallet {
          name,
+         seed_phrase: None,
          key: key.into(),
          xkey_info: Some(key_info),
       };
@@ -329,6 +355,7 @@ impl SecureHDWallet {
       let address = pkey.address();
       let child_wallet = Wallet {
          name: name.clone(),
+         seed_phrase: None,
          key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
@@ -357,6 +384,7 @@ impl SecureHDWallet {
 
       let wallet = Wallet {
          name: name.clone(),
+         seed_phrase: None,
          key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };
@@ -382,6 +410,7 @@ impl SecureHDWallet {
 
       let wallet = Wallet {
          name: name.clone(),
+         seed_phrase: None,
          key: pkey.into(),
          xkey_info: Some(child.xkey_info),
       };

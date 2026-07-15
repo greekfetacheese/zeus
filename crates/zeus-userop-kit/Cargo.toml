@@ -1,0 +1,45 @@
+[package]
+name = "userop-kit"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+js = ["dep:tsify", "dep:wasm-bindgen"]
+
+[dependencies]
+
+# Alloy
+alloy-eips = "=2.0.5"
+alloy-serde = "=2.0.5"
+alloy-primitives = "=1.6.0"
+alloy-dyn-abi = "=1.6.0"
+alloy-provider = "=2.0.5"
+alloy-rpc-types = "=2.0.5"
+alloy-signer = "=2.0.5"
+alloy-signer-local = "=2.0.5"
+alloy-sol-types = { version = "=1.6.0", features = ["eip712-serde"] }
+
+# Misc
+gloo-timers = "0.3.0"
+web-time  = "1.1"
+async-trait = "0.1.89"
+futures = "0.3.31"
+reqwest = { version = "0.13", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+anyhow = "=1.0.99"
+tokio = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tsify = { version = "0.5", optional = true }
+wasm-bindgen = { version = "=0.2.108", optional = true }
+
+[build-dependencies]
+cfg_aliases = { version = "0.2.0"}
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+alloy-signer-local = "2"
+insta = "1.47.2"

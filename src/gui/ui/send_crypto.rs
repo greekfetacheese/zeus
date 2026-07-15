@@ -17,10 +17,7 @@ use crate::utils::{RT, estimate_tx_cost};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
-   ui::{
-      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      misc::AmountFieldWithCurrencySelect,
-   },
+   ui::{ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField},
 };
 use crate::utils::simulate::fetch_accounts_info;
 use zeus_theme::Theme;
@@ -43,7 +40,7 @@ const POOL_UPDATE_TIMEOUT: u64 = 60;
 pub struct SendCryptoUi {
    open: bool,
    pub currency: Currency,
-   pub amount_field: AmountFieldWithCurrencySelect,
+   pub amount_field: AmountField,
    pub recipient: String,
    pub recipient_name: Option<String>,
    pub search_query: String,
@@ -59,7 +56,7 @@ impl SendCryptoUi {
       Self {
          open: false,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
-         amount_field: AmountFieldWithCurrencySelect::new(),
+         amount_field: AmountField::new(),
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
@@ -133,7 +130,7 @@ impl SendCryptoUi {
 
                   ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
 
-                  let owner = ctx.current_wallet_info().address;
+                  let owner = ctx.current_wallet_info(false).address;
 
                   let chain = ctx.chain();
                   let inner_frame = theme.frame2;
@@ -161,6 +158,7 @@ impl SendCryptoUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
+                  let privacy_mode = false;
 
                   let value = || {
                      value(
@@ -175,6 +173,7 @@ impl SendCryptoUi {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
                         ctx.clone(),
+                        privacy_mode,
                         theme,
                         icons.clone(),
                         Some(label),
@@ -206,9 +205,15 @@ impl SendCryptoUi {
                      self.sync_balance(owner, ctx.clone());
                   }
 
-                  recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
+                  recipient_selection.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     false,
+                     contacts_ui,
+                     ui,
+                  );
                   let recipient = recipient_selection.get_recipient();
-                  let recipient_name = recipient_selection.get_recipient_name();
 
                   // Recipient Selection
                   inner_frame.show(ui, |ui| {
@@ -217,10 +222,10 @@ impl SendCryptoUi {
                         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                         ui.add_space(10.0);
 
-                        if !recipient.is_empty() {
-                           if let Some(name) = &recipient_name {
+                        if !recipient.is_empty(false) {
+                           if let Some(name) = &recipient.name {
                               ui.label(
-                                 RichText::new(name.clone())
+                                 RichText::new(name)
                                     .size(theme.text_sizes.large)
                                     .color(theme.colors.info),
                               );
@@ -233,7 +238,10 @@ impl SendCryptoUi {
                            }
 
                            let block_explorer = chain.block_explorer();
-                           let link = format!("{}/address/{}", block_explorer, recipient);
+                           let link = format!(
+                              "{}/address/{}",
+                              block_explorer, recipient.evm_address
+                           );
                            let tint = theme.image_tint_recommended;
                            let icon = match theme.dark_mode {
                               true => icons.external_link_white_x18(tint),
@@ -255,12 +263,14 @@ impl SendCryptoUi {
                            .color(theme.colors.text_muted);
 
                         let res = ui.add(
-                           SecureTextEdit::singleline(&mut recipient_selection.recipient)
-                              .visuals(text_edit_visuals)
-                              .hint_text(hint)
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.normal)),
+                           SecureTextEdit::singleline(
+                              &mut recipient_selection.recipient.evm_address,
+                           )
+                           .visuals(text_edit_visuals)
+                           .hint_text(hint)
+                           .min_size(vec2(ui.available_width(), 25.0))
+                           .margin(Margin::same(10))
+                           .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open(ctx.clone());
@@ -268,7 +278,7 @@ impl SendCryptoUi {
                      });
                   });
 
-                  self.send_button(ctx, theme, owner, recipient, ui);
+                  self.send_button(ctx, theme, owner, recipient.evm_address, ui);
                });
             });
          });
@@ -421,7 +431,7 @@ impl SendCryptoUi {
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
       let chain = ctx.chain();
-      let from = ctx.current_wallet_info().address;
+      let from = ctx.current_wallet_info(false).address;
       let currency = self.currency.clone();
       let recipient_address = Address::from_str(&recipient)?;
       let amount = NumericValue::parse_to_wei(
@@ -780,19 +790,12 @@ async fn update_balances(
             .update_tokens_balance(ctx.clone(), chain, recipient, vec![token], true)
             .await?;
       }
-      ctx.calculate_portfolio_value(chain, recipient);
+      ctx.update_public_data(chain, recipient);
    }
 
-   ctx.calculate_portfolio_value(chain, sender);
+   ctx.update_public_data(chain, sender);
    ctx.save_balance_manager();
    ctx.save_portfolio_db();
-
-   SHARED_GUI.write(|gui| {
-      gui.portofolio.process_tokens(ctx.clone(), chain, sender);
-      if exists {
-         gui.portofolio.process_tokens(ctx, chain, recipient);
-      }
-   });
 
    Ok(())
 }

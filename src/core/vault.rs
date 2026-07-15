@@ -1,10 +1,11 @@
-use super::{Contact, wallet::*};
+use super::{types::Contact, wallet::*};
 use crate::core::context::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 use secure_types::{SecureBytes, SecureString};
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 use zeus_eth::alloy_primitives::Address;
+use zeus_railgun::RailgunAddress;
 use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
 
 pub const VAULT_FILE: &str = "vault.data";
@@ -103,6 +104,19 @@ impl Vault {
 
    pub fn wallet_address_exists(&self, address: Address) -> bool {
       self.all_wallets().iter().any(|w| w.key.address() == address)
+   }
+
+   pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
+      let mut wallet_map = HashMap::new();
+
+      for wallet in self.all_wallets() {
+         if let Ok(seed) = wallet.seed() {
+            let railgun_address = RailgunAddress::new(&seed, 0, None).unwrap();
+            wallet_map.insert(railgun_address.address, wallet.address());
+         }
+      }
+
+      wallet_map.contains_key(&zk_address.address)
    }
 
    fn generate_wallet_name(&self) -> String {

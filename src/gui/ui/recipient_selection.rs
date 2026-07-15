@@ -1,23 +1,31 @@
 //! Window that allows the user to select a contact or a wallet as the recipient of a transaction
 
 use crate::assets::icons::Icons;
-use crate::core::{Contact, WalletInfo, ZeusCtx};
+use crate::core::{
+   WalletInfo, ZeusCtx,
+   types::{Contact, Recipient},
+};
+use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
-use eframe::egui::{Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Ui, Window, vec2};
+use crate::utils::RT;
+use eframe::egui::{
+   Align2, FontId, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Window, vec2,
+};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
+use zeus_railgun::RailgunAddress;
 use zeus_theme::{OverlayManager, Theme, utils::frame_it};
 use zeus_widgets::{Button, SecureTextEdit};
 
 pub struct RecipientSelectionWindow {
    open: bool,
+   loading: bool,
    overlay: OverlayManager,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
-   pub recipient: String,
-   recipient_name: Option<String>,
+   pub recipient: Recipient,
    search_query: String,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
@@ -31,11 +39,11 @@ impl RecipientSelectionWindow {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
+         loading: false,
          overlay,
          contacts_tab_open: true,
          wallets_tab_open: false,
-         recipient: String::new(),
-         recipient_name: None,
+         recipient: Recipient::default(),
          search_query: String::new(),
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
@@ -52,45 +60,55 @@ impl RecipientSelectionWindow {
       if !self.open {
          self.overlay.window_opened();
       }
+
       self.open = true;
+      self.loading = true;
 
-      let mut wallets = ctx.get_all_wallets_info();
-      let mut portfolios = Vec::new();
-      for chain in SUPPORTED_CHAINS {
-         for wallet in &wallets {
-            portfolios.push(ctx.get_portfolio(chain, wallet.address));
+      // TODO: Move this outside of the GUI thread
+      RT.spawn_blocking(move || {
+         let mut wallets = ctx.get_all_wallets_info(true);
+         let mut portfolios = Vec::new();
+         for chain in SUPPORTED_CHAINS {
+            for wallet in &wallets {
+               portfolios.push(ctx.get_portfolio(chain, wallet.address));
+            }
          }
-      }
 
-      wallets.sort_by(|a, b| {
-         let wallet_a = a.address;
-         let wallet_b = b.address;
+         // TODO: Adjust for Privacy mode
+         wallets.sort_by(|a, b| {
+            let wallet_a = a.address;
+            let wallet_b = b.address;
 
-         let value_a = ctx.get_portfolio_value_all_chains(wallet_a);
-         let value_b = ctx.get_portfolio_value_all_chains(wallet_b);
+            let value_a = ctx.get_total_value(wallet_a);
+            let value_b = ctx.get_total_value(wallet_b);
 
-         // Sort in descending order (highest value first)
-         value_b
-            .f64()
-            .partial_cmp(&value_a.f64())
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.name().cmp(&b.name()))
+            // Sort in descending order (highest value first)
+            value_b
+               .public
+               .f64()
+               .partial_cmp(&value_a.public.f64())
+               .unwrap_or(std::cmp::Ordering::Equal)
+               .then_with(|| a.name().cmp(&b.name()))
+         });
+
+         let mut wallet_value = HashMap::new();
+         let mut wallet_chains = HashMap::new();
+
+         for wallet in &wallets {
+            let value = ctx.get_total_value(wallet.address);
+            wallet_value.insert(wallet.address, value.public);
+
+            let chains = ctx.get_chains_that_have_balance(wallet.address);
+            wallet_chains.insert(wallet.address, chains);
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.recipient_selection.loading = false;
+            gui.recipient_selection.wallets = wallets;
+            gui.recipient_selection.wallet_value = wallet_value;
+            gui.recipient_selection.wallet_chains = wallet_chains;
+         });
       });
-
-      let mut wallet_value = HashMap::new();
-      let mut wallet_chains = HashMap::new();
-
-      for wallet in &wallets {
-         let value = ctx.get_portfolio_value_all_chains(wallet.address);
-         wallet_value.insert(wallet.address, value);
-
-         let chains = ctx.get_chains_that_have_balance(wallet.address);
-         wallet_chains.insert(wallet.address, chains);
-      }
-
-      self.wallets = wallets;
-      self.wallet_value = wallet_value;
-      self.wallet_chains = wallet_chains;
    }
 
    pub fn close(&mut self) {
@@ -99,17 +117,12 @@ impl RecipientSelectionWindow {
    }
 
    pub fn reset(&mut self) {
-      self.recipient = String::new();
-      self.recipient_name = None;
+      self.recipient = Recipient::default();
       self.search_query.clear();
    }
 
-   pub fn get_recipient(&self) -> String {
+   pub fn get_recipient(&self) -> Recipient {
       self.recipient.clone()
-   }
-
-   pub fn get_recipient_name(&self) -> Option<String> {
-      self.recipient_name.clone()
    }
 
    pub fn show(
@@ -117,6 +130,7 @@ impl RecipientSelectionWindow {
       ctx: ZeusCtx,
       theme: &Theme,
       _icons: Arc<Icons>,
+      privacy_mode: bool,
       contacts_ui: &mut ContactsUi,
       ui: &mut Ui,
    ) {
@@ -132,8 +146,8 @@ impl RecipientSelectionWindow {
 
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
-         self.recipient = contact.address;
-         self.recipient_name = Some(contact.name);
+         self.recipient = Recipient::from_contact(contact);
+
          contacts_ui.add_contact.reset();
          self.close();
       }
@@ -158,6 +172,11 @@ impl RecipientSelectionWindow {
 
             ui.vertical_centered(|ui| {
                ui.add_space(20.0);
+
+               if self.loading {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+                  return;
+               }
 
                let text = RichText::new("Add a contact").size(theme.text_sizes.normal);
                let add_contact = Button::new(text).visuals(button_visuals);
@@ -212,30 +231,65 @@ impl RecipientSelectionWindow {
                ui.add_space(15.0);
 
                if self.contacts_tab_open {
-                  self.contacts_tab(ctx.clone(), theme, &mut close_window, ui);
+                  self.contacts_tab(
+                     ctx.clone(),
+                     theme,
+                     privacy_mode,
+                     &mut close_window,
+                     ui,
+                  );
                }
 
                if self.wallets_tab_open {
-                  self.wallets_tab(theme, &mut close_window, ui);
+                  self.wallets_tab(
+                     ctx.clone(),
+                     theme,
+                     privacy_mode,
+                     &mut close_window,
+                     ui,
+                  );
                }
 
-               if let Ok(address) = Address::from_str(&self.search_query) {
-                  if ctx.wallet_exists(address)
-                     || ctx.get_contact_by_address(&address.to_string()).is_some()
-                  {
-                     return;
-                  }
+               // TODO: Move this from the main thread to avoid blocking the GUI
+               if !&self.search_query.is_empty() {
+                  if !privacy_mode {
+                     if let Ok(address) = Address::from_str(&self.search_query) {
+                        if ctx.wallet_exists(address)
+                           || ctx.get_contact_by_address(&address.to_string()).is_some()
+                        {
+                           return;
+                        }
 
-                  ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
+                        ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
 
-                  let address_text =
-                     RichText::new(address.to_string()).size(theme.text_sizes.normal);
-                  let button = Button::new(address_text).visuals(button_visuals);
+                        let address_text =
+                           RichText::new(address.to_string()).size(theme.text_sizes.normal);
+                        let button = Button::new(address_text).visuals(button_visuals);
 
-                  if ui.add(button).clicked() {
-                     self.recipient = address.to_string();
-                     self.recipient_name = None;
-                     close_window = true;
+                        if ui.add(button).clicked() {
+                           self.recipient = Recipient::from_unknown_evm_address(address);
+                           close_window = true;
+                        }
+                     }
+                  } else {
+                     if let Ok(zk_address) = RailgunAddress::from_zk_address(&self.search_query) {
+                        if ctx.wallet_with_zk_address_exists(&zk_address)
+                           || ctx.get_contact_by_address(&zk_address.address).is_some()
+                        {
+                           return;
+                        }
+
+                        ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
+
+                        let address_text =
+                           RichText::new(&zk_address.address).size(theme.text_sizes.normal);
+                        let button = Button::new(address_text).visuals(button_visuals);
+
+                        if ui.add(button).clicked() {
+                           self.recipient = Recipient::from_unknown_zk_address(zk_address.address);
+                           close_window = true;
+                        }
+                     }
                   }
                }
             });
@@ -257,7 +311,14 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn contacts_tab(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn contacts_tab(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let contacts = ctx.contacts();
       let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &self.search_query));
 
@@ -267,12 +328,19 @@ impl RecipientSelectionWindow {
          .max_width(ui.available_width())
          .show(ui, |ui| {
             if are_valid_contacts {
-               self.show_contacts(ctx.clone(), theme, close_window, ui);
+               self.show_contacts(ctx.clone(), theme, privacy_mode, close_window, ui);
             }
          });
    }
 
-   fn show_contacts(&mut self, ctx: ZeusCtx, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn show_contacts(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let contacts = ctx.contacts();
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
@@ -283,6 +351,16 @@ impl RecipientSelectionWindow {
 
       for contact in &contacts {
          let valid_search = valid_contact_search(contact, &self.search_query);
+
+         let address = match privacy_mode {
+            false => contact.evm_address.clone(),
+            true => contact.zk_address_truncated(),
+         };
+
+         let address_full = match privacy_mode {
+            false => contact.evm_address.clone(),
+            true => contact.zk_address.clone(),
+         };
 
          if valid_search {
             let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
@@ -296,28 +374,33 @@ impl RecipientSelectionWindow {
 
                ui.add_space(6.0);
 
-               let address_text = RichText::new(&contact.address)
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.text);
+               let address_text =
+                  RichText::new(&address).size(theme.text_sizes.normal).color(theme.colors.text);
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
                   if ui.add(button).clicked() {
-                     ui.ctx().copy_text(contact.address.clone());
+                     ui.ctx().copy_text(address_full.clone());
                   }
                });
             });
 
             if res.interact(Sense::click()).clicked() {
-               self.recipient = contact.address.to_string();
-               self.recipient_name = Some(contact.name.clone());
+               self.recipient = Recipient::from_contact(contact.clone());
                *close_window = true;
             }
          }
       }
    }
 
-   fn wallets_tab(&mut self, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn wallets_tab(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let wallets = &self.wallets;
       let are_valid_wallets =
          !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, &self.search_query));
@@ -328,12 +411,19 @@ impl RecipientSelectionWindow {
          .max_width(ui.available_width())
          .show(ui, |ui| {
             if are_valid_wallets {
-               self.show_wallets(theme, close_window, ui);
+               self.show_wallets(ctx, theme, privacy_mode, close_window, ui);
             }
          });
    }
 
-   fn show_wallets(&mut self, theme: &Theme, close_window: &mut bool, ui: &mut Ui) {
+   fn show_wallets(
+      &mut self,
+      _ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -345,6 +435,16 @@ impl RecipientSelectionWindow {
       for wallet in wallets {
          let valid_search = valid_wallet_search(wallet, &self.search_query);
          let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
+
+         let address = match privacy_mode {
+            false => wallet.address.to_string(),
+            true => wallet.zk_address_truncated(),
+         };
+
+         let address_full = match privacy_mode {
+            false => wallet.address.to_string(),
+            true => wallet.zk_address(),
+         };
 
          if valid_search {
             let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
@@ -364,22 +464,20 @@ impl RecipientSelectionWindow {
 
                ui.add_space(6.0);
 
-               let address_text = RichText::new(&wallet.address.to_string())
-                  .size(theme.text_sizes.normal)
-                  .color(theme.colors.text);
+               let address_text =
+                  RichText::new(&address).size(theme.text_sizes.normal).color(theme.colors.text);
 
                let button = Button::selectable(false, address_text).visuals(theme.button_visuals());
 
                ui.horizontal(|ui| {
                   if ui.add(button).clicked() {
-                     ui.ctx().copy_text(wallet.address.to_string());
+                     ui.ctx().copy_text(address_full.clone());
                   }
                });
             });
 
             if res.interact(Sense::click()).clicked() {
-               self.recipient = wallet.address.to_string();
-               self.recipient_name = Some(wallet.name());
+               self.recipient = Recipient::from_wallet_info(wallet.clone());
                *close_window = true;
             }
          }
@@ -394,7 +492,8 @@ fn valid_contact_search(contact: &Contact, query: &str) -> bool {
       return true;
    }
 
-   contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
+   contact.name.to_lowercase().contains(&query)
+      || contact.evm_address.to_lowercase().contains(&query)
 }
 
 fn valid_wallet_search(wallet: &WalletInfo, query: &str) -> bool {

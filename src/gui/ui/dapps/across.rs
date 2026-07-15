@@ -4,7 +4,7 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusCtx, data_dir, send_transaction};
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, misc::AmountFieldWithCurrencySelect},
+   ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
 };
 use crate::utils::{RT, estimate_tx_cost};
 use anyhow::anyhow;
@@ -88,7 +88,7 @@ pub struct AcrossBridge {
    open: bool,
    pub overlay: OverlayManager,
    pub currency: Currency,
-   pub amount_field: AmountFieldWithCurrencySelect,
+   pub amount_field: AmountField,
    pub from_chain: ChainSelect,
    pub to_chain: ChainSelect,
    pub balance_syncing: bool,
@@ -114,7 +114,7 @@ impl AcrossBridge {
          open: false,
          overlay,
          currency: NativeCurrency::from(1).into(),
-         amount_field: AmountFieldWithCurrencySelect::new(),
+         amount_field: AmountField::new(),
          from_chain,
          to_chain,
          balance_syncing: false,
@@ -174,14 +174,13 @@ impl AcrossBridge {
          self.settings_window(theme, ui);
       }
 
-      recipient_selection.show(ctx.clone(), theme, icons.clone(), contacts_ui, ui);
+      recipient_selection.show(ctx.clone(), theme, icons.clone(), false, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
-      let recipient_name = recipient_selection.get_recipient_name();
       let from_chain = self.from_chain.chain.id();
-      let depositor = ctx.current_wallet_info().address;
+      let depositor = ctx.current_wallet_info(false).address;
       self.currency = NativeCurrency::from(from_chain).into();
 
-      self.get_suggested_fees(ctx.clone(), depositor, &recipient);
+      self.get_suggested_fees(ctx.clone(), depositor, &recipient.evm_address);
 
       let frame = theme.frame1;
       let button_visuals = theme.button_visuals();
@@ -235,7 +234,7 @@ impl AcrossBridge {
                let inner_frame = theme.frame2;
 
                let label = String::from("Amount");
-               let owner = ctx.current_wallet_info().address;
+               let owner = ctx.current_wallet_info(false).address;
                let balance_fn = || ctx.get_currency_balance(from_chain, owner, &self.currency);
 
                let cost = self.cost(ctx.clone());
@@ -252,12 +251,14 @@ impl AcrossBridge {
                };
                let amount = self.amount_field.amount.parse().unwrap_or(0.0);
                let value = || ctx.get_currency_value_for_amount(amount, &self.currency);
+               let privacy_mode = false;
 
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
 
                   self.amount_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),
@@ -280,8 +281,8 @@ impl AcrossBridge {
                      ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                      ui.add_space(10.0);
 
-                     if !recipient.is_empty() {
-                        if let Some(name) = &recipient_name {
+                     if !recipient.is_empty(false) {
+                        if let Some(name) = &recipient.name {
                            ui.label(
                               RichText::new(name)
                                  .size(theme.text_sizes.large)
@@ -299,7 +300,7 @@ impl AcrossBridge {
 
                         let chain = self.to_chain.chain;
                         let block_explorer = chain.block_explorer();
-                        let link = format!("{}/address/{}", block_explorer, recipient);
+                        let link = format!("{}/address/{}", block_explorer, recipient.evm_address);
                         let icon = match theme.dark_mode {
                            true => icons.external_link_white_x18(tint),
                            false => icons.external_link_dark_x18(tint),
@@ -321,7 +322,7 @@ impl AcrossBridge {
                         .color(theme.colors.text_muted);
 
                      let res = ui.add(
-                        SecureTextEdit::singleline(&mut recipient_selection.recipient)
+                        SecureTextEdit::singleline(&mut recipient_selection.recipient.evm_address)
                            .visuals(visuals)
                            .hint_text(hint)
                            .min_size(vec2(ui_width, 25.0))
@@ -405,7 +406,7 @@ impl AcrossBridge {
                   }
                });
 
-               self.bridge_button(ctx.clone(), theme, depositor, recipient, ui);
+               self.bridge_button(ctx.clone(), theme, depositor, recipient.evm_address, ui);
             });
          });
    }
@@ -968,7 +969,7 @@ async fn across_bridge(
          }
       }
 
-      ctx_clone.calculate_portfolio_value(chain.id(), from);
+      ctx_clone.update_public_data(chain.id(), from);
       ctx_clone.save_balance_manager();
       ctx_clone.save_portfolio_db();
    });
@@ -1003,7 +1004,7 @@ async fn across_bridge(
             }
          }
 
-         ctx.calculate_portfolio_value(dest_chain.id(), recipient);
+         ctx.update_public_data(dest_chain.id(), recipient);
       }
 
       ctx.save_balance_manager();
