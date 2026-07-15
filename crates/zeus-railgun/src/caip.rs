@@ -19,6 +19,39 @@ impl AssetId {
       AssetId::Erc20(addr)
    }
 
+   pub fn is_erc20(&self) -> bool {
+      matches!(self, AssetId::Erc20(_))
+   }
+
+   pub fn is_erc721(&self) -> bool {
+      matches!(self, AssetId::Erc721(_, _))
+   }
+
+   pub fn is_erc1155(&self) -> bool {
+      matches!(self, AssetId::Erc1155(_, _))
+   }
+
+   pub fn erc20_address(&self) -> Option<Address> {
+      match self {
+         AssetId::Erc20(addr) => Some(*addr),
+         _ => None,
+      }
+   }
+
+   pub fn erc721_data(&self) -> Option<(Address, U256)> {
+      match self {
+         AssetId::Erc721(addr, sub_id) => Some((*addr, *sub_id)),
+         _ => None,
+      }
+   }
+
+   pub fn erc1155_data(&self) -> Option<(Address, U256)> {
+      match self {
+         AssetId::Erc1155(addr, sub_id) => Some((*addr, *sub_id)),
+         _ => None,
+      }
+   }
+
    pub fn hash(&self) -> U256 {
       let token_data: TokenData = (*self).into();
       token_data.hash()

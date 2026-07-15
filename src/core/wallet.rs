@@ -90,4 +90,11 @@ impl WalletInfo {
          None => "zkAddress not available".to_string(),
       }
    }
+
+   pub fn zk_address(&self) -> String {
+      match &self.railgun_address {
+         Some(railgun_address) => railgun_address.address.clone(),
+         None => "zkAddress not available".to_string(),
+      }
+   }
 }

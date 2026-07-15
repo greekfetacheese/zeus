@@ -31,8 +31,7 @@ use zeus_eth::{
    utils::{NumericValue, address_book, client::RpcClient},
 };
 use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer,
-   SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer
 };
 
 use serde::{Deserialize, Serialize};
@@ -402,6 +401,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.wallet_address_exists(address))
    }
 
+   pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
+      self.read(|ctx| ctx.vault.wallet_with_zk_address_exists(zk_address))
+   }
+
    /// Get the wallet info for the given address, without cloning the private key
    pub fn get_wallet_info_by_address(
       &self,
@@ -455,9 +458,9 @@ impl ZeusCtx {
       self.read(|ctx| ctx.vault.contacts.clone())
    }
 
-   pub fn remove_contact(&self, address: &str) {
+   pub fn remove_contact(&self, evm_address: &str) {
       self.write(|ctx| {
-         ctx.vault.contacts.retain(|c| c.address != address);
+         ctx.vault.contacts.retain(|c| c.evm_address != evm_address);
       });
    }
 
@@ -478,10 +481,10 @@ impl ZeusCtx {
             "Contact with name {} already exists",
             contact.name
          ));
-      } else if contacts.iter().any(|c| c.address == contact.address) {
+      } else if contacts.iter().any(|c| c.evm_address == contact.evm_address) {
          return Err(anyhow!(
             "Contact with address {} already exists",
-            contact.address
+            contact.evm_address
          ));
       }
 
@@ -492,10 +495,25 @@ impl ZeusCtx {
    }
 
    /// Get a contact by it's address
-   pub fn get_contact_by_address(&self, address: &str) -> Option<Contact> {
-      let address = address.to_lowercase();
+   pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
+      let evm_address = evm_address.to_lowercase();
       self.read(|ctx| {
-         ctx.vault.contacts.iter().find(|c| c.address.to_lowercase() == address).cloned()
+         ctx.vault
+            .contacts
+            .iter()
+            .find(|c| c.evm_address.to_lowercase() == evm_address)
+            .cloned()
+      })
+   }
+
+   pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
+      let zk_address = zk_address.to_lowercase();
+      self.read(|ctx| {
+         ctx.vault
+            .contacts
+            .iter()
+            .find(|c| c.zk_address.to_lowercase() == zk_address)
+            .cloned()
       })
    }
 
@@ -1603,28 +1621,39 @@ impl Default for PriorityFee {
 }
 
 /// Saved contact by the user
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Default, Clone, Debug, Serialize, Deserialize)]
 pub struct Contact {
    pub name: String,
-   pub address: String,
+   #[serde(rename = "address")]
+   pub evm_address: String,
+   #[serde(default)]
+   pub zk_address: String,
 }
 
 impl Contact {
-   pub fn new(name: String, address: String) -> Self {
-      Self { name, address }
+   pub fn new(name: String, evm_address: String, zk_address: String) -> Self {
+      Self {
+         name,
+         evm_address,
+         zk_address,
+      }
    }
 
-   pub fn address_short(&self, start: usize, end: usize) -> String {
-      let address_str = self.address.as_str();
+   pub fn zk_address_truncated(&self) -> String {
+      let zk_address = if self.zk_address.is_empty() {
+         None
+      } else {
+         Some(self.zk_address.clone())
+      };
 
-      if address_str.len() < start + end {
-         return address_str.to_string();
+      match &zk_address {
+         Some(address) => format!(
+            "{}...{}",
+            &address[..6],
+            &address[121..]
+         ),
+         None => "zkAddress not available".to_string(),
       }
-
-      let start_part = &address_str[..start];
-      let end_part = &address_str[address_str.len() - end..];
-
-      format!("{}...{}", start_part, end_part)
    }
 }
 

@@ -10,13 +10,14 @@ use crate::{
    },
    crypto::keys::{MasterPublicKey, SpendingKey, SpendingPublicKey, ViewingKey, ViewingPublicKey},
 };
+use serde::{Deserialize, Serialize};
 
 const PREFIX: &str = "0zk";
 const ALL_CHAINS_NETWORK_ID: &str = "ffffffffffffffff";
 const RAILGUN_XOR: [u8; 8] = [b'r', b'a', b'i', b'l', b'g', b'u', b'n', 0];
 const ADDRESS_VERSION: u8 = 1;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RailgunAddress {
    pub address: String,
    pub master_public_key: MasterPublicKey,

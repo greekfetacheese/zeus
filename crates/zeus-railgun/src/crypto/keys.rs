@@ -51,7 +51,7 @@ pub struct ViewingPublicKey(pub [u8; 32]);
 pub struct NullifyingKey([u8; 32]);
 
 /// Master public key (wallet identifier).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MasterPublicKey(pub [u8; 32]);
 
 /// Private key for signing transactions (BabyJubJub curve).

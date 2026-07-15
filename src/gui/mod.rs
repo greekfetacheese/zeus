@@ -14,7 +14,7 @@ use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
-   dapps::{across::AcrossBridge, uniswap::UniswapUi},
+   dapps::{across::AcrossBridge, uniswap::UniswapUi, railgun::ShieldUi},
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    sign_msg_window::SignMsgWindow,
@@ -65,6 +65,7 @@ pub struct GUI {
    pub overlay_manager: OverlayManager,
    pub theme: Theme,
    pub editor: ThemeEditor,
+   pub shield_ui: ShieldUi,
    pub uniswap: UniswapUi,
    pub across_bridge: AcrossBridge,
    pub header: Header,
@@ -116,6 +117,7 @@ impl GUI {
       let update_window = UpdateWindow::new(overlay_manager.clone());
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new(overlay_manager.clone());
+      let shield_ui = ShieldUi::new();
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
 
@@ -130,6 +132,7 @@ impl GUI {
          token_selection,
          recipient_selection,
          wallet_ui,
+         shield_ui,
          uniswap,
          across_bridge,
          unlock_vault_ui,

@@ -180,16 +180,19 @@ impl UiTesting {
             let dummy_bridge = DecodedEvent::dummy_bridge().clone();
             let dummy_transfer = DecodedEvent::dummy_transfer().clone();
             let dummy_approval = DecodedEvent::dummy_token_approve().clone();
+            let dummy_shield = DecodedEvent::dummy_shield().clone();
 
             let swap_title = dummy_swap.name();
             let bridge_title = dummy_bridge.name();
             let transfer_title = dummy_transfer.name();
             let approval_title = dummy_approval.name();
+            let shield_title = dummy_shield.name();
 
             let swap_notification = NotificationType::from_main_event(dummy_swap);
             let bridge_notification = NotificationType::from_main_event(dummy_bridge);
             let transfer_notification = NotificationType::from_main_event(dummy_transfer);
             let approval_notification = NotificationType::from_main_event(dummy_approval);
+            let shield_notification = NotificationType::from_main_event(dummy_shield);
 
             if ui.add(button).clicked() {
                let title = swap_title.clone();
@@ -290,6 +293,27 @@ impl UiTesting {
                         now,
                         finish_on,
                         approval_title,
+                        notification_clone,
+                        None,
+                     );
+                  });
+               });
+            }
+
+            let button = Button::new(RichText::new("Shield with Progress Bar").size(text_size))
+               .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let notification_clone = shield_notification.clone();
+               RT.spawn_blocking(move || {
+
+                  let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+                  let finish_on = now + 5;
+                  SHARED_GUI.write(|gui| {
+                     gui.notification.open_with_progress_bar(
+                        now,
+                        finish_on,
+                        shield_title,
                         notification_clone,
                         None,
                      );

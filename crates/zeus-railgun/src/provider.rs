@@ -145,6 +145,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       0.25
    }
 
+   /// Returns the railgun contract address based on the chain configuration
+   pub fn railgun_address(&self) -> Address {
+      self.chain.railgun_smart_wallet
+   }
+
    pub fn set_provider(&mut self, provider: P) {
       self.provider = provider;
    }

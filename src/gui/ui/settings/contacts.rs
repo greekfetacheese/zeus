@@ -12,6 +12,7 @@ use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Label, SecureTextEdit};
+use zeus_railgun::RailgunAddress;
 
 pub struct AddContact {
    open: bool,
@@ -98,8 +99,18 @@ impl AddContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(RichText::new("Address:").size(theme.text_sizes.large));
-               let address = &mut self.contact.address;
+               ui.label(RichText::new("Public Address:").size(theme.text_sizes.large));
+               let address = &mut self.contact.evm_address;
+               ui.add(
+                  SecureTextEdit::singleline(address)
+                     .visuals(text_edit_visuals)
+                     .min_size(text_edit_size)
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.text_sizes.normal)),
+               );
+
+               ui.label(RichText::new("Railgun Address:").size(theme.text_sizes.large));
+               let address = &mut self.contact.zk_address;
                ui.add(
                   SecureTextEdit::singleline(address)
                      .visuals(text_edit_visuals)
@@ -116,8 +127,8 @@ impl AddContact {
                   let new_contact = self.contact.clone();
 
                   RT.spawn_blocking(move || {
-                     // make sure the address is valid
-                     let _ = match Address::from_str(&new_contact.address) {
+                     // make sure the evm address is valid
+                     let _ = match Address::from_str(&new_contact.evm_address) {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -129,6 +140,18 @@ impl AddContact {
                            return;
                         }
                      };
+
+                     if !new_contact.zk_address.is_empty() {
+                        match RailgunAddress::from_zk_address(&new_contact.zk_address) {
+                           Ok(_) => {},
+                           Err(e) => {
+                              SHARED_GUI.write(|gui| {
+                                 gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                              });
+                              return;
+                           }
+                        }
+                     }
 
                      match ctx.add_contact(new_contact.clone()) {
                         Ok(_) => {
@@ -159,7 +182,7 @@ impl AddContact {
                               );
                               gui.open_msg_window("Error while saving account data", error);
                            });
-                           ctx.remove_contact(&new_contact.address);
+                           ctx.remove_contact(&new_contact.evm_address);
                         }
                      }
                   });
@@ -236,7 +259,7 @@ impl DeleteContact {
                );
                ui.label(RichText::new(&contact_to_delete.name).size(theme.text_sizes.large));
                ui.label(
-                  RichText::new(contact_to_delete.address.to_string())
+                  RichText::new(contact_to_delete.evm_address.to_string())
                      .size(theme.text_sizes.normal),
                );
 
@@ -248,7 +271,7 @@ impl DeleteContact {
                let res_delete = ui.add(button);
 
                if res_delete.clicked() {
-                  ctx.remove_contact(&contact_to_delete.address);
+                  ctx.remove_contact(&contact_to_delete.evm_address);
 
                   RT.spawn_blocking(move || {
                      // On failure the contact is added again
@@ -355,8 +378,18 @@ impl EditContact {
                );
 
                ui.label(RichText::new("Address:").size(theme.text_sizes.large));
-               let address = &mut contact.address;
+               let address = &mut contact.evm_address;
 
+               ui.add(
+                  SecureTextEdit::singleline(address)
+                     .visuals(text_edit_visuals)
+                     .min_size(text_edit_size)
+                     .margin(Margin::same(10))
+                     .font(FontId::proportional(theme.text_sizes.normal)),
+               );
+
+               ui.label(RichText::new("Railgun Address:").size(theme.text_sizes.large));
+               let address = &mut contact.zk_address;
                ui.add(
                   SecureTextEdit::singleline(address)
                      .visuals(text_edit_visuals)
@@ -377,7 +410,7 @@ impl EditContact {
 
                   RT.spawn_blocking(move || {
                      // make sure the address is valid
-                     let _ = match Address::from_str(&edited_contact.address) {
+                     let _ = match Address::from_str(&edited_contact.evm_address) {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -390,6 +423,18 @@ impl EditContact {
                         }
                      };
 
+                     if !edited_contact.zk_address.is_empty() {
+                        match RailgunAddress::from_zk_address(&edited_contact.zk_address) {
+                           Ok(_) => {},
+                           Err(e) => {
+                              SHARED_GUI.write(|gui| {
+                                 gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                              });
+                              return;
+                           }
+                        }
+                     }
+
                      SHARED_GUI.write(|gui| {
                         gui.settings.contacts_ui.edit_contact.contact_to_edit = Contact::default();
                         gui.settings.contacts_ui.edit_contact.old_contact = Contact::default();
@@ -398,10 +443,9 @@ impl EditContact {
 
                      ctx.write_vault(|vault| {
                         let new_contact =
-                           vault.contacts.iter_mut().find(|c| c.address == old_contact.address);
+                           vault.contacts.iter_mut().find(|c| c.evm_address == old_contact.evm_address);
                         if let Some(new_contact) = new_contact {
-                           new_contact.name = edited_contact.name.clone();
-                           new_contact.address = edited_contact.address.clone();
+                           *new_contact = edited_contact.clone();
                         }
                      });
 
@@ -421,10 +465,9 @@ impl EditContact {
                               let new_contact = vault
                                  .contacts
                                  .iter_mut()
-                                 .find(|c| c.address == edited_contact.address);
+                                 .find(|c| c.evm_address == edited_contact.evm_address);
                               if let Some(new_contact) = new_contact {
-                                 new_contact.name = old_contact.name.clone();
-                                 new_contact.address = old_contact.address.clone();
+                                 *new_contact = old_contact.clone();
                               }
                            });
                         }
@@ -512,6 +555,7 @@ impl ContactsUi {
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();
             let tint = theme.image_tint_recommended;
+            let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 10.0;
@@ -572,7 +616,17 @@ impl ContactsUi {
                         ui.horizontal(|ui| {
                            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
-                           let address_text = RichText::new(&contact.address)
+                           let address_short = match is_privacy_mode {
+                              false => contact.evm_address.clone(),
+                              true => contact.zk_address_truncated(),
+                           };
+
+                           let address_full = match is_privacy_mode {
+                              false => contact.evm_address.clone(),
+                              true => contact.zk_address.clone(),
+                           };
+
+                           let address_text = RichText::new(&address_short)
                               .size(theme.text_sizes.normal)
                               .color(theme.colors.text_muted);
 
@@ -580,12 +634,12 @@ impl ContactsUi {
                               Button::selectable(false, address_text).visuals(button_visuals);
 
                            if ui.add(label).clicked() {
-                              ui.ctx().copy_text(contact.address.to_string());
+                              ui.ctx().copy_text(address_full);
                            }
 
                            let chain = ctx.chain();
                            let explorer = chain.block_explorer();
-                           let link = format!("{}/address/{}", explorer, &contact.address);
+                           let link = format!("{}/address/{}", explorer, &contact.evm_address);
 
                            let icon = match theme.dark_mode {
                               true => icons.external_link_white_x18(tint),
@@ -639,5 +693,5 @@ fn valid_contact_search(contact: &Contact, query: &str) -> bool {
       return true;
    }
 
-   contact.name.to_lowercase().contains(&query) || contact.address.to_lowercase().contains(&query)
+   contact.name.to_lowercase().contains(&query) || contact.evm_address.to_lowercase().contains(&query)
 }
