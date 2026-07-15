@@ -213,9 +213,12 @@ impl DeleteWalletUi {
          RT.spawn_blocking(move || {
             new_vault.remove_wallet(wallet.address);
 
-            // Set the master wallet as selected to avoid an empty ComboBox
+            // Set the master wallet as selected to avoid state inconsistencies
             if is_current {
                let master_wallet = new_vault.get_master_wallet();
+               ctx.write(|ctx| {
+                  ctx.current_wallet = master_wallet.clone();
+               });
                SHARED_GUI.write(|gui| {
                   gui.header.set_current_wallet(master_wallet);
                });

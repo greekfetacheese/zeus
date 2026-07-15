@@ -468,7 +468,7 @@ impl SwapUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 120.0))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 160.0))
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
