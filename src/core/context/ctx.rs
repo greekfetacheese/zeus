@@ -208,6 +208,10 @@ impl ZeusCtx {
       &self,
       chain: u64,
    ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      if !cfg!(feature = "dev") {
+         return Err(anyhow!("Railgun is not supported in this build"));
+      }
+      
       let client = self.get_client(chain).await?;
 
       let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());

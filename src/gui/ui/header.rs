@@ -242,44 +242,46 @@ impl Header {
             });
 
             // Privacy mode switch button
-            ui.scope(|ui| {
-               ui.spacing_mut().button_padding = vec2(8.0, 8.0);
+            if cfg!(feature = "dev") {
+               ui.scope(|ui| {
+                  ui.spacing_mut().button_padding = vec2(8.0, 8.0);
 
-               let text = format!(
-                  "Switch to {} mode",
-                  if privacy_mode { "Public" } else { "Privacy" }
-               );
-               let rich_text = RichText::new(text).size(theme.text_sizes.normal);
-               let button = Button::new(rich_text).visuals(button_visuals);
+                  let text = format!(
+                     "Switch to {} mode",
+                     if privacy_mode { "Public" } else { "Privacy" }
+                  );
+                  let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+                  let button = Button::new(rich_text).visuals(button_visuals);
 
-               if ui.add(button).clicked() {
-                  privacy_mode = !privacy_mode;
+                  if ui.add(button).clicked() {
+                     privacy_mode = !privacy_mode;
 
-                  ctx.write(|ctx| {
-                     ctx.privacy_mode = privacy_mode;
-                  });
-
-                  RT.spawn_blocking(move || {
-                     let chain = ctx.chain();
-                     let owner = ctx.current_wallet_info(false).address;
-
-                     let new_mode = match privacy_mode {
-                        false => RailgunMode::Shield,
-                        true => RailgunMode::Unshield,
-                     };
-
-                     SHARED_GUI.write(|gui| {
-                        gui.shield_ui.set_mode(new_mode);
-                        gui.token_selection.process_currencies(
-                           ctx.clone(),
-                           privacy_mode,
-                           chain.id(),
-                           owner,
-                        );
+                     ctx.write(|ctx| {
+                        ctx.privacy_mode = privacy_mode;
                      });
-                  });
-               }
-            });
+
+                     RT.spawn_blocking(move || {
+                        let chain = ctx.chain();
+                        let owner = ctx.current_wallet_info(false).address;
+
+                        let new_mode = match privacy_mode {
+                           false => RailgunMode::Shield,
+                           true => RailgunMode::Unshield,
+                        };
+
+                        SHARED_GUI.write(|gui| {
+                           gui.shield_ui.set_mode(new_mode);
+                           gui.token_selection.process_currencies(
+                              ctx.clone(),
+                              privacy_mode,
+                              chain.id(),
+                              owner,
+                           );
+                        });
+                     });
+                  }
+               });
+            }
          });
       });
    }

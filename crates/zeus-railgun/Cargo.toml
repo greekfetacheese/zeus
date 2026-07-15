@@ -42,7 +42,6 @@ ark-serialize = "0.6"
 ark-circom = "0.6"
 ark-ed-on-bn254 = "0.6.0"
 ark-bn254 = "0.6.0"
-#light-poseidon = "0.4.0"
 k256 = "=0.13.4"
 sha3 = "=0.10.8"
 
@@ -68,4 +67,3 @@ tokio = { version = "=1.47.1", features = ["rt-multi-thread", "macros", "fs"] }
 [dev-dependencies]
 bip39 = "2"
 zeus-wallet = { path = "../zeus-wallet" }
-# Temporary during port
