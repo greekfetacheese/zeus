@@ -9,6 +9,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusCtx, delegate_to};
+use crate::gui::ui::dapps::railgun::RailgunMode;
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect},
@@ -121,7 +122,7 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain();
-      let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+      let mut privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
@@ -146,7 +147,7 @@ impl Header {
 
             // Wallet address, on click copy it to the clipboard
             ui.horizontal(|ui| {
-               let address = match is_privacy_mode {
+               let address = match privacy_mode {
                   false => wallet.evm_address_truncated(),
                   true => wallet.zk_address_truncated(),
                };
@@ -160,7 +161,6 @@ impl Header {
 
                ui.add_space(7.0);
 
-               // QR Code
                let icon = match theme.dark_mode {
                   true => icons.qrcode_white_x18(tint),
                   false => icons.qrcode_dark_x18(tint),
@@ -169,6 +169,7 @@ impl Header {
                let button = Button::image(icon).visuals(button_visuals);
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
+               // QR Code Window
                if res.clicked() {
                   self.qrcode_window.open(ctx.clone(), wallet.clone());
                }
@@ -240,18 +241,42 @@ impl Header {
                });
             });
 
+            // Privacy mode switch button
             ui.scope(|ui| {
                ui.spacing_mut().button_padding = vec2(8.0, 8.0);
 
                let text = format!(
                   "Switch to {} mode",
-                  if is_privacy_mode { "Public" } else { "Privacy" }
+                  if privacy_mode { "Public" } else { "Privacy" }
                );
                let rich_text = RichText::new(text).size(theme.text_sizes.normal);
                let button = Button::new(rich_text).visuals(button_visuals);
+
                if ui.add(button).clicked() {
+                  privacy_mode = !privacy_mode;
+
                   ctx.write(|ctx| {
-                     ctx.privacy_mode = !is_privacy_mode;
+                     ctx.privacy_mode = privacy_mode;
+                  });
+
+                  RT.spawn_blocking(move || {
+                     let chain = ctx.chain();
+                     let owner = ctx.current_wallet_info(false).address;
+
+                     let new_mode = match privacy_mode {
+                        false => RailgunMode::Shield,
+                        true => RailgunMode::Unshield,
+                     };
+
+                     SHARED_GUI.write(|gui| {
+                        gui.shield_ui.set_mode(new_mode);
+                        gui.token_selection.process_currencies(
+                           ctx.clone(),
+                           privacy_mode,
+                           chain.id(),
+                           owner,
+                        );
+                     });
                   });
                }
             });
@@ -279,13 +304,19 @@ impl Header {
 
             RT.spawn(async move {
                let owner = ctx.current_wallet_info(false).address;
+               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
                SHARED_GUI.write(|gui| {
                   let currency: Currency = NativeCurrency::from(new_chain.id()).into();
                   gui.send_crypto.set_currency(currency.clone());
 
                   if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(ctx.clone(), new_chain.id(), owner);
+                     gui.token_selection.process_currencies(
+                        ctx.clone(),
+                        privacy_mode,
+                        new_chain.id(),
+                        owner,
+                     );
                   }
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
@@ -319,6 +350,7 @@ impl Header {
 
             RT.spawn(async move {
                let current_wallet = ctx.current_wallet_info(true);
+               let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
                let owner = current_wallet.address;
                let chain_id = ctx.chain().id();
 
@@ -326,7 +358,12 @@ impl Header {
                   gui.header.set_wallet_info(current_wallet);
 
                   if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(ctx.clone(), chain_id, owner);
+                     gui.token_selection.process_currencies(
+                        ctx.clone(),
+                        privacy_mode,
+                        chain_id,
+                        owner,
+                     );
                   }
                });
 

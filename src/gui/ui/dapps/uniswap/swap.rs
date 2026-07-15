@@ -529,10 +529,12 @@ impl SwapUi {
                let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
                let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
                let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+               let privacy_mode = false;
 
                inner_frame.show(ui, |ui| {
                   let changed = self.amount_in_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),
@@ -572,6 +574,7 @@ impl SwapUi {
                inner_frame.show(ui, |ui| {
                   self.amount_out_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),

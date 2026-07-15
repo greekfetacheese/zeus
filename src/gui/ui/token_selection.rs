@@ -1,7 +1,7 @@
 //! A Window that allows the user to select a token
 
 use eframe::egui::{
-   Align, Align2, FontId, Spinner, Layout, Margin, Order, RichText, ScrollArea, Sense, Ui, Window,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Window,
    emath::Vec2b, vec2,
 };
 
@@ -63,13 +63,13 @@ impl TokenSelectionWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+   pub fn open(&mut self, ctx: ZeusCtx, privacy_mode: bool, chain_id: u64, owner: Address) {
       if !self.open {
          self.overlay.window_opened();
       }
 
       self.open = true;
-      self.process_currencies(ctx, chain_id, owner);
+      self.process_currencies(ctx, privacy_mode, chain_id, owner);
    }
 
    pub fn reset(&mut self) {
@@ -86,15 +86,35 @@ impl TokenSelectionWindow {
       self.open = false;
    }
 
-   pub fn process_currencies(&mut self, ctx: ZeusCtx, chain_id: u64, owner: Address) {
+   pub fn process_currencies(
+      &mut self,
+      ctx: ZeusCtx,
+      privacy_mode: bool,
+      chain_id: u64,
+      owner: Address,
+   ) {
       self.loading = true;
 
       RT.spawn_blocking(move || {
-         let currencies = process_currencies(ctx.clone(), chain_id, owner);
-         SHARED_GUI.write(|gui| {
-            gui.token_selection.processed_currencies = currencies;
-            gui.token_selection.loading = false;
-         });
+         if !privacy_mode {
+            let currencies = process_currencies(ctx.clone(), chain_id, owner);
+            SHARED_GUI.write(|gui| {
+               gui.token_selection.processed_currencies = currencies;
+               gui.token_selection.loading = false;
+            });
+         } else {
+            let portfolio = ctx.get_portfolio(chain_id, owner);
+            let mut currencies = Vec::new();
+            for (token, balance, value, _price) in portfolio.private_tokens() {
+               let currency = Currency::from(token.clone());
+               currencies.push((currency, balance.clone(), value.clone()));
+            }
+
+            SHARED_GUI.write(|gui| {
+               gui.token_selection.processed_currencies = currencies;
+               gui.token_selection.loading = false;
+            });
+         }
       });
    }
 

@@ -42,6 +42,7 @@ impl AmountField {
    ///
    /// Arguments:
    /// - `ctx`: The Zeus context.
+   /// - `privacy_mode`: True if the privacy mode is enabled.
    /// - `theme`: The current theme.
    /// - `icons`: Shared icons.
    /// - `label`: Optional text to display as a label above the amount field (e.g., "Sell" or "Buy").
@@ -60,6 +61,7 @@ impl AmountField {
    pub fn show(
       &mut self,
       ctx: ZeusCtx,
+      privacy_mode: bool,
       theme: &Theme,
       icons: Arc<Icons>,
       label: Option<String>,
@@ -173,7 +175,7 @@ impl AmountField {
 
                if ui.add(button).clicked() {
                   if let Some(token_selection) = token_selection {
-                     token_selection.open(ctx.clone(), currency.chain_id(), owner);
+                     token_selection.open(ctx.clone(), privacy_mode, currency.chain_id(), owner);
                      if let Some(direction) = direction {
                         token_selection.currency_direction = direction;
                      }

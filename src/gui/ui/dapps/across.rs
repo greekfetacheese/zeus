@@ -251,12 +251,14 @@ impl AcrossBridge {
                };
                let amount = self.amount_field.amount.parse().unwrap_or(0.0);
                let value = || ctx.get_currency_value_for_amount(amount, &self.currency);
+               let privacy_mode = false;
 
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
 
                   self.amount_field.show(
                      ctx.clone(),
+                     privacy_mode,
                      theme,
                      icons.clone(),
                      Some(label),

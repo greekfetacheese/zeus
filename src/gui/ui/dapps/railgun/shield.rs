@@ -43,8 +43,28 @@ use tracing::{error, info};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
+/// Enum to determine which railgun mode to use.
+///
+/// This is to avoid duplicating ui code for shield and unshield.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RailgunMode {
+   Shield,
+   Unshield,
+}
+
+impl RailgunMode {
+   pub fn is_shield(&self) -> bool {
+      matches!(self, RailgunMode::Shield)
+   }
+
+   pub fn is_unshield(&self) -> bool {
+      matches!(self, RailgunMode::Unshield)
+   }
+}
+
 pub struct ShieldUi {
    open: bool,
+   mode: RailgunMode,
    currency: Currency,
    amount_field: AmountField,
    recipient: String,
@@ -61,6 +81,7 @@ impl ShieldUi {
    pub fn new() -> Self {
       Self {
          open: false,
+         mode: RailgunMode::Shield,
          currency: Currency::from(NativeCurrency::from_chain_id(1).unwrap()),
          amount_field: AmountField::new(),
          recipient: String::new(),
@@ -78,12 +99,17 @@ impl ShieldUi {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, mode: RailgunMode) {
+      self.mode = mode;
       self.open = true;
    }
 
    pub fn close(&mut self) {
       *self = Self::new();
+   }
+
+   pub fn set_mode(&mut self, mode: RailgunMode) {
+      self.mode = mode;
    }
 
    pub fn set_currency(&mut self, currency: Currency) {
@@ -131,7 +157,12 @@ impl ShieldUi {
 
                   let text_edit_visuals = theme.text_edit_visuals();
 
-                  ui.label(RichText::new("Shield").size(theme.text_sizes.heading));
+                  let title = match self.mode {
+                     RailgunMode::Shield => "Shield",
+                     RailgunMode::Unshield => "Unshield",
+                  };
+
+                  ui.label(RichText::new(title).size(theme.text_sizes.heading));
 
                   let owner = ctx.current_wallet_info(false).address;
 
@@ -171,10 +202,18 @@ impl ShieldUi {
                      )
                   };
 
+                  let privacy_mode = match self.mode {
+                     RailgunMode::Shield => false,
+                     RailgunMode::Unshield => true,
+                  };
+
+                  // TODO: In Unshield mode if there are no tokens at all it still shows the default currency
+                  // TODO: Change the amount field to accept an Option<Currency> ??
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
                         ctx.clone(),
+                        privacy_mode,
                         theme,
                         icons.clone(),
                         Some(label),
@@ -214,6 +253,7 @@ impl ShieldUi {
                      contacts_ui,
                      ui,
                   );
+
                   let recipient = recipient_selection.get_recipient();
 
                   // Recipient Selection
@@ -298,10 +338,19 @@ impl ShieldUi {
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx.clone(), owner);
       let has_entered_amount = !self.amount_field.amount.is_empty();
+      let valid_token = if self.mode == RailgunMode::Unshield {
+         self.currency.is_erc20()
+      } else {
+         true
+      };
 
-      let valid_inputs = has_balance && has_entered_amount && valid_amount && !sending_tx;
+      let valid_inputs =
+         has_balance && has_entered_amount && valid_amount && valid_token && !sending_tx;
 
-      let mut button_text = "Shield".to_string();
+      let mut button_text = match self.mode {
+         RailgunMode::Shield => "Shield".to_string(),
+         RailgunMode::Unshield => "Unshield".to_string(),
+      };
 
       if has_entered_amount && !valid_amount {
          button_text = "Invalid Amount".to_string();
@@ -309,6 +358,10 @@ impl ShieldUi {
 
       if !has_balance {
          button_text = format!("Insufficient {} Balance", self.currency.symbol());
+      }
+
+      if !valid_token {
+         button_text = "Invalid Token".to_string();
       }
 
       let text = RichText::new(button_text).size(theme.text_sizes.large);
@@ -331,38 +384,47 @@ impl ShieldUi {
          self.currency.decimals(),
       );
 
-      RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
-            gui.loading_window.open("Wait while magic happens");
-            gui.request_repaint();
-         });
+      if self.mode.is_shield() {
+         RT.spawn(async move {
+            SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
+               gui.request_repaint();
+            });
 
-         match shield(
-            ctx.clone(),
-            chain,
-            currency,
-            amount,
-            from,
-            recipient,
-         )
-         .await
-         {
-            Ok(_) => {
-               SHARED_GUI.write(|gui| {
-                  gui.shield_ui.sending_tx = false;
-               });
+            match shield(
+               ctx.clone(),
+               chain,
+               currency,
+               amount,
+               from,
+               recipient,
+            )
+            .await
+            {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.shield_ui.sending_tx = false;
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.shield_ui.sending_tx = false;
+                     gui.notification.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Transaction Error", e.to_string());
+                     gui.request_repaint();
+                  });
+               }
             }
-            Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.shield_ui.sending_tx = false;
-                  gui.notification.reset();
-                  gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", e.to_string());
-                  gui.request_repaint();
-               });
-            }
-         }
-      });
+         });
+      } else {
+         RT.spawn(async move {
+            SHARED_GUI.write(|gui| {
+               gui.msg_window.open("TODO", "Unshield is not implemented yet");
+               gui.request_repaint();
+            });
+         });
+      }
    }
 
    fn should_calculate_price(&self, currency: &Currency) -> bool {

@@ -61,11 +61,11 @@ impl PortfolioUi {
 
       let chain_id = ctx.chain().id();
       let wallet_info = ctx.current_wallet_info(false);
-      let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+      let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
       let owner = wallet_info.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
 
-      let portfolio_value = match is_privacy_mode {
+      let portfolio_value = match privacy_mode {
          false => portfolio.public_value(),
          true => portfolio.private_value(),
       };
@@ -99,7 +99,7 @@ impl PortfolioUi {
                      let add_token = Button::new(text).visuals(button_visuals);
 
                      if ui.add(add_token).clicked() {
-                        token_selection.open(ctx.clone(), chain_id, owner);
+                        token_selection.open(ctx.clone(), privacy_mode, chain_id, owner);
                      }
 
                      let tint = theme.image_tint_recommended;
@@ -174,15 +174,14 @@ impl PortfolioUi {
                            chain_id,
                            owner,
                            &native_currency,
-                           is_privacy_mode,
+                           privacy_mode,
                            ui,
                            column_widths[0],
                         );
 
                         ui.end_row();
 
-                        let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
-                        let token_list = if is_privacy_mode {
+                        let token_list = if privacy_mode {
                            portfolio.private_tokens()
                         } else {
                            portfolio.public_tokens()

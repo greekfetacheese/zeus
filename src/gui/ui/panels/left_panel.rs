@@ -1,5 +1,5 @@
 use crate::core::ZeusCtx;
-use crate::gui::GUI;
+use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
 use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
 use egui::{FontId, Margin, Stroke};
 use zeus_theme::{OverlayManager, Theme};
@@ -7,7 +7,7 @@ use zeus_widgets::{Button, SecureTextEdit};
 
 pub fn show(ui: &mut Ui, gui: &mut GUI) {
    let ctx = gui.ctx.clone();
-   let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+   let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
    let theme = &gui.theme;
    ui.set_width(140.0);
 
@@ -56,24 +56,32 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             gui.shield_ui.close();
          }
 
-         if !is_privacy_mode {
-            let is_open = gui.shield_ui.is_open();
-            let shield = Button::selectable(is_open, RichText::new("Shield").size(text_size))
-               .min_size(button_size);
+         let is_open = gui.shield_ui.is_open();
+         let title = match privacy_mode {
+            false => "Shield",
+            true => "Unshield",
+         };
 
-            if ui.add(shield).clicked() {
-               gui.shield_ui.open();
-               gui.portofolio.close();
-               gui.uniswap.close();
-               gui.send_crypto.close();
-               gui.settings.close();
-               gui.wallet_ui.close();
-               gui.tx_history.close();
-               gui.across_bridge.close();
-               gui.dev.close();
-               // This is shared, so reset it to avoid any issues
-               gui.recipient_selection.reset();
-            }
+         let mode = match privacy_mode {
+            false => RailgunMode::Shield,
+            true => RailgunMode::Unshield,
+         };
+
+         let shield =
+            Button::selectable(is_open, RichText::new(title).size(text_size)).min_size(button_size);
+
+         if ui.add(shield).clicked() {
+            gui.shield_ui.open(mode);
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.dev.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
          }
 
          let is_open = gui.uniswap.is_open();

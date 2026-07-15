@@ -158,6 +158,7 @@ impl SendCryptoUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
+                  let privacy_mode = false;
 
                   let value = || {
                      value(
@@ -172,6 +173,7 @@ impl SendCryptoUi {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
                         ctx.clone(),
+                        privacy_mode,
                         theme,
                         icons.clone(),
                         Some(label),
