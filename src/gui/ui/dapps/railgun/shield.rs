@@ -206,9 +206,15 @@ impl ShieldUi {
                      self.sync_balance(owner, ctx.clone());
                   }
 
-                  recipient_selection.show(ctx.clone(), theme, icons.clone(), true, contacts_ui, ui);
+                  recipient_selection.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     true,
+                     contacts_ui,
+                     ui,
+                  );
                   let recipient = recipient_selection.get_recipient();
-                  let recipient_name = recipient_selection.get_recipient_name();
 
                   // Recipient Selection
                   inner_frame.show(ui, |ui| {
@@ -217,10 +223,10 @@ impl ShieldUi {
                         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                         ui.add_space(10.0);
 
-                        if !recipient.is_empty() {
-                           if let Some(name) = &recipient_name {
+                        if !recipient.is_empty(true) {
+                           if let Some(name) = &recipient.name {
                               ui.label(
-                                 RichText::new(name.clone())
+                                 RichText::new(name)
                                     .size(theme.text_sizes.large)
                                     .color(theme.colors.info),
                               );
@@ -233,7 +239,10 @@ impl ShieldUi {
                            }
 
                            let block_explorer = chain.block_explorer();
-                           let link = format!("{}/address/{}", block_explorer, recipient);
+                           let link = format!(
+                              "{}/address/{}",
+                              block_explorer, recipient.evm_address
+                           );
                            let tint = theme.image_tint_recommended;
                            let icon = match theme.dark_mode {
                               true => icons.external_link_white_x18(tint),
@@ -255,12 +264,14 @@ impl ShieldUi {
                            .color(theme.colors.text_muted);
 
                         let res = ui.add(
-                           SecureTextEdit::singleline(&mut recipient_selection.recipient)
-                              .visuals(text_edit_visuals)
-                              .hint_text(hint)
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.normal)),
+                           SecureTextEdit::singleline(
+                              &mut recipient_selection.recipient.zk_address,
+                           )
+                           .visuals(text_edit_visuals)
+                           .hint_text(hint)
+                           .min_size(vec2(ui.available_width(), 25.0))
+                           .margin(Margin::same(10))
+                           .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open(ctx.clone());
@@ -268,7 +279,7 @@ impl ShieldUi {
                      });
                   });
 
-                  self.shield_button(ctx, theme, owner, recipient, ui);
+                  self.shield_button(ctx, theme, owner, recipient.zk_address, ui);
                });
             });
          });

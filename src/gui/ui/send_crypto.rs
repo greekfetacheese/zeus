@@ -17,10 +17,7 @@ use crate::utils::{RT, estimate_tx_cost};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
-   ui::{
-      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
-      common::AmountField,
-   },
+   ui::{ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField},
 };
 use crate::utils::simulate::fetch_accounts_info;
 use zeus_theme::Theme;
@@ -206,9 +203,15 @@ impl SendCryptoUi {
                      self.sync_balance(owner, ctx.clone());
                   }
 
-                  recipient_selection.show(ctx.clone(), theme, icons.clone(), false, contacts_ui, ui);
+                  recipient_selection.show(
+                     ctx.clone(),
+                     theme,
+                     icons.clone(),
+                     false,
+                     contacts_ui,
+                     ui,
+                  );
                   let recipient = recipient_selection.get_recipient();
-                  let recipient_name = recipient_selection.get_recipient_name();
 
                   // Recipient Selection
                   inner_frame.show(ui, |ui| {
@@ -217,10 +220,10 @@ impl SendCryptoUi {
                         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                         ui.add_space(10.0);
 
-                        if !recipient.is_empty() {
-                           if let Some(name) = &recipient_name {
+                        if !recipient.is_empty(false) {
+                           if let Some(name) = &recipient.name {
                               ui.label(
-                                 RichText::new(name.clone())
+                                 RichText::new(name)
                                     .size(theme.text_sizes.large)
                                     .color(theme.colors.info),
                               );
@@ -233,7 +236,10 @@ impl SendCryptoUi {
                            }
 
                            let block_explorer = chain.block_explorer();
-                           let link = format!("{}/address/{}", block_explorer, recipient);
+                           let link = format!(
+                              "{}/address/{}",
+                              block_explorer, recipient.evm_address
+                           );
                            let tint = theme.image_tint_recommended;
                            let icon = match theme.dark_mode {
                               true => icons.external_link_white_x18(tint),
@@ -255,12 +261,14 @@ impl SendCryptoUi {
                            .color(theme.colors.text_muted);
 
                         let res = ui.add(
-                           SecureTextEdit::singleline(&mut recipient_selection.recipient)
-                              .visuals(text_edit_visuals)
-                              .hint_text(hint)
-                              .min_size(vec2(ui.available_width(), 25.0))
-                              .margin(Margin::same(10))
-                              .font(FontId::proportional(theme.text_sizes.normal)),
+                           SecureTextEdit::singleline(
+                              &mut recipient_selection.recipient.evm_address,
+                           )
+                           .visuals(text_edit_visuals)
+                           .hint_text(hint)
+                           .min_size(vec2(ui.available_width(), 25.0))
+                           .margin(Margin::same(10))
+                           .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open(ctx.clone());
@@ -268,7 +276,7 @@ impl SendCryptoUi {
                      });
                   });
 
-                  self.send_button(ctx, theme, owner, recipient, ui);
+                  self.send_button(ctx, theme, owner, recipient.evm_address, ui);
                });
             });
          });

@@ -1,7 +1,10 @@
 //! Window that allows the user to select a contact or a wallet as the recipient of a transaction
 
 use crate::assets::icons::Icons;
-use crate::core::{Contact, WalletInfo, ZeusCtx};
+use crate::core::{
+   WalletInfo, ZeusCtx,
+   types::{Contact, Recipient},
+};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::ContactsUi;
 use crate::utils::RT;
@@ -22,8 +25,7 @@ pub struct RecipientSelectionWindow {
    overlay: OverlayManager,
    contacts_tab_open: bool,
    wallets_tab_open: bool,
-   pub recipient: String,
-   recipient_name: Option<String>,
+   pub recipient: Recipient,
    search_query: String,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
@@ -41,8 +43,7 @@ impl RecipientSelectionWindow {
          overlay,
          contacts_tab_open: true,
          wallets_tab_open: false,
-         recipient: String::new(),
-         recipient_name: None,
+         recipient: Recipient::default(),
          search_query: String::new(),
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
@@ -116,17 +117,12 @@ impl RecipientSelectionWindow {
    }
 
    pub fn reset(&mut self) {
-      self.recipient = String::new();
-      self.recipient_name = None;
+      self.recipient = Recipient::default();
       self.search_query.clear();
    }
 
-   pub fn get_recipient(&self) -> String {
+   pub fn get_recipient(&self) -> Recipient {
       self.recipient.clone()
-   }
-
-   pub fn get_recipient_name(&self) -> Option<String> {
-      self.recipient_name.clone()
    }
 
    pub fn show(
@@ -150,14 +146,8 @@ impl RecipientSelectionWindow {
 
       if contact_added {
          let contact = contacts_ui.add_contact.get_contact().clone();
+         self.recipient = Recipient::from_contact(contact);
 
-         if !privacy_mode {
-            self.recipient = contact.evm_address;
-         } else {
-            self.recipient = contact.zk_address;
-         }
-
-         self.recipient_name = Some(contact.name);
          contacts_ui.add_contact.reset();
          self.close();
       }
@@ -241,11 +231,23 @@ impl RecipientSelectionWindow {
                ui.add_space(15.0);
 
                if self.contacts_tab_open {
-                  self.contacts_tab(ctx.clone(), theme, privacy_mode, &mut close_window, ui);
+                  self.contacts_tab(
+                     ctx.clone(),
+                     theme,
+                     privacy_mode,
+                     &mut close_window,
+                     ui,
+                  );
                }
 
                if self.wallets_tab_open {
-                  self.wallets_tab(ctx.clone(), theme, privacy_mode, &mut close_window, ui);
+                  self.wallets_tab(
+                     ctx.clone(),
+                     theme,
+                     privacy_mode,
+                     &mut close_window,
+                     ui,
+                  );
                }
 
                // TODO: Move this from the main thread to avoid blocking the GUI
@@ -265,8 +267,7 @@ impl RecipientSelectionWindow {
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
-                           self.recipient = address.to_string();
-                           self.recipient_name = None;
+                           self.recipient = Recipient::from_unknown_evm_address(address);
                            close_window = true;
                         }
                      }
@@ -285,8 +286,7 @@ impl RecipientSelectionWindow {
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
-                           self.recipient = zk_address.address;
-                           self.recipient_name = None;
+                           self.recipient = Recipient::from_unknown_zk_address(zk_address.address);
                            close_window = true;
                         }
                      }
@@ -311,7 +311,14 @@ impl RecipientSelectionWindow {
       }
    }
 
-   fn contacts_tab(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
+   fn contacts_tab(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let contacts = ctx.contacts();
       let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &self.search_query));
 
@@ -326,7 +333,14 @@ impl RecipientSelectionWindow {
          });
    }
 
-   fn show_contacts(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
+   fn show_contacts(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let contacts = ctx.contacts();
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
@@ -372,15 +386,21 @@ impl RecipientSelectionWindow {
             });
 
             if res.interact(Sense::click()).clicked() {
-               self.recipient = address_full;
-               self.recipient_name = Some(contact.name.clone());
+               self.recipient = Recipient::from_contact(contact.clone());
                *close_window = true;
             }
          }
       }
    }
 
-   fn wallets_tab(&mut self, ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
+   fn wallets_tab(
+      &mut self,
+      ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       let wallets = &self.wallets;
       let are_valid_wallets =
          !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, &self.search_query));
@@ -396,7 +416,14 @@ impl RecipientSelectionWindow {
          });
    }
 
-   fn show_wallets(&mut self, _ctx: ZeusCtx, theme: &Theme, privacy_mode: bool, close_window: &mut bool, ui: &mut Ui) {
+   fn show_wallets(
+      &mut self,
+      _ctx: ZeusCtx,
+      theme: &Theme,
+      privacy_mode: bool,
+      close_window: &mut bool,
+      ui: &mut Ui,
+   ) {
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
@@ -450,8 +477,7 @@ impl RecipientSelectionWindow {
             });
 
             if res.interact(Sense::click()).clicked() {
-               self.recipient = address_full;
-               self.recipient_name = Some(wallet.name());
+               self.recipient = Recipient::from_wallet_info(wallet.clone());
                *close_window = true;
             }
          }

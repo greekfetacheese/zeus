@@ -1,4 +1,4 @@
-use crate::core::{Dapp, ZeusCtx};
+use crate::core::{types::Dapp, ZeusCtx};
 use crate::utils::{TimeStamp, truncate_address};
 use alloy_sol_types::SolEvent;
 use anyhow::anyhow;

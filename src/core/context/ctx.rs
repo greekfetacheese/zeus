@@ -4,7 +4,7 @@ use super::{
 };
 
 use crate::core::WalletValue;
-use crate::core::{Vault, WalletInfo, client::Rpc, serde_hashmap};
+use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, state::test_and_measure_rpcs};
 use anyhow::anyhow;
@@ -31,10 +31,10 @@ use zeus_eth::{
    utils::{NumericValue, address_book, client::RpcClient},
 };
 use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer
+   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RedbDatabase, RootVerifier,
+   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
 };
 
-use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SERVER_PORT_FILE: &str = "server_port.json";
@@ -46,7 +46,7 @@ const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
 
-const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
+pub const DELEGATE_WALLET_CHECK_TIMEOUT: u64 = 600;
 
 /// Zeus data directory
 pub fn data_dir() -> Result<PathBuf, anyhow::Error> {
@@ -1453,207 +1453,6 @@ impl ZeusCtx {
       let string = serde_json::to_string(&port)?;
       std::fs::write(dir, string)?;
       Ok(())
-   }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct ConnectedDapps {
-   pub dapps: Vec<String>,
-}
-
-impl ConnectedDapps {
-   pub fn connected_dapps(&self) -> Vec<String> {
-      self.dapps.clone()
-   }
-
-   pub fn connect_dapp(&mut self, dapp: String) {
-      self.dapps.push(dapp);
-   }
-
-   pub fn disconnect_dapp(&mut self, dapp: &str) {
-      self.dapps.retain(|d| d != dapp);
-   }
-
-   pub fn disconnect_all(&mut self) {
-      self.dapps.clear();
-   }
-
-   pub fn is_connected(&self, dapp: &str) -> bool {
-      self.dapps.contains(&dapp.to_string())
-   }
-}
-
-/// Holds addresses that are delegated to a smart contract
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DelegatedWallets {
-   #[serde(with = "serde_hashmap")]
-   /// Map of (chain, account) to delegated address
-   pub map: HashMap<(u64, Address), Address>,
-   /// Last time we checked the smart account status
-   /// Time is in UNIX timestamp
-   pub last_check: HashMap<(u64, Address), u64>,
-}
-
-impl DelegatedWallets {
-   pub fn new() -> Self {
-      Self {
-         map: HashMap::new(),
-         last_check: HashMap::new(),
-      }
-   }
-
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = delegated_wallets_dir()?;
-      let data = std::fs::read(dir)?;
-      let smart_accounts = serde_json::from_slice(&data)?;
-      Ok(smart_accounts)
-   }
-
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let data = serde_json::to_string(self)?;
-      let dir = delegated_wallets_dir()?;
-      std::fs::write(dir, data)?;
-      Ok(())
-   }
-
-   pub fn add(&mut self, chain: u64, account: Address, delegated_address: Address) {
-      self.map.insert((chain, account), delegated_address);
-   }
-
-   pub fn remove(&mut self, chain: u64, account: Address) {
-      self.map.remove(&(chain, account));
-   }
-
-   pub fn should_check(&self, chain: u64, account: Address) -> bool {
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-      let last_check = self.last_check.get(&(chain, account)).cloned();
-      if last_check.is_none() {
-         return true;
-      }
-
-      let last_check = last_check.unwrap();
-      let time_passed = now.saturating_sub(last_check);
-      time_passed > DELEGATE_WALLET_CHECK_TIMEOUT
-   }
-
-   pub fn get(&self, chain: u64, account: Address) -> Option<Address> {
-      self.map.get(&(chain, account)).cloned()
-   }
-}
-
-#[derive(Clone)]
-pub struct Block {
-   pub number: u64,
-   pub timestamp: u64,
-}
-
-impl Block {
-   pub fn new(number: u64, timestamp: u64) -> Self {
-      Self { number, timestamp }
-   }
-}
-
-#[derive(Clone)]
-pub struct EthCall {
-   pub timestamp: u64,
-   pub result: Bytes,
-}
-
-#[derive(Clone)]
-pub struct EstimateGas {
-   pub timestamp: u64,
-   pub gas: u64,
-}
-
-#[derive(Debug, Clone)]
-pub struct BaseFee {
-   pub current: u64,
-   pub next: u64,
-}
-
-impl Default for BaseFee {
-   fn default() -> Self {
-      Self {
-         current: 1,
-         next: 1,
-      }
-   }
-}
-
-impl BaseFee {
-   pub fn new(current: u64, next: u64) -> Self {
-      Self { current, next }
-   }
-}
-
-/// Suggested priority fees for each chain
-#[derive(Debug, Clone)]
-pub struct PriorityFee {
-   pub fee: HashMap<u64, NumericValue>,
-}
-
-impl PriorityFee {
-   pub fn get(&self, chain: u64) -> Option<&NumericValue> {
-      self.fee.get(&chain)
-   }
-}
-
-impl Default for PriorityFee {
-   fn default() -> Self {
-      let mut map = HashMap::with_capacity(SUPPORTED_CHAINS.len());
-      // Eth
-      map.insert(1, NumericValue::parse_to_gwei("1"));
-
-      // Optimism
-      map.insert(10, NumericValue::parse_to_gwei("0.002"));
-
-      // BSC (Legacy Tx)
-      map.insert(56, NumericValue::parse_to_gwei("0"));
-
-      // Base
-      map.insert(8453, NumericValue::parse_to_gwei("0.002"));
-
-      // Arbitrum (Legacy Tx)
-      map.insert(42161, NumericValue::parse_to_gwei("0"));
-
-      Self { fee: map }
-   }
-}
-
-/// Saved contact by the user
-#[derive(Default, Clone, Debug, Serialize, Deserialize)]
-pub struct Contact {
-   pub name: String,
-   #[serde(rename = "address")]
-   pub evm_address: String,
-   #[serde(default)]
-   pub zk_address: String,
-}
-
-impl Contact {
-   pub fn new(name: String, evm_address: String, zk_address: String) -> Self {
-      Self {
-         name,
-         evm_address,
-         zk_address,
-      }
-   }
-
-   pub fn zk_address_truncated(&self) -> String {
-      let zk_address = if self.zk_address.is_empty() {
-         None
-      } else {
-         Some(self.zk_address.clone())
-      };
-
-      match &zk_address {
-         Some(address) => format!(
-            "{}...{}",
-            &address[..6],
-            &address[121..]
-         ),
-         None => "zkAddress not available".to_string(),
-      }
    }
 }
 

@@ -1,4 +1,4 @@
-use crate::core::{BaseFee, ZeusCtx, WalletPortfolio};
+use crate::core::{types::BaseFee, ZeusCtx, WalletPortfolio};
 use crate::utils::RT;
 use anyhow::anyhow;
 

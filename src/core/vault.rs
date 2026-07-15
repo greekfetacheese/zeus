@@ -1,4 +1,4 @@
-use super::{Contact, wallet::*};
+use super::{types::Contact, wallet::*};
 use crate::core::context::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
