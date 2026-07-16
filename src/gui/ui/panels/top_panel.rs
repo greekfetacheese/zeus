@@ -1,4 +1,5 @@
 use crate::gui::GUI;
+use crate::core::ZeusContext;
 use egui::{Align, Layout, Margin, RichText, Spinner, Ui, vec2};
 use zeus_widgets::{Button, Label};
 
@@ -9,27 +10,10 @@ const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 500;
 
-pub fn show(gui: &mut GUI, ui: &mut Ui) {
-   let ctx = gui.ctx.clone();
+pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
-   let (
-      save_vault_in_progress,
-      data_syncing,
-      dex_syncing,
-      on_startup_syncing,
-      has_available_rpcs,
-      chain,
-   ) = ctx.write(|ctx| {
-      let chain = ctx.chain;
-      (
-         ctx.save_vault_in_progress,
-         ctx.data_syncing,
-         ctx.dex_syncing,
-         ctx.on_startup_syncing,
-         ctx.check_for_available_rpcs(chain.id(), AVAILABLE_RPCS_CHECK_THRESHOLD),
-         chain,
-      )
-   });
+   let chain = ctx.chain;
+   let has_available_rpcs = ctx.check_for_available_rpcs(chain.id(), AVAILABLE_RPCS_CHECK_THRESHOLD);
 
    let icons = gui.icons.clone();
    let theme = &gui.theme;
@@ -43,7 +27,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
 
    ui.horizontal(|ui| {
       ui.vertical(|ui| {
-         gui.header.show(ctx.clone(), theme, icons.clone(), ui);
+         gui.header.show(ctx, theme, icons.clone(), ui);
       });
 
       if !has_available_rpcs {
@@ -75,7 +59,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
 
       gui.notification.show(&gui.theme, icons, ui);
 
-      if data_syncing && !on_startup_syncing {
+      if ctx.data_syncing && !ctx.on_startup_syncing {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {
                ui.label(RichText::new(DATA_SYNCING_MSG).size(theme.text_sizes.normal));
@@ -85,7 +69,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          });
       }
 
-      if dex_syncing && !data_syncing && !on_startup_syncing {
+      if ctx.dex_syncing && !ctx.data_syncing && !ctx.on_startup_syncing {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {
                ui.label(RichText::new(DEX_SYNCING_MSG).size(theme.text_sizes.normal));
@@ -95,7 +79,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          });
       }
 
-      if on_startup_syncing && !data_syncing {
+      if ctx.on_startup_syncing && !ctx.data_syncing {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {
                ui.label(RichText::new(ON_STARTUP_SYNC_MSG).size(theme.text_sizes.normal));
@@ -105,7 +89,7 @@ pub fn show(gui: &mut GUI, ui: &mut Ui) {
          });
       }
 
-      if save_vault_in_progress {
+      if ctx.save_vault_in_progress {
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
             frame.show(ui, |ui| {
                ui.label(RichText::new(VAULT_SAVE_IN_PROGRESS_MSG).size(theme.text_sizes.normal));

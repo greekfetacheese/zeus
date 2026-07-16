@@ -1,20 +1,18 @@
+use crate::core::ZeusContext;
 use crate::gui::GUI;
 use eframe::egui::{Align, Layout, RichText, Ui};
 
-pub fn show(ui: &mut Ui, gui: &mut GUI) {
+pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let theme = &gui.theme;
    let icons = gui.icons.clone();
-   let ctx = gui.ctx.clone();
 
    ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-      let server_running = ctx.server_running();
-
-      let icon = match server_running {
+      let icon = match ctx.server_running {
          true => icons.server_green(theme.image_tint_recommended),
          false => icons.server_red(theme.image_tint_recommended),
       };
 
-      let hover_text = if server_running {
+      let hover_text = if ctx.server_running {
          RichText::new("RPC Server is running").size(theme.text_sizes.normal)
       } else {
          RichText::new("RPC Server is not running").size(theme.text_sizes.normal)

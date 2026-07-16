@@ -252,7 +252,9 @@ pub async fn send_transaction(
 
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
-            gui.tx_confirmation_window.close(ctx.clone());
+            ctx.write(|ctx| {
+            gui.tx_confirmation_window.close(ctx);
+            });
          });
          break;
       }
@@ -392,15 +394,21 @@ pub async fn send_transaction(
 
    let nofitification = NotificationType::from_main_event(main_event.clone());
 
-   let (tx_cost, tx_cost_usd) = estimate_tx_cost(
-      ctx.clone(),
-      chain.id(),
-      receipt.gas_used,
-      priority_fee.wei(),
-   );
+   let (tx_cost, tx_cost_usd) = ctx.write(|ctx| {
+      estimate_tx_cost(
+         ctx,
+         chain.id(),
+         receipt.gas_used,
+         priority_fee.wei(),
+      )
+   });
 
    // Remove the redunant main event
    new_tx_analysis.remove_main_event();
+
+   let eth_received_usd = ctx.write(|ctx| {
+      new_tx_analysis.eth_received_usd(ctx)
+   });
 
    let tx_rich = TransactionRich {
       tx_type: receipt.transaction_type(),
@@ -411,7 +419,7 @@ pub async fn send_transaction(
       value_sent: new_tx_analysis.value_sent(),
       value_sent_usd: new_tx_analysis.value_sent_usd(ctx.clone()),
       eth_received: new_tx_analysis.eth_received(),
-      eth_received_usd: new_tx_analysis.eth_received_usd(ctx.clone()),
+      eth_received_usd,
       tx_cost,
       tx_cost_usd,
       hash: receipt.transaction_hash,

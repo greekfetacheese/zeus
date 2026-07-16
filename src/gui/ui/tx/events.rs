@@ -5,7 +5,7 @@ use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Label;
 
 use crate::assets::icons::Icons;
-use crate::core::{TransactionAnalysis, ZeusCtx, tx::events::*};
+use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
 use zeus_eth::{
    alloy_primitives::U256,
    currency::{Currency, ERC20Token, NativeCurrency},
@@ -45,7 +45,7 @@ impl DecodedEvents {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       chain: ChainId,
       theme: &Theme,
       icons: Arc<Icons>,
@@ -97,7 +97,7 @@ impl DecodedEvents {
                            ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
 
                            show_event(
-                              ctx.clone(),
+                              ctx,
                               chain,
                               theme,
                               icons.clone(),
@@ -118,14 +118,14 @@ impl DecodedEvents {
 }
 
 pub fn eoa_delegate_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    params: &EOADelegateParams,
    ui: &mut Ui,
 ) {
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Wallet",
       params.eoa,
@@ -134,7 +134,7 @@ pub fn eoa_delegate_event_ui(
    );
 
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Delegate to",
       params.address,
@@ -155,7 +155,7 @@ pub fn eoa_delegate_event_ui(
 }
 
 pub fn permit_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -192,7 +192,7 @@ pub fn permit_event_ui(
 
    // Owner
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Owner",
       params.owner,
@@ -202,7 +202,7 @@ pub fn permit_event_ui(
 
    // Spender
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Spender",
       params.spender,
@@ -223,7 +223,7 @@ pub fn permit_event_ui(
 }
 
 pub fn token_approval_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -263,7 +263,7 @@ pub fn token_approval_event_ui(
 
    // Owner
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Owner",
       params.owner,
@@ -273,7 +273,7 @@ pub fn token_approval_event_ui(
 
    // Spender
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Spender",
       params.spender,
@@ -283,7 +283,7 @@ pub fn token_approval_event_ui(
 }
 
 fn transfer_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -322,7 +322,7 @@ fn transfer_event_ui(
 
    // Sender
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Sender",
       params.sender,
@@ -333,7 +333,7 @@ fn transfer_event_ui(
    // Recipient
    ui.allocate_ui(size, |ui| {
       address(
-         ctx.clone(),
+         ctx,
          chain,
          "Recipient",
          params.recipient,
@@ -375,7 +375,7 @@ fn transfer_event_ui(
 }
 
 fn shield_event_ui(
-   _ctx: ZeusCtx,
+   _ctx: &mut ZeusContext,
    _chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -432,7 +432,7 @@ fn shield_event_ui(
 }
 
 fn bridge_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -507,7 +507,7 @@ fn bridge_event_ui(
 
    // Depositor
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Depositor",
       params.depositor,
@@ -517,7 +517,7 @@ fn bridge_event_ui(
 
    // Recipient
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Recipient",
       params.recipient,
@@ -634,7 +634,7 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
 }
 
 fn wrap_eth_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -670,7 +670,7 @@ fn wrap_eth_event_ui(
 
    // Recipient
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Recipient",
       params.recipient,
@@ -680,7 +680,7 @@ fn wrap_eth_event_ui(
 }
 
 fn unwrap_weth_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -716,7 +716,7 @@ fn unwrap_weth_event_ui(
 
    // Source
    address(
-      ctx.clone(),
+      ctx,
       chain,
       "Source",
       params.src,
@@ -726,7 +726,7 @@ fn unwrap_weth_event_ui(
 }
 
 fn uniswap_position_op_event_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -846,7 +846,7 @@ fn uniswap_position_op_event_ui(
    // Recipient
    if params.recipient.is_some() {
       address(
-         ctx.clone(),
+         ctx,
          chain,
          "Recipient",
          params.recipient.unwrap(),
@@ -857,7 +857,7 @@ fn uniswap_position_op_event_ui(
 }
 
 pub fn show_event(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
@@ -867,7 +867,7 @@ pub fn show_event(
    if event.is_native_transfer() || event.is_erc20_transfer() {
       let params = event.transfer_params();
       transfer_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -879,7 +879,7 @@ pub fn show_event(
    if event.is_token_approval() {
       let params = event.token_approval_params();
       token_approval_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -891,7 +891,7 @@ pub fn show_event(
    if event.is_permit() {
       let params = event.permit_params();
       permit_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -903,7 +903,7 @@ pub fn show_event(
    if event.is_wrap_eth() {
       let params = event.wrap_eth_params();
       wrap_eth_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -915,7 +915,7 @@ pub fn show_event(
    if event.is_unwrap_weth() {
       let params = event.unwrap_weth_params();
       unwrap_weth_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -927,7 +927,7 @@ pub fn show_event(
    if event.is_uniswap_position_op() {
       let params = event.uniswap_position_params();
       uniswap_position_op_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -939,7 +939,7 @@ pub fn show_event(
    if event.is_bridge() {
       let params = event.bridge_params();
       bridge_event_ui(
-         ctx.clone(),
+         ctx,
          chain,
          theme,
          icons.clone(),
@@ -955,11 +955,11 @@ pub fn show_event(
 
    if event.is_eoa_delegate() {
       let params = event.eoa_delegate_params();
-      eoa_delegate_event_ui(ctx.clone(), chain, theme, params, ui);
+      eoa_delegate_event_ui(ctx, chain, theme, params, ui);
    }
 
    if event.is_shield() {
       let params = event.shield_params();
-      shield_event_ui(ctx.clone(), chain, theme, icons.clone(), params, ui);
+      shield_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 }

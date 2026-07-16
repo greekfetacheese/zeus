@@ -1,6 +1,6 @@
 //! UI that allows the user to delete a wallet
 
-use crate::core::{WalletInfo, ZeusCtx};
+use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Id, Order, RichText, Ui, Window, vec2};
@@ -56,12 +56,12 @@ impl DeleteWalletUi {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, ui);
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      self.verify_credentials_ui(theme, ui);
       self.delete_wallet_ui(ctx, theme, ui);
    }
 
-   fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.credentials_form.is_open() || !self.open {
          return;
       }
@@ -105,18 +105,20 @@ impl DeleteWalletUi {
          });
 
       if clicked {
-         let mut vault = ctx.get_vault();
          let username = self.credentials_form.username();
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
-
          let credentials = Credentials::new(username, password, confirm_password);
-         vault.set_credentials(credentials);
 
          RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting vault...");
+               gui.request_repaint();
+               gui.ctx.clone()
             });
+
+            let mut vault = ctx.get_vault();
+            vault.set_credentials(credentials);
 
             // Verify the credentials by just decrypting the vault
             match vault.decrypt(None) {
@@ -131,12 +133,14 @@ impl DeleteWalletUi {
                      // Erase the credentials form
                      gui.wallet_ui.delete_wallet_ui.credentials_form.erase();
                      gui.loading_window.reset();
+                     gui.request_repaint();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Failed to decrypt vault", e.to_string());
                      gui.loading_window.reset();
+                     gui.request_repaint();
                   });
                }
             }
@@ -149,7 +153,7 @@ impl DeleteWalletUi {
       }
    }
 
-   fn delete_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn delete_wallet_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.verified_credentials || !self.open {
          return;
       }
@@ -207,10 +211,12 @@ impl DeleteWalletUi {
 
       if clicked {
          open = false;
-         let mut new_vault = ctx.get_vault();
+
          let is_current = ctx.is_current_wallet(wallet.address);
 
          RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            let mut new_vault = ctx.get_vault();
             new_vault.remove_wallet(wallet.address);
 
             // Set the master wallet as selected to avoid state inconsistencies
@@ -226,6 +232,7 @@ impl DeleteWalletUi {
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting vault...");
+               gui.request_repaint();
             });
 
             // Encrypt the vault
@@ -236,12 +243,14 @@ impl DeleteWalletUi {
                      gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
                      gui.open_msg_window("Wallet Deleted", "");
+                     gui.request_repaint();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt vault", e.to_string());
+                     gui.request_repaint();
                   });
                   return;
                }
@@ -249,7 +258,7 @@ impl DeleteWalletUi {
 
             ctx.set_vault(new_vault);
             ctx.build_wallet_info_cache();
-            
+
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.open(ctx.clone());

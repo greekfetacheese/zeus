@@ -1,18 +1,18 @@
 use crate::gui::GUI;
+use crate::core::ZeusContext;
 use eframe::egui::{Frame, RichText, Ui, Window, vec2};
 use zeus_theme::OverlayManager;
 
-pub fn show(ui: &mut Ui, gui: &mut GUI) {
-   let ctx = gui.ctx.clone();
+pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let theme = &gui.theme;
    let icons = gui.icons.clone();
    let token_selection = &mut gui.token_selection;
    let recipient_selection = &mut gui.recipient_selection;
    let contacts_ui = &mut gui.settings.contacts_ui;
 
-   gui.tx_confirmation_window.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_confirmation_window.show(ctx, theme, icons.clone(), ui);
 
-   gui.tx_window.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.tx_window.show(ctx, theme, icons.clone(), ui);
 
    gui.confirm_window.show(theme, ui);
 
@@ -20,13 +20,13 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
 
    gui.loading_window.show(theme, ui);
 
-   gui.sign_msg_window.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.sign_msg_window.show(ctx, theme, icons.clone(), ui);
 
-   gui.recover_wallet_ui.show(ctx.clone(), theme, ui);
-   gui.unlock_vault_ui.show(ctx.clone(), theme, ui);
+   gui.recover_wallet_ui.show(ctx, theme, ui);
+   gui.unlock_vault_ui.show(ctx, theme, ui);
 
    gui.across_bridge.show(
-      ctx.clone(),
+      ctx,
       theme,
       icons.clone(),
       recipient_selection,
@@ -35,7 +35,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    );
 
    gui.send_crypto.show(
-      ctx.clone(),
+      ctx,
       icons.clone(),
       theme,
       token_selection,
@@ -45,7 +45,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    );
 
    gui.portofolio.show(
-      ctx.clone(),
+      ctx,
       theme,
       icons.clone(),
       token_selection,
@@ -53,7 +53,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    );
 
    gui.uniswap.show(
-      ctx.clone(),
+      ctx,
       theme,
       icons.clone(),
       token_selection,
@@ -61,7 +61,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
    );
 
    gui.shield_ui.show(
-      ctx.clone(),
+      ctx,
       theme,
       icons.clone(),
       token_selection,
@@ -70,18 +70,18 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
       ui,
    );
 
-   gui.settings.show(ctx.clone(), icons.clone(), theme, ui);
-   gui.connected_dapps.show(ctx.clone(), theme, ui);
+   gui.settings.show(ctx, icons.clone(), theme, ui);
+   gui.connected_dapps.show(ctx, theme, ui);
 
-   gui.wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
-   gui.tx_history.show(ctx.clone(), theme, ui);
+   gui.wallet_ui.show(ctx, theme, icons.clone(), ui);
+   gui.tx_history.show(ctx, theme, ui);
    gui.update_window.show(theme, ui);
 
    // This allows to show the network settings independently from the settings ui
-   gui.settings.network.show(ctx.clone(), theme, icons.clone(), ui);
+   gui.settings.network.show(ctx, theme, icons.clone(), ui);
 
    #[cfg(feature = "dev")]
-   gui.dev.show(ctx.clone(), theme, icons, ui);
+   gui.dev.show(ctx, theme, icons, ui);
 
    #[cfg(feature = "dev")]
    gui.fps_metrics.show(ui);

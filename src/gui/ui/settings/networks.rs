@@ -1,7 +1,7 @@
 //! UI that allows the user to change the network settings.
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, client::Rpc};
+use crate::core::{ZeusCtx, ZeusContext, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::RT;
 use eframe::egui::{
@@ -97,15 +97,15 @@ impl NetworkSettings {
          || self.url_to_add.starts_with("wss://")
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
       let tint = theme.image_tint_recommended;
 
-      self.add_rpc(ctx.clone(), theme, ui);
-      self.rpc_settings(ctx.clone(), theme, ui);
+      self.add_rpc(theme, ui);
+      self.rpc_settings(ctx, theme, ui);
 
       let mut open = self.open;
       let window_frame = theme.frame1;
@@ -127,7 +127,7 @@ impl NetworkSettings {
 
             ui.add_space(25.0);
             let chain = self.chain_select.chain.id();
-            let z_client = ctx.get_zeus_client();
+            let z_client = ctx.client.clone();
             let mut rpcs = z_client.get_rpcs(chain);
 
             ui.horizontal(|ui| {
@@ -164,9 +164,10 @@ impl NetworkSettings {
                      let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                      if res.clicked() {
-                        let ctx = ctx.clone();
                         self.refreshing = true;
+
                         RT.spawn(async move {
+                           let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                            let z_client = ctx.get_zeus_client();
                            z_client.run_rpc_checks(ctx.clone()).await;
                            z_client.sort_by_fastest();
@@ -249,7 +250,7 @@ impl NetworkSettings {
                      });
 
                      if res.inner.clicked() {
-                        let z_client = ctx.get_zeus_client();
+                        let z_client = ctx.client.clone();
                         z_client.write(|rpcs_map| {
                            let rpcs_opt = rpcs_map.get_mut(&chain);
                            if let Some(rpcs) = rpcs_opt {
@@ -261,17 +262,17 @@ impl NetworkSettings {
 
                         // If we just enabled the RPC, we need to run a check
                         if !was_enabled && rpc.enabled {
-                           let ctx_clone = ctx.clone();
                            let rpc = rpc.clone();
                            RT.spawn(async move {
-                              let z_client = ctx_clone.get_zeus_client();
-                              z_client.run_check_for(ctx_clone, rpc).await;
+                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                              let z_client = ctx.get_zeus_client();
+                              z_client.run_check_for(ctx, rpc).await;
                            });
                         }
 
-                        let ctx_clone = ctx.clone();
                         RT.spawn_blocking(move || {
-                           ctx_clone.save_zeus_client();
+                           let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                           ctx.save_zeus_client();
                         });
                      }
 
@@ -351,12 +352,12 @@ impl NetworkSettings {
 
                         if !test_in_progress {
                            if ui.add(button).clicked() {
-                              let ctx_clone = ctx.clone();
                               let rpc_clone = rpc.clone();
 
                               RT.spawn(async move {
-                                 let z_client = ctx_clone.get_zeus_client();
-                                 z_client.run_check_for(ctx_clone, rpc_clone).await;
+                                 let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                                 let z_client = ctx.get_zeus_client();
+                                 z_client.run_check_for(ctx, rpc_clone).await;
                                  z_client.sort_by_fastest();
                               });
                            }
@@ -373,12 +374,12 @@ impl NetworkSettings {
                         ui.set_width(buttons_width);
 
                         if ui.add(button).clicked() {
-                           let z_client = ctx.get_zeus_client();
+                           let z_client = ctx.client.clone();
                            z_client.remove_rpc(chain, rpc.url.clone());
-                           let ctx_clone = ctx.clone();
 
                            RT.spawn_blocking(move || {
-                              ctx_clone.save_zeus_client();
+                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                              ctx.save_zeus_client();
                            });
                         }
                      });
@@ -428,7 +429,7 @@ impl NetworkSettings {
       self.change_server_port = open;
    }
 
-   pub fn rpc_settings(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn rpc_settings(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.rpc_settings_open {
          return;
       }
@@ -465,7 +466,7 @@ impl NetworkSettings {
                let clicked = ui.checkbox(&mut rpc.mev_protect, "").clicked();
 
                if clicked {
-                  let z_client = ctx.get_zeus_client();
+                  let z_client = ctx.client.clone();
                   z_client.write(|rpcs_map| {
                      if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id) {
                         if let Some(old_rpc) = rpcs.get_mut(&rpc.url) {
@@ -474,6 +475,7 @@ impl NetworkSettings {
                      }
                   });
                   RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      ctx.save_zeus_client();
                   });
                }
@@ -485,7 +487,7 @@ impl NetworkSettings {
       }
    }
 
-   pub fn add_rpc(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn add_rpc(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.add_rpc {
          return;
       }
@@ -541,7 +543,7 @@ impl NetworkSettings {
                   if ui.add_enabled(!self.refreshing, button).clicked() {
                      self.refreshing = true;
                      let chain = self.chain_select.chain.id();
-                     validate_rpc(ctx.clone(), chain, self.url_to_add.clone());
+                     validate_rpc(chain, self.url_to_add.clone());
                   }
                }
             });
@@ -553,13 +555,15 @@ impl NetworkSettings {
    }
 }
 
-fn validate_rpc(ctx: ZeusCtx, chain: u64, url: String) {
+fn validate_rpc(chain: u64, url: String) {
    let default = false;
    let enabled = true;
    let mev_protect = false;
    let rpc = Rpc::new(url.clone(), chain, default, enabled, mev_protect);
 
    RT.spawn(async move {
+      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
       let client = match ctx.connect_to_rpc(&rpc).await {
          Ok(client) => client,
          Err(e) => {

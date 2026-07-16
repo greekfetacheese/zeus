@@ -9,7 +9,7 @@ use zeus_theme::Theme;
 use zeus_widgets::Label;
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use crate::utils::{truncate_address, truncate_hash};
 use zeus_eth::{
    alloy_primitives::Address,
@@ -77,7 +77,13 @@ pub fn tx_hash(chain: ChainId, tx_hash: &TxHash, theme: &Theme, ui: &mut Ui) {
 }
 
 /// Show the value of a transaction in a horizontal layout from left to right
-pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, ui: &mut Ui) {
+pub fn value(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   value: NumericValue,
+   theme: &Theme,
+   ui: &mut Ui,
+) {
    let eth = Currency::from(NativeCurrency::from(chain.id()));
 
    ui.horizontal(|ui| {
@@ -101,7 +107,7 @@ pub fn value(ctx: ZeusCtx, chain: ChainId, value: NumericValue, theme: &Theme, u
 /// Show the contract interaction with a hyperlink to the block explorer
 /// in a horizontal layout from left to right
 pub fn contract_interact(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    interact_to: Address,
    theme: &Theme,
@@ -138,7 +144,7 @@ pub fn contract_interact(
 /// Show the address of the sender or recipient depending on the context
 /// in a horizontal layout from left to right
 pub fn address(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: ChainId,
    label: &str,
    address: Address,

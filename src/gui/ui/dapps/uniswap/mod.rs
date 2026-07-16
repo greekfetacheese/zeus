@@ -7,7 +7,7 @@ use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, ZeusContext};
 use crate::gui::ui::TokenSelectionWindow;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -114,7 +114,7 @@ impl UniswapUi {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
@@ -128,7 +128,7 @@ impl UniswapUi {
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
          // TODO: Add support for BSC, There is an issue with batch calls
-         if ctx.chain().is_bsc() {
+         if ctx.chain.is_bsc() {
             let text = RichText::new("Swap feature is not available on Binance Smart Chain")
                .size(theme.text_sizes.large)
                .color(theme.colors.error);
@@ -182,7 +182,7 @@ impl UniswapUi {
 
                      if res.clicked() {
                         if self.swap_ui.is_open() {
-                           self.swap_ui.refresh(ctx.clone(), &self.settings);
+                           self.swap_ui.refresh(&self.settings);
                         }
                      }
                   } else {
@@ -253,7 +253,7 @@ impl UniswapUi {
          });
 
          self.swap_ui.show(
-            ctx.clone(),
+            ctx,
             theme,
             icons.clone(),
             token_selection,
@@ -261,9 +261,9 @@ impl UniswapUi {
             ui,
          );
 
-         self.pools_ui.show(ctx.clone(), theme, icons.clone(), ui);
+         self.pools_ui.show(ctx, theme, icons.clone(), ui);
 
-         self.show_settings(ctx.clone(), theme, ui);
+         self.show_settings(theme, ui);
 
          /*
          self.create_position_ui.show(
@@ -286,7 +286,7 @@ impl UniswapUi {
       });
    }
 
-   pub fn show_settings(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show_settings(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.settings.is_open() {
          return;
       }
@@ -308,7 +308,6 @@ impl UniswapUi {
 
             ui.vertical_centered(|ui| {
                self.settings.show(
-                  ctx.clone(),
                   swap_ui_open,
                   view_positions_open,
                   theme,

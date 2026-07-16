@@ -2,8 +2,8 @@ use egui::*;
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::ZeusCtx;
-use crate::gui::{GUI, SHARED_GUI};
+use crate::core::{ZeusContext, ZeusCtx};
+use crate::gui::SHARED_GUI;
 use crate::server::run_server;
 use crate::utils::{
    RT,
@@ -99,12 +99,9 @@ impl ZeusApp {
       }
    }
 
-   fn on_shutdown(&mut self, ctx: &egui::Context, gui: &GUI) {
+   fn on_shutdown(&mut self, ctx: &egui::Context, zeus_ctx: &mut ZeusContext) {
       if ctx.input(|i| i.viewport().close_requested()) {
-         let zeus_ctx = gui.ctx.clone();
-         zeus_ctx.write_vault(|vault| {
-            vault.erase();
-         });
+         zeus_ctx.vault.erase();
       }
    }
 }
@@ -119,82 +116,86 @@ impl eframe::App for ZeusApp {
       let time = std::time::Instant::now();
 
       SHARED_GUI.write(|gui| {
-         self.on_shutdown(ui.ctx(), gui);
+         let zeus_ctx = gui.ctx.clone();
 
-         // This is needed for Windows
-         if !self.style_has_been_set {
-            let style = gui.theme.style.clone();
-            ui.set_global_style(style);
-            self.style_has_been_set = true;
-         }
+         zeus_ctx.write(|ctx| {
+            self.on_shutdown(ui.ctx(), ctx);
 
-         let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
-         let color = gui.theme.colors.bg;
-         let panel_frame = Frame::new().fill(color);
-         self.overlay.paint_overlay(ui.ctx(), true);
+            // This is needed for Windows
+            if !self.style_has_been_set {
+               let style = gui.theme.style.clone();
+               ui.set_global_style(style);
+               self.style_has_been_set = true;
+            }
 
-         window_frame(ui, window, |ui| {
-            #[cfg(feature = "dev")]
-            zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
+            let window = WindowCtx::new("Zeus", 35.0, &gui.theme);
+            let color = gui.theme.colors.bg;
+            let panel_frame = Frame::new().fill(color);
+            self.overlay.paint_overlay(ui.ctx(), true);
 
-            // Paint the Ui that belongs to the top panel
-            egui::Panel::top("top_panel")
-               .min_size(150.0)
-               .resizable(false)
-               .show_separator_line(false)
-               .frame(panel_frame)
-               .show_inside(ui, |ui| {
-                  if gui.ctx.vault_unlocked() {
-                     gui.show_top_panel(ui);
-                  }
-               });
+            window_frame(ui, window, |ui| {
+               #[cfg(feature = "dev")]
+               zeus_theme::utils::apply_theme_changes(&mut gui.theme, ui);
 
-            // Paint the Ui that belongs to the bottom panel
-            egui::Panel::bottom("bottom_panel")
-               .max_size(24.0)
-               .resizable(false)
-               .show_separator_line(false)
-               .frame(panel_frame)
-               .show_inside(ui, |ui| {
-                  gui.show_bottom_panel(ui);
-               });
-
-            // Paint the Ui that belongs to the left panel
-            egui::Panel::left("left_panel")
-               .min_size(150.0)
-               .max_size(150.0)
-               .resizable(false)
-               .frame(panel_frame)
-               .show_separator_line(false)
-               .show_inside(ui, |ui| {
-                  if gui.ctx.vault_unlocked() {
-                     ui.add_space(40.0);
-                     gui.show_left_panel(ui);
-                  }
-               });
-
-            if gui.should_show_right_panel() {
-               // Paint the Ui that belongs to the left panel
-               egui::Panel::right("right_panel")
+               // Paint the Ui that belongs to the top panel
+               egui::Panel::top("top_panel")
                   .min_size(150.0)
                   .resizable(false)
                   .show_separator_line(false)
                   .frame(panel_frame)
                   .show_inside(ui, |ui| {
-                     if gui.ctx.vault_unlocked() {
-                        gui.show_right_panel(ui);
+                     if ctx.vault_unlocked {
+                        gui.show_top_panel(ctx, ui);
                      }
                   });
-            }
 
-            // Paint the Ui that belongs to the central panel
-            egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
-               gui.show_central_panel(ui);
+               // Paint the Ui that belongs to the bottom panel
+               egui::Panel::bottom("bottom_panel")
+                  .max_size(24.0)
+                  .resizable(false)
+                  .show_separator_line(false)
+                  .frame(panel_frame)
+                  .show_inside(ui, |ui| {
+                     gui.show_bottom_panel(ctx, ui);
+                  });
+
+               // Paint the Ui that belongs to the left panel
+               egui::Panel::left("left_panel")
+                  .min_size(150.0)
+                  .max_size(150.0)
+                  .resizable(false)
+                  .frame(panel_frame)
+                  .show_separator_line(false)
+                  .show_inside(ui, |ui| {
+                     if ctx.vault_unlocked {
+                        ui.add_space(40.0);
+                        gui.show_left_panel(ctx, ui);
+                     }
+                  });
+
+               if gui.should_show_right_panel() {
+                  // Paint the Ui that belongs to the left panel
+                  egui::Panel::right("right_panel")
+                     .min_size(150.0)
+                     .resizable(false)
+                     .show_separator_line(false)
+                     .frame(panel_frame)
+                     .show_inside(ui, |ui| {
+                        if ctx.vault_unlocked {
+                           gui.show_right_panel(ui);
+                        }
+                     });
+               }
+
+               // Paint the Ui that belongs to the central panel
+               egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
+                  gui.show_central_panel(ctx, ui);
+               });
             });
-         });
 
-         #[cfg(feature = "dev")]
-         gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
+            #[cfg(feature = "dev")]
+            gui.fps_metrics.update(time.elapsed().as_secs_f64() * 1000.0);
+         });
       });
    }
 }

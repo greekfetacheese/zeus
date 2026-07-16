@@ -2,7 +2,7 @@ use egui::{FontId, Frame, Grid, Margin, RichText, ScrollArea, Sense, TextEdit, U
 use zeus_widgets::{ComboBox, Label};
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use crate::utils::truncate_symbol_or_name;
 use std::sync::Arc;
 use zeus_eth::amm::uniswap::{AnyUniswapPool, UniswapPool};
@@ -83,7 +83,7 @@ impl PoolsUi {
          });
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -108,7 +108,7 @@ impl PoolsUi {
 
          ui.add_space(20.0);
 
-         let manager = ctx.pool_manager();
+         let manager = ctx.pool_manager.clone();
 
          let column_width = ui_width / 5.0;
          let query = &self.search_query;
@@ -133,7 +133,7 @@ impl PoolsUi {
                ui.end_row();
 
                let selected_version = self.version.unwrap_or(Version::All);
-               let chain = ctx.chain().id();
+               let chain = ctx.chain.id();
 
                manager.read(|manager| {
                   let pools = manager.pools.iter().filter(|(_, pool)| {

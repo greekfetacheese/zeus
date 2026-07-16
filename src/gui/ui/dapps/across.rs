@@ -1,7 +1,7 @@
 //! UI that allows the user to bridge assets between chains using the Across protocol (https://across.to)
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, data_dir, send_transaction};
+use crate::core::{ZeusContext, ZeusCtx, data_dir, send_transaction};
 use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, ContactsUi, RecipientSelectionWindow, common::AmountField},
@@ -159,7 +159,7 @@ impl AcrossBridge {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       recipient_selection: &mut RecipientSelectionWindow,
@@ -174,13 +174,13 @@ impl AcrossBridge {
          self.settings_window(theme, ui);
       }
 
-      recipient_selection.show(ctx.clone(), theme, icons.clone(), false, contacts_ui, ui);
+      recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let from_chain = self.from_chain.chain.id();
       let depositor = ctx.current_wallet_info().address;
       self.currency = NativeCurrency::from(from_chain).into();
 
-      self.get_suggested_fees(ctx.clone(), depositor, &recipient.evm_address);
+      self.get_suggested_fees(ctx, depositor, &recipient.evm_address);
 
       let frame = theme.frame1;
       let button_visuals = theme.button_visuals();
@@ -235,29 +235,27 @@ impl AcrossBridge {
 
                let label = String::from("Amount");
                let owner = ctx.current_wallet_info().address;
-               let balance_fn = || ctx.get_currency_balance(from_chain, owner, &self.currency);
-
-               let cost = self.cost(ctx.clone());
-               let balance = balance_fn();
-               let max_amount = || {
-                  if balance.wei() > cost.0.wei() {
-                     NumericValue::format_wei(
-                        balance.wei() - cost.0.wei(),
-                        self.currency.decimals(),
-                     )
-                  } else {
-                     NumericValue::default()
-                  }
-               };
+               let cost = self.cost(ctx);
+               let balance = ctx.get_currency_balance(from_chain, owner, &self.currency);
                let amount = self.amount_field.amount.parse().unwrap_or(0.0);
-               let value = || ctx.get_currency_value_for_amount(amount, &self.currency);
+               let value = ctx.get_currency_value_for_amount(amount, &self.currency);
                let privacy_mode = false;
+               
+               let max_amount = if balance.wei() > cost.0.wei() {
+                  NumericValue::format_wei(
+                     balance.wei() - cost.0.wei(),
+                     self.currency.decimals(),
+                  )
+               } else {
+                  NumericValue::default()
+               };
+
+
 
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
 
                   self.amount_field.show(
-                     ctx.clone(),
                      privacy_mode,
                      theme,
                      icons.clone(),
@@ -266,9 +264,9 @@ impl AcrossBridge {
                      &self.currency,
                      None,
                      None,
-                     balance_fn,
-                     max_amount,
-                     value,
+                     || balance,
+                     || max_amount,
+                     || value,
                      false,
                      true,
                      ui,
@@ -331,7 +329,7 @@ impl AcrossBridge {
                      );
 
                      if res.clicked() {
-                        recipient_selection.open(ctx.clone());
+                        recipient_selection.open();
                      }
                   });
                });
@@ -367,8 +365,8 @@ impl AcrossBridge {
                   });
                });
 
-               let network_fee = self.cost(ctx.clone()).1;
-               let bridge_fee = self.bridge_fee(ctx.clone());
+               let network_fee = self.cost(ctx).1;
+               let bridge_fee = self.bridge_fee(ctx);
                let total_fee = NumericValue::from_f64(network_fee.f64() + bridge_fee.f64());
 
                inner_frame.show(ui, |ui| {
@@ -406,14 +404,14 @@ impl AcrossBridge {
                   }
                });
 
-               self.bridge_button(ctx.clone(), theme, depositor, recipient.evm_address, ui);
+               self.bridge_button(ctx, theme, depositor, recipient.evm_address, ui);
             });
          });
    }
 
    fn bridge_button(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       depositor: Address,
       recipient: String,
@@ -422,7 +420,7 @@ impl AcrossBridge {
       let sending_tx = self.sending_tx;
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx.clone(), depositor);
+      let has_balance = self.sufficient_balance(ctx, depositor);
       let has_entered_amount = !self.amount_field.amount.is_empty();
       let valid_inputs = valid_amount && valid_recipient && has_balance && !sending_tx;
 
@@ -460,6 +458,7 @@ impl AcrossBridge {
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Error while sending transaction", e.to_string());
+                     gui.request_repaint();
                   });
                });
             }
@@ -467,7 +466,7 @@ impl AcrossBridge {
       }
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx, depositor: Address) -> bool {
+   fn sufficient_balance(&self, ctx: &mut ZeusContext, depositor: Address) -> bool {
       let balance = ctx.get_eth_balance(self.from_chain.chain.id(), depositor);
       let amount = self.amount_field.amount_wei;
       balance.wei() >= amount
@@ -476,16 +475,16 @@ impl AcrossBridge {
    /// Estimated cost of the transaction
    ///
    /// Returns (cost_wei, cost_usd)
-   fn cost(&self, ctx: ZeusCtx) -> (NumericValue, NumericValue) {
+   fn cost(&self, ctx: &mut ZeusContext) -> (NumericValue, NumericValue) {
       let chain = self.from_chain.chain;
       let gas_used: u64 = 70_000;
-      let fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+      let fee = ctx.priority_fee.get(chain.id()).cloned().unwrap_or_default();
 
       estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei())
    }
 
    /// Input amount - Minimum amount
-   fn bridge_fee(&self, ctx: ZeusCtx) -> NumericValue {
+   fn bridge_fee(&self, ctx: &mut ZeusContext) -> NumericValue {
       let input_amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -500,7 +499,7 @@ impl AcrossBridge {
       }
 
       let amount = input_amount.f64() - minimum_amount.f64();
-      self.value(ctx.clone(), amount)
+      self.value(ctx, amount)
    }
 
    /// Calculate the minimum amount to receive
@@ -532,7 +531,7 @@ impl AcrossBridge {
    }
 
    /// Currency value
-   fn value(&self, ctx: ZeusCtx, amount: f64) -> NumericValue {
+   fn value(&self, ctx: &mut ZeusContext, amount: f64) -> NumericValue {
       let price = ctx.get_currency_price(&Currency::from(self.currency.clone()));
 
       if amount == 0.0 {
@@ -552,7 +551,7 @@ impl AcrossBridge {
       amount > 0.0
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx, depositor: Address, recipient: &str) -> bool {
+   fn valid_inputs(&self, ctx: &mut ZeusContext, depositor: Address, recipient: &str) -> bool {
       self.valid_recipient(recipient)
          && self.valid_amount()
          && self.sufficient_balance(ctx, depositor)
@@ -560,7 +559,7 @@ impl AcrossBridge {
 
    fn should_get_suggested_fees(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       depositor: Address,
       recipient: &str,
    ) -> bool {
@@ -721,7 +720,7 @@ impl AcrossBridge {
       });
    }
 
-   fn get_suggested_fees(&mut self, ctx: ZeusCtx, depositor: Address, recipient: &String) {
+   fn get_suggested_fees(&mut self, ctx: &mut ZeusContext, depositor: Address, recipient: &String) {
       if !self.settings.use_api {
          return;
       }
@@ -749,7 +748,11 @@ impl AcrossBridge {
       tracing::info!("Requested suggested fees");
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
+   fn send_transaction(
+      &mut self,
+      ctx: &mut ZeusContext,
+      recipient: String,
+   ) -> Result<(), anyhow::Error> {
       let cache_opt = self
          .api_res_cache
          .get(&(
@@ -775,7 +778,7 @@ impl AcrossBridge {
          return Err(anyhow!("Output amount is zero"));
       }
 
-      let signer = ctx.get_current_wallet().key;
+      let signer = ctx.current_wallet.key.clone();
       let depositor = signer.address();
       let recipient = Address::from_str(&recipient)?;
 
@@ -820,13 +823,14 @@ impl AcrossBridge {
       let transact_to = address_book::across_spoke_pool_v2(from_chain.id())?;
 
       RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
+            gui.ctx.clone()
          });
 
          match across_bridge(
-            ctx.clone(),
+            ctx,
             from_chain,
             to_chain,
             deadline,
@@ -842,6 +846,7 @@ impl AcrossBridge {
                SHARED_GUI.write(|gui| {
                   gui.across_bridge.sending_tx = false;
                   gui.across_bridge.amount_field.reset();
+                  gui.request_repaint();
                });
                tracing::info!("Bridge Transaction Sent");
             }
@@ -853,6 +858,7 @@ impl AcrossBridge {
                   gui.notification.reset();
                   gui.loading_window.reset();
                   gui.msg_window.open("Transaction Error", e.to_string());
+                  gui.request_repaint();
                });
             }
          }

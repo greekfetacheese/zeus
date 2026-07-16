@@ -1,4 +1,5 @@
 use super::UniswapSettingsUi;
+use crate::core::ZeusContext;
 use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::*;
 use crate::utils::universal_router_v2::SwapType;
@@ -15,8 +16,8 @@ use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
 use crate::core::{
-   types::Dapp, DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
-   WrapETHParams, ZeusCtx, send_transaction, sign_message, signature::Permit2Info,
+   DecodedEvent, SwapParams, TokenApproveParams, TransactionAnalysis, UnwrapWETHParams,
+   WrapETHParams, ZeusCtx, send_transaction, sign_message, signature::Permit2Info, types::Dapp,
 };
 use crate::utils::{
    RT,
@@ -106,7 +107,13 @@ impl SimulateWindow {
       self.pool_after = pool;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      settings: &UniswapSettingsUi,
+      ui: &mut Ui,
+   ) {
       Window::new("Simulate")
          .id(Id::new("swap_ui_simulate_window"))
          .resizable(true)
@@ -137,11 +144,11 @@ impl SimulateWindow {
                      self.set_pool_after(None);
                      let pool = self.pool_initial.clone();
                      let settings_clone = settings.clone();
-                     let ctx_clone = ctx.clone();
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
+                           let ctx = gui.ctx.clone();
                            gui.uniswap.swap_ui.pool = pool;
-                           gui.uniswap.swap_ui.get_quote(ctx_clone, &settings_clone);
+                           gui.uniswap.swap_ui.get_quote(ctx, &settings_clone);
                         });
                      });
                   }
@@ -422,19 +429,18 @@ impl SwapUi {
       changed
    }
 
-   pub fn refresh(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
+   pub fn refresh(&mut self, settings: &UniswapSettingsUi) {
       self.update_pool_state(
-         ctx.clone(),
          settings.swap_on_v2,
          settings.swap_on_v3,
          settings.swap_on_v4,
       );
-      self.sync_pools(ctx.clone(), settings, false);
+      self.sync_pools(settings, false);
    }
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
@@ -447,19 +453,18 @@ impl SwapUi {
 
       if self.should_update_pool_state() {
          self.update_pool_state(
-            ctx.clone(),
             settings.swap_on_v2,
             settings.swap_on_v3,
             settings.swap_on_v4,
          );
       }
 
-      let chain_id = ctx.chain().id();
+      let chain_id = ctx.chain.id();
       let owner = ctx.current_wallet_info().address;
       let simulate_mode = settings.simulate_mode;
 
       if simulate_mode {
-         self.simulate_window.show(ctx.clone(), theme, settings, ui);
+         self.simulate_window.show(ctx, theme, settings, ui);
       }
 
       let window_frame = theme.frame1;
@@ -492,7 +497,7 @@ impl SwapUi {
                }
 
                if simulate_mode {
-                  let manager = ctx.pool_manager();
+                  let manager = ctx.pool_manager.clone();
                   let mut pools =
                      manager.get_pools_from_pair(&self.currency_in, &self.currency_out);
 
@@ -511,7 +516,13 @@ impl SwapUi {
 
                   if changed {
                      self.simulate_window.set_initial_pool(self.pool.clone());
-                     self.get_quote(ctx.clone(), settings);
+                     let settings = settings.clone();
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           let ctx = gui.ctx.clone();
+                           gui.uniswap.swap_ui.get_quote(ctx, &settings);
+                        })
+                     });
                   }
 
                   if pools.is_empty() {
@@ -525,15 +536,14 @@ impl SwapUi {
                let inner_frame = theme.frame2;
                let mut amount_changed = false;
                let label = String::from("Sell");
-               let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
-               let max_amount = || ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+               let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
+               let max_amount = ctx.get_currency_balance(chain_id, owner, &self.currency_in);
                let amount = self.amount_in_field.amount.parse().unwrap_or(0.0);
-               let value = || ctx.get_currency_value_for_amount(amount, &self.currency_in);
+               let value = ctx.get_currency_value_for_amount(amount, &self.currency_in);
                let privacy_mode = false;
 
                inner_frame.show(ui, |ui| {
                   let changed = self.amount_in_field.show(
-                     ctx.clone(),
                      privacy_mode,
                      theme,
                      icons.clone(),
@@ -542,9 +552,9 @@ impl SwapUi {
                      &self.currency_in,
                      Some(token_selection),
                      Some(InOrOut::In),
-                     balance,
-                     max_amount,
-                     value,
+                     || balance,
+                     || max_amount,
+                     || value,
                      false,
                      true,
                      ui,
@@ -561,19 +571,25 @@ impl SwapUi {
 
                   if ui.add(swap_button).clicked() {
                      self.swap_currencies();
-                     self.get_quote(ctx.clone(), settings);
+                     let settings = settings.clone();
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           let ctx = gui.ctx.clone();
+                           gui.uniswap.swap_ui.get_quote(ctx, &settings);
+                        });
+                     });
                   }
                });
 
                // Currency out
                let label = String::from("Buy");
-               let balance = || ctx.get_currency_balance(chain_id, owner, &self.currency_out);
-               let max_amount = || NumericValue::default();
+               let balance = ctx.get_currency_balance(chain_id, owner, &self.currency_out);
+               let max_amount = NumericValue::default();
                let amount = self.amount_out_field.amount.parse().unwrap_or(0.0);
-               let value = || ctx.get_currency_value_for_amount(amount, &self.currency_out);
+               let value = ctx.get_currency_value_for_amount(amount, &self.currency_out);
+
                inner_frame.show(ui, |ui| {
                   self.amount_out_field.show(
-                     ctx.clone(),
                      privacy_mode,
                      theme,
                      icons.clone(),
@@ -582,23 +598,16 @@ impl SwapUi {
                      &self.currency_out,
                      Some(token_selection),
                      Some(InOrOut::Out),
-                     balance,
-                     max_amount,
-                     value,
+                     || balance,
+                     || max_amount,
+                     || value,
                      false,
                      false,
                      ui,
                   )
                });
 
-               token_selection.show(
-                  ctx.clone(),
-                  theme,
-                  icons.clone(),
-                  chain_id,
-                  owner,
-                  ui,
-               );
+               token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
                let selected_currency = token_selection.get_currency().cloned();
                let direction = token_selection.get_currency_direction();
@@ -607,24 +616,30 @@ impl SwapUi {
 
                if let Some(currency) = selected_currency {
                   self.replace_currency(direction, currency.clone());
-                  self.update_currency_balance(ctx.clone(), currency);
+                  self.update_currency_balance(currency);
                   token_selection.reset();
                }
 
                if changed_currency {
-                  self.sync_pools(ctx.clone(), settings, true);
+                  self.sync_pools(settings, true);
                }
 
                if should_get_quote {
-                  self.get_quote(ctx.clone(), settings);
+                  let settings = settings.clone();
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        let ctx = gui.ctx.clone();
+                        gui.uniswap.swap_ui.get_quote(ctx, &settings);
+                     });
+                  });
                }
 
                if simulate_mode {
-                  self.simulate_button(ctx.clone(), theme, settings, ui);
+                  self.simulate_button(theme, settings, ui);
                }
 
                if !simulate_mode {
-                  self.swap_button(ctx.clone(), theme, settings, ui);
+                  self.swap_button(ctx, theme, settings, ui);
                   self.swap_details(ctx, theme, icons, settings, ui);
                }
             });
@@ -644,13 +659,7 @@ impl SwapUi {
       }
    }
 
-   fn simulate_button(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      settings: &UniswapSettingsUi,
-      ui: &mut Ui,
-   ) {
+   fn simulate_button(&mut self, theme: &Theme, settings: &UniswapSettingsUi, ui: &mut Ui) {
       let visuals = theme.button_visuals();
       let got_pool = self.pool.is_some();
       let enabled = !self.amount_in_field.amount.is_empty() && got_pool;
@@ -667,22 +676,28 @@ impl SwapUi {
             pool.simulate_swap_mut(&self.currency_in, amount_in.wei()).unwrap_or_default();
             self.simulate_window.set_pool_after(Some(pool.clone()));
 
-            self.get_quote(ctx.clone(), settings);
+            let settings = settings.clone();
+            RT.spawn_blocking(move || {
+               SHARED_GUI.write(|gui| {
+                  let ctx = gui.ctx.clone();
+                  gui.uniswap.swap_ui.get_quote(ctx, &settings);
+               });
+            });
          }
       }
    }
 
    fn swap_button(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       settings: &UniswapSettingsUi,
       ui: &mut Ui,
    ) {
       let sending_tx = self.sending_tx;
-      let valid_inputs = self.valid_inputs(ctx.clone());
+      let valid_inputs = self.valid_inputs(ctx);
       let has_swap_steps = !self.quote.swap_steps.is_empty();
-      let has_balance = self.sufficient_balance(ctx.clone());
+      let has_balance = self.sufficient_balance(ctx);
       let has_entered_amount = !self.amount_in_field.amount.is_empty();
       let action = self.action();
 
@@ -732,7 +747,7 @@ impl SwapUi {
       });
    }
 
-   fn valid_inputs(&self, ctx: ZeusCtx) -> bool {
+   fn valid_inputs(&self, ctx: &mut ZeusContext) -> bool {
       self.valid_amounts() && self.sufficient_balance(ctx)
    }
 
@@ -742,17 +757,18 @@ impl SwapUi {
       amount_in > 0.0 && amount_out > 0.0
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx) -> bool {
+   fn sufficient_balance(&self, ctx: &mut ZeusContext) -> bool {
       let sender = ctx.current_wallet_info().address;
-      let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency_in);
+      let balance = ctx.get_currency_balance(ctx.chain.id(), sender, &self.currency_in);
       let amount = self.amount_in_field.amount_wei;
       balance.wei() >= amount
    }
 
-   fn update_currency_balance(&self, ctx: ZeusCtx, currency: Currency) {
+   fn update_currency_balance(&self, currency: Currency) {
       RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.uniswap.swap_ui.balance_syncing = true;
+            gui.ctx.clone()
          });
 
          let manager = ctx.balance_manager();
@@ -796,7 +812,7 @@ impl SwapUi {
       });
    }
 
-   fn sync_pools(&mut self, ctx: ZeusCtx, settings: &UniswapSettingsUi, update_pool_state: bool) {
+   fn sync_pools(&mut self, settings: &UniswapSettingsUi, update_pool_state: bool) {
       if self.syncing_pools {
          return;
       }
@@ -820,8 +836,6 @@ impl SwapUi {
          return;
       }
 
-      let chain_id = ctx.chain().id();
-      let pool_manager = ctx.pool_manager();
       let currency_in = self.currency_in.clone();
       let currency_out = self.currency_out.clone();
 
@@ -836,9 +850,12 @@ impl SwapUi {
 
       self.syncing_pools = true;
 
-      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         match pool_manager.sync_pools_for_tokens(ctx_clone.clone(), chain_id, tokens).await {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let pool_manager = ctx.pool_manager();
+         let chain_id = ctx.chain().id();
+
+         match pool_manager.sync_pools_for_tokens(ctx.clone(), chain_id, tokens).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to sync pools: {}", e);
@@ -855,7 +872,7 @@ impl SwapUi {
             });
 
             let pools = get_relevant_pools(
-               ctx_clone.clone(),
+               ctx.clone(),
                swap_on_v2,
                swap_on_v3,
                swap_on_v4,
@@ -863,7 +880,7 @@ impl SwapUi {
                &currency_out,
             );
 
-            match pool_manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
+            match pool_manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
@@ -881,10 +898,10 @@ impl SwapUi {
          RT.spawn_blocking(move || {
             SHARED_GUI.write(|gui| {
                let settings = &gui.uniswap.settings;
-               gui.uniswap.swap_ui.get_quote(ctx_clone.clone(), settings);
+               gui.uniswap.swap_ui.get_quote(ctx.clone(), settings);
             });
 
-            ctx_clone.save_pool_manager();
+            ctx.save_pool_manager();
          });
       });
    }
@@ -927,42 +944,43 @@ impl SwapUi {
       true
    }
 
-   pub fn update_pool_state(
-      &mut self,
-      ctx: ZeusCtx,
-      update_v2: bool,
-      update_v3: bool,
-      update_v4: bool,
-   ) {
+   pub fn update_pool_state(&mut self, update_v2: bool, update_v3: bool, update_v4: bool) {
       let action = self.action();
       if action.is_wrap() || action.is_unwrap() {
          return;
       }
 
-      let pools = get_relevant_pools(
-         ctx.clone(),
-         update_v2,
-         update_v3,
-         update_v4,
-         &self.currency_in,
-         &self.currency_out,
-      );
+      let currency_in = self.currency_in.clone();
+      let currency_out = self.currency_out.clone();
 
-      if pools.is_empty() {
-         tracing::warn!(
-            "Can't get quote, No pools found for {}-{}",
-            self.currency_in.symbol(),
-            self.currency_out.symbol()
-         );
-      }
-
-      let chain_id = ctx.chain().id();
-      let manager = ctx.pool_manager();
-
-      self.pool_data_syncing = true;
-      let ctx_clone = ctx.clone();
       RT.spawn(async move {
-         match manager.update_state_for_pools(ctx_clone.clone(), chain_id, pools).await {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+         let pools = get_relevant_pools(
+            ctx.clone(),
+            update_v2,
+            update_v3,
+            update_v4,
+            &currency_in,
+            &currency_out,
+         );
+
+         if pools.is_empty() {
+            tracing::warn!(
+               "Can't get quote, No pools found for {}-{}",
+               currency_in.symbol(),
+               currency_out.symbol()
+            );
+         }
+
+         let chain_id = ctx.chain().id();
+         let manager = ctx.pool_manager();
+
+         SHARED_GUI.write(|gui| {
+            gui.uniswap.swap_ui.pool_data_syncing = true;
+         });
+
+         match manager.update_state_for_pools(ctx.clone(), chain_id, pools).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.uniswap.swap_ui.last_pool_state_updated = Some(Instant::now());
@@ -980,7 +998,7 @@ impl SwapUi {
          // get a new quote
          SHARED_GUI.write(|gui| {
             let settings = &gui.uniswap.settings;
-            gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+            gui.uniswap.swap_ui.get_quote(ctx, settings);
          });
       });
    }
@@ -1100,7 +1118,7 @@ impl SwapUi {
 
    fn swap_details(
       &self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       settings: &UniswapSettingsUi,
@@ -1187,7 +1205,7 @@ impl SwapUi {
             });
 
             ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               let price_impact = self.calc_price_impact(ctx.clone());
+               let price_impact = self.calc_price_impact(ctx);
                let color = if price_impact == 0.0 {
                   theme.colors.text
                } else if price_impact.is_sign_positive() {
@@ -1204,7 +1222,7 @@ impl SwapUi {
       });
    }
 
-   fn calc_price_impact(&self, ctx: ZeusCtx) -> f64 {
+   fn calc_price_impact(&self, ctx: &mut ZeusContext) -> f64 {
       if !self.valid_amounts() || !self.action().is_swap() {
          return 0.0;
       }
@@ -1221,18 +1239,19 @@ impl SwapUi {
       price_impact
    }
 
-   fn swap(&self, ctx: ZeusCtx, settings: &UniswapSettingsUi) {
+   fn swap(&self, ctx: &mut ZeusContext, settings: &UniswapSettingsUi) {
       let action = self.action();
       let from = ctx.current_wallet_info().address;
-      let chain = ctx.chain();
+      let chain = ctx.chain;
 
       if action.is_wrap() {
          let amount_in = self.amount_in_field.amount_wei;
          let amount_in = NumericValue::format_wei(amount_in, self.currency_in.decimals());
          RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
+               gui.ctx.clone()
             });
 
             match wrap_eth(ctx.clone(), from, chain, amount_in.clone()).await {
@@ -1260,9 +1279,10 @@ impl SwapUi {
          let amount_in = self.amount_in_field.amount_wei;
          let amount_in = NumericValue::format_wei(amount_in, self.currency_in.decimals());
          RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
+               gui.ctx.clone()
             });
 
             match unwrap_weth(ctx.clone(), from, chain, amount_in.clone()).await {
@@ -1297,8 +1317,11 @@ impl SwapUi {
       let slippage: f64 = settings.slippage.parse().unwrap_or(0.5);
 
       RT.spawn(async move {
-         SHARED_GUI.open_loading("Wait while magic happens");
-         SHARED_GUI.request_repaint();
+         let ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
 
          match swap(
             ctx.clone(),
@@ -1327,7 +1350,9 @@ impl SwapUi {
                   gui.uniswap.swap_ui.sending_tx = false;
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  gui.tx_confirmation_window.reset(ctx);
+                  ctx.write(|ctx| {
+                     gui.tx_confirmation_window.reset(ctx);
+                  });
                   gui.msg_window.open("Transaction Error", e.to_string());
                   gui.request_repaint();
                });

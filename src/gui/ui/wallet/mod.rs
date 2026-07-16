@@ -1,5 +1,5 @@
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx};
+use crate::core::{WalletInfo, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{
@@ -138,22 +138,22 @@ impl WalletUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.main_ui(ctx.clone(), theme, icons.clone(), ui);
-      self.rename_wallet(ctx.clone(), theme, ui);
-      self.add_wallet_ui.show(ctx.clone(), theme, icons.clone(), ui);
-      self.export_key_ui.show(ctx.clone(), theme, ui);
+      self.main_ui(ctx, theme, icons.clone(), ui);
+      self.rename_wallet(theme, ui);
+      self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
+      self.export_key_ui.show(ctx, theme, ui);
       self.delete_wallet_ui.show(ctx, theme, ui);
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.
    ///
    /// We can see, manage and add new wallets.
-   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
@@ -194,7 +194,7 @@ impl WalletUi {
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
                self.wallet(
-                  ctx.clone(),
+                  ctx,
                   theme,
                   icons.clone(),
                   &current_wallet,
@@ -227,16 +227,12 @@ impl WalletUi {
 
                   for wallet in wallets.iter().filter(|w| *w != &current_wallet) {
                      if self.search_query.is_empty()
-                        || wallet.name_with_source().to_lowercase().contains(&self.search_query.to_lowercase())
+                        || wallet
+                           .name_with_source()
+                           .to_lowercase()
+                           .contains(&self.search_query.to_lowercase())
                      {
-                        self.wallet(
-                           ctx.clone(),
-                           theme,
-                           icons.clone(),
-                           wallet,
-                           false,
-                           ui,
-                        );
+                        self.wallet(ctx, theme, icons.clone(), wallet, false, ui);
 
                         ui.add_space(4.0);
                      }
@@ -249,7 +245,7 @@ impl WalletUi {
    /// Show a wallet
    fn wallet(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       wallet: &WalletInfo,
@@ -290,7 +286,7 @@ impl WalletUi {
 
                if ui.add_enabled(enabled, export_key).clicked() {
                   let wallet = ctx.get_wallet(wallet.address);
-                  self.export_key_ui.open(ctx.clone(), wallet);
+                  self.export_key_ui.open(ctx, wallet);
                }
 
                ui.add_space(8.0);
@@ -354,9 +350,8 @@ impl WalletUi {
       if res.interact(Sense::click()).clicked() {
          let new_selected_wallet = ctx.get_wallet(wallet.address);
          if let Some(new_selected_wallet) = new_selected_wallet {
-            ctx.write(|ctx| {
-               ctx.current_wallet = new_selected_wallet.clone();
-            });
+            ctx.current_wallet = new_selected_wallet.clone();
+
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
                   gui.header.set_current_wallet(new_selected_wallet);
@@ -367,7 +362,7 @@ impl WalletUi {
    }
 
    /// Rename wallet UI
-   fn rename_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn rename_wallet(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.rename_wallet {
          return;
       }
@@ -425,6 +420,7 @@ impl WalletUi {
 
                   // On failure, revert the changes
                   RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      let old_vault = ctx.get_vault();
 
                      if old_vault.wallet_name_exists(&new_wallet_name) {
@@ -519,7 +515,7 @@ impl WalletUi {
 
                      ctx.set_vault(new_vault);
                      ctx.build_wallet_info_cache();
-                     
+
                      // Calculate the wallets again
                      SHARED_GUI.write(|gui| {
                         gui.wallet_ui.open(ctx.clone());

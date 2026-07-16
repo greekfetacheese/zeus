@@ -1,6 +1,6 @@
 //! UI that shows the transaction history
 
-use crate::core::{TransactionRich, WalletInfo, ZeusCtx};
+use crate::core::{TransactionRich, WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address};
 use egui::{Align, Frame, Grid, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
@@ -16,7 +16,6 @@ pub struct TxHistory {
    pub txs_per_page: usize,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
-   wallets: Vec<WalletInfo>,
 }
 
 impl TxHistory {
@@ -27,7 +26,6 @@ impl TxHistory {
          txs_per_page: DEFAULT_TXS_PER_PAGE,
          selected_wallet: None,
          selected_chain: None,
-         wallets: vec![],
       }
    }
 
@@ -35,9 +33,7 @@ impl TxHistory {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx) {
-      let wallets = ctx.get_all_wallets_info();
-      self.wallets = wallets;
+   pub fn open(&mut self) {
       self.open = true;
    }
 
@@ -45,7 +41,7 @@ impl TxHistory {
       self.open = false;
    }
 
-   fn wallet_name_or_address(&self, ctx: ZeusCtx, address: Address) -> String {
+   fn wallet_name_or_address(&self, ctx: &mut ZeusContext, address: Address) -> String {
       let name_opt = ctx.get_wallet_name(address);
       if let Some(name) = name_opt {
          name
@@ -54,7 +50,7 @@ impl TxHistory {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -84,11 +80,11 @@ impl TxHistory {
             let expansion = Some(6.0);
 
             // Wallet Filter
-            let wallets = &self.wallets;
-            let selected_wallet_name = self
-               .selected_wallet
-               .clone()
-               .map_or("All Wallets".to_string(), |wallet| wallet.name_with_source());
+            let wallets = ctx.get_all_wallets_info();
+            let selected_wallet_name =
+               self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
+                  wallet.name_with_source()
+               });
 
             let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
             let label = Label::new(text, None)
@@ -117,8 +113,9 @@ impl TxHistory {
                      }
                   }
 
-                  for wallet in wallets {
-                     let text = RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
+                  for (_, wallet) in wallets {
+                     let text =
+                        RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .sense(Sense::click())
@@ -218,7 +215,10 @@ impl TxHistory {
 
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Save TxDB")).clicked() {
-               ctx.save_tx_db();
+               RT.spawn_blocking(move || {
+                  let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                  ctx.save_tx_db();
+               });
             }
          });
 
@@ -227,11 +227,11 @@ impl TxHistory {
          ui.add_space(10.0);
 
          // --- Transaction Data Fetching and Filtering ---
-         let all_wallets = &self.wallets;
-         let filtered_txs: Vec<TransactionRich> = ctx.read(|ctx_read| {
+         let filtered_txs: Vec<TransactionRich> = {
             let mut txs = Vec::new();
+            let wallets = ctx.get_all_wallets_info();
 
-            for wallet in all_wallets {
+            for (_, wallet) in wallets {
                if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
                   continue;
                }
@@ -243,7 +243,7 @@ impl TxHistory {
                };
 
                for chain in chains_to_check {
-                  if let Some(wallet_txs) = ctx_read.tx_db.get_txs(chain.id(), wallet.address) {
+                  if let Some(wallet_txs) = ctx.tx_db.get_txs(chain.id(), wallet.address) {
                      txs.extend(wallet_txs.iter().cloned());
                   }
                }
@@ -251,7 +251,7 @@ impl TxHistory {
             // Sort all collected transactions by timestamp (newest first)
             txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
             txs
-         });
+         };
 
          if filtered_txs.is_empty() {
             ui.vertical_centered(|ui| {
@@ -371,7 +371,7 @@ impl TxHistory {
                         for tx in txs_on_page {
                            // Wallet Name Column
                            // TODO: Tweak this its very bad
-                           let name = self.wallet_name_or_address(ctx.clone(), tx.sender());
+                           let name = self.wallet_name_or_address(ctx, tx.sender());
                            ui.horizontal(|ui| {
                               ui.set_width(column_widths[0]);
                               ui.label(

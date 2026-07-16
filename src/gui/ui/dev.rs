@@ -2,7 +2,7 @@ use eframe::egui::{Align2, Button, Frame, Order, RichText, ScrollArea, Ui, Windo
 use zeus_widgets::Label;
 
 use crate::assets::Icons;
-use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusCtx};
+use crate::core::{DecodedEvent, SignMsgType, TransactionAnalysis, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::notification::NotificationType};
 use crate::utils::RT;
 use crate::utils::self_update::UpdateInfo;
@@ -40,12 +40,12 @@ impl DevUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.show_ui_testing(ctx.clone(), theme, icons, ui);
+      self.show_ui_testing(ctx, theme, icons, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -67,7 +67,13 @@ impl DevUi {
       });
    }
 
-   fn show_ui_testing(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_ui_testing(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let mut open = self.ui_testing.is_open();
       let title = RichText::new("Ui Testing").size(theme.text_sizes.heading);
       Window::new(title)
@@ -78,7 +84,7 @@ impl DevUi {
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(Frame::window(ui.style()))
          .show(ui.ctx(), |ui| {
-            self.ui_testing.show(ctx.clone(), theme, icons, ui);
+            self.ui_testing.show(ctx, theme, icons, ui);
          });
 
       if !open {
@@ -114,12 +120,12 @@ impl UiTesting {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.icon_window(ctx.clone(), theme, icons, ui);
+      self.icon_window(theme, icons, ui);
 
       ui.vertical_centered(|ui| {
          ui.set_width(self.size.0);
@@ -306,7 +312,6 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let notification_clone = shield_notification.clone();
                RT.spawn_blocking(move || {
-
                   let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
                   let finish_on = now + 5;
                   SHARED_GUI.write(|gui| {
@@ -325,14 +330,14 @@ impl UiTesting {
                Button::new(RichText::new("Data Syncing").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               ctx.write(|ctx| ctx.data_syncing = !ctx.data_syncing);
+               ctx.data_syncing = !ctx.data_syncing;
             }
 
             let button = Button::new(RichText::new("On Startup Syncing").size(text_size))
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               ctx.write(|ctx| ctx.on_startup_syncing = !ctx.on_startup_syncing);
+               ctx.on_startup_syncing = !ctx.on_startup_syncing;
             }
 
             let button =
@@ -340,13 +345,14 @@ impl UiTesting {
 
             if ui.add(button).clicked() {
                let analysis = TransactionAnalysis::dummy_eoa_delegate();
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -359,15 +365,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
-
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::unknown_tx_1();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -380,15 +386,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
-
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_wrap_eth();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -401,15 +407,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
-
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_unwrap_weth();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -422,15 +428,15 @@ impl UiTesting {
                Button::new(RichText::new("Swap Tx Analysis").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
-
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_swap();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -443,14 +449,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_transfer();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -463,14 +470,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_erc20_transfer();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -483,14 +491,15 @@ impl UiTesting {
                .min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_token_approval();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -502,14 +511,15 @@ impl UiTesting {
             let button =
                Button::new(RichText::new("Permit Analysis").size(text_size)).min_size(button_size);
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_permit();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -522,14 +532,15 @@ impl UiTesting {
                Button::new(RichText::new("Uniswap AddLiquidity V3 Analysis").size(text_size))
                   .min_size(button_size);
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_uniswap_position_operation();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -542,14 +553,15 @@ impl UiTesting {
                Button::new(RichText::new("Bridge Analysis").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   let analysis = TransactionAnalysis::dummy_bridge();
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
                      gui.tx_confirmation_window.open(
-                        ctx_clone.clone(),
+                        ctx.clone(),
                         "".to_string(),
-                        ctx_clone.chain(),
+                        ctx.chain(),
                         analysis,
                         "1".to_string(),
                         true,
@@ -565,12 +577,16 @@ impl UiTesting {
                RT.spawn_blocking(move || {
                   let msg = SignMsgType::dummy_permit2();
                   SHARED_GUI.write(|gui| {
-                     gui.sign_msg_window.open(
-                        ctx.clone(),
-                        "app.uniswap.org".to_string(),
-                        8453,
-                        msg,
-                     );
+                     let ctx = gui.ctx.clone();
+
+                     ctx.write(|ctx| {
+                        gui.sign_msg_window.open(
+                           ctx,
+                           "app.uniswap.org".to_string(),
+                           8453,
+                           msg,
+                        );
+                     });
                   });
                });
             }
@@ -578,7 +594,7 @@ impl UiTesting {
       });
    }
 
-   fn icon_window(&mut self, _ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn icon_window(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let mut open = self.icon_window_open;
 
       let title = RichText::new("Icons").size(theme.text_sizes.heading);

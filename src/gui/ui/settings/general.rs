@@ -1,6 +1,6 @@
 //! UI that allows the user to change the general settings.
 
-use crate::core::ZeusCtx;
+use crate::{core::ZeusContext, gui::SHARED_GUI};
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, ScrollArea, Slider, Ui, Window, vec2};
 use std::collections::HashSet;
@@ -22,9 +22,9 @@ pub struct GeneralSettings {
 }
 
 impl GeneralSettings {
-   pub fn new(ctx: ZeusCtx, overlay: OverlayManager) -> Self {
-      let pool_manager = ctx.pool_manager();
-      let balance_manager = ctx.balance_manager();
+   pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
+      let pool_manager = ctx.pool_manager.clone();
+      let balance_manager = ctx.balance_manager.clone();
       Self {
          open: false,
          overlay,
@@ -55,9 +55,9 @@ impl GeneralSettings {
       self.open
    }
 
-   fn reset_settings(&mut self, ctx: ZeusCtx) {
-      let pool_manager = ctx.pool_manager();
-      let balance_manager = ctx.balance_manager();
+   fn reset_settings(&mut self, ctx: &mut ZeusContext) {
+      let pool_manager = ctx.pool_manager.clone();
+      let balance_manager = ctx.balance_manager.clone();
       pool_manager.reset_default_settings();
       balance_manager.reset_default_settings();
 
@@ -69,14 +69,14 @@ impl GeneralSettings {
       self.batch_size_for_syncing_pools = pool_manager.batch_size_for_syncing_pools();
       self.ignore_chains = pool_manager.ignore_chains();
 
-      let ctx = ctx.clone();
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          ctx.save_pool_manager();
          ctx.save_balance_manager();
       });
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -112,7 +112,7 @@ impl GeneralSettings {
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {
-                     self.reset_settings(ctx.clone());
+                     self.reset_settings(ctx);
                   }
 
                   let text =
@@ -201,45 +201,46 @@ impl GeneralSettings {
       }
    }
 
-   fn save_settings(&self, ctx: ZeusCtx) {
+   fn save_settings(&self, ctx: &mut ZeusContext) {
       let save_balance_manager =
-         if self.concurrency_for_syncing_balances != ctx.balance_manager().concurrency() {
-            ctx.balance_manager().set_concurrency(self.concurrency_for_syncing_balances);
+         if self.concurrency_for_syncing_balances != ctx.balance_manager.concurrency() {
+            ctx.balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
             true
-         } else if self.batch_size_for_syncing_balances != ctx.balance_manager().batch_size() {
-            ctx.balance_manager().set_batch_size(self.batch_size_for_syncing_balances);
+         } else if self.batch_size_for_syncing_balances != ctx.balance_manager.batch_size() {
+            ctx.balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
             true
          } else {
             false
          };
 
       let save_pool_manager =
-         if self.concurrency_for_syncing_pools != ctx.pool_manager().concurrency() {
-            ctx.pool_manager().set_concurrency(self.concurrency_for_syncing_pools);
+         if self.concurrency_for_syncing_pools != ctx.pool_manager.concurrency() {
+            ctx.pool_manager.set_concurrency(self.concurrency_for_syncing_pools);
             true
          } else if self.batch_size_for_updating_pools_state
-            != ctx.pool_manager().batch_size_for_updating_pools_state()
+            != ctx.pool_manager.batch_size_for_updating_pools_state()
          {
-            ctx.pool_manager()
+            ctx.pool_manager
                .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
             true
          } else if self.batch_size_for_syncing_pools
-            != ctx.pool_manager().batch_size_for_syncing_pools()
+            != ctx.pool_manager.batch_size_for_syncing_pools()
          {
-            ctx.pool_manager()
+            ctx.pool_manager
                .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
             true
-         } else if self.sync_v4_pools_on_startup != ctx.pool_manager().do_we_sync_v4_pools() {
-            ctx.pool_manager().set_sync_v4_pools(self.sync_v4_pools_on_startup);
+         } else if self.sync_v4_pools_on_startup != ctx.pool_manager.do_we_sync_v4_pools() {
+            ctx.pool_manager.set_sync_v4_pools(self.sync_v4_pools_on_startup);
             true
-         } else if self.ignore_chains != ctx.pool_manager().ignore_chains() {
-            ctx.pool_manager().set_ignore_chains(self.ignore_chains.clone());
+         } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
+            ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
             true
          } else {
             false
          };
 
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          if save_balance_manager {
             ctx.save_balance_manager();
          }

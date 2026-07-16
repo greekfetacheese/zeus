@@ -3,7 +3,7 @@
 //! Showed when Home is selected
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::RT;
 use eframe::egui::{
@@ -49,7 +49,7 @@ impl PortfolioUi {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
@@ -59,11 +59,11 @@ impl PortfolioUi {
          return;
       }
 
-      let chain_id = ctx.chain().id();
+      let chain_id = ctx.chain.id();
       let wallet_info = ctx.current_wallet_info();
-      let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+      let privacy_mode = ctx.privacy_mode;
       let owner = wallet_info.address;
-      let portfolio = ctx.get_portfolio(chain_id, owner);
+      let portfolio = ctx.portfolio_db.get(chain_id, owner);
 
       let portfolio_value = match privacy_mode {
          false => portfolio.public_value(),
@@ -82,7 +82,10 @@ impl PortfolioUi {
                ui.horizontal(|ui| {
                   // Wallet Name - Total Value (centered)
                   ui.vertical_centered(|ui| {
-                     ui.label(RichText::new(wallet_info.name_with_source()).size(theme.text_sizes.very_large));
+                     ui.label(
+                        RichText::new(wallet_info.name_with_source())
+                           .size(theme.text_sizes.very_large),
+                     );
                      ui.label(
                         RichText::new(format!("${}", portfolio_value.abbreviated()))
                            .heading()
@@ -99,7 +102,7 @@ impl PortfolioUi {
                      let add_token = Button::new(text).visuals(button_visuals);
 
                      if ui.add(add_token).clicked() {
-                        token_selection.open(ctx.clone(), privacy_mode, chain_id, owner);
+                        token_selection.open(privacy_mode, chain_id, owner);
                      }
 
                      let tint = theme.image_tint_recommended;
@@ -116,7 +119,7 @@ impl PortfolioUi {
                         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                         if res.clicked() {
-                           self.refresh(owner, ctx.clone());
+                           self.refresh(owner);
                         }
                      } else {
                         ui.add(Spinner::new().size(17.0).color(theme.colors.text));
@@ -169,7 +172,7 @@ impl PortfolioUi {
                         );
 
                         self.price_balance_value_native(
-                           ctx.clone(),
+                           ctx,
                            theme,
                            chain_id,
                            owner,
@@ -200,14 +203,7 @@ impl PortfolioUi {
                               column_widths[0],
                            );
 
-                           self.remove_token(
-                              ctx.clone(),
-                              theme,
-                              owner,
-                              token,
-                              ui,
-                              column_widths[4],
-                           );
+                           self.remove_token(ctx, theme, owner, token, ui, column_widths[4]);
 
                            ui.end_row();
                         }
@@ -215,21 +211,14 @@ impl PortfolioUi {
                });
 
                // Token selection
-               token_selection.show(
-                  ctx.clone(),
-                  theme,
-                  icons.clone(),
-                  chain_id,
-                  owner,
-                  ui,
-               );
+               token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
                let currency = token_selection.get_currency().cloned();
 
                if let Some(currency) = currency {
                   let token_fetched = token_selection.token_fetched;
                   token_selection.reset();
-                  self.add_currency(ctx.clone(), owner, token_fetched, currency);
+                  self.add_currency(ctx, owner, token_fetched, currency);
                }
             });
          });
@@ -279,7 +268,7 @@ impl PortfolioUi {
 
    fn price_balance_value_native(
       &self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       chain: u64,
       owner: Address,
@@ -342,9 +331,10 @@ impl PortfolioUi {
       });
    }
 
-   fn refresh(&mut self, owner: Address, ctx: ZeusCtx) {
+   fn refresh(&mut self, owner: Address) {
       self.show_spinner = true;
       RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let chain = ctx.chain().id();
          let portfolio = ctx.get_portfolio(chain, owner);
          let tokens = portfolio.tokens().clone();
@@ -409,7 +399,7 @@ impl PortfolioUi {
    // Add a currency to the portfolio and update the portfolio value
    fn add_currency(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       owner: Address,
       token_fetched: bool,
       currency: Currency,
@@ -418,13 +408,11 @@ impl PortfolioUi {
          return;
       }
 
-      let chain_id = ctx.chain().id();
+      let chain_id = ctx.chain.id();
 
-      let mut portfolio = ctx.get_portfolio(chain_id, owner);
+      let mut portfolio = ctx.portfolio_db.get(chain_id, owner);
       portfolio.add_token(currency.to_erc20().into_owned());
-      ctx.write(|ctx| {
-         ctx.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
-      });
+      ctx.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
 
       let token = currency.to_erc20().into_owned();
 
@@ -437,12 +425,13 @@ impl PortfolioUi {
          return;
       }
 
-      let manager = ctx.pool_manager();
-      let ctx_clone = ctx.clone();
       self.show_spinner = true;
+
       RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let manager = ctx.pool_manager();
          match manager
-            .sync_pools_for_tokens(ctx_clone.clone(), chain_id, vec![token.clone()])
+            .sync_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()])
             .await
          {
             Ok(_) => {
@@ -457,7 +446,7 @@ impl PortfolioUi {
 
          // Avoid potentialy syncing hundreds of pools
          if !currency.is_base() {
-            match manager.update_for_currencies(ctx_clone.clone(), chain_id, vec![currency]).await {
+            match manager.update_for_currencies(ctx.clone(), chain_id, vec![currency]).await {
                Ok(_) => {
                   tracing::info!("Updated pool state for {}", token.symbol);
                }
@@ -471,10 +460,10 @@ impl PortfolioUi {
             }
          }
 
-         let balance_manager = ctx_clone.balance_manager();
+         let balance_manager = ctx.balance_manager();
          match balance_manager
             .update_tokens_balance(
-               ctx_clone.clone(),
+               ctx.clone(),
                chain_id,
                owner,
                vec![token],
@@ -486,22 +475,22 @@ impl PortfolioUi {
             Err(e) => tracing::error!("Error updating tokens balance: {:?}", e),
          }
 
-         ctx_clone.update_public_data(chain_id, owner);
-         ctx_clone.update_private_data(chain_id, owner).await;
+         ctx.update_public_data(chain_id, owner);
+         ctx.update_private_data(chain_id, owner).await;
 
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;
          });
 
          RT.spawn_blocking(move || {
-            ctx_clone.save_portfolio_db();
+            ctx.save_portfolio_db();
          });
       });
    }
 
    fn remove_token(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       owner: Address,
       token: &ERC20Token,
@@ -517,13 +506,14 @@ impl PortfolioUi {
 
          if ui.add(button).clicked() {
             self.show_spinner = true;
-            let chain = ctx.chain().id();
+            let chain = ctx.chain.id();
 
-            let mut portfolio = ctx.get_portfolio(chain, owner);
+            let mut portfolio = ctx.portfolio_db.get(chain, owner);
             portfolio.remove_token(token);
-            ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain, owner, portfolio));
+            ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
 
             RT.spawn(async move {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                ctx.update_public_data(chain, owner);
                ctx.update_private_data(chain, owner).await;
 

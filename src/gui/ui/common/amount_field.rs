@@ -1,7 +1,6 @@
 //! An amount field with an optional currency selector and customizable balance & max amount logic.
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::gui::ui::token_selection::TokenSelectionWindow;
 use egui::{Align, FontId, Layout, Margin, RichText, Slider, Spinner, Ui, vec2};
@@ -41,7 +40,6 @@ impl AmountField {
    /// Helper function to draw an amount field with optional currency selector and customizable balance/max logic.
    ///
    /// Arguments:
-   /// - `ctx`: The Zeus context.
    /// - `privacy_mode`: True if the privacy mode is enabled.
    /// - `theme`: The current theme.
    /// - `icons`: Shared icons.
@@ -60,7 +58,6 @@ impl AmountField {
    /// Returns: If the amount field was changed.
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
       privacy_mode: bool,
       theme: &Theme,
       icons: Arc<Icons>,
@@ -175,7 +172,7 @@ impl AmountField {
 
                if ui.add(button).clicked() {
                   if let Some(token_selection) = token_selection {
-                     token_selection.open(ctx.clone(), privacy_mode, currency.chain_id(), owner);
+                     token_selection.open(privacy_mode, currency.chain_id(), owner);
                      if let Some(direction) = direction {
                         token_selection.currency_direction = direction;
                      }

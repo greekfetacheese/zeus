@@ -11,7 +11,9 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::core::{DecodedEvent, TransactionAnalysis, TransferParams, ZeusCtx, send_transaction};
+use crate::core::{
+   DecodedEvent, TransactionAnalysis, TransferParams, ZeusContext, ZeusCtx, send_transaction,
+};
 use crate::utils::{RT, estimate_tx_cost};
 
 use crate::assets::icons::Icons;
@@ -98,7 +100,7 @@ impl SendCryptoUi {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       icons: Arc<Icons>,
       theme: &Theme,
       token_selection: &mut TokenSelectionWindow,
@@ -132,16 +134,17 @@ impl SendCryptoUi {
 
                   let owner = ctx.current_wallet_info().address;
 
-                  let chain = ctx.chain();
+                  let chain = ctx.chain;
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
                   let label = String::from("Amount");
-                  let balance_fn = || ctx.get_currency_balance(chain.id(), owner, &self.currency);
-                  let cost = self.cost(ctx.clone());
-                  let balance = balance_fn();
+                  let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
+                  let balance_clone = balance.clone();
+                  let cost = self.cost(ctx);
+                  let balance_fn = || balance_clone;
 
-                  let max_amount = || {
+                  let max_amount_fn = || {
                      let currency = self.currency.clone();
                      if currency.is_erc20() {
                         return balance;
@@ -160,19 +163,12 @@ impl SendCryptoUi {
                   let should_calculate_price = self.should_calculate_price(&currency);
                   let privacy_mode = false;
 
-                  let value = || {
-                     value(
-                        ctx.clone(),
-                        currency,
-                        amount,
-                        should_calculate_price,
-                     )
-                  };
+                  let value = value(ctx, currency, amount, should_calculate_price);
+                  let value_fn = || value;
 
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
-                        ctx.clone(),
                         privacy_mode,
                         theme,
                         icons.clone(),
@@ -182,8 +178,8 @@ impl SendCryptoUi {
                         Some(token_selection),
                         None,
                         balance_fn,
-                        max_amount,
-                        value,
+                        max_amount_fn,
+                        value_fn,
                         data_syncing,
                         true,
                         ui,
@@ -191,7 +187,7 @@ impl SendCryptoUi {
                   });
 
                   token_selection.show(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      icons.clone(),
                      chain.id(),
@@ -202,11 +198,11 @@ impl SendCryptoUi {
                   if let Some(currency) = token_selection.get_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
-                     self.sync_balance(owner, ctx.clone());
+                     self.sync_balance(owner);
                   }
 
                   recipient_selection.show(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      icons.clone(),
                      false,
@@ -273,7 +269,7 @@ impl SendCryptoUi {
                            .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
-                           recipient_selection.open(ctx.clone());
+                           recipient_selection.open();
                         }
                      });
                   });
@@ -299,7 +295,7 @@ impl SendCryptoUi {
 
    fn send_button(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       owner: Address,
       recipient: String,
@@ -310,7 +306,7 @@ impl SendCryptoUi {
       let recipient_is_sender = self.recipient_is_sender(owner, &recipient);
       let valid_recipient = self.valid_recipient(&recipient);
       let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx.clone(), owner);
+      let has_balance = self.sufficient_balance(ctx, owner);
       let has_entered_amount = !self.amount_field.amount.is_empty();
       let has_entered_recipient = !recipient.is_empty();
 
@@ -362,11 +358,13 @@ impl SendCryptoUi {
       }
    }
 
-   fn sync_balance(&mut self, owner: Address, ctx: ZeusCtx) {
+   fn sync_balance(&mut self, owner: Address ) {
       self.syncing_balance = true;
       let currency = self.currency.clone();
       let chain = currency.chain_id();
+
       RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let balance_manager = ctx.balance_manager();
          if currency.is_native() {
             match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner], false).await {
@@ -393,15 +391,15 @@ impl SendCryptoUi {
       });
    }
 
-   fn cost(&self, ctx: ZeusCtx) -> NumericValue {
+   fn cost(&self, ctx: &mut ZeusContext) -> NumericValue {
       let gas_used = if self.currency.is_native() {
-         ctx.chain().transfer_gas()
+         ctx.chain.transfer_gas()
       } else {
-         ctx.chain().erc20_transfer_gas()
+         ctx.chain.erc20_transfer_gas()
       };
 
-      let fee = ctx.get_priority_fee(ctx.chain().id()).unwrap_or_default();
-      let (cost_in_wei, _) = estimate_tx_cost(ctx.clone(), ctx.chain().id(), gas_used, fee.wei());
+      let fee = ctx.priority_fee.get(ctx.chain.id()).cloned().unwrap_or_default();
+      let (cost_in_wei, _) = estimate_tx_cost(ctx, ctx.chain.id(), gas_used, fee.wei());
       cost_in_wei
    }
 
@@ -420,8 +418,8 @@ impl SendCryptoUi {
       amount > 0.0
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency);
+   fn sufficient_balance(&self, ctx: &mut ZeusContext, sender: Address) -> bool {
+      let balance = ctx.get_currency_balance(ctx.chain.id(), sender, &self.currency);
       let amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -429,8 +427,8 @@ impl SendCryptoUi {
       balance.wei() >= amount.wei()
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
-      let chain = ctx.chain();
+   fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) -> Result<(), anyhow::Error> {
+      let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
       let currency = self.currency.clone();
       let recipient_address = Address::from_str(&recipient)?;
@@ -440,9 +438,10 @@ impl SendCryptoUi {
       );
 
       RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Wait while magic happens");
             gui.request_repaint();
+            gui.ctx.clone()
          });
 
          if currency.is_native() {
@@ -506,7 +505,7 @@ impl SendCryptoUi {
 }
 
 fn value(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    currency: Currency,
    amount: String,
    should_fetch_price: bool,
@@ -516,14 +515,15 @@ fn value(
    let value = NumericValue::value(amount, price.f64());
 
    if should_fetch_price {
-      let price_manager = ctx.price_manager();
-      let pool_manager = ctx.pool_manager();
+      let price_manager = ctx.price_manager.clone();
+      let pool_manager = ctx.pool_manager.clone();
       let chain = currency.chain_id();
 
       RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.send_crypto.price_syncing = true;
             gui.send_crypto.last_price_update.insert(currency.address(), Instant::now());
+            gui.ctx.clone()
          });
 
          match price_manager

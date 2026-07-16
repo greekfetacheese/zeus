@@ -8,7 +8,7 @@
 //! - delegate status of the current wallet (Green if not delegated, Red if delegated)
 
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusCtx, delegate_to};
+use crate::core::{WalletInfo, ZeusContext, delegate_to};
 use crate::gui::ui::dapps::railgun::RailgunMode;
 use crate::gui::{
    SHARED_GUI,
@@ -113,7 +113,7 @@ impl Header {
       self.chain_select.chain = chain;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -121,26 +121,26 @@ impl Header {
       ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
-      let chain = ctx.chain();
-      let mut privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+      let chain = ctx.chain;
+      let mut privacy_mode = ctx.privacy_mode;
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
       let frame = theme.frame1.outer_margin(Margin::same(10));
       let evm_addr = self.wallet_info.address;
 
-      self.show_deleg_settings_window(ctx.clone(), theme, icons.clone(), evm_addr, ui);
+      self.show_deleg_settings_window(ctx, theme, icons.clone(), evm_addr, ui);
 
-      self.qrcode_window.show(ctx.clone(), theme, ui);
+      self.qrcode_window.show(ctx, theme, ui);
 
       frame.show(ui, |ui| {
          ui.vertical(|ui| {
             ui.horizontal(|ui| {
-               self.show_chain_select(ctx.clone(), theme, icons.clone(), ui);
+               self.show_chain_select(ctx, theme, icons.clone(), ui);
             });
 
             ui.horizontal(|ui| {
-               self.show_wallet_select(ctx.clone(), theme, icons.clone(), ui);
+               self.show_wallet_select(ctx, theme, icons.clone(), ui);
             });
 
             let wallet = &self.wallet_info;
@@ -176,7 +176,7 @@ impl Header {
 
                // QR Code Window
                if res.clicked() {
-                  self.qrcode_window.open(ctx.clone(), wallet.clone());
+                  self.qrcode_window.open(ctx, wallet.clone());
                }
 
                ui.add_space(10.0);
@@ -199,7 +199,7 @@ impl Header {
             });
 
             // Wallet delegated status
-            let deleg_addr = ctx.get_delegated_address(chain.id(), wallet.address);
+            let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
             ui.horizontal(|ui| {
                ui.set_width(self.size.0);
 
@@ -261,11 +261,10 @@ impl Header {
                   if ui.add(button).clicked() {
                      privacy_mode = !privacy_mode;
 
-                     ctx.write(|ctx| {
-                        ctx.privacy_mode = privacy_mode;
-                     });
+                     ctx.privacy_mode = privacy_mode;
 
                      RT.spawn_blocking(move || {
+                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                         let chain = ctx.chain();
                         let owner = ctx.current_wallet_info().address;
 
@@ -277,7 +276,6 @@ impl Header {
                         SHARED_GUI.write(|gui| {
                            gui.shield_ui.set_mode(new_mode);
                            gui.token_selection.process_currencies(
-                              ctx.clone(),
                               privacy_mode,
                               chain.id(),
                               owner,
@@ -291,13 +289,19 @@ impl Header {
       });
    }
 
-   fn show_chain_select(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_chain_select(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       ui.vertical(|ui| {
-         if ctx.tx_confirm_window_open() {
+         if ctx.tx_confirm_window_open {
             ui.disable();
          }
 
-         if ctx.sign_msg_window_open() {
+         if ctx.sign_msg_window_open {
             ui.disable();
          }
 
@@ -305,11 +309,10 @@ impl Header {
          if clicked {
             let new_chain = self.chain_select.chain;
 
-            ctx.write(|ctx| {
-               ctx.chain = new_chain;
-            });
+            ctx.chain = new_chain;
 
             RT.spawn(async move {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let owner = ctx.current_wallet_info().address;
                let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
@@ -319,7 +322,6 @@ impl Header {
 
                   if gui.token_selection.is_open() {
                      gui.token_selection.process_currencies(
-                        ctx.clone(),
                         privacy_mode,
                         new_chain.id(),
                         owner,
@@ -339,23 +341,28 @@ impl Header {
       });
    }
 
-   fn show_wallet_select(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_wallet_select(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       ui.vertical(|ui| {
-         if ctx.tx_confirm_window_open() {
+         if ctx.tx_confirm_window_open {
             ui.disable();
          }
 
-         if ctx.sign_msg_window_open() {
+         if ctx.sign_msg_window_open {
             ui.disable();
          }
 
-         let clicked = self.wallet_select.show(theme, ctx.clone(), icons.clone(), ui);
+         let clicked = self.wallet_select.show(theme, ctx, icons.clone(), ui);
          if clicked {
-            ctx.write(|ctx| {
-               ctx.current_wallet = self.wallet_select.wallet.clone();
-            });
+            ctx.current_wallet = self.wallet_select.wallet.clone();
 
             RT.spawn(async move {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let current_wallet = ctx.current_wallet_info();
                let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
                let owner = current_wallet.address;
@@ -366,7 +373,6 @@ impl Header {
 
                   if gui.token_selection.is_open() {
                      gui.token_selection.process_currencies(
-                        ctx.clone(),
                         privacy_mode,
                         chain_id,
                         owner,
@@ -383,7 +389,7 @@ impl Header {
 
    fn show_deleg_settings_window(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       wallet: Address,
@@ -409,8 +415,8 @@ impl Header {
 
             let button_visuals = theme.button_visuals();
 
-            let chain = ctx.chain();
-            let delegated = ctx.get_delegated_address(chain.id(), wallet);
+            let chain = ctx.chain;
+            let delegated = ctx.delegated_wallets.get(chain.id(), wallet);
 
             ui.horizontal(|ui| {
                let size = vec2(ui.available_width(), 20.0);
@@ -418,9 +424,9 @@ impl Header {
                ui.allocate_ui(size, |ui| {
                   ui.vertical_centered(|ui| {
                      if let Some(delegated_adrress) = delegated {
-                        self.undelegate_ui(ctx.clone(), theme, wallet, delegated_adrress, ui);
+                        self.undelegate_ui(ctx, theme, wallet, delegated_adrress, ui);
                      } else {
-                        self.delegate_ui(ctx.clone(), theme, wallet, ui);
+                        self.delegate_ui(ctx, theme, wallet, ui);
                      }
 
                      let text = RichText::new("Close").size(theme.text_sizes.normal);
@@ -432,20 +438,13 @@ impl Header {
                });
 
                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  self.refresh(ctx.clone(), theme, icons, wallet, ui);
+                  self.refresh(theme, icons, wallet, ui);
                });
             });
          });
    }
 
-   fn refresh(
-      &mut self,
-      ctx: ZeusCtx,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      wallet: Address,
-      ui: &mut Ui,
-   ) {
+   fn refresh(&mut self, theme: &Theme, icons: Arc<Icons>, wallet: Address, ui: &mut Ui) {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let button_visuals = theme.button_visuals();
@@ -464,9 +463,11 @@ impl Header {
 
          if res.clicked() {
             self.syncing = true;
-            let ctx_clone = ctx.clone();
+
             RT.spawn(async move {
-               match ctx_clone.check_delegated_wallet_status(ctx.chain().id(), wallet).await {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+               let chain = ctx.chain();
+               match ctx.check_delegated_wallet_status(chain.id(), wallet).await {
                   Ok(_) => {
                      SHARED_GUI.write(|gui| {
                         gui.header.syncing = false;
@@ -490,7 +491,7 @@ impl Header {
    }
 
    // TODO: Maybe ask for credentials before proceeding
-   fn delegate_ui(&mut self, ctx: ZeusCtx, theme: &Theme, wallet: Address, ui: &mut Ui) {
+   fn delegate_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, wallet: Address, ui: &mut Ui) {
       let text = RichText::new("Delegate to").size(theme.text_sizes.large);
       ui.label(text);
 
@@ -517,9 +518,10 @@ impl Header {
 
       if clicked {
          let delegate_to_addr = self.delegate_to.clone();
-         let ctx_clone = ctx.clone();
-         let chain = ctx.chain();
+         let chain = ctx.chain;
          RT.spawn(async move {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
             let delegate_address = match Address::from_str(&delegate_to_addr) {
                Ok(address) => address,
                Err(_) => {
@@ -539,7 +541,7 @@ impl Header {
                gui.request_repaint();
             });
 
-            match delegate_to(ctx_clone, chain, wallet, delegate_address).await {
+            match delegate_to(ctx, chain, wallet, delegate_address).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
@@ -560,7 +562,7 @@ impl Header {
 
    fn undelegate_ui(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       wallet: Address,
       delegated_address: Address,
@@ -571,7 +573,7 @@ impl Header {
 
       let button_visuals = theme.button_visuals();
 
-      let chain = ctx.chain();
+      let chain = ctx.chain;
 
       let address_short = truncate_address(delegated_address.to_string());
       let explorer = chain.block_explorer();
@@ -591,13 +593,14 @@ impl Header {
       let clicked = ui.add(button).clicked();
       if clicked {
          RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.header.close_delegate_window();
                gui.request_repaint();
+               gui.ctx.clone()
             });
 
-            match delegate_to(ctx.clone(), chain, wallet, Address::ZERO).await {
+            match delegate_to(ctx, chain, wallet, Address::ZERO).await {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
@@ -642,7 +645,7 @@ impl QRCodeWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx, wallet: WalletInfo) {
+   pub fn open(&mut self, ctx: &mut ZeusContext, wallet: WalletInfo) {
       let png_bytes_res = data_to_qr(&wallet.address.to_string().as_str());
 
       match png_bytes_res {
@@ -678,7 +681,7 @@ impl QRCodeWindow {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -704,7 +707,7 @@ impl QRCodeWindow {
                      RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
                   );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  self.close_button(ctx.clone(), theme, ui);
+                  self.close_button(ctx, theme, ui);
                   return;
                }
 
@@ -732,7 +735,7 @@ impl QRCodeWindow {
 
                // QR Code
                if let Some(image_uri) = self.image_uri.clone() {
-                  let data = ctx.qr_image_data();
+                  let data = ctx.qr_image_data.clone();
                   let image = Image::new(ImageSource::Bytes {
                      uri: image_uri.into(),
                      bytes: Bytes::Shared(data),
@@ -748,7 +751,7 @@ impl QRCodeWindow {
          });
    }
 
-   fn close_button(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn close_button(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let text = RichText::new("Close").size(theme.text_sizes.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
       if ui.add(button).clicked() {

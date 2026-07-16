@@ -1,4 +1,4 @@
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 
 use secure_types::Zeroize;
 use zeus_eth::{
@@ -77,7 +77,7 @@ pub fn data_to_qr(data: &str) -> Result<Vec<u8>, anyhow::Error> {
 ///
 /// Returns (cost_in_wei, cost_in_usd)
 pub fn estimate_tx_cost(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain: u64,
    gas_used: u64,
    priority_fee: U256,

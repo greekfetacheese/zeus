@@ -1,7 +1,7 @@
 //! UI that allows the user to add,edit and remove contacts.
 
 use crate::assets::icons::Icons;
-use crate::core::{types::Contact, ZeusCtx};
+use crate::core::{types::Contact, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{
@@ -63,7 +63,7 @@ impl AddContact {
       &self.contact
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, reset_on_success: bool, ui: &mut Ui) {
       let mut open = self.open;
       if !open {
          return;
@@ -127,6 +127,7 @@ impl AddContact {
                   let new_contact = self.contact.clone();
 
                   RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      // make sure the evm address is valid
                      let _ = match Address::from_str(&new_contact.evm_address) {
                         Ok(address) => address,
@@ -136,6 +137,7 @@ impl AddContact {
                                  "Address is not an Ethereum address",
                                  format!("{}", e),
                               );
+                              gui.request_repaint();
                            });
                            return;
                         }
@@ -147,6 +149,7 @@ impl AddContact {
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                                 gui.request_repaint();
                               });
                               return;
                            }
@@ -166,6 +169,7 @@ impl AddContact {
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.open_msg_window("Failed to add contact", e.to_string());
+                              gui.request_repaint();
                            });
                            return;
                         }
@@ -181,6 +185,7 @@ impl AddContact {
                                  e
                               );
                               gui.open_msg_window("Error while saving account data", error);
+                              gui.request_repaint();
                            });
                            ctx.remove_contact(&new_contact.evm_address);
                         }
@@ -225,7 +230,7 @@ impl DeleteContact {
       self.open = false;
    }
 
-   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       if !open {
@@ -274,6 +279,7 @@ impl DeleteContact {
                   ctx.remove_contact(&contact_to_delete.evm_address);
 
                   RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      // On failure the contact is added again
                      match ctx.encrypt_and_save_vault(None, None) {
                         Ok(_) => {}
@@ -284,6 +290,7 @@ impl DeleteContact {
                                  e
                               );
                               gui.open_msg_window("Error while saving account data", error);
+                              gui.request_repaint();
                            });
                            let _res = ctx.add_contact(contact_to_delete);
                         }
@@ -337,7 +344,7 @@ impl EditContact {
       self.open = false;
    }
 
-   fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       let mut open = self.open;
 
       if !open {
@@ -409,6 +416,7 @@ impl EditContact {
                   let edited_contact = self.contact_to_edit.clone();
 
                   RT.spawn_blocking(move || {
+                     let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      // make sure the address is valid
                      let _ = match Address::from_str(&edited_contact.evm_address) {
                         Ok(address) => address,
@@ -418,6 +426,7 @@ impl EditContact {
                                  "Address is not an Ethereum address",
                                  format!("{}", e),
                               );
+                              gui.request_repaint();
                            });
                            return;
                         }
@@ -429,6 +438,7 @@ impl EditContact {
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
                                  gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                                 gui.request_repaint();
                               });
                               return;
                            }
@@ -459,6 +469,7 @@ impl EditContact {
                                  e
                               );
                               gui.open_msg_window("Error while saving account data", error);
+                              gui.request_repaint();
                            });
 
                            ctx.write_vault(|vault| {
@@ -520,18 +531,18 @@ impl ContactsUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.main_ui(ctx.clone(), theme, icons, ui);
-      self.add_contact.show(ctx.clone(), theme, true, ui);
-      self.delete_contact.show(ctx.clone(), theme, ui);
+      self.main_ui(ctx, theme, icons, ui);
+      self.add_contact.show(theme, true, ui);
+      self.delete_contact.show(ctx, theme, ui);
       self.edit_contact.show(ctx, theme, ui);
    }
 
-   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
@@ -550,12 +561,12 @@ impl ContactsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
-            let contacts = ctx.contacts();
+            let contacts = &ctx.vault.contacts;
 
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();
             let tint = theme.image_tint_recommended;
-            let is_privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+            let privacy_mode = ctx.privacy_mode;
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 10.0;
@@ -595,7 +606,7 @@ impl ContactsUi {
                   ui.set_width(self.size.0);
 
                   let frame = theme.frame2;
-                  for contact in &contacts {
+                  for contact in contacts {
                      let valid = valid_contact_search(contact, &self.search_query);
 
                      if !valid {
@@ -616,12 +627,12 @@ impl ContactsUi {
                         ui.horizontal(|ui| {
                            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
-                           let address_short = match is_privacy_mode {
+                           let address_short = match privacy_mode {
                               false => contact.evm_address.clone(),
                               true => contact.zk_address_truncated(),
                            };
 
-                           let address_full = match is_privacy_mode {
+                           let address_full = match privacy_mode {
                               false => contact.evm_address.clone(),
                               true => contact.zk_address.clone(),
                            };
@@ -637,7 +648,7 @@ impl ContactsUi {
                               ui.ctx().copy_text(address_full);
                            }
 
-                           let chain = ctx.chain();
+                           let chain = ctx.chain;
                            let explorer = chain.block_explorer();
                            let link = format!("{}/address/{}", explorer, &contact.evm_address);
 

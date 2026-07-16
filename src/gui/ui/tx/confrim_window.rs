@@ -4,8 +4,9 @@ use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use super::{address, chain, contract_interact, eth_received, events::*, tx_cost, value};
 use crate::assets::icons::Icons;
-use crate::core::{DecodedEvent, TransactionAnalysis, ZeusCtx};
-use crate::utils::estimate_tx_cost;
+use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
+use crate::gui::SHARED_GUI;
+use crate::utils::{RT, estimate_tx_cost};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::NativeCurrency,
@@ -66,14 +67,14 @@ impl TxConfirmationWindow {
       self.open
    }
 
-   pub fn reset(&mut self, ctx: ZeusCtx) {
+   pub fn reset(&mut self, ctx: &mut ZeusContext) {
       self.close(ctx);
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn close(&mut self, ctx: ZeusCtx) {
+   pub fn close(&mut self, ctx: &mut ZeusContext) {
       self.overlay.window_closed();
-      ctx.set_tx_confirm_window_open(false);
+      ctx.tx_confirm_window_open = false;
       self.open = false;
    }
 
@@ -90,26 +91,34 @@ impl TxConfirmationWindow {
       if !self.open {
          self.overlay.window_opened();
       }
-      ctx.set_tx_confirm_window_open(true);
 
-      let native = NativeCurrency::from(chain.id());
-      let main_event = tx.infer_main_event(ctx.clone(), chain.id());
-      let gas_limit = tx.gas_used * 15 / 10;
+      RT.spawn_blocking(move || {
+         ctx.set_tx_confirm_window_open(true);
 
-      self.dapp = dapp;
-      self.priority_fee = priority_fee;
-      self.mev_protect = mev_protect;
-      self.gas_used = tx.gas_used;
-      self.gas_limit = gas_limit;
-      self.adjusted_gas_limit = gas_limit.to_string();
-      self.chain = chain;
-      self.native_currency = native;
-      self.tx = Some(tx);
-      self.tx_main_event = Some(main_event);
-      self.open = true;
-      self.confirmed_or_rejected = None;
+         let native = NativeCurrency::from(chain.id());
+         let main_event = tx.infer_main_event(ctx.clone(), chain.id());
+         let gas_used = tx.gas_used;
+         let gas_limit = gas_used * 15 / 10;
 
-      self.calculate_tx_cost(ctx, self.gas_used);
+         SHARED_GUI.write(|gui| {
+            gui.tx_confirmation_window.dapp = dapp;
+            gui.tx_confirmation_window.priority_fee = priority_fee;
+            gui.tx_confirmation_window.mev_protect = mev_protect;
+            gui.tx_confirmation_window.gas_used = gas_used;
+            gui.tx_confirmation_window.gas_limit = gas_limit;
+            gui.tx_confirmation_window.adjusted_gas_limit = gas_limit.to_string();
+            gui.tx_confirmation_window.chain = chain;
+            gui.tx_confirmation_window.native_currency = native;
+            gui.tx_confirmation_window.tx = Some(tx);
+            gui.tx_confirmation_window.tx_main_event = Some(main_event);
+            gui.tx_confirmation_window.open = true;
+            gui.tx_confirmation_window.confirmed_or_rejected = None;
+
+            ctx.write(|ctx| {
+               gui.tx_confirmation_window.calculate_tx_cost(ctx, gas_used);
+            });
+         });
+      });
    }
 
    pub fn get_confirmed_or_rejected(&self) -> Option<bool> {
@@ -125,7 +134,7 @@ impl TxConfirmationWindow {
    }
 
    /// Calculate the cost of the transaction
-   fn calculate_tx_cost(&mut self, ctx: ZeusCtx, gas_used: u64) {
+   fn calculate_tx_cost(&mut self, ctx: &mut ZeusContext, gas_used: u64) {
       let chain = self.chain;
       let fee = NumericValue::parse_to_gwei(&self.priority_fee);
       let fee = if fee.is_zero() && chain.supports_type_2_tx() {
@@ -134,13 +143,12 @@ impl TxConfirmationWindow {
          fee
       };
 
-      let (cost_in_wei, cost_in_usd) =
-         estimate_tx_cost(ctx.clone(), chain.id(), gas_used, fee.wei());
+      let (cost_in_wei, cost_in_usd) = estimate_tx_cost(ctx, chain.id(), gas_used, fee.wei());
       self.tx_cost = cost_in_wei;
       self.tx_cost_usd = cost_in_usd;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -185,7 +193,7 @@ impl TxConfirmationWindow {
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
-                     ctx.clone(),
+                     ctx,
                      self.chain,
                      theme,
                      icons.clone(),
@@ -203,7 +211,7 @@ impl TxConfirmationWindow {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
                            show_event(
-                              ctx.clone(),
+                              ctx,
                               self.chain,
                               theme,
                               icons.clone(),
@@ -237,7 +245,7 @@ impl TxConfirmationWindow {
                      frame.show(ui, |ui| {
                         chain(self.chain, theme, icons.clone(), ui);
                         address(
-                           ctx.clone(),
+                           ctx,
                            self.chain,
                            "Sender",
                            analysis.sender,
@@ -247,23 +255,11 @@ impl TxConfirmationWindow {
 
                         // Contract interaction
                         if analysis.contract_interact {
-                           contract_interact(
-                              ctx.clone(),
-                              self.chain,
-                              analysis.interact_to,
-                              theme,
-                              ui,
-                           );
+                           contract_interact(ctx, self.chain, analysis.interact_to, theme, ui);
                         }
 
                         // Value to be sent
-                        value(
-                           ctx.clone(),
-                           self.chain,
-                           analysis.value_sent(),
-                           theme,
-                           ui,
-                        );
+                        value(ctx, self.chain, analysis.value_sent(), theme, ui);
 
                         // Transaction cost
                         tx_cost(
@@ -287,7 +283,7 @@ impl TxConfirmationWindow {
                            eth_received(
                               self.chain.id(),
                               analysis.eth_received(),
-                              analysis.eth_received_usd(ctx.clone()),
+                              analysis.eth_received_usd(ctx),
                               theme,
                               icons.clone(),
                               text,
@@ -310,11 +306,8 @@ impl TxConfirmationWindow {
 
                   ui.add_space(10.0);
 
-                  let sufficient_balance = self.sufficient_balance(
-                     ctx.clone(),
-                     analysis.value_sent().wei(),
-                     analysis.sender,
-                  );
+                  let sufficient_balance =
+                     self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
 
                   let mut recalculate_tx_cost = false;
 
@@ -387,7 +380,7 @@ impl TxConfirmationWindow {
                   let tint = theme.image_tint_recommended;
 
                   if recalculate_tx_cost {
-                     self.calculate_tx_cost(ctx.clone(), self.gas_used);
+                     self.calculate_tx_cost(ctx, self.gas_used);
                   }
 
                   if show_mev_protect {
@@ -429,7 +422,7 @@ impl TxConfirmationWindow {
 
                         if ui.add_enabled(sufficient_balance, confirm).clicked() {
                            self.confirmed_or_rejected = Some(true);
-                           self.close(ctx.clone());
+                           self.close(ctx);
                         }
 
                         let text = RichText::new("Reject").size(theme.text_sizes.large);
@@ -447,7 +440,7 @@ impl TxConfirmationWindow {
          });
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx, eth_spent: U256, sender: Address) -> bool {
+   fn sufficient_balance(&self, ctx: &mut ZeusContext, eth_spent: U256, sender: Address) -> bool {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost

@@ -1,6 +1,6 @@
 //! UI that allows the user to export a private key
 
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, data_to_qr};
 use eframe::egui::{Align2, Image, ImageSource, Order, RichText, Ui, Window, load::Bytes, vec2};
@@ -42,7 +42,7 @@ impl ExportKeyUi {
       }
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx, wallet: Option<Wallet>) {
+   pub fn open(&mut self, ctx: &mut ZeusContext, wallet: Option<Wallet>) {
       if let Some(wallet) = &wallet {
          let key_hex = wallet.key_string();
          let png_bytes_res = key_hex.unlock_str(|key| data_to_qr(key));
@@ -85,12 +85,12 @@ impl ExportKeyUi {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, ui);
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      self.verify_credentials_ui(theme, ui);
       self.show_key(ctx, theme, ui);
    }
 
-   fn show_key(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show_key(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_key || !self.verified_credentials {
          return;
       }
@@ -144,7 +144,7 @@ impl ExportKeyUi {
 
                   if self.show_key_qrcode {
                      if let Some(image_uri) = self.image_uri.clone() {
-                        let data = ctx.qr_image_data();
+                        let data = ctx.qr_image_data.clone();
                         let image = Image::new(ImageSource::Bytes {
                            uri: image_uri.into(),
                            bytes: Bytes::Shared(data),
@@ -180,7 +180,7 @@ impl ExportKeyUi {
          });
    }
 
-   fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.credentials_form.is_open() || !self.open {
          return;
       }
@@ -223,18 +223,20 @@ impl ExportKeyUi {
          });
 
       if clicked {
-         let mut vault = ctx.get_vault();
          let username = self.credentials_form.username();
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
-
          let credentials = Credentials::new(username, password, confirm_password);
-         vault.set_credentials(credentials);
 
          RT.spawn_blocking(move || {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Decrypting vault...");
+               gui.request_repaint();
+               gui.ctx.clone()
             });
+
+            let mut vault = ctx.get_vault();
+            vault.set_credentials(credentials);
 
             // Verify the credentials by just decrypting the vault
             match vault.decrypt(None) {
@@ -249,12 +251,14 @@ impl ExportKeyUi {
                      // Close the credentials form
                      gui.wallet_ui.export_key_ui.credentials_form.close();
                      gui.loading_window.reset();
+                     gui.request_repaint();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Failed to decrypt vault", e.to_string());
                      gui.loading_window.reset();
+                     gui.request_repaint();
                   });
                }
             }

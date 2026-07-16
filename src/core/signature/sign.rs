@@ -18,7 +18,9 @@ pub async fn sign_message(
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.reset();
-      gui.sign_msg_window.open(ctx.clone(), dapp, chain.id(), msg_type.clone());
+      ctx.write(|ctx| {
+         gui.sign_msg_window.open(ctx, dapp, chain.id(), msg_type.clone());
+      });
       gui.request_repaint();
    });
 
@@ -33,7 +35,9 @@ pub async fn sign_message(
 
       if signed.is_some() {
          SHARED_GUI.write(|gui| {
-            gui.sign_msg_window.close(ctx.clone());
+            ctx.write(|ctx| {
+               gui.sign_msg_window.close(ctx);
+            });
          });
          break;
       }

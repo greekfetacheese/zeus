@@ -7,7 +7,7 @@ use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
 use crate::assets::icons::Icons;
-use crate::core::{SignMsgType, ZeusCtx};
+use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::ui::tx::{address, chain, contract_interact};
 
 use serde_json::{Value, to_string_pretty};
@@ -48,11 +48,11 @@ impl SignMsgWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx, dapp: String, chain: u64, msg: SignMsgType) {
+   pub fn open(&mut self, ctx: &mut ZeusContext, dapp: String, chain: u64, msg: SignMsgType) {
       if !self.open {
          self.overlay.window_opened();
       }
-      ctx.set_sign_msg_window_open(true);
+      ctx.sign_msg_window_open = true;
       self.dapp = dapp;
       self.chain = chain.into();
       self.open = true;
@@ -61,14 +61,14 @@ impl SignMsgWindow {
       self.signed = None;
    }
 
-   pub fn reset(&mut self, ctx: ZeusCtx) {
+   pub fn reset(&mut self, ctx: &mut ZeusContext) {
       self.close(ctx);
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn close(&mut self, ctx: ZeusCtx) {
+   pub fn close(&mut self, ctx: &mut ZeusContext) {
       self.overlay.window_closed();
-      ctx.set_sign_msg_window_open(false);
+      ctx.sign_msg_window_open = false;
       self.open = false;
    }
 
@@ -76,7 +76,7 @@ impl SignMsgWindow {
       self.signed
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -121,14 +121,7 @@ impl SignMsgWindow {
                   if msg.is_permit2_single() {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
-                           permit2_single_approval(
-                              ctx.clone(),
-                              self.chain,
-                              &msg,
-                              theme,
-                              icons.clone(),
-                              ui,
-                           );
+                           permit2_single_approval(ctx, self.chain, &msg, theme, icons.clone(), ui);
                         });
                      });
                   }
@@ -169,7 +162,7 @@ impl SignMsgWindow {
 
                         if ui.add(ok_btn).clicked() {
                            self.signed = Some(true);
-                           self.close(ctx.clone());
+                           self.close(ctx);
                         }
 
                         let text = RichText::new("Cancel").size(theme.text_sizes.normal);
@@ -189,7 +182,7 @@ impl SignMsgWindow {
 }
 
 fn permit2_single_approval(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain_id: ChainId,
    msg: &SignMsgType,
    theme: &Theme,
@@ -243,13 +236,7 @@ fn permit2_single_approval(
       });
 
       // Permit2 Contract
-      contract_interact(
-         ctx.clone(),
-         chain_id,
-         details.permit2_contract,
-         theme,
-         ui,
-      );
+      contract_interact(ctx, chain_id, details.permit2_contract, theme, ui);
 
       // Spender
       address(
@@ -264,7 +251,7 @@ fn permit2_single_approval(
 }
 
 fn _permit2_batch_approval_ui(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    chain_id: ChainId,
    msg: &SignMsgType,
    theme: &Theme,
@@ -323,13 +310,7 @@ fn _permit2_batch_approval_ui(
    });
 
    // Permit2 Contract
-   contract_interact(
-      ctx.clone(),
-      chain_id,
-      details.permit2_contract,
-      theme,
-      ui,
-   );
+   contract_interact(ctx, chain_id, details.permit2_contract, theme, ui);
 
    // Spender
    address(

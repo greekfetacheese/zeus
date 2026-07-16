@@ -1,13 +1,13 @@
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use crate::gui::{GUI, ui::dapps::railgun::RailgunMode};
 use eframe::egui::{Align2, Order, RichText, ScrollArea, Ui, Window, vec2};
 use egui::{FontId, Margin, Stroke};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, SecureTextEdit};
 
-pub fn show(ui: &mut Ui, gui: &mut GUI) {
-   let ctx = gui.ctx.clone();
-   let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
+pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
+   let ctx_handle = gui.ctx.clone();
+   let privacy_mode = ctx.privacy_mode;
    let theme = &gui.theme;
    ui.set_width(140.0);
 
@@ -125,7 +125,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
             .min_size(button_size);
 
          if ui.add(wallets).clicked() {
-            gui.wallet_ui.open(ctx.clone());
+            gui.wallet_ui.open(ctx_handle.clone());
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
@@ -144,7 +144,7 @@ pub fn show(ui: &mut Ui, gui: &mut GUI) {
          .min_size(button_size);
 
          if ui.add(tx_history).clicked() {
-            gui.tx_history.open(ctx);
+            gui.tx_history.open();
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();
@@ -245,7 +245,7 @@ impl ConnectedDappsUi {
       self.open
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -269,7 +269,7 @@ impl ConnectedDappsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
-            let mut dapps = ctx.get_connected_dapps();
+            let mut dapps = ctx.connected_dapps();
             let dapps_are_empty = dapps.is_empty();
 
             ui.scope(|ui| {

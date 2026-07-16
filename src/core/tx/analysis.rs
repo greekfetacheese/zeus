@@ -1,4 +1,4 @@
-use crate::core::{types::Dapp, ZeusCtx};
+use crate::core::{types::Dapp, ZeusCtx, ZeusContext};
 use crate::utils::truncate_address;
 use alloy_eips::eip7702::SignedAuthorization;
 use serde::{Deserialize, Serialize};
@@ -637,7 +637,7 @@ impl TransactionAnalysis {
       }
    }
 
-   pub fn eth_received_usd(&self, ctx: ZeusCtx) -> NumericValue {
+   pub fn eth_received_usd(&self, ctx: &mut ZeusContext) -> NumericValue {
       let native = NativeCurrency::from(self.chain);
       ctx.get_currency_value_for_amount(self.eth_received().f64(), &Currency::from(native))
    }

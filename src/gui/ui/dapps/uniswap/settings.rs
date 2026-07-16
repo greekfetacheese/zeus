@@ -1,6 +1,5 @@
 use egui::{Align, Layout, RichText, Slider, Ui, vec2};
 
-use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::REFRESH;
 use crate::utils::RT;
@@ -83,7 +82,6 @@ impl UniswapSettingsUi {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
       swap_ui_open: bool,
       view_position_open: bool,
       theme: &Theme,
@@ -145,11 +143,11 @@ impl UniswapSettingsUi {
             });
 
             if res.inner.changed() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
                      let settings = &gui.uniswap.settings;
-                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                     gui.uniswap.swap_ui.get_quote(ctx, settings);
                   });
                });
             }
@@ -167,11 +165,11 @@ impl UniswapSettingsUi {
             });
 
             if res.inner.changed() {
-               let ctx_clone = ctx.clone();
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
                      let settings = &gui.uniswap.settings;
-                     gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                     gui.uniswap.swap_ui.get_quote(ctx, settings);
                   });
                });
             }
@@ -183,11 +181,11 @@ impl UniswapSettingsUi {
          let text = RichText::new("Split Routing").size(theme.text_sizes.normal);
          let res = ui.checkbox(&mut self.split_routing_enabled, text);
          if res.changed() {
-            let ctx_clone = ctx.clone();
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
+                  let ctx = gui.ctx.clone();
                   let settings = &gui.uniswap.settings;
-                  gui.uniswap.swap_ui.get_quote(ctx_clone, settings);
+                  gui.uniswap.swap_ui.get_quote(ctx, settings);
                });
             });
          }
@@ -205,15 +203,12 @@ impl UniswapSettingsUi {
          let v4_res = ui.checkbox(&mut self.swap_on_v4, text);
 
          if v2_res.changed() || v3_res.changed() || v4_res.changed() {
-            let ctx_clone = ctx.clone();
             let update_v2 = self.swap_on_v2 && !v2_was_on;
             let update_v3 = self.swap_on_v3 && !v3_was_on;
             let update_v4 = self.swap_on_v4 && !v4_was_on;
             RT.spawn_blocking(move || {
                SHARED_GUI.write(|gui| {
-                  gui.uniswap
-                     .swap_ui
-                     .update_pool_state(ctx_clone, update_v2, update_v3, update_v4);
+                  gui.uniswap.swap_ui.update_pool_state(update_v2, update_v3, update_v4);
                });
             });
          }

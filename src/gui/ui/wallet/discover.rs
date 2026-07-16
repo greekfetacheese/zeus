@@ -1,7 +1,7 @@
 //! UI that allows the user to discover and derive child wallets from a master wallet (BIP32 HD)
 
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusCtx};
+use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusCtx, ZeusContext};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
@@ -107,12 +107,12 @@ impl DiscoverChildWallets {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      self.add_wallet(ctx.clone(), theme, ui);
+      self.add_wallet(theme, ui);
 
       let was_open = self.open;
       let mut is_open = self.open;
@@ -185,11 +185,11 @@ impl DiscoverChildWallets {
                   ui.allocate_ui(size, |ui| {
                      ui.horizontal(|ui| {
                         if ui.add(gen_button).clicked() {
-                           self.generate_wallets(ctx.clone(), batch_size);
+                           self.generate_wallets(batch_size);
                         }
 
                         if ui.add(refresh_button).clicked() {
-                           self.refresh_balance(ctx.clone(), start, end);
+                           self.refresh_balance(start, end);
                         }
 
                         if self.syncing {
@@ -245,7 +245,7 @@ impl DiscoverChildWallets {
                         ui.set_width(ui.available_width());
 
                         self.show_wallets(
-                           ctx.clone(),
+                           ctx,
                            theme,
                            icons.clone(),
                            &column_widths,
@@ -318,16 +318,17 @@ impl DiscoverChildWallets {
       }
    }
 
-   fn refresh_balance(&mut self, ctx: ZeusCtx, start: usize, end: usize) {
+   fn refresh_balance(&mut self, start: usize, end: usize) {
       let slice = &self.discovered_wallets.wallets[start..end];
       let addresses = slice.iter().map(|w| w.address).collect::<Vec<_>>();
 
       let concurrency = self.discovered_wallets.concurrency;
-      let ctx_clone = ctx.clone();
       self.syncing = true;
 
       RT.spawn(async move {
-         match sync_wallets_balance(ctx_clone.clone(), addresses, concurrency).await {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+         match sync_wallets_balance(ctx, addresses, concurrency).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Error syncing wallets: {:?}", e);
@@ -340,15 +341,17 @@ impl DiscoverChildWallets {
       });
    }
 
-   fn generate_wallets(&mut self, ctx: ZeusCtx, batch_size: usize) {
+   fn generate_wallets(&mut self, batch_size: usize) {
       self.syncing = true;
-      let ctx_clone = ctx.clone();
       let mut addresses = Vec::new();
       let concurrency = self.discovered_wallets.concurrency;
       let discovery_wallet = self.discovery_wallet.clone();
       let mut discovered_wallets = self.discovered_wallets.clone();
 
       RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let vault = ctx.get_vault();
+
          for _ in 0..batch_size {
             let mut index = discovered_wallets.index;
             discovered_wallets.index += 1;
@@ -365,7 +368,7 @@ impl DiscoverChildWallets {
                );
 
                // Do not fetch the balance for already existing wallets
-               if ctx_clone.wallet_exists(wallet.address()) {
+               if vault.wallet_address_exists(wallet.address()) {
                   continue;
                }
 
@@ -384,7 +387,7 @@ impl DiscoverChildWallets {
                .set_discovered_wallets(discovered_wallets);
          });
 
-         match sync_wallets_balance(ctx_clone, addresses, concurrency).await {
+         match sync_wallets_balance(ctx, addresses, concurrency).await {
             Ok(_) => {
                SHARED_GUI.write(|gui| {
                   gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
@@ -402,7 +405,7 @@ impl DiscoverChildWallets {
 
    fn show_wallets(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       column_widths: &[f32],
@@ -424,8 +427,7 @@ impl DiscoverChildWallets {
 
          let mut chains = Vec::new();
          let mut total_value = 0.0;
-         let ctx = ctx.clone();
-         let current_chain = ctx.chain();
+         let current_chain = ctx.chain;
 
          // get the chains which the wallet has balance in
          for chain in SUPPORTED_CHAINS {
@@ -516,7 +518,7 @@ impl DiscoverChildWallets {
       }
    }
 
-   fn add_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn add_wallet(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.add_wallet_window {
          return;
       }
@@ -561,8 +563,10 @@ impl DiscoverChildWallets {
                   let balances = self.discovered_wallets.balances.clone();
 
                   RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
+                     let ctx = SHARED_GUI.write(|gui| {
                         gui.loading_window.open("Encrypting vault...");
+                        gui.request_repaint();
+                        gui.ctx.clone()
                      });
 
                      let mut new_vault = ctx.get_vault();

@@ -2,7 +2,7 @@
 //!
 //! If the vault is not found, it will show the wallet recovery UI.
 
-use crate::core::{M_COST, Vault, ZeusCtx};
+use crate::core::{M_COST, Vault, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
@@ -33,9 +33,9 @@ impl UnlockVault {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      let vault_exists = ctx.vault_exists();
-      let vault_unlocked = ctx.vault_unlocked();
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let vault_exists = ctx.vault_exists;
+      let vault_unlocked = ctx.vault_unlocked;
 
       let open = vault_exists && !vault_unlocked;
 
@@ -79,9 +79,9 @@ impl UnlockVault {
                   let confirm_password = self.credentials_form.confirm_password();
 
                   let credentials = Credentials::new(username, password, confirm_password);
-                  let mut vault = ctx.get_vault();
+                  let mut vault = ctx.vault.clone();
                   vault.set_credentials(credentials);
-                  self.unlock_vault(ctx.clone(), vault);
+                  self.unlock_vault(vault);
                }
 
                #[cfg(feature = "dev")]
@@ -91,18 +91,20 @@ impl UnlockVault {
                      SecureString::from("dev"),
                      SecureString::from("dev"),
                   );
-                  let mut vault = ctx.get_vault();
+                  let mut vault = ctx.vault.clone();
                   vault.set_credentials(credentials);
-                  self.unlock_vault(ctx, vault);
+                  self.unlock_vault(vault);
                }
             });
          });
    }
 
-   fn unlock_vault(&self, ctx: ZeusCtx, mut vault: Vault) {
+   fn unlock_vault(&self, mut vault: Vault) {
       RT.spawn_blocking(move || {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Unlocking vault...");
+            gui.request_repaint();
+            gui.ctx.clone()
          });
 
          // Decrypt the vault
@@ -241,13 +243,13 @@ impl RecoverHDWallet {
       }
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      if ctx.vault_exists() {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      if ctx.vault_exists {
          return;
       }
 
       self.credentials_input(theme, ui);
-      self.recover_hd_wallet(ctx.clone(), theme, ui);
+      self.recover_hd_wallet(ctx, theme, ui);
       self.show_tips(ctx, theme, ui);
    }
 
@@ -355,7 +357,7 @@ impl RecoverHDWallet {
          });
    }
 
-   fn recover_hd_wallet(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn recover_hd_wallet(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_recover_wallet {
          return;
       }
@@ -395,7 +397,7 @@ impl RecoverHDWallet {
 
                if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
                   self.recover_button_clicked = true;
-                  let mut vault = ctx.get_vault();
+                  let mut vault = ctx.vault.clone();
                   let name = self.wallet_name.clone();
 
                   let username = self.credentials_form.username();
@@ -404,11 +406,13 @@ impl RecoverHDWallet {
                   let credentials = Credentials::new(username, password, confirm_password);
 
                   RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
+                     let ctx = SHARED_GUI.write(|gui| {
                         gui.loading_window.new_size((300.0, 150.0));
                         gui.loading_window.open(
                            "Recovering Wallet... (Grab a coffee this will take 10-15 minutes)",
                         );
+                        gui.request_repaint();
+                        gui.ctx.clone()
                      });
 
                      vault.set_credentials(credentials);
@@ -470,7 +474,7 @@ impl RecoverHDWallet {
          });
    }
 
-   fn show_tips(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn show_tips(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_tips {
          return;
       }
@@ -542,20 +546,21 @@ impl RecoverHDWallet {
          ui.vertical_centered(|ui| {
 
          if ui.add(ok_button).clicked() {
-            let vault = ctx.get_vault();
+            let current_wallet = ctx.vault.get_master_wallet();
             RT.spawn_blocking(move || {
-            let current_wallet = vault.get_master_wallet();
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.recover_wallet_ui.show_tips = false;
                gui.portofolio.open();
                gui.header.open();
                gui.header.set_current_wallet(current_wallet);
+               gui.request_repaint();
+               gui.ctx.clone()
+            });
 
                ctx.write(|ctx| {
                   ctx.vault_exists = true;
                   ctx.vault_unlocked = true;
                });
-            });
          });
          }
 

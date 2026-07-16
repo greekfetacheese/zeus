@@ -1503,7 +1503,9 @@ async fn eth_send_transaction(
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
             gui.notification.reset();
-            gui.tx_confirmation_window.reset(ctx.clone());
+            ctx.write(|ctx| {
+               gui.tx_confirmation_window.reset(ctx);
+            });
             gui.msg_window.open("Error Sending Transaction", e.to_string());
             gui.request_repaint();
          });

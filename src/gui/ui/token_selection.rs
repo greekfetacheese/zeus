@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::{ZeusCtx, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::utils::{RT, truncate_symbol_or_name};
@@ -63,13 +63,13 @@ impl TokenSelectionWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx, privacy_mode: bool, chain_id: u64, owner: Address) {
+   pub fn open(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       if !self.open {
          self.overlay.window_opened();
       }
 
       self.open = true;
-      self.process_currencies(ctx, privacy_mode, chain_id, owner);
+      self.process_currencies(privacy_mode, chain_id, owner);
    }
 
    pub fn reset(&mut self) {
@@ -88,7 +88,6 @@ impl TokenSelectionWindow {
 
    pub fn process_currencies(
       &mut self,
-      ctx: ZeusCtx,
       privacy_mode: bool,
       chain_id: u64,
       owner: Address,
@@ -96,6 +95,7 @@ impl TokenSelectionWindow {
       self.loading = true;
 
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          if !privacy_mode {
             let currencies = process_currencies(ctx.clone(), chain_id, owner);
             SHARED_GUI.write(|gui| {
@@ -139,7 +139,7 @@ impl TokenSelectionWindow {
    /// Show This [TokenSelectionWindow]
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       chain_id: u64,
@@ -275,7 +275,7 @@ impl TokenSelectionWindow {
 
    fn get_token_on_valid_address(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       chain: u64,
       owner: Address,
@@ -283,7 +283,7 @@ impl TokenSelectionWindow {
       ui: &mut Ui,
    ) {
       if let Ok(address) = Address::from_str(&self.search_query) {
-         let token = ctx.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
+         let token = ctx.currency_db.get_erc20_token(chain, address);
          if token.is_some() {
             return;
          }
@@ -297,9 +297,12 @@ impl TokenSelectionWindow {
 
          if ui.add(button).clicked() {
             self.token_fetched = true;
+
             RT.spawn(async move {
-               SHARED_GUI.write(|gui| {
+              let ctx =  SHARED_GUI.write(|gui| {
                   gui.loading_window.open("Retrieving token...");
+                  gui.request_repaint();
+                  gui.ctx.clone()
                });
 
                let token = match get_erc20_token(ctx, chain, owner, address).await {

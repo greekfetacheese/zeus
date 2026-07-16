@@ -2,7 +2,6 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
-use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Slider, Ui, Window, vec2};
@@ -69,7 +68,7 @@ impl EncryptionSettings {
       self.argon_params = argon_params;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -153,7 +152,7 @@ impl EncryptionSettings {
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
                if ui.add(button).clicked() {
-                  self.save(ctx);
+                  self.save();
                }
             });
          });
@@ -163,12 +162,14 @@ impl EncryptionSettings {
       }
    }
 
-   fn save(&self, ctx: ZeusCtx) {
+   fn save(&self) {
       let new_params = self.argon_params.clone();
 
       RT.spawn_blocking(move || {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.loading_window.open("Encrypting vault...");
+            gui.request_repaint();
+            gui.ctx.clone()
          });
 
          // Encrypt the vault with the new params
@@ -179,6 +180,7 @@ impl EncryptionSettings {
                   gui.open_msg_window("Encryption settings have been updated", "");
                   gui.settings.encryption.close();
                   gui.settings.encryption.argon_params = new_params;
+                  gui.request_repaint();
                });
             }
             Err(e) => {
@@ -188,6 +190,7 @@ impl EncryptionSettings {
                      "Failed to update encryption settings",
                      format!("{}", e),
                   );
+                  gui.request_repaint();
                });
             }
          };

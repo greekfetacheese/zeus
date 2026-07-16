@@ -140,21 +140,13 @@ impl ZeusCtx {
 
    pub fn set_qr_image_data(&self, data: Vec<u8>) {
       self.write(|ctx| {
-         ctx.qr_image_data = data.into();
+         ctx.set_qr_image_data(data);
       });
    }
 
    pub fn erase_qr_image_data(&self) {
       self.write(|ctx| {
-         if let Some(data) = Arc::get_mut(&mut ctx.qr_image_data) {
-            data.zeroize();
-            #[cfg(feature = "dev")]
-            tracing::info!("QR Image data zeroized");
-            ctx.qr_image_data = Arc::new([0u8; 0]);
-         } else {
-            #[cfg(feature = "dev")]
-            tracing::error!("QR Image data zeroize failed");
-         };
+         ctx.erase_qr_image_data();
       });
    }
 
@@ -400,7 +392,7 @@ impl ZeusCtx {
 
    /// Build the wallet info cache for all the wallets currently
    /// in the vault.
-   /// 
+   ///
    /// This should be called at the startup and whenever a wallet is added or removed.
    pub fn build_wallet_info_cache(&self) {
       let mut cache = HashMap::new();
@@ -416,7 +408,7 @@ impl ZeusCtx {
    }
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
-     let exists =  self.read(|ctx| {
+      let exists = self.read(|ctx| {
          for (_, wallet) in ctx.wallet_info_cache.iter() {
             if wallet.zk_address() == zk_address.address {
                return true;
@@ -485,14 +477,7 @@ impl ZeusCtx {
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
-      let evm_address = evm_address.to_lowercase();
-      self.read(|ctx| {
-         ctx.vault
-            .contacts
-            .iter()
-            .find(|c| c.evm_address.to_lowercase() == evm_address)
-            .cloned()
-      })
+      self.read(|ctx| ctx.get_contact_by_address(evm_address))
    }
 
    pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
@@ -651,11 +636,11 @@ impl ZeusCtx {
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.read(|ctx| ctx.balance_manager.get_eth_balance(chain, owner))
+      self.read(|ctx| ctx.get_eth_balance(chain, owner))
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
-      self.read(|ctx| ctx.balance_manager.get_token_balance(chain, owner, token))
+      self.read(|ctx| ctx.get_token_balance(chain, owner, token))
    }
 
    pub fn get_currencies(&self, chain: u64) -> Vec<Currency> {
@@ -672,21 +657,7 @@ impl ZeusCtx {
 
    /// Get the total value for the given owner across all of its wallets and chains
    pub fn get_total_value(&self, owner: Address) -> WalletValue {
-      let mut total_public = 0.0;
-      let mut total_private = 0.0;
-
-      for chain in SUPPORTED_CHAINS {
-         let portfolio = self.get_portfolio(chain, owner);
-         total_public += portfolio.public_value().f64();
-         total_private += portfolio.private_value().f64();
-      }
-
-      let owner_value = WalletValue {
-         public: NumericValue::from_f64(total_public),
-         private: NumericValue::from_f64(total_private),
-      };
-
-      owner_value
+      self.read(|ctx| ctx.get_total_value(owner))
    }
 
    /// Get all tokens from all portfolios
@@ -731,29 +702,12 @@ impl ZeusCtx {
 
    /// Get the USD price of an ERC20 token
    pub fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
-      self.read(|ctx| ctx.price_manager.get_token_price(token)).unwrap_or_default()
+      self.read(|ctx| ctx.get_token_price(token))
    }
 
    /// Get the USD price of a currency
    pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
-      if currency.is_native() {
-         let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
-         self.get_token_price(&wrapped_token)
-      } else {
-         let token = currency.erc20_opt().unwrap();
-         self.get_token_price(token)
-      }
-   }
-
-   pub fn get_currency_value_for_owner(
-      &self,
-      chain: u64,
-      owner: Address,
-      currency: &Currency,
-   ) -> NumericValue {
-      let price = self.get_currency_price(currency);
-      let balance = self.get_currency_balance(chain, owner, currency);
-      NumericValue::value(balance.f64(), price.f64())
+      self.read(|ctx| ctx.get_currency_price(currency))
    }
 
    pub fn get_token_value_for_owner(
@@ -768,8 +722,7 @@ impl ZeusCtx {
    }
 
    pub fn get_currency_value_for_amount(&self, amount: f64, currency: &Currency) -> NumericValue {
-      let price = self.get_currency_price(currency);
-      NumericValue::value(amount, price.f64())
+      self.read(|ctx| ctx.get_currency_value_for_amount(amount, currency))
    }
 
    pub fn get_token_value_for_amount(&self, amount: f64, token: &ERC20Token) -> NumericValue {
@@ -783,12 +736,7 @@ impl ZeusCtx {
       owner: Address,
       currency: &Currency,
    ) -> NumericValue {
-      if currency.is_native() {
-         self.get_eth_balance(chain, owner)
-      } else {
-         let token = currency.erc20_opt().unwrap();
-         self.get_token_balance(chain, owner, token.address)
-      }
+      self.read(|ctx| ctx.get_currency_balance(chain, owner, currency))
    }
 
    pub fn pool_has_sufficient_liquidity(&self, pool: &AnyUniswapPool) -> Option<bool> {
@@ -825,54 +773,7 @@ impl ZeusCtx {
 
    /// Return the name of this address if its known
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      let name = self.get_wallet_name(address);
-      if name.is_some() {
-         return Some(name.unwrap());
-      }
-
-      let contact = self.get_contact_by_address(&address.to_string());
-      if contact.is_some() {
-         return Some(contact.unwrap().name);
-      }
-
-      let token = self.read(|ctx| ctx.currency_db.get_erc20_token(chain, address));
-      if token.is_some() {
-         return Some(token.unwrap().name.to_string());
-      }
-
-      let permit2 = address_book::permit2_contract(chain).unwrap();
-      if permit2 == address {
-         return Some("Uniswap: Permit2".to_string());
-      }
-
-      let v4_pool_manager = address_book::uniswap_v4_pool_manager(chain).unwrap();
-      if v4_pool_manager == address {
-         return Some("Uniswap V4: Pool Manager".to_string());
-      }
-
-      let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
-      if ur_router_v2 == address {
-         return Some("Uniswap: Universal Router V2".to_string());
-      }
-
-      let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
-      if nft_position_manager == address {
-         return Some("Uniswap V3: NFT Position Manager".to_string());
-      }
-
-      let spoke_pool_address = address_book::across_spoke_pool_v2(chain);
-      if spoke_pool_address.is_ok() {
-         if spoke_pool_address.unwrap() == address {
-            return Some("Across Protocol: Spoke Pool V2".to_string());
-         }
-      }
-
-      #[cfg(feature = "dev")]
-      if address == address_book::vitalik() {
-         return Some("Vitalik".to_string());
-      }
-
-      None
+      self.read(|ctx| ctx.get_address_name(chain, address))
    }
 
    /// Get the V2 pool for the given address
@@ -1466,7 +1367,7 @@ pub struct ZeusContext {
    pub wallet_info_cache: HashMap<Address, WalletInfo>,
 
    /// Loaded Vault
-   vault: Vault,
+   pub vault: Vault,
    /// Flag to indicate that the vault is being saved
    /// to prevent any race conditions
    pub save_vault_in_progress: bool,
@@ -1653,6 +1554,211 @@ impl ZeusContext {
 
    pub fn vault_ref(&self) -> &Vault {
       &self.vault
+   }
+
+   pub fn set_qr_image_data(&mut self, data: Vec<u8>) {
+      self.qr_image_data = data.into();
+   }
+
+   pub fn erase_qr_image_data(&mut self) {
+      if let Some(data) = Arc::get_mut(&mut self.qr_image_data) {
+         data.zeroize();
+         #[cfg(feature = "dev")]
+         tracing::info!("QR Image data zeroized");
+         self.qr_image_data = Arc::new([0u8; 0]);
+      } else {
+         #[cfg(feature = "dev")]
+         tracing::error!("QR Image data zeroize failed");
+      };
+   }
+
+   pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
+      self.balance_manager.get_eth_balance(chain, owner)
+   }
+
+   pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
+      self.balance_manager.get_token_balance(chain, owner, token)
+   }
+
+   pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
+      self.base_fee.get(&chain).cloned()
+   }
+
+   pub fn get_currency_value_for_amount(&self, amount: f64, currency: &Currency) -> NumericValue {
+      let price = self.get_currency_price(currency);
+      NumericValue::value(amount, price.f64())
+   }
+
+   pub fn get_currency_balance(
+      &self,
+      chain: u64,
+      owner: Address,
+      currency: &Currency,
+   ) -> NumericValue {
+      if currency.is_native() {
+         self.get_eth_balance(chain, owner)
+      } else {
+         let token = currency.erc20_opt().unwrap();
+         self.get_token_balance(chain, owner, token.address)
+      }
+   }
+
+   /// Get the USD price of a currency
+   pub fn get_currency_price(&self, currency: &Currency) -> NumericValue {
+      if currency.is_native() {
+         let wrapped_token = ERC20Token::wrapped_native_token(currency.chain_id());
+         self.get_token_price(&wrapped_token)
+      } else {
+         let token = currency.erc20_opt().unwrap();
+         self.get_token_price(token)
+      }
+   }
+
+   pub fn get_currency_value_for_owner(
+      &self,
+      chain: u64,
+      owner: Address,
+      currency: &Currency,
+   ) -> NumericValue {
+      let price = self.get_currency_price(currency);
+      let balance = self.get_currency_balance(chain, owner, currency);
+      NumericValue::value(balance.f64(), price.f64())
+   }
+
+   fn get_token_price(&self, token: &ERC20Token) -> NumericValue {
+      self.price_manager.get_token_price(token).unwrap_or_default()
+   }
+
+   /// Return the name of this address if its known
+   pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
+      let name = self.get_wallet_name(address);
+      if name.is_some() {
+         return Some(name.unwrap());
+      }
+
+      let contact = self.get_contact_by_address(&address.to_string());
+      if contact.is_some() {
+         return Some(contact.unwrap().name);
+      }
+
+      let token = self.currency_db.get_erc20_token(chain, address);
+      if token.is_some() {
+         return Some(token.unwrap().name.to_string());
+      }
+
+      let permit2 = address_book::permit2_contract(chain).unwrap();
+      if permit2 == address {
+         return Some("Uniswap: Permit2".to_string());
+      }
+
+      let v4_pool_manager = address_book::uniswap_v4_pool_manager(chain).unwrap();
+      if v4_pool_manager == address {
+         return Some("Uniswap V4: Pool Manager".to_string());
+      }
+
+      let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
+      if ur_router_v2 == address {
+         return Some("Uniswap: Universal Router V2".to_string());
+      }
+
+      let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
+      if nft_position_manager == address {
+         return Some("Uniswap V3: NFT Position Manager".to_string());
+      }
+
+      let spoke_pool_address = address_book::across_spoke_pool_v2(chain);
+      if spoke_pool_address.is_ok() {
+         if spoke_pool_address.unwrap() == address {
+            return Some("Across Protocol: Spoke Pool V2".to_string());
+         }
+      }
+
+      #[cfg(feature = "dev")]
+      if address == address_book::vitalik() {
+         return Some("Vitalik".to_string());
+      }
+
+      None
+   }
+
+   /// Get the wallet name for the given address
+   pub fn get_wallet_name(&self, address: Address) -> Option<String> {
+      let wallet = self.wallet_info_cache.get(&address).cloned();
+      wallet.map(|wallet| wallet.name().to_string())
+   }
+
+   pub fn current_wallet_info(&self) -> WalletInfo {
+      let wallet = self.wallet_info_cache.get(&self.current_wallet.address()).cloned();
+      wallet.expect("Current Wallet should be in cache")
+   }
+
+   /// Get the wallet with the given address
+   pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
+      for wallet in self.vault_ref().all_wallets() {
+         if wallet.address() == address {
+            return Some(wallet.clone());
+         }
+      }
+      None
+   }
+
+   pub fn get_all_wallets_info(&self) -> &HashMap<Address, WalletInfo> {
+      &self.wallet_info_cache
+   }
+
+   /// Is this wallet selected as the current wallet
+   pub fn is_current_wallet(&self, address: Address) -> bool {
+      self.current_wallet.address() == address
+   }
+
+   /// Get a contact by it's address
+   pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
+      let evm_address = evm_address.to_lowercase();
+      self
+         .vault
+         .contacts
+         .iter()
+         .find(|c| c.evm_address.to_lowercase() == evm_address)
+         .cloned()
+   }
+
+   pub fn remove_contact(&mut self, evm_address: &str) {
+      self.vault.contacts.retain(|c| c.evm_address != evm_address);
+   }
+
+   pub fn connected_dapps(&self) -> Vec<String> {
+      self.connected_dapps.connected_dapps()
+   }
+
+   pub fn connect_dapp(&mut self, dapp: String) {
+      self.connected_dapps.connect_dapp(dapp);
+   }
+
+   pub fn disconnect_dapp(&mut self, dapp: &str) {
+      self.connected_dapps.disconnect_dapp(dapp);
+   }
+
+   pub fn disconnect_all_dapps(&mut self) {
+      self.connected_dapps.disconnect_all();
+   }
+
+   /// Get the total value for the given owner across all of its wallets and chains
+   pub fn get_total_value(&self, owner: Address) -> WalletValue {
+      let mut total_public = 0.0;
+      let mut total_private = 0.0;
+
+      for chain in SUPPORTED_CHAINS {
+         let portfolio = self.portfolio_db.get(chain, owner);
+         total_public += portfolio.public_value().f64();
+         total_private += portfolio.private_value().f64();
+      }
+
+      let owner_value = WalletValue {
+         public: NumericValue::from_f64(total_public),
+         private: NumericValue::from_f64(total_private),
+      };
+
+      owner_value
    }
 
    /// Check if we have any enabled and working RPCs for the given chain

@@ -1,7 +1,7 @@
 //! UI that shows all the settings.
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use egui::{Align2, Frame, RichText, Ui, Window, vec2};
 use std::sync::Arc;
 use zeus_theme::{OverlayManager, Theme};
@@ -33,7 +33,7 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: ZeusCtx, overlay: OverlayManager) -> Self {
+   pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
       Self {
          open: false,
          general: GeneralSettings::new(ctx, overlay.clone()),
@@ -64,15 +64,15 @@ impl SettingsUi {
       self.network.open();
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, icons: Arc<Icons>, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
       self.main_ui(theme, ui);
-      self.encryption.show(ctx.clone(), theme, ui);
-      self.change_credentials_ui.show(ctx.clone(), theme, ui);
-      self.contacts_ui.show(ctx.clone(), theme, icons, ui);
+      self.encryption.show(theme, ui);
+      self.change_credentials_ui.show(theme, ui);
+      self.contacts_ui.show(ctx, theme, icons, ui);
       self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);
    }

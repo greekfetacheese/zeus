@@ -4,7 +4,7 @@ use zeus_widgets::Button;
 
 use super::{chain, contract_interact, eth_received, events::*, tx_cost, tx_hash, value};
 use crate::assets::icons::Icons;
-use crate::core::{TransactionRich, ZeusCtx};
+use crate::core::{TransactionRich, ZeusContext};
 use zeus_eth::types::ChainId;
 
 use std::sync::Arc;
@@ -48,7 +48,7 @@ impl TxWindow {
       self.open = true;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -96,7 +96,7 @@ impl TxWindow {
                   let frame_size = vec2(ui.available_width() * 0.95, 45.0);
 
                   self.decoded_events.show(
-                     ctx.clone(),
+                     ctx,
                      chain_id,
                      theme,
                      icons.clone(),
@@ -116,7 +116,7 @@ impl TxWindow {
                      ui.allocate_ui(frame_size, |ui| {
                         frame.show(ui, |ui| {
                            show_event(
-                              ctx.clone(),
+                              ctx,
                               chain_id,
                               theme,
                               icons.clone(),
@@ -150,16 +150,10 @@ impl TxWindow {
                         chain(chain_id, theme, icons.clone(), ui);
 
                         if tx.contract_interact {
-                           contract_interact(ctx.clone(), chain_id, tx.interact_to(), theme, ui);
+                           contract_interact(ctx, chain_id, tx.interact_to(), theme, ui);
                         }
 
-                        value(
-                           ctx.clone(),
-                           chain_id,
-                           tx.value_sent.clone(),
-                           theme,
-                           ui,
-                        );
+                        value(ctx, chain_id, tx.value_sent.clone(), theme, ui);
 
                         tx_cost(chain_id, &tx.tx_cost, &tx.tx_cost_usd, theme, ui);
 

@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use ui::settings;
 
 use crate::assets::icons::Icons;
-use crate::core::context::{ZeusCtx, load_theme_kind};
+use crate::core::context::{ZeusContext, ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
 use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
@@ -14,7 +14,7 @@ use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
-   dapps::{across::AcrossBridge, uniswap::UniswapUi, railgun::ShieldUi},
+   dapps::{across::AcrossBridge, railgun::ShieldUi, uniswap::UniswapUi},
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
    sign_msg_window::SignMsgWindow,
@@ -109,7 +109,11 @@ impl GUI {
       let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
       let tx_window = TxWindow::new(overlay_manager.clone());
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
-      let settings = settings::SettingsUi::new(ctx.clone(), overlay_manager.clone());
+
+      let settings = ctx.write(|ctx| {
+         settings::SettingsUi::new(ctx, overlay_manager.clone())
+      });
+
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
       let connected_dapps = ConnectedDappsUi::new(overlay_manager.clone());
@@ -156,24 +160,24 @@ impl GUI {
       }
    }
 
-   pub fn show_top_panel(&mut self, ui: &mut Ui) {
-      ui::panels::top_panel::show(self, ui);
+   pub fn show_top_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
+      ui::panels::top_panel::show(self, ctx, ui);
    }
 
-   pub fn show_bottom_panel(&mut self, ui: &mut Ui) {
-      ui::panels::bottom_panel::show(ui, self);
+   pub fn show_bottom_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
+      ui::panels::bottom_panel::show(self, ctx, ui);
    }
 
-   pub fn show_left_panel(&mut self, ui: &mut Ui) {
-      ui::panels::left_panel::show(ui, self);
+   pub fn show_left_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
+      ui::panels::left_panel::show(self, ctx, ui);
    }
 
    pub fn show_right_panel(&mut self, ui: &mut Ui) {
       ui::panels::right_panel::show(ui, self);
    }
 
-   pub fn show_central_panel(&mut self, ui: &mut Ui) {
-      ui::panels::central_panel::show(ui, self);
+   pub fn show_central_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
+      ui::panels::central_panel::show(self, ctx, ui);
    }
 
    pub fn open_msg_window(&mut self, title: impl Into<String>, msg: impl Into<String>) {

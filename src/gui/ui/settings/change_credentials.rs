@@ -2,7 +2,6 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
-use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Ui, Window, vec2};
@@ -56,12 +55,12 @@ impl ChangeCredentialsUi {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
-      self.verify_credentials_ui(ctx.clone(), theme, ui);
-      self.change_credentials_ui(ctx.clone(), theme, ui);
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
+      self.verify_credentials_ui(theme, ui);
+      self.change_credentials_ui(theme, ui);
    }
 
-   fn verify_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn verify_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -95,18 +94,21 @@ impl ChangeCredentialsUi {
                   .min_size(vec2(ui.available_width() * 0.8, 45.0));
 
                if ui.add(button).clicked() {
-                  let mut vault = ctx.get_vault();
                   let username = self.credentials_form.username();
                   let password = self.credentials_form.password();
                   let confirm_password = self.credentials_form.confirm_password();
 
                   let credentials = Credentials::new(username, password, confirm_password);
-                  vault.set_credentials(credentials);
 
                   RT.spawn_blocking(move || {
-                     SHARED_GUI.write(|gui| {
+                    let ctx =  SHARED_GUI.write(|gui| {
                         gui.loading_window.open("Decrypting vault...");
+                        gui.request_repaint();
+                        gui.ctx.clone()
                      });
+
+                     let mut vault = ctx.get_vault();
+                     vault.set_credentials(credentials);
 
                      // Verify the credentials by just decrypting the vault
                      match vault.decrypt(None) {
@@ -117,12 +119,14 @@ impl ChangeCredentialsUi {
                               // Erase the credentials form
                               gui.settings.change_credentials_ui.credentials_form.erase();
                               gui.loading_window.reset();
+                              gui.request_repaint();
                            });
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.open_msg_window("Failed to decrypt vault", e.to_string());
                               gui.loading_window.reset();
+                              gui.request_repaint();
                            });
                         }
                      };
@@ -136,7 +140,7 @@ impl ChangeCredentialsUi {
       }
    }
 
-   fn change_credentials_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn change_credentials_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.verified_credentials || !self.open {
          return;
       }
@@ -181,12 +185,14 @@ impl ChangeCredentialsUi {
          });
 
       if clicked {
-         let mut new_vault = ctx.get_vault();
          let username = self.credentials_form.username();
          let password = self.credentials_form.password();
          let confirm_password = self.credentials_form.confirm_password();
 
          RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            let mut new_vault = ctx.get_vault();
+
             let credentials = Credentials::new(username, password, confirm_password);
 
             match credentials.is_valid() {
@@ -194,6 +200,7 @@ impl ChangeCredentialsUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.open_msg_window("Credentials are not valid", e.to_string());
+                     gui.request_repaint();
                   });
                   return;
                }
@@ -203,6 +210,7 @@ impl ChangeCredentialsUi {
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting vault...");
+               gui.request_repaint();
             });
 
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
@@ -211,6 +219,7 @@ impl ChangeCredentialsUi {
                      gui.settings.change_credentials_ui.reset();
                      gui.loading_window.reset();
                      gui.open_msg_window("Credentials have been updated", "");
+                     gui.request_repaint();
                   });
                   ctx.set_vault(new_vault);
                }
@@ -218,6 +227,7 @@ impl ChangeCredentialsUi {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      gui.open_msg_window("Failed to update credentials", format!("{}", e));
+                     gui.request_repaint();
                   });
                   return;
                }

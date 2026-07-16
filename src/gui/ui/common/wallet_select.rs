@@ -1,7 +1,7 @@
 //! A ComboBox to select a wallet
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusCtx;
+use crate::core::ZeusContext;
 use eframe::egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
@@ -41,7 +41,13 @@ impl WalletSelect {
    /// Show the ComboBox
    ///
    /// Returns true if the wallet was changed
-   pub fn show(&mut self, theme: &Theme, ctx: ZeusCtx, icons: Arc<Icons>, ui: &mut Ui) -> bool {
+   pub fn show(
+      &mut self,
+      theme: &Theme,
+      ctx: &mut ZeusContext,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) -> bool {
       let mut clicked = false;
       let expansion = self.expansion;
 
@@ -62,25 +68,22 @@ impl WalletSelect {
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 14.0;
 
-            ctx.read(|ctx| {
-               for wallet in ctx.vault_ref().all_wallets() {
-                  let is_selected = wallet.address() == self.wallet.address();
-                  let text =
-                     RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
+            for wallet in ctx.vault_ref().all_wallets() {
+               let is_selected = wallet.address() == self.wallet.address();
+               let text = RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
 
-                  let wallet_label = Label::new(text, None)
-                     .fill_width(true)
-                     .expand(expansion)
-                     .selected(is_selected)
-                     .visuals(label_visuals)
-                     .sense(Sense::click());
+               let wallet_label = Label::new(text, None)
+                  .fill_width(true)
+                  .expand(expansion)
+                  .selected(is_selected)
+                  .visuals(label_visuals)
+                  .sense(Sense::click());
 
-                  if ui.add(wallet_label).clicked() {
-                     self.wallet = wallet.clone();
-                     clicked = true;
-                  }
+               if ui.add(wallet_label).clicked() {
+                  self.wallet = wallet.clone();
+                  clicked = true;
                }
-            });
+            }
          });
 
       clicked

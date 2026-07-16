@@ -10,7 +10,7 @@ use std::{
 
 use crate::utils::{RT, estimate_tx_cost};
 use crate::{
-   core::{DecodedEvent, ShieldParams, TransactionAnalysis, ZeusCtx, send_transaction},
+   core::{DecodedEvent, ShieldParams, TransactionAnalysis, ZeusCtx, ZeusContext, send_transaction},
    utils::simulate::simulate_transaction,
 };
 
@@ -127,7 +127,7 @@ impl ShieldUi {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       token_selection: &mut TokenSelectionWindow,
@@ -165,42 +165,39 @@ impl ShieldUi {
                   ui.label(RichText::new(title).size(theme.text_sizes.heading));
 
                   let owner = ctx.current_wallet_info().address;
+                  let chain = ctx.chain;
 
-                  let chain = ctx.chain();
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
                   let label = String::from("Amount");
-                  let balance_fn = || ctx.get_currency_balance(chain.id(), owner, &self.currency);
-                  let cost = self.cost(ctx.clone());
-                  let balance = balance_fn();
+                  let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
+                  let cost = self.cost(ctx);
+                  let balance_clone = balance.clone();
 
-                  let max_amount = || {
-                     let currency = self.currency.clone();
-                     if currency.is_erc20() {
-                        return balance;
+                     let max_amount = if self.currency.is_erc20() {
+                        balance_clone
                      } else {
                         if balance.wei() < cost.wei() {
-                           return NumericValue::default();
+                           NumericValue::default();
                         }
-                        let max = balance.wei() - cost.wei();
-                        NumericValue::format_wei(max, currency.decimals())
-                     }
-                  };
+                        let max = balance_clone.wei() - cost.wei();
+                        NumericValue::format_wei(max, self.currency.decimals())
+                     };
+                  
 
                   let amount = self.amount_field.amount.clone();
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
 
-                  let value = || {
+                  let value =
                      value(
-                        ctx.clone(),
+                        ctx,
                         currency,
                         amount,
                         should_calculate_price,
-                     )
-                  };
+                     );
 
                   let privacy_mode = match self.mode {
                      RailgunMode::Shield => false,
@@ -212,7 +209,6 @@ impl ShieldUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
-                        ctx.clone(),
                         privacy_mode,
                         theme,
                         icons.clone(),
@@ -221,9 +217,9 @@ impl ShieldUi {
                         &self.currency,
                         Some(token_selection),
                         None,
-                        balance_fn,
-                        max_amount,
-                        value,
+                        || balance,
+                        || max_amount,
+                        || value,
                         data_syncing,
                         true,
                         ui,
@@ -231,7 +227,7 @@ impl ShieldUi {
                   });
 
                   token_selection.show(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      icons.clone(),
                      chain.id(),
@@ -242,11 +238,11 @@ impl ShieldUi {
                   if let Some(currency) = token_selection.get_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
-                     self.sync_balance(owner, ctx.clone());
+                     self.sync_balance(owner);
                   }
 
                   recipient_selection.show(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      icons.clone(),
                      true,
@@ -314,7 +310,7 @@ impl ShieldUi {
                            .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
-                           recipient_selection.open(ctx.clone());
+                           recipient_selection.open();
                         }
                      });
                   });
@@ -327,7 +323,7 @@ impl ShieldUi {
 
    fn shield_button(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       owner: Address,
       recipient: String,
@@ -336,7 +332,7 @@ impl ShieldUi {
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
       let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx.clone(), owner);
+      let has_balance = self.sufficient_balance(ctx, owner);
       let has_entered_amount = !self.amount_field.amount.is_empty();
       let valid_token = if self.mode == RailgunMode::Unshield {
          self.currency.is_erc20()
@@ -375,8 +371,8 @@ impl ShieldUi {
       }
    }
 
-   fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) {
-      let chain = ctx.chain();
+   fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) {
+      let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
       let currency = self.currency.clone();
       let amount = NumericValue::parse_to_wei(
@@ -386,9 +382,10 @@ impl ShieldUi {
 
       if self.mode.is_shield() {
          RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
+            let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
+               gui.ctx.clone()
             });
 
             match shield(
@@ -440,12 +437,15 @@ impl ShieldUi {
       time_passed > timeout
    }
 
-   fn sync_balance(&mut self, owner: Address, ctx: ZeusCtx) {
+   fn sync_balance(&mut self, owner: Address) {
       self.syncing_balance = true;
       let currency = self.currency.clone();
       let chain = currency.chain_id();
+
       RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let balance_manager = ctx.balance_manager();
+
          if currency.is_native() {
             match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner], false).await {
                Ok(_) => {}
@@ -471,11 +471,11 @@ impl ShieldUi {
       });
    }
 
-   fn cost(&self, ctx: ZeusCtx) -> NumericValue {
+   fn cost(&self, ctx: &mut ZeusContext) -> NumericValue {
       let gas_used = 750_000;
 
-      let fee = ctx.get_priority_fee(ctx.chain().id()).unwrap_or_default();
-      let (cost_in_wei, _) = estimate_tx_cost(ctx.clone(), ctx.chain().id(), gas_used, fee.wei());
+      let fee = ctx.priority_fee.get(ctx.chain.id()).cloned().unwrap_or_default();
+      let (cost_in_wei, _) = estimate_tx_cost(ctx, ctx.chain.id(), gas_used, fee.wei());
       cost_in_wei
    }
 
@@ -484,8 +484,8 @@ impl ShieldUi {
       amount > 0.0
    }
 
-   fn sufficient_balance(&self, ctx: ZeusCtx, sender: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain().id(), sender, &self.currency);
+   fn sufficient_balance(&self, ctx: &mut ZeusContext, sender: Address) -> bool {
+      let balance = ctx.get_currency_balance(ctx.chain.id(), sender, &self.currency);
       let amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -495,7 +495,7 @@ impl ShieldUi {
 }
 
 fn value(
-   ctx: ZeusCtx,
+   ctx: &mut ZeusContext,
    currency: Currency,
    amount: String,
    should_fetch_price: bool,
@@ -505,15 +505,17 @@ fn value(
    let value = NumericValue::value(amount, price.f64());
 
    if should_fetch_price {
-      let price_manager = ctx.price_manager();
-      let pool_manager = ctx.pool_manager();
       let chain = currency.chain_id();
 
       RT.spawn(async move {
-         SHARED_GUI.write(|gui| {
+         let ctx = SHARED_GUI.write(|gui| {
             gui.shield_ui.price_syncing = true;
             gui.shield_ui.last_price_update.insert(currency.address(), Instant::now());
+            gui.ctx.clone()
          });
+
+         let pool_manager = ctx.pool_manager();
+         let price_manager = ctx.price_manager();
 
          match price_manager
             .calculate_prices(

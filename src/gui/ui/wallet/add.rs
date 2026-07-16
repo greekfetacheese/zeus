@@ -5,7 +5,7 @@
 //! - Derive a child wallet from the master wallet
 
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, ZeusCtx};
+use crate::core::{DiscoveredWallets, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Frame, Margin, Order, RichText, Ui, Window, vec2};
@@ -59,13 +59,13 @@ impl AddWalletUi {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
-      self.main_ui(ctx.clone(), theme, ui);
-      self.import_wallet.show(ctx.clone(), theme, ui);
-      self.discover_child_wallets_ui.show(ctx.clone(), theme, icons, ui);
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      self.main_ui(theme, ui);
+      self.import_wallet.show(theme, ui);
+      self.discover_child_wallets_ui.show(ctx, theme, icons, ui);
    }
 
-   fn main_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -124,12 +124,11 @@ impl AddWalletUi {
       if derive_clicked {
          open = false;
          self.discover_child_wallets_ui.open();
-
-         let vault = ctx.get_vault();
-
          self.discover_child_wallets_ui.loading = true;
 
          RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            let vault = ctx.get_vault();
             let master = ctx.master_wallet_address();
 
             let mut discovered_wallets = match DiscoveredWallets::load_from_file() {
@@ -199,7 +198,7 @@ impl AddWalletUi {
       }
    }
 
-   fn _generate_wallet_ui(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   fn _generate_wallet_ui(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.generate_wallet {
          return;
       }
@@ -250,6 +249,7 @@ impl AddWalletUi {
          let name = self.wallet_name.clone();
 
          RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             let mut new_vault = ctx.get_vault();
 
             match new_vault.new_wallet_rng(name) {

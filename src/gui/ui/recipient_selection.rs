@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   WalletInfo, ZeusCtx,
+   WalletInfo, ZeusCtx, ZeusContext,
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
@@ -76,7 +76,7 @@ impl RecipientSelectionWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx) {
+   pub fn open(&mut self) {
       if !self.open {
          self.overlay.window_opened();
       }
@@ -85,6 +85,7 @@ impl RecipientSelectionWindow {
       self.loading = true;
 
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
          for chain in SUPPORTED_CHAINS {
@@ -147,7 +148,7 @@ impl RecipientSelectionWindow {
    }
 
    /// Kick off (or skip) background parsing when the search query / privacy mode changes.
-   fn update_unknown_recipient_parse(&mut self, ctx: ZeusCtx, privacy_mode: bool) {
+   fn update_unknown_recipient_parse(&mut self, privacy_mode: bool) {
       if self.search_query.is_empty() {
          self.clear_unknown_recipient_cache();
          return;
@@ -166,6 +167,7 @@ impl RecipientSelectionWindow {
 
       let query = self.search_query.clone();
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let result = parse_unknown_recipient(ctx, &query, privacy_mode);
          SHARED_GUI.write(|gui| {
             let sel = &mut gui.recipient_selection;
@@ -187,7 +189,7 @@ impl RecipientSelectionWindow {
 
    pub fn show(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       _icons: Arc<Icons>,
       privacy_mode: bool,
@@ -201,7 +203,7 @@ impl RecipientSelectionWindow {
 
       let mut close_window = false;
 
-      contacts_ui.add_contact.show(ctx.clone(), theme, false, ui);
+      contacts_ui.add_contact.show(theme, false, ui);
       let contact_added = contacts_ui.add_contact.contact_added();
 
       if contact_added {
@@ -292,7 +294,7 @@ impl RecipientSelectionWindow {
 
                if self.contacts_tab_open {
                   self.contacts_tab(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      privacy_mode,
                      &mut close_window,
@@ -302,7 +304,7 @@ impl RecipientSelectionWindow {
 
                if self.wallets_tab_open {
                   self.wallets_tab(
-                     ctx.clone(),
+                     ctx,
                      theme,
                      privacy_mode,
                      &mut close_window,
@@ -310,8 +312,8 @@ impl RecipientSelectionWindow {
                   );
                }
 
-               // Address parse (esp. RailgunAddress::from_zk_address) is expensive — do it off-thread.
-               self.update_unknown_recipient_parse(ctx.clone(), privacy_mode);
+               // Address parse
+               self.update_unknown_recipient_parse(privacy_mode);
 
                if self.parsing_unknown_recipient {
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
@@ -351,13 +353,13 @@ impl RecipientSelectionWindow {
 
    fn contacts_tab(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let contacts = ctx.contacts();
+      let contacts = &ctx.vault.contacts;
       let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
 
       ScrollArea::vertical()
@@ -366,20 +368,20 @@ impl RecipientSelectionWindow {
          .max_width(ui.available_width())
          .show(ui, |ui| {
             if are_valid_contacts {
-               self.show_contacts(ctx.clone(), theme, privacy_mode, close_window, ui);
+               self.show_contacts(ctx, theme, privacy_mode, close_window, ui);
             }
          });
    }
 
    fn show_contacts(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let contacts = ctx.contacts();
+      let contacts = &ctx.vault.contacts;
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -387,7 +389,7 @@ impl RecipientSelectionWindow {
       let mut frame = theme.frame2;
       let visuals = theme.frame2_visuals;
 
-      for contact in &contacts {
+      for contact in contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, &self.search_query);
 
          let address = match privacy_mode {
@@ -433,7 +435,7 @@ impl RecipientSelectionWindow {
 
    fn wallets_tab(
       &mut self,
-      ctx: ZeusCtx,
+      ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,
@@ -456,7 +458,7 @@ impl RecipientSelectionWindow {
 
    fn show_wallets(
       &mut self,
-      _ctx: ZeusCtx,
+      _ctx: &mut ZeusContext,
       theme: &Theme,
       privacy_mode: bool,
       close_window: &mut bool,

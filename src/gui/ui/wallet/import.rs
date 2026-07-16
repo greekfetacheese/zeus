@@ -1,6 +1,5 @@
 //! UI that allows the user to import a wallet from a private key or a seed phrase
 
-use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, Order, RichText, Ui, Window, vec2};
@@ -53,7 +52,7 @@ impl ImportWallet {
       self.open = false;
    }
 
-   pub fn show(&mut self, ctx: ZeusCtx, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -126,6 +125,7 @@ impl ImportWallet {
          let from_key = self.import_key_or_phrase == ImportWalletType::PrivateKey;
 
          RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             let mut new_vault = ctx.get_vault();
 
             // Import the wallet
@@ -135,6 +135,7 @@ impl ImportWallet {
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
                         gui.open_msg_window("Failed to import wallet", e.to_string());
+                        gui.request_repaint();
                      });
                      return;
                   }
@@ -142,6 +143,7 @@ impl ImportWallet {
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Encrypting account...");
+               gui.request_repaint();
             });
 
             // Encrypt the account
@@ -152,12 +154,14 @@ impl ImportWallet {
                      gui.open_msg_window("Wallet imported successfully", "");
                      gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                      gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
+                     gui.request_repaint();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      gui.open_msg_window("Failed to encrypt account", e.to_string());
+                     gui.request_repaint();
                   });
                   return;
                }
