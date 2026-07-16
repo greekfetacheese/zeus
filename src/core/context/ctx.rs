@@ -6,7 +6,7 @@ use super::{
 use crate::core::WalletValue;
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
-use crate::utils::{RT, state::test_and_measure_rpcs};
+use crate::utils::RT;
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
@@ -145,24 +145,17 @@ impl ZeusCtx {
    }
 
    pub fn erase_qr_image_data(&self) {
-      let success = self.write(|ctx| {
+      self.write(|ctx| {
          if let Some(data) = Arc::get_mut(&mut ctx.qr_image_data) {
             data.zeroize();
             #[cfg(feature = "dev")]
             tracing::info!("QR Image data zeroized");
-            true
+            ctx.qr_image_data = Arc::new([0u8; 0]);
          } else {
             #[cfg(feature = "dev")]
             tracing::error!("QR Image data zeroize failed");
-            false
-         }
+         };
       });
-
-      if success {
-         self.write(|ctx| {
-            ctx.qr_image_data = Arc::new([0u8; 0]);
-         });
-      }
    }
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
@@ -211,7 +204,7 @@ impl ZeusCtx {
       if !cfg!(feature = "dev") {
          return Err(anyhow!("Railgun is not supported in this build"));
       }
-      
+
       let client = self.get_client(chain).await?;
 
       let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
@@ -298,7 +291,7 @@ impl ZeusCtx {
    ) -> Result<(), anyhow::Error> {
       if self.save_vault_in_progress() {
          return Err(anyhow!(
-            "Saving account in progress, try again later"
+            "Saving vault in progress, try again later"
          ));
       }
 
@@ -406,7 +399,11 @@ impl ZeusCtx {
    }
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
-      self.read(|ctx| ctx.vault.wallet_with_zk_address_exists(zk_address))
+      let time = std::time::Instant::now();
+      let vault = self.read(|ctx| ctx.vault.clone());
+      tracing::info!("Vault read took {} micros", time.elapsed().as_micros());
+
+      vault.wallet_with_zk_address_exists(zk_address)
    }
 
    /// Get the wallet info for the given address, without cloning the private key
@@ -637,7 +634,7 @@ impl ZeusCtx {
    pub fn save_delegated_wallets(&self) {
       let wallets = self.read(|ctx| ctx.delegated_wallets.clone());
       match wallets.save_to_file() {
-         Ok(_) => tracing::trace!("Smart Accounts saved"),
+         Ok(_) => tracing::trace!("Delegated Wallets saved"),
          Err(e) => tracing::error!("Error saving delegated wallets: {:?}", e),
       }
    }
@@ -704,7 +701,7 @@ impl ZeusCtx {
       owner_value
    }
 
-   /// Get all tokens in all portfolios
+   /// Get all tokens from all portfolios
    pub fn get_all_tokens_from_portfolios(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
       let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
@@ -730,7 +727,7 @@ impl ZeusCtx {
       });
    }
 
-   /// Update the private data of a portfolio for the given chain and owner
+   /// Update the private data (Railgun) of a portfolio for the given chain and owner
    ///
    /// What it does:
    ///
@@ -910,9 +907,11 @@ impl ZeusCtx {
             })
             .await?;
          let pool = AnyUniswapPool::from_pool(pool);
-         self.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
-         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+         self.write(|ctx| {
+            ctx.pool_manager.add_pool(pool.clone());
+            ctx.currency_db.insert_currency(chain, pool.currency0().clone());
+            ctx.currency_db.insert_currency(chain, pool.currency1().clone());
+         });
 
          let ctx = self.clone();
          RT.spawn_blocking(move || {
@@ -944,9 +943,11 @@ impl ZeusCtx {
             })
             .await?;
          let pool = AnyUniswapPool::from_pool(pool);
-         self.write(|ctx| ctx.pool_manager.add_pool(pool.clone()));
-         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency0().clone()));
-         self.write(|ctx| ctx.currency_db.insert_currency(chain, pool.currency1().clone()));
+         self.write(|ctx| {
+            ctx.pool_manager.add_pool(pool.clone());
+            ctx.currency_db.insert_currency(chain, pool.currency0().clone());
+            ctx.currency_db.insert_currency(chain, pool.currency1().clone());
+         });
 
          let ctx = self.clone();
          RT.spawn_blocking(move || {
@@ -1441,10 +1442,6 @@ impl ZeusCtx {
       }
 
       Err(anyhow!("No block found"))
-   }
-
-   pub async fn test_and_measure_rpcs(&self) {
-      test_and_measure_rpcs(self.clone()).await
    }
 
    pub fn server_port(&self) -> u16 {

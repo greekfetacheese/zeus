@@ -3,7 +3,7 @@ use crate::core::context::data_dir;
 use anyhow::anyhow;
 use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 use secure_types::{SecureBytes, SecureString};
-use std::{collections::HashMap, path::PathBuf};
+use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
@@ -107,16 +107,16 @@ impl Vault {
    }
 
    pub fn wallet_with_zk_address_exists(&self, zk_address: &RailgunAddress) -> bool {
-      let mut wallet_map = HashMap::new();
-
       for wallet in self.all_wallets() {
          if let Ok(seed) = wallet.seed() {
             let railgun_address = RailgunAddress::new(&seed, 0, None).unwrap();
-            wallet_map.insert(railgun_address.address, wallet.address());
+            if railgun_address.address == zk_address.address {
+               return true;
+            }
          }
       }
 
-      wallet_map.contains_key(&zk_address.address)
+      false
    }
 
    fn generate_wallet_name(&self) -> String {
@@ -345,6 +345,8 @@ impl Vault {
       Ok(())
    }
 
+   /// Remove the wallet with the given address
+   ///
    /// Master wallet cannot be removed
    pub fn remove_wallet(&mut self, address: Address) {
       self.imported_wallets.retain(|w| w.address() != address);

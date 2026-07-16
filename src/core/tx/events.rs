@@ -1417,7 +1417,6 @@ impl PermitParams {
          name = "Permit Approval".to_string();
       }
 
-      // TODO: Wtf is this?
       if decoded_permit.is_none() && decoded_approval.is_none() {
          return Err(anyhow!("Failed to decode log"));
       }

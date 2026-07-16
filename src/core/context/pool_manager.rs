@@ -82,22 +82,9 @@ impl PoolManagerHandle {
       writer(&mut self.0.write().unwrap())
    }
 
-   /// Deserialize the [PoolManager] from a JSON string
-   pub fn from_string(json: &str) -> Result<Self, serde_json::Error> {
-      let manager = serde_json::from_str(json)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
-   }
-
    /// Serialize the [PoolManager] to a JSON string
    pub fn to_string(&self) -> Result<String, serde_json::Error> {
       self.read(|manager| serde_json::to_string(manager))
-   }
-
-   /// Deserialize the [PoolManager] from a JSON file
-   pub fn from_dir(dir: &std::path::PathBuf) -> Result<Self, anyhow::Error> {
-      let data = std::fs::read(dir)?;
-      let manager = serde_json::from_slice(&data)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
    }
 
    /// Serialize the [PoolManager] to a JSON file
@@ -1525,6 +1512,6 @@ mod tests {
       handle.add_checkpoint(1, DexKind::UniswapV2, checkpoint);
       let json = handle.to_string().unwrap();
 
-      let _handle2 = PoolManagerHandle::from_string(&json).unwrap();
+      let _desered_manager: PoolManager = serde_json::from_str(&json).unwrap();
    }
 }

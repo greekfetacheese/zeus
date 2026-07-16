@@ -19,6 +19,14 @@ use zeus_railgun::RailgunAddress;
 use zeus_theme::{OverlayManager, Theme, utils::frame_it};
 use zeus_widgets::{Button, SecureTextEdit};
 
+/// Validated address entered in the search bar that is not already a
+/// wallet/contact — shown as an "Unknown Address" option.
+#[derive(Clone, Debug)]
+enum UnknownRecipient {
+   Evm(Address),
+   Zk(String),
+}
+
 pub struct RecipientSelectionWindow {
    open: bool,
    loading: bool,
@@ -27,6 +35,14 @@ pub struct RecipientSelectionWindow {
    wallets_tab_open: bool,
    pub recipient: Recipient,
    search_query: String,
+   /// Result of async search-bar address parsing (unknown recipient suggestion).
+   unknown_recipient: Option<UnknownRecipient>,
+   /// `search_query` the current `unknown_recipient` / in-flight parse is for.
+   unknown_recipient_query: String,
+   /// Privacy mode used for the current parse / cache entry.
+   unknown_recipient_privacy: bool,
+   /// True while a parse task is running for `unknown_recipient_query`.
+   parsing_unknown_recipient: bool,
    wallets: Vec<WalletInfo>,
    /// Wallet value by address
    wallet_value: HashMap<Address, NumericValue>,
@@ -45,6 +61,10 @@ impl RecipientSelectionWindow {
          wallets_tab_open: false,
          recipient: Recipient::default(),
          search_query: String::new(),
+         unknown_recipient: None,
+         unknown_recipient_query: String::new(),
+         unknown_recipient_privacy: false,
+         parsing_unknown_recipient: false,
          wallets: Vec::new(),
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
@@ -64,7 +84,6 @@ impl RecipientSelectionWindow {
       self.open = true;
       self.loading = true;
 
-      // TODO: Move this outside of the GUI thread
       RT.spawn_blocking(move || {
          let mut wallets = ctx.get_all_wallets_info(true);
          let mut portfolios = Vec::new();
@@ -119,6 +138,48 @@ impl RecipientSelectionWindow {
    pub fn reset(&mut self) {
       self.recipient = Recipient::default();
       self.search_query.clear();
+      self.clear_unknown_recipient_cache();
+   }
+
+   fn clear_unknown_recipient_cache(&mut self) {
+      self.unknown_recipient = None;
+      self.unknown_recipient_query.clear();
+      self.parsing_unknown_recipient = false;
+   }
+
+   /// Kick off (or skip) background parsing when the search query / privacy mode changes.
+   fn update_unknown_recipient_parse(&mut self, ctx: ZeusCtx, privacy_mode: bool) {
+      if self.search_query.is_empty() {
+         self.clear_unknown_recipient_cache();
+         return;
+      }
+
+      let query_changed = self.unknown_recipient_query != self.search_query;
+      let privacy_changed = self.unknown_recipient_privacy != privacy_mode;
+      if !query_changed && !privacy_changed {
+         return;
+      }
+
+      self.unknown_recipient = None;
+      self.unknown_recipient_query = self.search_query.clone();
+      self.unknown_recipient_privacy = privacy_mode;
+      self.parsing_unknown_recipient = true;
+
+      let query = self.search_query.clone();
+      RT.spawn_blocking(move || {
+         let result = parse_unknown_recipient(ctx, &query, privacy_mode);
+         SHARED_GUI.write(|gui| {
+            let sel = &mut gui.recipient_selection;
+            // Drop stale results if the user kept typing / flipped privacy mode.
+            if sel.unknown_recipient_query == query
+               && sel.unknown_recipient_privacy == privacy_mode
+            {
+               sel.unknown_recipient = result;
+               sel.parsing_unknown_recipient = false;
+               gui.request_repaint();
+            }
+         });
+      });
    }
 
    pub fn get_recipient(&self) -> Recipient {
@@ -250,18 +311,16 @@ impl RecipientSelectionWindow {
                   );
                }
 
-               // TODO: Move this from the main thread to avoid blocking the GUI
-               if !&self.search_query.is_empty() {
-                  if !privacy_mode {
-                     if let Ok(address) = Address::from_str(&self.search_query) {
-                        if ctx.wallet_exists(address)
-                           || ctx.get_contact_by_address(&address.to_string()).is_some()
-                        {
-                           return;
-                        }
+               // Address parse (esp. RailgunAddress::from_zk_address) is expensive — do it off-thread.
+               self.update_unknown_recipient_parse(ctx.clone(), privacy_mode);
 
-                        ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
+               if self.parsing_unknown_recipient {
+                  ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+               } else if let Some(unknown) = self.unknown_recipient.clone() {
+                  ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
 
+                  match unknown {
+                     UnknownRecipient::Evm(address) => {
                         let address_text =
                            RichText::new(address.to_string()).size(theme.text_sizes.normal);
                         let button = Button::new(address_text).visuals(button_visuals);
@@ -271,22 +330,13 @@ impl RecipientSelectionWindow {
                            close_window = true;
                         }
                      }
-                  } else {
-                     if let Ok(zk_address) = RailgunAddress::from_zk_address(&self.search_query) {
-                        if ctx.wallet_with_zk_address_exists(&zk_address)
-                           || ctx.get_contact_by_address(&zk_address.address).is_some()
-                        {
-                           return;
-                        }
-
-                        ui.label(RichText::new("Unknown Address").size(theme.text_sizes.large));
-
+                     UnknownRecipient::Zk(zk_address) => {
                         let address_text =
-                           RichText::new(&zk_address.address).size(theme.text_sizes.normal);
+                           RichText::new(&zk_address).size(theme.text_sizes.normal);
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
-                           self.recipient = Recipient::from_unknown_zk_address(zk_address.address);
+                           self.recipient = Recipient::from_unknown_zk_address(zk_address);
                            close_window = true;
                         }
                      }
@@ -294,17 +344,6 @@ impl RecipientSelectionWindow {
                }
             });
          });
-
-      /*
-      if let Some(inner) = window_res {
-         let window_rect = inner.response.rect;
-
-         if contacts_ui.add_contact.is_open() {
-            let tint = self.overlay.tint_1();
-            self.overlay.paint_overlay_at(ui.ctx(), window_rect, Order::Foreground, tint);
-         }
-      }
-      */
 
       if close_window || !open {
          self.close();
@@ -320,7 +359,7 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let contacts = ctx.contacts();
-      let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, &self.search_query));
+      let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
 
       ScrollArea::vertical()
          .id_salt("contact_tabs_scroll")
@@ -350,7 +389,7 @@ impl RecipientSelectionWindow {
       let visuals = theme.frame2_visuals;
 
       for contact in &contacts {
-         let valid_search = valid_contact_search(contact, &self.search_query);
+         let valid_search = valid_contact_search(contact, privacy_mode, &self.search_query);
 
          let address = match privacy_mode {
             false => contact.evm_address.clone(),
@@ -403,7 +442,7 @@ impl RecipientSelectionWindow {
    ) {
       let wallets = &self.wallets;
       let are_valid_wallets =
-         !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, &self.search_query));
+         !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, privacy_mode, &self.search_query));
 
       ScrollArea::vertical()
          .id_salt("wallets_tabs_scroll")
@@ -433,7 +472,7 @@ impl RecipientSelectionWindow {
       let wallets = &self.wallets;
 
       for wallet in wallets {
-         let valid_search = valid_wallet_search(wallet, &self.search_query);
+         let valid_search = valid_wallet_search(wallet, privacy_mode, &self.search_query);
          let value = self.wallet_value.get(&wallet.address).cloned().unwrap_or_default();
 
          let address = match privacy_mode {
@@ -485,24 +524,67 @@ impl RecipientSelectionWindow {
    }
 }
 
-fn valid_contact_search(contact: &Contact, query: &str) -> bool {
-   let query = query.to_lowercase();
-
+/// Parse the search bar as an address and return an "unknown recipient" suggestion
+/// when the address is valid but not already a wallet or contact.
+///
+/// Runs on a blocking worker thread — `RailgunAddress::from_zk_address` and
+/// `wallet_with_zk_address_exists` are too expensive for the GUI frame.
+fn parse_unknown_recipient(
+   ctx: ZeusCtx,
+   query: &str,
+   privacy_mode: bool,
+) -> Option<UnknownRecipient> {
    if query.is_empty() {
-      return true;
+      return None;
    }
 
-   contact.name.to_lowercase().contains(&query)
-      || contact.evm_address.to_lowercase().contains(&query)
+   if !privacy_mode {
+      let address = Address::from_str(query).ok()?;
+      if ctx.wallet_exists(address)
+         || ctx.get_contact_by_address(&address.to_string()).is_some()
+      {
+         return None;
+      }
+      Some(UnknownRecipient::Evm(address))
+   } else {
+      let zk_address = RailgunAddress::from_zk_address(query).ok()?;
+      if ctx.wallet_with_zk_address_exists(&zk_address)
+         || ctx.get_contact_by_zk_address(&zk_address.address).is_some()
+      {
+         return None;
+      }
+      Some(UnknownRecipient::Zk(zk_address.address))
+   }
 }
 
-fn valid_wallet_search(wallet: &WalletInfo, query: &str) -> bool {
+fn valid_contact_search(contact: &Contact, privacy_mode: bool, query: &str) -> bool {
    let query = query.to_lowercase();
 
    if query.is_empty() {
       return true;
    }
 
-   wallet.name().to_lowercase().contains(&query)
-      || wallet.address.to_string().to_lowercase().contains(&query)
+   if !privacy_mode {
+      return contact.name.to_lowercase().contains(&query)
+         || contact.evm_address.to_lowercase().contains(&query);
+   } else {
+      return contact.name.to_lowercase().contains(&query)
+         || contact.zk_address.to_lowercase().contains(&query);
+   }
+}
+
+fn valid_wallet_search(wallet: &WalletInfo, privacy_mode: bool, query: &str) -> bool {
+   let query = query.to_lowercase();
+
+   if query.is_empty() {
+      return true;
+   }
+
+   if !privacy_mode {
+      return wallet.name().to_lowercase().contains(&query)
+         || wallet.address.to_string().to_lowercase().contains(&query);
+   } else {
+      return wallet.name().to_lowercase().contains(&query)
+         || wallet.zk_address().to_string().to_lowercase().contains(&query);
+   }
 }
