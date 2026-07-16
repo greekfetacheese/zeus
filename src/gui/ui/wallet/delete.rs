@@ -186,7 +186,7 @@ impl DeleteWalletUi {
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
                ui.add_space(20.0);
 
-               ui.label(RichText::new(wallet.name()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal));
                ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
 
                // TODO: Maybe adjust for privacy mode
@@ -248,6 +248,8 @@ impl DeleteWalletUi {
             };
 
             ctx.set_vault(new_vault);
+            ctx.build_wallet_info_cache();
+            
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.open(ctx.clone());

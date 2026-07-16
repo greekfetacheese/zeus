@@ -177,7 +177,7 @@ impl AcrossBridge {
       recipient_selection.show(ctx.clone(), theme, icons.clone(), false, contacts_ui, ui);
       let recipient = recipient_selection.get_recipient();
       let from_chain = self.from_chain.chain.id();
-      let depositor = ctx.current_wallet_info(false).address;
+      let depositor = ctx.current_wallet_info().address;
       self.currency = NativeCurrency::from(from_chain).into();
 
       self.get_suggested_fees(ctx.clone(), depositor, &recipient.evm_address);
@@ -234,7 +234,7 @@ impl AcrossBridge {
                let inner_frame = theme.frame2;
 
                let label = String::from("Amount");
-               let owner = ctx.current_wallet_info(false).address;
+               let owner = ctx.current_wallet_info().address;
                let balance_fn = || ctx.get_currency_balance(from_chain, owner, &self.currency);
 
                let cost = self.cost(ctx.clone());

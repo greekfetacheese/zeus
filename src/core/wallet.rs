@@ -28,7 +28,7 @@ impl WalletInfo {
    pub fn from_wallet(wallet: &Wallet, generate_railgun_address: bool) -> Self {
       let mut railgun_address = None;
 
-      if generate_railgun_address {
+      if generate_railgun_address && wallet.can_derive_zk_address() {
          if let Ok(seed) = wallet.seed() {
             let res = RailgunAddress::new(&seed, 0, None);
             match res {
@@ -60,7 +60,11 @@ impl WalletInfo {
       self.is_imported
    }
 
-   pub fn name(&self) -> String {
+   pub fn name(&self) -> &str {
+      &self.name
+   }
+
+   pub fn name_with_source(&self) -> String {
       let id = if self.is_master() {
          "(Master)"
       } else if self.is_child() {

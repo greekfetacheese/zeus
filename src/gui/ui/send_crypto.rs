@@ -130,7 +130,7 @@ impl SendCryptoUi {
 
                   ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
 
-                  let owner = ctx.current_wallet_info(false).address;
+                  let owner = ctx.current_wallet_info().address;
 
                   let chain = ctx.chain();
                   let inner_frame = theme.frame2;
@@ -431,7 +431,7 @@ impl SendCryptoUi {
 
    fn send_transaction(&mut self, ctx: ZeusCtx, recipient: String) -> Result<(), anyhow::Error> {
       let chain = ctx.chain();
-      let from = ctx.current_wallet_info(false).address;
+      let from = ctx.current_wallet_info().address;
       let currency = self.currency.clone();
       let recipient_address = Address::from_str(&recipient)?;
       let amount = NumericValue::parse_to_wei(

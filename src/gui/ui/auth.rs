@@ -149,6 +149,7 @@ impl UnlockVault {
                });
 
                ctx.set_vault(vault);
+               ctx.build_wallet_info_cache();
 
                SHARED_GUI.write(|gui| {
                   gui.portofolio.open();
@@ -453,6 +454,7 @@ impl RecoverHDWallet {
                            });
 
                            ctx.set_vault(vault);
+                           ctx.build_wallet_info_cache();
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {

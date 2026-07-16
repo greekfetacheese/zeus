@@ -642,6 +642,8 @@ impl DiscoverChildWallets {
                      }
                      // Update the Vault in the ZeusCtx
                      ctx.set_vault(new_vault);
+                     ctx.build_wallet_info_cache();
+                     
                      // Calculate the wallets again in the UI
                      SHARED_GUI.write(|gui| {
                         gui.wallet_ui.open(ctx.clone());

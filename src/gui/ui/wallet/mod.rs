@@ -90,7 +90,7 @@ impl WalletUi {
       // TODO: This op is the same as the one in RecipientSelectionWindow
       // We should make it a helper function at some point
       RT.spawn_blocking(move || {
-         let mut wallets = ctx.get_all_wallets_info(false);
+         let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
          for chain in SUPPORTED_CHAINS {
             for wallet in &wallets {
@@ -112,7 +112,6 @@ impl WalletUi {
                .f64()
                .partial_cmp(&value_a.public.f64())
                .unwrap_or(std::cmp::Ordering::Equal)
-               .then_with(|| a.name().cmp(&b.name()))
          });
 
          let mut wallet_value = HashMap::new();
@@ -190,7 +189,7 @@ impl WalletUi {
                   self.add_wallet_ui.open();
                }
 
-               let current_wallet = ctx.current_wallet_info(false);
+               let current_wallet = ctx.current_wallet_info();
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
@@ -228,7 +227,7 @@ impl WalletUi {
 
                   for wallet in wallets.iter().filter(|w| *w != &current_wallet) {
                      if self.search_query.is_empty()
-                        || wallet.name().to_lowercase().contains(&self.search_query.to_lowercase())
+                        || wallet.name_with_source().to_lowercase().contains(&self.search_query.to_lowercase())
                      {
                         self.wallet(
                            ctx.clone(),
@@ -276,7 +275,7 @@ impl WalletUi {
          ui.vertical(|ui| {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                // Wallet name
-               let text = RichText::new(wallet.name()).size(theme.text_sizes.normal);
+               let text = RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal);
                let label = Label::new(text, None).wrap().interactive(false);
 
                ui.scope(|ui| {
@@ -519,6 +518,8 @@ impl WalletUi {
                      };
 
                      ctx.set_vault(new_vault);
+                     ctx.build_wallet_info_cache();
+                     
                      // Calculate the wallets again
                      SHARED_GUI.write(|gui| {
                         gui.wallet_ui.open(ctx.clone());

@@ -64,6 +64,13 @@ impl Vault {
       all_wallets
    }
 
+   pub fn clone_all_wallets(&self) -> Vec<Wallet> {
+      let mut all_wallets = vec![self.hd_wallet.master_wallet.clone()];
+      all_wallets.extend(self.hd_wallet.children.iter().map(|w| w.clone()));
+      all_wallets.extend(self.imported_wallets.iter().map(|w| w.clone()));
+      all_wallets
+   }
+
    /// Erase everything in the vault
    pub fn erase(&mut self) {
       self.credentials.erase();

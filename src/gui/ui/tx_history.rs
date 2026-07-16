@@ -36,7 +36,7 @@ impl TxHistory {
    }
 
    pub fn open(&mut self, ctx: ZeusCtx) {
-      let wallets = ctx.get_all_wallets_info(false);
+      let wallets = ctx.get_all_wallets_info();
       self.wallets = wallets;
       self.open = true;
    }
@@ -88,7 +88,7 @@ impl TxHistory {
             let selected_wallet_name = self
                .selected_wallet
                .clone()
-               .map_or("All Wallets".to_string(), |wallet| wallet.name());
+               .map_or("All Wallets".to_string(), |wallet| wallet.name_with_source());
 
             let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
             let label = Label::new(text, None)
@@ -118,7 +118,7 @@ impl TxHistory {
                   }
 
                   for wallet in wallets {
-                     let text = RichText::new(&wallet.name()).size(theme.text_sizes.normal);
+                     let text = RichText::new(&wallet.name_with_source()).size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
                         .sense(Sense::click())

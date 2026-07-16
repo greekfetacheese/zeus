@@ -152,11 +152,16 @@ impl Header {
                   true => wallet.zk_address_truncated(),
                };
 
+               let full_address = match privacy_mode {
+                  false => wallet.address.to_string(),
+                  true => wallet.zk_address(),
+               };
+
                let address_text = RichText::new(address).size(theme.text_sizes.normal);
                let label = Button::selectable(false, address_text).visuals(button_visuals);
 
                if ui.add(label).clicked() {
-                  ui.ctx().copy_text(wallet.address.to_string());
+                  ui.ctx().copy_text(full_address);
                }
 
                ui.add_space(7.0);
@@ -262,7 +267,7 @@ impl Header {
 
                      RT.spawn_blocking(move || {
                         let chain = ctx.chain();
-                        let owner = ctx.current_wallet_info(false).address;
+                        let owner = ctx.current_wallet_info().address;
 
                         let new_mode = match privacy_mode {
                            false => RailgunMode::Shield,
@@ -305,7 +310,7 @@ impl Header {
             });
 
             RT.spawn(async move {
-               let owner = ctx.current_wallet_info(false).address;
+               let owner = ctx.current_wallet_info().address;
                let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
                SHARED_GUI.write(|gui| {
@@ -351,7 +356,7 @@ impl Header {
             });
 
             RT.spawn(async move {
-               let current_wallet = ctx.current_wallet_info(true);
+               let current_wallet = ctx.current_wallet_info();
                let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
                let owner = current_wallet.address;
                let chain_id = ctx.chain().id();
@@ -707,7 +712,10 @@ impl QRCodeWindow {
                if let Some(wallet) = self.wallet.as_ref() {
                   let text = RichText::new("Wallet Name").size(theme.text_sizes.large);
                   ui.label(text);
-                  ui.label(RichText::new(wallet.name().as_str()).size(theme.text_sizes.normal));
+                  ui.label(
+                     RichText::new(wallet.name_with_source().as_str())
+                        .size(theme.text_sizes.normal),
+                  );
 
                   let text = RichText::new("Address").size(theme.text_sizes.large);
                   ui.label(text);

@@ -40,7 +40,7 @@ impl Recipient {
 
    pub fn from_wallet_info(wallet_info: WalletInfo) -> Self {
       Self {
-         name: Some(wallet_info.name()),
+         name: Some(wallet_info.name_with_source()),
          evm_address: wallet_info.address.to_string(),
          zk_address: wallet_info.zk_address(),
       }

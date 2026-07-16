@@ -1,4 +1,4 @@
-use crate::core::{types::BaseFee, ZeusCtx, WalletPortfolio};
+use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::RT;
 use anyhow::anyhow;
 
@@ -154,7 +154,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
       std::thread::sleep(Duration::from_millis(100));
    }
 
-   let wallets = ctx.get_all_wallets_info(false);
+   let wallets = ctx.get_all_wallets_info();
    for chain in SUPPORTED_CHAINS {
       for wallet in &wallets {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
@@ -178,7 +178,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
 
 /// Check the smart account status for all wallets across all chains
 async fn check_smart_account_status(ctx: ZeusCtx) {
-   let accounts = ctx.get_all_wallets_info(false);
+   let accounts = ctx.get_all_wallets_info();
    let mut tasks = Vec::new();
 
    for chain in SUPPORTED_CHAINS {

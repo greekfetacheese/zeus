@@ -246,6 +246,11 @@ impl Wallet {
       self.xkey_info.as_ref().map(|info| info.parent.is_zero()).unwrap_or(false)
    }
 
+   /// Returns true if we can derive a zkAddress from this wallet.
+   pub fn can_derive_zk_address(&self) -> bool {
+      self.xkey_info.is_some() || self.seed_phrase.is_some()
+   }
+
    pub fn is_hardened(&self) -> bool {
       if self.is_master() {
          return true;

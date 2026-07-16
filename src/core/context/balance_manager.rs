@@ -115,7 +115,7 @@ impl BalanceManagerHandle {
       let batch_size = self.batch_size();
 
       for chain in SUPPORTED_CHAINS {
-         let wallets: Vec<Address> = ctx.get_all_wallets_info(false).iter().map(|w| w.address).collect();
+         let wallets: Vec<Address> = ctx.get_all_wallets_info().iter().map(|w| w.address).collect();
          let manager = self.clone();
          let ctx = ctx.clone();
 

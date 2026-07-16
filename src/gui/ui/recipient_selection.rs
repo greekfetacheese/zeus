@@ -85,7 +85,7 @@ impl RecipientSelectionWindow {
       self.loading = true;
 
       RT.spawn_blocking(move || {
-         let mut wallets = ctx.get_all_wallets_info(true);
+         let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
          for chain in SUPPORTED_CHAINS {
             for wallet in &wallets {
@@ -107,7 +107,6 @@ impl RecipientSelectionWindow {
                .f64()
                .partial_cmp(&value_a.public.f64())
                .unwrap_or(std::cmp::Ordering::Equal)
-               .then_with(|| a.name().cmp(&b.name()))
          });
 
          let mut wallet_value = HashMap::new();
@@ -489,7 +488,7 @@ impl RecipientSelectionWindow {
             let res = frame_it(&mut frame, Some(visuals), ui, |ui| {
                ui.set_width(ui.available_width());
                ui.horizontal(|ui| {
-                  let name_text = RichText::new(wallet.name())
+                  let name_text = RichText::new(wallet.name_with_source())
                      .size(theme.text_sizes.large)
                      .color(theme.colors.text);
                   ui.label(name_text);
@@ -581,10 +580,10 @@ fn valid_wallet_search(wallet: &WalletInfo, privacy_mode: bool, query: &str) -> 
    }
 
    if !privacy_mode {
-      return wallet.name().to_lowercase().contains(&query)
+      return wallet.name_with_source().to_lowercase().contains(&query)
          || wallet.address.to_string().to_lowercase().contains(&query);
    } else {
-      return wallet.name().to_lowercase().contains(&query)
+      return wallet.name_with_source().to_lowercase().contains(&query)
          || wallet.zk_address().to_string().to_lowercase().contains(&query);
    }
 }

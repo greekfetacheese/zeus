@@ -164,6 +164,8 @@ impl ImportWallet {
             };
 
             ctx.set_vault(new_vault);
+            ctx.build_wallet_info_cache();
+            
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.open(ctx.clone());

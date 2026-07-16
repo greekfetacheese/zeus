@@ -60,7 +60,7 @@ impl PortfolioUi {
       }
 
       let chain_id = ctx.chain().id();
-      let wallet_info = ctx.current_wallet_info(false);
+      let wallet_info = ctx.current_wallet_info();
       let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
       let owner = wallet_info.address;
       let portfolio = ctx.get_portfolio(chain_id, owner);
@@ -82,7 +82,7 @@ impl PortfolioUi {
                ui.horizontal(|ui| {
                   // Wallet Name - Total Value (centered)
                   ui.vertical_centered(|ui| {
-                     ui.label(RichText::new(wallet_info.name()).size(theme.text_sizes.very_large));
+                     ui.label(RichText::new(wallet_info.name_with_source()).size(theme.text_sizes.very_large));
                      ui.label(
                         RichText::new(format!("${}", portfolio_value.abbreviated()))
                            .heading()
