@@ -165,6 +165,10 @@ impl TxHistory {
                   }
 
                   for chain in ChainId::supported_chains() {
+                     if ctx.is_chain_disabled(chain.id()) {
+                        continue;
+                     }
+
                      let text = RichText::new(chain.name()).size(theme.text_sizes.normal);
                      let label = Label::new(text, None)
                         .visuals(label_visuals)
@@ -243,6 +247,10 @@ impl TxHistory {
                };
 
                for chain in chains_to_check {
+                  if ctx.is_chain_disabled(chain.id()) {
+                     continue;
+                  }
+                  
                   if let Some(wallet_txs) = ctx.tx_db.get_txs(chain.id(), wallet.address) {
                      txs.extend(wallet_txs.iter().cloned());
                   }
