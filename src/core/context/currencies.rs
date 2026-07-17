@@ -6,7 +6,7 @@ use crate::core::{context::data_dir, serde_hashmap};
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token, NativeCurrency},
-   types::{BSC, ETH},
+   types::{BSC, ETH, ETH_SEPOLIA},
 };
 
 use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
@@ -143,6 +143,15 @@ impl CurrencyDB {
 
       // Fix for DAI on mainnet cause it has DAI as name instead of Dai Stablecoin
       self.insert_token(ETH, dai);
+
+      // Sepolia Testnet
+      let sepolia_weth = ERC20Token::weth_sepolia();
+      let sepolia_dai = ERC20Token::dai_sepolia();
+      let sepolia_usdc = ERC20Token::usdc_sepolia();
+
+      self.insert_token(ETH_SEPOLIA, sepolia_weth);
+      self.insert_token(ETH_SEPOLIA, sepolia_dai);
+      self.insert_token(ETH_SEPOLIA, sepolia_usdc);
 
       Ok(())
    }

@@ -179,6 +179,10 @@ impl ImportWallet {
             RT.spawn(async move {
                let manager = ctx.balance_manager();
                for chain in SUPPORTED_CHAINS {
+                  if ctx.is_chain_disabled(chain) {
+                     continue;
+                  }
+                  
                   match manager
                      .update_eth_balance(
                         ctx.clone(),

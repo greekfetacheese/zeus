@@ -1,7 +1,7 @@
 //! UI that allows the user to change the network settings.
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, ZeusContext, client::Rpc};
+use crate::core::{ZeusContext, ZeusCtx, client::Rpc};
 use crate::gui::{SHARED_GUI, ui::ChainSelect};
 use crate::utils::RT;
 use eframe::egui::{
@@ -33,8 +33,10 @@ pub struct NetworkSettings {
 
 impl NetworkSettings {
    pub fn new(overlay: OverlayManager) -> Self {
-      let chain_select =
+      let mut chain_select =
          ChainSelect::new("network_settings_chain_select", 1).size(vec2(200.0, 15.0));
+      chain_select.show_disabled_chains = true;
+
       Self {
          open: false,
          overlay,
@@ -134,7 +136,7 @@ impl NetworkSettings {
                // Chain Select
                ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                   ui.spacing_mut().button_padding = vec2(8.0, 4.0);
-                  self.chain_select.show(0, theme, icons.clone(), ui);
+                  self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
                });
 
                ui.add_space(30.0);
@@ -142,8 +144,30 @@ impl NetworkSettings {
                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                   ui.spacing_mut().button_padding = vec2(8.0, 4.0);
 
+                  // Enable/Disable Network button
+                  let disabled = ctx.is_chain_disabled(chain);
+                  let text = match disabled {
+                     true => RichText::new("Enable Network").size(theme.text_sizes.normal),
+                     false => RichText::new("Disable Network").size(theme.text_sizes.normal),
+                  };
+
+                  let button = Button::new(text).visuals(button_visuals);
+
+                  if ui.add(button).clicked() {
+                     if disabled {
+                        ctx.enable_chain(chain);
+                     } else {
+                        ctx.disable_chain(chain);
+                     }
+
+                     RT.spawn_blocking(move || {
+                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+                        ctx.save_disabled_chains();
+                     });
+                  }
+
                   // Add Network button
-                  let text = RichText::new("Add Network").size(theme.text_sizes.normal);
+                  let text = RichText::new("Add RPC Url").size(theme.text_sizes.normal);
                   let button = Button::new(text).visuals(button_visuals);
 
                   if ui.add(button).clicked() {

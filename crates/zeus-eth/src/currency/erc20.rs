@@ -3,7 +3,7 @@ use alloy_primitives::{Address, Bytes, U256, address};
 use alloy_rpc_types::BlockId;
 
 use crate::abi;
-use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, OPTIMISM};
+use crate::types::{ARBITRUM, BASE, BSC, ETH_SEPOLIA, ChainId, ETH, OPTIMISM};
 use crate::utils::{
    address_book::{dai, usdc, usdt, wbnb, weth},
    batch,
@@ -203,6 +203,7 @@ impl ERC20Token {
       let chain = ChainId::new(chain_id).unwrap();
       match chain {
          ChainId::Ethereum => ERC20Token::weth(),
+         ChainId::EthereumSepolia => ERC20Token::weth_sepolia(),
          ChainId::Optimism => ERC20Token::weth_optimism(),
          ChainId::Base => ERC20Token::weth_base(),
          ChainId::Arbitrum => ERC20Token::weth_arbitrum(),
@@ -231,6 +232,11 @@ impl ERC20Token {
             ERC20Token::usdc(),
             ERC20Token::usdt(),
             ERC20Token::dai(),
+         ],
+         ChainId::EthereumSepolia => vec![
+            ERC20Token::weth_sepolia(),
+            ERC20Token::usdc_sepolia(),
+            ERC20Token::dai_sepolia(),
          ],
          ChainId::Optimism => vec![
             ERC20Token::weth_optimism(),
@@ -261,6 +267,14 @@ impl ERC20Token {
    /// Default weth instance (ETH)
    pub fn weth() -> ERC20Token {
       ERC20Token::default()
+   }
+
+   /// Default weth instance (Sepolia)
+   pub fn weth_sepolia() -> ERC20Token {
+      let mut weth_token = ERC20Token::weth();
+      weth_token.chain_id = ETH_SEPOLIA;
+      weth_token.address = weth(ETH_SEPOLIA).unwrap();
+      weth_token
    }
 
    /// Default WBTC instance (ETH)
@@ -343,6 +357,14 @@ impl ERC20Token {
       }
    }
 
+   /// USDC (Sepolia)
+   pub fn usdc_sepolia() -> ERC20Token {
+      let mut token = ERC20Token::usdc();
+      token.chain_id = ETH_SEPOLIA;
+      token.address = usdc(ETH_SEPOLIA).unwrap();
+      token
+   }
+
    /// USDC (Optimism)
    pub fn usdc_optimism() -> ERC20Token {
       let mut token = ERC20Token::usdc();
@@ -421,6 +443,14 @@ impl ERC20Token {
          symbol: "DAI".into(),
          total_supply: U256::ZERO,
       }
+   }
+
+   /// DAI (Sepolia)
+   pub fn dai_sepolia() -> ERC20Token {
+      let mut token = ERC20Token::dai();
+      token.chain_id = ETH_SEPOLIA;
+      token.address = dai(ETH_SEPOLIA).unwrap();
+      token
    }
 
    /// DAI (Optimism)

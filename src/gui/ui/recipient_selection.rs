@@ -89,6 +89,10 @@ impl RecipientSelectionWindow {
          let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
          for chain in SUPPORTED_CHAINS {
+            if ctx.is_chain_disabled(chain) {
+               continue;
+            }
+            
             for wallet in &wallets {
                portfolios.push(ctx.get_portfolio(chain, wallet.address));
             }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_eth::{
    alloy_primitives::{Address, Bytes},
@@ -8,7 +8,7 @@ use zeus_eth::{
 
 use crate::core::{
    WalletInfo,
-   context::{DELEGATE_WALLET_CHECK_TIMEOUT, delegated_wallets_dir},
+   context::{DELEGATE_WALLET_CHECK_TIMEOUT, delegated_wallets_dir, disabled_chains_dir},
 };
 
 use super::serde_hashmap;
@@ -138,6 +138,44 @@ impl Default for BaseFee {
 impl BaseFee {
    pub fn new(current: u64, next: u64) -> Self {
       Self { current, next }
+   }
+}
+
+/// A set of chains that are disabled
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DisabledChains {
+   pub chains: HashSet<u64>,
+}
+
+impl DisabledChains {
+   pub fn new(chains: HashSet<u64>) -> Self {
+      Self { chains }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = disabled_chains_dir()?;
+      let data = std::fs::read(dir)?;
+      let disabled_chains = serde_json::from_slice(&data)?;
+      Ok(disabled_chains)
+   }
+
+   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
+      let data = serde_json::to_string(self)?;
+      let dir = disabled_chains_dir()?;
+      std::fs::write(dir, data)?;
+      Ok(())
+   }
+
+   pub fn disable(&mut self, chain: u64) {
+      self.chains.insert(chain);
+   }
+
+   pub fn enable(&mut self, chain: u64) {
+      self.chains.remove(&chain);
+   }
+
+   pub fn is_disabled(&self, chain: u64) -> bool {
+      self.chains.contains(&chain)
    }
 }
 

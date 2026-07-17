@@ -1,20 +1,22 @@
 use anyhow::bail;
 
 pub const ETH: u64 = 1;
+pub const ETH_SEPOLIA: u64 = 11155111;
 pub const OPTIMISM: u64 = 10;
 pub const BSC: u64 = 56;
 pub const BASE: u64 = 8453;
 pub const ARBITRUM: u64 = 42161;
 
-pub const SUPPORTED_CHAINS: [u64; 5] = [ETH, OPTIMISM, BSC, BASE, ARBITRUM];
+pub const SUPPORTED_CHAINS: [u64; 6] = [ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM];
 
 const ERR_MSG: &str =
-   "Supported chains are: Ethereum(1), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
+   "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]
 pub enum ChainId {
    Ethereum = 1,
+   EthereumSepolia = 11155111,
    Optimism = 10,
    BinanceSmartChain = 56,
    Base = 8453,
@@ -37,6 +39,7 @@ impl ChainId {
    pub fn new(id: u64) -> Result<Self, anyhow::Error> {
       let chain = match id {
          1 => ChainId::Ethereum,
+         11155111 => ChainId::EthereumSepolia,
          10 => ChainId::Optimism,
          56 => ChainId::BinanceSmartChain,
          8453 => ChainId::Base,
@@ -48,6 +51,10 @@ impl ChainId {
 
    pub fn eth() -> Self {
       ChainId::Ethereum
+   }
+
+   pub fn eth_sepolia() -> Self {
+      ChainId::EthereumSepolia
    }
 
    pub fn optimism() -> Self {
@@ -68,6 +75,10 @@ impl ChainId {
 
    pub fn is_ethereum(&self) -> bool {
       matches!(self, ChainId::Ethereum)
+   }
+
+   pub fn is_eth_sepolia(&self) -> bool {
+      matches!(self, ChainId::EthereumSepolia)
    }
 
    pub fn is_optimism(&self) -> bool {
@@ -106,6 +117,7 @@ impl ChainId {
    pub fn id(&self) -> u64 {
       match self {
          ChainId::Ethereum => 1,
+         ChainId::EthereumSepolia => 11155111,
          ChainId::Optimism => 10,
          ChainId::BinanceSmartChain => 56,
          ChainId::Base => 8453,
@@ -120,6 +132,7 @@ impl ChainId {
    pub fn name(&self) -> &str {
       match self {
          ChainId::Ethereum => "Ethereum",
+         ChainId::EthereumSepolia => "Sepolia Testnet",
          ChainId::Optimism => "Optimism",
          ChainId::BinanceSmartChain => "Binance Smart Chain",
          ChainId::Base => "Base",
@@ -131,6 +144,7 @@ impl ChainId {
    pub fn block_time_millis(&self) -> u64 {
       match self {
          ChainId::Ethereum => 12000,
+         ChainId::EthereumSepolia => 12000,
          ChainId::Optimism => 2000,
          ChainId::BinanceSmartChain => 3000,
          ChainId::Base => 2000,
@@ -148,6 +162,7 @@ impl ChainId {
    pub fn block_gas_limit(&self) -> u64 {
       match self {
          ChainId::Ethereum => 60_000_000,
+         ChainId::EthereumSepolia => 60_000_000,
          ChainId::Optimism => 60_000_000,
          ChainId::BinanceSmartChain => 140_000_000,
          ChainId::Base => 264_000_000,
@@ -159,6 +174,7 @@ impl ChainId {
    pub fn block_explorer(&self) -> &str {
       match self {
          ChainId::Ethereum => "https://etherscan.io",
+         ChainId::EthereumSepolia => "https://sepolia.etherscan.io",
          ChainId::Optimism => "https://optimistic.etherscan.io",
          ChainId::BinanceSmartChain => "https://bscscan.com",
          ChainId::Base => "https://basescan.org",
@@ -170,6 +186,7 @@ impl ChainId {
    pub fn min_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum => 21_000,
+         ChainId::EthereumSepolia => 21_000,
          ChainId::Optimism => 21_000,
          ChainId::BinanceSmartChain => 21_000,
          ChainId::Base => 21_000,
@@ -181,6 +198,7 @@ impl ChainId {
    pub fn transfer_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum => 21_000,
+         ChainId::EthereumSepolia => 21_000,
          ChainId::Optimism => 21_000,
          ChainId::BinanceSmartChain => 21_000,
          ChainId::Base => 21_000,
@@ -194,6 +212,7 @@ impl ChainId {
    pub fn erc20_transfer_gas(&self) -> u64 {
       match self {
          ChainId::Ethereum => 50_000,
+         ChainId::EthereumSepolia => 50_000,
          ChainId::Optimism => 50_000,
          ChainId::BinanceSmartChain => 50_000,
          ChainId::Base => 50_000,
@@ -204,10 +223,22 @@ impl ChainId {
    pub fn supports_type_2_tx(&self) -> bool {
       match self {
          ChainId::Ethereum => true,
+         ChainId::EthereumSepolia => true,
          ChainId::Optimism => true,
          ChainId::BinanceSmartChain => false,
          ChainId::Base => true,
          ChainId::Arbitrum => true,
+      }
+   }
+
+   pub fn is_testnet(&self) -> bool {
+      match self {
+         ChainId::Ethereum => false,
+         ChainId::EthereumSepolia => true,
+         ChainId::Optimism => false,
+         ChainId::BinanceSmartChain => false,
+         ChainId::Base => false,
+         ChainId::Arbitrum => false,
       }
    }
 }

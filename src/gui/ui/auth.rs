@@ -136,22 +136,23 @@ impl UnlockVault {
          // Load the vault
          match vault.load(data) {
             Ok(_) => {
-               let current_wallet = vault.get_master_wallet();
+               let master_wallet = vault.get_master_wallet();
+
+               ctx.set_vault(vault);
+               ctx.build_wallet_info_cache();
+
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
                   gui.loading_window.reset();
                   gui.settings.encryption.set_argon2(info.argon2);
                   gui.header.open();
-                  gui.header.set_current_wallet(current_wallet);
+                  gui.header.set_current_wallet(master_wallet.clone());
                });
 
                ctx.write(|ctx| {
                   ctx.vault_unlocked = true;
-                  ctx.current_wallet = vault.get_master_wallet();
+                  ctx.current_wallet = master_wallet;
                });
-
-               ctx.set_vault(vault);
-               ctx.build_wallet_info_cache();
 
                SHARED_GUI.write(|gui| {
                   gui.portofolio.open();

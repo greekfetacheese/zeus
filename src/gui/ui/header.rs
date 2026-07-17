@@ -305,7 +305,7 @@ impl Header {
             ui.disable();
          }
 
-         let clicked = self.chain_select.show(0, theme, icons.clone(), ui);
+         let clicked = self.chain_select.show(ctx, &[0], theme, icons.clone(), ui);
          if clicked {
             let new_chain = self.chain_select.chain;
 

@@ -26,6 +26,7 @@ where
 
    let feed = match chain {
       ChainId::Ethereum => super::address_book::eth_usd_price_feed(chain_id)?,
+      ChainId::EthereumSepolia => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::Optimism => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::Base => super::address_book::eth_usd_price_feed(chain_id)?,
       ChainId::Arbitrum => super::address_book::eth_usd_price_feed(chain_id)?,
@@ -103,7 +104,7 @@ where
    let is_stable = is_usdc || is_usdt || is_dai;
 
    if !is_stable {
-      return Err(anyhow::anyhow!("Token is not a stablecoin"));
+      return Err(anyhow::anyhow!("Token is not a stablecoin, token: {} chain: {}", token, chain_id));
    }
 
    let price_feed = if is_usdc {
@@ -113,7 +114,7 @@ where
    } else if is_dai {
       dai_usd_price_feed(chain_id)?
    } else {
-      bail!("Token is not a stablecoin");
+      bail!("Token is not a stablecoin, token: {} chain: {}", token, chain_id);
    };
 
    let block_id = block.unwrap_or(BlockId::latest());

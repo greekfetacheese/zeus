@@ -1,4 +1,4 @@
-use crate::types::ChainId;
+use crate::types::{ChainId, ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ pub struct NativeCurrency {
 impl Default for NativeCurrency {
    fn default() -> Self {
       Self {
-         chain_id: 1,
+         chain_id: ETH,
          symbol: "ETH".into(),
          name: "Ethereum".into(),
          decimals: 18,
@@ -43,6 +43,7 @@ impl NativeCurrency {
       let chain = ChainId::new(id)?;
       match chain {
          ChainId::Ethereum => Ok(Self::eth()),
+         ChainId::EthereumSepolia => Ok(Self::eth_sepolia()),
          ChainId::Optimism => Ok(Self::eth_optimism()),
          ChainId::Base => Ok(Self::eth_base()),
          ChainId::Arbitrum => Ok(Self::eth_arbitrum()),
@@ -54,19 +55,23 @@ impl NativeCurrency {
       Self::default()
    }
 
+   pub fn eth_sepolia() -> Self {
+      Self::new(ETH_SEPOLIA, "ETH", "Ethereum", 18)
+   }
+
    pub fn eth_optimism() -> Self {
-      Self::new(10, "ETH", "Ethereum", 18)
+      Self::new(OPTIMISM, "ETH", "Ethereum", 18)
    }
 
    pub fn eth_base() -> Self {
-      Self::new(8453, "ETH", "Ethereum", 18)
+      Self::new(BASE, "ETH", "Ethereum", 18)
    }
 
    pub fn eth_arbitrum() -> Self {
-      Self::new(42161, "ETH", "Ethereum", 18)
+      Self::new(ARBITRUM, "ETH", "Ethereum", 18)
    }
 
    pub fn bnb() -> Self {
-      Self::new(56, "BNB", "Binance Smart Chain", 18)
+      Self::new(BSC, "BNB", "Binance Smart Chain", 18)
    }
 }

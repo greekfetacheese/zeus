@@ -115,6 +115,10 @@ impl BalanceManagerHandle {
       let batch_size = self.batch_size();
 
       for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+
          let wallets: Vec<Address> = ctx.get_all_wallets_info().iter().map(|w| w.address).collect();
          let manager = self.clone();
          let ctx = ctx.clone();
@@ -148,6 +152,10 @@ impl BalanceManagerHandle {
    pub async fn update_tokens_balance_across_wallets_and_chains(&self, ctx: ZeusCtx) {
       let mut tasks = Vec::new();
       for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+         
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          let manager = self.clone();
          let ctx = ctx.clone();

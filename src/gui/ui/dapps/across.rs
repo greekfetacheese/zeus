@@ -22,7 +22,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockNumberOrTag, Filter},
    currency::{Currency, NativeCurrency},
-   types::{BSC, ChainId},
+   types::{BSC, ETH_SEPOLIA, ChainId},
    utils::{NumericValue, address_book},
 };
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
@@ -343,8 +343,10 @@ impl AcrossBridge {
                   ui.allocate_ui(size, |ui| {
                      ui.vertical_centered(|ui| {
                         ui.horizontal(|ui| {
+                           let ignore_chains = [BSC, ETH_SEPOLIA];
+                           
                            // From Chain
-                           self.from_chain.show(BSC, theme, icons.clone(), ui);
+                           self.from_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
 
                            ui.add_space(5.0);
 
@@ -359,7 +361,7 @@ impl AcrossBridge {
                            ui.add_space(5.0);
 
                            // To Chain
-                           self.to_chain.show(BSC, theme, icons.clone(), ui);
+                           self.to_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
                         });
                      });
                   });
@@ -1217,15 +1219,4 @@ pub async fn get_suggested_fees(
    };
 
    Ok(res)
-}
-
-fn _supports_chain(chain_id: u64) -> Result<bool, anyhow::Error> {
-   let chain = ChainId::new(chain_id)?;
-   match chain {
-      ChainId::Ethereum => Ok(true),
-      ChainId::Optimism => Ok(true),
-      ChainId::Base => Ok(true),
-      ChainId::Arbitrum => Ok(true),
-      ChainId::BinanceSmartChain => Ok(false),
-   }
 }

@@ -560,10 +560,14 @@ impl ZeusClient {
       }
    }
 
-   pub async fn run_latency_checks(&self) {
+   pub async fn run_latency_checks(&self, ctx: ZeusCtx) {
       let mut tasks = Vec::new();
 
       for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+
          let rpcs = self.get_rpcs(chain);
          let sempahore = Arc::new(Semaphore::new(5));
 
@@ -623,6 +627,10 @@ impl ZeusClient {
       let mut tasks = Vec::new();
 
       for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+         
          let rpcs = self.get_rpcs(chain);
          let semaphore = Arc::new(Semaphore::new(5));
 

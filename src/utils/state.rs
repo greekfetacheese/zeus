@@ -27,6 +27,10 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
 
    let time = std::time::Instant::now();
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+      
       let rpcs = client.get_rpcs(chain);
 
       for (_url, rpc) in rpcs {
@@ -73,6 +77,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let ctx2 = ctx.clone();
       RT.spawn(async move {
          match update_priority_fee(ctx2, chain).await {
@@ -104,6 +112,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let ctx_clone = ctx.clone();
    RT.spawn_blocking(move || {
       for chain in SUPPORTED_CHAINS {
+         if ctx_clone.is_chain_disabled(chain) {
+            continue;
+         }
+
          let ctx_clone = ctx_clone.clone();
          let portfolios = ctx_clone.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
@@ -117,6 +129,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    // Update the base fee for all chains
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let ctx = ctx.clone();
       RT.spawn(async move {
          match get_base_fee(ctx.clone(), chain).await {
@@ -156,6 +172,10 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
 
    let wallets = ctx.get_all_wallets_info();
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+      
       for wallet in &wallets {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
          let balance = ctx.get_eth_balance(chain, wallet.address);
@@ -169,6 +189,10 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
    }
 
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
       for portfolio in &portfolios {
          ctx.update_public_data(chain, portfolio.owner());
@@ -182,6 +206,10 @@ async fn check_smart_account_status(ctx: ZeusCtx) {
    let mut tasks = Vec::new();
 
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let ctx = ctx.clone();
       let accounts = accounts.clone();
 
@@ -213,6 +241,10 @@ async fn check_smart_account_status(ctx: ZeusCtx) {
 async fn update_token_prices(ctx: ZeusCtx) {
    let mut tasks = Vec::new();
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let ctx = ctx.clone();
       let task = RT.spawn(async move {
          let price_manager = ctx.price_manager();
@@ -276,6 +308,10 @@ async fn state_update_interval(ctx: ZeusCtx) {
          update_token_prices(ctx.clone()).await;
 
          for chain in SUPPORTED_CHAINS {
+            if ctx.is_chain_disabled(chain) {
+               continue;
+            }
+
             let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
                ctx.update_public_data(chain, portfolio.owner());
@@ -293,6 +329,10 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
       if fee_time_passed.elapsed().as_secs() > FEE_INTERVAL {
          for chain in SUPPORTED_CHAINS {
+            if ctx.is_chain_disabled(chain) {
+               continue;
+            }
+
             match update_priority_fee(ctx.clone(), chain).await {
                Ok(_) => {
                   #[cfg(feature = "debug")]
@@ -318,7 +358,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
 
       if rpc_measure_time_passed.elapsed().as_secs() > MEASURE_RPCS_INTERVAL {
          let z_client = ctx.get_zeus_client();
-         z_client.run_latency_checks().await;
+         z_client.run_latency_checks(ctx.clone()).await;
          rpc_measure_time_passed = Instant::now();
       }
 
@@ -411,6 +451,10 @@ pub async fn resync_pools(ctx: ZeusCtx) {
    tracing::info!("Resyncing pools");
 
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+
       let ctx = ctx.clone();
       RT.spawn(async move {
          let mut tokens = ctx.get_all_tokens_from_portfolios(chain);
@@ -462,6 +506,10 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
    RT.spawn_blocking(move || {
       for chain in SUPPORTED_CHAINS {
+         if ctx.is_chain_disabled(chain) {
+            continue;
+         }
+
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
             ctx.update_public_data(chain, portfolio.owner());

@@ -431,6 +431,10 @@ impl DiscoverChildWallets {
 
          // get the chains which the wallet has balance in
          for chain in SUPPORTED_CHAINS {
+            if ctx.is_chain_disabled(chain) {
+               continue;
+            }
+
             let key = (chain, child.address);
             if let Some(balance) = self.discovered_wallets.balances.get(&key) {
                if !balance.is_zero() {
@@ -486,6 +490,9 @@ impl DiscoverChildWallets {
                      ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 1.0;
                         for chain in SUPPORTED_CHAINS {
+                           if ctx.is_chain_disabled(chain) {
+                              continue;
+                           }
                            let icon = icons.chain_icon_x16(chain, tint);
                            ui.add(icon);
                         }
@@ -583,6 +590,10 @@ impl DiscoverChildWallets {
                      };
 
                      for chain in SUPPORTED_CHAINS {
+                        if ctx.is_chain_disabled(chain) {
+                           continue;
+                        }
+
                         let eth = NativeCurrency::from(chain);
                         let balance = balances.get(&(chain, address)).cloned().unwrap_or_default();
                         let balance_manager = ctx.balance_manager();
@@ -673,6 +684,10 @@ async fn sync_wallets_balance(
    let semaphore = Arc::new(Semaphore::new(concurrency));
 
    for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) {
+         continue;
+      }
+      
       let ctx = ctx.clone();
       let semaphore = semaphore.clone();
       let addresses = addresses.clone();

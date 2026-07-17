@@ -1,6 +1,7 @@
 //! A ComboBox to select a chain
 
 use crate::assets::icons::Icons;
+use crate::core::ZeusContext;
 use eframe::egui::{RichText, Sense, Ui, Vec2};
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ pub struct ChainSelect {
    pub chain: ChainId,
    pub size: Vec2,
    pub show_icon: bool,
+   pub show_disabled_chains: bool,
    pub expansion: Option<f32>,
 }
 
@@ -24,6 +26,7 @@ impl ChainSelect {
          chain: ChainId::new(default_chain).unwrap(),
          size: (200.0, 25.0).into(),
          show_icon: true,
+         show_disabled_chains: false,
          expansion: Some(4.0),
       }
    }
@@ -43,7 +46,8 @@ impl ChainSelect {
    /// Returns true if the chain was changed
    pub fn show(
       &mut self,
-      ignore_chain: u64,
+      ctx: &mut ZeusContext,
+      ignore_chains: &[u64],
       theme: &Theme,
       icons: Arc<Icons>,
       ui: &mut Ui,
@@ -74,7 +78,11 @@ impl ChainSelect {
             ui.spacing_mut().item_spacing.y = 10.0;
 
             for chain in supported_chains {
-               if chain.id() == ignore_chain {
+               if ignore_chains.contains(&chain.id()) {
+                  continue;
+               }
+
+               if ctx.is_chain_disabled(chain.id()) && !self.show_disabled_chains {
                   continue;
                }
 

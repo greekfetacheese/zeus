@@ -10,7 +10,7 @@ use zeus_eth::{
    utils::{
       NumericValue,
       address_book::{
-         across_spoke_pool_v2, permit2_contract, uniswap_nft_position_manager, universal_router_v2,
+         across_spoke_pool_v2, permit2_contract, uniswap_v3_nft_position_manager, universal_router_v2,
          vitalik, weth,
       },
    },
@@ -791,7 +791,7 @@ impl TransactionAnalysis {
       Self {
          chain: 1,
          sender: vitalik(),
-         interact_to: uniswap_nft_position_manager(1).unwrap(),
+         interact_to: uniswap_v3_nft_position_manager(1).unwrap(),
          contract_interact: true,
          value: U256::ZERO,
          call_data: Bytes::from_str("0x").unwrap(),

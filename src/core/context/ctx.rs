@@ -13,6 +13,7 @@ use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
+   time::{SystemTime, UNIX_EPOCH},
 };
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
@@ -35,13 +36,12 @@ use zeus_railgun::{
    RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
 };
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
 const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
+const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
@@ -87,6 +87,11 @@ pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn delegated_wallets_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(DELEGATED_WALLETS_FILE);
+   Ok(dir)
+}
+
+pub fn disabled_chains_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(DISABLED_CHAINS_FILE);
    Ok(dir)
 }
 
@@ -381,8 +386,12 @@ impl ZeusCtx {
    }
 
    pub fn current_wallet_info(&self) -> WalletInfo {
-      let wallet =
-         self.read(|ctx| ctx.wallet_info_cache.get(&ctx.current_wallet.address()).cloned());
+      let wallet = self.read(|ctx| {
+         if !ctx.vault_unlocked {
+            return Some(WalletInfo::default());
+         }
+         ctx.wallet_info_cache.get(&ctx.current_wallet.address()).cloned()
+      });
       wallet.expect("Current Wallet should be in cache")
    }
 
@@ -544,6 +553,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.chain)
    }
 
+   pub fn is_chain_disabled(&self, chain: u64) -> bool {
+      self.read(|ctx| ctx.is_chain_disabled(chain))
+   }
+
    pub fn save_balance_manager(&self) {
       let manager = self.balance_manager();
       match manager.save() {
@@ -609,6 +622,14 @@ impl ZeusCtx {
       match wallets.save_to_file() {
          Ok(_) => tracing::trace!("Delegated Wallets saved"),
          Err(e) => tracing::error!("Error saving delegated wallets: {:?}", e),
+      }
+   }
+
+   pub fn save_disabled_chains(&self) {
+      let chains = self.read(|ctx| ctx.disabled_chains.clone());
+      match chains.save_to_file() {
+         Ok(_) => tracing::trace!("Disabled Chains saved"),
+         Err(e) => tracing::error!("Error saving disabled chains: {:?}", e),
       }
    }
 
@@ -1368,32 +1389,41 @@ pub struct ZeusContext {
 
    /// Loaded Vault
    pub vault: Vault,
-   /// Flag to indicate that the vault is being saved
-   /// to prevent any race conditions
-   pub save_vault_in_progress: bool,
+
    /// True if a vault exists in the data directory
    pub vault_exists: bool,
+
    /// True if the vault is unlocked,
    /// only then the Zeus UI unlocks
    pub vault_unlocked: bool,
+
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
+
    /// Holds all portfolios
    pub portfolio_db: PortfolioDB,
+
    /// Tx history
    pub tx_db: TransactionsDB,
+
    /// Pool manager used for the Uniswap UI
    /// and price manager
    pub pool_manager: PoolManagerHandle,
+
    /// Calculate the $USD price of an ERC20 token
    /// based purely on the on-chain pool data
    /// no 3rd party APIs
    pub price_manager: PriceManagerHandle,
+
    /// Fetch and stores ETH and ERC20 balances
    pub balance_manager: BalanceManagerHandle,
+
+   /// State flags for the UI that showup on the top right corner
    pub data_syncing: bool,
    pub dex_syncing: bool,
    pub on_startup_syncing: bool,
+   pub save_vault_in_progress: bool,
+
    /// Cached base fees for each chain
    pub base_fee: HashMap<u64, BaseFee>,
 
@@ -1408,8 +1438,10 @@ pub struct ZeusContext {
 
    /// Cached priority fees for each chain
    pub priority_fee: PriorityFee,
+
    /// Currently connected dapps
    pub connected_dapps: ConnectedDapps,
+
    /// Currently delegated wallets
    pub delegated_wallets: DelegatedWallets,
 
@@ -1418,9 +1450,9 @@ pub struct ZeusContext {
    /// True if the local server that communicates with the wallet connector (browser extension) is running
    pub server_running: bool,
 
-   // TODO: Remove these, they dont belong here
    /// True if the transaction confirmation window is open
    pub tx_confirm_window_open: bool,
+
    /// True if the sign message window is open
    pub sign_msg_window_open: bool,
 
@@ -1433,6 +1465,9 @@ pub struct ZeusContext {
    /// True if we have at least one working & enabled RPC
    /// for a specific chain
    pub available_rpcs: HashMap<u64, bool>,
+
+   /// Disabled Chains
+   pub disabled_chains: DisabledChains,
 }
 
 impl ZeusContext {
@@ -1509,6 +1544,14 @@ impl ZeusContext {
          }
       };
 
+      let disabled_chains = match DisabledChains::load_from_file() {
+         Ok(chains) => chains,
+         Err(e) => {
+            tracing::error!("Failed to load disabled chains: {:?}", e);
+            DisabledChains::default()
+         }
+      };
+
       let priority_fee = PriorityFee::default();
 
       Self {
@@ -1549,6 +1592,7 @@ impl ZeusContext {
          qr_image_data: Arc::new([0u8; 0]),
          last_checked_for_available_rpcs: HashMap::new(),
          available_rpcs: HashMap::new(),
+         disabled_chains,
       }
    }
 
@@ -1661,7 +1705,7 @@ impl ZeusContext {
          return Some("Uniswap: Universal Router V2".to_string());
       }
 
-      let nft_position_manager = address_book::uniswap_nft_position_manager(chain).unwrap();
+      let nft_position_manager = address_book::uniswap_v3_nft_position_manager(chain).unwrap();
       if nft_position_manager == address {
          return Some("Uniswap V3: NFT Position Manager".to_string());
       }
@@ -1759,6 +1803,24 @@ impl ZeusContext {
       };
 
       owner_value
+   }
+
+   /// Disable the given chain
+   ///
+   /// It wont show up in the UI anymore and wont be used for RPC calls
+   pub fn disable_chain(&mut self, chain: u64) {
+      self.disabled_chains.disable(chain);
+   }
+
+   /// Enable the given chain
+   ///
+   /// It will show up in the UI again and will be used for RPC calls
+   pub fn enable_chain(&mut self, chain: u64) {
+      self.disabled_chains.enable(chain);
+   }
+
+   pub fn is_chain_disabled(&self, chain: u64) -> bool {
+      self.disabled_chains.is_disabled(chain)
    }
 
    /// Check if we have any enabled and working RPCs for the given chain
