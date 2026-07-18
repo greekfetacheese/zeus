@@ -179,6 +179,49 @@ async fn unshield_via_paymaster(
       ));
    }
 
+   let fee_asset = AssetId::Erc20(chain_config.wrapped_base_token);
+   let rg_addr = railgun_signer.address().clone();
+
+   // Live spendable notes (not UI portfolio cache). Paymaster always charges a private
+   // fee note in wrapped base token on top of the unshield amount when unshielding WETH.
+   let notes = railgun_provider.notes(rg_addr.clone()).await;
+   let fee_token_balance = railgun_provider.balance_erc20(rg_addr.clone(), fee_asset).await;
+
+   let note_summary: Vec<String> = notes
+      .iter()
+      .map(|n| {
+         format!(
+            "{{asset={}, value={}, tree={}, leaf={}}}",
+            n.asset, n.amount, n.tree_number, n.leaf_index
+         )
+      })
+      .collect();
+   info!(
+      "Paymaster unshield preflight: notes={} fee_token_balance_wei={} fee_token={:?} note_summary={:?}",
+      notes.len(),
+      fee_token_balance,
+      chain_config.wrapped_base_token,
+      note_summary
+   );
+
+   // Initial fee seed inside prepare_userop (Kohaku). Real fee after gas estimate is often higher.
+   const INITIAL_FEE_WEI: u128 = 100_000_000;
+   if fee_token_balance < INITIAL_FEE_WEI {
+      let note_assets: Vec<String> =
+         notes.iter().map(|n| format!("{} ({} wei)", n.asset, n.amount)).collect();
+      let fee_token = chain_config.wrapped_base_token;
+      return Err(anyhow!(
+         "Not enough private balance of the Railgun fee token ({fee_token:?}) for the paymaster fee note.\n\
+          Fee-token spendable balance: {fee_token_balance} wei (need ≥ {INITIAL_FEE_WEI} wei fee seed, plus unshield amount if same asset).\n\
+          Notes loaded ({}) : {note_assets:?}\n\n\
+          Common Sepolia issue: Zeus default WETH is 0x7b7999… while Railgun/Kohaku paymaster fee uses 0xfff997….\n\
+          Private notes in a different WETH cannot pay the fee. Self-broadcast still works for those notes.\n\
+          Fix going forward: native Railgun shield now wraps to ChainConfig.wrapped_base_token ({fee_token:?}).\n\
+          To use private broadcast, shield more of that fee token (or swap/shield into it).",
+         notes.len()
+      ));
+   }
+
    let bundler_url = if bundler_url.trim().is_empty() {
       default_bundler_url(chain.id())
    } else {
@@ -193,7 +236,7 @@ async fn unshield_via_paymaster(
    let bundler = PimlicoBundler::new(parsed_url);
 
    // Ephemeral smart-account owner for the UserOp.
-   // Unshield recipient is independent of this key.
+   // Unshield recipient is independent of this key — does NOT affect private note selection.
    let sa_key = PrivateKeySigner::random();
    let smart_account = SimpleSmartAccount::new(sa_key.address(), chain.id(), client);
 
@@ -217,7 +260,16 @@ async fn unshield_via_paymaster(
          &mut rng,
       )
       .await
-      .map_err(|e| anyhow!("Failed to prepare UserOperation: {}", e))?;
+      .map_err(|e| {
+         anyhow!(
+            "Failed to prepare UserOperation: {e}\n\
+             (paymaster fee is a private transfer of wrapped base token to the Railgun privacy paymaster; \
+             initial fee seed is {INITIAL_FEE_WEI} wei, then converges to gas*maxFee. \
+             Spendable fee-token balance was {fee_token_balance} wei across {} note(s). \
+             Random smart-account key is only the 4337 submitter and does not spend your notes.)",
+            notes.len()
+         )
+      })?;
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Submitting unshield via bundler…");

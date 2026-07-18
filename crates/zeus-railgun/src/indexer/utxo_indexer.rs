@@ -118,7 +118,11 @@ impl UtxoIndexer {
    /// Idempotent: registering an address that is already loaded is a no-op.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
       let addr = signer.address().clone();
-      if self.accounts.iter().any(|a| a.address() == addr) {
+      if self
+         .accounts
+         .iter()
+         .any(|a| a.address().address == addr.address)
+      {
          return Ok(());
       }
 
@@ -139,8 +143,10 @@ impl UtxoIndexer {
    /// Lists all unspent notes for a given address. Returns an empty list if the address is not
    /// registered.
    pub fn unspent(&self, address: RailgunAddress) -> Vec<UtxoNote> {
+      // Compare by 0zk string — full PartialEq also includes chain/key fields and can
+      // spuriously miss a registered account when addresses were built via different paths.
       for account in self.accounts.iter() {
-         if account.address() == address {
+         if account.address().address == address.address {
             return account.unspent();
          }
       }

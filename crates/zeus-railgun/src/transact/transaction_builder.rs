@@ -65,11 +65,14 @@ pub enum TransactionBuilderError {
       from: RailgunAddress,
       asset: AssetId,
    },
-   #[error("Insufficient balance for intent with from {from}, asset {asset}, value {value}")]
+   #[error(
+      "Insufficient balance for intent with from {from}, asset {asset}, value {value} (available matched notes total {available})"
+   )]
    InsufficientBalance {
       from: RailgunAddress,
       asset: AssetId,
       value: u128,
+      available: u128,
    },
    #[error("Encryption error: {0}")]
    Encryption(#[from] EncryptError),
@@ -247,6 +250,19 @@ fn build_group<R: Rng>(
       })
       .collect();
 
+   let available_total: u128 = balances.values().sum();
+   let required_total: u128 = intents.iter().map(|i| i.value).sum();
+   info!(
+      "build_group: from={} asset={} intents={} matched_notes={} trees={:?} available={} required={}",
+      from,
+      asset,
+      intents.len(),
+      tree_number.values().map(|v| v.len()).sum::<usize>(),
+      balances,
+      available_total,
+      required_total,
+   );
+
    // Fit intents to trees.
    let mut operations = BTreeMap::new();
    for intent in intents {
@@ -266,6 +282,7 @@ fn build_group<R: Rng>(
          &mut balances,
          &mut operations,
          rng,
+         available_total,
       )?;
    }
 
@@ -294,6 +311,7 @@ fn split_intent<R: Rng>(
    balances: &mut BTreeMap<u32, u128>,
    operations: &mut BTreeMap<u32, Operation>,
    rng: &mut R,
+   available_total: u128,
 ) -> Result<(), TransactionBuilderError> {
    let mut remaining = intent.value;
    let trees: Vec<u32> = balances.keys().copied().collect();
@@ -322,6 +340,7 @@ fn split_intent<R: Rng>(
          from,
          asset,
          value: intent.value,
+         available: available_total,
       });
    }
    Ok(())

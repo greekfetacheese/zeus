@@ -787,7 +787,6 @@ async fn shield(
 
    // TODO: At some point we want the WRAP + Approve + Shield to be done with a single transaction
 
-   // Check if railgun contract needs approval
    let token = currency.to_erc20().into_owned();
    let allowance_fut = token.allowance(client.clone(), from, railgun_address);
 

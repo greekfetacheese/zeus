@@ -95,7 +95,7 @@ pub fn weth(chain_id: u64) -> Result<Address, anyhow::Error> {
    let chain = ChainId::new(chain_id)?;
    match chain {
       ChainId::Ethereum => Ok(address!("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")),
-      ChainId::EthereumSepolia => Ok(address!("0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9")),
+      ChainId::EthereumSepolia => Ok(address!("0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14")),
       ChainId::Optimism => Ok(address!("4200000000000000000000000000000000000006")),
       ChainId::BinanceSmartChain => Ok(address!("2170Ed0880ac9A755fd29B2688956BD959F933F8")),
       ChainId::Base => Ok(address!("4200000000000000000000000000000000000006")),
