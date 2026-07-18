@@ -41,13 +41,10 @@ impl RedbDatabase {
       let inner = self.inner.clone();
 
       task::spawn_blocking(move || -> Result<bool, DatabaseError> {
-         let mut guard = inner
-            .write()
-            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let mut guard = inner.write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
-         let did_compact = guard
-            .compact()
-            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let did_compact =
+            guard.compact().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
          Ok(did_compact)
       })
@@ -65,9 +62,7 @@ impl Database for RedbDatabase {
 
       task::spawn_blocking(
          move || -> Result<Option<Vec<u8>>, DatabaseError> {
-            let guard = inner
-               .read()
-               .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+            let guard = inner.read().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
             let tx = guard.begin_read().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
             let table: redb::ReadOnlyTable<&[u8], &[u8]> =
@@ -90,9 +85,7 @@ impl Database for RedbDatabase {
       let value = value.to_vec();
 
       task::spawn_blocking(move || -> Result<(), DatabaseError> {
-         let guard = inner
-            .write()
-            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let guard = inner.write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
          let tx = guard.begin_write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          {
@@ -114,9 +107,7 @@ impl Database for RedbDatabase {
       let key = key.to_vec();
 
       task::spawn_blocking(move || -> Result<(), DatabaseError> {
-         let guard = inner
-            .write()
-            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let guard = inner.write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
          let tx = guard.begin_write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          {

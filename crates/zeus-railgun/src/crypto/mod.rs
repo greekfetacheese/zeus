@@ -14,11 +14,11 @@ use crate::types::{ChainCode, Key32};
 pub mod aes;
 pub mod babyjubjub;
 pub mod common;
-pub mod serializable_np_index;
-pub mod railgun_txid;
-pub mod railgun_base_37;
 pub mod keys;
+pub mod railgun_base_37;
+pub mod railgun_txid;
 pub mod railgun_zero;
+pub mod serializable_np_index;
 
 #[derive(Clone, Copy)]
 pub struct BabyJubPoint {

@@ -38,7 +38,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use zeus_railgun::{RailgunAddress, caip::AssetId, rand};
+use zeus_railgun::{RailgunAddress, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng};
 
 use anyhow::anyhow;
 use tracing::{error, info};
@@ -554,9 +554,11 @@ impl ShieldUi {
       } else {
          let self_broadcast = self.self_broadcast;
          let bundler_url = self.bundler_url.clone();
-         // prepare_userop / UserOp signing futures are not currently `Send`
-         // (dyn Bundler/Signer + thread_rng). Run on a dedicated current-thread
-         // runtime inside the blocking pool so we don't require Send.
+         // Unshield futures are not `Send` (`&dyn Bundler` / `&dyn Signer` across awaits).
+         // Do NOT spin up a nested current_thread runtime: revm's ForkDB uses
+         // `tokio::task::block_in_place`, which panics outside a multi-thread runtime.
+         // Drive the non-Send future on the existing multi-thread `RT` via `block_on`
+         // from a blocking thread (no Send bound, block_in_place still works).
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
                gui.loading_window.open("Wait while magic happens");
@@ -564,25 +566,7 @@ impl ShieldUi {
                gui.ctx.clone()
             });
 
-            let local_rt = match tokio::runtime::Builder::new_current_thread().enable_all().build()
-            {
-               Ok(rt) => rt,
-               Err(e) => {
-                  SHARED_GUI.write(|gui| {
-                     gui.shield_ui.sending_tx = false;
-                     gui.notification.reset();
-                     gui.loading_window.reset();
-                     gui.msg_window.open(
-                        "Unshield Error",
-                        format!("Failed to start runtime: {e}"),
-                     );
-                     gui.request_repaint();
-                  });
-                  return;
-               }
-            };
-
-            let result = local_rt.block_on(unshield(
+            let result = RT.block_on(unshield(
                ctx.clone(),
                chain,
                currency,
@@ -852,7 +836,7 @@ async fn shield(
    let amount_u128: u128 = amount.wei().try_into()?;
 
    let shield_tx = {
-      let mut rng = rand::rng();
+      let mut rng = ChaCha12Rng::from_os_rng();
       railgun_provider
          .shield()
          .shield(recipient, asset, amount_u128)

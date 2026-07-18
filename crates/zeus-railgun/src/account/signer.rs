@@ -16,7 +16,11 @@ pub struct RailgunSigner {
 
 impl std::fmt::Debug for RailgunSigner {
    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-      write!(f, "RailgunSigner {{ address: {:?}, chain: {:?} }}", self.address, self.chain)
+      write!(
+         f,
+         "RailgunSigner {{ address: {:?}, chain: {:?} }}",
+         self.address, self.chain
+      )
    }
 }
 

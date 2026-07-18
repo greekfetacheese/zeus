@@ -110,4 +110,3 @@ impl From<RailgunLegacy::TokenDataLegacy> for crate::caip::AssetId {
       }
    }
 }
-

@@ -10,7 +10,7 @@ use crate::{
       railgun_txid::Txid,
    },
    merkle_tree::{
-      MerkleRoot, RailgunMerkleTree, MerkleTreeError, TREE_DEPTH, TxidLeafHash, TxidMerkleTree,
+      MerkleRoot, MerkleTreeError, RailgunMerkleTree, TREE_DEPTH, TxidLeafHash, TxidMerkleTree,
       UtxoTreeIndex,
    },
    poi::{note::PoiNote, types::ListKey},

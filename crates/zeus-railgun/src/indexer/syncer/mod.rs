@@ -1,8 +1,8 @@
 pub mod normalize_tree_position;
 pub mod rpc;
+pub mod snapshot;
 pub mod subsquid;
 pub mod types;
-pub mod snapshot;
 
 pub use rpc::RpcSyncer;
 pub use types::*;

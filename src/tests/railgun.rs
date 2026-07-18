@@ -298,11 +298,14 @@ mod tests {
       }
 
       let logs = res.logs().to_vec();
+      let to_block = synced_block + 1;
+      let timestamp = timestamp + 12;
+
       railgun_provider
          .utxo_indexer
          .write()
          .await
-         .sync_from_logs(logs, synced_block, timestamp)?;
+         .sync_from_logs(logs, to_block, timestamp)?;
 
       let balances = railgun_provider.balance(railgun_address.clone()).await;
       assert_eq!(balances.len(), 1);

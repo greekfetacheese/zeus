@@ -1,2 +1,2 @@
-pub mod railgun;
 pub mod legacy;
+pub mod railgun;

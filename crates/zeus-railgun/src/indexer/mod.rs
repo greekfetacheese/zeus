@@ -3,9 +3,11 @@ pub mod syncer;
 pub mod txid_indexer;
 pub mod utxo_indexer;
 
-use alloy_primitives::U256;
 use crate::abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet};
-use crate::indexer::syncer::{SyncEvent, SyncerError, types::*, normalize_tree_position::normalize_tree_position};
+use crate::indexer::syncer::{
+   SyncEvent, SyncerError, normalize_tree_position::normalize_tree_position, types::*,
+};
+use alloy_primitives::U256;
 
 fn parse_shield(
    event: &RailgunSmartWallet::Shield,
@@ -116,7 +118,11 @@ fn parse_legacy_commitment_batch(
                U256::from_be_bytes::<32>(c.ephemeralKeys[0].to_be_bytes::<32>()),
                U256::from_be_bytes::<32>(c.ephemeralKeys[1].to_be_bytes::<32>()),
             ],
-            memo: c.memo.iter().map(|m| U256::from_be_bytes::<32>(m.to_be_bytes::<32>())).collect(),
+            memo: c
+               .memo
+               .iter()
+               .map(|m| U256::from_be_bytes::<32>(m.to_be_bytes::<32>()))
+               .collect(),
          })
       } else {
          None
@@ -155,8 +161,8 @@ fn parse_legacy_generated_commitment_batch(
       let npk = commitment.npk;
       let value = U256::from(commitment.value);
 
-      let computed_hash = poseidon_hash(&[npk, asset.hash(), value])
-         .map_err(|e| SyncerError::new(e))?;
+      let computed_hash =
+         poseidon_hash(&[npk, asset.hash(), value]).map_err(|e| SyncerError::new(e))?;
 
       let (tree_number, leaf_index) =
          normalize_tree_position(tree_number, start_position + i as u32);
@@ -184,7 +190,8 @@ fn parse_legacy_nullifiers(
    let mut events = Vec::new();
    for nullifier in &event.nullifier {
       // Legacy nullifier is uint256, modern is bytes32. Take low 256 bits as-is.
-      let n: alloy_primitives::FixedBytes<32> = alloy_primitives::FixedBytes::from_slice(&nullifier.to_be_bytes::<32>());
+      let n: alloy_primitives::FixedBytes<32> =
+         alloy_primitives::FixedBytes::from_slice(&nullifier.to_be_bytes::<32>());
       events.push(SyncEvent::Nullified(
          Nullified {
             tree_number,
@@ -268,4 +275,3 @@ fn parse_legacy_unshield(
    // If we ever need to track outgoing value per account, we can extend here.
    Ok(vec![])
 }
-

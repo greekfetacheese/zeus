@@ -1520,6 +1520,7 @@ pub async fn wrap_eth(
    let block_id = BlockId::number(block.header.number);
 
    let weth = ERC20Token::wrapped_native_token(chain.id());
+   let weth_balance_before = ctx.get_token_balance(chain.id(), from, weth.address);
 
    let call_data = weth.encode_deposit();
    let interact_to = weth.address;
@@ -1545,7 +1546,7 @@ pub async fn wrap_eth(
 
    let eth_balance_after;
    let sim_res;
-   let weth_received;
+   let weth_balance_after;
    {
       let mut evm = new_evm(chain, Some(&block), fork_db.clone());
 
@@ -1571,8 +1572,16 @@ pub async fn wrap_eth(
       };
 
       let received = erc20_balance(&mut evm, weth.address, from)?;
-      weth_received = NumericValue::format_wei(received, weth.decimals);
+      weth_balance_after = NumericValue::format_wei(received, weth.decimals);
    }
+
+   let weth_received = if weth_balance_after.wei() > weth_balance_before.wei() {
+      weth_balance_after.wei() - weth_balance_before.wei()
+   } else {
+      U256::ZERO
+   };
+
+   let weth_received = NumericValue::format_wei(weth_received, weth.decimals);
 
    if weth_received.wei() < amount.wei() {
       return Err(anyhow!(

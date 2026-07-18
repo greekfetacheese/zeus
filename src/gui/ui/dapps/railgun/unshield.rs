@@ -12,7 +12,10 @@ use userop_kit::{
 use zeus_eth::{
    alloy_primitives::Address, currency::Currency, types::ChainId, utils::NumericValue,
 };
-use zeus_railgun::{RailgunSigner, caip::AssetId, rand, transact::TransactionBuilder};
+use zeus_railgun::{
+   RailgunSigner, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
+   transact::TransactionBuilder,
+};
 
 use crate::{
    core::{ZeusCtx, send_transaction},
@@ -127,8 +130,12 @@ async fn unshield_self_broadcast(
       gui.request_repaint();
    });
 
-   let mut rng = rand::rng();
-   let proved = railgun_provider.build(tx, &mut rng).await?;
+   // ChaCha12Rng is Send (+ Sync); ThreadRng is not and breaks RT.spawn futures.
+   let proved = {
+      let mut rng = ChaCha12Rng::from_os_rng();
+      railgun_provider.build(tx, &mut rng).await?
+   };
+
    let calldata = proved.tx_data.data.clone();
    let interact_to = proved.tx_data.to;
    let value = proved.tx_data.value;
@@ -185,7 +192,7 @@ async fn unshield_via_paymaster(
    let client = ctx.get_client(chain.id()).await?;
    let bundler = PimlicoBundler::new(parsed_url);
 
-   // Ephemeral smart-account owner for the UserOp (Kohaku test pattern).
+   // Ephemeral smart-account owner for the UserOp.
    // Unshield recipient is independent of this key.
    let sa_key = PrivateKeySigner::random();
    let smart_account = SimpleSmartAccount::new(sa_key.address(), chain.id(), client);
@@ -195,7 +202,10 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
-   let mut rng = rand::rng();
+   // ChaCha12Rng is Send; ThreadRng is not. prepare_userop still holds &dyn Bundler
+   // across awaits, so the outer unshield future is not Send — spawn path uses
+   // RT.spawn_blocking + RT.block_on (multi-thread RT; see shield.rs).
+   let mut rng = ChaCha12Rng::from_os_rng();
    let signable = railgun_provider
       .prepare_userop(
          tx,
