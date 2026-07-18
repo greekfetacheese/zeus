@@ -40,6 +40,7 @@ impl AmountField {
    /// Helper function to draw an amount field with optional currency selector and customizable balance/max logic.
    ///
    /// Arguments:
+   /// - `chain_id`: The chain id.
    /// - `privacy_mode`: True if the privacy mode is enabled.
    /// - `theme`: The current theme.
    /// - `icons`: Shared icons.
@@ -58,6 +59,7 @@ impl AmountField {
    /// Returns: If the amount field was changed.
    pub fn show(
       &mut self,
+      chain_id: u64,
       privacy_mode: bool,
       theme: &Theme,
       icons: Arc<Icons>,
@@ -172,7 +174,7 @@ impl AmountField {
 
                if ui.add(button).clicked() {
                   if let Some(token_selection) = token_selection {
-                     token_selection.open(privacy_mode, currency.chain_id(), owner);
+                     token_selection.open(privacy_mode, chain_id, owner);
                      if let Some(direction) = direction {
                         token_selection.currency_direction = direction;
                      }

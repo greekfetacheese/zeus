@@ -12,7 +12,7 @@ mod tests {
    use std::time::Instant;
    use zeus_eth::alloy_primitives::{TxKind, U256};
    use zeus_eth::alloy_provider::Provider;
-   use zeus_eth::{currency::ERC20Token, revm_utils::*, utils::NumericValue};
+   use zeus_eth::{currency::ERC20Token, revm_utils::*, types::ChainId, utils::NumericValue};
    use zeus_railgun::rand;
    use zeus_wallet::Wallet;
 
@@ -31,7 +31,7 @@ mod tests {
       let client = ctx.get_client(chain).await?;
 
       let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
-      let chain_config = ChainConfig::mainnet();
+      let chain_config = ChainConfig::from_chain_id(chain).unwrap();
       let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
       let rpc_syncer = RpcSyncer::new(
          client.clone(),
@@ -75,16 +75,16 @@ mod tests {
          .init();
 
       let ctx = ZeusCtx::new();
-      let chain = 1;
-      let _chain_config = ChainConfig::mainnet();
-      let client = ctx.get_client(chain).await?;
+      let chain = ChainId::EthereumSepolia;
+      let _chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
+      let client = ctx.get_client(chain.id()).await?;
 
       let wallet = create_wallet();
       let seed = wallet.seed()?;
-      let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
+      let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain).await?;
+         create_railgun_provider(ctx.clone(), chain.id()).await?;
 
       railgun_provider.register(signer).await?;
       railgun_provider.set_provider(client.clone());
@@ -103,7 +103,7 @@ mod tests {
 
       railgun_provider.sync_to(to_block, use_subsquid).await?;
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
       println!("Synced block: {}", synced_block);
 
       Ok(())
@@ -155,7 +155,7 @@ mod tests {
 
       railgun_provider.register(signer).await.unwrap();
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
       println!("Synced block: {}", synced_block);
 
       match railgun_provider.compact().await {
@@ -186,7 +186,7 @@ mod tests {
 
       railgun_provider.register(signer).await?;
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
       println!("Synced block: {}", synced_block);
 
       let block_id = BlockId::number(synced_block);
@@ -197,28 +197,31 @@ mod tests {
 
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_shield_unshield() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt().with_env_filter("info,error").init();
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error")
+         .with_test_writer()
+         .init();
 
       let ctx = ZeusCtx::new();
-      let chain = 1;
-      let chain_config = ChainConfig::mainnet();
+      let chain = ChainId::EthereumSepolia;
+      let chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
       let railgun_addr = chain_config.railgun_smart_wallet;
 
       let wallet = create_wallet();
       let seed = wallet.seed()?;
-      let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
+      let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
       let railgun_address = signer.address().clone();
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain).await?;
+         create_railgun_provider(ctx.clone(), chain.id()).await?;
 
       railgun_provider.register(signer.clone()).await?;
 
       let amount = NumericValue::parse_to_wei("1", 18);
-      let weth = ERC20Token::weth();
+      let weth = ERC20Token::wrapped_native_token(chain.id());
       let weth_id = AssetId::Erc20(weth.address);
 
-      let client = ctx.get_client(chain).await?;
+      let client = ctx.get_client(chain.id()).await?;
 
       let dummy_account = DummyAccount {
          account_type: AccountType::EOA,
@@ -227,14 +230,19 @@ mod tests {
          key: wallet.key.to_signer(),
       };
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.synced_block();
+      eprintln!("Syncing Railgun provider");
+      railgun_provider.sync().await?;
+
+      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
+      eprintln!("Account synced block: {}", synced_block);
+
       let fork_block = BlockId::number(synced_block);
       let full_block = client.get_block(fork_block).await.unwrap();
       let timestamp = full_block.unwrap().header.timestamp;
-      println!("Fork block {}", synced_block);
+      eprintln!("Fork block {}", synced_block);
 
       let mut factory =
-         ForkFactory::new_sandbox_factory(client.clone(), chain, None, Some(fork_block));
+         ForkFactory::new_sandbox_factory(client.clone(), chain.id(), None, Some(fork_block));
       factory.insert_dummy_account(dummy_account);
       factory.give_token(wallet.address(), weth.address, amount.wei()).unwrap();
 
@@ -295,6 +303,9 @@ mod tests {
          .write()
          .await
          .sync_from_logs(logs, synced_block, timestamp)?;
+
+      let balances = railgun_provider.balance(railgun_address.clone()).await;
+      assert_eq!(balances.len(), 1);
 
       let priv_balance = railgun_provider.balance_erc20(railgun_address.clone(), weth_id).await;
       let priv_balance_fmt = NumericValue::format_wei(U256::from(priv_balance), weth.decimals);

@@ -90,13 +90,22 @@ impl UtxoIndexer {
       })
    }
 
-   /// Returns the latest synced block
-   pub fn synced_block(&self) -> u64 {
+   /// Overall resume watermark: min(global tree progress, registered accounts).
+   ///
+   /// Used for reporting / "are we fully caught up". Tree mutation must NOT use this
+   /// alone — a newly registered account at block 0 would otherwise force a full
+   /// historical re-insert into already-loaded merkle trees and corrupt the root.
+   pub fn account_synced_block(&self) -> u64 {
       let mut min_synced = self.synced_block;
       for account in self.accounts.iter() {
          min_synced = min_synced.min(account.synced_block());
       }
       min_synced
+   }
+
+   /// Global UTXO tree progress only (ignores per-account catch-up).
+   pub fn global_synced_block(&self) -> u64 {
+      self.synced_block
    }
 
    /// Registers a signer with the indexer. The indexer will track UTXOs for the associated
@@ -105,11 +114,16 @@ impl UtxoIndexer {
    /// The account state (including any previously decrypted notes and its synced_block)
    /// is loaded from the database. We immediately persist the (possibly loaded) account
    /// state so that progress for this account survives process restarts.
+   ///
+   /// Idempotent: registering an address that is already loaded is a no-op.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
-      let state = self.db.get_account(&signer.address()).await?;
+      let addr = signer.address().clone();
+      if self.accounts.iter().any(|a| a.address() == addr) {
+         return Ok(());
+      }
 
+      let state = self.db.get_account(&addr).await?;
       let account = IndexedAccount::from_state(signer, state);
-      let addr = account.address();
 
       // Persist right away. This records the account's notes + its per-account synced_block on disk.
       self.db.set_account(&addr, &account.state()).await?;
@@ -149,15 +163,41 @@ impl UtxoIndexer {
       deployment_block: u64,
       use_subsquid: bool,
    ) -> Result<(), UtxoIndexerError> {
-      let mut from_block = self.synced_block() + 1;
+      // Tree progress is global and independent of accounts. A brand-new registered
+      // account (synced_block=0) must re-scan history for note decryption, but must
+      // NOT rebuild/re-insert into merkle trees that are already loaded from DB.
+      let global_synced = self.synced_block;
 
-      if from_block == 1 && !use_subsquid {
-         from_block = deployment_block;
+      let mut tree_from = global_synced.saturating_add(1);
+      if tree_from <= 1 && !use_subsquid {
+         tree_from = deployment_block;
       }
 
+      let account_min = self.accounts.iter().map(|a| a.synced_block()).min();
+
+      let account_from = match account_min {
+         Some(min_synced) => {
+            let mut from = min_synced.saturating_add(1);
+            if from <= 1 && !use_subsquid {
+               from = deployment_block;
+            }
+            from
+         }
+         // No accounts registered: only advance the global tree.
+         None => tree_from,
+      };
+
+      let from_block = tree_from.min(account_from);
+
       info!(
-         "Effective sync range for utxo: from_block={} to_block={} use_subsquid={}",
-         from_block, to_block, use_subsquid
+         "Effective sync range for utxo: from_block={} to_block={} use_subsquid={} global_synced={} tree_from={} account_from={} accounts={}",
+         from_block,
+         to_block,
+         use_subsquid,
+         global_synced,
+         tree_from,
+         account_from,
+         self.accounts.len()
       );
 
       let syncer: Arc<dyn UtxoSyncer> = if use_subsquid {
@@ -188,20 +228,29 @@ impl UtxoIndexer {
          if i % 20000 == 0 {
             info!("Processing event {}/{}", i, events.len());
          }
-         self.handle_event(&event, &mut tree_leaves)?;
+         // Only mutate trees for blocks the global indexer has not applied yet.
+         let apply_tree = event.block_number() > global_synced;
+         self.handle_event(event, &mut tree_leaves, apply_tree)?;
       }
 
-      info!("Inserting leaves into UTXO trees");
-      for (tree_number, mut leaves) in tree_leaves {
-         leaves.sort_by_key(|(idx, _)| *idx);
-         let start = leaves[0].0;
-         let hashes: Vec<_> = leaves.into_iter().map(|(_, hash)| hash).collect();
+      let trees_mutated = !tree_leaves.is_empty();
 
-         self
-            .utxo_trees
-            .entry(tree_number)
-            .or_insert(UtxoMerkleTree::new(tree_number))
-            .insert_leaves(&hashes, start as usize);
+      if trees_mutated {
+         info!("Inserting leaves into UTXO trees");
+         for (tree_number, mut leaves) in tree_leaves {
+            leaves.sort_by_key(|(idx, _)| *idx);
+            // Exact leaf indices — dense packing from min index corrupts gapped/legacy ranges
+            // and also corrupts a re-scan that is not the full leaf set.
+            let tree = self
+               .utxo_trees
+               .entry(tree_number)
+               .or_insert_with(|| UtxoMerkleTree::new(tree_number));
+            for (leaf_index, hash) in leaves {
+               tree.insert_leaves(&[hash], leaf_index as usize);
+            }
+         }
+      } else {
+         info!("No new tree leaves (account catch-up and/or empty delta)");
       }
 
       for (tn, tree) in &self.utxo_trees {
@@ -213,14 +262,26 @@ impl UtxoIndexer {
          );
       }
 
-      // Verify against latest (root history is append-only / immutable once written)
-      info!("Verifying UTXO trees");
-      self.verify(None).await?;
+      // Verify only when trees changed. Account-only catch-up must not risk failing
+      // on an unrelated tree state, and root history is immutable once written.
+      if trees_mutated {
+         info!("Verifying UTXO trees");
+         self.verify(None).await?;
+      }
 
-      info!("Synced to block {}", to_block);
-      self.synced_block = to_block;
+      info!(
+         "Synced to block {} (trees_mutated={})",
+         to_block, trees_mutated
+      );
+
+      if tree_from <= to_block {
+         self.synced_block = to_block;
+      }
+
       for account in self.accounts.iter_mut() {
-         account.set_synced_block(to_block);
+         if account.synced_block() < to_block {
+            account.set_synced_block(to_block);
+         }
       }
 
       // Save
@@ -309,19 +370,18 @@ impl UtxoIndexer {
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
       for (_, event) in events.iter().enumerate() {
-         self.handle_event(&event, &mut tree_leaves)?;
+         self.handle_event(event, &mut tree_leaves, true)?;
       }
 
       for (tree_number, mut leaves) in tree_leaves {
          leaves.sort_by_key(|(idx, _)| *idx);
-         let start = leaves[0].0;
-         let hashes: Vec<_> = leaves.into_iter().map(|(_, hash)| hash).collect();
-
-         self
+         let tree = self
             .utxo_trees
             .entry(tree_number)
-            .or_insert(UtxoMerkleTree::new(tree_number))
-            .insert_leaves(&hashes, start as usize);
+            .or_insert_with(|| UtxoMerkleTree::new(tree_number));
+         for (leaf_index, hash) in leaves {
+            tree.insert_leaves(&[hash], leaf_index as usize);
+         }
       }
 
       Ok(())
@@ -331,12 +391,18 @@ impl UtxoIndexer {
       &mut self,
       event: &SyncEvent,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
+      apply_tree: bool,
    ) -> Result<(), UtxoIndexerError> {
+      let block = event.block_number();
       match event {
-         SyncEvent::Shield(shield, _) => self.handle_shield(shield, tree_leaves)?,
-         SyncEvent::Transact(transact, _) => self.handle_transact(transact, tree_leaves)?,
-         SyncEvent::Nullified(nullified, ts) => self.handle_nullified(nullified, *ts),
-         SyncEvent::Legacy(legacy, _) => self.handle_legacy(legacy, tree_leaves),
+         SyncEvent::Shield(shield, _) => {
+            self.handle_shield(shield, block, tree_leaves, apply_tree)?
+         }
+         SyncEvent::Transact(transact, _) => {
+            self.handle_transact(transact, block, tree_leaves, apply_tree)?
+         }
+         SyncEvent::Nullified(nullified, ts) => self.handle_nullified(nullified, *ts, block),
+         SyncEvent::Legacy(legacy, _) => self.handle_legacy(legacy, block, tree_leaves, apply_tree),
       };
 
       Ok(())
@@ -345,15 +411,21 @@ impl UtxoIndexer {
    fn handle_shield(
       &mut self,
       event: &syncer::Shield,
+      block: u64,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
+      apply_tree: bool,
    ) -> Result<(), UtxoIndexerError> {
-      tree_leaves
-         .entry(event.tree_number)
-         .or_default()
-         .push((event.leaf_index, event.hash()));
+      if apply_tree {
+         tree_leaves
+            .entry(event.tree_number)
+            .or_default()
+            .push((event.leaf_index, event.hash()));
+      }
 
       for account in self.accounts.iter_mut() {
-         account.handle_shield_event(event)?;
+         if block > account.synced_block() {
+            account.handle_shield_event(event)?;
+         }
       }
 
       Ok(())
@@ -362,23 +434,31 @@ impl UtxoIndexer {
    fn handle_transact(
       &mut self,
       event: &syncer::Transact,
+      block: u64,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
+      apply_tree: bool,
    ) -> Result<(), UtxoIndexerError> {
-      tree_leaves
-         .entry(event.tree_number)
-         .or_default()
-         .push((event.leaf_index, event.hash.into()));
+      if apply_tree {
+         tree_leaves
+            .entry(event.tree_number)
+            .or_default()
+            .push((event.leaf_index, event.hash.into()));
+      }
 
       for account in self.accounts.iter_mut() {
-         account.handle_transact_event(event)?;
+         if block > account.synced_block() {
+            account.handle_transact_event(event)?;
+         }
       }
 
       Ok(())
    }
 
-   fn handle_nullified(&mut self, event: &syncer::Nullified, timestamp: u64) {
+   fn handle_nullified(&mut self, event: &syncer::Nullified, timestamp: u64, block: u64) {
       for account in self.accounts.iter_mut() {
-         account.handle_nullified_event(event, timestamp);
+         if block > account.synced_block() {
+            account.handle_nullified_event(event, timestamp);
+         }
       }
    }
 
@@ -386,21 +466,27 @@ impl UtxoIndexer {
    fn handle_legacy(
       &mut self,
       event: &syncer::LegacyCommitment,
+      block: u64,
       tree_leaves: &mut HashMap<u32, Vec<(u32, UtxoLeafHash)>>,
+      apply_tree: bool,
    ) {
-      tree_leaves
-         .entry(event.tree_number)
-         .or_default()
-         .push((event.leaf_index, event.hash.into()));
+      if apply_tree {
+         tree_leaves
+            .entry(event.tree_number)
+            .or_default()
+            .push((event.leaf_index, event.hash.into()));
+      }
 
       // Forward to accounts so they can attempt decryption for private balances
       // (only when we have the ciphertext from legacy CommitmentBatch)
       if event.ciphertext.is_some() {
          for account in self.accounts.iter_mut() {
-            if let Err(e) = account.handle_legacy_event(event) {
-               // Ignore decryption failures (not our note) — same pattern as shield/transact
-               if !matches!(e, NoteError::Aes(_)) {
-                  tracing::debug!("Legacy note handling error: {}", e);
+            if block > account.synced_block() {
+               if let Err(e) = account.handle_legacy_event(event) {
+                  // Ignore decryption failures (not our note) — same pattern as shield/transact
+                  if !matches!(e, NoteError::Aes(_)) {
+                     tracing::debug!("Legacy note handling error: {}", e);
+                  }
                }
             }
          }

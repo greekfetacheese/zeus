@@ -30,7 +30,7 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
       if ctx.is_chain_disabled(chain) {
          continue;
       }
-      
+
       let rpcs = client.get_rpcs(chain);
 
       for (_url, rpc) in rpcs {
@@ -105,6 +105,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
       update_token_prices(ctx.clone()).await;
    }
 
+   let ctx_clone = ctx.clone();
+   RT.spawn(async move {
+      sync_railgun(ctx_clone).await;
+   });
+
    eth_balance_fut.await;
    token_balance_fut.await;
 
@@ -165,6 +170,38 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 }
 
+async fn sync_railgun(ctx: ZeusCtx) {
+   for chain in SUPPORTED_CHAINS {
+      if ctx.is_chain_disabled(chain) || !ctx.railgun_is_supported(chain.into()) {
+         continue;
+      }
+
+      let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+      let has_private_tokens = portfolios.iter().any(|p| p.has_private_tokens());
+
+      if has_private_tokens {
+         let mut provider = match ctx.get_railgun_provider(chain).await {
+            Ok(provider) => provider,
+            Err(e) => {
+               tracing::error!("Error getting Railgun provider: {:?}", e);
+               continue;
+            }
+         };
+
+         match provider.sync().await {
+            Ok(_) => {}
+            Err(e) => {
+               tracing::error!("Error syncing Railgun provider: {:?}", e);
+            }
+         }
+
+         for portfolio in portfolios {
+            ctx.update_private_data(chain, portfolio.owner()).await;
+         }
+      }
+   }
+}
+
 fn insert_missing_portfolios(ctx: ZeusCtx) {
    while !ctx.vault_unlocked() {
       std::thread::sleep(Duration::from_millis(100));
@@ -175,7 +212,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
       if ctx.is_chain_disabled(chain) {
          continue;
       }
-      
+
       for wallet in &wallets {
          let has_portfolio = ctx.has_portfolio(chain, wallet.address);
          let balance = ctx.get_eth_balance(chain, wallet.address);

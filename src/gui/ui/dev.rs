@@ -340,6 +340,15 @@ impl UiTesting {
                ctx.on_startup_syncing = !ctx.on_startup_syncing;
             }
 
+            let button = Button::new(RichText::new("Railgun Syncing").size(text_size))
+               .min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let chain = ctx.chain;
+               let is_syncing = ctx.is_railgun_provider_syncing(chain.id());
+               ctx.railgun_provider_syncing.insert(chain.id(), !is_syncing);
+            }
+
             let button =
                Button::new(RichText::new("EOA Delegate").size(text_size)).min_size(button_size);
 

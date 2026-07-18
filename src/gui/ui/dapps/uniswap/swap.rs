@@ -544,6 +544,7 @@ impl SwapUi {
 
                inner_frame.show(ui, |ui| {
                   let changed = self.amount_in_field.show(
+                     chain_id,
                      privacy_mode,
                      theme,
                      icons.clone(),
@@ -590,6 +591,7 @@ impl SwapUi {
 
                inner_frame.show(ui, |ui| {
                   self.amount_out_field.show(
+                     chain_id,
                      privacy_mode,
                      theme,
                      icons.clone(),

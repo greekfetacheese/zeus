@@ -15,7 +15,7 @@ use eframe::{
    egui::{self, Frame},
 };
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use zeus_theme::{OverlayManager, window::*};
 
 pub struct ZeusApp {
@@ -69,9 +69,10 @@ impl ZeusApp {
          test_and_measure_rpcs(ctx_clone).await;
       });
 
+      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
       ctx.write(|ctx| {
          for chain in SUPPORTED_CHAINS {
-            ctx.check_for_available_rpcs(chain, 0);
+            ctx.check_for_available_rpcs(now, chain, 0);
          }
       });
 

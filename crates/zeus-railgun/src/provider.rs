@@ -181,9 +181,51 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       *self.is_verifying.read().await
    }
 
+   /// Last synced block for the registered accounts
+   pub async fn account_synced_block(&self) -> u64 {
+      self.utxo_indexer.read().await.account_synced_block()
+   }
+
+   /// Last global synced block
+   pub async fn global_synced_block(&self) -> u64 {
+      self.utxo_indexer.read().await.global_synced_block()
+   }
+
    /// Syncs the provider to the latest block.
    pub async fn sync(&mut self) -> Result<(), RailgunProviderError> {
-      self.sync_to(u64::MAX, false).await
+      {
+         let mut is_syncing = self.is_syncing.write().await;
+
+         if *is_syncing {
+            return Ok(());
+         }
+
+         *is_syncing = true;
+      }
+
+      let block_res = self.provider.get_block_number().await;
+
+      let block = match block_res {
+         Ok(block) => block,
+         Err(e) => {
+            return {
+               {
+                  let mut is_syncing = self.is_syncing.write().await;
+                  *is_syncing = false;
+               }
+               Err(RailgunProviderError::Rpc(e.into()))
+            };
+         }
+      };
+
+      let res = self.sync_to(block, false).await;
+
+      {
+         let mut is_syncing = self.is_syncing.write().await;
+         *is_syncing = false;
+      }
+
+      res
    }
 
    /// Syncs the provider to the specified block.
@@ -195,22 +237,12 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       let deployment_block = self.chain.deployment_block;
 
       {
-         let mut is_syncing = self.is_syncing.write().await;
-         *is_syncing = true;
-      }
-
-      {
          let mut utxo_indexer = self.utxo_indexer.write().await;
          utxo_indexer.sync_to(to_block, deployment_block, use_subsquid).await?;
       }
 
       if let Some(poi_provider) = &mut self.poi_provider {
          poi_provider.sync_to(&self.prover, to_block).await?;
-      }
-
-      {
-         let mut is_syncing = self.is_syncing.write().await;
-         *is_syncing = false;
       }
 
       Ok(())

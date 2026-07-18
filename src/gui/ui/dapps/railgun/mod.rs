@@ -1,4 +1,5 @@
 pub mod shield;
 pub mod unshield;
 
-pub use shield::{ShieldUi, RailgunMode};
+pub use shield::{RailgunMode, ShieldUi};
+pub use unshield::default_bundler_url;

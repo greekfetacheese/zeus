@@ -250,12 +250,11 @@ impl AcrossBridge {
                   NumericValue::default()
                };
 
-
-
                inner_frame.show(ui, |ui| {
                   ui.set_width(ui_width);
 
                   self.amount_field.show(
+                     self.currency.chain_id(),
                      privacy_mode,
                      theme,
                      icons.clone(),

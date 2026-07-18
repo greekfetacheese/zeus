@@ -190,6 +190,7 @@ impl ZeusCtx {
    pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
       match chain {
          ChainId::Ethereum => true,
+         ChainId::EthereumSepolia => true,
          _ => false,
       }
    }
@@ -202,7 +203,9 @@ impl ZeusCtx {
          return Err(anyhow!("Railgun is not supported in this build"));
       }
 
-      let client = self.get_client(chain).await?;
+      let client = self.get_archive_client(chain, false).await.map_err(|_e| {
+         anyhow!("Railgun needs access to an archive node, check your Network Settings")
+      })?;
 
       let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
       if let Some(mut provider) = provider_opt {
@@ -219,7 +222,7 @@ impl ZeusCtx {
             }
          }
 
-         tracing::info!(
+         tracing::debug!(
             "Got Railgun provider for chain {} from cache",
             chain
          );
@@ -1462,9 +1465,23 @@ pub struct ZeusContext {
    /// Last time checked for available RPCs
    pub last_checked_for_available_rpcs: HashMap<u64, u128>,
 
-   /// True if we have at least one working & enabled RPC
-   /// for a specific chain
+   /// Mapped available RPCs for each chain
+   ///
+   /// - `Key`: chain_id
+   ///
+   /// - `Value`: true if we have at least one working & enabled RPC
    pub available_rpcs: HashMap<u64, bool>,
+
+   /// Last UNIX ms timestamp we checked if a railgun provider
+   /// is syncing for the given chain
+   pub railgun_provider_sync_last_check: HashMap<u64, u128>,
+
+   /// Mapped railgun provider syncing status for each chain
+   ///
+   /// - `Key`: chain_id
+   ///
+   /// - `Value`: true if the railgun provider is syncing
+   pub railgun_provider_syncing: HashMap<u64, bool>,
 
    /// Disabled Chains
    pub disabled_chains: DisabledChains,
@@ -1591,6 +1608,8 @@ impl ZeusContext {
          sign_msg_window_open: false,
          qr_image_data: Arc::new([0u8; 0]),
          last_checked_for_available_rpcs: HashMap::new(),
+         railgun_provider_sync_last_check: HashMap::new(),
+         railgun_provider_syncing: HashMap::new(),
          available_rpcs: HashMap::new(),
          disabled_chains,
       }
@@ -1826,8 +1845,7 @@ impl ZeusContext {
    /// Check if we have any enabled and working RPCs for the given chain
    ///
    /// Returns true if we have at least one enabled and working RPC
-   pub fn check_for_available_rpcs(&mut self, chain: u64, threshold: u128) -> bool {
-      let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+   pub fn check_for_available_rpcs(&mut self, now: u128, chain: u64, threshold: u128) -> bool {
       let last_checked = self.last_checked_for_available_rpcs.get(&chain).cloned().unwrap_or(0);
 
       let should_check = now.saturating_sub(last_checked) > threshold;
@@ -1841,6 +1859,31 @@ impl ZeusContext {
       }
 
       self.available_rpcs.get(&chain).cloned().unwrap_or(false)
+   }
+
+   /// Returns true if we need to check if a Railgun provider is syncing
+   pub fn should_check_railgun_provider_sync(
+      &mut self,
+      now: u128,
+      chain: u64,
+      threshold: u128,
+   ) -> bool {
+      let last_check = self.railgun_provider_sync_last_check.get(&chain).cloned();
+
+      if let Some(last_check) = last_check {
+         let elapsed = now.saturating_sub(last_check);
+         if elapsed < threshold {
+            return false;
+         }
+      }
+
+      self.railgun_provider_sync_last_check.insert(chain, now);
+
+      true
+   }
+
+   pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
+      self.railgun_provider_syncing.get(&chain).cloned().unwrap_or(false)
    }
 }
 

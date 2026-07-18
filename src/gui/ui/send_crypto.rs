@@ -169,6 +169,7 @@ impl SendCryptoUi {
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
+                        chain.id(),
                         privacy_mode,
                         theme,
                         icons.clone(),

@@ -69,7 +69,7 @@ impl IndexedAccount {
          Ok(n) => n,
       };
 
-      info!(?note, "Decrypted Shield Note");
+      debug!(?note, "Decrypted Shield Note");
       self.inner.notes.push(note);
 
       Ok(())

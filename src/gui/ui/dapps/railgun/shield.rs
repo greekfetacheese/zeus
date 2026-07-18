@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
+   Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Sense, Ui, Window, vec2,
 };
 
 use std::{
@@ -10,7 +10,9 @@ use std::{
 
 use crate::utils::{RT, estimate_tx_cost};
 use crate::{
-   core::{DecodedEvent, ShieldParams, TransactionAnalysis, ZeusCtx, ZeusContext, send_transaction},
+   core::{
+      DecodedEvent, ShieldParams, TransactionAnalysis, ZeusContext, ZeusCtx, send_transaction,
+   },
    utils::simulate::simulate_transaction,
 };
 
@@ -40,6 +42,8 @@ use zeus_railgun::{RailgunAddress, caip::AssetId, rand};
 
 use anyhow::anyhow;
 use tracing::{error, info};
+
+use super::unshield::{default_bundler_url, unshield};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
@@ -75,6 +79,12 @@ pub struct ShieldUi {
    syncing_balance: bool,
    sending_tx: bool,
    last_price_update: HashMap<Address, Instant>,
+   /// Emergency path: submit unshield from the user's EOA (breaks anonymity).
+   self_broadcast: bool,
+   /// Bundler JSON-RPC URL for paymaster UserOps (ignored when self_broadcast).
+   bundler_url: String,
+   /// Collapse advanced broadcast options.
+   advanced_open: bool,
 }
 
 impl ShieldUi {
@@ -87,11 +97,14 @@ impl ShieldUi {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (500.0, 500.0),
+         size: (500.0, 560.0),
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
          last_price_update: HashMap::new(),
+         self_broadcast: false,
+         bundler_url: default_bundler_url(1),
+         advanced_open: false,
       }
    }
 
@@ -112,8 +125,8 @@ impl ShieldUi {
       self.mode = mode;
    }
 
-   pub fn set_currency(&mut self, currency: Currency) {
-      self.currency = currency;
+   pub fn default_currency(&mut self, chain_id: u64) {
+      self.currency = Currency::from(NativeCurrency::from(chain_id));
    }
 
    pub fn clear_recipient(&mut self) {
@@ -167,49 +180,52 @@ impl ShieldUi {
                   let owner = ctx.current_wallet_info().address;
                   let chain = ctx.chain;
 
+                  // Keep default bundler URL in sync with the active chain when still on public Pimlico.
+                  if self.mode.is_unshield() {
+                     let default_for_chain = default_bundler_url(chain.id());
+                     let looks_like_default = self.bundler_url.contains("public.pimlico.io");
+                     if self.bundler_url.is_empty() || looks_like_default {
+                        if !self.bundler_url.contains(&format!("/{}/rpc", chain.id())) {
+                           self.bundler_url = default_for_chain;
+                        }
+                     }
+                  }
+
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
                   let label = String::from("Amount");
-                  let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
+                  let balance = self.balance_for_mode(ctx, owner);
                   let cost = self.cost(ctx);
-                  let balance_clone = balance.clone();
 
-                     let max_amount = if self.currency.is_erc20() {
-                        balance_clone
-                     } else {
-                        if balance.wei() < cost.wei() {
-                           NumericValue::default();
-                        }
-                        let max = balance_clone.wei() - cost.wei();
-                        NumericValue::format_wei(max, self.currency.decimals())
-                     };
-                  
+                  let max_amount = if balance.wei() > cost.wei() {
+                     NumericValue::format_wei(
+                        balance.wei() - cost.wei(),
+                        self.currency.decimals(),
+                     )
+                  } else {
+                     NumericValue::default()
+                  };
 
                   let amount = self.amount_field.amount.clone();
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
 
-                  let value =
-                     value(
-                        ctx,
-                        currency,
-                        amount,
-                        should_calculate_price,
-                     );
+                  let value = value(ctx, currency, amount, should_calculate_price);
 
-                  let privacy_mode = match self.mode {
-                     RailgunMode::Shield => false,
-                     RailgunMode::Unshield => true,
-                  };
+                  // Token list: public tokens for shield, private notes for unshield.
+                  let token_privacy_mode = self.mode.is_unshield();
+                  // Recipient: 0zk for shield, public 0x for unshield.
+                  let recipient_privacy_mode = self.mode.is_shield();
 
                   // TODO: In Unshield mode if there are no tokens at all it still shows the default currency
                   // TODO: Change the amount field to accept an Option<Currency> ??
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
-                        privacy_mode,
+                        chain.id(),
+                        token_privacy_mode,
                         theme,
                         icons.clone(),
                         Some(label),
@@ -226,14 +242,7 @@ impl ShieldUi {
                      );
                   });
 
-                  token_selection.show(
-                     ctx,
-                     theme,
-                     icons.clone(),
-                     chain.id(),
-                     owner,
-                     ui,
-                  );
+                  token_selection.show(ctx, theme, icons.clone(), chain.id(), owner, ui);
 
                   if let Some(currency) = token_selection.get_currency() {
                      self.currency = currency.clone();
@@ -245,7 +254,7 @@ impl ShieldUi {
                      ctx,
                      theme,
                      icons.clone(),
-                     true,
+                     recipient_privacy_mode,
                      contacts_ui,
                      ui,
                   );
@@ -259,7 +268,7 @@ impl ShieldUi {
                         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                         ui.add_space(10.0);
 
-                        if !recipient.is_empty(true) {
+                        if !recipient.is_empty(recipient_privacy_mode) {
                            if let Some(name) = &recipient.name {
                               ui.label(
                                  RichText::new(name)
@@ -274,40 +283,52 @@ impl ShieldUi {
                               );
                            }
 
-                           let block_explorer = chain.block_explorer();
-                           let link = format!(
-                              "{}/address/{}",
-                              block_explorer, recipient.evm_address
-                           );
-                           let tint = theme.image_tint_recommended;
-                           let icon = match theme.dark_mode {
-                              true => icons.external_link_white_x18(tint),
-                              false => icons.external_link_dark_x18(tint),
-                           };
+                           if !recipient_privacy_mode && !recipient.evm_address.is_empty() {
+                              let block_explorer = chain.block_explorer();
+                              let link = format!(
+                                 "{}/address/{}",
+                                 block_explorer, recipient.evm_address
+                              );
+                              let tint = theme.image_tint_recommended;
+                              let icon = match theme.dark_mode {
+                                 true => icons.external_link_white_x18(tint),
+                                 false => icons.external_link_dark_x18(tint),
+                              };
 
-                           let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                              let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
-                           if res.clicked() {
-                              let url = OpenUrl::new_tab(link);
-                              ui.ctx().open_url(url);
+                              if res.clicked() {
+                                 let url = OpenUrl::new_tab(link);
+                                 ui.ctx().open_url(url);
+                              }
                            }
                         }
                      });
 
                      ui.horizontal(|ui| {
-                        let hint = RichText::new("Search contacts or enter an address")
-                           .size(theme.text_sizes.normal)
-                           .color(theme.colors.text_muted);
+                        let hint = if recipient_privacy_mode {
+                           RichText::new("Search contacts or enter a 0zk address")
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.text_muted)
+                        } else {
+                           RichText::new("Search contacts or enter a 0x address")
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.text_muted)
+                        };
+
+                        let address_edit = if recipient_privacy_mode {
+                           &mut recipient_selection.recipient.zk_address
+                        } else {
+                           &mut recipient_selection.recipient.evm_address
+                        };
 
                         let res = ui.add(
-                           SecureTextEdit::singleline(
-                              &mut recipient_selection.recipient.zk_address,
-                           )
-                           .visuals(text_edit_visuals)
-                           .hint_text(hint)
-                           .min_size(vec2(ui.available_width(), 25.0))
-                           .margin(Margin::same(10))
-                           .font(FontId::proportional(theme.text_sizes.normal)),
+                           SecureTextEdit::singleline(address_edit)
+                              .visuals(text_edit_visuals)
+                              .hint_text(hint)
+                              .min_size(vec2(ui.available_width(), 25.0))
+                              .margin(Margin::same(10))
+                              .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open();
@@ -315,13 +336,114 @@ impl ShieldUi {
                      });
                   });
 
-                  self.shield_button(ctx, theme, owner, recipient.zk_address, ui);
+                  if self.mode.is_unshield() {
+                     self.unshield_options(theme, chain.id(), ui);
+                  }
+
+                  let recipient_str = if self.mode.is_shield() {
+                     recipient.zk_address
+                  } else {
+                     recipient.evm_address
+                  };
+
+                  self.action_button(ctx, theme, owner, recipient_str, ui);
                });
             });
          });
    }
 
-   fn shield_button(
+   fn unshield_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
+      let inner_frame = theme.frame2;
+      let text_edit_visuals = theme.text_edit_visuals();
+
+      inner_frame.show(ui, |ui| {
+         ui.set_width(ui.available_width());
+         ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
+
+         ui.horizontal(|ui| {
+            ui.checkbox(
+               &mut self.self_broadcast,
+               RichText::new("Self-broadcast (emergency)").size(theme.text_sizes.normal),
+            );
+         });
+
+         ui.label(
+            RichText::new(
+               "Submits the unshield from your public wallet. Breaks anonymity — only use if private broadcast is unavailable.",
+            )
+            .size(theme.text_sizes.small)
+            .color(theme.colors.text_muted),
+         );
+
+         ui.add_space(4.0);
+
+         let advanced_label = if self.advanced_open {
+            "▾ Advanced broadcast options"
+         } else {
+            "▸ Advanced broadcast options"
+         };
+         if ui
+            .add(
+               egui::Label::new(
+                  RichText::new(advanced_label)
+                     .size(theme.text_sizes.normal)
+                     .color(theme.colors.info),
+               )
+               .sense(Sense::click()),
+            )
+            .clicked()
+         {
+            self.advanced_open = !self.advanced_open;
+         }
+
+         if self.advanced_open {
+            ui.add_enabled_ui(!self.self_broadcast, |ui| {
+               ui.horizontal(|ui| {
+                  ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
+                  ui.add_space(8.0);
+                  ui.add(
+                     SecureTextEdit::singleline(&mut self.bundler_url)
+                        .visuals(text_edit_visuals)
+                        .hint_text(
+                           RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
+                              .size(theme.text_sizes.small)
+                              .color(theme.colors.text_muted),
+                        )
+                        .desired_width(ui.available_width())
+                        .margin(Margin::same(6))
+                        .font(FontId::proportional(theme.text_sizes.small)),
+                  );
+               });
+
+               ui.horizontal(|ui| {
+                  let text = RichText::new("Reset to public Pimlico").size(theme.text_sizes.small);
+                  let button = Button::new(text).visuals(theme.button_visuals());
+                  if ui.add(button).clicked() {
+                     self.bundler_url = default_bundler_url(chain_id);
+                  }
+               });
+
+               ui.label(
+                  RichText::new(
+                     "Uses Railgun Privacy Paymaster + ERC-4337. Fee is paid from private WETH balance. Point this at a self-hosted Alto for less reliance on public Pimlico.",
+                  )
+                  .size(theme.text_sizes.small)
+                  .color(theme.colors.text_muted),
+               );
+            });
+
+            if self.self_broadcast {
+               ui.label(
+                  RichText::new("Bundler options disabled while self-broadcast is enabled.")
+                     .size(theme.text_sizes.small)
+                     .color(theme.colors.warning),
+               );
+            }
+         }
+      });
+   }
+
+   fn action_button(
       &mut self,
       ctx: &mut ZeusContext,
       theme: &Theme,
@@ -334,18 +456,29 @@ impl ShieldUi {
       let valid_amount = self.valid_amount();
       let has_balance = self.sufficient_balance(ctx, owner);
       let has_entered_amount = !self.amount_field.amount.is_empty();
+      let has_recipient = !recipient.trim().is_empty();
       let valid_token = if self.mode == RailgunMode::Unshield {
          self.currency.is_erc20()
       } else {
          true
       };
 
-      let valid_inputs =
-         has_balance && has_entered_amount && valid_amount && valid_token && !sending_tx;
+      let valid_inputs = has_balance
+         && has_entered_amount
+         && valid_amount
+         && valid_token
+         && has_recipient
+         && !sending_tx;
 
       let mut button_text = match self.mode {
          RailgunMode::Shield => "Shield".to_string(),
-         RailgunMode::Unshield => "Unshield".to_string(),
+         RailgunMode::Unshield => {
+            if self.self_broadcast {
+               "Unshield (self-broadcast)".to_string()
+            } else {
+               "Unshield (private broadcast)".to_string()
+            }
+         }
       };
 
       if has_entered_amount && !valid_amount {
@@ -358,6 +491,10 @@ impl ShieldUi {
 
       if !valid_token {
          button_text = "Invalid Token".to_string();
+      }
+
+      if !has_recipient {
+         button_text = "Enter Recipient".to_string();
       }
 
       let text = RichText::new(button_text).size(theme.text_sizes.large);
@@ -415,11 +552,65 @@ impl ShieldUi {
             }
          });
       } else {
-         RT.spawn(async move {
-            SHARED_GUI.write(|gui| {
-               gui.msg_window.open("TODO", "Unshield is not implemented yet");
+         let self_broadcast = self.self_broadcast;
+         let bundler_url = self.bundler_url.clone();
+         // prepare_userop / UserOp signing futures are not currently `Send`
+         // (dyn Bundler/Signer + thread_rng). Run on a dedicated current-thread
+         // runtime inside the blocking pool so we don't require Send.
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.write(|gui| {
+               gui.loading_window.open("Wait while magic happens");
                gui.request_repaint();
+               gui.ctx.clone()
             });
+
+            let local_rt = match tokio::runtime::Builder::new_current_thread().enable_all().build()
+            {
+               Ok(rt) => rt,
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.shield_ui.sending_tx = false;
+                     gui.notification.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open(
+                        "Unshield Error",
+                        format!("Failed to start runtime: {e}"),
+                     );
+                     gui.request_repaint();
+                  });
+                  return;
+               }
+            };
+
+            let result = local_rt.block_on(unshield(
+               ctx.clone(),
+               chain,
+               currency,
+               amount,
+               from,
+               recipient,
+               self_broadcast,
+               bundler_url,
+            ));
+
+            match result {
+               Ok(_) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.shield_ui.sending_tx = false;
+                     gui.loading_window.reset();
+                     gui.request_repaint();
+                  });
+               }
+               Err(e) => {
+                  SHARED_GUI.write(|gui| {
+                     gui.shield_ui.sending_tx = false;
+                     gui.notification.reset();
+                     gui.loading_window.reset();
+                     gui.msg_window.open("Unshield Error", e.to_string());
+                     gui.request_repaint();
+                  });
+               }
+            }
          });
       }
    }
@@ -441,27 +632,36 @@ impl ShieldUi {
       self.syncing_balance = true;
       let currency = self.currency.clone();
       let chain = currency.chain_id();
+      let privacy = self.mode.is_unshield();
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let balance_manager = ctx.balance_manager();
 
-         if currency.is_native() {
-            match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner], false).await {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Failed to update ETH balance: {}", e);
-               }
-            }
+         if privacy {
+            ctx.update_private_data(chain, owner).await;
          } else {
-            let token = currency.to_erc20().into_owned();
-            match balance_manager
-               .update_tokens_balance(ctx.clone(), chain, owner, vec![token], false)
-               .await
-            {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Failed to update token balance: {}", e);
+            let balance_manager = ctx.balance_manager();
+
+            if currency.is_native() {
+               match balance_manager
+                  .update_eth_balance(ctx.clone(), chain, vec![owner], false)
+                  .await
+               {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Failed to update ETH balance: {}", e);
+                  }
+               }
+            } else {
+               let token = currency.to_erc20().into_owned();
+               match balance_manager
+                  .update_tokens_balance(ctx.clone(), chain, owner, vec![token], false)
+                  .await
+               {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Failed to update token balance: {}", e);
+                  }
                }
             }
          }
@@ -472,7 +672,12 @@ impl ShieldUi {
    }
 
    fn cost(&self, ctx: &mut ZeusContext) -> NumericValue {
-      let gas_used = 750_000;
+      // An estimation, the TxConfirmWindow will show a much closer cost
+      let gas_used = if self.mode.is_shield() {
+         750_000
+      } else {
+         500_000
+      };
 
       let fee = ctx.priority_fee.get(ctx.chain.id()).cloned().unwrap_or_default();
       let (cost_in_wei, _) = estimate_tx_cost(ctx, ctx.chain.id(), gas_used, fee.wei());
@@ -484,8 +689,25 @@ impl ShieldUi {
       amount > 0.0
    }
 
+   fn balance_for_mode(&self, ctx: &mut ZeusContext, owner: Address) -> NumericValue {
+      if self.mode.is_shield() {
+         return ctx.get_currency_balance(ctx.chain.id(), owner, &self.currency);
+      }
+
+      // Private note balances from portfolio cache
+      let portfolio = ctx.portfolio_db.get(ctx.chain.id(), owner);
+      if let Some(token) = self.currency.erc20_opt() {
+         for (t, balance, _value, _price) in portfolio.private_tokens() {
+            if t.address == token.address {
+               return balance.clone();
+            }
+         }
+      }
+      NumericValue::default()
+   }
+
    fn sufficient_balance(&self, ctx: &mut ZeusContext, sender: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain.id(), sender, &self.currency);
+      let balance = self.balance_for_mode(ctx, sender);
       let amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -513,10 +735,8 @@ fn value(
             gui.shield_ui.last_price_update.insert(currency.address(), Instant::now());
             gui.ctx.clone()
          });
-
-         let pool_manager = ctx.pool_manager();
          let price_manager = ctx.price_manager();
-
+         let pool_manager = ctx.pool_manager();
          match price_manager
             .calculate_prices(
                ctx,

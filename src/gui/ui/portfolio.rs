@@ -430,10 +430,7 @@ impl PortfolioUi {
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let manager = ctx.pool_manager();
-         match manager
-            .sync_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()])
-            .await
-         {
+         match manager.sync_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()]).await {
             Ok(_) => {
                tracing::info!("Synced Pools for {}", token.symbol);
             }
@@ -462,13 +459,7 @@ impl PortfolioUi {
 
          let balance_manager = ctx.balance_manager();
          match balance_manager
-            .update_tokens_balance(
-               ctx.clone(),
-               chain_id,
-               owner,
-               vec![token],
-               false,
-            )
+            .update_tokens_balance(ctx.clone(), chain_id, owner, vec![token], false)
             .await
          {
             Ok(_) => {}

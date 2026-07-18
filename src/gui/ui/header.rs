@@ -273,13 +273,32 @@ impl Header {
                            true => RailgunMode::Unshield,
                         };
 
+                        if privacy_mode {
+                           RT.spawn(async move {
+                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+
+                              let mut provider = match ctx.get_railgun_provider(chain.id()).await {
+                                 Ok(provider) => provider,
+                                 Err(e) => {
+                                    tracing::error!("Error getting Railgun provider: {:?}", e);
+                                    return;
+                                 }
+                              };
+
+                              match provider.sync().await {
+                                 Ok(_) => {}
+                                 Err(e) => {
+                                    tracing::error!("Error syncing Railgun provider: {:?}", e);
+                                 }
+                              }
+
+                              ctx.update_private_data(chain.id(), owner).await;
+                           });
+                        }
+
                         SHARED_GUI.write(|gui| {
                            gui.shield_ui.set_mode(new_mode);
-                           gui.token_selection.process_currencies(
-                              privacy_mode,
-                              chain.id(),
-                              owner,
-                           );
+                           gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
                         });
                      });
                   }
@@ -321,15 +340,12 @@ impl Header {
                   gui.send_crypto.set_currency(currency.clone());
 
                   if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(
-                        privacy_mode,
-                        new_chain.id(),
-                        owner,
-                     );
+                     gui.token_selection.process_currencies(privacy_mode, new_chain.id(), owner);
                   }
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
+                  gui.shield_ui.default_currency(new_chain.id());
                   // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
                   // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
                });
@@ -372,11 +388,7 @@ impl Header {
                   gui.header.set_wallet_info(current_wallet);
 
                   if gui.token_selection.is_open() {
-                     gui.token_selection.process_currencies(
-                        privacy_mode,
-                        chain_id,
-                        owner,
-                     );
+                     gui.token_selection.process_currencies(privacy_mode, chain_id, owner);
                   }
                });
 

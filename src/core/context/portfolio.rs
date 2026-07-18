@@ -6,7 +6,7 @@ use zeus_eth::{
    currency::{Currency, ERC20Token},
    utils::NumericValue,
 };
-use zeus_railgun::caip::AssetId;
+use zeus_railgun::{RailgunSigner, caip::AssetId};
 
 type Balance = NumericValue;
 type Value = NumericValue;
@@ -168,6 +168,10 @@ impl WalletPortfolio {
       self.tokens.contains(token)
    }
 
+   pub fn has_private_tokens(&self) -> bool {
+      self.private_tokens().len() > 0
+   }
+
    pub fn remove_token(&mut self, token: &ERC20Token) {
       self.tokens.retain(|t| t != token);
    }
@@ -212,13 +216,17 @@ impl WalletPortfolio {
       let chain_id = self.chain_id;
       let owner = self.owner;
 
-      let private_tokens = match process_private_tokens(ctx.clone(), chain_id, owner).await {
+      let mut private_tokens = self.private_tokens.clone();
+
+      let updated_tokens = match process_private_tokens(ctx.clone(), chain_id, owner).await {
          Ok(tokens) => tokens,
          Err(e) => {
             tracing::error!("Error calculating private tokens: {:?}", e);
-            TokenList::default()
+            private_tokens
          }
       };
+
+      private_tokens = updated_tokens;
 
       let mut value = 0.0;
 
@@ -267,33 +275,59 @@ async fn process_private_tokens(
    }
 
    let mut provider = ctx.get_railgun_provider(chain_id).await?;
-   let wallet_info = ctx.get_wallet_info_by_address(owner);
 
-   if wallet_info.is_none() {
+   let wallet = ctx.get_wallet(owner);
+
+   if wallet.is_none() {
+      tracing::error!("Wallet not found for address {}", owner);
       return Ok(token_list);
    }
 
-   let wallet_info = wallet_info.unwrap();
+   let wallet = wallet.unwrap();
 
-   if let Some(address) = wallet_info.railgun_address {
-      let private_balances = provider.balance(address).await;
-
-      for entry in private_balances {
-         let token_address = match entry.asset {
-            AssetId::Erc20(address) => address,
-            _ => continue,
-         };
-
-         let erc20 = ctx.get_token(chain_id, token_address).await?;
-         let balance = NumericValue::format_wei(U256::from(entry.amount), erc20.decimals);
-         let price = ctx.get_token_price(&erc20);
-         let value = NumericValue::value(balance.f64(), price.f64());
-         token_list.push((erc20.clone(), balance, value, price));
-      }
-
-      token_list
-         .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
+   if !wallet.can_derive_zk_address() {
+      tracing::info!(
+         "Wallet {} cannot derive a zkAddress",
+         wallet.address()
+      );
+      return Ok(token_list);
    }
+
+   let seed = wallet.seed()?;
+   let raligun_signer = RailgunSigner::from_seed(&seed, 0, chain_id)?;
+   let railgun_address = raligun_signer.address().clone();
+
+   provider.register(raligun_signer).await?;
+   let last_synced_block = provider.account_synced_block().await;
+   tracing::info!(
+      "Railgun resume watermark (min global/accounts): {}",
+      last_synced_block
+   );
+
+   provider.sync().await?;
+
+   let private_balances = provider.balance(railgun_address).await;
+
+   tracing::info!(
+      "Found {} private balances",
+      private_balances.len()
+   );
+
+   for entry in private_balances {
+      let token_address = match entry.asset {
+         AssetId::Erc20(address) => address,
+         _ => continue,
+      };
+
+      let erc20 = ctx.get_token(chain_id, token_address).await?;
+      let balance = NumericValue::format_wei(U256::from(entry.amount), erc20.decimals);
+      let price = ctx.get_token_price(&erc20);
+      let value = NumericValue::value(balance.f64(), price.f64());
+      token_list.push((erc20.clone(), balance, value, price));
+   }
+
+   token_list
+      .sort_by(|a, b| b.2.f64().partial_cmp(&a.2.f64()).unwrap_or(std::cmp::Ordering::Equal));
 
    Ok(token_list)
 }
