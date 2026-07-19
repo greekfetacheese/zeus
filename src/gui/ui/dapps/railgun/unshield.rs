@@ -2,8 +2,9 @@
 
 use std::{
    str::FromStr,
-   time::{Instant, SystemTime, UNIX_EPOCH},
+   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tokio::time::sleep;
 
 use alloy_consensus::TxType;
 use alloy_signer_local::PrivateKeySigner;
@@ -56,7 +57,7 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
 
 /// Unshield private notes to a public address.
 ///
-/// - `self_broadcast = false` (default): Kohaku-style privacy paymaster + bundler UserOp.
+/// - `self_broadcast = false` (default): Railgun privacy paymaster + bundler UserOp.
 /// - `self_broadcast = true`: emergency path — submit proved `transact` from the user's EOA
 ///   (links submitter to recipient; breaks anonymity).
 pub async fn unshield(
@@ -240,57 +241,38 @@ async fn unshield_via_paymaster(
       ));
    };
 
-   // TODO: Are we sure the fee token is always the wrapped base token?
-   let fee_asset = AssetId::Erc20(chain_config.wrapped_base_token);
-   let rg_addr = railgun_signer.address().clone();
-
-   // Live spendable notes
-   // Paymaster always charges a private
-   // fee note in wrapped base token on top of the unshield amount when unshielding WETH.
-   let notes = railgun_provider.notes(rg_addr.clone()).await;
-   let fee_token_balance = railgun_provider.balance_erc20(rg_addr.clone(), fee_asset).await;
-
-   let note_summary: Vec<String> = notes
-      .iter()
-      .map(|n| {
-         format!(
-            "{{asset={}, value={}, tree={}, leaf={}}}",
-            n.asset, n.amount, n.tree_number, n.leaf_index
-         )
-      })
-      .collect();
-
-   info!(
-      "Paymaster unshield preflight: notes={} fee_token_balance_wei={} fee_token={:?} note_summary={:?}",
-      notes.len(),
-      fee_token_balance,
-      chain_config.wrapped_base_token,
-      note_summary
-   );
-
-   // Initial fee seed inside prepare_userop. Real fee after gas estimate is often higher.
+   // Railgun privacy paymaster only accepts WETH
    const INITIAL_FEE_WEI: u128 = 100_000_000;
-   if fee_token_balance < INITIAL_FEE_WEI {
-      let note_assets: Vec<String> =
-         notes.iter().map(|n| format!("{} ({} wei)", n.asset, n.amount)).collect();
-      let fee_token = chain_config.wrapped_base_token;
-      return Err(anyhow!(
-         "Not enough private balance of the Railgun fee token ({fee_token:?}) for the paymaster fee note.\n\
-          Fee-token spendable balance: {fee_token_balance} wei (need ≥ {INITIAL_FEE_WEI} wei fee seed, plus unshield amount if same asset).\n\
-          Notes loaded ({}) : {note_assets:?}\n\n\
-          Common Sepolia issue: Zeus default WETH is 0x7b7999… while Railgun/Kohaku paymaster fee uses 0xfff997….\n\
-          Private notes in a different WETH cannot pay the fee. Self-broadcast still works for those notes.\n\
-          Fix going forward: native Railgun shield now wraps to ChainConfig.wrapped_base_token ({fee_token:?}).\n\
-          To use private broadcast, shield more of that fee token (or swap/shield into it).",
-         notes.len()
-      ));
-   }
+   let fee_token = ERC20Token::wrapped_native_token(chain.id());
 
+   let rg_addr = railgun_signer.address().clone();
    let bundler_url = if bundler_url.trim().is_empty() {
       default_bundler_url(chain.id())
    } else {
       bundler_url.trim().to_string()
    };
+
+   let is_pimlico_bundler = bundler_url.contains("public.pimlico.io");
+   let fee_token = if is_pimlico_bundler {
+      fee_token
+   } else {
+      fee_token_selection(chain.id(), from).await?
+   };
+
+   let fee_asset = AssetId::Erc20(fee_token.address);
+   let fee_token_balance = railgun_provider.balance_erc20(rg_addr.clone(), fee_asset).await;
+   let fee_token_balance_fmt =
+      NumericValue::format_wei(U256::from(fee_token_balance), fee_token.decimals);
+   let min_fee_fmt = NumericValue::format_wei(U256::from(INITIAL_FEE_WEI), fee_token.decimals);
+
+   if fee_token_balance < INITIAL_FEE_WEI {
+      return Err(anyhow!(
+         "Not enough private {} for the paymaster fee (have {} need at least {})",
+         fee_token.symbol,
+         fee_token_balance_fmt.abbreviated(),
+         min_fee_fmt.abbreviated()
+      ));
+   }
 
    let parsed_url = bundler_url
       .parse()
@@ -316,21 +298,12 @@ async fn unshield_via_paymaster(
          &bundler,
          &smart_account,
          railgun_signer,
-         chain_config.wrapped_base_token,
+         fee_token.address,
          Vec::new(), // no post-unshield calls for v1
          &mut rng,
       )
       .await
-      .map_err(|e| {
-         anyhow!(
-            "Failed to prepare UserOperation: {e}\n\
-             (paymaster fee is a private transfer of wrapped base token to the Railgun privacy paymaster; \
-             initial fee seed is {INITIAL_FEE_WEI} wei, then converges to gas*maxFee. \
-             Spendable fee-token balance was {fee_token_balance} wei across {} note(s). \
-             Random smart-account key is only the 4337 submitter and does not spend your notes.)",
-            notes.len()
-         )
-      })?;
+      .map_err(|e| anyhow!("Failed to prepare UserOperation: {e}"))?;
 
    let signed = signable
       .sign(&sa_key)
@@ -368,6 +341,7 @@ async fn unshield_via_paymaster(
    }
 
    accounts.push(railgun_provider.railgun_address());
+   accounts.push(fee_token.address);
    accounts.push(chain_config.wrapped_base_token);
 
    let time = Instant::now();
@@ -494,7 +468,6 @@ async fn unshield_via_paymaster(
    let eth_balance_before = eth_balance_before_fut.await?;
 
    let contract_interact = Some(true);
-   // Confirmation window shows handleOps as the simulated call (what a bundler submits).
    let calldata = handle_ops_data;
    let auth_list = Vec::new();
 
@@ -571,8 +544,6 @@ async fn unshield_via_paymaster(
       .send_user_operation(&signed)
       .await
       .map_err(|e| anyhow!("Bundler rejected UserOperation: {}", e))?;
-
-   info!("Unshield UserOp submitted: {:?}", hash);
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Waiting for bundler inclusion…");
@@ -730,4 +701,44 @@ async fn post_unshield_sync(
          e
       );
    }
+}
+
+async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, anyhow::Error> {
+   // Open fee-token picker with only currently Railgun-supported fee tokens.
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.reset();
+      gui.token_selection.open(true, chain, from);
+      gui.token_selection.set_title("Select Paymaster Fee Token".to_string());
+      gui.request_repaint();
+   });
+
+   // Wait until private balances are processed (usually <100ms).
+   let load_deadline = Instant::now() + Duration::from_secs(5);
+   while SHARED_GUI.read(|gui| gui.token_selection.is_loading()) {
+      if Instant::now() > load_deadline {
+         SHARED_GUI.write(|gui| gui.token_selection.reset());
+         return Err(anyhow!(
+            "Timed out loading private fee-token balances"
+         ));
+      }
+      sleep(Duration::from_millis(20)).await;
+   }
+
+   // Wait for selection or cancel (window closed).
+   let selected_currency = loop {
+      sleep(Duration::from_millis(50)).await;
+
+      let selected = SHARED_GUI.read(|gui| gui.token_selection.get_selected_currency().cloned());
+
+      if let Some(currency) = selected {
+         SHARED_GUI.write(|gui| {
+            gui.token_selection.reset();
+         });
+         break currency;
+      }
+   };
+
+   let fee_token = selected_currency.to_erc20().into_owned();
+
+   Ok(fee_token)
 }

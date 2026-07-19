@@ -1,5 +1,5 @@
-use crate::gui::GUI;
 use crate::core::ZeusContext;
+use crate::gui::GUI;
 use eframe::egui::{Frame, RichText, Ui, Window, vec2};
 use zeus_theme::OverlayManager;
 
@@ -44,21 +44,9 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
-   gui.portofolio.show(
-      ctx,
-      theme,
-      icons.clone(),
-      token_selection,
-      ui,
-   );
+   gui.portofolio.show(ctx, theme, icons.clone(), token_selection, ui);
 
-   gui.uniswap.show(
-      ctx,
-      theme,
-      icons.clone(),
-      token_selection,
-      ui,
-   );
+   gui.uniswap.show(ctx, theme, icons.clone(), token_selection, ui);
 
    gui.shield_ui.show(
       ctx,
@@ -79,6 +67,13 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
    // This allows to show the network settings independently from the settings ui
    gui.settings.network.show(ctx, theme, icons.clone(), ui);
+
+   if ctx.vault_unlocked {
+      let chain_id = ctx.chain.id();
+      let owner = ctx.current_wallet_info().address;
+
+      token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
+   }
 
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);

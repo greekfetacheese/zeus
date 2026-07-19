@@ -213,7 +213,7 @@ impl PortfolioUi {
                // Token selection
                token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
-               let currency = token_selection.get_currency().cloned();
+               let currency = token_selection.get_selected_currency().cloned();
 
                if let Some(currency) = currency {
                   let token_fetched = token_selection.token_fetched;

@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Sense, Ui, Window, vec2,
+   Align2, CursorIcon, FontId, Frame, Label, Margin, OpenUrl, RichText, Sense, Ui, Window, vec2,
 };
 
 use std::{
@@ -244,7 +244,7 @@ impl ShieldUi {
 
                   token_selection.show(ctx, theme, icons.clone(), chain.id(), owner, ui);
 
-                  if let Some(currency) = token_selection.get_currency() {
+                  if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
                      self.sync_balance(owner);
@@ -384,7 +384,7 @@ impl ShieldUi {
          };
          if ui
             .add(
-               egui::Label::new(
+               Label::new(
                   RichText::new(advanced_label)
                      .size(theme.text_sizes.normal)
                      .color(theme.colors.info),

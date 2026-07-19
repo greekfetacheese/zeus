@@ -196,7 +196,7 @@ impl SendCryptoUi {
                      ui,
                   );
 
-                  if let Some(currency) = token_selection.get_currency() {
+                  if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
                      self.sync_balance(owner);

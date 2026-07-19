@@ -611,7 +611,7 @@ impl SwapUi {
 
                token_selection.show(ctx, theme, icons.clone(), chain_id, owner, ui);
 
-               let selected_currency = token_selection.get_currency().cloned();
+               let selected_currency = token_selection.get_selected_currency().cloned();
                let direction = token_selection.get_currency_direction();
                let changed_currency = selected_currency.is_some();
                let should_get_quote = changed_currency || amount_changed;

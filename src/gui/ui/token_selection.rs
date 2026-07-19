@@ -6,7 +6,7 @@ use eframe::egui::{
 };
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, ZeusContext};
+use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::dapps::uniswap::swap::InOrOut;
 use crate::utils::{RT, truncate_symbol_or_name};
@@ -30,6 +30,7 @@ pub struct TokenSelectionWindow {
    open: bool,
    loading: bool,
    overlay: OverlayManager,
+   title: String,
    pub size: (f32, f32),
    pub search_query: String,
    pub selected_currency: Option<Currency>,
@@ -49,6 +50,7 @@ impl TokenSelectionWindow {
       Self {
          open: false,
          loading: false,
+         title: "Select Token".to_string(),
          overlay,
          size: (550.0, 500.0),
          search_query: String::new(),
@@ -63,6 +65,10 @@ impl TokenSelectionWindow {
       self.open
    }
 
+   pub fn is_loading(&self) -> bool {
+      self.loading
+   }
+
    pub fn open(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       if !self.open {
          self.overlay.window_opened();
@@ -74,6 +80,7 @@ impl TokenSelectionWindow {
 
    pub fn reset(&mut self) {
       self.close();
+      self.title = "Select Token".to_string();
       self.search_query.clear();
       self.selected_currency = None;
       self.token_fetched = false;
@@ -86,12 +93,27 @@ impl TokenSelectionWindow {
       self.open = false;
    }
 
-   pub fn process_currencies(
+   pub fn set_title(&mut self, title: String) {
+      self.title = title;
+   }
+
+   pub fn set_processed_currencies(
       &mut self,
-      privacy_mode: bool,
-      chain_id: u64,
-      owner: Address,
+      processed_currencies: Vec<(Currency, NumericValue, NumericValue)>,
    ) {
+      self.processed_currencies = processed_currencies;
+   }
+
+   pub fn get_processed_currencies(&self) -> Vec<(Currency, NumericValue, NumericValue)> {
+      self.processed_currencies.clone()
+   }
+
+   /// Get the selected currency if any
+   pub fn get_selected_currency(&self) -> Option<&Currency> {
+      self.selected_currency.as_ref()
+   }
+
+   pub fn process_currencies(&mut self, privacy_mode: bool, chain_id: u64, owner: Address) {
       self.loading = true;
 
       RT.spawn_blocking(move || {
@@ -131,11 +153,6 @@ impl TokenSelectionWindow {
       &self.currency_direction
    }
 
-   /// Get the selected currency if any
-   pub fn get_currency(&self) -> Option<&Currency> {
-      self.selected_currency.as_ref()
-   }
-
    /// Show This [TokenSelectionWindow]
    pub fn show(
       &mut self,
@@ -155,7 +172,7 @@ impl TokenSelectionWindow {
       let mut close_window = false;
       let window_frame = theme.frame1;
 
-      Window::new(RichText::new("Select Token").size(theme.text_sizes.heading))
+      Window::new(RichText::new(&self.title).size(theme.text_sizes.heading))
          .open(&mut open)
          .order(Order::Foreground)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
@@ -299,7 +316,7 @@ impl TokenSelectionWindow {
             self.token_fetched = true;
 
             RT.spawn(async move {
-              let ctx =  SHARED_GUI.write(|gui| {
+               let ctx = SHARED_GUI.write(|gui| {
                   gui.loading_window.open("Retrieving token...");
                   gui.request_repaint();
                   gui.ctx.clone()

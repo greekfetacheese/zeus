@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use rand::Rng;
 use serde::Serialize;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{debug, warn};
 use userop_kit::{
    builder::UserOperationBuilder,
    bundler::{Bundler, BundlerError},
@@ -402,15 +402,15 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       let mut fee_value = 100_000_000u128;
       // Pin gas fees after the first real bundler quote so the fee loop doesn't
       // chase a moving max_fee_per_gas (public Pimlico prices jitter enough to
-      // break a tight 1% convergence window).
+      // break a tight convergence window).
       let mut pinned_max_fee_per_gas: Option<u128> = None;
       let mut pinned_max_priority_fee_per_gas: Option<u128> = None;
 
       let builder = builder.adapt(railgun_fee_adapter, *sender.address().into_word());
 
-      info!("Iteratively building UserOperation to converge on accurate fee estimate");
-      // 8 rounds: seed estimate + retries with headroom. Public bundler gas/price
-      // can move between proves; see convergence rules below.
+      debug!("Iteratively building UserOperation to converge on accurate fee estimate");
+      // Typical path is 2 proves: seed gas quote → fee=cost*1.08 → accept.
+      // Cap at 8 to bound worst-case proving cost.
       for iter in 0..8 {
          let broadcast_builder = builder.clone().transfer(
             fee_payer.clone(),
@@ -420,7 +420,7 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
             "fee",
          );
 
-         info!(
+         debug!(
             "Building broadcast transaction with fee value: {} (iter {})",
             fee_value, iter
          );
@@ -452,19 +452,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
             .build();
 
          // Recalculate fee and check for convergence.
-         info!("Prepared broadcast transaction: {:?}", signable);
          let estimated_paymaster_verification_gas_limit =
             estimate_paymaster_verification_gas_limit(self.provider.clone(), &signable).await?;
-         info!(
-            "Estimated paymaster verification gas limit: {}",
-            estimated_paymaster_verification_gas_limit
-         );
          // Prefer the higher of bundler vs local eth_estimateGas so we don't under-budget
          // paymaster verification if either side is optimistic.
-         let bundler_pm_vgl = signable
-            .user_op
-            .paymaster_verification_gas_limit
-            .unwrap_or(0);
+         let bundler_pm_vgl = signable.user_op.paymaster_verification_gas_limit.unwrap_or(0);
          let pm_vgl = estimated_paymaster_verification_gas_limit.max(bundler_pm_vgl);
          signable.user_op.paymaster_verification_gas_limit = Some(pm_vgl);
 
@@ -486,44 +478,29 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
 
          let total_gas = signable.total_gas_limit();
          let new_fee = total_gas.saturating_mul(max_fee);
-         info!("Estimated total gas: {}", total_gas);
-         info!("Estimated max fee per gas (pinned): {}", max_fee);
-         info!(
-            "Fee note value: {}, estimated cost: {} (iter {})",
-            fee_value, new_fee, iter
+         debug!(
+            "Fee iter {}: note={} cost={} gas={} max_fee={}",
+            iter, fee_value, new_fee, total_gas, max_fee
          );
 
-         // Converged when the private fee note covers the estimated gas cost and
-         // does not overpay by more than 15%. The old 1% window failed on public
-         // bundlers because maxFee/gas jitter between re-proves.
-         const MAX_OVERPAY_BPS: u128 = 1_500; // 15%
+         // Accept when the private fee note covers estimated gas cost.
+         // Prefer tight headroom (5%) on the next prove so we usually finish in 2
+         // iterations without a shrink/re-prove cycle.
          if new_fee > 0 && new_fee <= fee_value {
-            let overpay = fee_value - new_fee;
-            let overpay_ok = overpay <= fee_value.saturating_mul(MAX_OVERPAY_BPS) / 10_000;
-            if overpay_ok {
-               info!(
-                  "Fee converged at note={}, cost={}, total gas: {}",
-                  fee_value, new_fee, total_gas
-               );
-               if let Some(poi_provider) = &mut self.poi_provider {
-                  poi_provider.register_ops(&operations).await?;
-               }
-               return Ok(signable);
-            }
-            // Note covers cost but overpays too much — shrink toward cost + 10% and re-prove.
-            let shrunk = new_fee.saturating_mul(110) / 100;
-            info!(
-               "Fee note overpays too much (note={}, cost={}); shrinking to {}",
-               fee_value, new_fee, shrunk
+            debug!(
+               "Fee converged at note={}, cost={}, total gas: {}",
+               fee_value, new_fee, total_gas
             );
-            fee_value = shrunk.max(100_000_000);
-            continue;
+            if let Some(poi_provider) = &mut self.poi_provider {
+               poi_provider.register_ops(&operations).await?;
+            }
+            return Ok(signable);
          }
 
-         // Fee note too small for estimated cost: bump with 10% headroom and re-prove.
-         let bumped = new_fee.saturating_mul(110) / 100;
+         // Fee note too small: set next prove to cost + 5% headroom.
+         let bumped = new_fee.saturating_mul(105) / 100;
          fee_value = bumped.max(100_000_000);
-         info!("Fee updated to {} for next iteration", fee_value);
+         debug!("Fee updated to {} for next iteration", fee_value);
       }
 
       return Err(RailgunProviderError::Other(Box::new(
