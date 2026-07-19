@@ -399,12 +399,19 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       //? bundlers seem to use a fixed maxCost value for estimation (IE 27_000_000
       //? for pimlico). Setting this too low causes an unrecoverable estimation
       //? failure.
-      let mut fee_value = 100_000_000;
+      let mut fee_value = 100_000_000u128;
+      // Pin gas fees after the first real bundler quote so the fee loop doesn't
+      // chase a moving max_fee_per_gas (public Pimlico prices jitter enough to
+      // break a tight 1% convergence window).
+      let mut pinned_max_fee_per_gas: Option<u128> = None;
+      let mut pinned_max_priority_fee_per_gas: Option<u128> = None;
 
       let builder = builder.adapt(railgun_fee_adapter, *sender.address().into_word());
 
       info!("Iteratively building UserOperation to converge on accurate fee estimate");
-      for _ in 0..5 {
+      // 8 rounds: seed estimate + retries with headroom. Public bundler gas/price
+      // can move between proves; see convergence rules below.
+      for iter in 0..8 {
          let broadcast_builder = builder.clone().transfer(
             fee_payer.clone(),
             paymaster_railgun_address.clone(),
@@ -414,8 +421,8 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
          );
 
          info!(
-            "Building broadcast transaction with fee value: {}",
-            fee_value
+            "Building broadcast transaction with fee value: {} (iter {})",
+            fee_value, iter
          );
          let operations = self.build_operation(broadcast_builder, rng).await?;
 
@@ -452,29 +459,71 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
             "Estimated paymaster verification gas limit: {}",
             estimated_paymaster_verification_gas_limit
          );
-         signable.user_op.paymaster_verification_gas_limit =
-            Some(estimated_paymaster_verification_gas_limit);
+         // Prefer the higher of bundler vs local eth_estimateGas so we don't under-budget
+         // paymaster verification if either side is optimistic.
+         let bundler_pm_vgl = signable
+            .user_op
+            .paymaster_verification_gas_limit
+            .unwrap_or(0);
+         let pm_vgl = estimated_paymaster_verification_gas_limit.max(bundler_pm_vgl);
+         signable.user_op.paymaster_verification_gas_limit = Some(pm_vgl);
+
+         // Pin gas fees from the first successful quote (take max if a later quote is higher).
+         let quote_max_fee = signable.user_op.max_fee_per_gas;
+         let quote_priority = signable.user_op.max_priority_fee_per_gas;
+         let max_fee = match pinned_max_fee_per_gas {
+            Some(prev) => prev.max(quote_max_fee),
+            None => quote_max_fee,
+         };
+         let priority = match pinned_max_priority_fee_per_gas {
+            Some(prev) => prev.max(quote_priority),
+            None => quote_priority,
+         };
+         pinned_max_fee_per_gas = Some(max_fee);
+         pinned_max_priority_fee_per_gas = Some(priority);
+         signable.user_op.max_fee_per_gas = max_fee;
+         signable.user_op.max_priority_fee_per_gas = priority;
+
          let total_gas = signable.total_gas_limit();
-         let new_fee = total_gas * signable.user_op.max_fee_per_gas;
+         let new_fee = total_gas.saturating_mul(max_fee);
          info!("Estimated total gas: {}", total_gas);
+         info!("Estimated max fee per gas (pinned): {}", max_fee);
          info!(
-            "Estimated max fee per gas: {}",
-            signable.user_op.max_fee_per_gas
+            "Fee note value: {}, estimated cost: {} (iter {})",
+            fee_value, new_fee, iter
          );
 
-         //? Return once the fee converges within 1% of the previous estimate.
-         if new_fee <= fee_value && new_fee.abs_diff(fee_value) <= fee_value / 100 {
-            info!(
-               "Fee converged at {}, total gas: {}",
-               new_fee, total_gas
-            );
-            if let Some(poi_provider) = &mut self.poi_provider {
-               poi_provider.register_ops(&operations).await?;
+         // Converged when the private fee note covers the estimated gas cost and
+         // does not overpay by more than 15%. The old 1% window failed on public
+         // bundlers because maxFee/gas jitter between re-proves.
+         const MAX_OVERPAY_BPS: u128 = 1_500; // 15%
+         if new_fee > 0 && new_fee <= fee_value {
+            let overpay = fee_value - new_fee;
+            let overpay_ok = overpay <= fee_value.saturating_mul(MAX_OVERPAY_BPS) / 10_000;
+            if overpay_ok {
+               info!(
+                  "Fee converged at note={}, cost={}, total gas: {}",
+                  fee_value, new_fee, total_gas
+               );
+               if let Some(poi_provider) = &mut self.poi_provider {
+                  poi_provider.register_ops(&operations).await?;
+               }
+               return Ok(signable);
             }
-            return Ok(signable);
+            // Note covers cost but overpays too much — shrink toward cost + 10% and re-prove.
+            let shrunk = new_fee.saturating_mul(110) / 100;
+            info!(
+               "Fee note overpays too much (note={}, cost={}); shrinking to {}",
+               fee_value, new_fee, shrunk
+            );
+            fee_value = shrunk.max(100_000_000);
+            continue;
          }
-         fee_value = new_fee;
-         info!("Fee updated to {}", new_fee);
+
+         // Fee note too small for estimated cost: bump with 10% headroom and re-prove.
+         let bumped = new_fee.saturating_mul(110) / 100;
+         fee_value = bumped.max(100_000_000);
+         info!("Fee updated to {} for next iteration", fee_value);
       }
 
       return Err(RailgunProviderError::Other(Box::new(
@@ -595,21 +644,23 @@ async fn estimate_paymaster_verification_gas_limit<P: Provider<Ethereum>>(
    user_op: &SignableUserOperation,
 ) -> Result<u128, RailgunProviderError> {
    let entry_point = user_op.entry_point;
-   let Some(_paymaster) = user_op.user_op.paymaster else {
+   // Kohaku: eth_estimateGas({ to: paymaster, from: entryPoint, data: validatePaymasterUserOp… })
+   // Calling EntryPoint with this selector reverts with empty data ("error code 3").
+   let Some(paymaster) = user_op.user_op.paymaster else {
       return Ok(0);
    };
 
-   let user_op = user_op.user_op.into_packed();
+   let packed = user_op.user_op.into_packed();
    let data = abi::PrivacyPaymaster::validatePaymasterUserOpCall {
       userOp: abi::PrivacyPaymaster::PackedUserOperation {
-         sender: user_op.sender,
-         nonce: user_op.nonce,
-         initCode: user_op.initCode,
-         callData: user_op.callData,
-         accountGasLimits: user_op.accountGasLimits,
-         preVerificationGas: user_op.preVerificationGas,
-         gasFees: user_op.gasFees,
-         paymasterAndData: user_op.paymasterAndData,
+         sender: packed.sender,
+         nonce: packed.nonce,
+         initCode: packed.initCode,
+         callData: packed.callData,
+         accountGasLimits: packed.accountGasLimits,
+         preVerificationGas: packed.preVerificationGas,
+         gasFees: packed.gasFees,
+         paymasterAndData: packed.paymasterAndData,
          signature: Bytes::new(),
       },
       userOpHash: B256::ZERO,
@@ -617,8 +668,7 @@ async fn estimate_paymaster_verification_gas_limit<P: Provider<Ethereum>>(
    }
    .abi_encode();
 
-   // TODO: Make sure this actually works
-   let tx = TransactionRequest::default().to(entry_point).input(data.into());
+   let tx = TransactionRequest::default().from(entry_point).to(paymaster).input(data.into());
    let res = provider
       .estimate_gas(tx)
       .await

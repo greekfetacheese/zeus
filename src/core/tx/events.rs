@@ -1,4 +1,4 @@
-use crate::core::{types::Dapp, ZeusCtx};
+use crate::core::{ZeusCtx, types::Dapp};
 use crate::utils::{TimeStamp, truncate_address};
 use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
@@ -10,7 +10,11 @@ use zeus_eth::{
    currency::{Currency, ERC20Token, NativeCurrency},
    utils::NumericValue,
 };
-use zeus_railgun::{abi::railgun::RailgunSmartWallet, caip::AssetId};
+use zeus_railgun::abi::railgun::TokenType;
+use zeus_railgun::{
+   abi::railgun::{RailgunSmartWallet, TokenData},
+   caip::AssetId,
+};
 
 use alloy_eips::eip7702::SignedAuthorization;
 
@@ -47,6 +51,9 @@ pub enum DecodedEvent {
 
    /// Railgun Shield
    Shield(ShieldParams),
+
+   /// Railgun Unshield
+   Unshield(UnshieldParams),
 
    #[default]
    Other,
@@ -157,6 +164,49 @@ impl DecodedEvent {
          erc20: Some(token),
          amount: Some(amount),
          amount_usd: Some(amount_usd),
+      })
+   }
+
+   pub fn dummy_unshield() -> Self {
+      let chain = 1;
+      let recipient = Address::ZERO;
+      let recipient_name = None;
+      let token_data = TokenData {
+         tokenType: TokenType::ERC20,
+         tokenAddress: Address::ZERO,
+         tokenSubID: U256::ZERO,
+      };
+      let erc20 = Some(ERC20Token::weth());
+      let amount_wei = U256::MAX - U256::from(1);
+      let amount = Some(NumericValue::parse_to_wei("1", 18));
+      let amount_usd = Some(NumericValue::value(
+         amount.as_ref().unwrap().f64(),
+         1600.0,
+      ));
+      let fee = Some(NumericValue::parse_to_wei("1", 18));
+      let fee_usd = Some(NumericValue::value(
+         fee.as_ref().unwrap().f64(),
+         1600.0,
+      ));
+      let broadcaster_fee = Some(NumericValue::parse_to_wei("0.001", 18));
+      let broadcaster_fee_usd = Some(NumericValue::value(
+         broadcaster_fee.as_ref().unwrap().f64(),
+         1600.0,
+      ));
+
+      Self::Unshield(UnshieldParams {
+         chain,
+         recipient,
+         recipient_name,
+         token_data,
+         erc20,
+         amount_wei,
+         amount,
+         amount_usd,
+         fee,
+         fee_usd,
+         broadcaster_fee,
+         broadcaster_fee_usd,
       })
    }
 
@@ -314,6 +364,7 @@ impl DecodedEvent {
          Self::Permit(p) => p.event_name.clone(),
          Self::TokenApprove(_) => "Token Approval".to_string(),
          Self::Shield(_) => "Shield".to_string(),
+         Self::Unshield(_) => "Unshield".to_string(),
          Self::Other => "Unknown Interaction".to_string(),
       }
    }
@@ -406,6 +457,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn unshield_params(&self) -> &UnshieldParams {
+      match self {
+         Self::Unshield(params) => params,
+         _ => panic!("Action is not a Unshield"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -454,6 +512,10 @@ impl DecodedEvent {
 
    pub fn is_shield(&self) -> bool {
       matches!(self, Self::Shield(_))
+   }
+
+   pub fn is_unshield(&self) -> bool {
+      matches!(self, Self::Unshield(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -1385,6 +1447,72 @@ impl ShieldParams {
       }
 
       Ok(events)
+   }
+}
+
+/// Decoded unshield Railgun event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnshieldParams {
+   pub chain: u64,
+   pub recipient: Address,
+   pub recipient_name: Option<String>,
+   pub token_data: TokenData,
+   pub erc20: Option<ERC20Token>,
+   pub amount_wei: U256,
+   pub amount: Option<NumericValue>,
+   pub amount_usd: Option<NumericValue>,
+   pub fee: Option<NumericValue>,
+   pub fee_usd: Option<NumericValue>,
+   pub broadcaster_fee: Option<NumericValue>,
+   pub broadcaster_fee_usd: Option<NumericValue>,
+}
+
+impl UnshieldParams {
+   pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
+      if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(&log) {
+         let recipient_name = ctx.get_address_name(chain, decoded.to);
+
+         // TODO: Add support for ERC721 and ERC1155
+         if decoded.token.tokenType == TokenType::ERC20 {
+            let erc20 = ctx.get_token(chain, decoded.token.tokenAddress).await?;
+            let amount = NumericValue::format_wei(decoded.amount, erc20.decimals);
+            let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &erc20);
+            let fee = NumericValue::format_wei(decoded.fee, erc20.decimals);
+            let fee_usd = ctx.get_token_value_for_amount(fee.f64(), &erc20);
+
+            return Ok(Self {
+               chain,
+               recipient: decoded.to,
+               recipient_name,
+               token_data: decoded.token.clone(),
+               amount_wei: decoded.amount,
+               erc20: Some(erc20),
+               amount: Some(amount),
+               amount_usd: Some(amount_usd),
+               fee: Some(fee),
+               fee_usd: Some(fee_usd),
+               broadcaster_fee: None,
+               broadcaster_fee_usd: None,
+            });
+         }
+
+         return Ok(Self {
+            chain,
+            recipient: decoded.to,
+            recipient_name,
+            token_data: decoded.token.clone(),
+            amount_wei: decoded.amount,
+            erc20: None,
+            amount: None,
+            amount_usd: None,
+            fee: None,
+            fee_usd: None,
+            broadcaster_fee: None,
+            broadcaster_fee_usd: None,
+         });
+      } else {
+         Err(anyhow!("Log decoding failed"))
+      }
    }
 }
 

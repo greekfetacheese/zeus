@@ -35,6 +35,8 @@ pub enum NotificationType {
 
    Shield(ShieldParams),
 
+   Unshield(UnshieldParams),
+
    Other(String),
 }
 
@@ -51,6 +53,7 @@ impl NotificationType {
          DecodedEvent::EOADelegate(_params) => Self::Other(String::new()),
          DecodedEvent::Permit(_params) => Self::Other(String::new()),
          DecodedEvent::Shield(params) => Self::Shield(params),
+         DecodedEvent::Unshield(params) => Self::Unshield(params),
          DecodedEvent::Other => Self::Other("Transaction".to_string()),
       }
    }
@@ -81,6 +84,10 @@ impl NotificationType {
 
    pub fn is_shield(&self) -> bool {
       matches!(self, NotificationType::Shield { .. })
+   }
+
+   pub fn is_unshield(&self) -> bool {
+      matches!(self, NotificationType::Unshield { .. })
    }
 
    pub fn is_other(&self) -> bool {
@@ -133,6 +140,13 @@ impl NotificationType {
       match self {
          NotificationType::Shield(params) => params,
          _ => panic!("NotificationType is not a shield"),
+      }
+   }
+
+   pub fn unshield_params(&self) -> &UnshieldParams {
+      match self {
+         NotificationType::Unshield(params) => params,
+         _ => panic!("NotificationType is not a unshield"),
       }
    }
 
@@ -256,6 +270,9 @@ impl Notification {
          }
          NotificationType::Shield(_) => {
             self.show_shield_notification(theme, icons.clone(), ui);
+         }
+         NotificationType::Unshield(_) => {
+            self.show_unshield_notification(theme, icons.clone(), ui);
          }
 
          NotificationType::Other(_) => {
@@ -528,6 +545,41 @@ impl Notification {
 
    fn show_shield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       let params = self.notification.shield_params();
+      let tint = theme.image_tint_recommended;
+
+      ui.vertical_centered(|ui| {
+         if params.erc20.is_some() {
+            let token = params.erc20.as_ref().unwrap();
+            let amount = params.amount.as_ref().unwrap();
+            let show_usd_value = params.amount_usd.is_some();
+
+            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let text = if show_usd_value {
+               let amount_usd = params.amount_usd.as_ref().unwrap();
+               RichText::new(format!(
+                  "{} {} ~ ${}",
+                  amount.abbreviated(),
+                  token.symbol,
+                  amount_usd.abbreviated()
+               ))
+               .size(theme.text_sizes.normal)
+            } else {
+               RichText::new(format!(
+                  "{} {}",
+                  amount.abbreviated(),
+                  token.symbol
+               ))
+               .size(theme.text_sizes.normal)
+            };
+
+            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            ui.add(label);
+         }
+      });
+   }
+
+   fn show_unshield_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let params = self.notification.unshield_params();
       let tint = theme.image_tint_recommended;
 
       ui.vertical_centered(|ui| {

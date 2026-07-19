@@ -1,6 +1,6 @@
 //! Unshield execution paths: paymaster (ERC-4337) broadcast and emergency self-broadcast.
 
-use std::str::FromStr;
+use std::{str::FromStr, time::Instant};
 
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::anyhow;
@@ -10,7 +10,13 @@ use userop_kit::{
    smart_account::simple_smart_account::SimpleSmartAccount,
 };
 use zeus_eth::{
-   alloy_primitives::Address, currency::Currency, types::ChainId, utils::NumericValue,
+   alloy_primitives::{Address, U256},
+   alloy_provider::Provider,
+   alloy_rpc_types::BlockId,
+   currency::Currency,
+   revm_utils::{ForkFactory, Host, new_evm},
+   types::ChainId,
+   utils::NumericValue,
 };
 use zeus_railgun::{
    RailgunSigner, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
@@ -18,9 +24,12 @@ use zeus_railgun::{
 };
 
 use crate::{
-   core::{ZeusCtx, send_transaction},
+   core::{DecodedEvent, TransactionAnalysis, UnshieldParams, ZeusCtx, send_transaction},
    gui::SHARED_GUI,
-   utils::RT,
+   utils::{
+      RT,
+      simulate::{fetch_accounts_info, simulate_transaction},
+   },
 };
 
 /// Default public Pimlico bundler RPC for a chain.
@@ -179,6 +188,34 @@ async fn unshield_via_paymaster(
       ));
    }
 
+   let zeus_client = ctx.get_zeus_client();
+   let last_synced_block = railgun_provider.global_synced_block().await;
+
+   let eth_balance_before_fut = zeus_client.request(chain.id(), |client| async move {
+      client
+         .get_balance(from)
+         .block_id(BlockId::latest())
+         .await
+         .map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let fork_block_res = zeus_client
+      .request(chain.id(), |client| async move {
+         client
+            .get_block(BlockId::number(last_synced_block))
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let fork_block = if let Some(fork_block) = fork_block_res {
+      fork_block
+   } else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
    let fee_asset = AssetId::Erc20(chain_config.wrapped_base_token);
    let rg_addr = railgun_signer.address().clone();
 
@@ -241,13 +278,10 @@ async fn unshield_via_paymaster(
    let smart_account = SimpleSmartAccount::new(sa_key.address(), chain.id(), client);
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Proving unshield + estimating paymaster fee…");
+      gui.loading_window.open("Generating proof…");
       gui.request_repaint();
    });
 
-   // ChaCha12Rng is Send; ThreadRng is not. prepare_userop still holds &dyn Bundler
-   // across awaits, so the outer unshield future is not Send — spawn path uses
-   // RT.spawn_blocking + RT.block_on (multi-thread RT; see shield.rs).
    let mut rng = ChaCha12Rng::from_os_rng();
    let signable = railgun_provider
       .prepare_userop(
@@ -271,16 +305,158 @@ async fn unshield_via_paymaster(
          )
       })?;
 
-   SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Submitting unshield via bundler…");
-      gui.request_repaint();
-   });
-
    let signed = signable
       .sign(&sa_key)
       .await
       .map_err(|e| anyhow!("Failed to sign UserOperation: {}", e))?;
 
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Simulating Transaction…");
+      gui.request_repaint();
+   });
+
+   // Simulate the tx
+   let fork_block_id = BlockId::number(fork_block.header.number);
+
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(signed.entry_point);
+   accounts.push(fork_block.header.beneficiary);
+
+   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts).await;
+
+   let fork_client = ctx.get_client(chain.id()).await?;
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(fork_block_id));
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   let fork_db = factory.new_sandbox_fork();
+
+   let eth_balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
+
+      let from = signed.user_op.sender;
+      let to = signed.entry_point;
+      let data = signed.user_op.call_data.clone();
+      let value = U256::ZERO;
+
+      let time = Instant::now();
+      sim_res = simulate_transaction(&mut evm, from, to, data, value, vec![])?;
+      tracing::info!(
+         "Simulate Transaction took {} ms",
+         time.elapsed().as_millis()
+      );
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let logs = sim_res.clone().into_logs();
+   info!("Logs Len {}", logs.len());
+
+   let mut unshield_events = Vec::new();
+
+   for log in &logs {
+      if let Ok(params) = UnshieldParams::from_log(ctx.clone(), chain.id(), log).await {
+         unshield_events.push(params);
+      }
+   }
+
+   // Should not happen
+   if unshield_events.len() > 1 {
+      return Err(anyhow!("More than one Unshield event found"));
+   }
+
+   if unshield_events.is_empty() {
+      return Err(anyhow!("No Unshield event found"));
+   }
+
+   let mut unshield_params = unshield_events[0].clone();
+   // TODO: Add the broadcaster fee to the unshield params
+
+   let eth_balance_before = eth_balance_before_fut.await?;
+
+   let value = U256::ZERO;
+   let contract_interact = Some(true);
+   let interact_to = signed.entry_point;
+   let calldata = signed.user_op.call_data.clone();
+   let auth_list = Vec::new();
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      calldata.clone(),
+      value,
+      logs,
+      sim_res.tx_gas_used(),
+      eth_balance_before,
+      eth_balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+
+   let main_event = DecodedEvent::Unshield(unshield_params.clone());
+   tx_analysis.set_main_event(main_event);
+
+   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let dapp = "Railgun Unshield".to_string();
+   let mev_protect = false;
+
+   SHARED_GUI.write(|gui| {
+      gui.tx_confirmation_window.open(
+         ctx.clone(),
+         dapp,
+         chain,
+         tx_analysis.clone(),
+         priority_fee.f64().to_string(),
+         mev_protect,
+      );
+      gui.loading_window.reset();
+      gui.request_repaint();
+   });
+
+   // wait for the user to confirm or reject the transaction
+   let mut confirmed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+      SHARED_GUI.read(|gui| {
+         confirmed = gui.tx_confirmation_window.get_confirmed_or_rejected();
+      });
+
+      if confirmed.is_some() {
+         SHARED_GUI.write(|gui| {
+            ctx.write(|ctx| {
+               gui.tx_confirmation_window.close(ctx);
+            });
+         });
+         break;
+      }
+   }
+
+   let confirmed = confirmed.unwrap();
+   if !confirmed {
+      return Err(anyhow!("Transaction rejected"));
+   }
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Submitting unshield via bundler…");
+      gui.request_repaint();
+   });
+
+   // Submit the UserOp tx
    let hash = bundler
       .send_user_operation(&signed)
       .await

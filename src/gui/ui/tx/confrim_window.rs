@@ -133,6 +133,7 @@ impl TxConfirmationWindow {
       self.gas_limit
    }
 
+   // TODO: Adjust the UI for txs that are sponsored by another account
    /// Calculate the cost of the transaction
    fn calculate_tx_cost(&mut self, ctx: &mut ZeusContext, gas_used: u64) {
       let chain = self.chain;
