@@ -155,6 +155,8 @@ impl DecodedEvent {
       let token = ERC20Token::weth();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
+      let fee = NumericValue::parse_to_wei("0.0001", 18);
+      let fee_usd = NumericValue::value(fee.f64(), 1600.0);
       let asset_id = AssetId::Erc20(token.address);
 
       Self::Shield(ShieldParams {
@@ -164,13 +166,14 @@ impl DecodedEvent {
          erc20: Some(token),
          amount: Some(amount),
          amount_usd: Some(amount_usd),
+         fee: Some(fee),
+         fee_usd: Some(fee_usd),
       })
    }
 
    pub fn dummy_unshield() -> Self {
       let chain = 1;
       let recipient = Address::ZERO;
-      let recipient_name = None;
       let token_data = TokenData {
          tokenType: TokenType::ERC20,
          tokenAddress: Address::ZERO,
@@ -183,7 +186,7 @@ impl DecodedEvent {
          amount.as_ref().unwrap().f64(),
          1600.0,
       ));
-      let fee = Some(NumericValue::parse_to_wei("1", 18));
+      let fee = Some(NumericValue::parse_to_wei("0.0001", 18));
       let fee_usd = Some(NumericValue::value(
          fee.as_ref().unwrap().f64(),
          1600.0,
@@ -197,7 +200,6 @@ impl DecodedEvent {
       Self::Unshield(UnshieldParams {
          chain,
          recipient,
-         recipient_name,
          token_data,
          erc20,
          amount_wei,
@@ -1406,6 +1408,8 @@ pub struct ShieldParams {
    pub erc20: Option<ERC20Token>,
    pub amount: Option<NumericValue>,
    pub amount_usd: Option<NumericValue>,
+   pub fee: Option<NumericValue>,
+   pub fee_usd: Option<NumericValue>,
 }
 
 impl ShieldParams {
@@ -1413,12 +1417,21 @@ impl ShieldParams {
       let mut events = Vec::new();
 
       if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
+         let fee_wei = if decoded.fees.len() > 0 {
+            decoded.fees[0]
+         } else {
+            tracing::warn!("No fees found for Shield event");
+            U256::ZERO
+         };
+
          for commitment in decoded.commitments.iter() {
             let asset: AssetId = commitment.token.clone().into();
             let amount_wei: U256 = commitment.value.saturating_to();
             let mut erc20 = None;
             let mut amount_fmt_opt = None;
             let mut amount_usd_opt = None;
+            let mut fee_fmt_opt = None;
+            let mut fee_usd_opt = None;
 
             // TODO: Add support for ERC721 and ERC1155
             if asset.is_erc20() {
@@ -1428,8 +1441,13 @@ impl ShieldParams {
                let amount = NumericValue::format_wei(amount_wei, token.decimals);
                let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
 
+               let fee = NumericValue::format_wei(fee_wei, token.decimals);
+               let fee_usd = ctx.get_token_value_for_amount(fee.f64(), &token);
+
                amount_fmt_opt = Some(amount);
                amount_usd_opt = Some(amount_usd);
+               fee_fmt_opt = Some(fee);
+               fee_usd_opt = Some(fee_usd);
                erc20 = Some(token);
             }
 
@@ -1440,6 +1458,8 @@ impl ShieldParams {
                erc20,
                amount: amount_fmt_opt,
                amount_usd: amount_usd_opt,
+               fee: fee_fmt_opt,
+               fee_usd: fee_usd_opt,
             };
 
             events.push(event);
@@ -1455,7 +1475,6 @@ impl ShieldParams {
 pub struct UnshieldParams {
    pub chain: u64,
    pub recipient: Address,
-   pub recipient_name: Option<String>,
    pub token_data: TokenData,
    pub erc20: Option<ERC20Token>,
    pub amount_wei: U256,
@@ -1470,7 +1489,6 @@ pub struct UnshieldParams {
 impl UnshieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
       if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(&log) {
-         let recipient_name = ctx.get_address_name(chain, decoded.to);
 
          // TODO: Add support for ERC721 and ERC1155
          if decoded.token.tokenType == TokenType::ERC20 {
@@ -1483,7 +1501,6 @@ impl UnshieldParams {
             return Ok(Self {
                chain,
                recipient: decoded.to,
-               recipient_name,
                token_data: decoded.token.clone(),
                amount_wei: decoded.amount,
                erc20: Some(erc20),
@@ -1499,7 +1516,6 @@ impl UnshieldParams {
          return Ok(Self {
             chain,
             recipient: decoded.to,
-            recipient_name,
             token_data: decoded.token.clone(),
             amount_wei: decoded.amount,
             erc20: None,

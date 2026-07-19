@@ -31,6 +31,8 @@ pub struct TxConfirmationWindow {
    /// Adjust priority fee
    priority_fee: String,
    mev_protect: bool,
+   /// True if the tx is sponsored by another account
+   sponsored: bool,
    gas_used: u64,
    /// Adjust gas limit
    gas_limit: u64,
@@ -54,6 +56,7 @@ impl TxConfirmationWindow {
          tx_main_event: None,
          priority_fee: String::new(),
          mev_protect: false,
+         sponsored: false,
          gas_used: 0,
          gas_limit: 0,
          adjusted_gas_limit: String::new(),
@@ -87,9 +90,17 @@ impl TxConfirmationWindow {
       tx: TransactionAnalysis,
       priority_fee: String,
       mev_protect: bool,
+      sponsored: bool,
    ) {
       if !self.open {
          self.overlay.window_opened();
+      }
+
+      self.sponsored = sponsored;
+      
+      if sponsored {
+         self.tx_cost = NumericValue::default();
+         self.tx_cost_usd = NumericValue::default();
       }
 
       RT.spawn_blocking(move || {
@@ -136,6 +147,10 @@ impl TxConfirmationWindow {
    // TODO: Adjust the UI for txs that are sponsored by another account
    /// Calculate the cost of the transaction
    fn calculate_tx_cost(&mut self, ctx: &mut ZeusContext, gas_used: u64) {
+      if self.sponsored {
+         return;
+      }
+
       let chain = self.chain;
       let fee = NumericValue::parse_to_gwei(&self.priority_fee);
       let fee = if fee.is_zero() && chain.supports_type_2_tx() {

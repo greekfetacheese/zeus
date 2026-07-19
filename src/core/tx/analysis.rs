@@ -725,6 +725,46 @@ impl TransactionAnalysis {
       }
    }
 
+   pub fn dummy_shield() -> Self {
+      let main_event = DecodedEvent::dummy_shield();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: Address::ZERO,
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Shield".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
+   pub fn dummy_unshield() -> Self {
+      let main_event = DecodedEvent::dummy_unshield();
+      Self {
+         chain: 1,
+         sender: vitalik(),
+         interact_to: Address::ZERO,
+         contract_interact: true,
+         value: U256::ZERO,
+         call_data: Bytes::from_str("0x").unwrap(),
+         gas_used: 50_000,
+         eth_balance_before: U256::ZERO,
+         eth_balance_after: U256::ZERO,
+         decoded_selector: "Unshield".to_string(),
+         logs_len: 1,
+         known_events: 1,
+         decoded_events: vec![main_event.clone()],
+         main_event: Some(main_event),
+      }
+   }
+
    pub fn dummy_erc20_transfer() -> Self {
       let main_event = DecodedEvent::dummy_erc20_transfer();
       let token = main_event.transfer_params().currency.address();

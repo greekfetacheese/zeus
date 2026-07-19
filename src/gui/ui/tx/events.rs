@@ -2,7 +2,7 @@
 
 use egui::{Align, Align2, Frame, Layout, Order, RichText, ScrollArea, Ui, Vec2, Window, vec2};
 use zeus_theme::{OverlayManager, Theme};
-use zeus_widgets::Label;
+use zeus_widgets::{Label, MultiLabel};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
@@ -96,14 +96,7 @@ impl DecodedEvents {
                         frame.show(ui, |ui| {
                            ui.label(RichText::new(event.name()).size(theme.text_sizes.heading));
 
-                           show_event(
-                              ctx,
-                              chain,
-                              theme,
-                              icons.clone(),
-                              event,
-                              ui,
-                           );
+                           show_event(ctx, chain, theme, icons.clone(), event, ui);
                         });
                      });
                   }
@@ -124,14 +117,7 @@ pub fn eoa_delegate_event_ui(
    params: &EOADelegateParams,
    ui: &mut Ui,
 ) {
-   address(
-      ctx,
-      chain,
-      "Wallet",
-      params.eoa,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Wallet", params.eoa, theme, ui);
 
    address(
       ctx,
@@ -191,24 +177,10 @@ pub fn permit_event_ui(
    ui.add(label);
 
    // Owner
-   address(
-      ctx,
-      chain,
-      "Owner",
-      params.owner,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Owner", params.owner, theme, ui);
 
    // Spender
-   address(
-      ctx,
-      chain,
-      "Spender",
-      params.spender,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Spender", params.spender, theme, ui);
 
    // Expiration
    ui.horizontal(|ui| {
@@ -262,24 +234,10 @@ pub fn token_approval_event_ui(
    }
 
    // Owner
-   address(
-      ctx,
-      chain,
-      "Owner",
-      params.owner,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Owner", params.owner, theme, ui);
 
    // Spender
-   address(
-      ctx,
-      chain,
-      "Spender",
-      params.spender,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Spender", params.spender, theme, ui);
 }
 
 fn transfer_event_ui(
@@ -321,14 +279,7 @@ fn transfer_event_ui(
    });
 
    // Sender
-   address(
-      ctx,
-      chain,
-      "Sender",
-      params.sender,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Sender", params.sender, theme, ui);
 
    // Recipient
    ui.allocate_ui(size, |ui| {
@@ -385,50 +336,198 @@ fn shield_event_ui(
    let size = vec2(ui.available_width(), 30.0);
    let tint = theme.image_tint_recommended;
 
-   // Token to Shield
+   // Amount Shielded
    ui.allocate_ui(size, |ui| {
-      ui.vertical_centered(|ui| {
-         if params.erc20.is_some() {
-            let token = params.erc20.as_ref().unwrap();
-            let amount = params.amount.as_ref().unwrap();
-            let show_usd_value = params.amount_usd.is_some();
+      ui.horizontal(|ui| {
+         if let (Some(token), Some(amount), Some(amount_usd)) = (
+            params.erc20.as_ref(),
+            params.amount.as_ref(),
+            params.amount_usd.as_ref(),
+         ) {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let text = RichText::new(format!("To Shield",)).size(theme.text_sizes.large);
+               let label = Label::new(text, None).interactive(false);
+               ui.add(label);
+            });
 
-            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
-            let text = if show_usd_value {
-               let amount_usd = params.amount_usd.as_ref().unwrap();
-               RichText::new(format!(
-                  "{} {} ~ ${}",
-                  amount.abbreviated(),
-                  token.symbol,
-                  amount_usd.abbreviated()
-               ))
-               .size(theme.text_sizes.normal)
-            } else {
-               RichText::new(format!(
+            // Token & Amount (usd)
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let text = RichText::new(format!(
                   "{} {}",
                   amount.abbreviated(),
-                  token.symbol
+                  token.symbol,
                ))
-               .size(theme.text_sizes.normal)
-            };
+               .size(theme.text_sizes.large);
 
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
-            ui.add(label);
-         } else {
-            let address = params.asset.address();
-            let amount = params.amount_wei;
+               let label1 = Label::new(text, Some(icon)).interactive(false);
 
-            let addr_text = RichText::new(address.to_string()).size(theme.text_sizes.normal);
-            let amount_text = RichText::new(amount.to_string()).size(theme.text_sizes.small);
+               let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
+                  .size(theme.text_sizes.large);
+               let label2 = Label::new(text, None).interactive(false);
 
-            let label = Label::new(addr_text, None).image_on_left().interactive(false);
-            ui.add(label);
-
-            let label = Label::new(amount_text, None).image_on_left().interactive(false);
-            ui.add(label);
+               let multi_label = MultiLabel::new(vec![label1, label2]);
+               ui.add(multi_label);
+            });
          }
       });
    });
+
+   // Protocol fee
+   if let (Some(token), Some(fee), Some(fee_usd)) = (
+      params.erc20.as_ref(),
+      params.fee.as_ref(),
+      params.fee_usd.as_ref(),
+   ) {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Protocol fee").size(theme.text_sizes.large));
+         });
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+
+            let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
+            let token_rich_text = RichText::new(token_text).size(theme.text_sizes.large);
+
+            let fee_usd_text = format!("~ ${}", fee_usd.abbreviated());
+            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+
+            let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
+            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+            let multi_label = MultiLabel::new(vec![label1, label2]);
+            ui.add(multi_label);
+         });
+      });
+   }
+}
+
+fn unshield_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &UnshieldParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+
+   // Recipient
+   address(
+      ctx,
+      chain,
+      "Recipient",
+      params.recipient,
+      theme,
+      ui,
+   );
+
+   // Amount unshielded
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         // Receive
+         if let (Some(token), Some(amount), Some(amount_usd)) = (
+            params.erc20.as_ref(),
+            params.amount.as_ref(),
+            params.amount_usd.as_ref(),
+         ) {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let text = RichText::new(format!("Receive",)).size(theme.text_sizes.large);
+               let label = Label::new(text, None).interactive(false);
+               ui.add(label);
+            });
+
+            // Token & Amount (usd)
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let text = RichText::new(format!(
+                  "{} {}",
+                  amount.abbreviated(),
+                  token.symbol,
+               ))
+               .size(theme.text_sizes.large);
+
+               let label1 = Label::new(text, Some(icon)).interactive(false);
+
+               let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
+                  .size(theme.text_sizes.large);
+               let label2 = Label::new(text, None).interactive(false);
+
+               let multi_label = MultiLabel::new(vec![label1, label2]);
+               ui.add(multi_label);
+            });
+         }
+      });
+   });
+
+   // Protocol unshield fee (on-token fee from Unshield event)
+   if let (Some(token), Some(fee), Some(fee_usd)) = (
+      params.erc20.as_ref(),
+      params.fee.as_ref(),
+      params.fee_usd.as_ref(),
+   ) {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Protocol fee").size(theme.text_sizes.large));
+         });
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+
+            let token_text = format!("{} {}", fee.abbreviated(), token.symbol);
+            let token_rich_text = RichText::new(token_text).size(theme.text_sizes.large);
+
+            let fee_usd_text = format!("~ ${}", fee_usd.abbreviated());
+            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+
+            let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
+            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+            let multi_label = MultiLabel::new(vec![label1, label2]);
+            ui.add(multi_label);
+         });
+      });
+   }
+
+   // Broadcaster / privacy-paymaster fee.
+   // Paid from private balance
+   // TODO: Maybe add a ? that pops up explaining that the fee is paid from the private balance
+   if let (Some(bf_fee), Some(bf_fee_usd), Some(token)) = (
+      params.broadcaster_fee.as_ref(),
+      params.broadcaster_fee_usd.as_ref(),
+      params.erc20.as_ref(),
+   ) {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(RichText::new("Broadcaster fee").size(theme.text_sizes.large));
+         });
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let icon = icons.token_icon_x24(token.address, chain.id(), tint);
+
+            let fee_text = format!("{} {}", bf_fee.abbreviated(), token.symbol);
+            let fee_rich_text = RichText::new(fee_text).size(theme.text_sizes.large);
+
+            let fee_usd_text = format!("~ ${}", bf_fee_usd.abbreviated());
+            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+
+            let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
+            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+            let multi_label = MultiLabel::new(vec![label1, label2]);
+            ui.add(multi_label);
+         });
+      });
+   } else {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            ui.label(
+               RichText::new("Broadcaster fee")
+                  .size(theme.text_sizes.large)
+                  .color(theme.colors.warning),
+            );
+         });
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            ui.label(RichText::new("N/A").size(theme.text_sizes.large).color(theme.colors.error));
+         });
+      });
+   }
 }
 
 fn bridge_event_ui(
@@ -715,14 +814,7 @@ fn unwrap_weth_event_ui(
    });
 
    // Source
-   address(
-      ctx,
-      chain,
-      "Source",
-      params.src,
-      theme,
-      ui,
-   );
+   address(ctx, chain, "Source", params.src, theme, ui);
 }
 
 fn uniswap_position_op_event_ui(
@@ -866,86 +958,37 @@ pub fn show_event(
 ) {
    if event.is_native_transfer() || event.is_erc20_transfer() {
       let params = event.transfer_params();
-      transfer_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_token_approval() {
       let params = event.token_approval_params();
-      token_approval_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      token_approval_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_permit() {
       let params = event.permit_params();
-      permit_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      permit_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_wrap_eth() {
       let params = event.wrap_eth_params();
-      wrap_eth_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      wrap_eth_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_unwrap_weth() {
       let params = event.unwrap_weth_params();
-      unwrap_weth_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      unwrap_weth_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_uniswap_position_op() {
       let params = event.uniswap_position_params();
-      uniswap_position_op_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      uniswap_position_op_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_bridge() {
       let params = event.bridge_params();
-      bridge_event_ui(
-         ctx,
-         chain,
-         theme,
-         icons.clone(),
-         params,
-         ui,
-      );
+      bridge_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 
    if event.is_swap() {
@@ -961,5 +1004,10 @@ pub fn show_event(
    if event.is_shield() {
       let params = event.shield_params();
       shield_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_unshield() {
+      let params = event.unshield_params();
+      unshield_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 }

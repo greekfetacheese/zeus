@@ -610,6 +610,15 @@ impl Notification {
             let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
             ui.add(label);
          }
+
+         if let Some(bf) = params.broadcaster_fee.as_ref() {
+            let text = if let Some(usd) = params.broadcaster_fee_usd.as_ref() {
+               format!("Broadcast fee {} ~ ${}", bf.abbreviated(), usd.abbreviated())
+            } else {
+               format!("Broadcast fee {}", bf.abbreviated())
+            };
+            ui.label(RichText::new(text).size(theme.text_sizes.small));
+         }
       });
    }
 }

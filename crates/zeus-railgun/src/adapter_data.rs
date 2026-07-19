@@ -55,10 +55,48 @@ pub fn encode_railgun_adapter_data(
    data.abi_encode()
 }
 
+/// Decode `(fee_asset, fee_value_wei)` from UserOperation.paymaster_data
+/// (`PaymasterData { adapter, adapterData: AdapterData { random, asset, value, txs } }`).
+///
+/// This is the private broadcaster/paymaster fee note amount (wrapped base token),
+/// not the protocol Unshield event fee.
+pub fn decode_fee_from_paymaster_data(data: &[u8]) -> Result<(Address, u128), anyhow::Error> {
+   let pm =
+      PaymasterData::abi_decode(data).map_err(|e| anyhow::anyhow!("decode PaymasterData: {e}"))?;
+   let adapter = RailgunFeeAdapter::AdapterData::abi_decode(pm.adapterData.as_ref())
+      .map_err(|e| anyhow::anyhow!("decode RailgunFeeAdapter::AdapterData: {e}"))?;
+
+   // U120 -> u128 (fee values fit comfortably)
+   let value = u128::try_from(adapter.value)
+      .map_err(|_| anyhow::anyhow!("fee value does not fit in u128"))?;
+   Ok((adapter.asset, value))
+}
+
 pub fn paymaster_railgun_address(_chain_id: Chain) -> RailgunAddress {
    RailgunAddress::from_public_keys(
       MasterPublicKey::from_bytes(*PAYMASTER_MASTER_PUBLIC_KEY),
       ViewingPublicKey::from_bytes(*PAYMASTER_VIEWING_PUBLIC_KEY),
       None,
    )
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use alloy_primitives::address;
+
+   #[test]
+   fn fee_encode_decode_roundtrip() {
+      let asset = address!("0xfff9976782d46cc05630d1f6ebab18b2324d6b14");
+      let value = 3_931_601_980_527_289u128;
+      let adapter = address!("0xeBabF510f824a349a9Be7F40cad3486B7249b1e0");
+      let random = [7u8; 16];
+
+      let adapter_data = encode_railgun_adapter_data(random, asset, value, Vec::new());
+      let pm_data = encode_paymaster_data(adapter, adapter_data);
+
+      let (decoded_asset, decoded_value) = decode_fee_from_paymaster_data(&pm_data).unwrap();
+      assert_eq!(decoded_asset, asset);
+      assert_eq!(decoded_value, value);
+   }
 }

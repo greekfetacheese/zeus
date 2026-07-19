@@ -340,13 +340,57 @@ impl UiTesting {
                ctx.on_startup_syncing = !ctx.on_startup_syncing;
             }
 
-            let button = Button::new(RichText::new("Railgun Syncing").size(text_size))
-               .min_size(button_size);
+            let button =
+               Button::new(RichText::new("Railgun Syncing").size(text_size)).min_size(button_size);
 
             if ui.add(button).clicked() {
                let chain = ctx.chain;
                let is_syncing = ctx.is_railgun_provider_syncing(chain.id());
                ctx.railgun_provider_syncing.insert(chain.id(), !is_syncing);
+            }
+
+            let button =
+               Button::new(RichText::new("Railgun Unshield").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let analysis = TransactionAnalysis::dummy_unshield();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
+                     gui.tx_confirmation_window.open(
+                        ctx.clone(),
+                        "".to_string(),
+                        ctx.chain(),
+                        analysis,
+                        "1".to_string(),
+                        false,
+                        true,
+                     );
+                  });
+               });
+            }
+
+            let button =
+               Button::new(RichText::new("Railgun Shield").size(text_size)).min_size(button_size);
+
+            if ui.add(button).clicked() {
+               let analysis = TransactionAnalysis::dummy_shield();
+               RT.spawn_blocking(move || {
+                  SHARED_GUI.write(|gui| {
+                     let ctx = gui.ctx.clone();
+
+                     gui.tx_confirmation_window.open(
+                        ctx.clone(),
+                        "".to_string(),
+                        ctx.chain(),
+                        analysis,
+                        "1".to_string(),
+                        false,
+                        false,
+                     );
+                  });
+               });
             }
 
             let button =
@@ -364,7 +408,8 @@ impl UiTesting {
                         ctx.chain(),
                         analysis,
                         "1".to_string(),
-                        true,
+                        false,
+                        false,
                      );
                   });
                });
@@ -386,6 +431,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -407,6 +453,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -428,6 +475,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -449,6 +497,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -470,6 +519,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -491,6 +541,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -512,6 +563,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -532,6 +584,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -553,6 +606,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -574,6 +628,7 @@ impl UiTesting {
                         analysis,
                         "1".to_string(),
                         true,
+                        false,
                      );
                   });
                });
@@ -589,12 +644,7 @@ impl UiTesting {
                      let ctx = gui.ctx.clone();
 
                      ctx.write(|ctx| {
-                        gui.sign_msg_window.open(
-                           ctx,
-                           "app.uniswap.org".to_string(),
-                           8453,
-                           msg,
-                        );
+                        gui.sign_msg_window.open(ctx, "app.uniswap.org".to_string(), 8453, msg);
                      });
                   });
                });

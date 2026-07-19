@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, Bytes, U256, address};
-use alloy_sol_types::sol;
+use alloy_sol_types::{SolCall, sol};
 
 use crate::user_operation::UserOperation;
 
@@ -19,8 +19,11 @@ sol! {
     contract EntryPoint {
         function getNonce(address sender, uint192 key) external view returns (uint256 nonce);
 
+        /// Simulate / submit a batch via EntryPoint (bundler-equivalent call).
+        function handleOps(HandleOpsUserOperation[] calldata ops, address payable beneficiary) external;
+
         #[derive(Debug)]
-        /// The "packed" version of the 4337 UserOperation
+        /// Packed UserOperation fields used for EIP-712 hashing (signature excluded).
         ///
         /// See the 0.8.0 EntryPoint impl for format details:
         /// <https://etherscan.io/address/0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108#code#F30#L1>
@@ -34,7 +37,43 @@ sol! {
             bytes32 gasFees;
             bytes paymasterAndData;
         }
+
+        /// Full packed op including signature — wire format for `handleOps`.
+        struct HandleOpsUserOperation {
+            address sender;
+            uint256 nonce;
+            bytes initCode;
+            bytes callData;
+            bytes32 accountGasLimits;
+            uint256 preVerificationGas;
+            bytes32 gasFees;
+            bytes paymasterAndData;
+            bytes signature;
+        }
     }
+}
+
+/// Encode `EntryPoint.handleOps([op], beneficiary)` calldata for a signed UserOperation.
+pub fn encode_handle_ops(op: &UserOperation, beneficiary: Address) -> Bytes {
+   let packed = EntryPoint::PackedUserOperation::from(op);
+   let handle_op = EntryPoint::HandleOpsUserOperation {
+      sender: packed.sender,
+      nonce: packed.nonce,
+      initCode: packed.initCode,
+      callData: packed.callData,
+      accountGasLimits: packed.accountGasLimits,
+      preVerificationGas: packed.preVerificationGas,
+      gasFees: packed.gasFees,
+      paymasterAndData: packed.paymasterAndData,
+      signature: op.signature.clone(),
+   };
+
+   EntryPoint::handleOpsCall {
+      ops: vec![handle_op],
+      beneficiary,
+   }
+   .abi_encode()
+   .into()
 }
 
 impl From<&UserOperation> for EntryPoint::PackedUserOperation {

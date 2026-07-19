@@ -11,10 +11,13 @@ use crate::{
    smart_account::SmartAccount,
 };
 
+/// eth-infinitism Simple7702Account implementation used as EIP-7702 delegate target.
+pub const SIMPLE_7702_ACCOUNT: Address = address!("0xe6Cae83BdE06E4c305530e199D7217f42808555B");
+
 /// Creates a simple smart account.
 ///
 /// Defaults to the v0.8 EntryPoint and the eth-infinitism Simple7702Account implementation at
-/// `0xe6Cae83BdE06E4c305530e199D7217f42808555B`.
+/// [`SIMPLE_7702_ACCOUNT`].
 #[derive(Clone)]
 pub struct SimpleSmartAccount<P> {
    owner: Address,
@@ -45,7 +48,7 @@ where
    P: Provider<Ethereum>,
 {
    pub fn new(owner: Address, chain_id: u64, provider: P) -> Self {
-      let implementation = address!("0xe6Cae83BdE06E4c305530e199D7217f42808555B");
+      let implementation = SIMPLE_7702_ACCOUNT;
       let entry_point = ENTRY_POINT_08;
       let domain = entry_point_08_domain(chain_id);
       let dummy_signature = bytes!(

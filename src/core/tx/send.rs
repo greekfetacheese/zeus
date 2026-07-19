@@ -227,6 +227,7 @@ pub async fn send_transaction(
    };
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let sponsored = false;
 
    SHARED_GUI.write(|gui| {
       gui.tx_confirmation_window.open(
@@ -236,6 +237,7 @@ pub async fn send_transaction(
          tx_analysis.clone(),
          priority_fee.f64().to_string(),
          mev_protect,
+         sponsored
       );
       gui.loading_window.reset();
       gui.request_repaint();

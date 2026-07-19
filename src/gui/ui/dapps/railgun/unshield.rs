@@ -1,33 +1,42 @@
 //! Unshield execution paths: paymaster (ERC-4337) broadcast and emergency self-broadcast.
 
-use std::{str::FromStr, time::Instant};
+use std::{
+   str::FromStr,
+   time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
+use alloy_consensus::TxType;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::anyhow;
 use tracing::{error, info};
 use userop_kit::{
    bundler::{Bundler, pimlico::PimlicoBundler},
-   smart_account::simple_smart_account::SimpleSmartAccount,
+   smart_account::simple_smart_account::{SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
 };
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::{Address, Bytes, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::Currency,
-   revm_utils::{ForkFactory, Host, new_evm},
+   currency::{Currency, ERC20Token},
+   revm_utils::{
+      ForkFactory, Host, new_evm,
+      revm::state::{AccountInfo, Bytecode},
+   },
    types::ChainId,
-   utils::NumericValue,
+   utils::{NumericValue, client::RpcClient},
 };
 use zeus_railgun::{
-   RailgunSigner, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
-   transact::TransactionBuilder,
+   RailgunProvider, RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId,
+   rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
 };
 
 use crate::{
-   core::{DecodedEvent, TransactionAnalysis, UnshieldParams, ZeusCtx, send_transaction},
-   gui::SHARED_GUI,
+   core::{
+      DecodedEvent, TransactionAnalysis, TransactionRich, UnshieldParams, ZeusCtx, send_transaction,
+   },
+   gui::{SHARED_GUI, ui::NotificationType},
    utils::{
-      RT,
+      RT, TimeStamp, estimate_tx_cost,
       simulate::{fetch_accounts_info, simulate_transaction},
    },
 };
@@ -35,6 +44,14 @@ use crate::{
 /// Default public Pimlico bundler RPC for a chain.
 pub fn default_bundler_url(chain_id: u64) -> String {
    format!("https://public.pimlico.io/v2/{}/rpc", chain_id)
+}
+
+/// EIP-7702 designated delegated code: `0xef0100 || implementation`.
+fn eip7702_delegated_code(implementation: Address) -> Bytes {
+   let mut code = Vec::with_capacity(23);
+   code.extend_from_slice(&[0xef, 0x01, 0x00]);
+   code.extend_from_slice(implementation.as_slice());
+   code.into()
 }
 
 /// Unshield private notes to a public address.
@@ -112,12 +129,13 @@ pub async fn unshield(
    )?;
 
    if self_broadcast {
-      unshield_self_broadcast(ctx, chain, from, &mut railgun_provider, tx).await
+      unshield_self_broadcast(ctx, chain, from, token, &mut railgun_provider, tx).await
    } else {
       unshield_via_paymaster(
          ctx,
          chain,
          from,
+         token,
          &mut railgun_provider,
          railgun_signer,
          tx,
@@ -131,7 +149,8 @@ async fn unshield_self_broadcast(
    ctx: ZeusCtx,
    chain: ChainId,
    from: Address,
-   railgun_provider: &mut zeus_railgun::RailgunProvider<zeus_eth::utils::client::RpcClient>,
+   token: ERC20Token,
+   railgun_provider: &mut RailgunProvider<RpcClient>,
    tx: TransactionBuilder,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
@@ -167,7 +186,11 @@ async fn unshield_self_broadcast(
    )
    .await?;
 
-   post_unshield_sync(ctx, chain, from, railgun_provider);
+   let railgun_provider = railgun_provider.clone();
+   RT.spawn(async move {
+      post_unshield_sync(ctx, chain, from, token, railgun_provider, true).await;
+   });
+
    Ok(())
 }
 
@@ -175,7 +198,8 @@ async fn unshield_via_paymaster(
    ctx: ZeusCtx,
    chain: ChainId,
    from: Address,
-   railgun_provider: &mut zeus_railgun::RailgunProvider<zeus_eth::utils::client::RpcClient>,
+   token: ERC20Token,
+   railgun_provider: &mut RailgunProvider<RpcClient>,
    railgun_signer: RailgunSigner,
    tx: TransactionBuilder,
    bundler_url: String,
@@ -216,10 +240,12 @@ async fn unshield_via_paymaster(
       ));
    };
 
+   // TODO: Are we sure the fee token is always the wrapped base token?
    let fee_asset = AssetId::Erc20(chain_config.wrapped_base_token);
    let rg_addr = railgun_signer.address().clone();
 
-   // Live spendable notes (not UI portfolio cache). Paymaster always charges a private
+   // Live spendable notes
+   // Paymaster always charges a private
    // fee note in wrapped base token on top of the unshield amount when unshielding WETH.
    let notes = railgun_provider.notes(rg_addr.clone()).await;
    let fee_token_balance = railgun_provider.balance_erc20(rg_addr.clone(), fee_asset).await;
@@ -233,6 +259,7 @@ async fn unshield_via_paymaster(
          )
       })
       .collect();
+
    info!(
       "Paymaster unshield preflight: notes={} fee_token_balance_wei={} fee_token={:?} note_summary={:?}",
       notes.len(),
@@ -241,7 +268,7 @@ async fn unshield_via_paymaster(
       note_summary
    );
 
-   // Initial fee seed inside prepare_userop (Kohaku). Real fee after gas estimate is often higher.
+   // Initial fee seed inside prepare_userop. Real fee after gas estimate is often higher.
    const INITIAL_FEE_WEI: u128 = 100_000_000;
    if fee_token_balance < INITIAL_FEE_WEI {
       let note_assets: Vec<String> =
@@ -315,15 +342,40 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
-   // Simulate the tx
+   // Simulate bundler inclusion: EntryPoint.handleOps([userOp], beneficiary).
+   //
+   // NOT a raw call with user_op.call_data (that is empty for paymaster unshields —
+   // Railgun txs live in paymasterAndData and are executed by the privacy paymaster).
+   //
+   // Also apply EIP-7702 delegated code on the smart-account sender so validateUserOp
+   // can reach Simple7702Account (bundlers do this via the outer type-4 auth list).
    let fork_block_id = BlockId::number(fork_block.header.number);
 
+   // Prefetch accounts info for the sim
    let mut accounts = Vec::new();
    accounts.push(from);
+   accounts.push(signed.user_op.sender);
    accounts.push(signed.entry_point);
+   accounts.push(SIMPLE_7702_ACCOUNT);
    accounts.push(fork_block.header.beneficiary);
 
+   if let Some(pm) = signed.user_op.paymaster {
+      accounts.push(pm);
+   }
+
+   if let Some(adapter) = chain_config.railgun_fee_adapter {
+      accounts.push(adapter);
+   }
+
+   accounts.push(railgun_provider.railgun_address());
+   accounts.push(chain_config.wrapped_base_token);
+
+   let time = Instant::now();
    let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts).await;
+   info!(
+      "Fetched accounts info in {} ms",
+      time.elapsed().as_millis()
+   );
 
    let fork_client = ctx.get_client(chain.id()).await?;
    let mut factory =
@@ -333,23 +385,53 @@ async fn unshield_via_paymaster(
       factory.insert_account_info(info.address, info.info);
    }
 
+   // Force EIP-7702 delegation on the ephemeral smart-account sender.
+   // Bundlers apply this via the outer type-4 authorization list before handleOps.
+   {
+      let code = eip7702_delegated_code(SIMPLE_7702_ACCOUNT);
+      let code_hash = keccak256(&code);
+      factory.insert_account_info(
+         signed.user_op.sender,
+         AccountInfo {
+            balance: U256::ZERO,
+            nonce: 0, // fresh random EOA
+            code: Some(Bytecode::new_raw(code)),
+            account_id: None,
+            code_hash,
+         },
+      );
+   }
+
    let fork_db = factory.new_sandbox_fork();
+
+   // handleOps caller = any funded EOA (bundler). Use a random wallet for the sim
+   // since in the fork enviroment we dont check for gas
+   let bundle_caller = PrivateKeySigner::random().address();
+   let handle_ops_data = signed.encode_handle_ops(bundle_caller);
+   let interact_to = signed.entry_point;
+   let value = U256::ZERO;
 
    let eth_balance_after;
    let sim_res;
    {
       let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
-
-      let from = signed.user_op.sender;
-      let to = signed.entry_point;
-      let data = signed.user_op.call_data.clone();
-      let value = U256::ZERO;
+      // handleOps + paymaster validation + railgun prove verify is gas-heavy
+      evm.tx.gas_limit = 30_000_000;
 
       let time = Instant::now();
-      sim_res = simulate_transaction(&mut evm, from, to, data, value, vec![])?;
+      sim_res = simulate_transaction(
+         &mut evm,
+         bundle_caller,
+         interact_to,
+         handle_ops_data.clone(),
+         value,
+         vec![],
+      )?;
       tracing::info!(
-         "Simulate Transaction took {} ms",
-         time.elapsed().as_millis()
+         "Simulate handleOps took {} ms, gas={}, logs={}",
+         time.elapsed().as_millis(),
+         sim_res.tx_gas_used(),
+         sim_res.clone().into_logs().len()
       );
 
       let state = evm.balance(from);
@@ -361,7 +443,6 @@ async fn unshield_via_paymaster(
    }
 
    let logs = sim_res.clone().into_logs();
-   info!("Logs Len {}", logs.len());
 
    let mut unshield_events = Vec::new();
 
@@ -371,24 +452,50 @@ async fn unshield_via_paymaster(
       }
    }
 
-   // Should not happen
+   // Should not happen for a single unshield
    if unshield_events.len() > 1 {
       return Err(anyhow!("More than one Unshield event found"));
    }
 
    if unshield_events.is_empty() {
-      return Err(anyhow!("No Unshield event found"));
+      return Err(anyhow!(
+         "No Unshield event found in handleOps simulation ({} log(s))",
+         logs.len()
+      ));
    }
 
    let mut unshield_params = unshield_events[0].clone();
-   // TODO: Add the broadcaster fee to the unshield params
+
+   // Broadcaster/paymaster fee = private fee note encoded in paymaster_data (wrapped base token).
+   // Distinct from Unshield event `fee` (protocol 0.25% on the unshielded token).
+   //
+   // This is NOT a public ERC-20 transfer and is NOT deducted from the unshield amount
+   // the recipient receives. It is a separate private transfer to the paymaster's 0zk,
+   // funded from the user's private notes alongside the unshield spend.
+   if let Some(pm_data) = signed.user_op.paymaster_data.as_ref() {
+      match decode_fee_from_paymaster_data(pm_data.as_ref()) {
+         Ok((fee_asset, fee_wei)) => {
+            let fee_token = ctx.get_token(chain.id(), fee_asset).await.unwrap_or_else(|_| {
+               let mut t = ERC20Token::wrapped_native_token(chain.id());
+               t.address = fee_asset;
+               t
+            });
+            let fee_amt = NumericValue::format_wei(U256::from(fee_wei), fee_token.decimals);
+            let fee_usd = ctx.get_token_value_for_amount(fee_amt.f64(), &fee_token);
+            unshield_params.broadcaster_fee = Some(fee_amt);
+            unshield_params.broadcaster_fee_usd = Some(fee_usd);
+         }
+         Err(e) => {
+            error!("Failed to decode paymaster fee from paymaster_data: {e}");
+         }
+      }
+   }
 
    let eth_balance_before = eth_balance_before_fut.await?;
 
-   let value = U256::ZERO;
    let contract_interact = Some(true);
-   let interact_to = signed.entry_point;
-   let calldata = signed.user_op.call_data.clone();
+   // Confirmation window shows handleOps as the simulated call (what a bundler submits).
+   let calldata = handle_ops_data;
    let auth_list = Vec::new();
 
    let mut tx_analysis = TransactionAnalysis::new(
@@ -410,9 +517,11 @@ async fn unshield_via_paymaster(
    let main_event = DecodedEvent::Unshield(unshield_params.clone());
    tx_analysis.set_main_event(main_event);
 
-   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   // This tx is sponsored so the priority fee doesnt matter here
+   let priority_fee = NumericValue::default();
    let dapp = "Railgun Unshield".to_string();
    let mev_protect = false;
+   let sponsored = true;
 
    SHARED_GUI.write(|gui| {
       gui.tx_confirmation_window.open(
@@ -422,6 +531,7 @@ async fn unshield_via_paymaster(
          tx_analysis.clone(),
          priority_fee.f64().to_string(),
          mev_protect,
+         sponsored,
       );
       gui.loading_window.reset();
       gui.request_repaint();
@@ -477,58 +587,147 @@ async fn unshield_via_paymaster(
    })?;
 
    if !receipt.success {
-      return Err(anyhow!(
-         "Unshield UserOperation failed on-chain: {:?}",
-         receipt
-      ));
+      return Err(anyhow!("Unshield UserOperation failed",));
    }
 
-   info!("Unshield UserOp succeeded: {:?}", receipt);
+   let logs = receipt.logs.clone();
+   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+   let timestamp = TimeStamp::now_as_secs();
 
-   post_unshield_sync(ctx, chain, from, railgun_provider);
+   let eth_balance_after = zeus_client
+      .request(chain.id(), |client| async move {
+         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let sender = receipt.receipt.from;
+
+   let mut new_tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      sender,
+      interact_to,
+      contract_interact,
+      tx_analysis.call_data.clone(),
+      tx_analysis.value,
+      logs,
+      receipt.receipt.gas_used,
+      eth_balance_before,
+      eth_balance_after,
+      vec![],
+   )
+   .await?;
+
+   let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+   let main_event_name = if main_event.is_known() {
+      main_event.name()
+   } else {
+      "Transaction successful".to_string()
+   };
+
+   let nofitification = NotificationType::from_main_event(main_event.clone());
+
+   let (tx_cost, tx_cost_usd) = ctx.write(|ctx| {
+      estimate_tx_cost(
+         ctx,
+         chain.id(),
+         receipt.receipt.gas_used,
+         priority_fee.wei(),
+      )
+   });
+
+   // Remove the redunant main event
+   new_tx_analysis.remove_main_event();
+
+   let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
+
+   let tx_rich = TransactionRich {
+      tx_type: TxType::Eip7702,
+      success: receipt.success,
+      chain: chain.id(),
+      block: receipt.receipt.block_number.unwrap_or_default(),
+      timestamp,
+      value_sent: new_tx_analysis.value_sent(),
+      value_sent_usd: new_tx_analysis.value_sent_usd(ctx.clone()),
+      eth_received: new_tx_analysis.eth_received(),
+      eth_received_usd,
+      tx_cost,
+      tx_cost_usd,
+      hash: receipt.receipt.transaction_hash,
+      contract_interact: new_tx_analysis.contract_interact,
+      analysis: new_tx_analysis,
+      main_event,
+   };
+
+   let ctx_clone = ctx.clone();
+   let tx = tx_rich.clone();
+   RT.spawn_blocking(move || {
+      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
+      ctx_clone.save_tx_db();
+   });
+
+   let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+   let finish = now + 6;
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.reset();
-      gui.msg_window.open(
-         "Unshield submitted",
-         format!(
-            "Private broadcast succeeded via paymaster/bundler.\nUserOp hash: {:?}",
-            hash
-         ),
+      gui.notification.open_with_progress_bar(
+         now,
+         finish,
+         main_event_name,
+         nofitification,
+         Some(tx_rich.clone()),
       );
+      gui.loading_window.reset();
       gui.request_repaint();
+   });
+
+   let railgun_provider = railgun_provider.clone();
+   RT.spawn(async move {
+      post_unshield_sync(ctx, chain, from, token, railgun_provider, false).await;
    });
 
    Ok(())
 }
 
-fn post_unshield_sync(
+async fn post_unshield_sync(
    ctx: ZeusCtx,
    chain: ChainId,
    from: Address,
-   railgun_provider: &zeus_railgun::RailgunProvider<zeus_eth::utils::client::RpcClient>,
+   token: ERC20Token,
+   railgun_provider: RailgunProvider<RpcClient>,
+   self_broadcast: bool,
 ) {
-   let ctx2 = ctx.clone();
    let chain_id = chain.id();
    let mut provider = railgun_provider.clone();
 
-   RT.spawn(async move {
-      match provider.sync().await {
-         Ok(_) => info!("Railgun provider synced after unshield"),
-         Err(e) => error!(
-            "Error syncing Railgun provider after unshield: {:?}",
-            e
-         ),
-      }
+   match provider.sync().await {
+      Ok(_) => info!("Railgun provider synced after unshield"),
+      Err(e) => error!(
+         "Error syncing Railgun provider after unshield: {:?}",
+         e
+      ),
+   }
 
-      ctx2.update_private_data(chain_id, from).await;
+   ctx.update_private_data(chain_id, from).await;
 
-      let manager = ctx2.balance_manager();
-      if let Err(e) = manager.update_eth_balance(ctx2.clone(), chain_id, vec![from], true).await {
-         error!(
-            "Error updating ETH balance after unshield: {:?}",
-            e
-         );
-      }
-   });
+   let manager = ctx.balance_manager();
+   if let Err(e) = manager
+      .update_eth_balance(ctx.clone(), chain_id, vec![from], self_broadcast)
+      .await
+   {
+      error!(
+         "Error updating ETH balance after unshield: {:?}",
+         e
+      );
+   }
+
+   if let Err(e) = manager
+      .update_tokens_balance(ctx.clone(), chain_id, from, vec![token], true)
+      .await
+   {
+      error!(
+         "Error updating token balance after unshield: {:?}",
+         e
+      );
+   }
 }
