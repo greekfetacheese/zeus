@@ -89,7 +89,7 @@ pub async fn unshield(
    let wallet = ctx.get_current_wallet();
    if !wallet.can_derive_zk_address() {
       return Err(anyhow!(
-         "Current wallet cannot derive a Railgun address (imported keys without seed are not supported yet)"
+         "Current wallet cannot derive a Railgun address (imported wallets without seedphrease are not supported)"
       ));
    }
    let seed = wallet.seed()?;
@@ -155,11 +155,10 @@ async fn unshield_self_broadcast(
    tx: TransactionBuilder,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Proving unshield (self-broadcast)…");
+      gui.loading_window.open("Generating proof…");
       gui.request_repaint();
    });
 
-   // ChaCha12Rng is Send (+ Sync); ThreadRng is not and breaks RT.spawn futures.
    let proved = {
       let mut rng = ChaCha12Rng::from_os_rng();
       railgun_provider.build(tx, &mut rng).await?
@@ -169,7 +168,7 @@ async fn unshield_self_broadcast(
    let interact_to = proved.tx_data.to;
    let value = proved.tx_data.value;
 
-   let dapp = "Railgun Unshield (self-broadcast)".to_string();
+   let dapp = "Railgun Unshield".to_string();
    let mev_protect = false;
    let auth_list = Vec::new();
 
@@ -728,7 +727,16 @@ async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, an
    let selected_currency = loop {
       sleep(Duration::from_millis(50)).await;
 
-      let selected = SHARED_GUI.read(|gui| gui.token_selection.get_selected_currency().cloned());
+      let (selected, open) = SHARED_GUI.read(|gui| {
+         (
+            gui.token_selection.get_selected_currency().cloned(),
+            gui.token_selection.is_open(),
+         )
+      });
+
+      if selected.is_none() && !open {
+         return Err(anyhow!("No fee token selected"));
+      }
 
       if let Some(currency) = selected {
          SHARED_GUI.write(|gui| {

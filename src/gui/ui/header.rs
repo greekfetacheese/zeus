@@ -298,6 +298,7 @@ impl Header {
 
                         SHARED_GUI.write(|gui| {
                            gui.shield_ui.set_mode(new_mode);
+                           gui.shield_ui.default_currency(chain.id());
                            gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
                         });
                      });

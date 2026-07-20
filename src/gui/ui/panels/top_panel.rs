@@ -12,8 +12,8 @@ const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
 const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close the app yet!";
 const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close the app yet!";
 
-const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 500;
-const RAILGUN_CHECK_THRESHOLD: u128 = 2000;
+const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 100;
+const RAILGUN_CHECK_THRESHOLD: u128 = 250;
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    let chain = ctx.chain;

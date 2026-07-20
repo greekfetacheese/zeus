@@ -1,5 +1,5 @@
 use eframe::egui::{
-   Align2, CursorIcon, FontId, Frame, Label, Margin, OpenUrl, RichText, Sense, Ui, Window, vec2,
+   Align2, CollapsingHeader, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
 };
 
 use std::{
@@ -11,7 +11,8 @@ use std::{
 use crate::utils::{RT, estimate_tx_cost};
 use crate::{
    core::{
-      DecodedEvent, ShieldParams, TransactionAnalysis, ZeusContext, ZeusCtx, send_transaction,
+      DecodedEvent, ShieldParams, TransactionAnalysis, ZeusContext, ZeusCtx, data_dir,
+      send_transaction,
    },
    utils::simulate::simulate_transaction,
 };
@@ -32,7 +33,7 @@ use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, NativeCurrency},
+   currency::{Currency, ERC20Token, NativeCurrency},
    revm_utils::{ForkFactory, Host, new_evm},
    types::ChainId,
    utils::NumericValue,
@@ -41,11 +42,51 @@ use zeus_eth::{
 use zeus_railgun::{RailgunAddress, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng};
 
 use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use super::unshield::{default_bundler_url, unshield};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
+
+const BUNDLER_URL_FILE: &str = "bundler_url.json";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundlerUrl {
+   pub url: String,
+}
+
+impl Default for BundlerUrl {
+   fn default() -> Self {
+      Self {
+         url: default_bundler_url(1),
+      }
+   }
+}
+
+impl BundlerUrl {
+   fn new(url: String) -> Self {
+      Self { url }
+   }
+
+   fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = data_dir()?;
+      let file = dir.join(BUNDLER_URL_FILE);
+      let data = serde_json::to_string(&self)?;
+      std::fs::write(file, data)?;
+
+      Ok(())
+   }
+
+   fn load() -> Result<Self, anyhow::Error> {
+      let dir = data_dir()?;
+      let file = dir.join(BUNDLER_URL_FILE);
+      let data = std::fs::read_to_string(file)?;
+      let url = serde_json::from_str(&data)?;
+
+      Ok(url)
+   }
+}
 
 /// Enum to determine which railgun mode to use.
 ///
@@ -83,12 +124,11 @@ pub struct ShieldUi {
    self_broadcast: bool,
    /// Bundler JSON-RPC URL for paymaster UserOps (ignored when self_broadcast).
    bundler_url: String,
-   /// Collapse advanced broadcast options.
-   advanced_open: bool,
 }
 
 impl ShieldUi {
    pub fn new() -> Self {
+      let bundler_url = BundlerUrl::load().unwrap_or_default();
       Self {
          open: false,
          mode: RailgunMode::Shield,
@@ -103,8 +143,7 @@ impl ShieldUi {
          sending_tx: false,
          last_price_update: HashMap::new(),
          self_broadcast: false,
-         bundler_url: default_bundler_url(1),
-         advanced_open: false,
+         bundler_url: bundler_url.url,
       }
    }
 
@@ -126,7 +165,11 @@ impl ShieldUi {
    }
 
    pub fn default_currency(&mut self, chain_id: u64) {
-      self.currency = Currency::from(NativeCurrency::from(chain_id));
+      let currency = match self.mode {
+         RailgunMode::Shield => Currency::from(NativeCurrency::from(chain_id)),
+         RailgunMode::Unshield => Currency::from(ERC20Token::wrapped_native_token(chain_id)),
+      };
+      self.currency = currency;
    }
 
    pub fn clear_recipient(&mut self) {
@@ -355,6 +398,9 @@ impl ShieldUi {
    fn unshield_options(&mut self, theme: &Theme, chain_id: u64, ui: &mut Ui) {
       let inner_frame = theme.frame2;
       let text_edit_visuals = theme.text_edit_visuals();
+      let default_url = default_bundler_url(chain_id);
+      let bundler_overridden =
+         !self.self_broadcast && self.bundler_url.trim() != default_url.as_str();
 
       inner_frame.show(ui, |ui| {
          ui.set_width(ui.available_width());
@@ -377,31 +423,29 @@ impl ShieldUi {
 
          ui.add_space(4.0);
 
-         let advanced_label = if self.advanced_open {
-            "▾ Advanced broadcast options"
-         } else {
-            "▸ Advanced broadcast options"
-         };
-         if ui
-            .add(
-               Label::new(
-                  RichText::new(advanced_label)
-                     .size(theme.text_sizes.normal)
-                     .color(theme.colors.info),
+         if bundler_overridden {
+            ui.label(
+               RichText::new(
+                  "WARNING: Custom bundler URL is set.",
                )
-               .sense(Sense::click()),
-            )
-            .clicked()
-         {
-            self.advanced_open = !self.advanced_open;
+               .size(theme.text_sizes.small)
+               .color(theme.colors.warning),
+            );
          }
 
-         if self.advanced_open {
+         CollapsingHeader::new(
+            RichText::new("Advanced broadcast options")
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.info),
+         )
+         .default_open(false)
+         .id_salt("railgun_unshield_advanced_broadcast")
+         .show(ui, |ui| {
             ui.add_enabled_ui(!self.self_broadcast, |ui| {
                ui.horizontal(|ui| {
                   ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
                   ui.add_space(8.0);
-                  ui.add(
+                  let res = ui.add(
                      SecureTextEdit::singleline(&mut self.bundler_url)
                         .visuals(text_edit_visuals)
                         .hint_text(
@@ -413,6 +457,14 @@ impl ShieldUi {
                         .margin(Margin::same(6))
                         .font(FontId::proportional(theme.text_sizes.small)),
                   );
+
+                  if res.changed() {
+                     let bundler_url = self.bundler_url.clone();
+                     RT.spawn_blocking(move || {
+                        let url = BundlerUrl::new(bundler_url);
+                        url.save().unwrap();
+                     });
+                  }
                });
 
                ui.horizontal(|ui| {
@@ -420,6 +472,10 @@ impl ShieldUi {
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
                      self.bundler_url = default_bundler_url(chain_id);
+                     let url = BundlerUrl::new(self.bundler_url.clone());
+                     RT.spawn_blocking(move || {
+                        url.save().unwrap();
+                     });
                   }
                });
 
@@ -439,7 +495,7 @@ impl ShieldUi {
                      .color(theme.colors.warning),
                );
             }
-         }
+         });
       });
    }
 
@@ -714,9 +770,10 @@ fn value(
       let chain = currency.chain_id();
 
       RT.spawn(async move {
+         let now = Instant::now();
          let ctx = SHARED_GUI.write(|gui| {
             gui.shield_ui.price_syncing = true;
-            gui.shield_ui.last_price_update.insert(currency.address(), Instant::now());
+            gui.shield_ui.last_price_update.insert(currency.address(), now);
             gui.ctx.clone()
          });
          let price_manager = ctx.price_manager();
