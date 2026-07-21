@@ -169,7 +169,12 @@ impl ImportWallet {
 
             ctx.set_vault(new_vault);
             ctx.build_wallet_info_cache();
-            
+
+            let ctx_clone = ctx.clone();
+            RT.spawn(async move {
+               ctx_clone.register_all_railgun_signers().await.unwrap();
+            });
+
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.open(ctx.clone());
@@ -182,7 +187,7 @@ impl ImportWallet {
                   if ctx.is_chain_disabled(chain) {
                      continue;
                   }
-                  
+
                   match manager
                      .update_eth_balance(
                         ctx.clone(),

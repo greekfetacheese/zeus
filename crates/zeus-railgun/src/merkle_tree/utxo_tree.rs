@@ -53,6 +53,11 @@ impl UtxoMerkleTree {
       let u256s: Vec<U256> = leaves.iter().map(|l| (*l).into()).collect();
       self.inner.insert_leaves(&u256s, start_position);
    }
+
+   /// Release excess Vec capacity after large insert batches.
+   pub fn shrink_to_fit(&mut self) {
+      self.inner.shrink_to_fit();
+   }
 }
 
 impl From<U256> for UtxoLeafHash {

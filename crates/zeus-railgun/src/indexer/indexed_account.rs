@@ -1,6 +1,6 @@
 use alloy_primitives::U256;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
    account::{address::RailgunAddress, signer::RailgunSigner},
@@ -15,6 +15,8 @@ use crate::{
 pub struct IndexedAccount {
    signer: RailgunSigner,
    inner: IndexedAccountState,
+   /// Set when notes or synced_block change and cleared after a successful DB save.
+   dirty: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -28,6 +30,7 @@ impl IndexedAccount {
       IndexedAccount {
          signer,
          inner: state,
+         dirty: false,
       }
    }
 
@@ -50,7 +53,18 @@ impl IndexedAccount {
    }
 
    pub fn set_synced_block(&mut self, block: u64) {
-      self.inner.synced_block = block;
+      if self.inner.synced_block != block {
+         self.inner.synced_block = block;
+         self.dirty = true;
+      }
+   }
+
+   pub fn is_dirty(&self) -> bool {
+      self.dirty
+   }
+
+   pub fn clear_dirty(&mut self) {
+      self.dirty = false;
    }
 
    pub fn handle_shield_event(&mut self, event: &syncer::Shield) -> Result<(), NoteError> {
@@ -69,8 +83,9 @@ impl IndexedAccount {
          Ok(n) => n,
       };
 
-      debug!(?note, "Decrypted Shield Note");
+      // debug!(?note, "Decrypted Shield Note");
       self.inner.notes.push(note);
+      self.dirty = true;
 
       Ok(())
    }
@@ -92,20 +107,25 @@ impl IndexedAccount {
          Ok(n) => n,
       };
 
-      info!(?note, "Decrypted Transact Note");
+      // info!(?note, "Decrypted Transact Note");
       self.inner.notes.push(note);
+      self.dirty = true;
 
       Ok(())
    }
 
    pub fn handle_nullified_event(&mut self, event: &syncer::Nullified, _timestamp: u64) {
       let nullifier: U256 = event.nullifier.into();
+      let before = self.inner.notes.len();
       self.inner.notes.retain(|note| {
          if note.tree_number != event.tree_number {
             return true; // Keep notes from other trees
          }
          note.nullifier != nullifier // Keep notes that don't match the nullifier
       });
+      if self.inner.notes.len() != before {
+         self.dirty = true;
+      }
    }
 
    /// Attempt to decrypt a legacy encrypted commitment.
@@ -159,6 +179,7 @@ mod tests {
       let mut account = IndexedAccount {
          signer: recipient.clone(),
          inner: Default::default(),
+         dirty: false,
       };
 
       // Ingest a shield note

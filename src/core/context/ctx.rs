@@ -13,7 +13,7 @@ use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
-   time::{SystemTime, UNIX_EPOCH},
+   time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
@@ -32,8 +32,8 @@ use zeus_eth::{
    utils::{NumericValue, address_book, client::RpcClient},
 };
 use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RedbDatabase, RootVerifier,
-   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RailgunSigner, RedbDatabase,
+   RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
 };
 
 const SERVER_PORT_FILE: &str = "server_port.json";
@@ -195,6 +195,49 @@ impl ZeusCtx {
       }
    }
 
+   /// Register all the available `RailgunSigners` from the vault's wallets
+   ///
+   /// This should be called at the startup and whenever a wallet is added.
+   pub async fn register_all_railgun_signers(&self) -> Result<(), anyhow::Error> {
+      let wallets = self.read(|ctx| ctx.vault.clone_all_wallets());
+
+      for wallet in wallets {
+         if let Ok(seed) = wallet.seed() {
+            let signer = RailgunSigner::from_seed(&seed, 0, 1)?;
+            self.register_railgun_signer(signer).await?;
+         }
+      }
+      Ok(())
+   }
+
+   /// Register a RailgunSigner to the RailgunProvider for all supported chains
+   ///
+   /// Subsquent calls with the same signer are no-ops
+   pub async fn register_railgun_signer(&self, signer: RailgunSigner) -> Result<(), anyhow::Error> {
+      for chain in ChainId::supported_chains() {
+         if !self.railgun_is_supported(chain) {
+            continue;
+         }
+
+         let mut provider = self.get_railgun_provider(chain.id()).await?;
+         provider.register(signer.clone()).await?;
+      }
+      Ok(())
+   }
+
+   /// Sync the [RailgunProvider] for all chains
+   pub async fn sync_railgun(&self) -> Result<(), anyhow::Error> {
+      for chain in ChainId::supported_chains() {
+         if !self.railgun_is_supported(chain) {
+            continue;
+         }
+
+         let mut provider = self.get_railgun_provider(chain.id()).await?;
+         provider.sync().await?;
+      }
+      Ok(())
+   }
+
    pub async fn get_railgun_provider(
       &self,
       chain: u64,
@@ -203,80 +246,113 @@ impl ZeusCtx {
          return Err(anyhow!("Railgun is not supported in this build"));
       }
 
+      let mut retries = 0;
+      let max_retries = 10;
+      let wait_time = Duration::from_millis(500);
+
       let client = self.get_archive_client(chain, false).await.map_err(|_e| {
          anyhow!("Railgun needs access to an archive node, check your Network Settings")
       })?;
 
-      let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
-      if let Some(mut provider) = provider_opt {
-         provider.set_provider(client.clone());
+      loop {
+         let client = client.clone();
 
-         let is_syncing = provider.is_syncing().await;
-         let is_verifying = provider.is_verifying().await;
+         let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
+         if let Some(mut provider) = provider_opt {
+            provider.set_provider(client.clone());
 
-         if !is_syncing && !is_verifying {
-            {
-               let indexer = provider.utxo_indexer.write().await;
-               indexer.rpc_syncer.set_provider(client.clone().erased()).await;
-               indexer.utxo_verifier.set_provider(client.clone().erased()).await;
+            let is_syncing = provider.is_syncing().await;
+            let is_verifying = provider.is_verifying().await;
+
+            if !is_syncing && !is_verifying {
+               {
+                  let indexer = provider.utxo_indexer.write().await;
+                  indexer.rpc_syncer.set_provider(client.clone().erased()).await;
+                  indexer.utxo_verifier.set_provider(client.clone().erased()).await;
+               }
             }
+
+            tracing::debug!(
+               "Got Railgun provider for chain {} from cache",
+               chain
+            );
+            return Ok(provider);
          }
 
-         tracing::debug!(
-            "Got Railgun provider for chain {} from cache",
-            chain
-         );
-         return Ok(provider);
+         let db_file = railgun_db_file(chain)?;
+         let railgun_dir = railgun_dir()?;
+
+         let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+         let chain_config = match ChainConfig::from_chain_id(chain) {
+            Some(chain_config) => chain_config,
+            None => {
+               return Err(anyhow!("Chain {} not supported", chain));
+            }
+         };
+
+         let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
+         let rpc_syncer = RpcSyncer::new(
+            client.clone(),
+            chain,
+            chain_config.railgun_smart_wallet,
+         )
+         .with_snapshot_loader(snapshot_loader.clone());
+
+         let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+            SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+               .with_snapshot_loader(snapshot_loader),
+         ));
+
+         let database = match RedbDatabase::new(db_file) {
+            Ok(db) => db,
+            Err(e) => {
+               tracing::warn!("RedbDatabase: {:?}", e);
+               retries += 1;
+               if retries >= max_retries {
+                  return Err(e.into());
+               }
+               tokio::time::sleep(wait_time).await;
+               continue;
+            }
+         };
+
+         let utxo_indexer = match UtxoIndexer::new(
+            Arc::new(database),
+            Arc::new(rpc_syncer),
+            subsquid_syncer,
+            Arc::new(utxo_verifier),
+         )
+         .await
+         {
+            Ok(indexer) => indexer,
+            Err(e) => {
+               tracing::error!("UtxoIndexer Error: {:?}", e);
+               retries += 1;
+               if retries >= max_retries {
+                  return Err(e.into());
+               }
+               tokio::time::sleep(wait_time).await;
+               continue;
+            }
+         };
+
+         let prover = Groth16Prover::new(Some(railgun_dir));
+
+         let railgun_provider = RailgunProvider::new(
+            chain_config,
+            client.clone(),
+            utxo_indexer,
+            prover,
+            None,
+         )
+         .await?;
+
+         self.write(|ctx| {
+            ctx.railgun_provider.insert(chain, railgun_provider.clone());
+         });
+
+         return Ok(railgun_provider);
       }
-
-      let db_file = railgun_db_file(chain)?;
-      let railgun_dir = railgun_dir()?;
-
-      let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
-      let chain_config = match ChainConfig::from_chain_id(chain) {
-         Some(chain_config) => chain_config,
-         None => {
-            return Err(anyhow!("Chain {} not supported", chain));
-         }
-      };
-
-      let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-      let rpc_syncer = RpcSyncer::new(
-         client.clone(),
-         chain,
-         chain_config.railgun_smart_wallet,
-      )
-      .with_snapshot_loader(snapshot_loader.clone());
-
-      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
-         SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
-            .with_snapshot_loader(snapshot_loader),
-      ));
-
-      let database = RedbDatabase::new(db_file)?;
-      let utxo_indexer = UtxoIndexer::new(
-         Arc::new(database),
-         Arc::new(rpc_syncer),
-         subsquid_syncer,
-         Arc::new(utxo_verifier),
-      )
-      .await?;
-      let prover = Groth16Prover::new(Some(railgun_dir));
-
-      let railgun_provider = RailgunProvider::new(
-         chain_config,
-         client.clone(),
-         utxo_indexer,
-         prover,
-         None,
-      )
-      .await?;
-
-      self.write(|ctx| {
-         ctx.railgun_provider.insert(chain, railgun_provider.clone());
-      });
-
-      Ok(railgun_provider)
    }
 
    /// Encrypt and save the vault
@@ -715,7 +791,6 @@ impl ZeusCtx {
    ///
    /// What it does:
    ///
-   /// - Syncs [RailgunProvider] to the latest block
    /// - Indexes the private tokens and sorts them by value
    /// - Updates the portfolio private value based on the latest price data
    pub async fn update_private_data(&self, chain: u64, owner: Address) {

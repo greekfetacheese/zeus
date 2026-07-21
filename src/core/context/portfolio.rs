@@ -298,15 +298,6 @@ async fn process_private_tokens(
    let raligun_signer = RailgunSigner::from_seed(&seed, 0, chain_id)?;
    let railgun_address = raligun_signer.address().clone();
 
-   provider.register(raligun_signer).await?;
-   let last_synced_block = provider.account_synced_block().await;
-   debug!(
-      "Railgun resume watermark (min global/accounts): {}",
-      last_synced_block
-   );
-
-   provider.sync().await?;
-
    let private_balances = provider.balance(railgun_address).await;
 
    debug!(

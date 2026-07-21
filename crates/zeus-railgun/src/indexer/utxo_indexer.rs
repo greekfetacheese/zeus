@@ -143,8 +143,6 @@ impl UtxoIndexer {
    /// Lists all unspent notes for a given address. Returns an empty list if the address is not
    /// registered.
    pub fn unspent(&self, address: RailgunAddress) -> Vec<UtxoNote> {
-      // Compare by 0zk string — full PartialEq also includes chain/key fields and can
-      // spuriously miss a registered account when addresses were built via different paths.
       for account in self.accounts.iter() {
          if account.address().address == address.address {
             return account.unspent();
@@ -254,6 +252,7 @@ impl UtxoIndexer {
             for (leaf_index, hash) in leaves {
                tree.insert_leaves(&[hash], leaf_index as usize);
             }
+            tree.shrink_to_fit();
          }
       } else {
          info!("No new tree leaves (account catch-up and/or empty delta)");
@@ -290,8 +289,8 @@ impl UtxoIndexer {
          }
       }
 
-      // Save
-      self.save().await?;
+      // Save trees only when mutated; accounts only when dirty.
+      self.save(trees_mutated).await?;
 
       match self.db.compact().await {
          Ok(true) => info!("Database compaction performed"),
@@ -388,6 +387,7 @@ impl UtxoIndexer {
          for (leaf_index, hash) in leaves {
             tree.insert_leaves(&[hash], leaf_index as usize);
          }
+         tree.shrink_to_fit();
       }
 
       Ok(())
@@ -489,7 +489,7 @@ impl UtxoIndexer {
          for account in self.accounts.iter_mut() {
             if block > account.synced_block() {
                if let Err(e) = account.handle_legacy_event(event) {
-                  // Ignore decryption failures (not our note) — same pattern as shield/transact
+                  // Ignore decryption failures (not our note)
                   if !matches!(e, NoteError::Aes(_)) {
                      tracing::debug!("Legacy note handling error: {}", e);
                   }
@@ -528,19 +528,28 @@ impl UtxoIndexer {
    }
 
    /// Saves the current state of the indexer to the database.
-   async fn save(&self) -> Result<(), DatabaseError> {
+   ///
+   /// - Always writes the lightweight indexer watermark.
+   /// - Full merkle tree blobs are only rewritten when `trees_mutated`.
+   /// - Account state is only rewritten when the account is dirty.
+   async fn save(&mut self, trees_mutated: bool) -> Result<(), DatabaseError> {
       let state = UtxoIndexerState {
          synced_block: self.synced_block,
          trees: self.utxo_trees.keys().cloned().collect(),
       };
       self.db.set_utxo_indexer(&state).await?;
 
-      for (tree_number, tree) in self.utxo_trees.iter() {
-         self.db.set_utxo_tree(*tree_number, tree.state()).await?;
+      if trees_mutated {
+         for (tree_number, tree) in self.utxo_trees.iter() {
+            self.db.set_utxo_tree(*tree_number, tree.state()).await?;
+         }
       }
 
-      for account in self.accounts.iter() {
-         self.db.set_account(&account.address(), &account.state()).await?;
+      for account in self.accounts.iter_mut() {
+         if account.is_dirty() {
+            self.db.set_account(&account.address(), &account.state()).await?;
+            account.clear_dirty();
+         }
       }
 
       Ok(())

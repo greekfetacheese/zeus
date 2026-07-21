@@ -1,7 +1,7 @@
 //! UI that allows the user to discover and derive child wallets from a master wallet (BIP32 HD)
 
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusCtx, ZeusContext};
+use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::{SHARED_GUI, ui::REFRESH};
 use crate::utils::RT;
 use eframe::egui::{
@@ -659,7 +659,12 @@ impl DiscoverChildWallets {
                      // Update the Vault in the ZeusCtx
                      ctx.set_vault(new_vault);
                      ctx.build_wallet_info_cache();
-                     
+
+                     let ctx_clone = ctx.clone();
+                     RT.spawn(async move {
+                        ctx_clone.register_all_railgun_signers().await.unwrap();
+                     });
+
                      // Calculate the wallets again in the UI
                      SHARED_GUI.write(|gui| {
                         gui.wallet_ui.open(ctx.clone());
@@ -688,7 +693,7 @@ async fn sync_wallets_balance(
       if ctx.is_chain_disabled(chain) {
          continue;
       }
-      
+
       let ctx = ctx.clone();
       let semaphore = semaphore.clone();
       let addresses = addresses.clone();

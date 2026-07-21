@@ -108,7 +108,15 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      sync_railgun(ctx_clone).await;
+      match ctx_clone.register_all_railgun_signers().await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
+      }
+
+      match ctx_clone.sync_railgun().await {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+      }
    });
 
    eth_balance_fut.await;
@@ -169,21 +177,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn_blocking(move || {
       ctx.save_all();
    });
-}
-
-async fn sync_railgun(ctx: ZeusCtx) {
-   for chain in SUPPORTED_CHAINS {
-      if ctx.is_chain_disabled(chain) || !ctx.railgun_is_supported(chain.into()) {
-         tracing::debug!("Skipping Railgun sync for chain {}", chain);
-         continue;
-      }
-
-      let wallets = ctx.get_all_wallets_info();
-
-      for wallet in wallets {
-         ctx.update_private_data(chain, wallet.address).await;
-      }
-   }
 }
 
 fn insert_missing_portfolios(ctx: ZeusCtx) {
@@ -381,7 +374,10 @@ async fn state_update_interval(ctx: ZeusCtx) {
       if railgun_sync_time_passed.elapsed().as_secs() > RAILGUN_SYNC_INTERVAL {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            sync_railgun(ctx_clone).await;
+            match ctx_clone.sync_railgun().await {
+               Ok(_) => {}
+               Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+            }
          });
          railgun_sync_time_passed = Instant::now();
       }

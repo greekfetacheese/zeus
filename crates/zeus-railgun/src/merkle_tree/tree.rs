@@ -92,7 +92,11 @@ impl<C: MerkleConfig> MerkleTree<C> {
    }
 
    pub fn state(&self) -> MerkleTreeState<C> {
-      self.clone().into_state()
+      MerkleTreeState::<C> {
+         number: self.number,
+         tree: self.tree.clone(),
+         phantom: std::marker::PhantomData,
+      }
    }
 
    pub fn into_state(self) -> MerkleTreeState<C> {
@@ -161,6 +165,14 @@ impl<C: MerkleConfig> MerkleTree<C> {
       }
 
       self.rebuild();
+   }
+
+   /// Release excess Vec capacity across all levels.
+   pub fn shrink_to_fit(&mut self) {
+      for level in &mut self.tree {
+         level.shrink_to_fit();
+      }
+      self.zeros.shrink_to_fit();
    }
 
    fn rebuild(&mut self) {
