@@ -152,6 +152,7 @@ impl DecodedEvent {
 
    pub fn dummy_shield() -> Self {
       let chain = 1;
+      let recipient = "0zk1qy9r469tey0ptmp7unlph80w5aw3hf8z39une75a2ewd8vlmgvs2hrv7j6fe3z53lugdcpevcmd84mghtk07gd66s4qw452llcuzap2934nyh45jxz4ry55rq67".to_string();
       let token = ERC20Token::weth();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
@@ -161,6 +162,7 @@ impl DecodedEvent {
 
       Self::Shield(ShieldParams {
          chain,
+         recipient: Some(recipient),
          asset: asset_id,
          amount_wei: amount.wei(),
          erc20: Some(token),
@@ -1403,6 +1405,7 @@ impl UniswapPositionParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShieldParams {
    pub chain: u64,
+   pub recipient: Option<String>,
    pub asset: AssetId,
    pub amount_wei: U256,
    pub erc20: Option<ERC20Token>,
@@ -1453,6 +1456,7 @@ impl ShieldParams {
 
             let event = ShieldParams {
                chain,
+               recipient: None,
                asset,
                amount_wei,
                erc20,
@@ -1489,7 +1493,6 @@ pub struct UnshieldParams {
 impl UnshieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Self, anyhow::Error> {
       if let Ok(decoded) = <RailgunSmartWallet::Unshield as SolEvent>::decode_log(&log) {
-
          // TODO: Add support for ERC721 and ERC1155
          if decoded.token.tokenType == TokenType::ERC20 {
             let erc20 = ctx.get_token(chain, decoded.token.tokenAddress).await?;

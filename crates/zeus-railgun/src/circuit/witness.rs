@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use num_bigint::BigInt;
 use ruint::aliases::U256;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 use wasmer::{Module, Store};
 
 use crate::circuit::remote_artifact_loader::RemoteArtifactLoader;
@@ -28,7 +28,7 @@ pub async fn calculate_witness(
       .await
       .map_err(|e| CalculateWitnessError::ArtifactLoaderError(Box::new(e)))?;
 
-   info!("Loading WASM Module");
+   debug!("Loading WASM Module");
    let mut store = Store::default();
    let module = Module::new(&store, &wasm_bytes)?;
    let mut calculator = ark_circom::WitnessCalculator::from_module(&mut store, module)
@@ -41,7 +41,7 @@ pub async fn calculate_witness(
       .collect();
 
    // Calculate witness
-   info!("Calculating witness for circuit {}", circuit_name);
+   debug!("Calculating witness for circuit {}", circuit_name);
    let witness = calculator
       .calculate_witness(&mut store, inputs, true)
       .map_err(|e| CalculateWitnessError::CircomError(e.to_string()))?;

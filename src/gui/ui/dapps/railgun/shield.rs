@@ -8,7 +8,7 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::utils::{RT, estimate_tx_cost};
+use crate::utils::{RT, estimate_tx_cost, simulate::railgun_common_accounts};
 use crate::{
    core::{
       DecodedEvent, ShieldParams, TransactionAnalysis, ZeusContext, ZeusCtx, data_dir,
@@ -25,7 +25,7 @@ use crate::gui::{
       dapps::uniswap::swap::wrap_eth,
    },
 };
-use crate::utils::simulate::fetch_accounts_info;
+use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, SecureTextEdit};
 
@@ -839,12 +839,14 @@ async fn shield(
       ));
    }
 
+   let z_client = ctx.get_zeus_client();
+
+   let token = currency.to_erc20().into_owned();
    let railgun_address = railgun_provider.railgun_address();
    let client = ctx.get_client(chain.id()).await?;
 
    // TODO: At some point we want the WRAP + Approve + Shield to be done with a single transaction
 
-   let token = currency.to_erc20().into_owned();
    let allowance_fut = token.allowance(client.clone(), from, railgun_address);
 
    // Wrap ETH into WETH if needed
@@ -895,7 +897,7 @@ async fn shield(
       let mut rng = ChaCha12Rng::from_os_rng();
       railgun_provider
          .shield()
-         .shield(recipient, asset, amount_u128)
+         .shield(recipient.clone(), asset, amount_u128)
          .build(&mut rng)?
    };
    let calldata = shield_tx[0].data.clone();
@@ -905,8 +907,6 @@ async fn shield(
    let dapp = "".to_string();
    let auth_list = Vec::new();
    let value = U256::ZERO;
-
-   let z_client = ctx.get_zeus_client();
 
    let eth_balance_before_fut = z_client.request(chain.id(), |client| async move {
       client
@@ -932,12 +932,22 @@ async fn shield(
 
    let block_id = BlockId::number(block.header.number);
 
+   // Prefetch accounts and storage for the sim
    let mut accounts = Vec::new();
    accounts.push(from);
-   accounts.push(interact_to);
+   accounts.push(token.address);
+   accounts.push(railgun_address);
    accounts.push(block.header.beneficiary);
 
-   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts).await;
+   let common_accounts = railgun_common_accounts(chain.id());
+   accounts.extend(common_accounts);
+
+   let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), block_id, accounts);
+   let storage_info_fut =
+      fetch_storage_for_railgun(ctx.clone(), chain.id(), block_id, railgun_address);
+
+   let accounts_info = accounts_info_fut.await;
+   let storage_info = storage_info_fut.await;
 
    let fork_client = ctx.get_client(chain.id()).await?;
    let mut factory =
@@ -945,6 +955,13 @@ async fn shield(
 
    for info in accounts_info {
       factory.insert_account_info(info.address, info.info);
+   }
+
+   for info in storage_info {
+      match factory.insert_account_storage(info.address, info.slot, info.value) {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Failed to insert account storage: {:?}", e),
+      }
    }
 
    let fork_db = factory.new_sandbox_fork();
@@ -986,8 +1003,6 @@ async fn shield(
       }
    }
 
-   tracing::info!("Shield Events {:?}", shield_events);
-
    // Should not happen
    if shield_events.len() > 1 {
       return Err(anyhow!("More than one shield event found"));
@@ -997,7 +1012,9 @@ async fn shield(
       return Err(anyhow!("No shield event found"));
    }
 
-   let shield_params = shield_events[0].clone();
+   let mut shield_params = shield_events[0].clone();
+   shield_params.recipient = Some(recipient.address.clone());
+
    let contract_interact = Some(true);
    let eth_balance_before = eth_balance_before_fut.await?;
 

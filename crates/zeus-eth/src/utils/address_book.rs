@@ -18,6 +18,44 @@ pub fn zeus_stateview_v2(chain_id: u64) -> Result<Address, anyhow::Error> {
    }
 }
 
+/// Proxy contract not implementation
+pub fn railgun_smart_wallet(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9")),
+      ChainId::EthereumSepolia => Ok(address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea")),
+      ChainId::Optimism => bail!("Railgun Smart Wallet is not available on Optimism"),
+      ChainId::BinanceSmartChain => Ok(address!("0x590162bf4b50F6576a459B75309eE21D92178A10")),
+      ChainId::Base => bail!("Railgun Smart Wallet is not available on Base"),
+      ChainId::Arbitrum => Ok(address!("0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9")),
+   }
+}
+
+/// The implementation of the Railgun contract
+pub fn railgun_implementation(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0xB4F2d77bD12c6b548Ae398244d7FAD4ABCE4D89b")),
+      ChainId::EthereumSepolia => Ok(address!("0x16DC2574CC30E4deECfb9ba22d95E5126A2fC0B3")),
+      ChainId::Optimism => bail!("Railgun Implementation is not available on Optimism"),
+      ChainId::BinanceSmartChain => bail!("Railgun Implementation is not available on BSC"),
+      ChainId::Base => bail!("Railgun Implementation is not available on Base"),
+      ChainId::Arbitrum => bail!("Railgun Implementation is not available on Arbitrum"),
+   }
+}
+
+pub fn entry_point(chain_id: u64) -> Result<Address, anyhow::Error> {
+   let chain = ChainId::new(chain_id)?;
+   match chain {
+      ChainId::Ethereum => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+      ChainId::EthereumSepolia => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+      ChainId::Optimism => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+      ChainId::BinanceSmartChain => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+      ChainId::Base => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+      ChainId::Arbitrum => Ok(address!("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108")),
+   }
+}
+
 /// https://docs.uniswap.org/contracts/v3/reference/deployments/
 ///
 /// Returns the Permit2 contract address for the given chain id.

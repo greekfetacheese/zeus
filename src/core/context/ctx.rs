@@ -1400,6 +1400,11 @@ pub struct ZeusContext {
    /// only then the Zeus UI unlocks
    pub vault_unlocked: bool,
 
+   /// The name of well known addresses
+   ///
+   /// Mapped by (chain_id, address)
+   pub address_names: HashMap<(u64, Address), String>,
+
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
 
@@ -1570,6 +1575,7 @@ impl ZeusContext {
       };
 
       let priority_fee = PriorityFee::default();
+      let address_names = build_address_name_cache();
 
       Self {
          client,
@@ -1582,6 +1588,7 @@ impl ZeusContext {
          save_vault_in_progress: false,
          vault_exists,
          vault_unlocked: false,
+         address_names,
          currency_db,
          portfolio_db,
          tx_db,
@@ -1694,46 +1701,20 @@ impl ZeusContext {
 
    /// Return the name of this address if its known
    pub fn get_address_name(&self, chain: u64, address: Address) -> Option<String> {
-      let name = self.get_wallet_name(address);
-      if name.is_some() {
-         return Some(name.unwrap());
+      if let Some(name) = self.get_wallet_name(address) {
+         return Some(name);
       }
 
-      let contact = self.get_contact_by_address(&address.to_string());
-      if contact.is_some() {
-         return Some(contact.unwrap().name);
+      if let Some(name) = self.currency_db.get_token_name(chain, address) {
+         return Some(name.to_string());
       }
 
-      let token = self.currency_db.get_erc20_token(chain, address);
-      if token.is_some() {
-         return Some(token.unwrap().name.to_string());
+      if let Some(name) = self.address_names.get(&(chain, address)) {
+         return Some(name.to_string());
       }
 
-      let permit2 = address_book::permit2_contract(chain).unwrap();
-      if permit2 == address {
-         return Some("Uniswap: Permit2".to_string());
-      }
-
-      let v4_pool_manager = address_book::uniswap_v4_pool_manager(chain).unwrap();
-      if v4_pool_manager == address {
-         return Some("Uniswap V4: Pool Manager".to_string());
-      }
-
-      let ur_router_v2 = address_book::universal_router_v2(chain).unwrap();
-      if ur_router_v2 == address {
-         return Some("Uniswap: Universal Router V2".to_string());
-      }
-
-      let nft_position_manager = address_book::uniswap_v3_nft_position_manager(chain).unwrap();
-      if nft_position_manager == address {
-         return Some("Uniswap V3: NFT Position Manager".to_string());
-      }
-
-      let spoke_pool_address = address_book::across_spoke_pool_v2(chain);
-      if spoke_pool_address.is_ok() {
-         if spoke_pool_address.unwrap() == address {
-            return Some("Across Protocol: Spoke Pool V2".to_string());
-         }
+      if let Some(name) = self.get_contact_by_address(&address.to_string()) {
+         return Some(name.name);
       }
 
       #[cfg(feature = "dev")]
@@ -1744,9 +1725,23 @@ impl ZeusContext {
       None
    }
 
+   /// Get the wallet info for the given zk address
+   pub fn get_wallet_info_by_zk_address(&self, address: &str) -> Option<WalletInfo> {
+      let mut wallet_opt = None;
+
+      for (_, wallet) in self.wallet_info_cache.iter() {
+         if wallet.zk_address_ref() == address {
+            wallet_opt = Some(wallet.clone());
+            break;
+         }
+      }
+
+      wallet_opt
+   }
+
    /// Get the wallet name for the given address
    pub fn get_wallet_name(&self, address: Address) -> Option<String> {
-      let wallet = self.wallet_info_cache.get(&address).cloned();
+      let wallet = self.wallet_info_cache.get(&address);
       wallet.map(|wallet| wallet.name().to_string())
    }
 
@@ -1772,6 +1767,17 @@ impl ZeusContext {
    /// Is this wallet selected as the current wallet
    pub fn is_current_wallet(&self, address: Address) -> bool {
       self.current_wallet.address() == address
+   }
+
+   /// Get a contact by it's zk address
+   pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
+      let zk_address = zk_address.to_lowercase();
+      self
+         .vault
+         .contacts
+         .iter()
+         .find(|c| c.zk_address.to_lowercase() == zk_address)
+         .cloned()
    }
 
    /// Get a contact by it's address
@@ -1885,6 +1891,89 @@ impl ZeusContext {
    pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
       self.railgun_provider_syncing.get(&chain).cloned().unwrap_or(false)
    }
+}
+
+fn build_address_name_cache() -> HashMap<(u64, Address), String> {
+   let mut cache = HashMap::new();
+
+   for chain in SUPPORTED_CHAINS {
+      if let Ok(address) = address_book::railgun_smart_wallet(chain) {
+         cache.insert((chain, address), format!("Railgun Smart Wallet"));
+      }
+
+      if let Ok(address) = address_book::entry_point(chain) {
+         cache.insert((chain, address), format!("Entry Point"));
+      }
+
+      if let Ok(address) = address_book::permit2_contract(chain) {
+         cache.insert((chain, address), format!("Permit2"));
+      }
+
+      if let Ok(address) = address_book::uniswap_v4_pool_manager(chain) {
+         cache.insert(
+            (chain, address),
+            format!("Uniswap V4 Pool Manager"),
+         );
+      }
+
+      if let Ok(address) = address_book::universal_router_v2(chain) {
+         cache.insert((chain, address), format!("Universal Router V2"));
+      }
+
+      if let Ok(address) = address_book::uniswap_v3_nft_position_manager(chain) {
+         cache.insert(
+            (chain, address),
+            format!("Uniswap V3 NFT Position Manager"),
+         );
+      }
+
+      if let Ok(address) = address_book::uniswap_v4_nft_position_manager(chain) {
+         cache.insert(
+            (chain, address),
+            format!("Uniswap V4 NFT Position Manager"),
+         );
+      }
+
+      if let Ok(address) = address_book::uniswap_v2_factory(chain) {
+         cache.insert((chain, address), format!("Uniswap V2 Factory"));
+      }
+
+      if let Ok(address) = address_book::uniswap_v2_router(chain) {
+         cache.insert((chain, address), format!("Uniswap V2 Router"));
+      }
+
+      if let Ok(address) = address_book::uniswap_v3_factory(chain) {
+         cache.insert((chain, address), format!("Uniswap V3 Factory"));
+      }
+
+      if let Ok(address) = address_book::pancakeswap_v2_factory(chain) {
+         cache.insert(
+            (chain, address),
+            format!("PancakeSwap V2 Factory"),
+         );
+      }
+
+      if let Ok(address) = address_book::pancakeswap_v2_router(chain) {
+         cache.insert((chain, address), format!("PancakeSwap V2 Router"));
+      }
+
+      if let Ok(address) = address_book::pancakeswap_v3_factory(chain) {
+         cache.insert(
+            (chain, address),
+            format!("PancakeSwap V3 Factory"),
+         );
+      }
+
+      if let Ok(address) = address_book::pancakeswap_v3_router(chain) {
+         cache.insert((chain, address), format!("PancakeSwap V3 Router"));
+      }
+
+      if let Ok(address) = address_book::across_spoke_pool_v2(chain) {
+         cache.insert((chain, address), format!("Across Spoke Pool V2"));
+      }
+   }
+
+   cache
 }
 
 #[cfg(test)]

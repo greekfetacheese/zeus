@@ -19,7 +19,6 @@ use std::collections::{BTreeMap, HashSet};
 use alloy_primitives::{Address, U256};
 use rand::Rng;
 use thiserror::Error;
-use tracing::info;
 
 use crate::{
    abi,
@@ -251,17 +250,6 @@ fn build_group<R: Rng>(
       .collect();
 
    let available_total: u128 = balances.values().sum();
-   let required_total: u128 = intents.iter().map(|i| i.value).sum();
-   info!(
-      "build_group: from={} asset={} intents={} matched_notes={} trees={:?} available={} required={}",
-      from,
-      asset,
-      intents.len(),
-      tree_number.values().map(|v| v.len()).sum::<usize>(),
-      balances,
-      available_total,
-      required_total,
-   );
 
    // Fit intents to trees.
    let mut operations = BTreeMap::new();
@@ -435,7 +423,6 @@ async fn prove_operation(
    operation: &Operation,
    rng: &mut impl Rng,
 ) -> Result<ProvedOperation, TransactionBuilderError> {
-   info!("Constructing circuit inputs");
    let unshield_note = operation.unshield_note();
    let unshield_type = unshield_note.map(|n| n.unshield_type()).unwrap_or_default();
    let unshield_preimage = unshield_note.map(|n| n.preimage()).unwrap_or_default();

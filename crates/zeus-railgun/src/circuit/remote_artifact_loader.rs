@@ -10,7 +10,7 @@ use ark_circom::index::NPIndex;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use tokio::fs;
-use tracing::info;
+use tracing::debug;
 
 use crate::crypto::serializable_np_index::SerializableNpIndex;
 
@@ -96,7 +96,7 @@ impl RemoteArtifactLoader {
    }
 
    pub async fn load_wasm(&self, circuit_name: &str) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
-      info!("Loading WASM: {}", circuit_name);
+      debug!("Loading WASM: {}", circuit_name);
       let url = format!("{}/{}/wasm.br", self.base_url, circuit_name);
       let disk_path = self.artifact_path(circuit_name, "wasm.br");
       let compressed = self.fetch(&url, disk_path).await?;
@@ -107,7 +107,7 @@ impl RemoteArtifactLoader {
       &self,
       circuit_name: &str,
    ) -> Result<ProvingKey<ark_bn254::Bn254>, RemoteArtifactLoaderError> {
-      info!("Loading proving key: {}", circuit_name);
+      debug!("Loading proving key: {}", circuit_name);
       let url = format!(
          "{}/{}/proving_key.bin.br",
          self.base_url, circuit_name
@@ -124,7 +124,7 @@ impl RemoteArtifactLoader {
       &self,
       circuit_name: &str,
    ) -> Result<NPIndex<Fr>, RemoteArtifactLoaderError> {
-      info!("Loading matrices: {}", circuit_name);
+      debug!("Loading matrices: {}", circuit_name);
       let url = format!(
          "{}/{}/matrices.bin.br",
          self.base_url, circuit_name
@@ -150,14 +150,14 @@ impl RemoteArtifactLoader {
    ) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
       // 1. Memory cache (L1)
       if let Some(cached) = self.cache.lock().unwrap().get(url) {
-         info!("Artifact served from memory cache: {}", url);
+         debug!("Artifact served from memory cache: {}", url);
          return Ok(cached);
       }
 
       // 2. Disk cache (L2) — if configured
       if let Some(ref path) = disk_path {
          if path.exists() {
-            info!(
+            debug!(
                "Loading artifact from disk cache: {}",
                path.display()
             );
@@ -169,7 +169,7 @@ impl RemoteArtifactLoader {
       }
 
       // 3. Remote download
-      info!("Downloading from remote: {}", url);
+      debug!("Downloading from remote: {}", url);
       let data = self.client.get(url).send().await?.bytes().await?.to_vec();
 
       // Save to disk if we have a cache dir
@@ -178,7 +178,7 @@ impl RemoteArtifactLoader {
             fs::create_dir_all(parent).await?;
          }
          fs::write(path, &data).await?;
-         info!("Saved artifact to disk: {}", path.display());
+         debug!("Saved artifact to disk: {}", path.display());
       }
 
       // Populate memory cache

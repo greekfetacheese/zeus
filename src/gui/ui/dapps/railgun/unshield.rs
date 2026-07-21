@@ -15,7 +15,7 @@ use userop_kit::{
    smart_account::simple_smart_account::{SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
 };
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, U256, keccak256},
+   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    currency::{Currency, ERC20Token},
@@ -24,7 +24,7 @@ use zeus_eth::{
       revm::state::{AccountInfo, Bytecode},
    },
    types::ChainId,
-   utils::{NumericValue, client::RpcClient},
+   utils::{NumericValue, address_book, client::RpcClient},
 };
 use zeus_railgun::{
    RailgunProvider, RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId,
@@ -38,7 +38,10 @@ use crate::{
    gui::{SHARED_GUI, ui::NotificationType},
    utils::{
       RT, TimeStamp, estimate_tx_cost,
-      simulate::{fetch_accounts_info, simulate_transaction},
+      simulate::{
+         fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
+         simulate_transaction,
+      },
    },
 };
 
@@ -130,14 +133,14 @@ pub async fn unshield(
    )?;
 
    if self_broadcast {
-      unshield_self_broadcast(ctx, chain, from, token, &mut railgun_provider, tx).await
+      unshield_self_broadcast(ctx, chain, from, token, railgun_provider, tx).await
    } else {
       unshield_via_paymaster(
          ctx,
          chain,
          from,
          token,
-         &mut railgun_provider,
+         railgun_provider,
          railgun_signer,
          tx,
          bundler_url,
@@ -151,7 +154,7 @@ async fn unshield_self_broadcast(
    chain: ChainId,
    from: Address,
    token: ERC20Token,
-   railgun_provider: &mut RailgunProvider<RpcClient>,
+   mut railgun_provider: RailgunProvider<RpcClient>,
    tx: TransactionBuilder,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
@@ -199,7 +202,7 @@ async fn unshield_via_paymaster(
    chain: ChainId,
    from: Address,
    token: ERC20Token,
-   railgun_provider: &mut RailgunProvider<RpcClient>,
+   mut railgun_provider: RailgunProvider<RpcClient>,
    railgun_signer: RailgunSigner,
    tx: TransactionBuilder,
    bundler_url: String,
@@ -240,9 +243,54 @@ async fn unshield_via_paymaster(
       ));
    };
 
+   let fork_block_id = BlockId::number(fork_block.header.number);
+   let client = ctx.get_client(chain.id()).await?;
+
    // Railgun privacy paymaster only accepts WETH
-   const INITIAL_FEE_WEI: u128 = 100_000_000;
    let fee_token = ERC20Token::wrapped_native_token(chain.id());
+
+   // handleOps caller = any funded EOA (bundler). Use a random wallet for the sim
+   // since in the fork enviroment we dont check for gas
+   let bundle_caller = PrivateKeySigner::random().address();
+
+   // Ephemeral smart-account owner for the UserOp.
+   // Unshield recipient is independent of this key — does NOT affect private note selection.
+   let sa_key = PrivateKeySigner::random();
+   let smart_account = SimpleSmartAccount::new(sa_key.address(), chain.id(), client);
+
+   let entry_point = address_book::entry_point(chain.id())?;
+
+   // Prefetch accounts and storage for the sim
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(entry_point);
+   accounts.push(SIMPLE_7702_ACCOUNT);
+   accounts.push(fork_block.header.beneficiary);
+
+   if let Some(pm) = chain_config.privacy_paymaster {
+      accounts.push(pm);
+   }
+
+   if let Some(adapter) = chain_config.railgun_fee_adapter {
+      accounts.push(adapter);
+   }
+
+   accounts.push(railgun_provider.railgun_address());
+   accounts.push(fee_token.address);
+
+   let common_accounts = railgun_common_accounts(chain.id());
+   accounts.extend(common_accounts);
+
+   let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts);
+
+   let storage_info_fut = fetch_storage_for_railgun(
+      ctx.clone(),
+      chain.id(),
+      fork_block_id,
+      railgun_provider.railgun_address(),
+   );
+
+   const INITIAL_FEE_WEI: u128 = 100_000_000;
 
    let rg_addr = railgun_signer.address().clone();
    let bundler_url = if bundler_url.trim().is_empty() {
@@ -277,13 +325,7 @@ async fn unshield_via_paymaster(
       .parse()
       .map_err(|e| anyhow!("Invalid bundler URL '{}': {}", bundler_url, e))?;
 
-   let client = ctx.get_client(chain.id()).await?;
    let bundler = PimlicoBundler::new(parsed_url);
-
-   // Ephemeral smart-account owner for the UserOp.
-   // Unshield recipient is independent of this key — does NOT affect private note selection.
-   let sa_key = PrivateKeySigner::random();
-   let smart_account = SimpleSmartAccount::new(sa_key.address(), chain.id(), client);
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Generating proof…");
@@ -314,48 +356,44 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
-   // Simulate bundler inclusion: EntryPoint.handleOps([userOp], beneficiary).
-   //
-   // NOT a raw call with user_op.call_data (that is empty for paymaster unshields —
-   // Railgun txs live in paymasterAndData and are executed by the privacy paymaster).
-   //
-   // Also apply EIP-7702 delegated code on the smart-account sender so validateUserOp
-   // can reach Simple7702Account (bundlers do this via the outer type-4 auth list).
-   let fork_block_id = BlockId::number(fork_block.header.number);
-
-   // Prefetch accounts info for the sim
-   let mut accounts = Vec::new();
-   accounts.push(from);
-   accounts.push(signed.user_op.sender);
-   accounts.push(signed.entry_point);
-   accounts.push(SIMPLE_7702_ACCOUNT);
-   accounts.push(fork_block.header.beneficiary);
-
-   if let Some(pm) = signed.user_op.paymaster {
-      accounts.push(pm);
-   }
-
-   if let Some(adapter) = chain_config.railgun_fee_adapter {
-      accounts.push(adapter);
-   }
-
-   accounts.push(railgun_provider.railgun_address());
-   accounts.push(fee_token.address);
-   accounts.push(chain_config.wrapped_base_token);
-
-   let time = Instant::now();
-   let accounts_info = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts).await;
-   info!(
-      "Fetched accounts info in {} ms",
-      time.elapsed().as_millis()
-   );
-
    let fork_client = ctx.get_client(chain.id()).await?;
+
    let mut factory =
       ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(fork_block_id));
 
+   // Sa & bundler will always be empty so insert them here
+   // to avoid rpc calls
+   let sa_account = AccountInfo {
+      balance: U256::ZERO,
+      nonce: 0,
+      code: None,
+      account_id: None,
+      code_hash: KECCAK256_EMPTY,
+   };
+
+   let bundler_account = AccountInfo {
+      balance: U256::ZERO,
+      nonce: 0,
+      code: None,
+      account_id: None,
+      code_hash: KECCAK256_EMPTY,
+   };
+
+   factory.insert_account_info(bundle_caller, bundler_account);
+   factory.insert_account_info(sa_key.address(), sa_account);
+
+   let accounts_info = accounts_info_fut.await;
+   let storage_info = storage_info_fut.await;
+
    for info in accounts_info {
       factory.insert_account_info(info.address, info.info);
+   }
+
+   for info in storage_info {
+      match factory.insert_account_storage(info.address, info.slot, info.value) {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Failed to insert account storage: {:?}", e),
+      }
    }
 
    // Force EIP-7702 delegation on the ephemeral smart-account sender.
@@ -377,9 +415,6 @@ async fn unshield_via_paymaster(
 
    let fork_db = factory.new_sandbox_fork();
 
-   // handleOps caller = any funded EOA (bundler). Use a random wallet for the sim
-   // since in the fork enviroment we dont check for gas
-   let bundle_caller = PrivateKeySigner::random().address();
    let handle_ops_data = signed.encode_handle_ops(bundle_caller);
    let interact_to = signed.entry_point;
    let value = U256::ZERO;
@@ -388,7 +423,6 @@ async fn unshield_via_paymaster(
    let sim_res;
    {
       let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
-      // handleOps + paymaster validation + railgun prove verify is gas-heavy
       evm.tx.gas_limit = 30_000_000;
 
       let time = Instant::now();
@@ -470,10 +504,13 @@ async fn unshield_via_paymaster(
    let calldata = handle_ops_data;
    let auth_list = Vec::new();
 
+   // TODO: Show the actual sender of the tx
+   let sender = from;
+
    let mut tx_analysis = TransactionAnalysis::new(
       ctx.clone(),
       chain.id(),
-      from,
+      sender,
       interact_to,
       contract_interact,
       calldata.clone(),

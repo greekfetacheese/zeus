@@ -326,8 +326,8 @@ fn transfer_event_ui(
 }
 
 fn shield_event_ui(
-   _ctx: &mut ZeusContext,
-   _chain: ChainId,
+   ctx: &mut ZeusContext,
+   chain: ChainId,
    theme: &Theme,
    icons: Arc<Icons>,
    params: &ShieldParams,
@@ -345,7 +345,7 @@ fn shield_event_ui(
             params.amount_usd.as_ref(),
          ) {
             ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               let text = RichText::new(format!("To Shield",)).size(theme.text_sizes.large);
+               let text = RichText::new(format!("Shield",)).size(theme.text_sizes.large);
                let label = Label::new(text, None).interactive(false);
                ui.add(label);
             });
@@ -372,6 +372,47 @@ fn shield_event_ui(
          }
       });
    });
+
+   // Recipient
+   if let Some(recipient) = &params.recipient {
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+            let text = RichText::new(format!("Recipient",)).size(theme.text_sizes.large);
+            let label = Label::new(text, None).interactive(false);
+            ui.add(label);
+         });
+
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
+            let contact_opt = ctx.get_contact_by_zk_address(recipient);
+
+            let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
+               let rich = RichText::new(wallet.name())
+                  .size(theme.text_sizes.large)
+                  .color(theme.colors.info);
+               (rich, Some(wallet.address.to_string()))
+            } else if let Some(contact) = contact_opt {
+               let rich = RichText::new(contact.name)
+                  .size(theme.text_sizes.large)
+                  .color(theme.colors.info);
+               (rich, Some(contact.evm_address))
+            } else {
+               let truncated = format!("{}...{}", &recipient[..6], &recipient[121..]);
+               let rich =
+                  RichText::new(truncated).size(theme.text_sizes.large).color(theme.colors.info);
+               (rich, None)
+            };
+
+            if let Some(evm_address) = evm_address_opt {
+               let explorer = chain.block_explorer();
+               let link = format!("{}/address/{}", explorer, evm_address);
+               ui.hyperlink_to(text, link);
+            } else {
+               ui.label(text);
+            }
+         });
+      });
+   }
 
    // Protocol fee
    if let (Some(token), Some(fee), Some(fee_usd)) = (

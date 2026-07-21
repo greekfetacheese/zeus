@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, str::FromStr};
+use std::{collections::HashMap, str::FromStr, sync::Arc};
 
 use crate::core::{context::data_dir, serde_hashmap};
 
@@ -90,6 +90,14 @@ impl CurrencyDB {
    pub fn get_erc20_token(&self, chain_id: u64, address: Address) -> Option<ERC20Token> {
       if let Some(tokens) = self.tokens.get(&chain_id) {
          tokens.get(&address).cloned()
+      } else {
+         None
+      }
+   }
+
+   pub fn get_token_name(&self, chain_id: u64, address: Address) -> Option<Arc<str>> {
+      if let Some(tokens) = self.tokens.get(&chain_id) {
+         tokens.get(&address).map(|token| token.name.clone())
       } else {
          None
       }

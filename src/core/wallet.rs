@@ -101,4 +101,11 @@ impl WalletInfo {
          None => "zkAddress not available".to_string(),
       }
    }
+
+   pub fn zk_address_ref(&self) -> &str {
+      match &self.railgun_address {
+         Some(railgun_address) => &railgun_address.address,
+         None => "zkAddress not available",
+      }
+   }
 }

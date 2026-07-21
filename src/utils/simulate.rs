@@ -4,7 +4,7 @@ use crate::utils::RT;
 use alloy_eips::eip7702::SignedAuthorization;
 use either::Either;
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, TxKind, U256, keccak256},
+   alloy_primitives::{Address, address, Bytes, KECCAK256_EMPTY, TxKind, U256, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
@@ -12,11 +12,17 @@ use zeus_eth::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, revert_msg,
       revm::state::{AccountInfo, Bytecode},
    },
+   utils::{batch, address_book},
 };
 
 use anyhow::anyhow;
-use std::sync::Arc;
+use std::str::FromStr;
+use std::{sync::Arc, time::Instant};
 use tokio::{sync::Mutex, task::JoinHandle};
+use tracing::info;
+
+/// Max slots per StorageReader eth_call
+const STORAGE_FETCH_CHUNK_SIZE: usize = 50;
 
 pub fn simulate_transaction<DB>(
    evm: &mut Evm2<DB>,
@@ -93,6 +99,207 @@ pub fn v3_pool_standard_slots() -> Vec<U256> {
    vec![U256::from(0), U256::from(1), U256::from(4)]
 }
 
+pub fn railgun_common_accounts(chain: u64) -> Vec<Address> {
+   let mut accounts = Vec::new();
+
+   if let Ok(addr) = address_book::railgun_implementation(chain) {
+      accounts.push(addr);
+   }
+
+   if chain == 1 {
+      accounts.push(address!("0x7D9ef64f35B6Afda8d258d1d2548a9aC997e35A1"));
+      accounts.push(address!("0xd0198Dde1187b12aF01a743d9e9f2B4B84e8f59b"));
+   }
+
+   accounts
+}
+
+pub fn railgun_smart_wallet_known_slots() -> Vec<U256> {
+   vec![
+      U256::from(100),
+      U256::from(101),
+      U256::from(102),
+      U256::from(103),
+      U256::from(104),
+      U256::from(105),
+      U256::from(106),
+      U256::from(250),
+      U256::from(249),
+      U256::from(111),
+      U256::from(122),
+      U256::from(123),
+      U256::from(124),
+      U256::from(125),
+      U256::from(110),
+      U256::from(126),
+      U256::from(127),
+      U256::from(112),
+      U256::from(128),
+      U256::from(129),
+      U256::from(114),
+      U256::from(130),
+      U256::from(115),
+      U256::from(131),
+      U256::from(132),
+      U256::from(133),
+      U256::from(134),
+      U256::from(119),
+      U256::from(135),
+      U256::from(120),
+      U256::from(136),
+      U256::from(121),
+      U256::from(137),
+      U256::from(254),
+      U256::from(108),
+      U256::from(109),
+      U256::from(107),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578059",
+      )
+      .unwrap(),
+      U256::from_str(
+         "34151261456300087439997391738331726178288962906741376914590545081241414870078",
+      )
+      .unwrap(),
+      U256::from_str(
+         "34151261456300087439997391738331726178288962906741376914590545081241414870079",
+      )
+      .unwrap(),
+      U256::from_str(
+         "41686179514459682887445184874087805914735208064873070197648607631960135268241",
+      )
+      .unwrap(),
+      U256::from_str(
+         "70317207819681945256554025353136292375664589604508357446255978928579956073267",
+      )
+      .unwrap(),
+      U256::from_str(
+         "94399812825888861499486677605933707837548266014517085953451337810630634584187",
+      )
+      .unwrap(),
+      U256::from_str(
+         "18296122654818958850168284695448851410897147423951460005733279896325587213801",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277359",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277358",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277357",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277356",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277355",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277354",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277353",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277352",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277351",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277350",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277349",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277348",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277347",
+      )
+      .unwrap(),
+      U256::from_str(
+         "31167265274857606537906508571182340861878936415094759065010277415513360277346",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578060",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578061",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578062",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578063",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578064",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578065",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578066",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578067",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578068",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578069",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578070",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578071",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578072",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578073",
+      )
+      .unwrap(),
+      U256::from_str(
+         "106975538549889489890283625107144024636981818160187513719796593493211775578074",
+      )
+      .unwrap(),
+   ]
+}
+
 pub async fn fetch_accounts_info(
    ctx: ZeusCtx,
    chain: u64,
@@ -103,6 +310,7 @@ pub async fn fetch_accounts_info(
 
    let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
    let accounts = Arc::new(Mutex::new(Vec::new()));
+   let time = Instant::now();
 
    for addr in addr {
       let client = client.clone();
@@ -169,8 +377,29 @@ pub async fn fetch_accounts_info(
       }
    }
 
+   info!(
+      "Fetched accounts info in {} ms",
+      time.elapsed().as_millis()
+   );
+
    let accounts = Arc::try_unwrap(accounts).unwrap().into_inner();
    accounts
+}
+
+pub async fn fetch_storage_for_railgun(
+   ctx: ZeusCtx,
+   chain: u64,
+   block_id: BlockId,
+   railgun_address: Address,
+) -> Vec<AccountStorage> {
+   let account = AccountSlots {
+      address: railgun_address,
+      slots: railgun_smart_wallet_known_slots(),
+   };
+
+   let account_storage = fetch_storage(ctx.clone(), chain, block_id, account).await;
+
+   account_storage
 }
 
 pub async fn fetch_storage_for_pools(
@@ -236,46 +465,62 @@ pub async fn fetch_storage(
    account: AccountSlots,
 ) -> Vec<AccountStorage> {
    let client = ctx.get_zeus_client();
+   let address = account.address;
 
-   let mut tasks: Vec<JoinHandle<Result<(), anyhow::Error>>> = Vec::new();
-   let accounts = Arc::new(Mutex::new(Vec::new()));
+   let chunks: Vec<Vec<U256>> =
+      account.slots.chunks(STORAGE_FETCH_CHUNK_SIZE).map(|c| c.to_vec()).collect();
 
-   for slot in account.slots {
+   if chunks.is_empty() {
+      return Vec::new();
+   }
+
+   let mut tasks: Vec<JoinHandle<Result<Vec<AccountStorage>, anyhow::Error>>> = Vec::new();
+   let time = Instant::now();
+
+   for chunk in chunks {
       let client = client.clone();
-      let accounts = accounts.clone();
 
       let task = RT.spawn(async move {
-         let value = client
-            .request(chain, |client| async move {
+         let read =
                client
-                  .get_storage_at(account.address, slot)
-                  .block_id(block_id)
-                  .await
-                  .map_err(|e| anyhow!("{:?}", e))
+                  .request(chain, |client| {
+                     let chunk = chunk.clone();
+                     async move {
+                        batch::get_account_storage(client, address, chunk, Some(block_id)).await
+                     }
+                  })
+                  .await?;
+
+         let storage = read
+            .slots
+            .into_iter()
+            .zip(read.values)
+            .map(|(slot, value)| AccountStorage {
+               address: read.address,
+               slot,
+               value,
             })
-            .await?;
+            .collect::<Vec<_>>();
 
-         let acc = AccountStorage {
-            address: account.address,
-            slot,
-            value,
-         };
-
-         accounts.lock().await.push(acc);
-         Ok(())
+         Ok(storage)
       });
 
       tasks.push(task);
    }
 
+   let mut out = Vec::new();
    for task in tasks {
       match task.await {
-         Ok(Ok(())) => {}
-         Ok(Err(e)) => tracing::error!("Fetch failed for address: {:?}", e),
-         Err(e) => tracing::error!("Join error: {:?}", e),
+         Ok(Ok(chunk)) => out.extend(chunk),
+         Ok(Err(e)) => tracing::error!("Storage fetch failed for {address}: {e:?}"),
+         Err(e) => tracing::error!("Join error: {e:?}"),
       }
    }
 
-   let accounts = Arc::try_unwrap(accounts).unwrap().into_inner();
-   accounts
+   info!(
+      "Fetched storage in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   out
 }

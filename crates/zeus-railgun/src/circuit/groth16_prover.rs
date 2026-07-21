@@ -8,7 +8,7 @@ use ark_groth16::{Groth16, prepare_verifying_key};
 use ark_relations::gr1cs::SynthesisError;
 use ark_std::rand::random;
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 
 use crate::circuit::{
    proof::Proof,
@@ -70,16 +70,16 @@ impl Groth16Prover {
       circuit_name: &str,
       inputs: HashMap<String, Vec<U256>>,
    ) -> Result<Proof, Groth16ProverError> {
-      info!("Loading artifacts");
+      debug!("Loading artifacts");
       let pk = self.artifact_loader.load_proving_key(circuit_name).await?;
 
       let matrices = self.artifact_loader.load_matrices(circuit_name).await?;
 
-      info!("Calculating witness");
+      debug!("Calculating witness");
       let witnesses = calculate_witness(&self.artifact_loader, circuit_name, inputs).await?;
       let witnesses: Vec<Fr> = witnesses.iter().map(|x| Fr::from(BigInt::from(*x))).collect();
 
-      info!("Creating proof");
+      debug!("Creating proof");
       let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
          &pk,
          random(),
@@ -90,7 +90,7 @@ impl Groth16Prover {
          &witnesses,
       )?;
 
-      info!("Verifying proof");
+      debug!("Verifying proof");
       let public_inputs = &witnesses[1..matrices.num_instance_variables];
       let pvk = prepare_verifying_key(&pk.vk);
       let verified = Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs)?;
@@ -99,7 +99,7 @@ impl Groth16Prover {
          return Err(Groth16ProverError::InvalidProof);
       }
 
-      info!("Proof verified successfully");
+      debug!("Proof verified successfully");
       Ok(proof.into())
    }
 }
