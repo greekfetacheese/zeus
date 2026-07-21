@@ -273,29 +273,6 @@ impl Header {
                            true => RailgunMode::Unshield,
                         };
 
-                        if privacy_mode {
-                           RT.spawn(async move {
-                              let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-
-                              let mut provider = match ctx.get_railgun_provider(chain.id()).await {
-                                 Ok(provider) => provider,
-                                 Err(e) => {
-                                    tracing::error!("Error getting Railgun provider: {:?}", e);
-                                    return;
-                                 }
-                              };
-
-                              match provider.sync().await {
-                                 Ok(_) => {}
-                                 Err(e) => {
-                                    tracing::error!("Error syncing Railgun provider: {:?}", e);
-                                 }
-                              }
-
-                              ctx.update_private_data(chain.id(), owner).await;
-                           });
-                        }
-
                         SHARED_GUI.write(|gui| {
                            gui.shield_ui.set_mode(new_mode);
                            gui.shield_ui.default_currency(chain.id());
@@ -350,9 +327,6 @@ impl Header {
                   // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
                   // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
                });
-
-               ctx.update_public_data(new_chain.id(), owner);
-               ctx.update_private_data(new_chain.id(), owner).await;
             });
          }
       });
@@ -392,9 +366,6 @@ impl Header {
                      gui.token_selection.process_currencies(privacy_mode, chain_id, owner);
                   }
                });
-
-               ctx.update_public_data(chain_id, owner);
-               ctx.update_private_data(chain_id, owner).await;
             });
          }
       });

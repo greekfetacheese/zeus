@@ -194,7 +194,8 @@ impl DeleteWalletUi {
                ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
 
                // TODO: Maybe adjust for privacy mode
-               let value = ctx.get_total_value(wallet.address);
+               let include_testnets = ctx.chain.is_testnet();
+               let value = ctx.get_total_value(wallet.address, include_testnets);
                ui.label(
                   RichText::new(format!("Value ${}", value.public.abbreviated()))
                      .size(theme.text_sizes.normal),

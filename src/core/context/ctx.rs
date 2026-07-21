@@ -680,8 +680,8 @@ impl ZeusCtx {
    }
 
    /// Get the total value for the given owner across all of its wallets and chains
-   pub fn get_total_value(&self, owner: Address) -> WalletValue {
-      self.read(|ctx| ctx.get_total_value(owner))
+   pub fn get_total_value(&self, owner: Address, include_testnets: bool) -> WalletValue {
+      self.read(|ctx| ctx.get_total_value(owner, include_testnets))
    }
 
    /// Get all tokens from all portfolios
@@ -708,12 +708,14 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
+      self.save_portfolio_db();
    }
 
    /// Update the private data (Railgun) of a portfolio for the given chain and owner
    ///
    /// What it does:
    ///
+   /// - Syncs [RailgunProvider] to the latest block
    /// - Indexes the private tokens and sorts them by value
    /// - Updates the portfolio private value based on the latest price data
    pub async fn update_private_data(&self, chain: u64, owner: Address) {
@@ -722,6 +724,7 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
+      self.save_portfolio_db();
    }
 
    /// Get the USD price of an ERC20 token
@@ -1812,12 +1815,16 @@ impl ZeusContext {
    }
 
    /// Get the total value for the given owner across all of its wallets and chains
-   pub fn get_total_value(&self, owner: Address) -> WalletValue {
+   pub fn get_total_value(&self, owner: Address, include_testnets: bool) -> WalletValue {
       let mut total_public = 0.0;
       let mut total_private = 0.0;
 
-      for chain in SUPPORTED_CHAINS {
-         let portfolio = self.portfolio_db.get(chain, owner);
+      for chain in ChainId::supported_chains() {
+         if !include_testnets && chain.is_testnet() {
+            continue;
+         }
+
+         let portfolio = self.portfolio_db.get(chain.id(), owner);
          total_public += portfolio.public_value().f64();
          total_private += portfolio.private_value().f64();
       }

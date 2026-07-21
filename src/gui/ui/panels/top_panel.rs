@@ -105,6 +105,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 fn check_railgun(chain: u64) {
    RT.spawn(async move {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+      if !ctx.railgun_is_supported(chain.into()) {
+         return;
+      }
+
       let railgun_provider = match ctx.get_railgun_provider(chain).await {
          Ok(provider) => provider,
          Err(e) => {

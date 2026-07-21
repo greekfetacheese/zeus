@@ -1,6 +1,7 @@
 use crate::core::{ZeusCtx, context::data_dir, serde_hashmap};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::{debug, error};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
@@ -221,7 +222,7 @@ impl WalletPortfolio {
       let updated_tokens = match process_private_tokens(ctx.clone(), chain_id, owner).await {
          Ok(tokens) => tokens,
          Err(e) => {
-            tracing::error!("Error calculating private tokens: {:?}", e);
+            error!("Error calculating private tokens: {:?}", e);
             private_tokens
          }
       };
@@ -279,14 +280,14 @@ async fn process_private_tokens(
    let wallet = ctx.get_wallet(owner);
 
    if wallet.is_none() {
-      tracing::error!("Wallet not found for address {}", owner);
+      error!("Wallet not found for address {}", owner);
       return Ok(token_list);
    }
 
    let wallet = wallet.unwrap();
 
    if !wallet.can_derive_zk_address() {
-      tracing::info!(
+      debug!(
          "Wallet {} cannot derive a zkAddress",
          wallet.address()
       );
@@ -299,7 +300,7 @@ async fn process_private_tokens(
 
    provider.register(raligun_signer).await?;
    let last_synced_block = provider.account_synced_block().await;
-   tracing::info!(
+   debug!(
       "Railgun resume watermark (min global/accounts): {}",
       last_synced_block
    );
@@ -308,7 +309,7 @@ async fn process_private_tokens(
 
    let private_balances = provider.balance(railgun_address).await;
 
-   tracing::info!(
+   debug!(
       "Found {} private balances",
       private_balances.len()
    );

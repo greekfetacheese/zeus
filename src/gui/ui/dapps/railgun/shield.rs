@@ -139,7 +139,7 @@ impl ShieldUi {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (500.0, 560.0),
+         size: (500.0, 660.0),
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
@@ -424,6 +424,8 @@ impl ShieldUi {
             .color(theme.colors.text_muted),
          );
 
+         // ? Maybe in the future we could replace this with swaps
+         // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
          if self.currency.is_native_wrapped() && !self.self_broadcast {
             ui.horizontal(|ui| {
             ui.checkbox(
@@ -1089,7 +1091,6 @@ async fn shield(
       }
 
       ctx.update_public_data(chain.id(), from);
-      ctx.save_balance_manager();
 
       match railgun_provider.sync().await {
          Ok(_) => {
@@ -1099,6 +1100,7 @@ async fn shield(
       }
 
       ctx.update_private_data(chain.id(), from).await;
+      ctx.save_balance_manager();
    });
 
    Ok(())

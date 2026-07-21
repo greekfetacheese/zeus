@@ -18,6 +18,7 @@ use zeus_eth::{
 const MEASURE_RPCS_INTERVAL: u64 = 200;
 const WALLET_STATE_INTERVAL: u64 = 600;
 const FEE_INTERVAL: u64 = 60;
+const RAILGUN_SYNC_INTERVAL: u64 = 60;
 
 pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
    let client = ctx.get_zeus_client();
@@ -152,7 +153,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      check_smart_account_status(ctx_clone).await;
+      check_delegated_status(ctx_clone).await;
    });
 
    let ctx_clone = ctx.clone();
@@ -173,31 +174,14 @@ pub async fn on_startup(ctx: ZeusCtx) {
 async fn sync_railgun(ctx: ZeusCtx) {
    for chain in SUPPORTED_CHAINS {
       if ctx.is_chain_disabled(chain) || !ctx.railgun_is_supported(chain.into()) {
+         tracing::debug!("Skipping Railgun sync for chain {}", chain);
          continue;
       }
 
-      let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
-      let has_private_tokens = portfolios.iter().any(|p| p.has_private_tokens());
+      let wallets = ctx.get_all_wallets_info();
 
-      if has_private_tokens {
-         let mut provider = match ctx.get_railgun_provider(chain).await {
-            Ok(provider) => provider,
-            Err(e) => {
-               tracing::error!("Error getting Railgun provider: {:?}", e);
-               continue;
-            }
-         };
-
-         match provider.sync().await {
-            Ok(_) => {}
-            Err(e) => {
-               tracing::error!("Error syncing Railgun provider: {:?}", e);
-            }
-         }
-
-         for portfolio in portfolios {
-            ctx.update_private_data(chain, portfolio.owner()).await;
-         }
+      for wallet in wallets {
+         ctx.update_private_data(chain, wallet.address).await;
       }
    }
 }
@@ -237,8 +221,8 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
    }
 }
 
-/// Check the smart account status for all wallets across all chains
-async fn check_smart_account_status(ctx: ZeusCtx) {
+/// Check the delegated status for all wallets across all chains
+async fn check_delegated_status(ctx: ZeusCtx) {
    let accounts = ctx.get_all_wallets_info();
    let mut tasks = Vec::new();
 
@@ -336,6 +320,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
    let mut wallet_state_passed = Instant::now();
    let mut fee_time_passed = Instant::now();
    let mut rpc_measure_time_passed = Instant::now();
+   let mut railgun_sync_time_passed = Instant::now();
 
    loop {
       if wallet_state_passed.elapsed().as_secs() > WALLET_STATE_INTERVAL {
@@ -355,7 +340,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
             }
          }
 
-         check_smart_account_status(ctx.clone()).await;
+         check_delegated_status(ctx.clone()).await;
          ctx.save_delegated_wallets();
          ctx.save_portfolio_db();
          ctx.save_price_manager();
@@ -391,6 +376,14 @@ async fn state_update_interval(ctx: ZeusCtx) {
             }
          }
          fee_time_passed = Instant::now();
+      }
+
+      if railgun_sync_time_passed.elapsed().as_secs() > RAILGUN_SYNC_INTERVAL {
+         let ctx_clone = ctx.clone();
+         RT.spawn(async move {
+            sync_railgun(ctx_clone).await;
+         });
+         railgun_sync_time_passed = Instant::now();
       }
 
       if rpc_measure_time_passed.elapsed().as_secs() > MEASURE_RPCS_INTERVAL {

@@ -102,13 +102,15 @@ impl WalletUi {
             }
          }
 
+         let include_testnets = ctx.chain().is_testnet();
+
          // TODO: Adjust for Privacy mode
          wallets.sort_by(|a, b| {
             let wallet_a = a.address;
             let wallet_b = b.address;
 
-            let value_a = ctx.get_total_value(wallet_a);
-            let value_b = ctx.get_total_value(wallet_b);
+            let value_a = ctx.get_total_value(wallet_a, include_testnets);
+            let value_b = ctx.get_total_value(wallet_b, include_testnets);
 
             // Sort in descending order (highest value first)
             value_b
@@ -122,7 +124,7 @@ impl WalletUi {
          let mut wallet_chains = HashMap::new();
 
          for wallet in &wallets {
-            let value = ctx.get_total_value(wallet.address);
+            let value = ctx.get_total_value(wallet.address, include_testnets);
             wallet_value.insert(wallet.address, value.public);
 
             let chains = ctx.get_chains_that_have_balance(wallet.address);

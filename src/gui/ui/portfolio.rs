@@ -160,29 +160,31 @@ impl PortfolioUi {
 
                         ui.end_row();
 
-                        let native_currency = Currency::native(chain_id);
+                        if !privacy_mode {
+                           let native_currency = Currency::native(chain_id);
 
-                        // Show the native currency first
-                        self.native(
-                           theme,
-                           icons.clone(),
-                           &native_currency,
-                           ui,
-                           column_widths[0],
-                        );
+                           // Show the native currency first
+                           self.native(
+                              theme,
+                              icons.clone(),
+                              &native_currency,
+                              ui,
+                              column_widths[0],
+                           );
 
-                        self.price_balance_value_native(
-                           ctx,
-                           theme,
-                           chain_id,
-                           owner,
-                           &native_currency,
-                           privacy_mode,
-                           ui,
-                           column_widths[0],
-                        );
+                           self.price_balance_value_native(
+                              ctx,
+                              theme,
+                              chain_id,
+                              owner,
+                              &native_currency,
+                              privacy_mode,
+                              ui,
+                              column_widths[0],
+                           );
 
-                        ui.end_row();
+                           ui.end_row();
+                        }
 
                         let token_list = if privacy_mode {
                            portfolio.private_tokens()
@@ -384,7 +386,6 @@ impl PortfolioUi {
 
          let ctx_clone = ctx.clone();
          RT.spawn_blocking(move || {
-            ctx_clone.save_portfolio_db();
             ctx_clone.save_balance_manager();
             ctx_clone.save_pool_manager();
             ctx_clone.save_price_manager();
@@ -511,8 +512,6 @@ impl PortfolioUi {
                SHARED_GUI.write(|gui| {
                   gui.portofolio.show_spinner = false;
                });
-
-               ctx.save_portfolio_db();
             });
          }
       });

@@ -79,8 +79,8 @@ impl ZeusApp {
       let ctx_clone = ctx.clone();
       RT.spawn(async move {
          loop {
-            if ctx_clone.vault_exists() {
-               tracing::info!("Vault exists, starting syncing");
+            if ctx_clone.vault_unlocked() {
+               tracing::info!("Vault unlocked, starting syncing");
                on_startup(ctx_clone).await;
                break;
             }

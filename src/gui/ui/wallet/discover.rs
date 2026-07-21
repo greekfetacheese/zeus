@@ -484,7 +484,8 @@ impl DiscoverChildWallets {
                      let value = if !exists {
                         NumericValue::from_f64(total_value)
                      } else {
-                        ctx.get_total_value(child.address).public
+                        let include_testnets = ctx.chain.is_testnet();
+                        ctx.get_total_value(child.address, include_testnets).public
                      };
 
                      ui.horizontal(|ui| {
