@@ -12,7 +12,10 @@ use anyhow::anyhow;
 use tracing::{error, info};
 use userop_kit::{
    bundler::{Bundler, pimlico::PimlicoBundler},
-   smart_account::simple_smart_account::{SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
+   smart_account::{
+      SmartAccount,
+      simple_smart_account::{Call, SIMPLE_7702_ACCOUNT, SimpleSmartAccount},
+   },
 };
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},
@@ -71,6 +74,7 @@ pub async fn unshield(
    from: Address,
    recipient: String,
    self_broadcast: bool,
+   unwrap_to_eth: bool,
    bundler_url: String,
 ) -> Result<(), anyhow::Error> {
    if !ctx.railgun_is_supported(chain) {
@@ -140,6 +144,9 @@ pub async fn unshield(
          chain,
          from,
          token,
+         amount.wei(),
+         recipient,
+         unwrap_to_eth,
          railgun_provider,
          railgun_signer,
          tx,
@@ -202,6 +209,9 @@ async fn unshield_via_paymaster(
    chain: ChainId,
    from: Address,
    token: ERC20Token,
+   amount: U256,
+   recipient: Address,
+   unwrap_to_eth: bool,
    mut railgun_provider: RailgunProvider<RpcClient>,
    railgun_signer: RailgunSigner,
    tx: TransactionBuilder,
@@ -332,6 +342,65 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
+   // Optional post-unshield calls run by the smart account after the paymaster
+   //
+   // Unwrap requires the unshield recipient to be the smart account so it holds
+   // WETH, then: WETH.withdraw → (optional) send ETH to the real recipient.
+   let sa_addr = smart_account.address();
+   let (tx, post_calls) = if unwrap_to_eth {
+      if token.address != chain_config.wrapped_base_token {
+         return Err(anyhow!(
+            "Unwrap to ETH is only available when unshielding the chain wrapped base token (WETH)"
+         ));
+      }
+
+      let amount_u128: u128 =
+         amount.try_into().map_err(|_| anyhow!("Amount too large for unshield"))?;
+      let fee_bps = u128::from(chain_config.unshield_fee_bps);
+      // Recipient receives amount after protocol unshield fee (bps of amount).
+      let protocol_fee = amount_u128.saturating_mul(fee_bps) / 10_000;
+      let received = amount_u128.saturating_sub(protocol_fee);
+      if received == 0 {
+         return Err(anyhow!(
+            "Unshield amount too small after protocol fee"
+         ));
+      }
+
+      let tx = TransactionBuilder::new().unshield(
+         railgun_signer.clone(),
+         sa_addr,
+         AssetId::Erc20(chain_config.wrapped_base_token),
+         amount_u128,
+      )?;
+
+      let weth = ERC20Token::wrapped_native_token(chain.id());
+      let received_u256 = U256::from(received);
+
+      let mut calls = vec![Call {
+         target: chain_config.wrapped_base_token,
+         value: U256::ZERO,
+         data: weth.encode_withdraw(received_u256),
+      }];
+
+      // Forward native ETH to the user-selected recipient (SA is ephemeral).
+      if recipient != sa_addr {
+         calls.push(Call {
+            target: recipient,
+            value: received_u256,
+            data: Bytes::new(),
+         });
+      }
+
+      info!(
+         "Unwrap-to-ETH post-calls: withdraw {} wei WETH on SA {:?}, forward ETH to {:?}",
+         received, sa_addr, recipient
+      );
+
+      (tx, calls)
+   } else {
+      (tx, Vec::new())
+   };
+
    let mut rng = ChaCha12Rng::from_os_rng();
    let signable = railgun_provider
       .prepare_userop(
@@ -340,7 +409,7 @@ async fn unshield_via_paymaster(
          &smart_account,
          railgun_signer,
          fee_token.address,
-         Vec::new(), // no post-unshield calls for v1
+         post_calls,
          &mut rng,
       )
       .await
@@ -472,6 +541,12 @@ async fn unshield_via_paymaster(
    }
 
    let mut unshield_params = unshield_events[0].clone();
+
+   // Unwrap path unshields to the ephemeral SA then forwards ETH — show the
+   // user-selected recipient in confirmation UX, not the SA address.
+   if unwrap_to_eth {
+      unshield_params.recipient = recipient;
+   }
 
    // Broadcaster/paymaster fee = private fee note encoded in paymaster_data (wrapped base token).
    // Distinct from Unshield event `fee` (protocol 0.25% on the unshielded token).

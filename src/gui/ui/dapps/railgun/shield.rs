@@ -122,6 +122,8 @@ pub struct ShieldUi {
    last_price_update: HashMap<Address, Instant>,
    /// Emergency path: submit unshield from the user's EOA (breaks anonymity).
    self_broadcast: bool,
+   /// Post unshield call to unwrap WETH to ETH
+   unwrap_to_eth: bool,
    /// Bundler JSON-RPC URL for paymaster UserOps (ignored when self_broadcast).
    bundler_url: String,
 }
@@ -143,6 +145,7 @@ impl ShieldUi {
          sending_tx: false,
          last_price_update: HashMap::new(),
          self_broadcast: false,
+         unwrap_to_eth: false,
          bundler_url: bundler_url.url,
       }
    }
@@ -421,6 +424,23 @@ impl ShieldUi {
             .color(theme.colors.text_muted),
          );
 
+         if self.currency.is_native_wrapped() && !self.self_broadcast {
+            ui.horizontal(|ui| {
+            ui.checkbox(
+               &mut self.unwrap_to_eth,
+               RichText::new("Unwrap to ETH").size(theme.text_sizes.normal),
+            );
+         });
+
+         ui.label(
+            RichText::new(
+               "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.",
+            )
+            .size(theme.text_sizes.small)
+            .color(theme.colors.text_muted),
+         );
+         }
+
          ui.add_space(4.0);
 
          if bundler_overridden {
@@ -609,6 +629,7 @@ impl ShieldUi {
          });
       } else {
          let self_broadcast = self.self_broadcast;
+         let unwrap_to_eth = self.unwrap_to_eth;
          let bundler_url = self.bundler_url.clone();
          // Unshield futures are not `Send` (`&dyn Bundler` / `&dyn Signer` across awaits).
          // Do NOT spin up a nested current_thread runtime: revm's ForkDB uses
@@ -630,6 +651,7 @@ impl ShieldUi {
                from,
                recipient,
                self_broadcast,
+               unwrap_to_eth,
                bundler_url,
             ));
 
