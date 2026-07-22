@@ -1,5 +1,5 @@
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
-use crate::utils::RT;
+use crate::utils::{RT, malloc_trim};
 use anyhow::anyhow;
 
 use std::collections::HashSet;
@@ -184,6 +184,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn(async move {
       malloc_trim_interval().await;
    });
+
+   malloc_trim();
 }
 
 fn insert_missing_portfolios(ctx: ZeusCtx) {
@@ -321,13 +323,7 @@ async fn malloc_trim_interval() {
 
    loop {
       if malloc_trim_passed.elapsed().as_secs() > MALLOC_TRIM_INTERVAL {
-         unsafe {
-            if libc::malloc_trim(0) == 1 {
-               tracing::info!("Released free memory");
-            } else {
-               tracing::warn!("Failed to release free memory");
-            }
-         }
+         malloc_trim();
          malloc_trim_passed = Instant::now();
       }
 

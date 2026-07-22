@@ -712,17 +712,6 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_all(&self) {
-      self.save_balance_manager();
-      self.save_currency_db();
-      self.save_portfolio_db();
-      self.save_zeus_client();
-      self.save_tx_db();
-      self.save_pool_manager();
-      self.save_price_manager();
-      self.save_delegated_wallets();
-   }
-
    /// Return the chains which the owner has balance in
    pub fn get_chains_that_have_balance(&self, owner: Address) -> Vec<u64> {
       let mut chains = Vec::new();
@@ -784,7 +773,6 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
-      self.save_portfolio_db();
    }
 
    /// Update the private data (Railgun) of a portfolio for the given chain and owner
@@ -799,7 +787,6 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
-      self.save_portfolio_db();
    }
 
    /// Get the USD price of an ERC20 token

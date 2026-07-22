@@ -977,8 +977,6 @@ async fn across_bridge(
       }
 
       ctx_clone.update_public_data(chain.id(), from);
-      ctx_clone.save_balance_manager();
-      ctx_clone.save_portfolio_db();
    });
 
    wait_for_fill(
