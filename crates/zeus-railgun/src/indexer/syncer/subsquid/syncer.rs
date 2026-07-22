@@ -99,10 +99,10 @@ impl UtxoSyncer for SubsquidSyncer {
 
       debug!("Latest snapshot block {}", snapshot_block);
 
-      if from_block > snapshot_block {
+      if SnapshotLoader::is_tip_sync(snapshot_block, from_block) {
          debug!(
-            "Tip sync {}-{}: no events-snapshot I/O",
-            from_block, to_block
+            "Tip sync {}-{} (snapshot_block={})",
+            from_block, to_block, snapshot_block
          );
          let mut delta = Vec::new();
          let mut commitments = self.commitments(from_block, to_block).await?;
@@ -110,8 +110,24 @@ impl UtxoSyncer for SubsquidSyncer {
          let mut nullifiers = self.nullifiers(from_block, to_block).await?;
          delta.append(&mut nullifiers);
          debug!("Tip delta events len {}", delta.len());
+
+         if let Some(loader) = &self.snapshot_loader {
+            if SnapshotLoader::should_refresh(snapshot_block, to_block) {
+               if let Err(e) =
+                  self.refresh_events_snapshot(loader, from_block, to_block, &delta).await
+               {
+                  warn!("Failed to refresh events snapshot: {}", e);
+               }
+            }
+         }
+
          return Ok(delta);
       }
+
+      debug!(
+         "Historical/cold sync {}-{} (snapshot_block={})",
+         from_block, to_block, snapshot_block
+      );
 
       let (mut full_events, events_block) = if let Some(loader) = &self.snapshot_loader {
          match loader.load(self.chain_id).await {
@@ -134,7 +150,11 @@ impl UtxoSyncer for SubsquidSyncer {
          .cloned()
          .collect();
 
-      let fetch_from = events_block.saturating_add(1).max(from_block);
+      let fetch_from = if events_block == 0 {
+         from_block
+      } else {
+         events_block.saturating_add(1).max(from_block)
+      };
       debug!(
          "Historical fetch delta from {} to {} (events_block={})",
          fetch_from, to_block, events_block
@@ -205,6 +225,95 @@ impl TxidSyncer for SubsquidSyncer {
 }
 
 impl SubsquidSyncer {
+   /// Extend the on-disk events snapshot up to `to_block` (full load + rewrite).
+   ///
+   /// See RpcSyncer::refresh_events_snapshot — same policy, Subsquid fetch.
+   async fn refresh_events_snapshot(
+      &self,
+      loader: &SnapshotLoader,
+      tip_from: u64,
+      to_block: u64,
+      tip_events: &[syncer::SyncEvent],
+   ) -> Result<(), anyhow::Error> {
+      let mut snapshot = loader
+         .load(self.chain_id)
+         .await
+         .map_err(|e| anyhow::anyhow!("load snapshot for refresh: {}", e))?;
+
+      let events_block = snapshot.block_number;
+
+      debug!(
+         "Refreshing events snapshot (subsquid): events_block={} tip_from={} to_block={} lag={}",
+         events_block,
+         tip_from,
+         to_block,
+         to_block.saturating_sub(events_block)
+      );
+
+      if events_block == 0 || snapshot.events.is_empty() {
+         let updated = EventsSnapshot {
+            events: tip_events.to_vec(),
+            block_number: to_block,
+         };
+         loader.save(self.chain_id, updated).await?;
+         info!(
+            "Events snapshot bootstrapped from tip range {}-{} ({} events)",
+            tip_from,
+            to_block,
+            tip_events.len()
+         );
+         return Ok(());
+      }
+
+      let gap_from = events_block.saturating_add(1);
+      if gap_from > to_block {
+         debug!(
+            "Snapshot already covers to_block (events_block={})",
+            events_block
+         );
+         return Ok(());
+      }
+
+      let mut delta = Vec::new();
+
+      if tip_from > gap_from {
+         let early_to = tip_from - 1;
+         debug!(
+            "Snapshot refresh fetching prefix {}-{}",
+            gap_from, early_to
+         );
+         let mut commitments = self
+            .commitments(gap_from, early_to)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+         delta.append(&mut commitments);
+         let mut nullifiers = self
+            .nullifiers(gap_from, early_to)
+            .await
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+         delta.append(&mut nullifiers);
+      }
+
+      if tip_from >= gap_from {
+         delta.extend(tip_events.iter().cloned());
+      } else {
+         delta.extend(tip_events.iter().filter(|ev| ev.block_number() >= gap_from).cloned());
+      }
+
+      debug!(
+         "Snapshot refresh delta len {} (events_block {} -> {})",
+         delta.len(),
+         events_block,
+         to_block
+      );
+
+      snapshot.events.extend(delta);
+      snapshot.block_number = to_block;
+      loader.save(self.chain_id, snapshot).await?;
+      info!("Events snapshot refreshed to block {}", to_block);
+      Ok(())
+   }
+
    async fn latest_block(&self) -> Result<u64, SubsquidSyncerError> {
       if let Some(override_block) = self.latest_block_override {
          return Ok(override_block);

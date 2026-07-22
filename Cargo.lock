@@ -12169,6 +12169,7 @@ dependencies = [
  "generic-array 1.2.0",
  "image",
  "lazy_static",
+ "libc",
  "minisign-verify",
  "ncrypt-me",
  "qrcodegen-no-heap",

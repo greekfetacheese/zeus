@@ -7,7 +7,7 @@ use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -33,6 +33,15 @@ use crate::{
 ///
 /// So its impossible to find out the block_range limit for each provider
 const DEFAULT_BLOCK_RANGE: u64 = 5_000;
+const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
+
+fn default_block_range(chain: u64) -> u64 {
+   match chain {
+      1 => DEFAULT_BLOCK_RANGE,
+      11155111 => SEPOLIA_BLOCK_RANGE,
+      _ => DEFAULT_BLOCK_RANGE,
+   }
+}
 
 /// An implementation of a syncer that uses a Json RPC client
 ///
@@ -59,13 +68,14 @@ impl RpcSyncer {
       chain_id: u64,
       railgun_address: Address,
    ) -> Self {
+      let block_range = Arc::new(Mutex::new(default_block_range(chain_id)));
       Self {
          provider: Arc::new(Mutex::new(DynProvider::new(provider))),
          chain_id,
          railgun_address,
          syncing: Arc::new(Mutex::new(false)),
          concurrency: Arc::new(Mutex::new(2)),
-         block_range: Arc::new(Mutex::new(DEFAULT_BLOCK_RANGE)),
+         block_range,
          snapshot_loader: None,
       }
    }
@@ -237,20 +247,41 @@ impl RpcSyncer {
 
       debug!("Latest snapshot block {}", snapshot_block);
 
-      // Pure tip path: caller already past the snapshot. Fetch only the requested
-      // range and never touch the snapshot file (empty or non-empty delta).
-      if from_block > snapshot_block {
+      // Pure tip path only when we already have a real snapshot and the caller is
+      // past it. snapshot_block == 0 is cold start / empty cache → historical path
+      // (never treat deployment..tip as a "tip" and never backfill from block 1).
+      if SnapshotLoader::is_tip_sync(snapshot_block, from_block) {
          debug!(
-            "Tip sync {}-{}: no events-snapshot I/O",
-            from_block, to_block
+            "Tip sync {}-{} (snapshot_block={})",
+            from_block, to_block, snapshot_block
          );
          let logs = self.get_logs(from_block, to_block).await?;
          let events = Self::parse_logs(logs)?;
          debug!("Tip delta events len {}", events.len());
+
+         if let Some(loader) = &self.snapshot_loader {
+            if SnapshotLoader::should_refresh(snapshot_block, to_block) {
+               debug!(
+                  "Refreshing events snapshot from block {} to {}",
+                  snapshot_block, to_block
+               );
+               if let Err(e) =
+                  self.refresh_events_snapshot(loader, from_block, to_block, &events).await
+               {
+                  warn!("Failed to refresh events snapshot: {}", e);
+               }
+            }
+         }
+
          return Ok(events);
       }
 
-      // Historical / catch-up path: serve cached events then fetch the tail.
+      debug!(
+         "Historical/cold sync {}-{} (snapshot_block={})",
+         from_block, to_block, snapshot_block
+      );
+
+      // Historical / catch-up / cold-start: serve cached events then fetch the tail.
       let (mut full_events, events_block) = if let Some(loader) = &self.snapshot_loader {
          match loader.load(self.chain_id).await {
             Ok(s) => (s.events, s.block_number),
@@ -275,8 +306,12 @@ impl RpcSyncer {
          .cloned()
          .collect();
 
-      // Use the blob's own coverage, not a tip-advanced meta watermark.
-      let fetch_from = events_block.saturating_add(1).max(from_block);
+      // Empty snapshot → fetch from caller's from_block (deployment), never block 1.
+      let fetch_from = if events_block == 0 {
+         from_block
+      } else {
+         events_block.saturating_add(1).max(from_block)
+      };
       debug!(
          "Historical fetch delta from {} to {} (events_block={})",
          fetch_from, to_block, events_block
@@ -291,6 +326,8 @@ impl RpcSyncer {
       debug!("Delta Events len {}", delta.len());
 
       if delta.is_empty() {
+         // Still advance snapshot coverage if we already had history and tip moved
+         // with no Railgun logs — only when we actually loaded a blob.
          return Ok(events);
       }
 
@@ -309,6 +346,98 @@ impl RpcSyncer {
       }
 
       Ok(events)
+   }
+
+   /// Extend the on-disk events snapshot up to `to_block` (full load + rewrite).
+   ///
+   /// Called rarely from the tip path when the snapshot lags by
+   /// [`super::snapshot::EVENTS_SNAPSHOT_REFRESH_BLOCK_INTERVAL`]. Reuses
+   /// `tip_events` already fetched for `tip_from..=to_block` so we only RPC the
+   /// missing prefix after the blob's last covered block.
+   ///
+   /// Never fetches before genesis of the blob: an empty snapshot just stores
+   /// `tip_events` (the caller's range), it does **not** scan from block 1.
+   async fn refresh_events_snapshot(
+      &self,
+      loader: &SnapshotLoader,
+      tip_from: u64,
+      to_block: u64,
+      tip_events: &[SyncEvent],
+   ) -> Result<(), anyhow::Error> {
+      let mut snapshot = loader
+         .load(self.chain_id)
+         .await
+         .map_err(|e| anyhow::anyhow!("load snapshot for refresh: {}", e))?;
+
+      let events_block = snapshot.block_number;
+
+      debug!(
+         "Refreshing events snapshot: events_block={} tip_from={} to_block={} lag={}",
+         events_block,
+         tip_from,
+         to_block,
+         to_block.saturating_sub(events_block)
+      );
+
+      // Empty blob: tip_events already are the bootstrap range the caller cares about.
+      if events_block == 0 || snapshot.events.is_empty() {
+         let updated = EventsSnapshot {
+            events: tip_events.to_vec(),
+            block_number: to_block,
+         };
+         loader.save(self.chain_id, updated).await?;
+         info!(
+            "Events snapshot bootstrapped from tip range {}-{} ({} events)",
+            tip_from,
+            to_block,
+            tip_events.len()
+         );
+         return Ok(());
+      }
+
+      let gap_from = events_block.saturating_add(1);
+      if gap_from > to_block {
+         debug!(
+            "Snapshot already covers to_block (events_block={})",
+            events_block
+         );
+         return Ok(());
+      }
+
+      let mut delta = Vec::new();
+
+      // Prefix between blob coverage and the tip fetch start.
+      if tip_from > gap_from {
+         let early_to = tip_from - 1;
+         debug!(
+            "Snapshot refresh fetching prefix {}-{}",
+            gap_from, early_to
+         );
+         let logs = self
+            .get_logs(gap_from, early_to)
+            .await
+            .map_err(|e| anyhow::anyhow!("fetch snapshot prefix: {}", e))?;
+         delta = Self::parse_logs(logs).map_err(|e| anyhow::anyhow!("{}", e))?;
+      }
+
+      if tip_from >= gap_from {
+         delta.extend(tip_events.iter().cloned());
+      } else {
+         delta.extend(tip_events.iter().filter(|ev| ev.block_number() >= gap_from).cloned());
+      }
+
+      debug!(
+         "Snapshot refresh delta len {} (events_block {} -> {})",
+         delta.len(),
+         events_block,
+         to_block
+      );
+
+      snapshot.events.extend(delta);
+      snapshot.block_number = to_block;
+      loader.save(self.chain_id, snapshot).await?;
+      info!("Events snapshot refreshed to block {}", to_block);
+      Ok(())
    }
 
    fn parse_logs(logs: Vec<RpcLog>) -> Result<Vec<SyncEvent>, SyncerError> {

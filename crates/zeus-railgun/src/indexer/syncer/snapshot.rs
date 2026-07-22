@@ -7,6 +7,14 @@ use tracing::{debug, error};
 
 use super::types::{SyncEvent, SyncerError};
 
+// ? If we support more chains in the future this has to be adjusted.
+/// How far the tip may get ahead of the on-disk events snapshot before we
+/// pay for a full load+rewrite refresh.
+///
+/// ~30_000 blocks ≈ 4 days on Ethereum mainnet (12s blocks). Keeps the bootstrap
+/// cache useful for new signers without rewriting tens of MB every tip sync.
+pub const EVENTS_SNAPSHOT_REFRESH_BLOCK_INTERVAL: u64 = 30_000;
+
 /// A snapshot of the synced events with the latest synced block number.
 /// Used to speed up full re-syncs (e.g. when registering a new Railgun signer)
 /// by replaying historical events from disk instead of hitting RPC/Subsquid again.
@@ -44,6 +52,24 @@ impl SnapshotLoader {
       format!("events-snapshot:{}.meta", chain_id)
    }
 
+   /// True when the snapshot lags `to_block` by at least
+   /// [`EVENTS_SNAPSHOT_REFRESH_BLOCK_INTERVAL`] blocks.
+   ///
+   /// Requires a real existing snapshot (`snapshot_block > 0`). An empty / missing
+   /// snapshot is filled by the historical catch-up path, not by tip refresh.
+   pub fn should_refresh(snapshot_block: u64, to_block: u64) -> bool {
+      snapshot_block > 0
+         && to_block.saturating_sub(snapshot_block) >= EVENTS_SNAPSHOT_REFRESH_BLOCK_INTERVAL
+   }
+
+   /// Tip path: we already have a snapshot and the caller only needs blocks after it.
+   ///
+   /// `snapshot_block == 0` means "no snapshot yet" — that is a cold historical sync,
+   /// not a tip delta (even though `from_block > 0`).
+   pub fn is_tip_sync(snapshot_block: u64, from_block: u64) -> bool {
+      snapshot_block > 0 && from_block > snapshot_block
+   }
+
    /// Returns the highest block the snapshot is known to cover.
    ///
    /// Prefers the tiny `.meta` file. On first run after upgrade (meta missing),
@@ -74,7 +100,6 @@ impl SnapshotLoader {
          }
       }
 
-      // Migration / first use: pay the full load once, then keep meta warm.
       let snapshot = self.load(chain_id).await?;
       let block_number = snapshot.block_number;
       if block_number > 0 {

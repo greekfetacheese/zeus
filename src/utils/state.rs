@@ -15,6 +15,7 @@ use zeus_eth::{
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };
 
+const MALLOC_TRIM_INTERVAL: u64 = 300;
 const MEASURE_RPCS_INTERVAL: u64 = 200;
 const WALLET_STATE_INTERVAL: u64 = 600;
 const FEE_INTERVAL: u64 = 60;
@@ -175,7 +176,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    RT.spawn_blocking(move || {
-      ctx.save_all();
+      ctx.save_portfolio_db();
+      ctx.save_pool_manager();
+      ctx.save_price_manager();
+   });
+
+   RT.spawn(async move {
+      malloc_trim_interval().await;
    });
 }
 
@@ -306,6 +313,25 @@ async fn update_token_prices(ctx: ZeusCtx) {
 
    for task in tasks {
       let _ = task.await;
+   }
+}
+
+async fn malloc_trim_interval() {
+   let mut malloc_trim_passed = Instant::now();
+
+   loop {
+      if malloc_trim_passed.elapsed().as_secs() > MALLOC_TRIM_INTERVAL {
+         unsafe {
+            if libc::malloc_trim(0) == 1 {
+               tracing::info!("Released free memory");
+            } else {
+               tracing::warn!("Failed to release free memory");
+            }
+         }
+         malloc_trim_passed = Instant::now();
+      }
+
+      tokio::time::sleep(Duration::from_secs(10)).await;
    }
 }
 
@@ -541,8 +567,5 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             ctx.update_public_data(chain, portfolio.owner());
          }
       }
-      ctx.save_portfolio_db();
-      ctx.save_pool_manager();
-      ctx.save_price_manager();
    });
 }

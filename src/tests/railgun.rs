@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
    use std::sync::Arc;
+   use std::time::Duration;
 
    use crate::core::{ZeusCtx, railgun_db_file, railgun_dir};
    use alloy_eips::BlockId;
@@ -68,7 +69,7 @@ mod tests {
    }
 
    #[tokio::test]
-   async fn test_sync() -> Result<(), anyhow::Error> {
+   async fn db_compact_mem_usage() -> Result<(), anyhow::Error> {
       tracing_subscriber::fmt()
          .with_env_filter("info,error,debug")
          .with_test_writer()
@@ -76,6 +77,83 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = ChainId::EthereumSepolia;
+
+      let railgun_provider: RailgunProvider<RpcClient> =
+         create_railgun_provider(ctx.clone(), chain.id()).await?;
+
+      let mut times = 0;
+
+      loop {
+         railgun_provider.compact().await?;
+         times += 1;
+         tracing::info!("Compacted DB {} times", times);
+         tokio::time::sleep(Duration::from_secs(1)).await;
+      }
+   }
+
+   #[tokio::test]
+   async fn db_save_mem_usage() -> Result<(), anyhow::Error> {
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
+
+      let ctx = ZeusCtx::new();
+      let chain = ChainId::EthereumSepolia;
+
+      let railgun_provider: RailgunProvider<RpcClient> =
+         create_railgun_provider(ctx.clone(), chain.id()).await?;
+
+      let mut times = 0;
+
+      loop {
+         railgun_provider.save(true).await?;
+         times += 1;
+         tracing::info!("Saved DB {} times", times);
+         tokio::time::sleep(Duration::from_secs(1)).await;
+      }
+   }
+
+   #[tokio::test]
+   async fn snapshot_loader_mem_usage() -> Result<(), anyhow::Error> {
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
+
+      let chain = ChainId::Ethereum;
+      let snapshot_loader = SnapshotLoader::new(railgun_dir().unwrap());
+
+      let mut times = 0;
+
+      loop {
+         {
+            let _events = snapshot_loader.load(chain.id()).await?;
+         }
+
+         unsafe {
+            if libc::malloc_trim(0) == 1 {
+               tracing::info!("Released free memory");
+            } else {
+               tracing::warn!("Failed to release free memory");
+            }
+         }
+
+         times += 1;
+         tracing::info!("read snapshot {} times", times);
+         tokio::time::sleep(Duration::from_secs(10)).await;
+      }
+   }
+
+   #[tokio::test]
+   async fn test_sync() -> Result<(), anyhow::Error> {
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
+
+      let ctx = ZeusCtx::new();
+      let chain = ChainId::Ethereum;
       let _chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
       let client = ctx.get_client(chain.id()).await?;
 
@@ -99,12 +177,7 @@ mod tests {
       let to_block = latest_block;
       let use_subsquid = false;
 
-      println!("To Block {}", to_block);
-
       railgun_provider.sync_to(to_block, use_subsquid).await?;
-
-      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
-      println!("Synced block: {}", synced_block);
 
       Ok(())
    }
