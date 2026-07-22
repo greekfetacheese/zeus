@@ -215,7 +215,11 @@ impl RpcSyncer {
       from_block: u64,
       to_block: u64,
    ) -> Result<Vec<SyncEvent>, SyncerError> {
-      // Coverage watermark only — tip syncs must not deserialize the full events blob.
+      // Snapshot coverage (events present in the on-disk blob). Used only to decide whether
+      // this call is a tip delta (no snapshot I/O) vs historical replay (load blob).
+      // Tip syncs intentionally do NOT load/append/rewrite the multi‑MB events file —
+      // trees + account state are already persisted by the indexer; the snapshot is only
+      // a bootstrap cache for low-from historical catch-up (new signers).
       let snapshot_block = if let Some(loader) = &self.snapshot_loader {
          match loader.load_meta(self.chain_id).await {
             Ok(b) => b,
@@ -232,51 +236,50 @@ impl RpcSyncer {
       };
 
       debug!("Latest snapshot block {}", snapshot_block);
-      debug!(
-         "Missing blocks {}",
-         to_block.saturating_sub(snapshot_block)
-      );
 
-      // Tip path: caller only needs blocks after the snapshot coverage.
-      // Skip loading Vec<SyncEvent> entirely.
-      let tip_only = from_block > snapshot_block;
+      // Pure tip path: caller already past the snapshot. Fetch only the requested
+      // range and never touch the snapshot file (empty or non-empty delta).
+      if from_block > snapshot_block {
+         debug!(
+            "Tip sync {}-{}: no events-snapshot I/O",
+            from_block, to_block
+         );
+         let logs = self.get_logs(from_block, to_block).await?;
+         let events = Self::parse_logs(logs)?;
+         debug!("Tip delta events len {}", events.len());
+         return Ok(events);
+      }
 
-      let mut full_events = if tip_only {
-         debug!("Tip sync: skipping full events snapshot load");
-         None
-      } else if let Some(loader) = &self.snapshot_loader {
+      // Historical / catch-up path: serve cached events then fetch the tail.
+      let (mut full_events, events_block) = if let Some(loader) = &self.snapshot_loader {
          match loader.load(self.chain_id).await {
-            Ok(s) => Some(s.events),
+            Ok(s) => (s.events, s.block_number),
             Err(e) => {
                warn!(
                   "Failed to load event snapshot (will start fresh): {}",
                   e
                );
-               Some(Vec::new())
+               (Vec::new(), 0)
             }
          }
       } else {
-         Some(Vec::new())
+         (Vec::new(), 0)
       };
 
-      // Return historical slice without keeping a second full clone of the blob.
-      let mut events = if let Some(ref full) = full_events {
-         full
-            .iter()
-            .filter(|ev| {
-               let b = ev.block_number();
-               b >= from_block && b <= to_block
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-      } else {
-         Vec::new()
-      };
+      let mut events: Vec<SyncEvent> = full_events
+         .iter()
+         .filter(|ev| {
+            let b = ev.block_number();
+            b >= from_block && b <= to_block
+         })
+         .cloned()
+         .collect();
 
-      let fetch_from = snapshot_block.saturating_add(1).max(from_block);
+      // Use the blob's own coverage, not a tip-advanced meta watermark.
+      let fetch_from = events_block.saturating_add(1).max(from_block);
       debug!(
-         "Fetching delta from {} to {}",
-         fetch_from, to_block
+         "Historical fetch delta from {} to {} (events_block={})",
+         fetch_from, to_block, events_block
       );
 
       if fetch_from > to_block {
@@ -284,7 +287,32 @@ impl RpcSyncer {
       }
 
       let logs = self.get_logs(fetch_from, to_block).await?;
-      let mut delta = Vec::new();
+      let delta = Self::parse_logs(logs)?;
+      debug!("Delta Events len {}", delta.len());
+
+      if delta.is_empty() {
+         return Ok(events);
+      }
+
+      events.extend(delta.iter().cloned());
+
+      if let Some(loader) = &self.snapshot_loader {
+         full_events.extend(delta);
+         debug!("Full Events len {}", full_events.len());
+         let updated = EventsSnapshot {
+            events: full_events,
+            block_number: to_block,
+         };
+         if let Err(e) = loader.save(self.chain_id, updated).await {
+            warn!("Failed to save event snapshot: {}", e);
+         }
+      }
+
+      Ok(events)
+   }
+
+   fn parse_logs(logs: Vec<RpcLog>) -> Result<Vec<SyncEvent>, SyncerError> {
+      let mut events = Vec::new();
 
       for log in logs {
          let block_number = log.block_number.unwrap_or(0);
@@ -294,32 +322,32 @@ impl RpcSyncer {
 
          if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log.inner) {
             let mut shield_events = parse_shield(&decoded.data, block_number)?;
-            delta.append(&mut shield_events);
+            events.append(&mut shield_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner) {
             let mut tx_events = parse_transact(&decoded.data, block_timestamp)?;
-            delta.append(&mut tx_events);
+            events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner) {
             let mut null_events = parse_nullified(&decoded.data, block_timestamp)?;
-            delta.append(&mut null_events);
+            events.append(&mut null_events);
             continue;
          }
 
          // Legacy events
          if let Ok(decoded) = <RailgunLegacy::CommitmentBatch as SolEvent>::decode_log(&log.inner) {
             let mut legacy_events = parse_legacy_commitment_batch(&decoded.data, block_number)?;
-            delta.append(&mut legacy_events);
+            events.append(&mut legacy_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log.inner) {
             let mut null_events = parse_legacy_nullifiers(&decoded.data, block_timestamp)?;
-            delta.append(&mut null_events);
+            events.append(&mut null_events);
             continue;
          }
 
@@ -328,19 +356,19 @@ impl RpcSyncer {
          {
             let mut legacy_events =
                parse_legacy_generated_commitment_batch(&decoded.data, block_number)?;
-            delta.append(&mut legacy_events);
+            events.append(&mut legacy_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log.inner) {
             let mut tx_events = parse_legacy_transact(&decoded.data, block_timestamp)?;
-            delta.append(&mut tx_events);
+            events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunLegacy::Shield as SolEvent>::decode_log(&log.inner) {
             let mut shield_events = parse_legacy_shield(&decoded.data, block_number)?;
-            delta.append(&mut shield_events);
+            events.append(&mut shield_events);
             continue;
          }
 
@@ -353,42 +381,6 @@ impl RpcSyncer {
             "Unknown Log block_number: {} tx_hash: {} topic: {}",
             block_number, tx_hash, topic
          );
-      }
-
-      debug!("Delta Events len {}", delta.len());
-
-      if delta.is_empty() {
-         // Advance coverage watermark only — never rewrite the multi‑MB events blob.
-         if to_block > snapshot_block {
-            if let Some(loader) = &self.snapshot_loader {
-               if let Err(e) = loader.save_meta(self.chain_id, to_block).await {
-                  warn!("Failed to save event snapshot meta: {}", e);
-               }
-            }
-         }
-         return Ok(events);
-      }
-
-      // Move delta into the returned events (no extra clone of the delta).
-      events.extend(delta.iter().cloned());
-
-      if let Some(loader) = &self.snapshot_loader {
-         if let Some(mut full) = full_events.take() {
-            full.extend(delta);
-            debug!("Full Events len {}", full.len());
-            let updated = EventsSnapshot {
-               events: full,
-               block_number: to_block,
-            };
-            if let Err(e) = loader.save(self.chain_id, updated).await {
-               warn!("Failed to save event snapshot: {}", e);
-            }
-         } else {
-            // Tip path: load+merge only when there is something to append.
-            if let Err(e) = loader.append_delta(self.chain_id, delta, to_block).await {
-               warn!("Failed to append event snapshot delta: {}", e);
-            }
-         }
       }
 
       Ok(events)

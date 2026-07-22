@@ -118,11 +118,7 @@ impl UtxoIndexer {
    /// Idempotent: registering an address that is already loaded is a no-op.
    pub async fn register(&mut self, signer: RailgunSigner) -> Result<(), UtxoIndexerError> {
       let addr = signer.address().clone();
-      if self
-         .accounts
-         .iter()
-         .any(|a| a.address().address == addr.address)
-      {
+      if self.accounts.iter().any(|a| a.address().address == addr.address) {
          return Ok(());
       }
 
@@ -289,16 +285,10 @@ impl UtxoIndexer {
          }
       }
 
-      // Save trees only when mutated; accounts only when dirty.
+      // Save — trees only when mutated; accounts only when dirty.
       self.save(trees_mutated).await?;
 
-      match self.db.compact().await {
-         Ok(true) => info!("Database compaction performed"),
-         Ok(false) => {
-            info!("Database does not need compaction");
-         }
-         Err(e) => tracing::warn!("Compaction failed: {}", e),
-      }
+      // ! Dont call compact because it fucks up with mem usage
 
       Ok(())
    }
@@ -532,7 +522,7 @@ impl UtxoIndexer {
    /// - Always writes the lightweight indexer watermark.
    /// - Full merkle tree blobs are only rewritten when `trees_mutated`.
    /// - Account state is only rewritten when the account is dirty.
-   async fn save(&mut self, trees_mutated: bool) -> Result<(), DatabaseError> {
+   pub async fn save(&mut self, trees_mutated: bool) -> Result<(), DatabaseError> {
       let state = UtxoIndexerState {
          synced_block: self.synced_block,
          trees: self.utxo_trees.keys().cloned().collect(),

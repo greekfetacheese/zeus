@@ -83,7 +83,8 @@ impl UtxoSyncer for SubsquidSyncer {
          from_block, to_block
       );
 
-      // Coverage watermark only — tip syncs must not deserialize the full events blob.
+      // Snapshot coverage used only to split tip vs historical. Tip path does no
+      // snapshot I/O — see RpcSyncer for rationale.
       let snapshot_block = if let Some(loader) = &self.snapshot_loader {
          match loader.load_meta(self.chain_id).await {
             Ok(b) => b,
@@ -97,45 +98,46 @@ impl UtxoSyncer for SubsquidSyncer {
       };
 
       debug!("Latest snapshot block {}", snapshot_block);
-      debug!(
-         "Missing blocks {}",
-         to_block.saturating_sub(snapshot_block)
-      );
 
-      let tip_only = from_block > snapshot_block;
+      if from_block > snapshot_block {
+         debug!(
+            "Tip sync {}-{}: no events-snapshot I/O",
+            from_block, to_block
+         );
+         let mut delta = Vec::new();
+         let mut commitments = self.commitments(from_block, to_block).await?;
+         delta.append(&mut commitments);
+         let mut nullifiers = self.nullifiers(from_block, to_block).await?;
+         delta.append(&mut nullifiers);
+         debug!("Tip delta events len {}", delta.len());
+         return Ok(delta);
+      }
 
-      let mut full_events = if tip_only {
-         debug!("Tip sync: skipping full events snapshot load");
-         None
-      } else if let Some(loader) = &self.snapshot_loader {
+      let (mut full_events, events_block) = if let Some(loader) = &self.snapshot_loader {
          match loader.load(self.chain_id).await {
-            Ok(s) => Some(s.events),
+            Ok(s) => (s.events, s.block_number),
             Err(e) => {
                warn!("Failed to load event snapshot: {}", e);
-               Some(Vec::new())
+               (Vec::new(), 0)
             }
          }
       } else {
-         Some(Vec::new())
+         (Vec::new(), 0)
       };
 
-      let mut events = if let Some(ref full) = full_events {
-         full
-            .iter()
-            .filter(|ev| {
-               let b = ev.block_number();
-               b >= from_block && b <= to_block
-            })
-            .cloned()
-            .collect::<Vec<_>>()
-      } else {
-         Vec::new()
-      };
+      let mut events: Vec<syncer::SyncEvent> = full_events
+         .iter()
+         .filter(|ev| {
+            let b = ev.block_number();
+            b >= from_block && b <= to_block
+         })
+         .cloned()
+         .collect();
 
-      let fetch_from = snapshot_block.saturating_add(1).max(from_block);
+      let fetch_from = events_block.saturating_add(1).max(from_block);
       debug!(
-         "Fetching delta from {} to {}",
-         fetch_from, to_block
+         "Historical fetch delta from {} to {} (events_block={})",
+         fetch_from, to_block, events_block
       );
 
       if fetch_from > to_block {
@@ -143,41 +145,28 @@ impl UtxoSyncer for SubsquidSyncer {
       }
 
       let mut delta = Vec::new();
-
       let mut commitments = self.commitments(fetch_from, to_block).await?;
       delta.append(&mut commitments);
-
       let mut nullifiers = self.nullifiers(fetch_from, to_block).await?;
       delta.append(&mut nullifiers);
 
       debug!("Delta Events len {}", delta.len());
 
       if delta.is_empty() {
-         if to_block > snapshot_block {
-            if let Some(loader) = &self.snapshot_loader {
-               if let Err(e) = loader.save_meta(self.chain_id, to_block).await {
-                  error!("Failed to save event snapshot meta: {}", e);
-               }
-            }
-         }
          return Ok(events);
       }
 
       events.extend(delta.iter().cloned());
 
       if let Some(loader) = &self.snapshot_loader {
-         if let Some(mut full) = full_events.take() {
-            full.extend(delta);
-            debug!("Full Events len {}", full.len());
-            let updated = EventsSnapshot {
-               events: full,
-               block_number: to_block,
-            };
-            if let Err(e) = loader.save(self.chain_id, updated).await {
-               error!("Failed to save event snapshot: {}", e);
-            }
-         } else if let Err(e) = loader.append_delta(self.chain_id, delta, to_block).await {
-            error!("Failed to append event snapshot delta: {}", e);
+         full_events.extend(delta);
+         debug!("Full Events len {}", full_events.len());
+         let updated = EventsSnapshot {
+            events: full_events,
+            block_number: to_block,
+         };
+         if let Err(e) = loader.save(self.chain_id, updated).await {
+            error!("Failed to save event snapshot: {}", e);
          }
       }
 

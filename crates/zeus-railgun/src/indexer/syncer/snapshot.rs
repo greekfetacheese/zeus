@@ -116,37 +116,26 @@ impl SnapshotLoader {
          return Ok(EventsSnapshot::default());
       }
 
-      let mut snapshot =
-         match decode_from_slice::<EventsSnapshot, _>(&data, bincode_next::config::standard()) {
-            Ok((snapshot, _len)) => snapshot,
-            Err(e) => {
-               // Corrupt or incompatible snapshot (e.g. old format after code change).
-               // Delete it so we don't keep failing, and start fresh.
-               error!(
-                  "Event snapshot decode failed ({}). Deleting corrupt snapshot and starting fresh.",
-                  e
-               );
-               let _ = tokio::fs::remove_file(&path).await;
-               return Ok(EventsSnapshot::default());
-            }
-         };
-
-      // Meta is the coverage watermark source of truth when tip syncs advance it
-      // without rewriting the full events blob (empty delta).
-      let meta_path = self.cache_dir.join(self.meta_filename(chain_id));
-      if meta_path.exists() {
-         if let Ok(data) = tokio::fs::read(&meta_path).await {
-            if let Ok((meta, _)) = decode_from_slice::<EventsSnapshotMeta, _>(
-               &data,
-               bincode_next::config::standard(),
-            ) {
-               if meta.block_number > snapshot.block_number {
-                  snapshot.block_number = meta.block_number;
-               }
-            }
+      let snapshot = match decode_from_slice::<EventsSnapshot, _>(
+         &data,
+         bincode_next::config::standard(),
+      ) {
+         Ok((snapshot, _len)) => snapshot,
+         Err(e) => {
+            // Corrupt or incompatible snapshot (e.g. old format after code change).
+            // Delete it so we don't keep failing, and start fresh.
+            error!(
+               "Event snapshot decode failed ({}). Deleting corrupt snapshot and starting fresh.",
+               e
+            );
+            let _ = tokio::fs::remove_file(&path).await;
+            return Ok(EventsSnapshot::default());
          }
-      }
+      };
 
+      // block_number is whatever was last written with the events blob.
+      // Do not raise it from a tip-only meta file — that would skip real event gaps
+      // on historical catch-up.
       Ok(snapshot)
    }
 
@@ -167,7 +156,8 @@ impl SnapshotLoader {
 
    /// Load the full snapshot, append `delta`, bump coverage to `to_block`, and rewrite.
    ///
-   /// Only call when `delta` is non-empty — empty tip advances should use [`save_meta`].
+   /// Prefer this only on historical catch-up paths. Tip syncs should not call this —
+   /// loading + rewriting the multi‑MB blob every few minutes is a large RSS peak.
    pub async fn append_delta(
       &self,
       chain_id: u64,

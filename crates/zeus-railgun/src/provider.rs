@@ -269,6 +269,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       self.utxo_indexer.write().await.compact().await
    }
 
+   /// Save the db to disk
+   pub async fn save(&self, trees_mutated: bool) -> Result<(), DatabaseError> {
+      self.utxo_indexer.write().await.save(trees_mutated).await
+   }
+
    /// Verify root withing the given `block_id`
    ///
    /// If `block_id` is none the latest block will be used
