@@ -76,7 +76,7 @@ impl WindowCtx {
 }
 
 pub fn window_frame(ui: &mut Ui, window_ctx: WindowCtx, add_contents: impl FnOnce(&mut Ui)) {
-   CentralPanel::default().frame(window_ctx.frame).show_inside(ui, |ui| {
+   CentralPanel::default().frame(window_ctx.frame).show(ui, |ui| {
       let app_rect = ui.max_rect();
 
       let title_bar_rect = {

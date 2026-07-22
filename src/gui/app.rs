@@ -144,7 +144,7 @@ impl eframe::App for ZeusApp {
                   .resizable(false)
                   .show_separator_line(false)
                   .frame(panel_frame)
-                  .show_inside(ui, |ui| {
+                  .show(ui, |ui| {
                      if ctx.vault_unlocked {
                         gui.show_top_panel(ctx, ui);
                      }
@@ -156,7 +156,7 @@ impl eframe::App for ZeusApp {
                   .resizable(false)
                   .show_separator_line(false)
                   .frame(panel_frame)
-                  .show_inside(ui, |ui| {
+                  .show(ui, |ui| {
                      gui.show_bottom_panel(ctx, ui);
                   });
 
@@ -167,7 +167,7 @@ impl eframe::App for ZeusApp {
                   .resizable(false)
                   .frame(panel_frame)
                   .show_separator_line(false)
-                  .show_inside(ui, |ui| {
+                  .show(ui, |ui| {
                      if ctx.vault_unlocked {
                         ui.add_space(40.0);
                         gui.show_left_panel(ctx, ui);
@@ -181,7 +181,7 @@ impl eframe::App for ZeusApp {
                      .resizable(false)
                      .show_separator_line(false)
                      .frame(panel_frame)
-                     .show_inside(ui, |ui| {
+                     .show(ui, |ui| {
                         if ctx.vault_unlocked {
                            gui.show_right_panel(ui);
                         }
@@ -189,7 +189,7 @@ impl eframe::App for ZeusApp {
                }
 
                // Paint the Ui that belongs to the central panel
-               egui::CentralPanel::default().frame(panel_frame).show_inside(ui, |ui| {
+               egui::CentralPanel::default().frame(panel_frame).show(ui, |ui| {
                   gui.show_central_panel(ctx, ui);
                });
             });

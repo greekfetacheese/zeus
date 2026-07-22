@@ -1,11 +1,13 @@
 use super::Label;
 use egui::{
-   AboveOrBelow, Align2, Id, InnerResponse, NumExt, Painter, Popup, PopupCloseBehavior, PopupKind,
-   Rect, Response, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
+   Align2, Id, InnerResponse, NumExt, Painter, Popup, PopupCloseBehavior, PopupKind, Rect,
+   Response, ScrollArea, Sense, Stroke, TextWrapMode, Ui, Vec2, WidgetText,
    epaint::{RectShape, Shape, StrokeKind},
    style::WidgetVisuals,
 };
 use zeus_theme::ComboBoxVisuals;
+
+use std::{fmt::Debug, hash::Hash};
 
 #[must_use = "You should call .show_ui()"]
 pub struct ComboBox {
@@ -15,13 +17,13 @@ pub struct ComboBox {
    selected_item: Label,
    width: Option<f32>,
    popup_max_height: Option<f32>,
-   icon: Option<Box<dyn FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow)>>,
+   icon: Option<Box<dyn FnOnce(&Ui, Rect, &WidgetVisuals, bool)>>,
    wrap_mode: Option<TextWrapMode>,
    close_behavior: Option<PopupCloseBehavior>,
 }
 
 impl ComboBox {
-   pub fn new(id_salt: impl std::hash::Hash, selected_item: Label) -> Self {
+   pub fn new(id_salt: impl Hash + Debug, selected_item: Label) -> Self {
       Self {
          id_salt: Id::new(id_salt),
          visuals: None,
@@ -59,10 +61,7 @@ impl ComboBox {
       self
    }
 
-   pub fn icon(
-      mut self,
-      icon_fn: impl FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow) + 'static,
-   ) -> Self {
+   pub fn icon(mut self, icon_fn: impl FnOnce(&Ui, Rect, &WidgetVisuals, bool) + 'static) -> Self {
       self.icon = Some(Box::new(icon_fn));
       self
    }
@@ -106,24 +105,6 @@ impl ComboBox {
       }
 
       // Popup Handling
-      let popup_default_height = 200.0;
-      let popup_current_height = ui.memory(|m| {
-         m.area_rect(popup_id).map(|rect| rect.height()).unwrap_or(popup_default_height)
-      });
-
-      let button_bottom = button_response.rect.bottom();
-      let screen_bottom = ui.ctx().content_rect().bottom();
-
-      let space_below = screen_bottom - button_bottom;
-
-      let _above_or_below = if space_below >= popup_current_height
-         || space_below >= ui.spacing().interact_size.y * 4.0
-      {
-         AboveOrBelow::Below
-      } else {
-         AboveOrBelow::Above
-      };
-
       let popup_max_h = self.popup_max_height.unwrap_or_else(|| ui.spacing().combo_height);
       let popup_max_w = self.width.unwrap_or(ui.available_width());
       let close_behavior = self.close_behavior.unwrap_or(PopupCloseBehavior::CloseOnClick);
@@ -157,7 +138,7 @@ fn combo_box_with_image_button(
    is_popup_open: bool,
    combo_box_visuals: Option<&ComboBoxVisuals>,
    selected_item: &Label,
-   icon_painter: Option<Box<dyn FnOnce(&Ui, Rect, &WidgetVisuals, bool, AboveOrBelow)>>,
+   icon_painter: Option<Box<dyn FnOnce(&Ui, Rect, &WidgetVisuals, bool)>>,
    wrap_mode_override: Option<TextWrapMode>,
    (width_override, _): (Option<f32>, Option<f32>),
 ) -> Response {
@@ -254,30 +235,15 @@ fn combo_box_with_image_button(
 
       selected_item.paint_content_within_rect(ui, label_rect, &visuals);
 
-      let popup_peek_height = 50.0;
-      let above_or_below =
-         if response.rect.bottom() + popup_peek_height < ui.ctx().content_rect().bottom() {
-            AboveOrBelow::Below
-         } else {
-            AboveOrBelow::Above
-         };
-
       // Paint the icon
       if let Some(icon_painter) = icon_painter {
-         icon_painter(
-            ui,
-            icon_rect,
-            &visuals,
-            is_popup_open,
-            above_or_below,
-         );
+         icon_painter(ui, icon_rect, &visuals, is_popup_open);
       } else {
          paint_default_icon(
             ui.painter(),
             icon_rect,
             combo_box_visuals,
             &visuals,
-            above_or_below,
          );
       }
    }
@@ -290,17 +256,16 @@ fn paint_default_icon(
    rect: Rect,
    combo_box_visuals: Option<&ComboBoxVisuals>,
    visuals: &WidgetVisuals,
-   above_or_below: AboveOrBelow,
 ) {
+   // Always draw a downward-pointing triangle, matching egui 0.35: the popup's open
+   // direction is now handled automatically by `Popup` (it flips above/below as needed),
+   // and the icon no longer reflects placement.
    let rect = Rect::from_center_size(
       rect.center(),
       Vec2::new(rect.width() * 0.7, rect.height() * 0.45),
    );
 
-   let points = match above_or_below {
-      AboveOrBelow::Above => vec![rect.left_bottom(), rect.right_bottom(), rect.center_top()],
-      AboveOrBelow::Below => vec![rect.left_top(), rect.right_top(), rect.center_bottom()],
-   };
+   let points = vec![rect.left_top(), rect.right_top(), rect.center_bottom()];
 
    let fill = combo_box_visuals.map(|v| v.icon).unwrap_or(visuals.fg_stroke.color);
    painter.add(Shape::convex_polygon(points, fill, Stroke::NONE));

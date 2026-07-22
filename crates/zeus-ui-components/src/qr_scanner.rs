@@ -123,7 +123,7 @@ impl QRScanner {
             .with_active(true),
          move |ctx, class| {
             if class == ViewportClass::EmbeddedWindow {
-               egui::CentralPanel::default().show_inside(ctx, |ui| {
+               egui::CentralPanel::default().show(ctx, |ui| {
                   ui.label("This viewport is embedded.");
                });
                return;

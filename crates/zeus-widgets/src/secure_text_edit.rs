@@ -7,7 +7,7 @@ use egui::{
    vec2,
 };
 
-use std::sync::Arc;
+use std::{fmt::Debug, hash::Hash, sync::Arc};
 use zeus_theme::TextEditVisuals;
 
 #[cfg(feature = "secure-types")]
@@ -50,8 +50,8 @@ impl TextBuffer for String {
    }
 
    fn insert_text_at_char_idx(&mut self, char_idx: usize, text_to_insert: &str) -> usize {
-      let byte_idx = byte_index_from_char_index(self.as_str(), char_idx);
-      self.insert_str(byte_idx, text_to_insert);
+      let byte_idx = byte_index_from_char_index(self.as_str(), char_idx.into());
+      self.insert_str(byte_idx.into(), text_to_insert);
 
       text_to_insert.chars().count()
    }
@@ -62,10 +62,10 @@ impl TextBuffer for String {
          "start must be <= end, but got {char_range:?}"
       );
 
-      let byte_start = byte_index_from_char_index(self.as_str(), char_range.start);
-      let byte_end = byte_index_from_char_index(self.as_str(), char_range.end);
+      let byte_start = byte_index_from_char_index(self.as_str(), char_range.start.into());
+      let byte_end = byte_index_from_char_index(self.as_str(), char_range.end.into());
 
-      self.drain(byte_start..byte_end);
+      self.drain(byte_start.0..byte_end.0);
    }
 
    fn char_len(&self) -> usize {
@@ -216,11 +216,11 @@ impl<'a> SecureTextEdit<'a> {
       self
    }
 
-   pub fn id_source(self, id_source: impl std::hash::Hash) -> Self {
+   pub fn id_source(self, id_source: impl Hash + Debug) -> Self {
       self.id_salt(id_source)
    }
 
-   pub fn id_salt(mut self, id_salt: impl std::hash::Hash) -> Self {
+   pub fn id_salt(mut self, id_salt: impl Hash + Debug) -> Self {
       self.id_salt = Some(Id::new(id_salt));
       self
    }
@@ -637,6 +637,7 @@ impl<'a> SecureTextEdit<'a> {
                   o.ime = Some(output::IMEOutput {
                      rect: to_global * text_draw_rect,
                      cursor_rect: to_global * primary_cursor_rect_ui,
+                     should_interrupt_composition: false,
                   });
                });
             }
@@ -736,14 +737,16 @@ fn secure_text_edit_events(
          // For now don't allow copy/cut on any text
          Event::Copy => None,
          Event::Cut => None,
+         #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
          Event::Paste(mut text_to_paste) => {
             if !text_to_paste.is_empty() {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index.0..max.index.0);
 
-               let space_available = char_limit
-                  .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
+               let space_available = char_limit.saturating_sub(
+                  current_char_len_before_event.saturating_sub(selection_char_len.0),
+               );
                let mut final_text_to_paste = if text_to_paste.chars().count() > space_available {
                   text_to_paste.chars().take(space_available).collect::<String>()
                } else {
@@ -752,7 +755,7 @@ fn secure_text_edit_events(
 
                let mut current_ccursor = min;
                let chars_inserted =
-                  text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_paste);
+                  text.insert_text_at_char_idx(current_ccursor.index.0, &final_text_to_paste);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true; // Mark mutation
 
@@ -767,14 +770,16 @@ fn secure_text_edit_events(
                None
             }
          }
+         #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
          Event::Text(mut text_to_insert) => {
             if !text_to_insert.is_empty() && text_to_insert != "\n" && text_to_insert != "\r" {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index.0..max.index.0);
 
-               let space_available = char_limit
-                  .saturating_sub(current_char_len_before_event.saturating_sub(selection_char_len));
+               let space_available = char_limit.saturating_sub(
+                  current_char_len_before_event.saturating_sub(selection_char_len.0),
+               );
                let mut final_text_to_insert = if text_to_insert.chars().count() > space_available {
                   text_to_insert.chars().take(space_available).collect::<String>()
                } else {
@@ -783,7 +788,7 @@ fn secure_text_edit_events(
 
                let mut current_ccursor = min;
                let chars_inserted =
-                  text.insert_text_at_char_idx(current_ccursor.index, &final_text_to_insert);
+                  text.insert_text_at_char_idx(current_ccursor.index.0, &final_text_to_insert);
                current_ccursor.index += chars_inserted;
                text_mutated_this_event = true;
 
@@ -809,15 +814,15 @@ fn secure_text_edit_events(
             if multiline {
                let [min, max] = cursor_range.sorted_cursors();
                let selection_char_len = max.index - min.index;
-               text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index.0..max.index.0);
 
                let current_len_after_delete =
-                  current_char_len_before_event.saturating_sub(selection_char_len);
+                  current_char_len_before_event.saturating_sub(selection_char_len.0);
                let space_available = char_limit.saturating_sub(current_len_after_delete);
 
                if space_available > 0 {
                   let mut current_ccursor = min;
-                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index, "\n");
+                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index.0, "\n");
                   current_ccursor.index += chars_inserted;
                   text_mutated_this_event = true; // Mark mutation
                   Some(text::CCursorRange::one(current_ccursor))
@@ -839,14 +844,14 @@ fn secure_text_edit_events(
             let mut new_cursor_idx = min.index;
             if min == max {
                // No selection
-               if min.index > 0 {
-                  text.delete_text_char_range(min.index - 1..min.index);
+               if min.index.0 > 0 {
+                  text.delete_text_char_range(min.index.0 - 1..min.index.0);
                   new_cursor_idx = min.index - 1;
                   text_mutated_this_event = true;
                }
             } else {
                // Selection exists
-               text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index.0..max.index.0);
                // new_cursor_idx is already min.ccursor.index
                text_mutated_this_event = true;
             }
@@ -866,13 +871,13 @@ fn secure_text_edit_events(
             // Modifiers for word/para delete later
             let [min, max] = cursor_range.sorted_cursors();
             if min == max {
-               if min.index < current_char_len_before_event {
+               if min.index < current_char_len_before_event.into() {
                   // Before deleting
-                  text.delete_text_char_range(min.index..min.index + 1);
+                  text.delete_text_char_range(min.index.0..min.index.0 + 1);
                   text_mutated_this_event = true;
                }
             } else {
-               text.delete_text_char_range(min.index..max.index);
+               text.delete_text_char_range(min.index.0..max.index.0);
                text_mutated_this_event = true;
             }
             if text_mutated_this_event {
@@ -894,7 +899,7 @@ fn secure_text_edit_events(
                let space_available = char_limit.saturating_sub(current_char_len_before_event);
                if space_available > 0 {
                   // Enough for at least '\t'
-                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index, "\t");
+                  let chars_inserted = text.insert_text_at_char_idx(current_ccursor.index.0, "\t");
                   current_ccursor.index += chars_inserted;
                   text_mutated_this_event = true;
                }
@@ -907,16 +912,26 @@ fn secure_text_edit_events(
          }
          Event::Ime(ime_event) => {
             match ime_event {
+               #[allow(deprecated)]
                ImeEvent::Enabled => {
                   state.ime_enabled = true;
                   state.ime_cursor_range = cursor_range;
                   None
                }
-               ImeEvent::Preedit(mut preedit_text) => {
+               #[allow(deprecated)]
+               ImeEvent::Disabled => {
+                  state.ime_enabled = false;
+                  None
+               }
+               #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
+               ImeEvent::Preedit {
+                  text: mut preedit_text,
+                  active_range_chars: _,
+               } => {
                   let [min_ime, max_ime] = state.ime_cursor_range.sorted_cursors(); // Use IME's original range for delete
-                  text.delete_text_char_range(min_ime.index..max_ime.index);
+                  text.delete_text_char_range(min_ime.index.0..max_ime.index.0);
                   let mut c = min_ime; // Insert at start of IME original selection
-                  let inserted = text.insert_text_at_char_idx(c.index, &preedit_text);
+                  let inserted = text.insert_text_at_char_idx(c.index.0, &preedit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
 
@@ -925,12 +940,13 @@ fn secure_text_edit_events(
 
                   Some(text::CCursorRange::two(min_ime, c))
                }
+               #[cfg_attr(not(feature = "secure-types"), allow(unused_mut))]
                ImeEvent::Commit(mut commit_text) => {
                   state.ime_enabled = false; // IME done
                   let [min_commit, max_commit] = cursor_range.sorted_cursors();
-                  text.delete_text_char_range(min_commit.index..max_commit.index);
+                  text.delete_text_char_range(min_commit.index.0..max_commit.index.0);
                   let mut c = min_commit;
-                  let inserted = text.insert_text_at_char_idx(c.index, &commit_text);
+                  let inserted = text.insert_text_at_char_idx(c.index.0, &commit_text);
                   c.index += inserted;
                   text_mutated_this_event = true;
 
@@ -938,10 +954,6 @@ fn secure_text_edit_events(
                   commit_text.zeroize();
 
                   Some(text::CCursorRange::one(c))
-               }
-               ImeEvent::Disabled => {
-                  state.ime_enabled = false;
-                  None
                }
             }
          }

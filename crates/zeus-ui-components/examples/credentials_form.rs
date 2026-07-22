@@ -43,58 +43,56 @@ impl eframe::App for MyApp {
          let bg = self.theme.colors.bg;
          let frame = Frame::new().fill(bg);
 
-         egui::CentralPanel::default()
-            .frame(frame)
-            .show_inside(ui, |ui| {
-               ui.add_space(30.0);
+         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
+            ui.add_space(30.0);
 
-               let visuals = theme.button_visuals();
+            let visuals = theme.button_visuals();
 
-               ui.vertical_centered(|ui| {
-                  ui.set_width(550.0);
-                  ui.set_height(350.0);
-                  ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
-                  ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+            ui.vertical_centered(|ui| {
+               ui.set_width(550.0);
+               ui.set_height(350.0);
+               ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let open = Button::new("Open Credentials Form").visuals(visuals);
-                  if ui.add(open).clicked() {
-                     self.credentials_form.open();
-                  }
+               let open = Button::new("Open Credentials Form").visuals(visuals);
+               if ui.add(open).clicked() {
+                  self.credentials_form.open();
+               }
 
-                  let close = Button::new("Close Credentials Form").visuals(visuals);
+               let close = Button::new("Close Credentials Form").visuals(visuals);
 
-                  if ui.add(close).clicked() {
-                     self.credentials_form.close();
-                  }
+               if ui.add(close).clicked() {
+                  self.credentials_form.close();
+               }
 
-                  let toggle_confirm_password = Button::new("Toggle Confirm Password").visuals(visuals);
+               let toggle_confirm_password = Button::new("Toggle Confirm Password").visuals(visuals);
 
-                  if ui.add(toggle_confirm_password).clicked() {
-                     let is_confirm_enabled = self.credentials_form.is_confirm_password();
-                     self
-                        .credentials_form
-                        .set_confirm_password(!is_confirm_enabled);
-                  }
+               if ui.add(toggle_confirm_password).clicked() {
+                  let is_confirm_enabled = self.credentials_form.is_confirm_password();
+                  self
+                     .credentials_form
+                     .set_confirm_password(!is_confirm_enabled);
+               }
 
-                  let enable_virtual_keyboard = Button::new("Enable Virtual Keyboard").visuals(visuals);
+               let enable_virtual_keyboard = Button::new("Enable Virtual Keyboard").visuals(visuals);
 
-                  if ui.add(enable_virtual_keyboard).clicked() {
-                     self.credentials_form.enable_virtual_keyboard();
-                  }
+               if ui.add(enable_virtual_keyboard).clicked() {
+                  self.credentials_form.enable_virtual_keyboard();
+               }
 
-                  let disable_virtual_keyboard = Button::new("Disable Virtual Keyboard").visuals(visuals);
+               let disable_virtual_keyboard = Button::new("Disable Virtual Keyboard").visuals(visuals);
 
-                  if ui.add(disable_virtual_keyboard).clicked() {
-                     self.credentials_form.disable_virtual_keyboard();
-                  }
+               if ui.add(disable_virtual_keyboard).clicked() {
+                  self.credentials_form.disable_virtual_keyboard();
+               }
 
-                  ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-                  let size = vec2(ui.available_width() * 0.6, 20.0);
+               ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+               let size = vec2(ui.available_width() * 0.6, 20.0);
 
-                  self.credentials_form.set_min_size(size);
-                  self.credentials_form.show(&self.theme, ui);
-               });
+               self.credentials_form.set_min_size(size);
+               self.credentials_form.show(&self.theme, ui);
             });
+         });
       });
    }
 }

@@ -155,7 +155,7 @@ impl DemoApp {
       let bg = self.theme.colors.bg;
       let frame = Frame::new().fill(bg);
 
-      egui::CentralPanel::default().frame(frame).show_inside(ui, |ui| {
+      egui::CentralPanel::default().frame(frame).show(ui, |ui| {
          if !self.set_theme {
             ui.ctx().set_global_style(self.theme.style.clone());
             self.set_theme = true;
@@ -214,7 +214,7 @@ impl DemoApp {
          .resizable(false)
          .show_separator_line(true)
          .frame(frame)
-         .show_inside(ui, |ui| {
+         .show(ui, |ui| {
             utils::bg_color_on_idle(ui, Color32::TRANSPARENT);
             utils::no_border_on_idle(ui);
             ui.set_width(140.0);
