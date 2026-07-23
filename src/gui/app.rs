@@ -133,6 +133,7 @@ impl eframe::App for ZeusApp {
             let color = gui.theme.colors.bg;
             let panel_frame = Frame::new().fill(color);
             self.overlay.paint_overlay(ui.ctx(), true);
+            gui.inject_elegance_theme(ui.ctx());
 
             window_frame(ui, window, |ui| {
                #[cfg(feature = "dev")]

@@ -1,7 +1,7 @@
 pub mod app;
 pub mod ui;
 
-use eframe::egui::{Context, Ui};
+use eframe::egui::{Color32, Context, Ui};
 use std::sync::{Arc, RwLock};
 use ui::settings;
 
@@ -21,8 +21,17 @@ use crate::gui::ui::{
    tx_history::TxHistory,
 };
 
+use elegance::Theme as EleganceTheme;
+
 lazy_static! {
    pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
+}
+
+/// The `ctx.data` key elegance widgets read their theme from. Mirrors the
+/// private `Theme::storage_id()` in `egui-elegance` so we can inject a
+/// Zeus-derived theme without calling `Theme::install()`.
+pub fn elegance_theme_key() -> egui::Id {
+   egui::Id::new("elegance::theme")
 }
 
 #[derive(Clone)]
@@ -90,6 +99,9 @@ pub struct GUI {
    pub notification: Notification,
    pub update_window: UpdateWindow,
    pub dev: DevUi,
+
+   /// Cached elegance theme so we only re-inject it when the Zeus theme changes.
+   pub elegance_theme_cache: Option<(bool, Color32, EleganceTheme)>,
 }
 
 impl GUI {
@@ -155,6 +167,7 @@ impl GUI {
          notification,
          update_window,
          dev: DevUi::new(),
+         elegance_theme_cache: None,
       }
    }
 
@@ -188,6 +201,60 @@ impl GUI {
 
    pub fn should_show_right_panel(&self) -> bool {
       self.uniswap.is_open()
+   }
+
+   /// Inject an elegance [`Theme`] built from the active Zeus theme into
+   /// `ctx.data` under the key elegance reads, so elegance widgets
+   /// (`TabBar`, `Card`, `StatusPill`, `Indicator`) take Zeus's colours and
+   /// respect light/dark without disturbing the rest of the UI.
+   pub fn inject_elegance_theme(&mut self, ctx: &egui::Context) {
+      let dark = self.theme.dark_mode;
+      let accent = self.theme.colors.accent;
+      if let Some((cached_dark, cached_accent, cached)) = &self.elegance_theme_cache {
+         if *cached_dark == dark && *cached_accent == accent {
+            ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), cached.clone()));
+            return;
+         }
+      }
+
+      let c = &self.theme.colors;
+      let mut pal = if self.theme.dark_mode {
+         elegance::Palette::charcoal()
+      } else {
+         elegance::Palette::frost()
+      };
+
+      // Map Zeus colours onto elegance's palette so the tab underline, borders
+      // and status dots match the rest of the wallet.
+      pal.is_dark = self.theme.dark_mode;
+      pal.bg = c.bg;
+      pal.card = c.widget_bg;
+      pal.input_bg = c.widget_bg;
+      pal.border = c.border;
+      pal.text = c.text;
+      pal.text_muted = c.text_muted;
+      pal.text_faint = c.text_muted;
+      pal.focus = c.accent;
+      pal.blue = c.info;
+      pal.green = c.success;
+      pal.green_hover = c.success;
+      pal.red = c.error;
+      pal.red_hover = c.error;
+      pal.amber = c.warning;
+      pal.amber_hover = c.warning;
+      pal.purple = c.accent;
+      pal.purple_hover = c.accent;
+      pal.success = c.success;
+      pal.danger = c.error;
+      pal.warning = c.warning;
+
+      let elegance_theme = EleganceTheme {
+         palette: pal,
+         ..EleganceTheme::slate()
+      };
+
+      ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), elegance_theme.clone()));
+      self.elegance_theme_cache = Some((dark, accent, elegance_theme));
    }
 }
 
