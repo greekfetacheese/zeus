@@ -196,9 +196,8 @@ async fn unshield_self_broadcast(
    )
    .await?;
 
-   let railgun_provider = railgun_provider.clone();
    RT.spawn(async move {
-      post_unshield_sync(ctx, chain, from, token, railgun_provider, true).await;
+      post_unshield_sync(ctx, chain, from, token, true).await;
    });
 
    Ok(())
@@ -763,9 +762,8 @@ async fn unshield_via_paymaster(
       gui.request_repaint();
    });
 
-   let railgun_provider = railgun_provider.clone();
    RT.spawn(async move {
-      post_unshield_sync(ctx, chain, from, token, railgun_provider, false).await;
+      post_unshield_sync(ctx, chain, from, token, false).await;
    });
 
    Ok(())
@@ -776,18 +774,13 @@ async fn post_unshield_sync(
    chain: ChainId,
    from: Address,
    token: ERC20Token,
-   railgun_provider: RailgunProvider<RpcClient>,
    self_broadcast: bool,
 ) {
    let chain_id = chain.id();
-   let mut provider = railgun_provider.clone();
 
-   match provider.sync().await {
-      Ok(_) => info!("Railgun provider synced after unshield"),
-      Err(e) => error!(
-         "Error syncing Railgun provider after unshield: {:?}",
-         e
-      ),
+   match ctx.sync_railgun(chain_id).await {
+      Ok(_) => {}
+      Err(e) => error!("Error syncing Railgun: {:?}", e),
    }
 
    ctx.update_private_data(chain_id, from).await;

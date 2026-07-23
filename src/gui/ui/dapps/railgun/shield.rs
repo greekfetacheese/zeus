@@ -43,7 +43,7 @@ use zeus_railgun::{RailgunAddress, caip::AssetId, rand::SeedableRng, rand_chacha
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::error;
 
 use super::unshield::{default_bundler_url, unshield};
 
@@ -853,7 +853,7 @@ async fn shield(
       }
    };
 
-   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+   let railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
 
    if railgun_provider.chain_id() != chain.id() {
       return Err(anyhow!(
@@ -1091,12 +1091,9 @@ async fn shield(
       }
 
       ctx.update_public_data(chain.id(), from);
-
-      match railgun_provider.sync().await {
-         Ok(_) => {
-            info!("Railgun provider Synced");
-         }
-         Err(e) => error!("Error syncing Railgun provider: {:?}", e),
+      match ctx.sync_railgun(chain.id()).await {
+         Ok(_) => {}
+         Err(e) => error!("Error syncing Railgun: {:?}", e),
       }
 
       ctx.update_private_data(chain.id(), from).await;

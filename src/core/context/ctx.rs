@@ -1,6 +1,6 @@
 use super::{
    BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
-   misc::*, price_manager::PriceManagerHandle,
+   price_manager::PriceManagerHandle, tx::TransactionsDB
 };
 
 use crate::core::WalletValue;
