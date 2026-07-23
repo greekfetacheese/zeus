@@ -225,16 +225,42 @@ impl ZeusCtx {
       Ok(())
    }
 
-   /// Sync the [RailgunProvider] for all chains
-   pub async fn sync_railgun(&self) -> Result<(), anyhow::Error> {
-      for chain in ChainId::supported_chains() {
-         if !self.railgun_is_supported(chain) {
-            continue;
-         }
-
-         let mut provider = self.get_railgun_provider(chain.id()).await?;
-         provider.sync().await?;
+   /// Sync the [RailgunProvider] for the given chain
+   pub async fn sync_railgun(&self, chain: u64) -> Result<(), anyhow::Error> {
+      if !self.railgun_is_supported(chain.into()) {
+         return Ok(());
       }
+
+      let mut provider = match self.get_railgun_provider(chain).await {
+         Ok(provider) => provider,
+         Err(err) => {
+            self.write(|ctx| {
+               ctx.railgun_status.set_synced(chain, false);
+               ctx.railgun_status.set_sync_error(chain, err.to_string());
+            });
+            return Err(err);
+         }
+      };
+
+      match provider.sync().await {
+         Ok(()) => self.write(|ctx| {
+            ctx.railgun_status.set_synced(chain, true);
+            ctx.railgun_status.clear_last_error(chain);
+         }),
+         Err(err) => {
+            self.write(|ctx| {
+               ctx.railgun_status.set_synced(chain, false);
+               ctx.railgun_status.set_sync_error(chain, err.to_string());
+            });
+            return Err(err.into());
+         }
+      }
+
+      let synced_block = provider.global_synced_block().await;
+      self.write(|ctx| {
+         ctx.railgun_status.set_synced_block(chain, synced_block);
+      });
+
       Ok(())
    }
 
@@ -250,9 +276,19 @@ impl ZeusCtx {
       let max_retries = 10;
       let wait_time = Duration::from_millis(500);
 
-      let client = self.get_archive_client(chain, false).await.map_err(|_e| {
-         anyhow!("Railgun needs access to an archive node, check your Network Settings")
-      })?;
+      let client = match self.get_archive_client(chain, false).await {
+         Ok(client) => client,
+         Err(e) => {
+            let error = format!(
+               "Railgun needs access to an archive node, check your Network Settings: {}",
+               e
+            );
+            self.write(|ctx| {
+               ctx.railgun_status.set_sync_error(chain, error);
+            });
+            return Err(e);
+         }
+      };
 
       loop {
          let client = client.clone();
@@ -1555,6 +1591,9 @@ pub struct ZeusContext {
 
    /// Disabled Chains
    pub disabled_chains: DisabledChains,
+
+   /// Railgun status for the services UI
+   pub railgun_status: RailgunStatus,
 }
 
 impl ZeusContext {
@@ -1684,7 +1723,20 @@ impl ZeusContext {
          railgun_provider_syncing: HashMap::new(),
          available_rpcs: HashMap::new(),
          disabled_chains,
+         railgun_status: RailgunStatus::new(),
       }
+   }
+
+   pub fn railgun_is_supported(&self, chain: ChainId) -> bool {
+      match chain {
+         ChainId::Ethereum => true,
+         ChainId::EthereumSepolia => true,
+         _ => false,
+      }
+   }
+
+   pub fn railgun_status(&self) -> &RailgunStatus {
+      &self.railgun_status
    }
 
    pub fn vault_ref(&self) -> &Vault {

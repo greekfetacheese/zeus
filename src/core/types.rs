@@ -313,3 +313,61 @@ impl DelegatedWallets {
       self.map.get(&(chain, account)).cloned()
    }
 }
+
+pub struct RailgunStatus {
+   pub railgun_synced: HashMap<u64, bool>,
+   pub railgun_synced_block: HashMap<u64, u64>,
+   pub railgun_sync_error: HashMap<u64, String>,
+}
+
+impl RailgunStatus {
+   pub fn new() -> Self {
+      Self {
+         railgun_synced: HashMap::new(),
+         railgun_synced_block: HashMap::new(),
+         railgun_sync_error: HashMap::new(),
+      }
+   }
+
+   pub fn for_testing() -> Self {
+      let mut railgun_synced = HashMap::new();
+      railgun_synced.insert(1, true);
+
+      let mut railgun_synced_block = HashMap::new();
+      railgun_synced_block.insert(1, 25594344);
+
+      Self {
+         railgun_synced,
+         railgun_synced_block,
+         railgun_sync_error: HashMap::new(),
+      }
+   }
+
+   pub fn synced(&self, chain: u64) -> bool {
+      self.railgun_synced.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn synced_block(&self, chain: u64) -> u64 {
+      self.railgun_synced_block.get(&chain).cloned().unwrap_or(0)
+   }
+
+   pub fn sync_error(&self, chain: u64) -> Option<String> {
+      self.railgun_sync_error.get(&chain).cloned()
+   }
+
+   pub fn set_synced(&mut self, chain: u64, synced: bool) {
+      self.railgun_synced.insert(chain, synced);
+   }
+
+   pub fn set_synced_block(&mut self, chain: u64, block: u64) {
+      self.railgun_synced_block.insert(chain, block);
+   }
+
+   pub fn set_sync_error(&mut self, chain: u64, error: String) {
+      self.railgun_sync_error.insert(chain, error);
+   }
+
+   pub fn clear_last_error(&mut self, chain: u64) {
+      self.railgun_sync_error.remove(&chain);
+   }
+}

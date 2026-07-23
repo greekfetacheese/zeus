@@ -110,9 +110,7 @@ impl GUI {
       let tx_window = TxWindow::new(overlay_manager.clone());
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
 
-      let settings = ctx.write(|ctx| {
-         settings::SettingsUi::new(ctx, overlay_manager.clone())
-      });
+      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
@@ -165,7 +163,7 @@ impl GUI {
    }
 
    pub fn show_bottom_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
-      ui::panels::bottom_panel::show(self, ctx, ui);
+      ui::panels::bottom_panel::_show(self, ctx, ui);
    }
 
    pub fn show_left_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {

@@ -3760,6 +3760,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui-elegance"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2803ee2b5fba6eb984a339a714c2664b48dcf5406f26a634c2233db5ef31a415"
+dependencies = [
+ "egui",
+ "js-sys",
+]
+
+[[package]]
 name = "egui-wgpu"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -12219,6 +12229,7 @@ dependencies = [
  "chrono",
  "eframe",
  "egui",
+ "egui-elegance",
  "egui_extras",
  "either",
  "futures",

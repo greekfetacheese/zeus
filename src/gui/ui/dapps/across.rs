@@ -22,7 +22,7 @@ use zeus_eth::{
    alloy_provider::Provider,
    alloy_rpc_types::{BlockNumberOrTag, Filter},
    currency::{Currency, NativeCurrency},
-   types::{BSC, ETH_SEPOLIA, ChainId},
+   types::{BSC, ChainId, ETH_SEPOLIA},
    utils::{NumericValue, address_book},
 };
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};

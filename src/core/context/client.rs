@@ -630,7 +630,7 @@ impl ZeusClient {
          if ctx.is_chain_disabled(chain) {
             continue;
          }
-         
+
          let rpcs = self.get_rpcs(chain);
          let semaphore = Arc::new(Semaphore::new(5));
 

@@ -101,7 +101,7 @@ impl ChangeCredentialsUi {
                   let credentials = Credentials::new(username, password, confirm_password);
 
                   RT.spawn_blocking(move || {
-                    let ctx =  SHARED_GUI.write(|gui| {
+                     let ctx = SHARED_GUI.write(|gui| {
                         gui.loading_window.open("Decrypting vault...");
                         gui.request_repaint();
                         gui.ctx.clone()

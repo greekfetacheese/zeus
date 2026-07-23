@@ -342,7 +342,7 @@ impl WalletUi {
                            if ctx.is_chain_disabled(chain) {
                               continue;
                            }
-                           
+
                            let icon = icons.chain_icon_x16(chain, tint);
                            ui.add(icon);
                         }

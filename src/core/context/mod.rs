@@ -9,7 +9,7 @@ pub mod price_manager;
 
 pub use balance_manager::BalanceManagerHandle;
 pub use misc::{DiscoveredWallets, TransactionsDB};
-pub use portfolio::{PortfolioDB, WalletValue, WalletPortfolio};
+pub use portfolio::{PortfolioDB, WalletPortfolio, WalletValue};
 
 pub use client::ZeusClient;
 pub use ctx::*;

@@ -9,15 +9,14 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext, delegate_to};
-use crate::gui::ui::dapps::railgun::RailgunMode;
 use crate::gui::{
    SHARED_GUI,
-   ui::{ChainSelect, WalletSelect},
+   ui::{ChainSelect, WalletSelect, common::dots_button, dapps::railgun::RailgunMode},
 };
 use crate::utils::{RT, data_to_qr, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin,
-   OpenUrl, Order, RichText, Spinner, Ui, Window, load::Bytes, vec2,
+   Align, Align2, Color32, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout,
+   Margin, OpenUrl, Order, RichText, Spinner, Ui, Window, load::Bytes, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -26,13 +25,24 @@ use zeus_eth::{
    currency::{Currency, NativeCurrency},
    types::ChainId,
 };
-use zeus_wallet::Wallet;
-use zeus_widgets::{Button, Label, SecureTextEdit};
 
+use zeus_wallet::Wallet;
+use zeus_widgets::{Button, SecureTextEdit};
+
+use elegance::{
+   Badge, BadgeTone, Indicator, IndicatorState, Menu, MenuItem, TabBar, Theme as EleganceTheme,
+};
 use zeus_theme::{ButtonVisuals, OverlayManager, Theme};
 
 const DELEGATE_TIP1: &str = "This wallet has been temporarily upgraded to a smart contract";
 const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
+
+/// The `ctx.data` key elegance widgets read their theme from. Mirrors the
+/// private `Theme::storage_id()` in `egui-elegance` so we can inject a
+/// Zeus-derived theme without calling `Theme::install()`.
+fn elegance_theme_key() -> egui::Id {
+   egui::Id::new("elegance::theme")
+}
 
 /// Ui component that we show at the top left of the window
 ///
@@ -45,7 +55,8 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 pub struct Header {
    open: bool,
    overlay: OverlayManager,
-   size: (f32, f32),
+   overview_size: (f32, f32),
+   services_size: (f32, f32),
    chain_select: ChainSelect,
    wallet_select: WalletSelect,
    wallet_info: WalletInfo,
@@ -53,18 +64,26 @@ pub struct Header {
    delegate_window_open: bool,
    delegate_to: String,
    syncing: bool,
+
+   /// Active header tab: 0 = Overview, 1 = Services.
+   tab: usize,
+   /// Cached elegance theme + signature so we only re-inject it when the Zeus theme changes.
+   elegance_theme_cache: Option<(bool, Color32, EleganceTheme)>,
 }
 
 impl Header {
    pub fn new(overlay: OverlayManager) -> Self {
-      let size = (230.0, 200.0);
-      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(size.0, 20.0));
-      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(size.0, 20.0));
+      let overview_size = (230.0, 240.0);
+      let services_size = (330.0, 240.0);
+
+      let chain_select = ChainSelect::new("main_chain_select", 1).size(vec2(overview_size.0, 20.0));
+      let wallet_select = WalletSelect::new("main_wallet_select").size(vec2(overview_size.0, 20.0));
 
       Self {
          open: false,
          overlay: overlay.clone(),
-         size,
+         overview_size,
+         services_size,
          chain_select,
          wallet_select,
          wallet_info: WalletInfo::default(),
@@ -72,6 +91,9 @@ impl Header {
          delegate_window_open: false,
          delegate_to: String::new(),
          syncing: false,
+
+         tab: 0,
+         elegance_theme_cache: None,
       }
    }
 
@@ -122,7 +144,7 @@ impl Header {
       ui.spacing_mut().button_padding = vec2(4.0, 4.0);
 
       let chain = ctx.chain;
-      let mut privacy_mode = ctx.privacy_mode;
+      let privacy_mode = ctx.privacy_mode;
       let tint = theme.image_tint_recommended;
       let button_visuals = theme.button_visuals();
 
@@ -133,155 +155,358 @@ impl Header {
 
       self.qrcode_window.show(ctx, theme, ui);
 
+      self.inject_elegance_theme(ui.ctx(), theme);
+
       frame.show(ui, |ui| {
+         let (width, height) = if self.tab == 0 {
+            (self.overview_size.0, self.overview_size.1)
+         } else {
+            (self.services_size.0, self.services_size.1)
+         };
+
+         ui.set_width(width);
+         ui.set_height(height);
+
          ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-               self.show_chain_select(ctx, theme, icons.clone(), ui);
-            });
+            // Tab strip: Overview (wallet/chain) and Services (background tasks).
+            ui.add(TabBar::new(
+               &mut self.tab,
+               ["Overview", "Services"],
+            ));
 
-            ui.horizontal(|ui| {
-               self.show_wallet_select(ctx, theme, icons.clone(), ui);
-            });
+            ui.add_space(5.0);
 
-            let wallet = &self.wallet_info;
+            match self.tab {
+               0 => self.show_overview(
+                  ctx,
+                  theme,
+                  &icons,
+                  &tint,
+                  &button_visuals,
+                  privacy_mode,
+                  chain,
+                  ui,
+               ),
+               1 => self.show_services(ctx, theme, ui),
+               _ => {}
+            }
+         });
+      });
+   }
 
-            // Wallet address, on click copy it to the clipboard
-            ui.horizontal(|ui| {
-               let address = match privacy_mode {
-                  false => wallet.evm_address_truncated(),
-                  true => wallet.zk_address_truncated(),
+   // TODO: Put it somewhere so it can be runned independently from this UI
+   /// Inject an elegance [`Theme`] built from the active Zeus theme into
+   /// `ctx.data` under the key elegance reads, so elegance widgets
+   /// (`TabBar`, `Card`, `StatusPill`, `Indicator`) take Zeus's colours and
+   /// respect light/dark without disturbing the rest of the UI.
+   fn inject_elegance_theme(&mut self, ctx: &egui::Context, theme: &Theme) {
+      let dark = theme.dark_mode;
+      let accent = theme.colors.accent;
+      if let Some((cached_dark, cached_accent, cached)) = &self.elegance_theme_cache {
+         if *cached_dark == dark && *cached_accent == accent {
+            ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), cached.clone()));
+            return;
+         }
+      }
+
+      let c = &theme.colors;
+      let mut pal = if theme.dark_mode {
+         elegance::Palette::charcoal()
+      } else {
+         elegance::Palette::frost()
+      };
+
+      // Map Zeus colours onto elegance's palette so the tab underline, borders
+      // and status dots match the rest of the wallet.
+      pal.is_dark = theme.dark_mode;
+      pal.bg = c.bg;
+      pal.card = c.widget_bg;
+      pal.input_bg = c.widget_bg;
+      pal.border = c.border;
+      pal.text = c.text;
+      pal.text_muted = c.text_muted;
+      pal.text_faint = c.text_muted;
+      pal.focus = c.accent;
+      pal.blue = c.info;
+      pal.green = c.success;
+      pal.green_hover = c.success;
+      pal.red = c.error;
+      pal.red_hover = c.error;
+      pal.amber = c.warning;
+      pal.amber_hover = c.warning;
+      pal.purple = c.accent;
+      pal.purple_hover = c.accent;
+      pal.success = c.success;
+      pal.danger = c.error;
+      pal.warning = c.warning;
+
+      let elegance_theme = EleganceTheme {
+         palette: pal,
+         ..EleganceTheme::slate()
+      };
+
+      ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), elegance_theme.clone()));
+      self.elegance_theme_cache = Some((dark, accent, elegance_theme));
+   }
+
+   /// Overview tab
+   fn show_overview(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      icons: &Arc<Icons>,
+      tint: &bool,
+      button_visuals: &ButtonVisuals,
+      privacy_mode: bool,
+      chain: ChainId,
+      ui: &mut Ui,
+   ) {
+      ui.horizontal(|ui| {
+         self.show_chain_select(ctx, theme, icons.clone(), ui);
+      });
+
+      ui.horizontal(|ui| {
+         self.show_wallet_select(ctx, theme, icons.clone(), ui);
+      });
+
+      let wallet = &self.wallet_info;
+
+      // Wallet address, on click copy it to the clipboard
+      ui.horizontal(|ui| {
+         let address = match privacy_mode {
+            false => wallet.evm_address_truncated(),
+            true => wallet.zk_address_truncated(),
+         };
+
+         let full_address = match privacy_mode {
+            false => wallet.address.to_string(),
+            true => wallet.zk_address(),
+         };
+
+         let address_text = RichText::new(address).size(theme.text_sizes.normal);
+         let label = Button::selectable(false, address_text).visuals(button_visuals.clone());
+
+         if ui.add(label).clicked() {
+            ui.ctx().copy_text(full_address);
+         }
+
+         ui.add_space(7.0);
+
+         let icon = match theme.dark_mode {
+            true => icons.qrcode_white_x18(*tint),
+            false => icons.qrcode_dark_x18(*tint),
+         };
+
+         let button = Button::image(icon).visuals(button_visuals.clone());
+         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+         // QR Code Window
+         if res.clicked() {
+            self.qrcode_window.open(ctx, wallet.clone());
+         }
+
+         ui.add_space(10.0);
+
+         // Block explorer link
+         let block_explorer = chain.block_explorer();
+         let link = format!("{}/address/{}", block_explorer, wallet.address);
+         let icon = match theme.dark_mode {
+            true => icons.external_link_white_x18(*tint),
+            false => icons.external_link_dark_x18(*tint),
+         };
+
+         let button = Button::image(icon).visuals(button_visuals.clone());
+         let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+         if res.clicked() {
+            let url = OpenUrl::new_tab(link);
+            ui.ctx().open_url(url);
+         }
+      });
+
+      // Wallet delegated status
+      let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
+      ui.horizontal(|ui| {
+         // ui.set_width(self.overview_size.0);
+
+         let text = match deleg_addr.is_some() {
+            true => RichText::new("Delegated").size(theme.text_sizes.normal),
+            false => RichText::new("Not Delegated").size(theme.text_sizes.normal),
+         };
+
+         let tip = if deleg_addr.is_some() {
+            DELEGATE_TIP1
+         } else {
+            DELEGATE_TIP2
+         };
+
+         let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
+
+         let tone = match deleg_addr.is_some() {
+            true => BadgeTone::Warning,
+            false => BadgeTone::Ok,
+         };
+
+         let badge = Badge::new(text, tone);
+         ui.add(badge).on_hover_text(tip_text);
+
+         ui.add_space(10.0);
+
+         let more = dots_button(theme, ui);
+
+         if more.clicked() {
+            if !self.delegate_window_open {
+               self.open_delegate_window();
+            }
+         }
+      });
+
+      // Privacy mode switch button
+      ui.scope(|ui| {
+         ui.spacing_mut().button_padding = vec2(8.0, 8.0);
+
+         let text = format!(
+            "Switch to {} mode",
+            if privacy_mode { "Public" } else { "Privacy" }
+         );
+         let rich_text = RichText::new(text).size(theme.text_sizes.normal);
+         let button = Button::new(rich_text).visuals(button_visuals.clone());
+
+         if ui.add(button).clicked() {
+            let privacy_mode = !privacy_mode;
+
+            ctx.privacy_mode = privacy_mode;
+
+            RT.spawn_blocking(move || {
+               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+               let chain = ctx.chain();
+               let owner = ctx.current_wallet_info().address;
+
+               let new_mode = match privacy_mode {
+                  false => RailgunMode::Shield,
+                  true => RailgunMode::Unshield,
                };
-
-               let full_address = match privacy_mode {
-                  false => wallet.address.to_string(),
-                  true => wallet.zk_address(),
-               };
-
-               let address_text = RichText::new(address).size(theme.text_sizes.normal);
-               let label = Button::selectable(false, address_text).visuals(button_visuals);
-
-               if ui.add(label).clicked() {
-                  ui.ctx().copy_text(full_address);
-               }
-
-               ui.add_space(7.0);
-
-               let icon = match theme.dark_mode {
-                  true => icons.qrcode_white_x18(tint),
-                  false => icons.qrcode_dark_x18(tint),
-               };
-
-               let button = Button::image(icon).visuals(button_visuals);
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               // QR Code Window
-               if res.clicked() {
-                  self.qrcode_window.open(ctx, wallet.clone());
-               }
-
-               ui.add_space(10.0);
-
-               // Block explorer link
-               let block_explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", block_explorer, wallet.address);
-               let icon = match theme.dark_mode {
-                  true => icons.external_link_white_x18(tint),
-                  false => icons.external_link_dark_x18(tint),
-               };
-
-               let button = Button::image(icon).visuals(button_visuals);
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               if res.clicked() {
-                  let url = OpenUrl::new_tab(link);
-                  ui.ctx().open_url(url);
-               }
-            });
-
-            // Wallet delegated status
-            let deleg_addr = ctx.delegated_wallets.get(chain.id(), wallet.address);
-            ui.horizontal(|ui| {
-               ui.set_width(self.size.0);
-
-               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-                  let text = match deleg_addr.is_some() {
-                     true => RichText::new("Delegated").size(theme.text_sizes.normal),
-                     false => RichText::new("Not delegated").size(theme.text_sizes.normal),
-                  };
-
-                  let icon = match deleg_addr.is_some() {
-                     true => icons.orange_circle(tint),
-                     false => icons.green_circle(tint),
-                  };
-
-                  let tip = if deleg_addr.is_some() {
-                     DELEGATE_TIP1
-                  } else {
-                     DELEGATE_TIP2
-                  };
-
-                  let tip_text = RichText::new(tip).size(theme.text_sizes.normal);
-
-                  let label = Label::new(text, Some(icon)).interactive(false);
-                  ui.add(label).on_hover_text(tip_text);
+               SHARED_GUI.write(|gui| {
+                  gui.shield_ui.set_mode(new_mode);
+                  gui.shield_ui.default_currency(chain.id());
+                  gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
                });
+            });
+         }
+      });
+   }
 
-               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                  let icon = match theme.dark_mode {
-                     true => icons.gear_white_x24(tint),
-                     false => icons.gear_dark_x24(tint),
-                  };
+   /// Services tab
+   fn show_services(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      let chain = ctx.chain;
+      let railgun_is_supported = ctx.railgun_is_supported(chain);
 
-                  let mut visuals = ButtonVisuals::default();
-                  visuals.bg_hover = button_visuals.bg_hover;
-                  visuals.corner_radius = CornerRadius::same(25);
-                  let button = Button::image(icon).small().visuals(visuals);
-                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+      if !railgun_is_supported {
+         let text =
+            RichText::new("Railgun is not supported on this chain").size(theme.text_sizes.normal);
+         ui.label(text);
+         return;
+      }
 
-                  if res.clicked() {
-                     if !self.delegate_window_open {
-                        self.open_delegate_window();
-                     }
-                  }
-               });
+      ui.spacing_mut().item_spacing.y = 0.0;
+
+      let frame = theme.frame2;
+      let frame_height = 40.0;
+
+      // Railgun Status
+      frame.show(ui, |ui| {
+         ui.set_height(frame_height);
+
+         ui.horizontal(|ui| {
+            let railgun_synced = ctx.railgun_status().synced(chain.id());
+            let sync_state = match railgun_synced {
+               true => IndicatorState::On,
+               false => IndicatorState::Off,
+            };
+
+            ui.add(Indicator::new(sync_state));
+
+            ui.add_space(20.0);
+
+            let label = RichText::new("Railgun").size(theme.text_sizes.small);
+            ui.label(label);
+
+            ui.add_space(40.0);
+
+            ui.vertical(|ui| {
+               ui.spacing_mut().item_spacing.y = 0.0;
+               let text = RichText::new("Synced block")
+                  .size(theme.text_sizes.small)
+                  .color(theme.colors.text_muted);
+               ui.label(text);
+
+               let block = ctx.railgun_status().synced_block(chain.id());
+               let text = RichText::new(format!("{}", block)).size(theme.text_sizes.small);
+               ui.label(text);
             });
 
-            // Privacy mode switch button
-            if cfg!(feature = "dev") {
-               ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(8.0, 8.0);
-
-                  let text = format!(
-                     "Switch to {} mode",
-                     if privacy_mode { "Public" } else { "Privacy" }
-                  );
-                  let rich_text = RichText::new(text).size(theme.text_sizes.normal);
-                  let button = Button::new(rich_text).visuals(button_visuals);
-
-                  if ui.add(button).clicked() {
-                     privacy_mode = !privacy_mode;
-
-                     ctx.privacy_mode = privacy_mode;
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let more = dots_button(theme, ui);
+               Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("View last error").shortcut("⌘ E")).clicked() {
+                     let error_opt = ctx.railgun_status().sync_error(chain.id());
+                     let error = error_opt.map_or(
+                        "No errors for now everything looks good".to_string(),
+                        |e| e,
+                     );
 
                      RT.spawn_blocking(move || {
-                        let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                        let chain = ctx.chain();
-                        let owner = ctx.current_wallet_info().address;
-
-                        let new_mode = match privacy_mode {
-                           false => RailgunMode::Shield,
-                           true => RailgunMode::Unshield,
-                        };
-
                         SHARED_GUI.write(|gui| {
-                           gui.shield_ui.set_mode(new_mode);
-                           gui.shield_ui.default_currency(chain.id());
-                           gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
+                           gui.msg_window.open("Railgun Last Error", error);
+                           gui.request_repaint();
+                        });
+                     });
+                  }
+
+                  if ui.add(MenuItem::new("Settings").shortcut("⌘ S")).clicked() {
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           gui.msg_window.open("Not implement yet", "");
+                           gui.request_repaint();
                         });
                      });
                   }
                });
-            }
+            });
+         });
+      });
+
+      // Wallet Connector Status
+      frame.show(ui, |ui| {
+         ui.set_height(frame_height);
+
+         ui.horizontal(|ui| {
+            let running = ctx.server_running;
+            let state = match running {
+               true => IndicatorState::On,
+               false => IndicatorState::Connecting,
+            };
+
+            ui.add(Indicator::new(state));
+
+            ui.add_space(20.0);
+
+            let label = RichText::new("Wallet Connector").size(theme.text_sizes.small);
+            ui.label(label);
+
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let more = dots_button(theme, ui);
+               Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("Settings").shortcut("⌘ S")).clicked() {
+                     RT.spawn_blocking(move || {
+                        SHARED_GUI.write(|gui| {
+                           gui.msg_window.open("Not implement yet", "");
+                           gui.request_repaint();
+                        });
+                     });
+                  }
+               });
+            });
          });
       });
    }

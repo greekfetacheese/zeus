@@ -27,6 +27,7 @@ eframe = { version = "=0.35", features = ["wgpu"] }
 egui = { version = "=0.35", features = ["serde"] }
 egui_extras = { version = "=0.35", features = ["image"] }
 image = "=0.25.10"
+egui-elegance = "0.14.0"
 
 # Zeus Crates
 zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }

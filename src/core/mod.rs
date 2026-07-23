@@ -11,7 +11,6 @@ pub use tx::{analysis::*, events::*, rich::*, send::*};
 pub use vault::*;
 pub use wallet::*;
 
-
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
    use std::collections::HashMap;

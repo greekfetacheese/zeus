@@ -613,7 +613,11 @@ impl Notification {
 
          if let Some(bf) = params.broadcaster_fee.as_ref() {
             let text = if let Some(usd) = params.broadcaster_fee_usd.as_ref() {
-               format!("Broadcast fee {} ~ ${}", bf.abbreviated(), usd.abbreviated())
+               format!(
+                  "Broadcast fee {} ~ ${}",
+                  bf.abbreviated(),
+                  usd.abbreviated()
+               )
             } else {
                format!("Broadcast fee {}", bf.abbreviated())
             };

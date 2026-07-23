@@ -237,7 +237,7 @@ pub async fn send_transaction(
          tx_analysis.clone(),
          priority_fee.f64().to_string(),
          mev_protect,
-         sponsored
+         sponsored,
       );
       gui.loading_window.reset();
       gui.request_repaint();
@@ -255,7 +255,7 @@ pub async fn send_transaction(
       if confirmed.is_some() {
          SHARED_GUI.write(|gui| {
             ctx.write(|ctx| {
-            gui.tx_confirmation_window.close(ctx);
+               gui.tx_confirmation_window.close(ctx);
             });
          });
          break;
@@ -408,9 +408,7 @@ pub async fn send_transaction(
    // Remove the redunant main event
    new_tx_analysis.remove_main_event();
 
-   let eth_received_usd = ctx.write(|ctx| {
-      new_tx_analysis.eth_received_usd(ctx)
-   });
+   let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
 
    let tx_rich = TransactionRich {
       tx_type: receipt.transaction_type(),

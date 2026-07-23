@@ -155,7 +155,7 @@ impl BalanceManagerHandle {
          if ctx.is_chain_disabled(chain) {
             continue;
          }
-         
+
          let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
          let manager = self.clone();
          let ctx = ctx.clone();
@@ -165,7 +165,13 @@ impl BalanceManagerHandle {
                let tokens = portfolio.tokens().clone();
 
                match manager
-                  .update_tokens_balance(ctx.clone(), chain, portfolio.owner(), tokens, false)
+                  .update_tokens_balance(
+                     ctx.clone(),
+                     chain,
+                     portfolio.owner(),
+                     tokens,
+                     false,
+                  )
                   .await
                {
                   Ok(_) => {}

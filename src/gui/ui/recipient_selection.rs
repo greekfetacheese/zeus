@@ -2,7 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   WalletInfo, ZeusCtx, ZeusContext,
+   WalletInfo, ZeusContext, ZeusCtx,
    types::{Contact, Recipient},
 };
 use crate::gui::SHARED_GUI;
@@ -92,7 +92,7 @@ impl RecipientSelectionWindow {
             if ctx.is_chain_disabled(chain) {
                continue;
             }
-            
+
             for wallet in &wallets {
                portfolios.push(ctx.get_portfolio(chain, wallet.address));
             }
@@ -178,8 +178,7 @@ impl RecipientSelectionWindow {
          SHARED_GUI.write(|gui| {
             let sel = &mut gui.recipient_selection;
             // Drop stale results if the user kept typing / flipped privacy mode.
-            if sel.unknown_recipient_query == query
-               && sel.unknown_recipient_privacy == privacy_mode
+            if sel.unknown_recipient_query == query && sel.unknown_recipient_privacy == privacy_mode
             {
                sel.unknown_recipient = result;
                sel.parsing_unknown_recipient = false;
@@ -299,23 +298,11 @@ impl RecipientSelectionWindow {
                ui.add_space(15.0);
 
                if self.contacts_tab_open {
-                  self.contacts_tab(
-                     ctx,
-                     theme,
-                     privacy_mode,
-                     &mut close_window,
-                     ui,
-                  );
+                  self.contacts_tab(ctx, theme, privacy_mode, &mut close_window, ui);
                }
 
                if self.wallets_tab_open {
-                  self.wallets_tab(
-                     ctx,
-                     theme,
-                     privacy_mode,
-                     &mut close_window,
-                     ui,
-                  );
+                  self.wallets_tab(ctx, theme, privacy_mode, &mut close_window, ui);
                }
 
                // Address parse
@@ -338,8 +325,7 @@ impl RecipientSelectionWindow {
                         }
                      }
                      UnknownRecipient::Zk(zk_address) => {
-                        let address_text =
-                           RichText::new(&zk_address).size(theme.text_sizes.normal);
+                        let address_text = RichText::new(&zk_address).size(theme.text_sizes.normal);
                         let button = Button::new(address_text).visuals(button_visuals);
 
                         if ui.add(button).clicked() {
@@ -366,7 +352,9 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let contacts = &ctx.vault.contacts;
-      let are_valid_contacts = contacts.iter().any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
+      let are_valid_contacts = contacts
+         .iter()
+         .any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
 
       ScrollArea::vertical()
          .id_salt("contact_tabs_scroll")
@@ -448,8 +436,8 @@ impl RecipientSelectionWindow {
       ui: &mut Ui,
    ) {
       let wallets = &self.wallets;
-      let are_valid_wallets =
-         !wallets.is_empty() && wallets.iter().any(|w| valid_wallet_search(w, privacy_mode, &self.search_query));
+      let are_valid_wallets = !wallets.is_empty()
+         && wallets.iter().any(|w| valid_wallet_search(w, privacy_mode, &self.search_query));
 
       ScrollArea::vertical()
          .id_salt("wallets_tabs_scroll")
@@ -547,9 +535,7 @@ fn parse_unknown_recipient(
 
    if !privacy_mode {
       let address = Address::from_str(query).ok()?;
-      if ctx.wallet_exists(address)
-         || ctx.get_contact_by_address(&address.to_string()).is_some()
-      {
+      if ctx.wallet_exists(address) || ctx.get_contact_by_address(&address.to_string()).is_some() {
          return None;
       }
       Some(UnknownRecipient::Evm(address))

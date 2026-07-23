@@ -15,7 +15,7 @@ use eframe::{
    egui::{self, Frame},
 };
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeus_theme::{OverlayManager, window::*};
 
 pub struct ZeusApp {
@@ -150,16 +150,6 @@ impl eframe::App for ZeusApp {
                      }
                   });
 
-               // Paint the Ui that belongs to the bottom panel
-               egui::Panel::bottom("bottom_panel")
-                  .max_size(24.0)
-                  .resizable(false)
-                  .show_separator_line(false)
-                  .frame(panel_frame)
-                  .show(ui, |ui| {
-                     gui.show_bottom_panel(ctx, ui);
-                  });
-
                // Paint the Ui that belongs to the left panel
                egui::Panel::left("left_panel")
                   .min_size(150.0)
@@ -169,7 +159,7 @@ impl eframe::App for ZeusApp {
                   .show_separator_line(false)
                   .show(ui, |ui| {
                      if ctx.vault_unlocked {
-                        ui.add_space(40.0);
+                        ui.add_space(10.0);
                         gui.show_left_panel(ctx, ui);
                      }
                   });

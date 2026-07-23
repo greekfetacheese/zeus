@@ -7,7 +7,7 @@ use zeus_eth::currency::Currency;
 use zeus_eth::utils::NumericValue;
 
 use crate::assets::icons::Icons;
-use crate::core::{ZeusCtx, ZeusContext};
+use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::ui::TokenSelectionWindow;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -307,12 +307,7 @@ impl UniswapUi {
             let view_positions_open = false;
 
             ui.vertical_centered(|ui| {
-               self.settings.show(
-                  swap_ui_open,
-                  view_positions_open,
-                  theme,
-                  ui,
-               );
+               self.settings.show(swap_ui_open, view_positions_open, theme, ui);
 
                ui.add_space(10.0);
 

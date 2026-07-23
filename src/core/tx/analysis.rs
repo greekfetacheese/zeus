@@ -1,4 +1,4 @@
-use crate::core::{types::Dapp, ZeusCtx, ZeusContext};
+use crate::core::{ZeusContext, ZeusCtx, types::Dapp};
 use crate::utils::truncate_address;
 use alloy_eips::eip7702::SignedAuthorization;
 use serde::{Deserialize, Serialize};
@@ -10,8 +10,8 @@ use zeus_eth::{
    utils::{
       NumericValue,
       address_book::{
-         across_spoke_pool_v2, permit2_contract, uniswap_v3_nft_position_manager, universal_router_v2,
-         vitalik, weth,
+         across_spoke_pool_v2, permit2_contract, uniswap_v3_nft_position_manager,
+         universal_router_v2, vitalik, weth,
       },
    },
 };

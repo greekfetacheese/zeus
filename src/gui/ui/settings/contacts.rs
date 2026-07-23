@@ -1,7 +1,7 @@
 //! UI that allows the user to add,edit and remove contacts.
 
 use crate::assets::icons::Icons;
-use crate::core::{types::Contact, ZeusContext};
+use crate::core::{ZeusContext, types::Contact};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{
@@ -10,9 +10,9 @@ use egui::{
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
+use zeus_railgun::RailgunAddress;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Label, SecureTextEdit};
-use zeus_railgun::RailgunAddress;
 
 pub struct AddContact {
    open: bool,
@@ -145,10 +145,13 @@ impl AddContact {
 
                      if !new_contact.zk_address.is_empty() {
                         match RailgunAddress::from_zk_address(&new_contact.zk_address) {
-                           Ok(_) => {},
+                           Ok(_) => {}
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                                 gui.open_msg_window(
+                                    "Address is not a valid Railgun address",
+                                    format!("{}", e),
+                                 );
                                  gui.request_repaint();
                               });
                               return;
@@ -434,10 +437,13 @@ impl EditContact {
 
                      if !edited_contact.zk_address.is_empty() {
                         match RailgunAddress::from_zk_address(&edited_contact.zk_address) {
-                           Ok(_) => {},
+                           Ok(_) => {}
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.open_msg_window("Address is not a valid Railgun address", format!("{}", e));
+                                 gui.open_msg_window(
+                                    "Address is not a valid Railgun address",
+                                    format!("{}", e),
+                                 );
                                  gui.request_repaint();
                               });
                               return;
@@ -452,8 +458,10 @@ impl EditContact {
                      });
 
                      ctx.write_vault(|vault| {
-                        let new_contact =
-                           vault.contacts.iter_mut().find(|c| c.evm_address == old_contact.evm_address);
+                        let new_contact = vault
+                           .contacts
+                           .iter_mut()
+                           .find(|c| c.evm_address == old_contact.evm_address);
                         if let Some(new_contact) = new_contact {
                            *new_contact = edited_contact.clone();
                         }
@@ -704,5 +712,6 @@ fn valid_contact_search(contact: &Contact, query: &str) -> bool {
       return true;
    }
 
-   contact.name.to_lowercase().contains(&query) || contact.evm_address.to_lowercase().contains(&query)
+   contact.name.to_lowercase().contains(&query)
+      || contact.evm_address.to_lowercase().contains(&query)
 }

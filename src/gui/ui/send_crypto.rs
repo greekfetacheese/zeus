@@ -187,14 +187,7 @@ impl SendCryptoUi {
                      );
                   });
 
-                  token_selection.show(
-                     ctx,
-                     theme,
-                     icons.clone(),
-                     chain.id(),
-                     owner,
-                     ui,
-                  );
+                  token_selection.show(ctx, theme, icons.clone(), chain.id(), owner, ui);
 
                   if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
@@ -202,14 +195,7 @@ impl SendCryptoUi {
                      self.sync_balance(owner);
                   }
 
-                  recipient_selection.show(
-                     ctx,
-                     theme,
-                     icons.clone(),
-                     false,
-                     contacts_ui,
-                     ui,
-                  );
+                  recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
                   let recipient = recipient_selection.get_recipient();
 
                   // Recipient Selection
@@ -359,7 +345,7 @@ impl SendCryptoUi {
       }
    }
 
-   fn sync_balance(&mut self, owner: Address ) {
+   fn sync_balance(&mut self, owner: Address) {
       self.syncing_balance = true;
       let currency = self.currency.clone();
       let chain = currency.chain_id();
@@ -428,7 +414,11 @@ impl SendCryptoUi {
       balance.wei() >= amount.wei()
    }
 
-   fn send_transaction(&mut self, ctx: &mut ZeusContext, recipient: String) -> Result<(), anyhow::Error> {
+   fn send_transaction(
+      &mut self,
+      ctx: &mut ZeusContext,
+      recipient: String,
+   ) -> Result<(), anyhow::Error> {
       let chain = ctx.chain;
       let from = ctx.current_wallet_info().address;
       let currency = self.currency.clone();

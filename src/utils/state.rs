@@ -114,9 +114,11 @@ pub async fn on_startup(ctx: ZeusCtx) {
          Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
       }
 
-      match ctx_clone.sync_railgun().await {
-         Ok(_) => {}
-         Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+      for chain in SUPPORTED_CHAINS {
+         match ctx_clone.sync_railgun(chain).await {
+            Ok(_) => {}
+            Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+         }
       }
    });
 
@@ -396,9 +398,11 @@ async fn state_update_interval(ctx: ZeusCtx) {
       if railgun_sync_time_passed.elapsed().as_secs() > RAILGUN_SYNC_INTERVAL {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
-            match ctx_clone.sync_railgun().await {
-               Ok(_) => {}
-               Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+            for chain in SUPPORTED_CHAINS {
+               match ctx_clone.sync_railgun(chain).await {
+                  Ok(_) => {}
+                  Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+               }
             }
          });
          railgun_sync_time_passed = Instant::now();

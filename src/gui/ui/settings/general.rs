@@ -1,7 +1,7 @@
 //! UI that allows the user to change the general settings.
 
-use crate::{core::ZeusContext, gui::SHARED_GUI};
 use crate::utils::RT;
+use crate::{core::ZeusContext, gui::SHARED_GUI};
 use egui::{Align2, Order, RichText, ScrollArea, Slider, Ui, Window, vec2};
 use std::collections::HashSet;
 use zeus_eth::types::ChainId;
@@ -213,31 +213,31 @@ impl GeneralSettings {
             false
          };
 
-      let save_pool_manager =
-         if self.concurrency_for_syncing_pools != ctx.pool_manager.concurrency() {
-            ctx.pool_manager.set_concurrency(self.concurrency_for_syncing_pools);
-            true
-         } else if self.batch_size_for_updating_pools_state
-            != ctx.pool_manager.batch_size_for_updating_pools_state()
-         {
-            ctx.pool_manager
-               .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
-            true
-         } else if self.batch_size_for_syncing_pools
-            != ctx.pool_manager.batch_size_for_syncing_pools()
-         {
-            ctx.pool_manager
-               .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
-            true
-         } else if self.sync_v4_pools_on_startup != ctx.pool_manager.do_we_sync_v4_pools() {
-            ctx.pool_manager.set_sync_v4_pools(self.sync_v4_pools_on_startup);
-            true
-         } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
-            ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
-            true
-         } else {
-            false
-         };
+      let save_pool_manager = if self.concurrency_for_syncing_pools
+         != ctx.pool_manager.concurrency()
+      {
+         ctx.pool_manager.set_concurrency(self.concurrency_for_syncing_pools);
+         true
+      } else if self.batch_size_for_updating_pools_state
+         != ctx.pool_manager.batch_size_for_updating_pools_state()
+      {
+         ctx.pool_manager
+            .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
+         true
+      } else if self.batch_size_for_syncing_pools != ctx.pool_manager.batch_size_for_syncing_pools()
+      {
+         ctx.pool_manager
+            .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
+         true
+      } else if self.sync_v4_pools_on_startup != ctx.pool_manager.do_we_sync_v4_pools() {
+         ctx.pool_manager.set_sync_v4_pools(self.sync_v4_pools_on_startup);
+         true
+      } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
+         ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
+         true
+      } else {
+         false
+      };
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());

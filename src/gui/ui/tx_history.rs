@@ -250,7 +250,7 @@ impl TxHistory {
                   if ctx.is_chain_disabled(chain.id()) {
                      continue;
                   }
-                  
+
                   if let Some(wallet_txs) = ctx.tx_db.get_txs(chain.id(), wallet.address) {
                      txs.extend(wallet_txs.iter().cloned());
                   }

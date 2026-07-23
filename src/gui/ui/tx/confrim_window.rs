@@ -97,7 +97,7 @@ impl TxConfirmationWindow {
       }
 
       self.sponsored = sponsored;
-      
+
       if sponsored {
          self.tx_cost = NumericValue::default();
          self.tx_cost_usd = NumericValue::default();

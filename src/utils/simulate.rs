@@ -4,7 +4,7 @@ use crate::utils::RT;
 use alloy_eips::eip7702::SignedAuthorization;
 use either::Either;
 use zeus_eth::{
-   alloy_primitives::{Address, address, Bytes, KECCAK256_EMPTY, TxKind, U256, keccak256},
+   alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, TxKind, U256, address, keccak256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
    amm::uniswap::UniswapPool,
@@ -12,7 +12,7 @@ use zeus_eth::{
       Database, DatabaseCommit, Evm2, ExecuteCommitEvm, ExecutionResult, revert_msg,
       revm::state::{AccountInfo, Bytecode},
    },
-   utils::{batch, address_book},
+   utils::{address_book, batch},
 };
 
 use anyhow::anyhow;
@@ -107,8 +107,12 @@ pub fn railgun_common_accounts(chain: u64) -> Vec<Address> {
    }
 
    if chain == 1 {
-      accounts.push(address!("0x7D9ef64f35B6Afda8d258d1d2548a9aC997e35A1"));
-      accounts.push(address!("0xd0198Dde1187b12aF01a743d9e9f2B4B84e8f59b"));
+      accounts.push(address!(
+         "0x7D9ef64f35B6Afda8d258d1d2548a9aC997e35A1"
+      ));
+      accounts.push(address!(
+         "0xd0198Dde1187b12aF01a743d9e9f2B4B84e8f59b"
+      ));
    }
 
    accounts
