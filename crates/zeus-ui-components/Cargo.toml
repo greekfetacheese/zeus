@@ -12,6 +12,8 @@ categories = ["gui"]
 
 [dependencies]
 egui = "0.35"
+image = "0.25"
+qrcodegen-no-heap = "1.8.1"
 
 zeus-theme = { version = "0.4", path = "../zeus-theme" }
 zeus-widgets = { version = "0.4", path = "../zeus-widgets" }

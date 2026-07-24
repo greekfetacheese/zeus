@@ -2,13 +2,14 @@
 
 use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, data_to_qr};
-use eframe::egui::{Align2, Image, ImageSource, Order, RichText, Ui, Window, load::Bytes, vec2};
+use crate::utils::RT;
+use eframe::egui::{Align2, Order, RichText, Ui, Window, vec2};
 use ncrypt_me::Credentials;
 use zeus_theme::{OverlayManager, Theme};
-use zeus_ui_components::CredentialsForm;
+use zeus_ui_components::{CredentialsForm, QrImage};
 use zeus_wallet::Wallet;
 use zeus_widgets::Button;
+use tracing::{info, error};
 
 pub struct ExportKeyUi {
    open: bool,
@@ -16,8 +17,7 @@ pub struct ExportKeyUi {
    credentials_form: CredentialsForm,
    verified_credentials: bool,
    wallet_to_export: Option<Wallet>,
-   image_uri: Option<String>,
-   image_error: Option<String>,
+   private_key_qr: QrImage,
    show_key: bool,
    show_key_qrcode: bool,
    size: (f32, f32),
@@ -34,36 +34,27 @@ impl ExportKeyUi {
          credentials_form,
          verified_credentials: false,
          wallet_to_export: None,
-         image_uri: None,
-         image_error: None,
+         private_key_qr: QrImage::empty_with_error("No QR code found".to_string()),
          show_key: false,
          show_key_qrcode: false,
          size: (550.0, 350.0),
       }
    }
 
-   pub fn open(&mut self, ctx: &mut ZeusContext, wallet: Option<Wallet>) {
+   pub fn open(&mut self, wallet: Option<Wallet>) {
       if let Some(wallet) = &wallet {
          let key_hex = wallet.key_string();
-         let png_bytes_res = key_hex.unlock_str(|key| data_to_qr(key));
+         let uri = format!(
+            "bytes://key-{}.png",
+            &wallet.address().to_string()
+         );
 
-         match png_bytes_res {
-            Ok(png_bytes) => {
-               ctx.set_qr_image_data(png_bytes);
-
-               let uri = format!(
-                  "bytes://key-{}.png",
-                  &wallet.address().to_string()
-               );
-
-               self.image_uri = Some(uri);
-               self.image_error = None;
-            }
-            Err(e) => {
-               self.image_uri = None;
-               self.image_error = Some(format!("Failed to generate QR Code: {}", e));
-            }
-         }
+         RT.spawn_blocking(move || {
+            let qr_image = key_hex.unlock_str(|key| QrImage::new(key, uri));
+            SHARED_GUI.write(|gui| {
+               gui.wallet_ui.export_key_ui.private_key_qr = qr_image;
+            });
+         });
       }
 
       if !self.open {
@@ -90,7 +81,7 @@ impl ExportKeyUi {
       self.show_key(ctx, theme, ui);
    }
 
-   fn show_key(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   fn show_key(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_key || !self.verified_credentials {
          return;
       }
@@ -143,22 +134,12 @@ impl ExportKeyUi {
                   });
 
                   if self.show_key_qrcode {
-                     if let Some(image_uri) = self.image_uri.clone() {
-                        let data = ctx.qr_image_data.clone();
-                        let image = Image::new(ImageSource::Bytes {
-                           uri: image_uri.into(),
-                           bytes: Bytes::Shared(data),
-                        })
-                        .fit_to_exact_size(vec2(250.0, 250.0));
-                        ui.add(image);
-                     } else {
-                        if self.image_error.is_some() {
-                           ui.label(
-                              RichText::new(self.image_error.as_ref().unwrap())
-                                 .size(theme.text_sizes.large),
-                           );
-                        }
+                     if let Some(error) = self.private_key_qr.error() {
+                        ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
                      }
+
+                     let image = self.private_key_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                     ui.add(image);
                   }
                } else {
                   ui.label(
@@ -170,11 +151,14 @@ impl ExportKeyUi {
                let button = Button::new(text).visuals(button_visuals);
 
                if ui.add(button).clicked() {
-                  if let Some(image_uri) = &self.image_uri {
-                     ui.ctx().forget_image(image_uri);
-                  }
+                  let erased = self.private_key_qr.clear(ui.ctx());
                   self.reset();
-                  ctx.erase_qr_image_data();
+
+                  if erased {
+                     info!("PK QR Image data zeroized");
+                  } else {
+                     error!("PK QR Image data zeroize failed");
+                  }
                }
             });
          });

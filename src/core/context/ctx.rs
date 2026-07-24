@@ -1,6 +1,6 @@
 use super::{
    BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
-   price_manager::PriceManagerHandle, tx::TransactionsDB
+   price_manager::PriceManagerHandle, tx::TransactionsDB,
 };
 
 use crate::core::WalletValue;
@@ -18,7 +18,6 @@ use std::{
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
 
-use secure_types::Zeroize;
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
@@ -38,7 +37,6 @@ use zeus_railgun::{
 
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
-const POOL_DATA_FULL: &str = "pool_data_full.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
 const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
@@ -115,11 +113,6 @@ pub fn pool_data_dir() -> Result<PathBuf, anyhow::Error> {
    Ok(dir)
 }
 
-pub fn pool_data_full_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(POOL_DATA_FULL);
-   Ok(dir)
-}
-
 /// Thread-safe handle to the [ZeusContext]
 #[derive(Clone)]
 pub struct ZeusCtx(Arc<RwLock<ZeusContext>>);
@@ -137,22 +130,6 @@ impl ZeusCtx {
    /// Exclusive mutable access to the context
    pub fn write<R>(&self, writer: impl FnOnce(&mut ZeusContext) -> R) -> R {
       writer(&mut self.0.write().unwrap())
-   }
-
-   pub fn qr_image_data(&self) -> Arc<[u8]> {
-      self.read(|ctx| ctx.qr_image_data.clone())
-   }
-
-   pub fn set_qr_image_data(&self, data: Vec<u8>) {
-      self.write(|ctx| {
-         ctx.set_qr_image_data(data);
-      });
-   }
-
-   pub fn erase_qr_image_data(&self) {
-      self.write(|ctx| {
-         ctx.erase_qr_image_data();
-      });
    }
 
    pub fn pool_manager(&self) -> PoolManagerHandle {
@@ -1565,9 +1542,6 @@ pub struct ZeusContext {
    /// True if the sign message window is open
    pub sign_msg_window_open: bool,
 
-   /// Private Key and Address Qr Code
-   pub qr_image_data: Arc<[u8]>,
-
    /// Last time checked for available RPCs
    pub last_checked_for_available_rpcs: HashMap<u64, u128>,
 
@@ -1717,7 +1691,6 @@ impl ZeusContext {
          server_running: false,
          tx_confirm_window_open: false,
          sign_msg_window_open: false,
-         qr_image_data: Arc::new([0u8; 0]),
          last_checked_for_available_rpcs: HashMap::new(),
          railgun_provider_sync_last_check: HashMap::new(),
          railgun_provider_syncing: HashMap::new(),
@@ -1741,22 +1714,6 @@ impl ZeusContext {
 
    pub fn vault_ref(&self) -> &Vault {
       &self.vault
-   }
-
-   pub fn set_qr_image_data(&mut self, data: Vec<u8>) {
-      self.qr_image_data = data.into();
-   }
-
-   pub fn erase_qr_image_data(&mut self) {
-      if let Some(data) = Arc::get_mut(&mut self.qr_image_data) {
-         data.zeroize();
-         #[cfg(feature = "dev")]
-         tracing::info!("QR Image data zeroized");
-         self.qr_image_data = Arc::new([0u8; 0]);
-      } else {
-         #[cfg(feature = "dev")]
-         tracing::error!("QR Image data zeroize failed");
-      };
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {

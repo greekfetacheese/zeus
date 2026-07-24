@@ -13,10 +13,10 @@ use crate::gui::{
    SHARED_GUI,
    ui::{ChainSelect, WalletSelect, common::dots_button, dapps::railgun::RailgunMode},
 };
-use crate::utils::{RT, data_to_qr, truncate_address};
+use crate::utils::{RT, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Image, ImageSource, Layout, Margin,
-   OpenUrl, Order, RichText, Spinner, Ui, Window, load::Bytes, vec2,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
+   RichText, Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
 use std::sync::Arc;
@@ -26,6 +26,7 @@ use zeus_eth::{
    types::ChainId,
 };
 
+use zeus_ui_components::QrImage;
 use zeus_wallet::Wallet;
 use zeus_widgets::{Button, SecureTextEdit};
 
@@ -231,7 +232,7 @@ impl Header {
 
          // QR Code Window
          if res.clicked() {
-            self.qrcode_window.open(ctx, wallet.clone());
+            self.qrcode_window.open(wallet.clone());
          }
 
          ui.add_space(10.0);
@@ -762,8 +763,7 @@ pub struct QRCodeWindow {
    open: bool,
    overlay: OverlayManager,
    wallet: Option<WalletInfo>,
-   image_uri: Option<String>,
-   error: Option<String>,
+   qr_image: QrImage,
    size: (f32, f32),
 }
 
@@ -773,8 +773,7 @@ impl QRCodeWindow {
          open: false,
          overlay,
          wallet: None,
-         image_uri: None,
-         error: None,
+         qr_image: QrImage::empty_with_error("No QR code found".to_string()),
          size: (400.0, 400.0),
       }
    }
@@ -783,23 +782,16 @@ impl QRCodeWindow {
       self.open
    }
 
-   pub fn open(&mut self, ctx: &mut ZeusContext, wallet: WalletInfo) {
-      let png_bytes_res = data_to_qr(&wallet.address.to_string().as_str());
+   pub fn open(&mut self, wallet: WalletInfo) {
+      let data = wallet.address.to_string();
+      let uri = format!("bytes://receive-{}.png", &wallet.address);
 
-      match png_bytes_res {
-         Ok(png_bytes) => {
-            ctx.set_qr_image_data(png_bytes);
-
-            let uri = format!("bytes://receive-{}.png", &wallet.address);
-
-            self.image_uri = Some(uri);
-            self.error = None;
-         }
-         Err(e) => {
-            self.image_uri = None;
-            self.error = Some(format!("Failed to generate QR Code: {}", e));
-         }
-      }
+      RT.spawn_blocking(move || {
+         let qr_image = QrImage::new(&data, uri);
+         SHARED_GUI.write(|gui| {
+            gui.header.qrcode_window.qr_image = qr_image;
+         });
+      });
 
       if !self.open {
          self.overlay.window_opened();
@@ -819,7 +811,7 @@ impl QRCodeWindow {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -845,7 +837,7 @@ impl QRCodeWindow {
                      RichText::new("No wallet found, this is a bug").size(theme.text_sizes.normal),
                   );
                   ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  self.close_button(ctx, theme, ui);
+                  self.close_button(theme, ui);
                   return;
                }
 
@@ -865,39 +857,28 @@ impl QRCodeWindow {
 
                ui.add_space(10.0);
 
-               if self.error.is_some() {
-                  ui.label(
-                     RichText::new(self.error.as_ref().unwrap()).size(theme.text_sizes.large),
-                  );
+               if let Some(error) = self.qr_image.error() {
+                  ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
                }
 
                // QR Code
-               if let Some(image_uri) = self.image_uri.clone() {
-                  let data = ctx.qr_image_data.clone();
-                  let image = Image::new(ImageSource::Bytes {
-                     uri: image_uri.into(),
-                     bytes: Bytes::Shared(data),
-                  })
-                  .fit_to_exact_size(vec2(250.0, 250.0));
-                  ui.add(image);
-               }
+               let image = self.qr_image.image().fit_to_exact_size(vec2(250.0, 250.0));
+               ui.add(image);
 
                ui.add_space(10.0);
 
-               self.close_button(ctx, theme, ui);
+               self.close_button(theme, ui);
             });
          });
    }
 
-   fn close_button(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
       let text = RichText::new("Close").size(theme.text_sizes.normal);
       let button = Button::new(text).visuals(theme.button_visuals());
+
       if ui.add(button).clicked() {
-         if let Some(uri) = &self.image_uri {
-            ui.ctx().forget_image(uri);
-         }
+         self.qr_image.clear(ui.ctx());
          self.reset();
-         ctx.erase_qr_image_data();
       }
    }
 }

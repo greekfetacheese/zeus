@@ -292,7 +292,7 @@ impl WalletUi {
 
                if ui.add_enabled(enabled, export_key).clicked() {
                   let wallet = ctx.get_wallet(wallet.address);
-                  self.export_key_ui.open(ctx, wallet);
+                  self.export_key_ui.open(wallet);
                }
 
                ui.add_space(8.0);

@@ -1,6 +1,10 @@
 #[cfg(all(feature = "qr-scanner", target_os = "linux"))]
 mod qr_scanner;
 
+mod qr_image;
+
+pub use qr_image::{QrError, QrImage};
+
 #[cfg(feature = "secure-types")]
 mod credentials_form;
 
