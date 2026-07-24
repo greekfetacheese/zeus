@@ -20,23 +20,24 @@ use userop_kit::{
 use zeus_eth::{
    alloy_primitives::{Address, Bytes, KECCAK256_EMPTY, U256, keccak256},
    alloy_provider::Provider,
-   alloy_rpc_types::BlockId,
+   alloy_rpc_types::{BlockId, Log},
    currency::{Currency, ERC20Token},
    revm_utils::{
       ForkFactory, Host, new_evm,
       revm::state::{AccountInfo, Bytecode},
    },
    types::ChainId,
-   utils::{NumericValue, address_book, client::RpcClient},
+   utils::{NumericValue, address_book},
 };
 use zeus_railgun::{
-   RailgunProvider, RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId,
-   rand::SeedableRng, rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
+   RailgunSigner, adapter_data::decode_fee_from_paymaster_data, caip::AssetId, rand::SeedableRng,
+   rand_chacha::ChaCha12Rng, transact::TransactionBuilder,
 };
 
 use crate::{
    core::{
-      DecodedEvent, TransactionAnalysis, TransactionRich, UnshieldParams, ZeusCtx, send_transaction,
+      DecodedEvent, TransactionAnalysis, TransactionRich, TxParams, UnshieldParams, ZeusCtx,
+      send_tx,
    },
    gui::{SHARED_GUI, ui::NotificationType},
    utils::{
@@ -45,6 +46,7 @@ use crate::{
          fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
          simulate_transaction,
       },
+      state::get_base_fee,
    },
 };
 
@@ -102,27 +104,12 @@ pub async fn unshield(
    let seed = wallet.seed()?;
    let railgun_signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
-   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
-   if railgun_provider.chain_id() != chain.id() {
-      return Err(anyhow!(
-         "Railgun provider chain id {} does not match the current chain id {}",
-         railgun_provider.chain_id(),
-         chain.id()
-      ));
-   }
-
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing unshield…");
       gui.request_repaint();
    });
 
-   railgun_provider.register(railgun_signer.clone()).await?;
-
-   // Ensure notes are current before proving.
-   if let Err(e) = railgun_provider.sync().await {
-      error!("Railgun sync before unshield failed: {:?}", e);
-      // Continue — notes may already be available from a prior sync.
-   }
+   ctx.sync_railgun(chain.id()).await?;
 
    let token = currency.to_erc20().into_owned();
    let asset = AssetId::Erc20(token.address);
@@ -137,7 +124,16 @@ pub async fn unshield(
    )?;
 
    if self_broadcast {
-      unshield_self_broadcast(ctx, chain, from, token, railgun_provider, tx).await
+      unshield_self_broadcast(
+         ctx,
+         chain,
+         railgun_signer,
+         from,
+         recipient,
+         token,
+         tx,
+      )
+      .await
    } else {
       unshield_via_paymaster(
          ctx,
@@ -147,7 +143,6 @@ pub async fn unshield(
          amount.wei(),
          recipient,
          unwrap_to_eth,
-         railgun_provider,
          railgun_signer,
          tx,
          bundler_url,
@@ -159,9 +154,10 @@ pub async fn unshield(
 async fn unshield_self_broadcast(
    ctx: ZeusCtx,
    chain: ChainId,
+   railgun_signer: RailgunSigner,
    from: Address,
+   recipient: Address,
    token: ERC20Token,
-   mut railgun_provider: RailgunProvider<RpcClient>,
    tx: TransactionBuilder,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
@@ -169,35 +165,378 @@ async fn unshield_self_broadcast(
       gui.request_repaint();
    });
 
+   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+
+   let zeus_client = ctx.get_zeus_client();
+   let last_synced_block_opt =
+      railgun_provider.account_synced_block(railgun_signer.address()).await;
+   let last_synced_block = match last_synced_block_opt {
+      Some(block) => block,
+      None => {
+         return Err(anyhow!(
+            "Account is not synced for signer {}",
+            railgun_signer.address().address
+         ));
+      }
+   };
+
+   let eth_balance_before_fut = zeus_client.request(chain.id(), |client| async move {
+      client
+         .get_balance(from)
+         .block_id(BlockId::latest())
+         .await
+         .map_err(|e| anyhow!("{:?}", e))
+   });
+
+   let fork_block_res = zeus_client
+      .request(chain.id(), |client| async move {
+         client
+            .get_block(BlockId::number(last_synced_block))
+            .await
+            .map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let fork_block = if let Some(fork_block) = fork_block_res {
+      fork_block
+   } else {
+      return Err(anyhow!(
+         "No block found, this is usally a provider issue"
+      ));
+   };
+
+   let fork_block_id = BlockId::number(fork_block.header.number);
+   let client = ctx.get_client(chain.id()).await?;
+   let railgun_address = railgun_provider.railgun_address();
+
+   // Prefetch accounts and storage for the sim
+   let mut accounts = Vec::new();
+   accounts.push(from);
+   accounts.push(recipient);
+   accounts.push(token.address);
+   accounts.push(fork_block.header.beneficiary);
+   accounts.push(railgun_address);
+
+   let common_accounts = railgun_common_accounts(chain.id());
+   accounts.extend(common_accounts);
+
+   let accounts_info_fut = fetch_accounts_info(ctx.clone(), chain.id(), fork_block_id, accounts);
+
+   let storage_info_fut = fetch_storage_for_railgun(
+      ctx.clone(),
+      chain.id(),
+      fork_block_id,
+      railgun_address,
+   );
+
    let proved = {
       let mut rng = ChaCha12Rng::from_os_rng();
       railgun_provider.build(tx, &mut rng).await?
    };
 
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Simulating Transaction…");
+      gui.request_repaint();
+   });
+
    let calldata = proved.tx_data.data.clone();
    let interact_to = proved.tx_data.to;
    let value = proved.tx_data.value;
 
-   let dapp = "Railgun Unshield".to_string();
-   let mev_protect = false;
+   let fork_client = ctx.get_client(chain.id()).await?;
+
+   let mut factory =
+      ForkFactory::new_sandbox_factory(fork_client, chain.id(), None, Some(fork_block_id));
+
+   let accounts_info = accounts_info_fut.await;
+   let storage_info = storage_info_fut.await;
+
+   for info in accounts_info {
+      factory.insert_account_info(info.address, info.info);
+   }
+
+   for info in storage_info {
+      match factory.insert_account_storage(info.address, info.slot, info.value) {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Failed to insert account storage: {:?}", e),
+      }
+   }
+
+   let fork_db = factory.new_sandbox_fork();
+
+   let eth_balance_after;
+   let sim_res;
+   {
+      let mut evm = new_evm(chain, Some(&fork_block), fork_db.clone());
+      evm.tx.gas_limit = 30_000_000;
+
+      let time = Instant::now();
+      sim_res = simulate_transaction(
+         &mut evm,
+         from,
+         interact_to,
+         calldata.clone(),
+         value,
+         vec![],
+      )?;
+      tracing::info!(
+         "Simulate Unshield took {} ms, gas={}, logs={}",
+         time.elapsed().as_millis(),
+         sim_res.tx_gas_used(),
+         sim_res.clone().into_logs().len()
+      );
+
+      let state = evm.balance(from);
+      eth_balance_after = if let Some(state) = state {
+         state.data
+      } else {
+         U256::ZERO
+      };
+   }
+
+   let logs = sim_res.clone().into_logs();
+
+   let mut unshield_events = Vec::new();
+
+   for log in &logs {
+      if let Ok(params) = UnshieldParams::from_log(ctx.clone(), chain.id(), log).await {
+         unshield_events.push(params);
+      }
+   }
+
+   // Should not happen for a single unshield
+   if unshield_events.len() > 1 {
+      return Err(anyhow!("More than one Unshield event found"));
+   }
+
+   if unshield_events.is_empty() {
+      return Err(anyhow!(
+         "No Unshield event found in handleOps simulation ({} log(s))",
+         logs.len()
+      ));
+   }
+
+   let mut unshield_params = unshield_events[0].clone();
+   unshield_params.is_self_broadcast = true;
+
+   let eth_balance_before = eth_balance_before_fut.await?;
+   let sender = from;
+   let contract_interact = Some(true);
    let auth_list = Vec::new();
 
-   let (_, _) = send_transaction(
+   let mut tx_analysis = TransactionAnalysis::new(
       ctx.clone(),
-      dapp,
-      None,
-      chain,
-      mev_protect,
-      from,
+      chain.id(),
+      sender,
       interact_to,
-      calldata,
+      contract_interact,
+      calldata.clone(),
       value,
-      auth_list,
+      logs,
+      sim_res.tx_gas_used(),
+      eth_balance_before,
+      eth_balance_after,
+      auth_list.clone(),
    )
    .await?;
 
+   let main_event = DecodedEvent::Unshield(unshield_params.clone());
+   tx_analysis.set_main_event(main_event.clone());
+
+   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let dapp = "Railgun".to_string();
+   let mev_protect = false;
+   let sponsored = false;
+
+   SHARED_GUI.write(|gui| {
+      gui.tx_confirmation_window.open(
+         ctx.clone(),
+         dapp,
+         chain,
+         tx_analysis.clone(),
+         priority_fee.f64().to_string(),
+         mev_protect,
+         sponsored,
+      );
+      gui.loading_window.reset();
+      gui.request_repaint();
+   });
+
+   // wait for the user to confirm or reject the transaction
+   let mut confirmed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+      SHARED_GUI.read(|gui| {
+         confirmed = gui.tx_confirmation_window.get_confirmed_or_rejected();
+      });
+
+      if confirmed.is_some() {
+         SHARED_GUI.write(|gui| {
+            ctx.write(|ctx| {
+               gui.tx_confirmation_window.close(ctx);
+            });
+         });
+         break;
+      }
+   }
+
+   let confirmed = confirmed.unwrap();
+   if !confirmed {
+      return Err(anyhow!("Transaction rejected"));
+   }
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Wait while magic happens");
+      gui.request_repaint();
+   });
+
+   let z_client = ctx.get_zeus_client();
+   let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
+   let gas_used = tx_analysis.gas_used;
+
+   let fee = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_priority_fee());
+   let gas_limit = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_gas_limit());
+
+   let priority_fee = if fee.is_zero() {
+      ctx.get_priority_fee(chain.id()).unwrap_or_default()
+   } else {
+      fee
+   };
+
+   let base_fee = get_base_fee(ctx.clone(), chain.id()).await?;
+   let nonce = z_client
+      .request(chain.id(), |client| async move {
+         client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let tx_params = TxParams::new(
+      signer,
+      interact_to,
+      nonce,
+      value,
+      chain,
+      priority_fee.wei(),
+      base_fee.next,
+      calldata.clone(),
+      gas_used,
+      gas_limit,
+      vec![],
+   );
+
+   let event_name = main_event.name();
+   let nofitification = NotificationType::from_main_event(main_event);
+
+   SHARED_GUI.write(|gui| {
+      gui.notification.open_with_spinner(event_name, nofitification);
+      gui.loading_window.reset();
+      gui.request_repaint();
+   });
+
+   let receipt = send_tx(client, tx_params).await?;
+
+   let logs: Vec<Log> = receipt.logs().to_vec();
+   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+
+   let eth_balance_after = z_client
+      .request(chain.id(), |client| async move {
+         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let new_tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      contract_interact,
+      calldata.clone(),
+      value,
+      logs,
+      receipt.gas_used,
+      eth_balance_before,
+      eth_balance_after,
+      vec![],
+   )
+   .await?;
+
+   let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+
+   let new_main_event = if main_event.is_unshield() {
+      let mut params = main_event.unshield_params().clone();
+      params.is_self_broadcast = true;
+      DecodedEvent::Unshield(params)
+   } else {
+      main_event
+   };
+
+   let main_event_name = if new_main_event.is_known() {
+      new_main_event.name()
+   } else {
+      "Transaction successful".to_string()
+   };
+
+   let nofitification = NotificationType::from_main_event(new_main_event.clone());
+
+   let (tx_cost, tx_cost_usd) = ctx.write(|ctx| {
+      estimate_tx_cost(
+         ctx,
+         chain.id(),
+         receipt.gas_used,
+         priority_fee.wei(),
+      )
+   });
+
+   let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
+   let timestamp = TimeStamp::now_as_secs();
+
+   let tx_rich = TransactionRich {
+      tx_type: receipt.transaction_type(),
+      success: receipt.status(),
+      chain: chain.id(),
+      block: receipt.block_number.unwrap_or_default(),
+      timestamp,
+      value_sent: new_tx_analysis.value_sent(),
+      value_sent_usd: new_tx_analysis.value_sent_usd(ctx.clone()),
+      eth_received: new_tx_analysis.eth_received(),
+      eth_received_usd,
+      tx_cost,
+      tx_cost_usd,
+      hash: receipt.transaction_hash,
+      contract_interact: new_tx_analysis.contract_interact,
+      analysis: new_tx_analysis,
+      main_event: new_main_event,
+   };
+
+   let ctx_clone = ctx.clone();
+   let tx = tx_rich.clone();
+   RT.spawn_blocking(move || {
+      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
+      ctx_clone.save_tx_db();
+   });
+
    RT.spawn(async move {
       post_unshield_sync(ctx, chain, from, token, true).await;
+   });
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction Failed"));
+   }
+
+   let now = timestamp.timestamp();
+   let finish = now + 6;
+
+   SHARED_GUI.write(|gui| {
+      gui.notification.open_with_progress_bar(
+         now,
+         finish,
+         main_event_name,
+         nofitification,
+         Some(tx_rich.clone()),
+      );
+      gui.loading_window.reset();
+      gui.request_repaint();
    });
 
    Ok(())
@@ -211,11 +550,12 @@ async fn unshield_via_paymaster(
    amount: U256,
    recipient: Address,
    unwrap_to_eth: bool,
-   mut railgun_provider: RailgunProvider<RpcClient>,
    railgun_signer: RailgunSigner,
    tx: TransactionBuilder,
    bundler_url: String,
 ) -> Result<(), anyhow::Error> {
+   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+
    let chain_config = railgun_provider.chain_config();
 
    if chain_config.privacy_paymaster.is_none() || chain_config.railgun_fee_adapter.is_none() {
@@ -225,7 +565,17 @@ async fn unshield_via_paymaster(
    }
 
    let zeus_client = ctx.get_zeus_client();
-   let last_synced_block = railgun_provider.global_synced_block().await;
+   let last_synced_block_opt =
+      railgun_provider.account_synced_block(railgun_signer.address()).await;
+   let last_synced_block = match last_synced_block_opt {
+      Some(block) => block,
+      None => {
+         return Err(anyhow!(
+            "Account is not synced for signer {}",
+            railgun_signer.address().address
+         ));
+      }
+   };
 
    let eth_balance_before_fut = zeus_client.request(chain.id(), |client| async move {
       client
@@ -602,7 +952,7 @@ async fn unshield_via_paymaster(
 
    // This tx is sponsored so the priority fee doesnt matter here
    let priority_fee = NumericValue::default();
-   let dapp = "Railgun Unshield".to_string();
+   let dapp = "Railgun".to_string();
    let mev_protect = false;
    let sponsored = true;
 

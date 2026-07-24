@@ -163,7 +163,9 @@ impl ShieldUi {
    }
 
    pub fn close(&mut self) {
+      let currency = self.currency.clone();
       *self = Self::new();
+      self.currency = currency;
    }
 
    pub fn set_mode(&mut self, mode: RailgunMode) {

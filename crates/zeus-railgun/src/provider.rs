@@ -181,9 +181,14 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       *self.is_verifying.read().await
    }
 
-   /// Last synced block for the registered accounts
-   pub async fn account_synced_block(&self) -> u64 {
-      self.utxo_indexer.read().await.account_synced_block()
+   /// Last minimum synced block for the registered accounts
+   pub async fn min_account_synced_block(&self) -> u64 {
+      self.utxo_indexer.read().await.min_account_synced_block()
+   }
+
+   /// Last synced block for the given account
+   pub async fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
+      self.utxo_indexer.read().await.account_synced_block(address)
    }
 
    /// Last global synced block

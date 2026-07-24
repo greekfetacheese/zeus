@@ -95,12 +95,20 @@ impl UtxoIndexer {
    /// Used for reporting / "are we fully caught up". Tree mutation must NOT use this
    /// alone — a newly registered account at block 0 would otherwise force a full
    /// historical re-insert into already-loaded merkle trees and corrupt the root.
-   pub fn account_synced_block(&self) -> u64 {
+   pub fn min_account_synced_block(&self) -> u64 {
       let mut min_synced = self.synced_block;
       for account in self.accounts.iter() {
          min_synced = min_synced.min(account.synced_block());
       }
       min_synced
+   }
+
+   /// Returns the synced block for the given account
+   pub fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
+      self.accounts
+         .iter()
+         .find(|a| a.address() == address)
+         .map(|a| a.synced_block())
    }
 
    /// Global UTXO tree progress only (ignores per-account catch-up).
@@ -133,7 +141,7 @@ impl UtxoIndexer {
 
    /// Lists all registered accounts
    pub fn registered(&self) -> Vec<RailgunAddress> {
-      self.accounts.iter().map(|a| a.address()).collect()
+      self.accounts.iter().map(|a| a.address().clone()).collect()
    }
 
    /// Lists all unspent notes for a given address. Returns an empty list if the address is not

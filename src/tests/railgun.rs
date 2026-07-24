@@ -228,7 +228,7 @@ mod tests {
 
       railgun_provider.register(signer).await.unwrap();
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
       println!("Synced block: {}", synced_block);
 
       match railgun_provider.compact().await {
@@ -259,7 +259,7 @@ mod tests {
 
       railgun_provider.register(signer).await?;
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
       println!("Synced block: {}", synced_block);
 
       let block_id = BlockId::number(synced_block);
@@ -306,7 +306,7 @@ mod tests {
       eprintln!("Syncing Railgun provider");
       railgun_provider.sync().await?;
 
-      let synced_block = railgun_provider.utxo_indexer.read().await.account_synced_block();
+      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
       eprintln!("Account synced block: {}", synced_block);
 
       let fork_block = BlockId::number(synced_block);

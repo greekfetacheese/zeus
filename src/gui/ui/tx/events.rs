@@ -531,43 +531,47 @@ fn unshield_event_ui(
    // Broadcaster / privacy-paymaster fee.
    // Paid from private balance
    // TODO: Maybe add a ? that pops up explaining that the fee is paid from the private balance
-   if let (Some(bf_fee), Some(bf_fee_usd), Some(token)) = (
-      params.broadcaster_fee.as_ref(),
-      params.broadcaster_fee_usd.as_ref(),
-      params.erc20.as_ref(),
-   ) {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Broadcaster fee").size(theme.text_sizes.large));
-         });
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let icon = icons.token_icon_x24(token.address, chain.id(), tint);
+   if !params.is_self_broadcast {
+      if let (Some(bf_fee), Some(bf_fee_usd), Some(token)) = (
+         params.broadcaster_fee.as_ref(),
+         params.broadcaster_fee_usd.as_ref(),
+         params.erc20.as_ref(),
+      ) {
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Broadcaster fee").size(theme.text_sizes.large));
+            });
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let icon = icons.token_icon_x24(token.address, chain.id(), tint);
 
-            let fee_text = format!("{} {}", bf_fee.abbreviated(), token.symbol);
-            let fee_rich_text = RichText::new(fee_text).size(theme.text_sizes.large);
+               let fee_text = format!("{} {}", bf_fee.abbreviated(), token.symbol);
+               let fee_rich_text = RichText::new(fee_text).size(theme.text_sizes.large);
 
-            let fee_usd_text = format!("~ ${}", bf_fee_usd.abbreviated());
-            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
+               let fee_usd_text = format!("~ ${}", bf_fee_usd.abbreviated());
+               let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.text_sizes.large);
 
-            let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
-            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
-            let multi_label = MultiLabel::new(vec![label1, label2]);
-            ui.add(multi_label);
+               let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
+               let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+               let multi_label = MultiLabel::new(vec![label1, label2]);
+               ui.add(multi_label);
+            });
          });
-      });
-   } else {
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(
-               RichText::new("Broadcaster fee")
-                  .size(theme.text_sizes.large)
-                  .color(theme.colors.warning),
-            );
+      } else {
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(
+                  RichText::new("Broadcaster fee")
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.warning),
+               );
+            });
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               ui.label(
+                  RichText::new("N/A").size(theme.text_sizes.large).color(theme.colors.error),
+               );
+            });
          });
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(RichText::new("N/A").size(theme.text_sizes.large).color(theme.colors.error));
-         });
-      });
+      }
    }
 }
 

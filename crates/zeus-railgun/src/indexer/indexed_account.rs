@@ -38,8 +38,8 @@ impl IndexedAccount {
       self.inner.clone()
    }
 
-   pub fn address(&self) -> RailgunAddress {
-      self.signer.address().clone()
+   pub fn address(&self) -> &RailgunAddress {
+      self.signer.address()
    }
 
    /// Returns all unspent notes for this account.

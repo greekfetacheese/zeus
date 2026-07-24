@@ -193,6 +193,7 @@ impl DecodedEvent {
          fee.as_ref().unwrap().f64(),
          1600.0,
       ));
+      let is_self_broadcast = false;
       let broadcaster_fee = Some(NumericValue::parse_to_wei("0.001", 18));
       let broadcaster_fee_usd = Some(NumericValue::value(
          broadcaster_fee.as_ref().unwrap().f64(),
@@ -209,6 +210,7 @@ impl DecodedEvent {
          amount_usd,
          fee,
          fee_usd,
+         is_self_broadcast,
          broadcaster_fee,
          broadcaster_fee_usd,
       })
@@ -1494,6 +1496,7 @@ pub struct UnshieldParams {
    pub amount_usd: Option<NumericValue>,
    pub fee: Option<NumericValue>,
    pub fee_usd: Option<NumericValue>,
+   pub is_self_broadcast: bool,
    pub broadcaster_fee: Option<NumericValue>,
    pub broadcaster_fee_usd: Option<NumericValue>,
 }
@@ -1519,6 +1522,7 @@ impl UnshieldParams {
                amount_usd: Some(amount_usd),
                fee: Some(fee),
                fee_usd: Some(fee_usd),
+               is_self_broadcast: false,
                broadcaster_fee: None,
                broadcaster_fee_usd: None,
             });
@@ -1534,6 +1538,7 @@ impl UnshieldParams {
             amount_usd: None,
             fee: None,
             fee_usd: None,
+            is_self_broadcast: false,
             broadcaster_fee: None,
             broadcaster_fee_usd: None,
          });
