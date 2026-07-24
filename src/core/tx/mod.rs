@@ -6,4 +6,4 @@ pub mod send;
 pub use analysis::TransactionAnalysis;
 pub use events::DecodedEvent;
 pub use rich::TransactionRich;
-pub use send::{send_transaction, delegate_to};
+pub use send::{send_transaction, send_tx, delegate_to};

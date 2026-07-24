@@ -135,6 +135,21 @@ impl TransactionAnalysis {
             continue;
          }
 
+         if let Ok(params) = ShieldParams::from_log(ctx.clone(), chain, log).await {
+            for p in params {
+               let event = DecodedEvent::Shield(p);
+               analysis.decoded_events.push(event);
+            }
+            known_events += 1;
+            continue;
+         }
+
+         if let Ok(params) = UnshieldParams::from_log(ctx.clone(), chain, log).await {
+            analysis.decoded_events.push(DecodedEvent::Unshield(params));
+            known_events += 1;
+            continue;
+         }
+
          if let Ok(params) = TokenApproveParams::from_log(ctx.clone(), chain, log).await {
             analysis.decoded_events.push(DecodedEvent::TokenApprove(params));
             known_events += 1;
@@ -338,6 +353,26 @@ impl TransactionAnalysis {
       params
    }
 
+   pub fn shields(&self) -> Vec<ShieldParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_shield() {
+            params.push(event.shield_params().clone());
+         }
+      }
+      params
+   }
+
+   pub fn unshields(&self) -> Vec<UnshieldParams> {
+      let mut params = Vec::new();
+      for event in &self.decoded_events {
+         if event.is_unshield() {
+            params.push(event.unshield_params().clone());
+         }
+      }
+      params
+   }
+
    pub fn swaps_len(&self) -> usize {
       self.decoded_events.iter().filter(|t| t.is_swap()).count()
    }
@@ -380,6 +415,14 @@ impl TransactionAnalysis {
       params
    }
 
+   pub fn shield_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_shield()).count()
+   }
+
+   pub fn unshield_len(&self) -> usize {
+      self.decoded_events.iter().filter(|t| t.is_unshield()).count()
+   }
+
    pub fn total_events(&self) -> usize {
       self.logs_len
    }
@@ -408,6 +451,18 @@ impl TransactionAnalysis {
    pub fn infer_main_event(&self, ctx: ZeusCtx, chain: u64) -> DecodedEvent {
       if self.main_event.is_some() {
          return self.main_event.clone().unwrap();
+      }
+
+      // Single Shield
+      if self.shield_len() == 1 {
+         let params = self.shields()[0].clone();
+         return DecodedEvent::Shield(params);
+      }
+
+      // Single Unshield
+      if self.unshield_len() == 1 {
+         let params = self.unshields()[0].clone();
+         return DecodedEvent::Unshield(params);
       }
 
       // ETH Transfer
@@ -610,6 +665,14 @@ impl TransactionAnalysis {
 
    pub fn is_swap(&self) -> bool {
       self.swaps_len() != 0
+   }
+
+   pub fn is_shield(&self) -> bool {
+      self.decoded_events() == 1 && self.shield_len() == 1
+   }
+
+   pub fn is_unshield(&self) -> bool {
+      self.decoded_events() == 1 && self.unshield_len() == 1
    }
 
    pub fn value_sent(&self) -> NumericValue {

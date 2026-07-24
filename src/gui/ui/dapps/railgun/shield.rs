@@ -8,13 +8,16 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::utils::{RT, estimate_tx_cost, simulate::railgun_common_accounts};
 use crate::{
    core::{
-      DecodedEvent, ShieldParams, TransactionAnalysis, ZeusContext, ZeusCtx, data_dir,
-      send_transaction,
+      DecodedEvent, ShieldParams, TransactionAnalysis, TransactionRich, TxParams, ZeusContext,
+      ZeusCtx, data_dir, send_transaction, send_tx,
    },
-   utils::simulate::simulate_transaction,
+   utils::{TimeStamp, simulate::simulate_transaction},
+};
+use crate::{
+   gui::ui::NotificationType,
+   utils::{RT, estimate_tx_cost, simulate::railgun_common_accounts, state::get_base_fee},
 };
 
 use crate::assets::icons::Icons;
@@ -32,7 +35,7 @@ use zeus_widgets::{Button, SecureTextEdit};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    alloy_provider::Provider,
-   alloy_rpc_types::BlockId,
+   alloy_rpc_types::{BlockId, Log},
    currency::{Currency, ERC20Token, NativeCurrency},
    revm_utils::{ForkFactory, Host, new_evm},
    types::ChainId,
@@ -927,8 +930,6 @@ async fn shield(
    let calldata = shield_tx[0].data.clone();
 
    let interact_to = railgun_provider.railgun_address();
-   let mev_protect = false;
-   let dapp = "".to_string();
    let auth_list = Vec::new();
    let value = U256::ZERO;
 
@@ -1059,21 +1060,173 @@ async fn shield(
    .await?;
 
    let main_event = DecodedEvent::Shield(shield_params.clone());
-   tx_analysis.set_main_event(main_event);
+   tx_analysis.set_main_event(main_event.clone());
 
-   let (_, _) = send_transaction(
-      ctx.clone(),
-      dapp,
-      Some(tx_analysis),
+   let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
+   let sponsored = false;
+   let dapp = "".to_string();
+   let mev_protect = false;
+
+   SHARED_GUI.write(|gui| {
+      gui.tx_confirmation_window.open(
+         ctx.clone(),
+         dapp,
+         chain,
+         tx_analysis.clone(),
+         priority_fee.f64().to_string(),
+         mev_protect,
+         sponsored,
+      );
+      gui.loading_window.reset();
+      gui.request_repaint();
+   });
+
+   // wait for the user to confirm or reject the transaction
+   let mut confirmed = None;
+   loop {
+      tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+      SHARED_GUI.read(|gui| {
+         confirmed = gui.tx_confirmation_window.get_confirmed_or_rejected();
+      });
+
+      if confirmed.is_some() {
+         SHARED_GUI.write(|gui| {
+            ctx.write(|ctx| {
+               gui.tx_confirmation_window.close(ctx);
+            });
+         });
+         break;
+      }
+   }
+
+   let confirmed = confirmed.unwrap();
+   if !confirmed {
+      return Err(anyhow!("Transaction rejected"));
+   }
+
+   let signer = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
+   let gas_used = tx_analysis.gas_used;
+
+   let fee = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_priority_fee());
+   let gas_limit = SHARED_GUI.read(|gui| gui.tx_confirmation_window.get_gas_limit());
+
+   let priority_fee = if fee.is_zero() {
+      ctx.get_priority_fee(chain.id()).unwrap_or_default()
+   } else {
+      fee
+   };
+
+   let base_fee = get_base_fee(ctx.clone(), chain.id()).await?;
+   let nonce = z_client
+      .request(chain.id(), |client| async move {
+         client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let tx_params = TxParams::new(
+      signer,
+      interact_to,
+      nonce,
+      value,
       chain,
-      mev_protect,
+      priority_fee.wei(),
+      base_fee.next,
+      calldata.clone(),
+      gas_used,
+      gas_limit,
+      vec![],
+   );
+
+   let event_name = main_event.name();
+   let nofitification = NotificationType::from_main_event(main_event);
+
+   SHARED_GUI.write(|gui| {
+      gui.notification.open_with_spinner(event_name, nofitification);
+      gui.request_repaint();
+   });
+
+   let receipt = send_tx(client, tx_params).await?;
+
+   let logs: Vec<Log> = receipt.logs().to_vec();
+   let logs = logs.iter().map(|l| l.clone().into_inner()).collect::<Vec<_>>();
+
+   let eth_balance_after = z_client
+      .request(chain.id(), |client| async move {
+         client.get_balance(from).await.map_err(|e| anyhow!("{:?}", e))
+      })
+      .await?;
+
+   let new_tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
       from,
       interact_to,
-      calldata,
+      contract_interact,
+      calldata.clone(),
       value,
-      auth_list,
+      logs,
+      receipt.gas_used,
+      eth_balance_before,
+      eth_balance_after,
+      vec![],
    )
    .await?;
+
+   let main_event = new_tx_analysis.infer_main_event(ctx.clone(), chain.id());
+
+   let new_main_event = if main_event.is_shield() {
+      let mut params = main_event.shield_params().clone();
+      params.recipient = Some(recipient.address.clone());
+      DecodedEvent::Shield(params)
+   } else {
+      main_event
+   };
+
+   let main_event_name = if new_main_event.is_known() {
+      new_main_event.name()
+   } else {
+      "Transaction successful".to_string()
+   };
+
+   let nofitification = NotificationType::from_main_event(new_main_event.clone());
+
+   let (tx_cost, tx_cost_usd) = ctx.write(|ctx| {
+      estimate_tx_cost(
+         ctx,
+         chain.id(),
+         receipt.gas_used,
+         priority_fee.wei(),
+      )
+   });
+
+   let eth_received_usd = ctx.write(|ctx| new_tx_analysis.eth_received_usd(ctx));
+   let timestamp = TimeStamp::now_as_secs();
+
+   let tx_rich = TransactionRich {
+      tx_type: receipt.transaction_type(),
+      success: receipt.status(),
+      chain: chain.id(),
+      block: receipt.block_number.unwrap_or_default(),
+      timestamp,
+      value_sent: new_tx_analysis.value_sent(),
+      value_sent_usd: new_tx_analysis.value_sent_usd(ctx.clone()),
+      eth_received: new_tx_analysis.eth_received(),
+      eth_received_usd,
+      tx_cost,
+      tx_cost_usd,
+      hash: receipt.transaction_hash,
+      contract_interact: new_tx_analysis.contract_interact,
+      analysis: new_tx_analysis,
+      main_event: new_main_event,
+   };
+
+   let ctx_clone = ctx.clone();
+   let tx = tx_rich.clone();
+   RT.spawn_blocking(move || {
+      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
+      ctx_clone.save_tx_db();
+   });
 
    RT.spawn(async move {
       let manager = ctx.balance_manager();
@@ -1098,6 +1251,25 @@ async fn shield(
 
       ctx.update_private_data(chain.id(), from).await;
       ctx.save_balance_manager();
+   });
+
+   if !receipt.status() {
+      return Err(anyhow!("Transaction Failed"));
+   }
+
+   let now = timestamp.timestamp();
+   let finish = now + 6;
+
+   SHARED_GUI.write(|gui| {
+      gui.notification.open_with_progress_bar(
+         now,
+         finish,
+         main_event_name,
+         nofitification,
+         Some(tx_rich.clone()),
+      );
+      gui.loading_window.reset();
+      gui.request_repaint();
    });
 
    Ok(())

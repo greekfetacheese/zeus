@@ -1417,17 +1417,23 @@ pub struct ShieldParams {
 
 impl ShieldParams {
    pub async fn from_log(ctx: ZeusCtx, chain: u64, log: &Log) -> Result<Vec<Self>, anyhow::Error> {
-      let mut events = Vec::new();
-
       if let Ok(decoded) = <RailgunSmartWallet::Shield as SolEvent>::decode_log(&log) {
-         let fee_wei = if decoded.fees.len() > 0 {
-            decoded.fees[0]
-         } else {
-            tracing::warn!("No fees found for Shield event");
-            U256::ZERO
-         };
+         let mut events = Vec::new();
 
-         for commitment in decoded.commitments.iter() {
+         if decoded.fees.len() != decoded.commitments.len() {
+            tracing::warn!(
+               "Shield event fees/commitments length mismatch: fees={}, commitments={}",
+               decoded.fees.len(),
+               decoded.commitments.len()
+            );
+         }
+
+         for (idx, commitment) in decoded.commitments.iter().enumerate() {
+            let fee_wei = decoded.fees.get(idx).copied().unwrap_or_else(|| {
+               tracing::warn!("No fee at index {} for Shield event", idx);
+               U256::ZERO
+            });
+
             let asset: AssetId = commitment.token.clone().into();
             let amount_wei: U256 = commitment.value.saturating_to();
             let mut erc20 = None;
@@ -1468,9 +1474,11 @@ impl ShieldParams {
 
             events.push(event);
          }
+
+         return Ok(events);
       }
 
-      Ok(events)
+      Err(anyhow!("Log decoding failed"))
    }
 }
 

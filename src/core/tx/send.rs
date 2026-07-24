@@ -539,7 +539,7 @@ pub async fn delegate_to(
    Ok(())
 }
 
-async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
+pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
 where
    P: Provider<Ethereum> + Clone + 'static,
 {
