@@ -175,13 +175,16 @@ impl ZeusCtx {
    /// Register all the available `RailgunSigners` from the vault's wallets
    ///
    /// This should be called at the startup and whenever a wallet is added.
-   pub async fn register_all_railgun_signers(&self) -> Result<(), anyhow::Error> {
+   pub async fn register_all_railgun_signers(
+      &self,
+      ignore_resync: bool,
+   ) -> Result<(), anyhow::Error> {
       let wallets = self.read(|ctx| ctx.vault.clone_all_wallets());
 
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {
             let signer = RailgunSigner::from_seed(&seed, 0, 1)?;
-            self.register_railgun_signer(signer).await?;
+            self.register_railgun_signer(signer, ignore_resync).await?;
          }
       }
       Ok(())
@@ -190,25 +193,99 @@ impl ZeusCtx {
    /// Register a RailgunSigner to the RailgunProvider for all supported chains
    ///
    /// Subsquent calls with the same signer are no-ops
-   pub async fn register_railgun_signer(&self, signer: RailgunSigner) -> Result<(), anyhow::Error> {
+   pub async fn register_railgun_signer(
+      &self,
+      signer: RailgunSigner,
+      ignore_resync: bool,
+   ) -> Result<(), anyhow::Error> {
       for chain in ChainId::supported_chains() {
          if !self.railgun_is_supported(chain) {
             continue;
          }
 
-         let mut provider = self.get_railgun_provider(chain.id()).await?;
+         let mut provider = self.get_railgun_provider(chain.id(), ignore_resync).await?;
          provider.register(signer.clone()).await?;
       }
       Ok(())
    }
 
-   /// Sync the [RailgunProvider] for the given chain
-   pub async fn sync_railgun(&self, chain: u64) -> Result<(), anyhow::Error> {
+   /// Re-sync the [RailgunProvider] from scratch for the given chain
+   ///
+   /// This will delete the railgun.db file and the events-snapshot.meta file
+   /// and re-sync the railgun indexer, it will still use the events-snapshot.data file
+   ///
+   /// We do a best effort to make sure we have the only handle to the provider,
+   /// if we don't the resynced db will not be found on disk and on next startup
+   /// the RailgunProvider will be re-created and resynced from scratch again.
+   pub async fn resync_railgun(&self, chain: u64) -> Result<(), anyhow::Error> {
       if !self.railgun_is_supported(chain.into()) {
          return Ok(());
       }
 
-      let mut provider = match self.get_railgun_provider(chain).await {
+      let is_resyncing = self.read(|ctx| ctx.railgun_status.resync_in_progress(chain));
+
+      if is_resyncing {
+         return Ok(());
+      }
+
+      self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, true));
+      let old_provider = self.write(|ctx| ctx.railgun_provider.remove(&chain));
+
+      if let Some(provider) = old_provider {
+         // Best effort to make sure we have the only handle
+         // ? Maybe at some point we should wrap the RailgunProvider with an Arc<Mutex>
+         loop {
+            let is_syncing = provider.is_syncing().await;
+            let is_verifying = provider.is_verifying().await;
+            let op_in_progress = self.read(|ctx| ctx.railgun_status.op_in_progress(chain));
+
+            if !is_syncing && !is_verifying && !op_in_progress {
+               break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+         }
+
+         tracing::info!(
+            "Dropped cached RailgunProvider for chain {} before db wipe",
+            chain
+         );
+
+         drop(provider);
+      } else {
+         drop(old_provider);
+      }
+
+      let res = async {
+         let railgun_dir = railgun_dir()?;
+         let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+         let filename = snapshot_loader.meta_filename(chain);
+         let meta_path = railgun_dir.join(filename);
+
+         tokio::fs::remove_file(&meta_path).await?;
+
+         let db_file = railgun_db_file(chain)?;
+         tokio::fs::remove_file(&db_file).await?;
+
+         self.register_all_railgun_signers(true).await?;
+         self.sync_railgun(chain, true).await?;
+
+         Ok(())
+      }
+      .await;
+
+      self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, false));
+
+      res
+   }
+
+   /// Sync the [RailgunProvider] for the given chain
+   pub async fn sync_railgun(&self, chain: u64, ignore_resync: bool) -> Result<(), anyhow::Error> {
+      if !self.railgun_is_supported(chain.into()) {
+         return Ok(());
+      }
+
+      let mut provider = match self.get_railgun_provider(chain, ignore_resync).await {
          Ok(provider) => provider,
          Err(err) => {
             self.write(|ctx| {
@@ -244,7 +321,15 @@ impl ZeusCtx {
    pub async fn get_railgun_provider(
       &self,
       chain: u64,
+      ignore_resync: bool,
    ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      if !ignore_resync {
+         let is_resyncing = self.read(|ctx| ctx.railgun_status.resync_in_progress(chain));
+         if is_resyncing {
+            return Err(anyhow!("Railgun resyncing in progress"));
+         }
+      }
+
       let mut retries = 0;
       let max_retries = 10;
       let wait_time = Duration::from_millis(500);
@@ -1552,13 +1637,6 @@ pub struct ZeusContext {
    /// is syncing for the given chain
    pub railgun_provider_sync_last_check: HashMap<u64, u128>,
 
-   /// Mapped railgun provider syncing status for each chain
-   ///
-   /// - `Key`: chain_id
-   ///
-   /// - `Value`: true if the railgun provider is syncing
-   pub railgun_provider_syncing: HashMap<u64, bool>,
-
    /// Disabled Chains
    pub disabled_chains: DisabledChains,
 
@@ -1689,7 +1767,6 @@ impl ZeusContext {
          sign_msg_window_open: false,
          last_checked_for_available_rpcs: HashMap::new(),
          railgun_provider_sync_last_check: HashMap::new(),
-         railgun_provider_syncing: HashMap::new(),
          available_rpcs: HashMap::new(),
          disabled_chains,
          railgun_status: RailgunStatus::new(),
@@ -1963,7 +2040,7 @@ impl ZeusContext {
    }
 
    pub fn is_railgun_provider_syncing(&self, chain: u64) -> bool {
-      self.railgun_provider_syncing.get(&chain).cloned().unwrap_or(false)
+      self.railgun_status.sync_in_progress(chain)
    }
 }
 

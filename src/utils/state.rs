@@ -109,13 +109,13 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
-      match ctx_clone.register_all_railgun_signers().await {
+      match ctx_clone.register_all_railgun_signers(false).await {
          Ok(_) => {}
          Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
       }
 
       for chain in SUPPORTED_CHAINS {
-         match ctx_clone.sync_railgun(chain).await {
+         match ctx_clone.sync_railgun(chain, false).await {
             Ok(_) => {}
             Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
          }
@@ -399,9 +399,26 @@ async fn state_update_interval(ctx: ZeusCtx) {
          let ctx_clone = ctx.clone();
          RT.spawn(async move {
             for chain in SUPPORTED_CHAINS {
-               match ctx_clone.sync_railgun(chain).await {
-                  Ok(_) => {}
-                  Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+               let error = ctx_clone.read(|ctx| ctx.railgun_status.sync_error(chain));
+
+               // Only do a resync if we detect an invalid root error
+               let is_invalid_root = error.map(|e| e.contains("Invalid root")).unwrap_or(false);
+
+               if is_invalid_root {
+                  match ctx_clone.resync_railgun(chain).await {
+                     Ok(_) => {
+                        tracing::info!(
+                           "Railgun resynced to valid root for chain {}",
+                           chain
+                        );
+                     }
+                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                  }
+               } else {
+                  match ctx_clone.sync_railgun(chain, false).await {
+                     Ok(_) => {}
+                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                  }
                }
             }
          });

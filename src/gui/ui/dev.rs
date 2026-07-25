@@ -346,7 +346,7 @@ impl UiTesting {
             if ui.add(button).clicked() {
                let chain = ctx.chain;
                let is_syncing = ctx.is_railgun_provider_syncing(chain.id());
-               ctx.railgun_provider_syncing.insert(chain.id(), !is_syncing);
+               ctx.railgun_status.set_sync_in_progress(chain.id(), !is_syncing);
             }
 
             let button =

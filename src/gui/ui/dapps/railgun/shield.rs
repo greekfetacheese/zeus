@@ -600,6 +600,8 @@ impl ShieldUi {
          self.currency.decimals(),
       );
 
+      ctx.railgun_status.set_op_in_progress(chain.id(), true);
+
       if self.mode.is_shield() {
          RT.spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
@@ -633,6 +635,10 @@ impl ShieldUi {
                   });
                }
             }
+
+            ctx.write(|ctx| {
+               ctx.railgun_status.set_op_in_progress(chain.id(), false);
+            });
          });
       } else {
          let self_broadcast = self.self_broadcast;
@@ -680,6 +686,10 @@ impl ShieldUi {
                   });
                }
             }
+
+            ctx.write(|ctx| {
+               ctx.railgun_status.set_op_in_progress(chain.id(), false);
+            });
          });
       }
    }
@@ -858,7 +868,7 @@ async fn shield(
       }
    };
 
-   let railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+   let railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
    if railgun_provider.chain_id() != chain.id() {
       return Err(anyhow!(
@@ -1231,6 +1241,10 @@ async fn shield(
    });
 
    RT.spawn(async move {
+      ctx.write(|ctx| {
+         ctx.railgun_status.set_op_in_progress(chain.id(), true);
+      });
+
       let manager = ctx.balance_manager();
       match manager
          .update_tokens_balance(ctx.clone(), chain.id(), from, vec![token], true)
@@ -1246,12 +1260,17 @@ async fn shield(
       }
 
       ctx.update_public_data(chain.id(), from);
-      match ctx.sync_railgun(chain.id()).await {
+      match ctx.sync_railgun(chain.id(), false).await {
          Ok(_) => {}
          Err(e) => error!("Error syncing Railgun: {:?}", e),
       }
 
       ctx.update_private_data(chain.id(), from).await;
+
+      ctx.write(|ctx| {
+         ctx.railgun_status.set_op_in_progress(chain.id(), false);
+      });
+
       ctx.save_balance_manager();
    });
 

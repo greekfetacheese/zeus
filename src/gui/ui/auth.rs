@@ -143,7 +143,7 @@ impl UnlockVault {
 
                let ctx_clone = ctx.clone();
                RT.spawn(async move {
-                  match ctx_clone.register_all_railgun_signers().await {
+                  match ctx_clone.register_all_railgun_signers(false).await {
                      Ok(_) => {}
                      Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
                   }
@@ -470,7 +470,12 @@ impl RecoverHDWallet {
                            ctx.build_wallet_info_cache();
                            let ctx_clone = ctx.clone();
                            RT.spawn(async move {
-                              ctx_clone.register_all_railgun_signers().await.unwrap();
+                              match ctx_clone.register_all_railgun_signers(false).await {
+                                 Ok(_) => {}
+                                 Err(e) => {
+                                    tracing::error!("Error registering Railgun signers: {:?}", e)
+                                 }
+                              }
                            });
                         }
                         Err(e) => {

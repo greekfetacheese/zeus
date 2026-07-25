@@ -275,7 +275,7 @@ async fn process_private_tokens(
       return Ok(token_list);
    }
 
-   let mut provider = ctx.get_railgun_provider(chain_id).await?;
+   let mut provider = ctx.get_railgun_provider(chain_id, false).await?;
 
    let wallet = ctx.get_wallet(owner);
 

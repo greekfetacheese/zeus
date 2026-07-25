@@ -146,6 +146,28 @@ mod tests {
    }
 
    #[tokio::test]
+   async fn test_resync() -> Result<(), anyhow::Error> {
+      tracing_subscriber::fmt()
+         .with_env_filter("info,error,debug")
+         .with_test_writer()
+         .init();
+
+      let ctx = ZeusCtx::new();
+      let chain = ChainId::EthereumSepolia;
+
+      {
+         let _ = ctx.get_railgun_provider(chain.id(), false).await?;
+      }
+
+      ctx.resync_railgun(chain.id()).await?;
+
+      tracing::info!("Railgun Resynced, waiting for 5 seconds  ...");
+      tokio::time::sleep(Duration::from_secs(5)).await;
+
+      Ok(())
+   }
+
+   #[tokio::test]
    async fn test_sync() -> Result<(), anyhow::Error> {
       tracing_subscriber::fmt()
          .with_env_filter("info,error,debug")

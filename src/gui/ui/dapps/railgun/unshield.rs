@@ -109,7 +109,7 @@ pub async fn unshield(
       gui.request_repaint();
    });
 
-   ctx.sync_railgun(chain.id()).await?;
+   ctx.sync_railgun(chain.id(), false).await?;
 
    let token = currency.to_erc20().into_owned();
    let asset = AssetId::Erc20(token.address);
@@ -165,7 +165,7 @@ async fn unshield_self_broadcast(
       gui.request_repaint();
    });
 
-   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+   let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
    let zeus_client = ctx.get_zeus_client();
    let last_synced_block_opt =
@@ -271,14 +271,40 @@ async fn unshield_self_broadcast(
       evm.tx.gas_limit = 30_000_000;
 
       let time = Instant::now();
-      sim_res = simulate_transaction(
+
+      sim_res = match simulate_transaction(
          &mut evm,
          from,
          interact_to,
          calldata.clone(),
          value,
          vec![],
-      )?;
+      ) {
+         Ok(res) => res,
+         Err(e) => {
+            // If we get a note already spent revert, railgun state is corrupted
+            // and we need to resync
+            let is_already_spent = e.to_string().contains("note already spent");
+            if is_already_spent {
+               let ctx_clone = ctx.clone();
+               RT.spawn(async move {
+                  sleep(Duration::from_secs(1)).await;
+                  match ctx_clone.resync_railgun(chain.id()).await {
+                     Ok(_) => {
+                        tracing::info!(
+                           "Railgun resynced to valid root for chain {}",
+                           chain.id()
+                        );
+                     }
+                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                  }
+               });
+            }
+
+            return Err(anyhow!("Simulation failed: {:?}", e));
+         }
+      };
+
       tracing::info!(
          "Simulate Unshield took {} ms, gas={}, logs={}",
          time.elapsed().as_millis(),
@@ -554,7 +580,7 @@ async fn unshield_via_paymaster(
    tx: TransactionBuilder,
    bundler_url: String,
 ) -> Result<(), anyhow::Error> {
-   let mut railgun_provider = ctx.get_railgun_provider(chain.id()).await?;
+   let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
    let chain_config = railgun_provider.chain_config();
 
@@ -844,14 +870,39 @@ async fn unshield_via_paymaster(
       evm.tx.gas_limit = 30_000_000;
 
       let time = Instant::now();
-      sim_res = simulate_transaction(
+      sim_res = match simulate_transaction(
          &mut evm,
          bundle_caller,
          interact_to,
          handle_ops_data.clone(),
          value,
          vec![],
-      )?;
+      ) {
+         Ok(res) => res,
+         Err(e) => {
+            // If we get a note already spent revert, railgun state is corrupted
+            // and we need to resync
+            let is_already_spent = e.to_string().contains("note already spent");
+            if is_already_spent {
+               let ctx_clone = ctx.clone();
+               RT.spawn(async move {
+                  sleep(Duration::from_secs(1)).await;
+                  match ctx_clone.resync_railgun(chain.id()).await {
+                     Ok(_) => {
+                        tracing::info!(
+                           "Railgun resynced to valid root for chain {}",
+                           chain.id()
+                        );
+                     }
+                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                  }
+               });
+            }
+
+            return Err(anyhow!("Simulation failed: {:?}", e));
+         }
+      };
+
       tracing::info!(
          "Simulate handleOps took {} ms, gas={}, logs={}",
          time.elapsed().as_millis(),
@@ -1126,14 +1177,22 @@ async fn post_unshield_sync(
    token: ERC20Token,
    self_broadcast: bool,
 ) {
+   ctx.write(|ctx| {
+      ctx.railgun_status.set_op_in_progress(chain.id(), true);
+   });
+
    let chain_id = chain.id();
 
-   match ctx.sync_railgun(chain_id).await {
+   match ctx.sync_railgun(chain_id, false).await {
       Ok(_) => {}
       Err(e) => error!("Error syncing Railgun: {:?}", e),
    }
 
    ctx.update_private_data(chain_id, from).await;
+
+   ctx.write(|ctx| {
+      ctx.railgun_status.set_op_in_progress(chain.id(), false);
+   });
 
    let manager = ctx.balance_manager();
    if let Err(e) = manager

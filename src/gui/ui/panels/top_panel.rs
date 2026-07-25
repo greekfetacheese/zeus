@@ -9,8 +9,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
 const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
 const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
-const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close the app yet!";
-const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close the app yet!";
+const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
+const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 100;
 const RAILGUN_CHECK_THRESHOLD: u128 = 250;
@@ -109,9 +109,16 @@ fn check_railgun(chain: u64) {
          return;
       }
 
-      let railgun_provider = match ctx.get_railgun_provider(chain).await {
+      ctx.write(|ctx| {
+         ctx.railgun_status.set_op_in_progress(chain, true);
+      });
+
+      let railgun_provider = match ctx.get_railgun_provider(chain, false).await {
          Ok(provider) => provider,
          Err(e) => {
+            ctx.write(|ctx| {
+               ctx.railgun_status.set_op_in_progress(chain, false);
+            });
             tracing::error!("Error getting Railgun provider: {:?}", e);
             return;
          }
@@ -120,7 +127,8 @@ fn check_railgun(chain: u64) {
       let is_syncing = railgun_provider.is_syncing().await;
 
       ctx.write(|ctx| {
-         ctx.railgun_provider_syncing.insert(chain, is_syncing);
+         ctx.railgun_status.set_op_in_progress(chain, false);
+         ctx.railgun_status.set_sync_in_progress(chain, is_syncing);
       });
    });
 }

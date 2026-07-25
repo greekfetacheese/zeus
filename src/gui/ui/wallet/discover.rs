@@ -662,7 +662,10 @@ impl DiscoverChildWallets {
 
                      let ctx_clone = ctx.clone();
                      RT.spawn(async move {
-                        ctx_clone.register_all_railgun_signers().await.unwrap();
+                        match ctx_clone.register_all_railgun_signers(false).await {
+                           Ok(_) => {}
+                           Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
+                        }
                      });
 
                      // Calculate the wallets again in the UI

@@ -315,6 +315,10 @@ impl DelegatedWallets {
 }
 
 pub struct RailgunStatus {
+   /// An operation in progress like shield/unshield etc..
+   pub op_in_progress: HashMap<u64, bool>,
+   pub resync_in_progress: HashMap<u64, bool>,
+   pub sync_in_progress: HashMap<u64, bool>,
    pub railgun_synced: HashMap<u64, bool>,
    pub railgun_synced_block: HashMap<u64, u64>,
    pub railgun_sync_error: HashMap<u64, String>,
@@ -323,6 +327,9 @@ pub struct RailgunStatus {
 impl RailgunStatus {
    pub fn new() -> Self {
       Self {
+         op_in_progress: HashMap::new(),
+         resync_in_progress: HashMap::new(),
+         sync_in_progress: HashMap::new(),
          railgun_synced: HashMap::new(),
          railgun_synced_block: HashMap::new(),
          railgun_sync_error: HashMap::new(),
@@ -337,10 +344,37 @@ impl RailgunStatus {
       railgun_synced_block.insert(1, 25594344);
 
       Self {
+         op_in_progress: HashMap::new(),
+         resync_in_progress: HashMap::new(),
+         sync_in_progress: HashMap::new(),
          railgun_synced,
          railgun_synced_block,
          railgun_sync_error: HashMap::new(),
       }
+   }
+
+   pub fn op_in_progress(&self, chain: u64) -> bool {
+      self.op_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn set_op_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.op_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn resync_in_progress(&self, chain: u64) -> bool {
+      self.resync_in_progress.get(&chain).cloned().unwrap_or(false)
+   }
+
+   pub fn set_resync_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.resync_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn set_sync_in_progress(&mut self, chain: u64, in_progress: bool) {
+      self.sync_in_progress.insert(chain, in_progress);
+   }
+
+   pub fn sync_in_progress(&self, chain: u64) -> bool {
+      self.sync_in_progress.get(&chain).cloned().unwrap_or(false)
    }
 
    pub fn synced(&self, chain: u64) -> bool {
