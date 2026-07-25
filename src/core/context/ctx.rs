@@ -245,10 +245,6 @@ impl ZeusCtx {
       &self,
       chain: u64,
    ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
-      if !cfg!(feature = "dev") {
-         return Err(anyhow!("Railgun is not supported in this build"));
-      }
-
       let mut retries = 0;
       let max_retries = 10;
       let wait_time = Duration::from_millis(500);

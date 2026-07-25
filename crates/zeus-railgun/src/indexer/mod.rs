@@ -44,7 +44,7 @@ fn parse_shield(
 
 fn parse_transact(
    event: &RailgunSmartWallet::Transact,
-   block_timestamp: u64,
+   block_number: u64,
 ) -> Result<Vec<SyncEvent>, SyncerError> {
    let tree_number = event.treeNumber.saturating_to();
    let start_position = event.startPosition.saturating_to::<u32>();
@@ -65,7 +65,10 @@ fn parse_transact(
             blinded_sender_viewing_key: ciphertext.blindedSenderViewingKey.into(),
             annotation_data: ciphertext.annotationData.into(),
          },
-         block_timestamp,
+         // Always the real chain block. Snapshot range filters and apply_tree
+         // watermarks use SyncEvent::block_number() — a unix timestamp here drops
+         // every Transact on historical snapshot replay (timestamp >> tip block).
+         block_number,
       ));
    }
    Ok(events)
@@ -73,7 +76,7 @@ fn parse_transact(
 
 fn parse_nullified(
    event: &RailgunSmartWallet::Nullified,
-   block_timestamp: u64,
+   block_number: u64,
 ) -> Result<Vec<SyncEvent>, SyncerError> {
    let tree_number = event.treeNumber as u32;
 
@@ -84,7 +87,7 @@ fn parse_nullified(
             tree_number: tree_number,
             nullifier: nullifier,
          },
-         block_timestamp,
+         block_number,
       ));
    }
    Ok(events)
@@ -183,7 +186,7 @@ fn parse_legacy_generated_commitment_batch(
 
 fn parse_legacy_nullifiers(
    event: &RailgunLegacy::Nullifiers,
-   block_timestamp: u64,
+   block_number: u64,
 ) -> Result<Vec<SyncEvent>, SyncerError> {
    let tree_number = event.treeNumber.saturating_to::<u32>();
 
@@ -197,7 +200,7 @@ fn parse_legacy_nullifiers(
             tree_number,
             nullifier: n,
          },
-         block_timestamp,
+         block_number,
       ));
    }
    Ok(events)
@@ -205,7 +208,7 @@ fn parse_legacy_nullifiers(
 
 fn parse_legacy_transact(
    event: &RailgunLegacy::Transact,
-   block_timestamp: u64,
+   block_number: u64,
 ) -> Result<Vec<SyncEvent>, SyncerError> {
    let tree_number = event.treeNumber.saturating_to();
    let start_position = event.startPosition.saturating_to::<u32>();
@@ -226,7 +229,7 @@ fn parse_legacy_transact(
             blinded_sender_viewing_key: ciphertext.blindedSenderViewingKey.into(),
             annotation_data: ciphertext.annotationData.into(),
          },
-         block_timestamp,
+         block_number,
       ));
    }
    Ok(events)

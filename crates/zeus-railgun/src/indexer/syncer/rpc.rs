@@ -445,7 +445,6 @@ impl RpcSyncer {
 
       for log in logs {
          let block_number = log.block_number.unwrap_or(0);
-         let block_timestamp = log.block_timestamp.unwrap_or(0);
          let tx_hash = log.transaction_hash.unwrap_or_default();
          let topic = log.topics().first().clone().unwrap_or_default();
 
@@ -456,13 +455,13 @@ impl RpcSyncer {
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log.inner) {
-            let mut tx_events = parse_transact(&decoded.data, block_timestamp)?;
+            let mut tx_events = parse_transact(&decoded.data, block_number)?;
             events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = parse_nullified(&decoded.data, block_timestamp)?;
+            let mut null_events = parse_nullified(&decoded.data, block_number)?;
             events.append(&mut null_events);
             continue;
          }
@@ -475,7 +474,7 @@ impl RpcSyncer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log.inner) {
-            let mut null_events = parse_legacy_nullifiers(&decoded.data, block_timestamp)?;
+            let mut null_events = parse_legacy_nullifiers(&decoded.data, block_number)?;
             events.append(&mut null_events);
             continue;
          }
@@ -490,7 +489,7 @@ impl RpcSyncer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log.inner) {
-            let mut tx_events = parse_legacy_transact(&decoded.data, block_timestamp)?;
+            let mut tx_events = parse_legacy_transact(&decoded.data, block_number)?;
             events.append(&mut tx_events);
             continue;
          }

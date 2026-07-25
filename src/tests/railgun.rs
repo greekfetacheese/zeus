@@ -153,7 +153,7 @@ mod tests {
          .init();
 
       let ctx = ZeusCtx::new();
-      let chain = ChainId::Ethereum;
+      let chain = ChainId::EthereumSepolia;
       let _chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
       let client = ctx.get_client(chain.id()).await?;
 

@@ -308,7 +308,7 @@ impl UtxoIndexer {
       &mut self,
       logs: Vec<Log>,
       block: u64,
-      timestamp: u64,
+      _timestamp: u64,
    ) -> Result<(), UtxoIndexerError> {
       let mut events = Vec::new();
 
@@ -320,13 +320,14 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Transact as SolEvent>::decode_log(&log) {
-            let mut tx_events = super::parse_transact(&decoded.data, timestamp)?;
+            // Store chain block, not the fork timestamp — same contract as RpcSyncer.
+            let mut tx_events = super::parse_transact(&decoded.data, block)?;
             events.append(&mut tx_events);
             continue;
          }
 
          if let Ok(decoded) = <RailgunSmartWallet::Nullified as SolEvent>::decode_log(&log) {
-            let mut null_events = super::parse_nullified(&decoded.data, timestamp)?;
+            let mut null_events = super::parse_nullified(&decoded.data, block)?;
             events.append(&mut null_events);
             continue;
          }
@@ -339,7 +340,7 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Nullifiers as SolEvent>::decode_log(&log) {
-            let mut null_events = super::parse_legacy_nullifiers(&decoded.data, timestamp)?;
+            let mut null_events = super::parse_legacy_nullifiers(&decoded.data, block)?;
             events.append(&mut null_events);
             continue;
          }
@@ -354,7 +355,7 @@ impl UtxoIndexer {
          }
 
          if let Ok(decoded) = <RailgunLegacy::Transact as SolEvent>::decode_log(&log) {
-            let mut tx_events = super::parse_legacy_transact(&decoded.data, timestamp)?;
+            let mut tx_events = super::parse_legacy_transact(&decoded.data, block)?;
             events.append(&mut tx_events);
             continue;
          }
@@ -405,7 +406,7 @@ impl UtxoIndexer {
          SyncEvent::Transact(transact, _) => {
             self.handle_transact(transact, block, tree_leaves, apply_tree)?
          }
-         SyncEvent::Nullified(nullified, ts) => self.handle_nullified(nullified, *ts, block),
+         SyncEvent::Nullified(nullified, _) => self.handle_nullified(nullified, block),
          SyncEvent::Legacy(legacy, _) => self.handle_legacy(legacy, block, tree_leaves, apply_tree),
       };
 
@@ -458,10 +459,11 @@ impl UtxoIndexer {
       Ok(())
    }
 
-   fn handle_nullified(&mut self, event: &syncer::Nullified, timestamp: u64, block: u64) {
+   fn handle_nullified(&mut self, event: &syncer::Nullified, block: u64) {
       for account in self.accounts.iter_mut() {
          if block > account.synced_block() {
-            account.handle_nullified_event(event, timestamp);
+            // timestamp arg is unused by the account handler today
+            account.handle_nullified_event(event, block);
          }
       }
    }
