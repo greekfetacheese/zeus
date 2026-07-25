@@ -12,6 +12,7 @@ pub mod contacts;
 pub mod encryption;
 pub mod general;
 pub mod networks;
+pub mod railgun;
 pub mod theme;
 
 pub use change_credentials::ChangeCredentialsUi;
@@ -19,6 +20,7 @@ pub use contacts::ContactsUi;
 pub use encryption::EncryptionSettings;
 pub use general::GeneralSettings;
 pub use networks::NetworkSettings;
+pub use railgun::RailgunSettings;
 pub use theme::ThemeSettings;
 
 pub struct SettingsUi {
@@ -69,7 +71,7 @@ impl SettingsUi {
          return;
       }
 
-      self.main_ui(theme, ui);
+      self.main_ui(ctx, theme, ui);
       self.encryption.show(theme, ui);
       self.change_credentials_ui.show(theme, ui);
       self.contacts_ui.show(ctx, theme, icons, ui);
@@ -77,7 +79,7 @@ impl SettingsUi {
       self.theme.show(theme, ui);
    }
 
-   pub fn main_ui(&mut self, theme: &Theme, ui: &mut Ui) {
+   pub fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       Window::new("settings_main_ui")
          .title_bar(false)
          .resizable(false)
@@ -89,55 +91,58 @@ impl SettingsUi {
             ui.set_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
+            let frame = Frame::new().inner_margin(10);
 
-            ui.vertical_centered(|ui| {
-               ui.spacing_mut().item_spacing.y = 20.0;
+            frame.show(ui, |ui| {
+               ui.vertical_centered(|ui| {
+                  ui.spacing_mut().item_spacing.y = 20.0;
 
-               ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
+                  ui.label(RichText::new("Settings").size(theme.text_sizes.heading));
 
-               let size = vec2(self.size.0, 50.0);
+                  let size = vec2(self.size.0 * 0.95, 50.0);
 
-               let text = RichText::new("Change your Credentials").size(theme.text_sizes.large);
-               let button = Button::new(text).min_size(size).visuals(button_visuals);
+                  let text = RichText::new("Change your Credentials").size(theme.text_sizes.large);
+                  let button = Button::new(text).min_size(size).visuals(button_visuals);
 
-               if ui.add(button).clicked() {
-                  self.change_credentials_ui.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.change_credentials_ui.open();
+                  }
 
-               let text = RichText::new("Encryption Settings").size(theme.text_sizes.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
+                  let text = RichText::new("Encryption Settings").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(button).clicked() {
-                  self.encryption.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.encryption.open(ctx);
+                  }
 
-               let text = RichText::new("Contacts").size(theme.text_sizes.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
+                  let text = RichText::new("Contacts").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(button).clicked() {
-                  self.contacts_ui.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.contacts_ui.open();
+                  }
 
-               let text = RichText::new("Network Settings").size(theme.text_sizes.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
+                  let text = RichText::new("Network Settings").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(button).clicked() {
-                  self.network.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.network.open();
+                  }
 
-               let text = RichText::new("General Settings").size(theme.text_sizes.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
+                  let text = RichText::new("General Settings").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(button).clicked() {
-                  self.general.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.general.open();
+                  }
 
-               let text = RichText::new("Theme Settings").size(theme.text_sizes.large);
-               let button = Button::new(text).visuals(button_visuals).min_size(size);
+                  let text = RichText::new("Theme Settings").size(theme.text_sizes.large);
+                  let button = Button::new(text).visuals(button_visuals).min_size(size);
 
-               if ui.add(button).clicked() {
-                  self.theme.open();
-               }
+                  if ui.add(button).clicked() {
+                     self.theme.open();
+                  }
+               });
             });
          });
    }

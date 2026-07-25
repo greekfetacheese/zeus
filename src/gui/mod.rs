@@ -12,7 +12,7 @@ use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
+   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, settings::RailgunSettings, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    dapps::{across::AcrossBridge, railgun::ShieldUi, uniswap::UniswapUi},
    dev::DevUi,
@@ -88,6 +88,7 @@ pub struct GUI {
    pub msg_window: MsgWindow,
    pub loading_window: LoadingWindow,
    pub settings: SettingsUi,
+   pub railgun_settings: RailgunSettings,
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub confirm_window: ConfirmWindow,
@@ -123,6 +124,7 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
 
       let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
+      let railgun_settings = ctx.write(|ctx| settings::RailgunSettings::new(ctx, overlay_manager.clone()));
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
@@ -156,6 +158,7 @@ impl GUI {
          msg_window,
          loading_window,
          settings,
+         railgun_settings,
          tx_history,
          data_inspection: false,
          confirm_window,

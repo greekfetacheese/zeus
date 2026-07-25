@@ -69,6 +69,12 @@ impl UtxoSyncer for SubsquidSyncer {
       Ok(self.latest_block().await?)
    }
 
+   async fn set_concurrency(&self, _concurrency: usize) {
+   }
+
+   async fn set_block_range(&self, _block_range: u64) {
+   }
+
    async fn sync(
       &self,
       from_block: u64,

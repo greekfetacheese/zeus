@@ -32,8 +32,10 @@ use crate::{
 /// block range.
 ///
 /// So its impossible to find out the block_range limit for each provider
-const DEFAULT_BLOCK_RANGE: u64 = 5_000;
-const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
+pub const DEFAULT_BLOCK_RANGE: u64 = 5_000;
+pub const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
+
+pub const DEFAULT_CONCURRENCY: usize = 2;
 
 /// Transient RPC failures (rate limits, timeouts, 5xx) are common on archive
 /// `eth_getLogs`. Retry per chunk so one flake doesn't abort the whole sync.
@@ -231,6 +233,14 @@ impl UtxoSyncer for RpcSyncer {
       let client = self.provider.lock().await.clone();
       let latest = client.get_block_number().await.map_err(|e| SyncerError::new(e))?;
       Ok(latest)
+   }
+
+   async fn set_concurrency(&self, concurrency: usize) {
+      self.set_concurrency(concurrency).await;
+   }
+
+   async fn set_block_range(&self, block_range: u64) {
+      self.set_block_range(block_range).await;
    }
 
    async fn set_provider(&self, provider: DynProvider<Ethereum>) {

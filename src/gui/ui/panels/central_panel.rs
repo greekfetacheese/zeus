@@ -59,6 +59,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    );
 
    gui.settings.show(ctx, icons.clone(), theme, ui);
+   gui.railgun_settings.show(ctx, theme, icons.clone(), ui);
    gui.connected_dapps.show(ctx, theme, ui);
 
    gui.wallet_ui.show(ctx, theme, icons.clone(), ui);

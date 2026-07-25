@@ -2,17 +2,70 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_eth::{
    alloy_primitives::{Address, Bytes},
-   types::SUPPORTED_CHAINS,
+   types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
 };
 
 use crate::core::{
    WalletInfo,
-   context::{DELEGATE_WALLET_CHECK_TIMEOUT, delegated_wallets_dir, disabled_chains_dir},
+   context::{
+      DELEGATE_WALLET_CHECK_TIMEOUT, delegated_wallets_dir, disabled_chains_dir, railgun_config_dir,
+   },
+};
+
+use zeus_railgun::indexer::syncer::rpc::{
+   DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
 };
 
 use super::serde_hashmap;
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RailgunConfig {
+   pub rpc_syncer_concurrency: usize,
+   pub rpc_syncer_block_range: HashMap<u64, u64>,
+}
+
+impl RailgunConfig {
+   pub fn new() -> Self {
+      let mut rpc_syncer_block_range = HashMap::new();
+
+      for chain in ChainId::supported_chains() {
+         let range = match chain {
+            ChainId::Ethereum => DEFAULT_BLOCK_RANGE,
+            ChainId::EthereumSepolia => SEPOLIA_BLOCK_RANGE,
+            _ => DEFAULT_BLOCK_RANGE,
+         };
+         rpc_syncer_block_range.insert(chain.id(), range);
+      }
+
+      Self {
+         rpc_syncer_concurrency: DEFAULT_CONCURRENCY,
+         rpc_syncer_block_range,
+      }
+   }
+
+   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+      let dir = railgun_config_dir()?;
+      let data = std::fs::read_to_string(dir)?;
+      let config = serde_json::from_str(&data)?;
+
+      Ok(config)
+   }
+
+   pub fn save(&self) -> Result<(), anyhow::Error> {
+      let dir = railgun_config_dir()?;
+      let data = serde_json::to_string(self)?;
+      std::fs::write(dir, data)?;
+      Ok(())
+   }
+}
+
+impl Default for RailgunConfig {
+   fn default() -> Self {
+      Self::new()
+   }
+}
 
 #[derive(Default, Clone, Debug)]
 pub struct Recipient {

@@ -2,9 +2,10 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
-use crate::gui::SHARED_GUI;
 use crate::utils::RT;
-use egui::{Align2, Order, RichText, Slider, Ui, Window, vec2};
+use crate::{core::ZeusContext, gui::SHARED_GUI};
+use egui::{Align2, Order, RichText, Ui, Window, vec2};
+use elegance::{Badge, BadgeTone, Slider};
 use ncrypt_me::Argon2;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
@@ -44,7 +45,7 @@ impl EncryptionSettings {
          open: false,
          overlay,
          argon_params: Argon2::balanced(),
-         size: (450.0, 350.0),
+         size: (360.0, 300.0),
       }
    }
 
@@ -52,10 +53,11 @@ impl EncryptionSettings {
       self.open
    }
 
-   pub fn open(&mut self) {
+   pub fn open(&mut self, ctx: &mut ZeusContext) {
       if !self.open {
          self.overlay.window_opened();
          self.open = true;
+         self.argon_params = ctx.argon_params.clone();
       }
    }
 
@@ -90,7 +92,7 @@ impl EncryptionSettings {
             ui.spacing_mut().item_spacing = vec2(5.0, 15.0);
             ui.spacing_mut().button_padding = vec2(10.0, 4.0);
 
-            let slider_size = vec2(ui.available_width() * 0.4, 20.0);
+            let slider_size = vec2(ui.available_width() * 0.6, 20.0);
             let button_visuals = theme.button_visuals();
 
             let min_m_cost = if cfg!(feature = "dev") {
@@ -111,9 +113,18 @@ impl EncryptionSettings {
                MAX_P_COST
             };
 
+            let mem_fmt = |mb: f64| format!("{:.0}", mb / 1000.0);
+
+            let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+
             ui.vertical_centered(|ui| {
-               ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal))
-                  .on_hover_text(M_COST_TIP);
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.horizontal(|ui| {
+                     let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+                     ui.label(RichText::new("Memory cost (MB):").size(theme.text_sizes.normal));
+                     ui.add(info_tip).on_hover_text(M_COST_TIP);
+                  });
+               });
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(
@@ -121,12 +132,17 @@ impl EncryptionSettings {
                         &mut self.argon_params.m_cost,
                         min_m_cost..=MAX_M_COST,
                      )
-                     .custom_formatter(|v, _ctx| format!("{:.0}", v / 1000.0)),
+                     .value_fmt(mem_fmt),
                   );
                });
 
-               ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal))
-                  .on_hover_text(T_COST_TIP);
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.horizontal(|ui| {
+                     let info_tip = Badge::new(q_mark.clone(), BadgeTone::Info);
+                     ui.label(RichText::new("Iterations:").size(theme.text_sizes.normal));
+                     ui.add(info_tip).on_hover_text(T_COST_TIP);
+                  });
+               });
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
@@ -135,8 +151,13 @@ impl EncryptionSettings {
                   ));
                });
 
-               ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal))
-                  .on_hover_text(P_COST_TIP);
+               ui.allocate_ui(slider_size, |ui| {
+                  ui.horizontal(|ui| {
+                     let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                     ui.label(RichText::new("Parallelism:").size(theme.text_sizes.normal));
+                     ui.add(info_tip).on_hover_text(P_COST_TIP);
+                  });
+               });
 
                ui.allocate_ui(slider_size, |ui| {
                   ui.add(Slider::new(
@@ -147,7 +168,7 @@ impl EncryptionSettings {
 
                ui.add_space(20.0);
 
-               let size = vec2(ui.available_width() * 0.7, 35.0);
+               let size = vec2(ui.available_width() * 0.6, 35.0);
                let text = RichText::new("Save").size(theme.text_sizes.large);
                let button = Button::new(text).visuals(button_visuals).min_size(size);
 
@@ -175,9 +196,12 @@ impl EncryptionSettings {
          // Encrypt the vault with the new params
          match ctx.encrypt_and_save_vault(None, Some(new_params.clone())) {
             Ok(_) => {
+               ctx.write(|ctx| {
+                  ctx.argon_params = new_params.clone();
+               });
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
-                  gui.open_msg_window("Encryption settings have been updated", "");
+                  gui.open_msg_window("Success", "Encryption settings have been updated");
                   gui.settings.encryption.close();
                   gui.settings.encryption.argon_params = new_params;
                   gui.request_repaint();
@@ -186,10 +210,7 @@ impl EncryptionSettings {
             Err(e) => {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
-                  gui.open_msg_window(
-                     "Failed to update encryption settings",
-                     format!("{}", e),
-                  );
+                  gui.open_msg_window("Error", format!("{}", e));
                   gui.request_repaint();
                });
             }

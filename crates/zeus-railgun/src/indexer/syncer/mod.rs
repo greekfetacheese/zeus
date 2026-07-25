@@ -21,6 +21,8 @@ pub trait TxidSyncer: crate::MaybeSend {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait UtxoSyncer: crate::MaybeSend {
+   async fn set_concurrency(&self, concurrency: usize);
+   async fn set_block_range(&self, block_range: u64);
    async fn latest_block(&self) -> Result<u64, SyncerError>;
    async fn sync(&self, from_block: u64, to_block: u64) -> Result<Vec<SyncEvent>, SyncerError>;
    /// Replaces the underlying RPC provider (e.g. to switch RPC endpoints).

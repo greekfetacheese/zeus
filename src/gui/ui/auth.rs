@@ -152,12 +152,13 @@ impl UnlockVault {
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
                   gui.loading_window.reset();
-                  gui.settings.encryption.set_argon2(info.argon2);
+                  gui.settings.encryption.set_argon2(info.argon2.clone());
                   gui.header.open();
                   gui.header.set_current_wallet(master_wallet.clone());
                });
 
                ctx.write(|ctx| {
+                  ctx.argon_params = info.argon2;
                   ctx.vault_unlocked = true;
                   ctx.current_wallet = master_wallet;
                });

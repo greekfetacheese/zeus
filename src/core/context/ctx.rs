@@ -40,6 +40,7 @@ const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
 const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
+pub const RAILGUN_CONFIG_FILE: &str = "railgun_config.json";
 
 /// This is the minimum USD value in a base currency that a pool needs to have in order to be considered sufficiently liquid
 pub const DEFAULT_POOL_MINIMUM_LIQUIDITY: f64 = 10_000.0;
@@ -90,6 +91,11 @@ pub fn delegated_wallets_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn disabled_chains_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(DISABLED_CHAINS_FILE);
+   Ok(dir)
+}
+
+pub fn railgun_config_dir() -> Result<PathBuf, anyhow::Error> {
+   let dir = data_dir()?.join(RAILGUN_CONFIG_FILE);
    Ok(dir)
 }
 
@@ -328,6 +334,10 @@ impl ZeusCtx {
          if is_resyncing {
             return Err(anyhow!("Railgun resyncing in progress"));
          }
+      }
+
+      if self.is_chain_disabled(chain) {
+         return Err(anyhow!("Chain {} is disabled", chain));
       }
 
       let mut retries = 0;
@@ -1552,6 +1562,9 @@ pub struct ZeusContext {
    /// Loaded Vault
    pub vault: Vault,
 
+   /// The Argon2 params used for the current vault
+   pub argon_params: Argon2,
+
    /// True if a vault exists in the data directory
    pub vault_exists: bool,
 
@@ -1642,6 +1655,9 @@ pub struct ZeusContext {
 
    /// Railgun status for the services UI
    pub railgun_status: RailgunStatus,
+
+   /// Railgun configuration
+   pub railgun_config: RailgunConfig,
 }
 
 impl ZeusContext {
@@ -1726,6 +1742,14 @@ impl ZeusContext {
          }
       };
 
+      let railgun_config = match RailgunConfig::load_from_file() {
+         Ok(config) => config,
+         Err(e) => {
+            tracing::error!("Failed to load Railgun config: {:?}", e);
+            RailgunConfig::default()
+         }
+      };
+
       let priority_fee = PriorityFee::default();
       let address_names = build_address_name_cache();
 
@@ -1737,6 +1761,7 @@ impl ZeusContext {
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          wallet_info_cache: HashMap::new(),
          vault: Vault::default(),
+         argon_params: Argon2::balanced(),
          save_vault_in_progress: false,
          vault_exists,
          vault_unlocked: false,
@@ -1770,6 +1795,7 @@ impl ZeusContext {
          available_rpcs: HashMap::new(),
          disabled_chains,
          railgun_status: RailgunStatus::new(),
+         railgun_config,
       }
    }
 

@@ -396,7 +396,7 @@ impl Header {
                   if ui.add(MenuItem::new("Settings").shortcut("⌘ S")).clicked() {
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.msg_window.open("Not implement yet", "");
+                           gui.railgun_settings.open(gui.ctx.clone());
                            gui.request_repaint();
                         });
                      });
