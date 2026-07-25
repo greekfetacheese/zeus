@@ -2,12 +2,12 @@ use alloy_primitives::Address;
 use alloy_provider::{DynProvider, Provider, network::Ethereum};
 use alloy_rpc_types::{BlockNumberOrTag, Filter, Log as RpcLog};
 use alloy_sol_types::SolEvent;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tokio::{
    sync::{Mutex, Semaphore},
    task::JoinHandle,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -34,6 +34,12 @@ use crate::{
 /// So its impossible to find out the block_range limit for each provider
 const DEFAULT_BLOCK_RANGE: u64 = 5_000;
 const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
+
+/// Transient RPC failures (rate limits, timeouts, 5xx) are common on archive
+/// `eth_getLogs`. Retry per chunk so one flake doesn't abort the whole sync.
+const GET_LOGS_MAX_RETRIES: usize = 5;
+/// Base delay between retries; multiplied by attempt number (linear backoff).
+const GET_LOGS_RETRY_BASE_DELAY_MS: u64 = 500;
 
 fn default_block_range(chain: u64) -> u64 {
    match chain {
@@ -113,6 +119,38 @@ impl RpcSyncer {
       *self.block_range.lock().await = block_range;
    }
 
+   /// `eth_getLogs` for a single filter with linear backoff retries.
+   async fn get_logs_with_retry(
+      client: &DynProvider<Ethereum>,
+      filter: &Filter,
+      from_block: u64,
+      to_block: u64,
+   ) -> Result<Vec<RpcLog>, SyncerError> {
+      let mut attempt = 0usize;
+      loop {
+         match client.get_logs(filter).await {
+            Ok(logs) => return Ok(logs),
+            Err(e) => {
+               attempt += 1;
+               if attempt > GET_LOGS_MAX_RETRIES {
+                  debug!(
+                     "get_logs failed for blocks {}-{} after {} attempts: {}",
+                     from_block, to_block, GET_LOGS_MAX_RETRIES, e
+                  );
+                  return Err(SyncerError::new(e));
+               }
+
+               let delay_ms = GET_LOGS_RETRY_BASE_DELAY_MS.saturating_mul(attempt as u64);
+               debug!(
+                  "get_logs failed for blocks {}-{} (attempt {}/{}): {} — retrying in {}ms",
+                  from_block, to_block, attempt, GET_LOGS_MAX_RETRIES, e, delay_ms
+               );
+               tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
+         }
+      }
+   }
+
    async fn get_logs(&self, from_block: u64, to_block: u64) -> Result<Vec<RpcLog>, SyncerError> {
       debug!(
          "Fetching logs from block {} to {}",
@@ -155,8 +193,8 @@ impl RpcSyncer {
                   .from_block(BlockNumberOrTag::Number(start_block))
                   .to_block(BlockNumberOrTag::Number(end_block));
 
-               // TODO: Add retry logic, if one call fails the whole sync fails
-               let log_chunk = client.get_logs(&local_filter).await.map_err(SyncerError::new)?;
+               let log_chunk =
+                  Self::get_logs_with_retry(&client, &local_filter, start_block, end_block).await?;
                let mut logs_lock = logs_clone.lock().await;
                logs_lock.extend(log_chunk);
                Ok(())
@@ -166,11 +204,15 @@ impl RpcSyncer {
             start_block = end_block + 1;
          }
 
+         // Fail the whole fetch if any chunk exhausted retries — partial logs
+         // would silently produce wrong trees / missing nullifiers.
          for task in tasks {
             match task.await {
-               Ok(_) => {}
+               Ok(Ok(())) => {}
+               Ok(Err(e)) => return Err(e),
                Err(e) => {
-                  error!("Error fetching logs: {:?}", e);
+                  debug!("get_logs task join error: {:?}", e);
+                  return Err(SyncerError::new(e));
                }
             }
          }
@@ -178,8 +220,7 @@ impl RpcSyncer {
          return Ok(Arc::try_unwrap(logs).unwrap().into_inner());
       }
 
-      let logs = client.get_logs(&filter).await.map_err(SyncerError::new)?;
-      Ok(logs)
+      Self::get_logs_with_retry(&client, &filter, from_block, to_block).await
    }
 }
 
