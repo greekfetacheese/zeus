@@ -184,7 +184,7 @@ impl PriceManagerHandle {
          )
          .await?;
 
-      // If there is still no good pool for a token, try to sync new pools
+      // If there is still no good pool for a token, try to discover new pools
       let mut tokens_without_pool = Vec::new();
       for token in &tokens {
          let pool_opt = self.get_good_pool_for(chain, pool_manager.clone(), token.address);
@@ -195,7 +195,7 @@ impl PriceManagerHandle {
       }
 
       match pool_manager
-         .sync_pools_for_tokens(ctx.clone(), chain, tokens_without_pool.clone())
+         .discover_pools_for_tokens(ctx.clone(), chain, tokens_without_pool.clone())
          .await
       {
          Ok(_) => {}

@@ -426,7 +426,7 @@ async fn get_erc20_token(
       let pool_manager = ctx_clone.pool_manager();
 
       match pool_manager
-         .sync_pools_for_tokens(
+         .discover_pools_for_tokens(
             ctx_clone.clone(),
             chain,
             vec![token_clone.clone()],

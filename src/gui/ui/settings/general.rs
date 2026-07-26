@@ -11,12 +11,12 @@ use zeus_widgets::Button;
 pub struct GeneralSettings {
    open: bool,
    overlay: OverlayManager,
-   sync_v4_pools_on_startup: bool,
+   discover_v4_pools_on_startup: bool,
    concurrency_for_syncing_balances: usize,
-   concurrency_for_syncing_pools: usize,
+   concurrency_for_discovering_pools: usize,
    batch_size_for_syncing_balances: usize,
    batch_size_for_updating_pools_state: usize,
-   batch_size_for_syncing_pools: usize,
+   batch_size_for_discovering_pools: usize,
    ignore_chains: HashSet<u64>,
    size: (f32, f32),
 }
@@ -28,12 +28,12 @@ impl GeneralSettings {
       Self {
          open: false,
          overlay,
-         sync_v4_pools_on_startup: pool_manager.do_we_sync_v4_pools(),
+         discover_v4_pools_on_startup: pool_manager.do_we_discover_v4_pools(),
          concurrency_for_syncing_balances: balance_manager.concurrency(),
-         concurrency_for_syncing_pools: pool_manager.concurrency(),
+         concurrency_for_discovering_pools: pool_manager.concurrency(),
          batch_size_for_syncing_balances: balance_manager.batch_size(),
          batch_size_for_updating_pools_state: pool_manager.batch_size_for_updating_pools_state(),
-         batch_size_for_syncing_pools: pool_manager.batch_size_for_syncing_pools(),
+         batch_size_for_discovering_pools: pool_manager.batch_size_for_discovering_pools(),
          ignore_chains: pool_manager.ignore_chains(),
          size: (400.0, 550.0),
       }
@@ -61,12 +61,12 @@ impl GeneralSettings {
       pool_manager.reset_default_settings();
       balance_manager.reset_default_settings();
 
-      self.sync_v4_pools_on_startup = pool_manager.do_we_sync_v4_pools();
+      self.discover_v4_pools_on_startup = pool_manager.do_we_discover_v4_pools();
       self.concurrency_for_syncing_balances = balance_manager.concurrency();
-      self.concurrency_for_syncing_pools = pool_manager.concurrency();
+      self.concurrency_for_discovering_pools = pool_manager.concurrency();
       self.batch_size_for_syncing_balances = balance_manager.batch_size();
       self.batch_size_for_updating_pools_state = pool_manager.batch_size_for_updating_pools_state();
-      self.batch_size_for_syncing_pools = pool_manager.batch_size_for_syncing_pools();
+      self.batch_size_for_discovering_pools = pool_manager.batch_size_for_discovering_pools();
       self.ignore_chains = pool_manager.ignore_chains();
 
       RT.spawn_blocking(move || {
@@ -116,8 +116,8 @@ impl GeneralSettings {
                   }
 
                   let text =
-                     RichText::new("Sync V4 Pools on startup").size(theme.text_sizes.normal);
-                  ui.checkbox(&mut self.sync_v4_pools_on_startup, text);
+                     RichText::new("Discover V4 Pools on startup").size(theme.text_sizes.normal);
+                  ui.checkbox(&mut self.discover_v4_pools_on_startup, text);
 
                   let text = RichText::new("Chains to ignore at V4 historic sync")
                      .size(theme.text_sizes.normal);
@@ -134,22 +134,23 @@ impl GeneralSettings {
                   }
 
                   ui.label(
-                     RichText::new("Concurrency for Syncing & Updating Pools")
+                     RichText::new("Concurrency for Discovering & Updating Pools")
                         .size(theme.text_sizes.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
-                        &mut self.concurrency_for_syncing_pools,
+                        &mut self.concurrency_for_discovering_pools,
                         1..=10,
                      ));
                   });
 
                   ui.label(
-                     RichText::new("Batch Size for Syncing Pools").size(theme.text_sizes.normal),
+                     RichText::new("Batch Size for Discovering Pools")
+                        .size(theme.text_sizes.normal),
                   );
                   ui.allocate_ui(slider_size, |ui| {
                      ui.add(Slider::new(
-                        &mut self.batch_size_for_syncing_pools,
+                        &mut self.batch_size_for_discovering_pools,
                         1..=60,
                      ));
                   });
@@ -213,31 +214,31 @@ impl GeneralSettings {
             false
          };
 
-      let save_pool_manager = if self.concurrency_for_syncing_pools
-         != ctx.pool_manager.concurrency()
-      {
-         ctx.pool_manager.set_concurrency(self.concurrency_for_syncing_pools);
-         true
-      } else if self.batch_size_for_updating_pools_state
-         != ctx.pool_manager.batch_size_for_updating_pools_state()
-      {
-         ctx.pool_manager
-            .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
-         true
-      } else if self.batch_size_for_syncing_pools != ctx.pool_manager.batch_size_for_syncing_pools()
-      {
-         ctx.pool_manager
-            .set_batch_size_for_syncing_pools(self.batch_size_for_syncing_pools);
-         true
-      } else if self.sync_v4_pools_on_startup != ctx.pool_manager.do_we_sync_v4_pools() {
-         ctx.pool_manager.set_sync_v4_pools(self.sync_v4_pools_on_startup);
-         true
-      } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
-         ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
-         true
-      } else {
-         false
-      };
+      let save_pool_manager =
+         if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
+            ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
+            true
+         } else if self.batch_size_for_updating_pools_state
+            != ctx.pool_manager.batch_size_for_updating_pools_state()
+         {
+            ctx.pool_manager
+               .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
+            true
+         } else if self.batch_size_for_discovering_pools
+            != ctx.pool_manager.batch_size_for_discovering_pools()
+         {
+            ctx.pool_manager
+               .set_batch_size_for_discovering_pools(self.batch_size_for_discovering_pools);
+            true
+         } else if self.discover_v4_pools_on_startup != ctx.pool_manager.do_we_discover_v4_pools() {
+            ctx.pool_manager.set_discover_v4_pools(self.discover_v4_pools_on_startup);
+            true
+         } else if self.ignore_chains != ctx.pool_manager.ignore_chains() {
+            ctx.pool_manager.set_ignore_chains(self.ignore_chains.clone());
+            true
+         } else {
+            false
+         };
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());

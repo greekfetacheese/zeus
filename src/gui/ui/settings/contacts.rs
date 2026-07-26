@@ -89,7 +89,7 @@ impl AddContact {
                let text_edit_visuals = theme.text_edit_visuals();
                let button_visuals = theme.button_visuals();
 
-               ui.label(RichText::new("Name:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Name").size(theme.text_sizes.large));
                let name = &mut self.contact.name;
                ui.add(
                   SecureTextEdit::singleline(name)
@@ -99,7 +99,7 @@ impl AddContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(RichText::new("Public Address:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Public Address").size(theme.text_sizes.large));
                let address = &mut self.contact.evm_address;
                ui.add(
                   SecureTextEdit::singleline(address)
@@ -109,7 +109,7 @@ impl AddContact {
                      .font(FontId::proportional(theme.text_sizes.normal)),
                );
 
-               ui.label(RichText::new("Railgun Address:").size(theme.text_sizes.large));
+               ui.label(RichText::new("Railgun Address").size(theme.text_sizes.large));
                let address = &mut self.contact.zk_address;
                ui.add(
                   SecureTextEdit::singleline(address)

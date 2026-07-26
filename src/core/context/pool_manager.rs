@@ -34,8 +34,8 @@ use anyhow::anyhow;
 
 const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
 
-// Timeout for pool sync in seconds (10 minutes)
-const POOL_SYNC_TIMEOUT: u64 = 600;
+// Timeout for pool discovery in seconds (10 minutes)
+const POOL_DISCOVERY_TIMEOUT: u64 = 600;
 
 /// A simple struct to identify a V2/V3/V4 pool
 #[derive(PartialEq, Eq, Hash)]
@@ -112,8 +112,8 @@ impl PoolManagerHandle {
       self.write(|manager| {
          manager.concurrency = default_concurrency();
          manager.batch_size_for_updating_pool_state = default_batch_size_for_updating_pool_state();
-         manager.batch_size_for_syncing_pools = default_batch_size_for_syncing_pools();
-         manager.sync_v4_pools = default_sync_v4_pools();
+         manager.batch_size_for_discovering_pools = default_batch_size_for_discovering_pools();
+         manager.discover_v4_pools = default_discover_v4_pools();
          manager.ignore_chains = default_ignore_chains();
       });
    }
@@ -136,17 +136,17 @@ impl PoolManagerHandle {
       }
    }
 
-   pub fn batch_size_for_syncing_pools(&self) -> usize {
-      let size = self.read(|manager| manager.batch_size_for_syncing_pools);
+   pub fn batch_size_for_discovering_pools(&self) -> usize {
+      let size = self.read(|manager| manager.batch_size_for_discovering_pools);
       if size == 0 {
-         default_batch_size_for_syncing_pools()
+         default_batch_size_for_discovering_pools()
       } else {
          size
       }
    }
 
-   pub fn do_we_sync_v4_pools(&self) -> bool {
-      self.read(|manager| manager.sync_v4_pools)
+   pub fn do_we_discover_v4_pools(&self) -> bool {
+      self.read(|manager| manager.discover_v4_pools)
    }
 
    pub fn ignore_chains(&self) -> IgnoreChains {
@@ -157,8 +157,8 @@ impl PoolManagerHandle {
       self.write(|manager| manager.ignore_chains = ignore_chains);
    }
 
-   pub fn set_sync_v4_pools(&self, sync_v4_pools: bool) {
-      self.write(|manager| manager.sync_v4_pools = sync_v4_pools);
+   pub fn set_discover_v4_pools(&self, discover_v4_pools: bool) {
+      self.write(|manager| manager.discover_v4_pools = discover_v4_pools);
    }
 
    pub fn set_concurrency(&self, concurrency: usize) {
@@ -169,8 +169,8 @@ impl PoolManagerHandle {
       self.write(|manager| manager.batch_size_for_updating_pool_state = batch_size);
    }
 
-   pub fn set_batch_size_for_syncing_pools(&self, batch_size: usize) {
-      self.write(|manager| manager.batch_size_for_syncing_pools = batch_size);
+   pub fn set_batch_size_for_discovering_pools(&self, batch_size: usize) {
+      self.write(|manager| manager.batch_size_for_discovering_pools = batch_size);
    }
 
    /// Get all pools that include the given currency
@@ -215,17 +215,6 @@ impl PoolManagerHandle {
       self.read(|manager| manager.get_v4_pools_for_chain(chain_id))
    }
 
-   pub fn get_pool(
-      &self,
-      chain_id: u64,
-      dex: DexKind,
-      fee: u32,
-      currency0: &Currency,
-      currency1: &Currency,
-   ) -> Option<AnyUniswapPool> {
-      self.read(|manager| manager.get_pool(chain_id, dex, fee, currency0, currency1).cloned())
-   }
-
    pub fn get_pool_from_address(&self, chain_id: u64, address: Address) -> Option<AnyUniswapPool> {
       self.read(|manager| manager.get_pool_from_address(chain_id, address).cloned())
    }
@@ -248,20 +237,6 @@ impl PoolManagerHandle {
 
    pub fn get_v4_pool_from_id(&self, chain_id: u64, pool_id: B256) -> Option<AnyUniswapPool> {
       self.read(|manager| manager.get_v4_pool_from_id(chain_id, pool_id).cloned())
-   }
-
-   pub fn get_v3_pool_from_token_addresses_and_fee(
-      &self,
-      chain_id: u64,
-      fee: u32,
-      token_a: Address,
-      token_b: Address,
-   ) -> Option<AnyUniswapPool> {
-      self.read(|manager| {
-         manager
-            .get_v3_pool_from_token_addresses_and_fee(chain_id, fee, token_a, token_b)
-            .cloned()
-      })
    }
 
    pub fn add_checkpoint(&self, chain: u64, dex: DexKind, checkpoint: Checkpoint) {
@@ -409,20 +384,20 @@ impl PoolManagerHandle {
       self.write(|manager| manager.remove_v4_pools_with_high_fee())
    }
 
-   pub fn add_last_sync_time(&self, chain: u64, token_a: Address, token_b: Address) {
-      self.write(|manager| manager.add_last_sync(chain, token_a, token_b))
+   pub fn add_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) {
+      self.write(|manager| manager.add_last_discover(chain, token_a, token_b))
    }
 
-   pub fn add_v4_pool_last_sync_time(&self, chain: u64, dex: DexKind) {
-      self.write(|manager| manager.add_v4_pool_last_sync(chain, dex))
+   pub fn add_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) {
+      self.write(|manager| manager.add_v4_pool_last_discover(chain, dex))
    }
 
-   fn get_last_sync(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
-      self.read(|manager| manager.get_last_sync_time(chain, token_a, token_b))
+   fn get_last_discover(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
+      self.read(|manager| manager.get_last_discover_time(chain, token_a, token_b))
    }
 
-   fn get_v4_pool_last_sync(&self, chain: u64, dex: DexKind) -> Option<Instant> {
-      self.read(|manager| manager.get_v4_pool_last_sync_time(chain, dex))
+   fn get_v4_pool_last_discover(&self, chain: u64, dex: DexKind) -> Option<Instant> {
+      self.read(|manager| manager.get_v4_pool_last_discover_time(chain, dex))
    }
 
    pub fn get_all_checkpoints(&self) -> Vec<Checkpoint> {
@@ -433,34 +408,34 @@ impl PoolManagerHandle {
       self.write(|manager| manager.remove_checkpoint(chain, dex));
    }
 
-   fn should_sync_pools(&self, chain: u64, token_a: Address, token_b: Address) -> bool {
+   fn should_discover_pools(&self, chain: u64, token_a: Address, token_b: Address) -> bool {
       let now = Instant::now();
-      let last_sync = self.get_last_sync(chain, token_a, token_b);
-      if last_sync.is_none() {
+      let last_discover = self.get_last_discover(chain, token_a, token_b);
+      if last_discover.is_none() {
          return true;
       }
 
-      let last_sync = last_sync.unwrap();
-      let timeout = Duration::from_secs(POOL_SYNC_TIMEOUT);
-      let time_passed = now.duration_since(last_sync);
+      let last_discover = last_discover.unwrap();
+      let timeout = Duration::from_secs(POOL_DISCOVERY_TIMEOUT);
+      let time_passed = now.duration_since(last_discover);
       time_passed > timeout
    }
 
-   fn should_sync_v4_pools(&self, chain: u64, dex: DexKind) -> bool {
+   fn should_discover_v4_pools(&self, chain: u64, dex: DexKind) -> bool {
       let now = Instant::now();
-      let last_sync = self.get_v4_pool_last_sync(chain, dex);
-      if last_sync.is_none() {
+      let last_discover = self.get_v4_pool_last_discover(chain, dex);
+      if last_discover.is_none() {
          return true;
       }
 
-      let last_sync = last_sync.unwrap();
-      let timeout = Duration::from_secs(POOL_SYNC_TIMEOUT);
-      let time_passed = now.duration_since(last_sync);
+      let last_discover = last_discover.unwrap();
+      let timeout = Duration::from_secs(POOL_DISCOVERY_TIMEOUT);
+      let time_passed = now.duration_since(last_discover);
       time_passed > timeout
    }
 
-   /// Sync all the possible V2/V3/V4 pools for the given tokens
-   pub async fn sync_pools_for_tokens(
+   /// Discover all the possible V2/V3/V4 pools for the given tokens
+   pub async fn discover_pools_for_tokens(
       &self,
       ctx: ZeusCtx,
       chain: u64,
@@ -478,7 +453,7 @@ impl PoolManagerHandle {
          let symbols = tokens.iter().map(|t| t.symbol.clone()).collect::<Vec<_>>();
          let addresses = tokens.iter().map(|t| t.address.to_string()).collect::<Vec<_>>();
          info!(
-            "Syncing pools for {} {} Chain {}",
+            "Discovering pools for {} {} Chain {}",
             symbols.join(", "),
             addresses.join(", "),
             chain
@@ -501,30 +476,30 @@ impl PoolManagerHandle {
 
             let mut v4_pools_map = HashMap::new();
             let mut v4_pool_ids = Vec::new();
-            let mut bases_to_sync = Vec::new();
+            let mut bases_to_discover = Vec::new();
 
             for base_token in &base_tokens {
                if base_token.address == token.address {
                   continue;
                }
 
-               let should_sync =
-                  manager.should_sync_pools(chain, base_token.address, token.address);
+               let should_discover =
+                  manager.should_discover_pools(chain, base_token.address, token.address);
 
                #[cfg(feature = "debug")]
                tracing::info!(
-                  "Should Sync {} for {} {}-{}",
-                  should_sync,
+                  "Should discover {} for {} {}-{}",
+                  should_discover,
                   chain,
                   base_token.symbol,
                   token.symbol
                );
 
-               if !should_sync {
+               if !should_discover {
                   continue;
                }
 
-               bases_to_sync.push(base_token.clone());
+               bases_to_discover.push(base_token.clone());
 
                for fee in FEE_TIERS.iter() {
                   let fee_amount = FeeAmount::CUSTOM(*fee);
@@ -543,19 +518,19 @@ impl PoolManagerHandle {
                }
             }
 
-            if bases_to_sync.is_empty() {
+            if bases_to_discover.is_empty() {
                return Ok(token);
             }
 
             let mut tokens_map = HashMap::new();
 
-            for base_token in &bases_to_sync {
+            for base_token in &bases_to_discover {
                tokens_map.insert(base_token.address, base_token.clone());
             }
 
             tokens_map.insert(token.address, token.clone());
 
-            let base_tokens_addr = bases_to_sync.iter().map(|t| t.address).collect::<Vec<_>>();
+            let base_tokens_addr = bases_to_discover.iter().map(|t| t.address).collect::<Vec<_>>();
             let quote_token = token.address;
             let zeus_client = ctx.get_zeus_client();
 
@@ -685,8 +660,8 @@ impl PoolManagerHandle {
                manager.add_pool(pool_full.clone());
             }
 
-            for base_token in &bases_to_sync {
-               manager.add_last_sync_time(chain, base_token.address, token.address);
+            for base_token in &bases_to_discover {
+               manager.add_last_discover_time(chain, base_token.address, token.address);
             }
 
             Ok(token)
@@ -699,7 +674,7 @@ impl PoolManagerHandle {
          let res = match task.await {
             Ok(res) => res,
             Err(e) => {
-               tracing::error!("Error syncing pools: {:?}", e);
+               tracing::error!("Error discovering pools: {:?}", e);
                continue;
             }
          };
@@ -707,14 +682,14 @@ impl PoolManagerHandle {
          match res {
             Ok(token) => {
                info!(
-                  "Synced Pools for {} in {} ms Chain {}",
+                  "Discovered Pools for {} in {} ms Chain {}",
                   token.symbol,
                   time.elapsed().as_millis(),
                   chain
                );
             }
             Err(e) => {
-               tracing::error!("Error syncing pools: {:?}", e);
+               tracing::error!("Error discovering pools: {:?}", e);
             }
          }
       }
@@ -726,10 +701,10 @@ impl PoolManagerHandle {
       Ok(())
    }
 
-   /// Sync pools from logs
+   /// Discover new pools from using the `eth_getLogs` method
    ///
    /// Archive node is required
-   pub async fn sync_pools(
+   pub async fn discover_pools(
       &self,
       ctx: ZeusCtx,
       chain: ChainId,
@@ -745,13 +720,13 @@ impl PoolManagerHandle {
       let http = chain.is_base();
       let client = ctx.get_archive_client(chain.id(), http).await?;
       let concurrency = self.read(|manager| manager.concurrency);
-      let batch_size = self.read(|manager| manager.batch_size_for_syncing_pools);
+      let batch_size = self.read(|manager| manager.batch_size_for_discovering_pools);
 
       let latest_block = client.get_block_number().await?;
 
-      if !self.should_sync_v4_pools(chain.id(), dex) {
+      if !self.should_discover_v4_pools(chain.id(), dex) {
          #[cfg(feature = "debug")]
-         info!(target: "zeus_eth::amm::pool_manager", "Skipping syncing V4 pools for chain {}", chain.id());
+         info!(target: "zeus_eth::amm::pool_manager", "Skipping discovering V4 pools for chain {}", chain.id());
          return Ok(());
       }
 
@@ -811,16 +786,16 @@ impl PoolManagerHandle {
          from_block = temp_to + 1;
       }
 
-      self.add_v4_pool_last_sync_time(chain.id(), dex);
+      self.add_v4_pool_last_discover_time(chain.id(), dex);
 
       Ok(())
    }
 }
 
 /// Key: (chain_id, tokenA, tokenB)
-type LastSync = HashMap<(u64, Address, Address), Instant>;
+type LastDiscovery = HashMap<(u64, Address, Address), Instant>;
 
-type V4PoolLastSync = HashMap<(u64, DexKind), Instant>;
+type V4PoolLastDiscovery = HashMap<(u64, DexKind), Instant>;
 
 /// Key: (chain_id, dex_kind, fee, tokenA, tokenB) -> Value: Pool
 type Pools = HashMap<(u64, DexKind, u32, Currency, Currency), AnyUniswapPool>;
@@ -835,7 +810,7 @@ fn default_batch_size_for_updating_pool_state() -> usize {
    20
 }
 
-fn default_batch_size_for_syncing_pools() -> usize {
+fn default_batch_size_for_discovering_pools() -> usize {
    30
 }
 
@@ -843,7 +818,7 @@ fn default_concurrency() -> usize {
    4
 }
 
-fn default_sync_v4_pools() -> bool {
+fn default_discover_v4_pools() -> bool {
    false
 }
 
@@ -861,13 +836,13 @@ pub struct PoolManager {
    #[serde(with = "serde_hashmap")]
    pub pools: Pools,
 
-   /// Last time we requested to sync pools for a token pair
+   /// Last time we requested to discover new pools for a token pair
    #[serde(skip)]
-   pub last_sync: LastSync,
+   pub last_discover: LastDiscovery,
 
-   /// V4 Pools are synced by using the `eth_get_logs` method so they get a different map
+   /// V4 Pools are discovered by using the `eth_get_logs` method so they get a different map
    #[serde(skip)]
-   pub v4_pool_last_sync: V4PoolLastSync,
+   pub v4_pool_last_discover: V4PoolLastDiscovery,
 
    #[serde(with = "serde_hashmap")]
    pub checkpoints: CheckpointMap,
@@ -880,12 +855,12 @@ pub struct PoolManager {
    #[serde(default = "default_batch_size_for_updating_pool_state")]
    pub batch_size_for_updating_pool_state: usize,
 
-   /// Batch size when syncing pools from logs
-   #[serde(default = "default_batch_size_for_syncing_pools")]
-   pub batch_size_for_syncing_pools: usize,
+   /// Batch size when discovering pools from logs
+   #[serde(default = "default_batch_size_for_discovering_pools")]
+   pub batch_size_for_discovering_pools: usize,
 
-   #[serde(default = "default_sync_v4_pools")]
-   pub sync_v4_pools: bool,
+   #[serde(default = "default_discover_v4_pools")]
+   pub discover_v4_pools: bool,
 
    #[serde(default = "default_ignore_chains")]
    pub ignore_chains: IgnoreChains,
@@ -896,27 +871,27 @@ impl Default for PoolManager {
       let manager: PoolManager = serde_json::from_str(POOL_MANAGER_DEFAULT).unwrap();
       Self {
          pools: manager.pools,
-         last_sync: HashMap::new(),
-         v4_pool_last_sync: HashMap::new(),
+         last_discover: HashMap::new(),
+         v4_pool_last_discover: HashMap::new(),
          checkpoints: manager.checkpoints,
          concurrency: default_concurrency(),
          batch_size_for_updating_pool_state: default_batch_size_for_updating_pool_state(),
-         batch_size_for_syncing_pools: default_batch_size_for_syncing_pools(),
-         sync_v4_pools: default_sync_v4_pools(),
+         batch_size_for_discovering_pools: default_batch_size_for_discovering_pools(),
+         discover_v4_pools: default_discover_v4_pools(),
          ignore_chains: default_ignore_chains(),
       }
    }
 }
 
 impl PoolManager {
-   fn add_last_sync(&mut self, chain: u64, token_a: Address, token_b: Address) {
+   fn add_last_discover(&mut self, chain: u64, token_a: Address, token_b: Address) {
       let key = (chain, token_a, token_b);
-      self.last_sync.insert(key, Instant::now());
+      self.last_discover.insert(key, Instant::now());
    }
 
-   fn add_v4_pool_last_sync(&mut self, chain: u64, dex: DexKind) {
+   fn add_v4_pool_last_discover(&mut self, chain: u64, dex: DexKind) {
       let key = (chain, dex);
-      self.v4_pool_last_sync.insert(key, Instant::now());
+      self.v4_pool_last_discover.insert(key, Instant::now());
    }
 
    fn add_checkpoint(&mut self, chain: u64, dex: DexKind, checkpoint: Checkpoint) {
@@ -934,14 +909,14 @@ impl PoolManager {
       self.checkpoints.get(&key).cloned()
    }
 
-   fn get_last_sync_time(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
-      let time1 = self.last_sync.get(&(chain, token_a, token_b)).cloned();
-      let time2 = self.last_sync.get(&(chain, token_b, token_a)).cloned();
+   fn get_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
+      let time1 = self.last_discover.get(&(chain, token_a, token_b)).cloned();
+      let time2 = self.last_discover.get(&(chain, token_b, token_a)).cloned();
       time1.or(time2)
    }
 
-   fn get_v4_pool_last_sync_time(&self, chain: u64, dex: DexKind) -> Option<Instant> {
-      self.v4_pool_last_sync.get(&(chain, dex)).cloned()
+   fn get_v4_pool_last_discover_time(&self, chain: u64, dex: DexKind) -> Option<Instant> {
+      self.v4_pool_last_discover.get(&(chain, dex)).cloned()
    }
 
    /// Removes pool that exceed the [MAX_FEE]

@@ -855,7 +855,7 @@ impl SwapUi {
          let pool_manager = ctx.pool_manager();
          let chain_id = ctx.chain().id();
 
-         match pool_manager.sync_pools_for_tokens(ctx.clone(), chain_id, tokens).await {
+         match pool_manager.discover_pools_for_tokens(ctx.clone(), chain_id, tokens).await {
             Ok(_) => {}
             Err(e) => {
                tracing::error!("Failed to sync pools: {}", e);

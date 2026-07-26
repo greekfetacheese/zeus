@@ -535,7 +535,7 @@ fn parse_unknown_recipient(
 
    if !privacy_mode {
       let address = Address::from_str(query).ok()?;
-      if ctx.wallet_exists(address) || ctx.get_contact_by_address(&address.to_string()).is_some() {
+      if ctx.wallet_exists(address) || ctx.get_contact(&address.to_string()).is_some() {
          return None;
       }
       Some(UnknownRecipient::Evm(address))

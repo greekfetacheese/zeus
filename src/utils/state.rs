@@ -508,7 +508,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
          let pool_manager = ctx.pool_manager();
 
-         match pool_manager.sync_pools_for_tokens(ctx.clone(), chain, tokens).await {
+         match pool_manager.discover_pools_for_tokens(ctx.clone(), chain, tokens).await {
             Ok(_) => {}
             Err(e) => error!(
                "Failed to sync pools for chain_id {} {}",

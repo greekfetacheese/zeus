@@ -561,17 +561,6 @@ impl ZeusCtx {
       exists
    }
 
-   /// Get the wallet info for the given address, without cloning the private key
-   pub fn get_wallet_info_by_address(&self, address: Address) -> Option<WalletInfo> {
-      self.read(|ctx| ctx.wallet_info_cache.get(&address).cloned())
-   }
-
-   /// Get the wallet name for the given address
-   pub fn get_wallet_name(&self, address: Address) -> Option<String> {
-      let wallet = self.read(|ctx| ctx.wallet_info_cache.get(&address).cloned());
-      wallet.map(|wallet| wallet.name().to_string())
-   }
-
    /// Get all wallets info without cloning the private key
    pub fn get_all_wallets_info(&self) -> Vec<WalletInfo> {
       self.read(|ctx| ctx.wallet_info_cache.values().cloned().collect())
@@ -585,10 +574,6 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.vault.contacts.retain(|c| c.evm_address != evm_address);
       });
-   }
-
-   pub fn contact_name_exists(&self, name: &str) -> bool {
-      self.read(|ctx| ctx.vault.contacts.iter().any(|c| c.name == name))
    }
 
    pub fn add_contact(&self, contact: Contact) -> Result<(), anyhow::Error> {
@@ -618,7 +603,7 @@ impl ZeusCtx {
    }
 
    /// Get a contact by it's address
-   pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
+   pub fn get_contact(&self, evm_address: &str) -> Option<Contact> {
       self.read(|ctx| ctx.get_contact_by_address(evm_address))
    }
 
@@ -1106,8 +1091,6 @@ impl ZeusCtx {
    }
 
    pub fn connect_dapp(&self, dapp: String) {
-      tracing::info!("Connected to dapp: {}", dapp);
-
       self.write(|ctx| {
          ctx.connected_dapps.connect_dapp(dapp);
       });
@@ -1117,14 +1100,12 @@ impl ZeusCtx {
       self.write(|ctx| {
          ctx.connected_dapps.disconnect_dapp(dapp);
       });
-      tracing::info!("Disconnected from dapp: {}", dapp);
    }
 
    pub fn disconnect_all_dapps(&self) {
       self.write(|ctx| {
          ctx.connected_dapps.disconnect_all();
       });
-      tracing::info!("Disconnected from all dapps");
    }
 
    pub fn is_dapp_connected(&self, dapp: &str) -> bool {
