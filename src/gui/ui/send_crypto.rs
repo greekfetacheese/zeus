@@ -187,8 +187,6 @@ impl SendCryptoUi {
                      );
                   });
 
-                  token_selection.show(ctx, theme, icons.clone(), chain.id(), owner, ui);
-
                   if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();

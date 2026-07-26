@@ -1,5 +1,6 @@
 use eframe::egui::{
-   Align2, CollapsingHeader, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
+   Align2, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui,
+   Window, vec2,
 };
 
 use std::{
@@ -29,6 +30,7 @@ use crate::gui::{
    },
 };
 use crate::utils::simulate::{fetch_accounts_info, fetch_storage_for_railgun};
+use elegance::{Badge, BadgeTone};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, SecureTextEdit};
 
@@ -53,6 +55,10 @@ use super::unshield::{default_bundler_url, unshield};
 const POOL_UPDATE_TIMEOUT: u64 = 60;
 
 const BUNDLER_URL_FILE: &str = "bundler_url.json";
+
+const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
+const UNWRAP_TO_ETH_TIP: &str =
+   "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BundlerUrl {
@@ -293,8 +299,6 @@ impl ShieldUi {
                      );
                   });
 
-                  token_selection.show(ctx, theme, icons.clone(), chain.id(), owner, ui);
-
                   if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
@@ -415,87 +419,90 @@ impl ShieldUi {
          ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
 
          ui.horizontal(|ui| {
-            ui.checkbox(
-               &mut self.self_broadcast,
-               RichText::new("Self-broadcast (emergency)").size(theme.text_sizes.normal),
-            );
-         });
+            let text = RichText::new("Self-broadcast").size(theme.text_sizes.large);
+            let checkbox = Checkbox::new(&mut self.self_broadcast, text);
+            ui.add(checkbox);
 
-         ui.label(
-            RichText::new(
-               "Submits the unshield from your public wallet. Breaks anonymity — only use if private broadcast is unavailable.",
-            )
-            .size(theme.text_sizes.small)
-            .color(theme.colors.text_muted),
-         );
+            ui.add_space(10.0);
+
+            let q_mark = RichText::new("Breaks Anonymity").size(theme.text_sizes.large);
+            let badge = Badge::new(q_mark, BadgeTone::Warning);
+            let tip_text = RichText::new(SELF_BROADCAST_TIP).size(theme.text_sizes.normal);
+            ui.add(badge).on_hover_text(tip_text);
+         });
 
          // ? Maybe in the future we could replace this with swaps
          // ? Eg. going from USDC to ETH and not just limited to WETH > ETH
          if self.currency.is_native_wrapped() && !self.self_broadcast {
             ui.horizontal(|ui| {
-            ui.checkbox(
-               &mut self.unwrap_to_eth,
-               RichText::new("Unwrap to ETH").size(theme.text_sizes.normal),
-            );
-         });
+               let text = RichText::new("Unwrap to ETH").size(theme.text_sizes.large);
+               let checkbox = Checkbox::new(&mut self.unwrap_to_eth, text);
+               ui.add(checkbox);
 
-         ui.label(
-            RichText::new(
-               "Unwraps WETH to ETH. Useful if the recipient doesn't have native ETH for gas.",
-            )
-            .size(theme.text_sizes.small)
-            .color(theme.colors.text_muted),
-         );
+               ui.add_space(10.0);
+
+               let text = RichText::new("For empty wallets without funds for gas").size(theme.text_sizes.normal);
+               let badge = Badge::new(text, BadgeTone::Info);
+               let tip_text = RichText::new(UNWRAP_TO_ETH_TIP).size(theme.text_sizes.normal);
+               ui.add(badge).on_hover_text(tip_text);
+            });
          }
 
          ui.add_space(4.0);
 
          if bundler_overridden {
+            ui.add_space(4.0);
             ui.label(
                RichText::new(
                   "WARNING: Custom bundler URL is set.",
                )
-               .size(theme.text_sizes.small)
+               .size(theme.text_sizes.normal)
                .color(theme.colors.warning),
             );
          }
 
+         let ui_size = vec2(ui.available_width() * 0.9, 45.0);
+
          CollapsingHeader::new(
             RichText::new("Advanced broadcast options")
                .size(theme.text_sizes.normal)
-               .color(theme.colors.info),
+               .color(theme.colors.text).strong(),
          )
          .default_open(false)
          .id_salt("railgun_unshield_advanced_broadcast")
          .show(ui, |ui| {
             ui.add_enabled_ui(!self.self_broadcast, |ui| {
-               ui.horizontal(|ui| {
-                  ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
-                  ui.add_space(8.0);
-                  let res = ui.add(
-                     SecureTextEdit::singleline(&mut self.bundler_url)
-                        .visuals(text_edit_visuals)
-                        .hint_text(
-                           RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
-                              .size(theme.text_sizes.small)
-                              .color(theme.colors.text_muted),
-                        )
-                        .desired_width(ui.available_width())
-                        .margin(Margin::same(6))
-                        .font(FontId::proportional(theme.text_sizes.small)),
-                  );
+               ui.allocate_ui(ui_size, |ui| {
+                  ui.horizontal_centered(|ui| {
+                     ui.label(RichText::new("Bundler URL").size(theme.text_sizes.normal));
 
-                  if res.changed() {
-                     let bundler_url = self.bundler_url.clone();
-                     RT.spawn_blocking(move || {
-                        let url = BundlerUrl::new(bundler_url);
-                        url.save().unwrap();
-                     });
-                  }
+                     ui.add_space(8.0);
+
+                     let res = ui.add(
+                        SecureTextEdit::singleline(&mut self.bundler_url)
+                           .visuals(text_edit_visuals)
+                           .hint_text(
+                              RichText::new("https://public.pimlico.io/v2/{chainId}/rpc")
+                                 .size(theme.text_sizes.small)
+                                 .color(theme.colors.text_muted),
+                           )
+                           .desired_width(ui.available_width())
+                           .margin(Margin::same(6))
+                           .font(FontId::proportional(theme.text_sizes.small)),
+                     );
+
+                     if res.changed() {
+                        let bundler_url = self.bundler_url.clone();
+                        RT.spawn_blocking(move || {
+                           let url = BundlerUrl::new(bundler_url);
+                           url.save().unwrap();
+                        });
+                     }
+                  });
                });
 
                ui.horizontal(|ui| {
-                  let text = RichText::new("Reset to public Pimlico").size(theme.text_sizes.small);
+                  let text = RichText::new("Reset to default").size(theme.text_sizes.small);
                   let button = Button::new(text).visuals(theme.button_visuals());
                   if ui.add(button).clicked() {
                      self.bundler_url = default_bundler_url(chain_id);
@@ -508,10 +515,10 @@ impl ShieldUi {
 
                ui.label(
                   RichText::new(
-                     "Uses Railgun Privacy Paymaster + ERC-4337. Fee is paid from private WETH balance. Point this at a self-hosted Alto for less reliance on public Pimlico.",
+                     "Uses Railgun Privacy Paymaster. Fee is paid from private WETH balance. Point this at a self-hosted Alto for less reliance on public Pimlico.",
                   )
                   .size(theme.text_sizes.small)
-                  .color(theme.colors.text_muted),
+                  .color(theme.colors.info),
                );
             });
 

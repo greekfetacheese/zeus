@@ -1,6 +1,7 @@
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim};
 use anyhow::anyhow;
+use tracing::{debug, error, info, warn};
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,7 +68,7 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
       ctx.save_zeus_client();
    });
 
-   tracing::info!(
+   info!(
       "RPC checks took {} secs",
       time.elapsed().as_secs_f32()
    );
@@ -86,11 +87,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let ctx2 = ctx.clone();
       RT.spawn(async move {
          match update_priority_fee(ctx2, chain).await {
-            Ok(_) => {
-               #[cfg(feature = "debug")]
-               tracing::trace!("Updated priority fee for chain: {}", chain)
-            }
-            Err(e) => tracing::error!("Error updating priority fee: {:?}", e),
+            Ok(_) => {}
+            Err(e) => debug!("Error updating priority fee: {:?}", e),
          }
       });
    }
@@ -111,15 +109,17 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn(async move {
       match ctx_clone.register_all_railgun_signers(false).await {
          Ok(_) => {}
-         Err(e) => tracing::error!("Error registering Railgun signers: {:?}", e),
+         Err(e) => error!("Error registering Railgun signers: {:?}", e),
       }
 
       for chain in SUPPORTED_CHAINS {
          match ctx_clone.sync_railgun(chain, false).await {
             Ok(_) => {}
-            Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+            Err(e) => error!("Error syncing Railgun: {:?}", e),
          }
       }
+
+      malloc_trim();
    });
 
    eth_balance_fut.await;
@@ -153,11 +153,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
       let ctx = ctx.clone();
       RT.spawn(async move {
          match get_base_fee(ctx.clone(), chain).await {
-            Ok(_) => {
-               #[cfg(feature = "debug")]
-               tracing::trace!("Updated base fee for chain: {}", chain)
-            }
-            Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+            Ok(_) => {}
+            Err(e) => error!("Error updating base fee: {:?}", e),
          }
       });
    }
@@ -186,8 +183,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    RT.spawn(async move {
       malloc_trim_interval().await;
    });
-
-   malloc_trim();
 }
 
 fn insert_missing_portfolios(ctx: ZeusCtx) {
@@ -243,13 +238,12 @@ async fn check_delegated_status(ctx: ZeusCtx) {
             if ctx.should_check_delegated_wallet_status(chain, account.address) {
                match ctx.check_delegated_wallet_status(chain, account.address).await {
                   Ok(_) => {
-                     #[cfg(feature = "debug")]
-                     tracing::info!(
+                     debug!(
                         "Checked delegated wallet status for {}",
                         account.address
                      )
                   }
-                  Err(e) => tracing::error!("Error checking smart account status: {:?}", e),
+                  Err(e) => error!("Error checking delegated wallet status: {:?}", e),
                }
             }
          }
@@ -289,26 +283,18 @@ async fn update_token_prices(ctx: ZeusCtx) {
          }
 
          match price_manager.update_base_token_prices(ctx.clone(), chain).await {
-            Ok(_) => {
-               #[cfg(feature = "debug")]
-               tracing::info!("Updated base token prices for chain: {}", chain)
-            }
-            Err(e) => tracing::error!(
+            Ok(_) => {}
+            Err(e) => error!(
                "Error updating base token prices for chain {}: {:?}",
-               chain,
-               e
+               chain, e
             ),
          }
 
          match price_manager.calculate_prices(ctx, chain, pool_manager, tokens).await {
-            Ok(_) => {
-               #[cfg(feature = "debug")]
-               tracing::info!("Updated token prices for chain: {}", chain)
-            }
-            Err(e) => tracing::error!(
+            Ok(_) => {}
+            Err(e) => error!(
                "Error updating token prices for chain {}: {:?}",
-               chain,
-               e
+               chain, e
             ),
          }
       });
@@ -373,23 +359,16 @@ async fn state_update_interval(ctx: ZeusCtx) {
             }
 
             match update_priority_fee(ctx.clone(), chain).await {
-               Ok(_) => {
-                  #[cfg(feature = "debug")]
-                  tracing::trace!("Updated priority fee for chain: {}", chain)
-               }
-               Err(e) => tracing::error!(
+               Ok(_) => {}
+               Err(e) => warn!(
                   "Error updating priority fee for chain {}: {:?}",
-                  chain,
-                  e
+                  chain, e
                ),
             }
 
             match get_base_fee(ctx.clone(), chain).await {
-               Ok(_) => {
-                  #[cfg(feature = "debug")]
-                  tracing::trace!("Updated base fee for chain: {}", chain)
-               }
-               Err(e) => tracing::error!("Error updating base fee: {:?}", e),
+               Ok(_) => {}
+               Err(e) => error!("Error updating base fee: {:?}", e),
             }
          }
          fee_time_passed = Instant::now();
@@ -407,17 +386,17 @@ async fn state_update_interval(ctx: ZeusCtx) {
                if is_invalid_root {
                   match ctx_clone.resync_railgun(chain).await {
                      Ok(_) => {
-                        tracing::info!(
+                        info!(
                            "Railgun resynced to valid root for chain {}",
                            chain
                         );
                      }
-                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                     Err(e) => error!("Error syncing Railgun: {:?}", e),
                   }
                } else {
                   match ctx_clone.sync_railgun(chain, false).await {
                      Ok(_) => {}
-                     Err(e) => tracing::error!("Error syncing Railgun: {:?}", e),
+                     Err(e) => error!("Error syncing Railgun: {:?}", e),
                   }
                }
             }
@@ -465,11 +444,9 @@ pub async fn get_base_fee(ctx: ZeusCtx, chain: u64) -> Result<BaseFee, anyhow::E
 
    let fee: u64 = gas_price.try_into()?;
 
-   #[cfg(feature = "debug")]
    let fee_gwei = NumericValue::format_to_gwei(U256::from(fee));
 
-   #[cfg(feature = "debug")]
-   tracing::info!(
+   debug!(
       "Base fee for chain {} is {}",
       chain.id(),
       fee_gwei.formatted()
@@ -499,8 +476,7 @@ pub async fn update_priority_fee(ctx: ZeusCtx, chain: u64) -> Result<(), anyhow:
          ));
       }
 
-      #[cfg(feature = "debug")]
-      tracing::info!(
+      debug!(
          "Priority fee for chain {} is {}",
          chain.id(),
          fee_value.formatted()
@@ -517,7 +493,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
       ctx.data_syncing = true;
    });
 
-   tracing::info!("Resyncing pools");
+   info!("Resyncing pools");
 
    for chain in SUPPORTED_CHAINS {
       if ctx.is_chain_disabled(chain) {
@@ -534,10 +510,9 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 
          match pool_manager.sync_pools_for_tokens(ctx.clone(), chain, tokens).await {
             Ok(_) => {}
-            Err(e) => tracing::error!(
+            Err(e) => error!(
                "Failed to sync pools for chain_id {} {}",
-               chain,
-               e
+               chain, e
             ),
          }
 
@@ -557,13 +532,10 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          }
 
          match pool_manager.update_for_currencies(ctx.clone(), chain, currencies).await {
-            Ok(_) => {
-               tracing::trace!("Updated price manager for chain: {}", chain)
-            }
-            Err(e) => tracing::error!(
+            Ok(_) => {}
+            Err(e) => error!(
                "Error updating price manager for chain {}: {:?}",
-               chain,
-               e
+               chain, e
             ),
          }
       });

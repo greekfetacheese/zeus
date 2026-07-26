@@ -9,7 +9,7 @@ use alloy_rpc_types::BlockId;
 use alloy_sol_types::SolEvent;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::info;
+use tracing::debug;
 
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
@@ -75,7 +75,7 @@ impl UtxoIndexer {
          }
       }
 
-      info!(
+      debug!(
          "Loaded UTXO indexer state: synced_block={}, trees={:?}",
          state.synced_block, state.trees
       );
@@ -197,7 +197,7 @@ impl UtxoIndexer {
 
       let from_block = tree_from.min(account_from);
 
-      info!(
+      debug!(
          "Effective sync range for utxo: from_block={} to_block={} use_subsquid={} global_synced={} tree_from={} account_from={} accounts={}",
          from_block,
          to_block,
@@ -229,12 +229,12 @@ impl UtxoIndexer {
 
       // Sync
       let events = syncer.sync(from_block, to_block).await?;
-      info!("Fetched {} events from syncer", events.len());
+      debug!("Fetched {} events from syncer", events.len());
 
       let mut tree_leaves: HashMap<u32, Vec<(u32, UtxoLeafHash)>> = HashMap::new();
       for (i, event) in events.iter().enumerate() {
          if i % 20000 == 0 {
-            info!("Processing event {}/{}", i, events.len());
+            debug!("Processing event {}/{}", i, events.len());
          }
          // Only mutate trees for blocks the global indexer has not applied yet.
          let apply_tree = event.block_number() > global_synced;
@@ -244,7 +244,7 @@ impl UtxoIndexer {
       let trees_mutated = !tree_leaves.is_empty();
 
       if trees_mutated {
-         info!("Inserting leaves into UTXO trees");
+         debug!("Inserting leaves into UTXO trees");
          for (tree_number, mut leaves) in tree_leaves {
             leaves.sort_by_key(|(idx, _)| *idx);
             // Exact leaf indices — dense packing from min index corrupts gapped/legacy ranges
@@ -259,11 +259,11 @@ impl UtxoIndexer {
             tree.shrink_to_fit();
          }
       } else {
-         info!("No new tree leaves (account catch-up and/or empty delta)");
+         debug!("No new tree leaves (account catch-up and/or empty delta)");
       }
 
       for (tn, tree) in &self.utxo_trees {
-         info!(
+         debug!(
             "Tree {} now has {} leaves (root={})",
             tn,
             tree.leaves_len(),
@@ -274,11 +274,11 @@ impl UtxoIndexer {
       // Verify only when trees changed. Account-only catch-up must not risk failing
       // on an unrelated tree state, and root history is immutable once written.
       if trees_mutated {
-         info!("Verifying UTXO trees");
+         debug!("Verifying UTXO trees");
          self.verify(None).await?;
       }
 
-      info!(
+      debug!(
          "Synced to block {} (trees_mutated={})",
          to_block, trees_mutated
       );
@@ -293,7 +293,7 @@ impl UtxoIndexer {
          }
       }
 
-      // Save — trees only when mutated; accounts only when dirty.
+      // Save trees only when mutated, accounts only when dirty.
       self.save(trees_mutated).await?;
 
       // ! Dont call compact because it fucks up with mem usage
