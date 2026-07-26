@@ -6,7 +6,7 @@ use super::{
 use crate::core::WalletValue;
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
-use crate::utils::RT;
+use crate::utils::{RT, create_railgun_provider};
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
@@ -30,10 +30,7 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, address_book, client::RpcClient},
 };
-use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunAddress, RailgunProvider, RailgunSigner, RedbDatabase,
-   RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
-};
+use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoader};
 
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
@@ -359,6 +356,13 @@ impl ZeusCtx {
       };
 
       loop {
+         if retries >= max_retries {
+            return Err(anyhow!(
+               "Failed to create Railgun provider for chain {}",
+               chain
+            ));
+         }
+
          let client = client.clone();
 
          let provider_opt = self.read(|ctx| ctx.railgun_provider.get(&chain).cloned());
@@ -383,79 +387,25 @@ impl ZeusCtx {
             return Ok(provider);
          }
 
-         let db_file = railgun_db_file(chain)?;
-         let railgun_dir = railgun_dir()?;
-
-         let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
-         let chain_config = match ChainConfig::from_chain_id(chain) {
-            Some(chain_config) => chain_config,
-            None => {
-               return Err(anyhow!("Chain {} not supported", chain));
-            }
-         };
-
-         let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-         let rpc_syncer = RpcSyncer::new(
-            client.clone(),
-            chain,
-            chain_config.railgun_smart_wallet,
-         )
-         .with_snapshot_loader(snapshot_loader.clone());
-
-         let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
-            SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
-               .with_snapshot_loader(snapshot_loader),
-         ));
-
-         let database = match RedbDatabase::new(db_file) {
-            Ok(db) => db,
+         let provider = match create_railgun_provider(client, chain).await {
+            Ok(provider) => provider,
             Err(e) => {
-               tracing::warn!("RedbDatabase: {:?}", e);
+               tracing::error!(
+                  "Failed to create Railgun provider for chain {}: {:?}",
+                  chain,
+                  e
+               );
                retries += 1;
-               if retries >= max_retries {
-                  return Err(e.into());
-               }
                tokio::time::sleep(wait_time).await;
                continue;
             }
          };
-
-         let utxo_indexer = match UtxoIndexer::new(
-            Arc::new(database),
-            Arc::new(rpc_syncer),
-            subsquid_syncer,
-            Arc::new(utxo_verifier),
-         )
-         .await
-         {
-            Ok(indexer) => indexer,
-            Err(e) => {
-               tracing::error!("UtxoIndexer Error: {:?}", e);
-               retries += 1;
-               if retries >= max_retries {
-                  return Err(e.into());
-               }
-               tokio::time::sleep(wait_time).await;
-               continue;
-            }
-         };
-
-         let prover = Groth16Prover::new(Some(railgun_dir));
-
-         let railgun_provider = RailgunProvider::new(
-            chain_config,
-            client.clone(),
-            utxo_indexer,
-            prover,
-            None,
-         )
-         .await?;
 
          self.write(|ctx| {
-            ctx.railgun_provider.insert(chain, railgun_provider.clone());
+            ctx.railgun_provider.insert(chain, provider.clone());
          });
 
-         return Ok(railgun_provider);
+         return Ok(provider);
       }
    }
 

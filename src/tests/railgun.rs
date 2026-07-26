@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
-   use std::sync::Arc;
    use std::time::Duration;
 
-   use crate::core::{ZeusCtx, railgun_db_file, railgun_dir};
+   use crate::core::{ZeusCtx, railgun_dir};
+   use crate::utils::create_railgun_provider;
    use alloy_eips::BlockId;
    use zeus_eth::revm_utils::simulate::erc20_balance;
    use zeus_eth::utils::client::RpcClient;
@@ -22,52 +22,6 @@ mod tests {
       Wallet::new_from_mnemonic("test".into(), seed_phrase.into()).unwrap()
    }
 
-   async fn create_railgun_provider(
-      ctx: ZeusCtx,
-      chain: u64,
-   ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
-      let db_file = railgun_db_file(chain)?;
-      let railgun_dir = railgun_dir()?;
-
-      let client = ctx.get_client(chain).await?;
-
-      let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
-      let chain_config = ChainConfig::from_chain_id(chain).unwrap();
-      let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
-      let rpc_syncer = RpcSyncer::new(
-         client.clone(),
-         chain,
-         chain_config.railgun_smart_wallet,
-      )
-      .with_snapshot_loader(snapshot_loader.clone());
-
-      let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
-         SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
-            .with_snapshot_loader(snapshot_loader),
-      ));
-
-      let database = RedbDatabase::new(db_file)?;
-      let utxo_indexer = UtxoIndexer::new(
-         Arc::new(database),
-         Arc::new(rpc_syncer),
-         subsquid_syncer,
-         Arc::new(utxo_verifier),
-      )
-      .await?;
-      let prover = Groth16Prover::new(Some(railgun_dir));
-
-      let railgun_provider = RailgunProvider::new(
-         chain_config,
-         client.clone(),
-         utxo_indexer,
-         prover,
-         None,
-      )
-      .await?;
-
-      Ok(railgun_provider)
-   }
-
    #[tokio::test]
    async fn db_compact_mem_usage() -> Result<(), anyhow::Error> {
       tracing_subscriber::fmt()
@@ -77,9 +31,10 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = ChainId::EthereumSepolia;
+      let client = ctx.get_client(chain.id()).await?;
 
       let railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain.id()).await?;
+         create_railgun_provider(client, chain.id()).await?;
 
       let mut times = 0;
 
@@ -100,9 +55,10 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = ChainId::EthereumSepolia;
+      let client = ctx.get_client(chain.id()).await?;
 
       let railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain.id()).await?;
+         create_railgun_provider(client, chain.id()).await?;
 
       let mut times = 0;
 
@@ -184,7 +140,7 @@ mod tests {
       let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain.id()).await?;
+         create_railgun_provider(client.clone(), chain.id()).await?;
 
       railgun_provider.register(signer).await?;
       railgun_provider.set_provider(client.clone());
@@ -240,13 +196,14 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = 1;
+      let client = ctx.get_client(chain).await.unwrap();
 
       let wallet = create_wallet();
       let seed = wallet.seed().unwrap();
       let signer = RailgunSigner::from_seed(&seed, 0, chain).unwrap();
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx, chain).await.unwrap();
+         create_railgun_provider(client, chain).await.unwrap();
 
       railgun_provider.register(signer).await.unwrap();
 
@@ -271,13 +228,14 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = 1;
+      let client = ctx.get_client(chain).await?;
 
       let wallet = create_wallet();
       let seed = wallet.seed()?;
       let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain).await?;
+         create_railgun_provider(client.clone(), chain).await?;
 
       railgun_provider.register(signer).await?;
 
@@ -306,9 +264,10 @@ mod tests {
       let seed = wallet.seed()?;
       let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
       let railgun_address = signer.address().clone();
+      let client = ctx.get_client(chain.id()).await?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(ctx.clone(), chain.id()).await?;
+         create_railgun_provider(client.clone(), chain.id()).await?;
 
       railgun_provider.register(signer.clone()).await?;
 

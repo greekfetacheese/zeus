@@ -11,10 +11,71 @@ use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
 use tokio::runtime::Runtime;
+
+use crate::core::ctx::{railgun_db_file, railgun_dir};
+use zeus_eth::utils::client::RpcClient;
+use zeus_railgun::{
+   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase,
+   RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+};
+
+use anyhow::anyhow;
 
 lazy_static! {
    pub static ref RT: Runtime = Runtime::new().unwrap();
+}
+
+pub async fn create_railgun_provider(
+   client: RpcClient,
+   chain: u64,
+) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+   let db_file = railgun_db_file(chain)?;
+   let railgun_dir = railgun_dir()?;
+
+   let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
+   let chain_config = match ChainConfig::from_chain_id(chain) {
+      Some(chain_config) => chain_config,
+      None => {
+         return Err(anyhow!("Chain {} not supported", chain));
+      }
+   };
+
+   let utxo_verifier = RootVerifier::new(client.clone(), chain_config.railgun_smart_wallet);
+   let rpc_syncer = RpcSyncer::new(
+      client.clone(),
+      chain,
+      chain_config.railgun_smart_wallet,
+   )
+   .with_snapshot_loader(snapshot_loader.clone());
+
+   let subsquid_syncer: Option<Arc<dyn UtxoSyncer>> = Some(Arc::new(
+      SubsquidSyncer::new(&chain_config.subsquid_endpoint, chain)
+         .with_snapshot_loader(snapshot_loader),
+   ));
+
+   let db = RedbDatabase::new(db_file)?;
+   let utxo_indexer = UtxoIndexer::new(
+      Arc::new(db),
+      Arc::new(rpc_syncer),
+      subsquid_syncer,
+      Arc::new(utxo_verifier),
+   )
+   .await?;
+
+   let prover = Groth16Prover::new(Some(railgun_dir));
+
+   let railgun_provider = RailgunProvider::new(
+      chain_config,
+      client.clone(),
+      utxo_indexer,
+      prover,
+      None,
+   )
+   .await?;
+
+   Ok(railgun_provider)
 }
 
 /// Estimate the cost for a transaction
