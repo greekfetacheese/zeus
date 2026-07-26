@@ -70,20 +70,18 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          let shield =
             Button::selectable(is_open, RichText::new(title).size(text_size)).min_size(button_size);
 
-         if cfg!(feature = "dev") {
-            if ui.add(shield).clicked() {
-               gui.shield_ui.open(mode);
-               gui.portofolio.close();
-               gui.uniswap.close();
-               gui.send_crypto.close();
-               gui.settings.close();
-               gui.wallet_ui.close();
-               gui.tx_history.close();
-               gui.across_bridge.close();
-               gui.dev.close();
-               // This is shared, so reset it to avoid any issues
-               gui.recipient_selection.reset();
-            }
+         if ui.add(shield).clicked() {
+            gui.shield_ui.open(mode);
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close();
+            gui.across_bridge.close();
+            gui.dev.close();
+            // This is shared, so reset it to avoid any issues
+            gui.recipient_selection.reset();
          }
 
          let is_open = gui.uniswap.is_open();

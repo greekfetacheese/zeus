@@ -142,7 +142,7 @@ impl NetworkSettings {
                ui.add_space(30.0);
 
                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                  ui.spacing_mut().button_padding = vec2(8.0, 4.0);
+                  ui.spacing_mut().button_padding = vec2(8.0, 10.0);
 
                   // Enable/Disable Network button
                   let disabled = ctx.is_chain_disabled(chain);
@@ -247,7 +247,7 @@ impl NetworkSettings {
                });
             });
 
-            ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+            ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
                ui.set_width(ui.available_width());
 
                for (_url, rpc) in rpcs.iter_mut() {

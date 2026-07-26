@@ -80,20 +80,16 @@ pub struct UniswapUi {
    pub settings: UniswapSettingsUi,
    pub swap_ui: SwapUi,
    pub pools_ui: PoolsUi,
-   // pub create_position_ui: CreatePositionUi,
-   // pub view_positions_ui: ViewPositionsUi,
 }
 
 impl UniswapUi {
    pub fn new(overlay: OverlayManager) -> Self {
       Self {
          open: false,
-         size: (500.0, 900.0),
+         size: (400.0, 500.0),
          settings: UniswapSettingsUi::new(overlay),
          swap_ui: SwapUi::new(),
          pools_ui: PoolsUi::new(),
-         // create_position_ui: CreatePositionUi::new(),
-         // view_positions_ui: ViewPositionsUi::new(),
       }
    }
 
@@ -112,6 +108,78 @@ impl UniswapUi {
       self.open
    }
 
+   fn header(&mut self, _ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let size = vec2(ui.available_width() * 0.95, 30.0);
+
+      ui.allocate_ui(size, |ui| {
+         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            // Swap - Pool - Settings Buttons
+            ui.set_width(self.size.0);
+            ui.spacing_mut().item_spacing.x = 10.0;
+
+            let button_visuals = theme.button_visuals();
+
+            let tint = theme.image_tint_recommended;
+            let icon = match theme.dark_mode {
+               true => icons.gear_white_x24(tint),
+               false => icons.gear_dark_x24(tint),
+            };
+
+            let mut visuals = ButtonVisuals::default();
+            visuals.bg_hover = button_visuals.bg_hover;
+            visuals.corner_radius = CornerRadius::same(25);
+            let button = Button::image(icon).small().visuals(visuals);
+            let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+            if res.clicked() {
+               self.settings.open();
+            }
+
+            let icon = match theme.dark_mode {
+               true => icons.refresh_white_x22(tint),
+               false => icons.refresh_dark_x22(tint),
+            };
+
+            let syncing = self.swap_ui.pool_data_syncing
+               || self.swap_ui.syncing_pools
+               || self.swap_ui.balance_syncing;
+
+            if !syncing {
+               let mut visuals = ButtonVisuals::default();
+               visuals.bg_hover = button_visuals.bg_hover;
+               visuals.corner_radius = CornerRadius::same(25);
+               let button = Button::image(icon).small().visuals(visuals);
+               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+               if res.clicked() {
+                  if self.swap_ui.is_open() {
+                     self.swap_ui.refresh(&self.settings);
+                  }
+               }
+            } else {
+               ui.add(Spinner::new().size(17.0).color(theme.colors.text));
+            }
+
+            #[cfg(feature = "dev")]
+            {
+               let text = RichText::new("Swap").size(theme.text_sizes.large);
+               let swap_button = Button::new(text).visuals(button_visuals);
+               if ui.add(swap_button).clicked() {
+                  self.swap_ui.open();
+                  self.pools_ui.open = false;
+               }
+
+               let text = RichText::new("Pools").size(theme.text_sizes.large);
+               let pools_button = Button::new(text).visuals(button_visuals);
+               if ui.add(pools_button).clicked() {
+                  self.pools_ui.open = true;
+                  self.swap_ui.close();
+               }
+            }
+         });
+      });
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -124,166 +192,47 @@ impl UniswapUi {
          return;
       }
 
-      ui.vertical_centered(|ui| {
-         ui.spacing_mut().button_padding = vec2(10.0, 8.0);
+      let window_frame = theme.frame1;
 
-         // TODO: Add support for BSC, There is an issue with batch calls
-         if ctx.chain.is_bsc() {
-            let text = RichText::new("Swap feature is not available on Binance Smart Chain")
-               .size(theme.text_sizes.large)
-               .color(theme.colors.error);
-            ui.label(text);
-         } else {
-            ui.add_space(15.0);
-         }
-
-         let size = vec2(ui.available_width() * 0.45, 50.0);
-         let button_visuals = theme.button_visuals();
-
-         // Header
-         ui.allocate_ui(size, |ui| {
-            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               // Swap - Pool - Position Buttons
+      Window::new("uniswap_ui")
+         .title_bar(false)
+         .resizable(false)
+         .collapsible(false)
+         .order(Order::Background)
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
+         .frame(window_frame)
+         .show(ui.ctx(), |ui| {
+            ui.vertical_centered(|ui| {
                ui.set_width(self.size.0);
-               ui.spacing_mut().item_spacing.x = 10.0;
+               ui.set_height(self.size.1);
 
-               ui.horizontal(|ui| {
-                  let tint = theme.image_tint_recommended;
-                  let icon = match theme.dark_mode {
-                     true => icons.gear_white_x24(tint),
-                     false => icons.gear_dark_x24(tint),
-                  };
+               ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
+               ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-                  let mut visuals = ButtonVisuals::default();
-                  visuals.bg_hover = button_visuals.bg_hover;
-                  visuals.corner_radius = CornerRadius::same(25);
-                  let button = Button::image(icon).small().visuals(visuals);
-                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                  if res.clicked() {
-                     self.settings.open();
-                  }
-
-                  let icon = match theme.dark_mode {
-                     true => icons.refresh_white_x22(tint),
-                     false => icons.refresh_dark_x22(tint),
-                  };
-
-                  let syncing = self.swap_ui.pool_data_syncing
-                     || self.swap_ui.syncing_pools
-                     || self.swap_ui.balance_syncing;
-
-                  if !syncing {
-                     let mut visuals = ButtonVisuals::default();
-                     visuals.bg_hover = button_visuals.bg_hover;
-                     visuals.corner_radius = CornerRadius::same(25);
-                     let button = Button::image(icon).small().visuals(visuals);
-                     let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                     if res.clicked() {
-                        if self.swap_ui.is_open() {
-                           self.swap_ui.refresh(&self.settings);
-                        }
-                     }
-                  } else {
-                     ui.add(Spinner::new().size(17.0).color(theme.colors.text));
-                  }
-
-                  #[cfg(feature = "dev")]
-                  {
-                     let text = RichText::new("Swap").size(theme.text_sizes.large);
-                     let swap_button = Button::new(text).visuals(button_visuals);
-                     if ui.add(swap_button).clicked() {
-                        self.swap_ui.open();
-                        self.pools_ui.open = false;
-                        // self.create_position_ui.open = false;
-                        // self.view_positions_ui.open = false;
-                     }
-
-                     let text = RichText::new("Pools").size(theme.text_sizes.large);
-                     let pools_button = Button::new(text).visuals(button_visuals);
-                     if ui.add(pools_button).clicked() {
-                        self.pools_ui.open = true;
-                        self.swap_ui.close();
-                        // self.create_position_ui.open = false;
-                        // self.view_positions_ui.open = false;
-                     }
-                  }
-
-                  /*
-                  #[cfg(feature = "dev")]
-                  {
-                     let text = RichText::new("Create Position").size(theme.text_sizes.large);
-                     let positions_button = Button::new(text);
-                     if ui.add(positions_button).clicked() {
-                        // self.create_position_ui.open = true;
-                        // self.swap_ui.close();
-                        // self.pools_ui.open = false;
-                        // self.view_positions_ui.open = false;
-                     }
-                  }
-                  */
-
-                  /*
-                                    #[cfg(feature = "dev")]
-                                    {
-                                       let text = RichText::new("View Positions").size(theme.text_sizes.large);
-                                       let positions_button = Button::new(text);
-                                       if ui.add(positions_button).clicked() {
-                                          // self.view_positions_ui.open = true;
-                                          // self.swap_ui.close();
-                                          // self.pools_ui.open = false;
-                                          // self.create_position_ui.open = false;
-                                       }
-                                    }
-                  */
-               });
-
-               /*
-               if self.view_positions_ui.open {
-                  let owner = ctx.current_wallet_address();
-                  let chain = ctx.chain();
-                  let positions = ctx.get_v3_positions(chain.id(), owner);
-                  if !positions.is_empty() {
-                     self.view_positions_ui.sync_pool_state(ctx.clone(), owner, positions);
-                  }
+               // TODO: Add support for BSC, There is an issue with batch calls
+               if ctx.chain.is_bsc() {
+                  let text = RichText::new("Swap feature is not available on Binance Smart Chain")
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.error);
+                  ui.label(text);
                }
-               */
+
+               self.header(ctx, theme, icons.clone(), ui);
+
+               self.swap_ui.show(
+                  ctx,
+                  theme,
+                  icons.clone(),
+                  token_selection,
+                  &self.settings,
+                  ui,
+               );
+
+               self.pools_ui.show(ctx, theme, icons.clone(), ui);
+
+               self.show_settings(theme, ui);
             });
          });
-
-         self.swap_ui.show(
-            ctx,
-            theme,
-            icons.clone(),
-            token_selection,
-            &self.settings,
-            ui,
-         );
-
-         self.pools_ui.show(ctx, theme, icons.clone(), ui);
-
-         self.show_settings(theme, ui);
-
-         /*
-         self.create_position_ui.show(
-            ctx.clone(),
-            theme,
-            icons.clone(),
-            token_selection,
-            &self.settings,
-            ui,
-         );
-
-         self.view_positions_ui.show(
-            ctx.clone(),
-            theme,
-            icons.clone(),
-            &self.settings,
-            ui,
-         );
-         */
-      });
    }
 
    pub fn show_settings(&mut self, theme: &Theme, ui: &mut Ui) {
