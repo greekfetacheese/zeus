@@ -12,11 +12,12 @@ use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
 use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
-   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, settings::RailgunSettings, TokenSelectionWindow,
+   RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    dapps::{across::AcrossBridge, railgun::ShieldUi, uniswap::UniswapUi},
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},
+   settings::RailgunSettings,
    sign_msg_window::SignMsgWindow,
    tx_history::TxHistory,
 };
@@ -27,11 +28,43 @@ lazy_static! {
    pub static ref SHARED_GUI: SharedGUI = SharedGUI::default();
 }
 
-/// The `ctx.data` key elegance widgets read their theme from. Mirrors the
-/// private `Theme::storage_id()` in `egui-elegance` so we can inject a
-/// Zeus-derived theme without calling `Theme::install()`.
 pub fn elegance_theme_key() -> egui::Id {
    egui::Id::new("elegance::theme")
+}
+
+/// Zeus theme colours to use for the elegance palette.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct EleganceThemeKey {
+   dark: bool,
+   bg: Color32,
+   widget_bg: Color32,
+   border: Color32,
+   text: Color32,
+   text_muted: Color32,
+   accent: Color32,
+   info: Color32,
+   success: Color32,
+   error: Color32,
+   warning: Color32,
+}
+
+impl EleganceThemeKey {
+   fn from_theme(theme: &Theme) -> Self {
+      let c = &theme.colors;
+      Self {
+         dark: theme.dark_mode,
+         bg: c.bg,
+         widget_bg: c.widget_bg,
+         border: c.border,
+         text: c.text,
+         text_muted: c.text_muted,
+         accent: c.accent,
+         info: c.info,
+         success: c.success,
+         error: c.error,
+         warning: c.warning,
+      }
+   }
 }
 
 #[derive(Clone)]
@@ -101,8 +134,9 @@ pub struct GUI {
    pub update_window: UpdateWindow,
    pub dev: DevUi,
 
-   /// Cached elegance theme so we only re-inject it when the Zeus theme changes.
-   pub elegance_theme_cache: Option<(bool, Color32, EleganceTheme)>,
+   /// Last Zeus colour fingerprint we injected into `ctx.data`.
+   /// `None` = never injected this session.
+   injected_elegance_key: Option<EleganceThemeKey>,
 }
 
 impl GUI {
@@ -124,7 +158,8 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
 
       let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
-      let railgun_settings = ctx.write(|ctx| settings::RailgunSettings::new(ctx, overlay_manager.clone()));
+      let railgun_settings =
+         ctx.write(|ctx| settings::RailgunSettings::new(ctx, overlay_manager.clone()));
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new(overlay_manager.clone());
@@ -170,7 +205,7 @@ impl GUI {
          notification,
          update_window,
          dev: DevUi::new(),
-         elegance_theme_cache: None,
+         injected_elegance_key: None,
       }
    }
 
@@ -211,25 +246,19 @@ impl GUI {
    /// (`TabBar`, `Card`, `StatusPill`, `Indicator`) take Zeus's colours and
    /// respect light/dark without disturbing the rest of the UI.
    pub fn inject_elegance_theme(&mut self, ctx: &egui::Context) {
-      let dark = self.theme.dark_mode;
-      let accent = self.theme.colors.accent;
-      if let Some((cached_dark, cached_accent, cached)) = &self.elegance_theme_cache {
-         if *cached_dark == dark && *cached_accent == accent {
-            ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), cached.clone()));
-            return;
-         }
+      let key = EleganceThemeKey::from_theme(&self.theme);
+      if self.injected_elegance_key == Some(key) {
+         return;
       }
 
       let c = &self.theme.colors;
-      let mut pal = if self.theme.dark_mode {
+      let mut pal = if key.dark {
          elegance::Palette::charcoal()
       } else {
          elegance::Palette::frost()
       };
 
-      // Map Zeus colours onto elegance's palette so the tab underline, borders
-      // and status dots match the rest of the wallet.
-      pal.is_dark = self.theme.dark_mode;
+      pal.is_dark = key.dark;
       pal.bg = c.bg;
       pal.card = c.widget_bg;
       pal.input_bg = c.widget_bg;
@@ -256,8 +285,8 @@ impl GUI {
          ..EleganceTheme::slate()
       };
 
-      ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), elegance_theme.clone()));
-      self.elegance_theme_cache = Some((dark, accent, elegance_theme));
+      ctx.data_mut(|d| d.insert_temp(elegance_theme_key(), elegance_theme));
+      self.injected_elegance_key = Some(key);
    }
 }
 
