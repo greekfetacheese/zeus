@@ -80,7 +80,7 @@ impl ImportWallet {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               let size = vec2(ui.available_width() * 0.5, 20.0);
+               let size = vec2(ui.available_width() * 0.5, 40.0);
                ui.add_space(20.0);
 
                // Wallet Name
@@ -101,6 +101,7 @@ impl ImportWallet {
                };
 
                // Input Field
+               let size = vec2(ui.available_width() * 0.7, 40.0);
                self.input_field.set_min_size(size);
                self.input_field.set_id(text);
 

@@ -5,11 +5,11 @@ use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Order, RichText, Ui, Window, vec2};
 use ncrypt_me::Credentials;
+use tracing::{error, info};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::{CredentialsForm, QrImage};
 use zeus_wallet::Wallet;
 use zeus_widgets::Button;
-use tracing::{info, error};
 
 pub struct ExportKeyUi {
    open: bool,
@@ -101,7 +101,7 @@ impl ExportKeyUi {
 
             let button_visuals = theme.button_visuals();
             let button_size = vec2(100.0, 20.0);
-            let button_size_area = vec2(210.0, 20.0);
+            let area = vec2(ui.available_width() * 0.6, 50.0);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
@@ -110,26 +110,44 @@ impl ExportKeyUi {
 
                if let Some(wallet) = self.wallet_to_export.as_ref() {
                   let warning_text = "Make sure to save this key in a safe place!";
-                  ui.label(RichText::new(warning_text).size(theme.text_sizes.large));
+                  ui.label(
+                     RichText::new(warning_text)
+                        .size(theme.text_sizes.large)
+                        .color(theme.colors.warning),
+                  );
 
-                  ui.allocate_ui(button_size_area, |ui| {
-                     ui.horizontal(|ui| {
-                        let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
-                        let button =
-                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                  ui.allocate_ui(area, |ui| {
+                     ui.vertical_centered(|ui| {
+                        ui.horizontal(|ui| {
+                           let text = RichText::new("Copy Key").size(theme.text_sizes.normal);
+                           let button =
+                              Button::new(text).visuals(button_visuals).min_size(button_size);
 
-                        if ui.add(button).clicked() {
-                           ui.ctx()
-                              .copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
-                        }
+                           if ui.add(button).clicked() {
+                              ui.ctx()
+                                 .copy_text(wallet.key_string().unlock_str(|key| key.to_string()));
+                           }
 
-                        let text = RichText::new("Show QR Code").size(theme.text_sizes.normal);
-                        let button =
-                           Button::new(text).visuals(button_visuals).min_size(button_size);
+                           if let Some(seed_phrase) = &wallet.seed_phrase {
+                              let text =
+                                 RichText::new("Copy Seed Phrase").size(theme.text_sizes.normal);
+                              let button =
+                                 Button::new(text).visuals(button_visuals).min_size(button_size);
 
-                        if ui.add(button).clicked() {
-                           self.show_key_qrcode = true;
-                        }
+                              if ui.add(button).clicked() {
+                                 ui.ctx()
+                                    .copy_text(seed_phrase.unlock_str(|seed| seed.to_string()));
+                              }
+                           }
+
+                           let text = RichText::new("Show QR Code").size(theme.text_sizes.normal);
+                           let button =
+                              Button::new(text).visuals(button_visuals).min_size(button_size);
+
+                           if ui.add(button).clicked() {
+                              self.show_key_qrcode = true;
+                           }
+                        });
                      });
                   });
 
