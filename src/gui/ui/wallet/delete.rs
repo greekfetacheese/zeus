@@ -262,7 +262,7 @@ impl DeleteWalletUi {
 
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
-               gui.wallet_ui.open(ctx.clone());
+               gui.wallet_ui.calc_wallet_value();
             });
          });
       }

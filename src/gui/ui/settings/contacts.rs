@@ -2,11 +2,13 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, types::Contact};
-use crate::gui::SHARED_GUI;
+use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align2, CursorIcon, FontId, Margin, OpenUrl, Order, RichText, ScrollArea, Ui, Window, vec2,
+   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Ui,
+   Window, vec2,
 };
+use elegance::{Menu, MenuItem};
 use std::str::FromStr;
 use std::sync::Arc;
 use zeus_eth::alloy_primitives::Address;
@@ -550,7 +552,7 @@ impl ContactsUi {
       self.edit_contact.show(ctx, theme, ui);
    }
 
-   fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn main_ui(&mut self, ctx: &mut ZeusContext, theme: &Theme, _icons: Arc<Icons>, ui: &mut Ui) {
       if !self.main_ui {
          return;
       }
@@ -573,8 +575,6 @@ impl ContactsUi {
 
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();
-            let tint = theme.image_tint_recommended;
-            let privacy_mode = ctx.privacy_mode;
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 10.0;
@@ -613,7 +613,6 @@ impl ContactsUi {
                ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
                   ui.set_width(self.size.0);
 
-                  let frame = theme.frame2;
                   for contact in contacts {
                      let valid = valid_contact_search(contact, &self.search_query);
 
@@ -621,79 +620,7 @@ impl ContactsUi {
                         continue;
                      }
 
-                     frame.show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-
-                        // Name
-                        ui.horizontal(|ui| {
-                           let text = RichText::new(&contact.name).size(theme.text_sizes.large);
-                           let label = Label::new(text, None).wrap().interactive(false);
-                           ui.add(label);
-                        });
-
-                        // Address - Hyperlink button
-                        ui.horizontal(|ui| {
-                           ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-
-                           let address_short = match privacy_mode {
-                              false => contact.evm_address.clone(),
-                              true => contact.zk_address_truncated(),
-                           };
-
-                           let address_full = match privacy_mode {
-                              false => contact.evm_address.clone(),
-                              true => contact.zk_address.clone(),
-                           };
-
-                           let address_text = RichText::new(&address_short)
-                              .size(theme.text_sizes.normal)
-                              .color(theme.colors.text_muted);
-
-                           let label =
-                              Button::selectable(false, address_text).visuals(button_visuals);
-
-                           if ui.add(label).clicked() {
-                              ui.ctx().copy_text(address_full);
-                           }
-
-                           let chain = ctx.chain;
-                           let explorer = chain.block_explorer();
-                           let link = format!("{}/address/{}", explorer, &contact.evm_address);
-
-                           let icon = match theme.dark_mode {
-                              true => icons.external_link_white_x18(tint),
-                              false => icons.external_link_dark_x18(tint),
-                           };
-
-                           let button = Button::image(icon).visuals(button_visuals);
-                           let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-                           if res.clicked() {
-                              let url = OpenUrl::new_tab(link);
-                              ui.ctx().open_url(url);
-                           }
-                        });
-
-                        ui.horizontal(|ui| {
-                           ui.spacing_mut().button_padding = vec2(4.0, 4.0);
-
-                           let text = RichText::new("Edit").size(theme.text_sizes.normal);
-                           let edit_button = Button::new(text).visuals(button_visuals);
-                           if ui.add(edit_button).clicked() {
-                              self.edit_contact.open();
-                              self.edit_contact.contact_to_edit = contact.clone();
-                              self.edit_contact.old_contact = contact.clone();
-                           }
-
-                           let text = RichText::new("Delete").size(theme.text_sizes.normal);
-                           let delete_button = Button::new(text).visuals(button_visuals);
-                           if ui.add(delete_button).clicked() {
-                              self.delete_contact.open();
-                              self.delete_contact.contact_to_delete = contact.clone();
-                           }
-                        });
-                     });
-                     ui.add_space(5.0);
+                     self.contact(ctx, theme, contact, ui);
                   }
                });
             });
@@ -702,6 +629,77 @@ impl ContactsUi {
       if !open {
          self.close();
       }
+   }
+
+   fn contact(&mut self, ctx: &ZeusContext, theme: &Theme, contact: &Contact, ui: &mut Ui) {
+      let frame = theme.frame2;
+      let privacy_mode = ctx.privacy_mode;
+      let button_visuals = theme.button_visuals();
+
+      frame.show(ui, |ui| {
+         ui.set_width(ui.available_width());
+
+         // Contact Name
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let text = RichText::new(&contact.name).size(theme.text_sizes.large);
+               let label = Label::new(text, None).wrap().interactive(false);
+               ui.add(label);
+            });
+
+            // More button
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let more = dots_button(theme, ui);
+               let id = format!("{}_more_options", contact.evm_address);
+
+               Menu::new(id).show_below(&more, |ui| {
+                  if ui.add(MenuItem::new("Edit").shortcut("⌘ E")).clicked() {
+                     self.edit_contact.open();
+                     self.edit_contact.contact_to_edit = contact.clone();
+                     self.edit_contact.old_contact = contact.clone();
+                  }
+
+                  if ui.add(MenuItem::new("Delete").shortcut("⌘ D")).clicked() {
+                     self.delete_contact.open();
+                     self.delete_contact.contact_to_delete = contact.clone();
+                  }
+
+                  if ui.add(MenuItem::new("See on Block Explorer").shortcut("⌘ S")).clicked() {
+                     let chain = ctx.chain;
+                     let explorer = chain.block_explorer();
+                     let link = format!("{}/address/{}", explorer, &contact.evm_address);
+                     let url = OpenUrl::new_tab(link);
+                     ui.ctx().open_url(url);
+                  }
+               });
+            });
+         });
+
+         // Address - Hyperlink button
+         ui.horizontal(|ui| {
+            ui.spacing_mut().button_padding = vec2(4.0, 4.0);
+
+            let address_short = match privacy_mode {
+               false => contact.evm_address.clone(),
+               true => contact.zk_address_truncated(),
+            };
+
+            let address_full = match privacy_mode {
+               false => contact.evm_address.clone(),
+               true => contact.zk_address.clone(),
+            };
+
+            let address_text = RichText::new(&address_short)
+               .size(theme.text_sizes.normal)
+               .color(theme.colors.text);
+
+            let label = Button::selectable(false, address_text).visuals(button_visuals);
+
+            if ui.add(label).clicked() {
+               ui.ctx().copy_text(address_full);
+            }
+         });
+      });
    }
 }
 

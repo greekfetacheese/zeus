@@ -6,7 +6,6 @@ use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, SecureTextEdit};
 
 pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
-   let ctx_handle = gui.ctx.clone();
    let privacy_mode = ctx.privacy_mode;
    let theme = &gui.theme;
    ui.set_width(140.0);
@@ -123,7 +122,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             .min_size(button_size);
 
          if ui.add(wallets).clicked() {
-            gui.wallet_ui.open(ctx_handle.clone());
+            gui.wallet_ui.open();
             gui.portofolio.close();
             gui.uniswap.close();
             gui.send_crypto.close();

@@ -10,10 +10,11 @@ use crate::core::context::{ZeusContext, ZeusCtx, load_theme_kind};
 use lazy_static::lazy_static;
 use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
-use crate::gui::ui::{
+pub use crate::gui::ui::{
    ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
+   common::dots_button,
    dapps::{across::AcrossBridge, railgun::ShieldUi, uniswap::UniswapUi},
    dev::DevUi,
    panels::{central_panel::FPSMetrics, left_panel::ConnectedDappsUi},

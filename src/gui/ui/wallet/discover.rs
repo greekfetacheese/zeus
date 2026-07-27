@@ -670,7 +670,7 @@ impl DiscoverChildWallets {
 
                      // Calculate the wallets again in the UI
                      SHARED_GUI.write(|gui| {
-                        gui.wallet_ui.open(ctx.clone());
+                        gui.wallet_ui.calc_wallet_value();
                      });
                   });
                }

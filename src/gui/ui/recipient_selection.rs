@@ -82,12 +82,19 @@ impl RecipientSelectionWindow {
       }
 
       self.open = true;
+      self.calc_wallet_value();
+   }
+
+   pub fn calc_wallet_value(&mut self) {
       self.loading = true;
 
+      // TODO: This op is the same as the one in WalletUi
+      // ? We should make it a helper function at some point?
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
+
          for chain in SUPPORTED_CHAINS {
             if ctx.is_chain_disabled(chain) {
                continue;
@@ -99,8 +106,8 @@ impl RecipientSelectionWindow {
          }
 
          let include_testnets = ctx.chain().is_testnet();
+         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
-         // TODO: Adjust for Privacy mode
          wallets.sort_by(|a, b| {
             let wallet_a = a.address;
             let wallet_b = b.address;
@@ -108,12 +115,14 @@ impl RecipientSelectionWindow {
             let value_a = ctx.get_total_value(wallet_a, include_testnets);
             let value_b = ctx.get_total_value(wallet_b, include_testnets);
 
+            let (value_a, value_b) = if privacy_mode {
+               (value_a.private, value_b.private)
+            } else {
+               (value_a.public, value_b.public)
+            };
+
             // Sort in descending order (highest value first)
-            value_b
-               .public
-               .f64()
-               .partial_cmp(&value_a.public.f64())
-               .unwrap_or(std::cmp::Ordering::Equal)
+            value_b.f64().partial_cmp(&value_a.f64()).unwrap_or(std::cmp::Ordering::Equal)
          });
 
          let mut wallet_value = HashMap::new();
@@ -121,8 +130,15 @@ impl RecipientSelectionWindow {
 
          for wallet in &wallets {
             let value = ctx.get_total_value(wallet.address, include_testnets);
-            wallet_value.insert(wallet.address, value.public);
+            let value = if privacy_mode {
+               value.private
+            } else {
+               value.public
+            };
 
+            wallet_value.insert(wallet.address, value);
+
+            // ? Adjust also this for privacy mode?
             let chains = ctx.get_chains_that_have_balance(wallet.address);
             wallet_chains.insert(wallet.address, chains);
          }

@@ -320,6 +320,8 @@ impl Header {
                   gui.shield_ui.set_mode(new_mode);
                   gui.shield_ui.default_currency(chain.id());
                   gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
+                  gui.wallet_ui.calc_wallet_value();
+                  gui.recipient_selection.calc_wallet_value();
                });
             });
          }
@@ -463,6 +465,7 @@ impl Header {
 
             ctx.chain = new_chain;
 
+            // Update the state on chain change
             RT.spawn(async move {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let owner = ctx.current_wallet_info().address;
@@ -479,8 +482,8 @@ impl Header {
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
                   gui.shield_ui.default_currency(new_chain.id());
-                  // gui.uniswap.create_position_ui.default_currency0(new_chain.id());
-                  // gui.uniswap.create_position_ui.default_currency1(new_chain.id());
+                  gui.wallet_ui.calc_wallet_value();
+                  gui.recipient_selection.calc_wallet_value();
                });
             });
          }
@@ -507,6 +510,7 @@ impl Header {
          if clicked {
             ctx.current_wallet = self.wallet_select.wallet.clone();
 
+            // Update the state on wallet change
             RT.spawn(async move {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                let current_wallet = ctx.current_wallet_info();

@@ -181,7 +181,7 @@ impl ImportWallet {
 
             // Recalculate the wallets
             SHARED_GUI.write(|gui| {
-               gui.wallet_ui.open(ctx.clone());
+               gui.wallet_ui.calc_wallet_value();
             });
 
             // Fetch the balance for the new wallet across all chains and add it to the portfolio db

@@ -1,14 +1,15 @@
 use crate::assets::icons::Icons;
-use crate::core::{WalletInfo, ZeusContext, ZeusCtx};
-use crate::gui::SHARED_GUI;
+use crate::core::{WalletInfo, ZeusContext};
+use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Sense, Spinner, Ui, Vec2,
-   Window, vec2,
+   Align, Align2, FontId, Layout, Margin, Order, RichText, ScrollArea, Spinner, Ui, Vec2, Window,
+   vec2,
 };
+use elegance::{Menu, MenuItem};
 use std::{collections::HashMap, sync::Arc};
 use zeus_eth::{alloy_primitives::Address, types::SUPPORTED_CHAINS, utils::NumericValue};
-use zeus_theme::{OverlayManager, Theme, utils::frame_it};
+use zeus_theme::{OverlayManager, Theme};
 use zeus_wallet::Wallet;
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
@@ -83,15 +84,21 @@ impl WalletUi {
       self.new_wallet_name.clear();
    }
 
-   pub fn open(&mut self, ctx: ZeusCtx) {
+   pub fn open(&mut self) {
       self.open = true;
+      self.calc_wallet_value();
+   }
+
+   pub fn calc_wallet_value(&mut self) {
       self.loading = true;
 
       // TODO: This op is the same as the one in RecipientSelectionWindow
-      // We should make it a helper function at some point
+      // ? We should make it a helper function at some point?
       RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let mut wallets = ctx.get_all_wallets_info();
          let mut portfolios = Vec::new();
+
          for chain in SUPPORTED_CHAINS {
             if ctx.is_chain_disabled(chain) {
                continue;
@@ -103,8 +110,8 @@ impl WalletUi {
          }
 
          let include_testnets = ctx.chain().is_testnet();
+         let privacy_mode = ctx.read(|ctx| ctx.privacy_mode);
 
-         // TODO: Adjust for Privacy mode
          wallets.sort_by(|a, b| {
             let wallet_a = a.address;
             let wallet_b = b.address;
@@ -112,12 +119,14 @@ impl WalletUi {
             let value_a = ctx.get_total_value(wallet_a, include_testnets);
             let value_b = ctx.get_total_value(wallet_b, include_testnets);
 
+            let (value_a, value_b) = if privacy_mode {
+               (value_a.private, value_b.private)
+            } else {
+               (value_a.public, value_b.public)
+            };
+
             // Sort in descending order (highest value first)
-            value_b
-               .public
-               .f64()
-               .partial_cmp(&value_a.public.f64())
-               .unwrap_or(std::cmp::Ordering::Equal)
+            value_b.f64().partial_cmp(&value_a.f64()).unwrap_or(std::cmp::Ordering::Equal)
          });
 
          let mut wallet_value = HashMap::new();
@@ -125,8 +134,15 @@ impl WalletUi {
 
          for wallet in &wallets {
             let value = ctx.get_total_value(wallet.address, include_testnets);
-            wallet_value.insert(wallet.address, value.public);
+            let value = if privacy_mode {
+               value.private
+            } else {
+               value.public
+            };
 
+            wallet_value.insert(wallet.address, value);
+
+            // ? Adjust also this for privacy mode?
             let chains = ctx.get_chains_that_have_balance(wallet.address);
             wallet_chains.insert(wallet.address, chains);
          }
@@ -175,7 +191,7 @@ impl WalletUi {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            ui.spacing_mut().item_spacing = Vec2::new(8.0, 15.0);
+            ui.spacing_mut().item_spacing = Vec2::new(8.0, 10.0);
             ui.spacing_mut().button_padding = Vec2::new(10.0, 8.0);
 
             let button_visuals = theme.button_visuals();
@@ -199,14 +215,7 @@ impl WalletUi {
 
                ui.add_space(10.0);
                ui.label(RichText::new("Selected Wallet").size(theme.text_sizes.large));
-               self.wallet(
-                  ctx,
-                  theme,
-                  icons.clone(),
-                  &current_wallet,
-                  true,
-                  ui,
-               );
+               self.wallet(ctx, theme, icons.clone(), &current_wallet, ui);
 
                // Search bar
                ui.add_space(8.0);
@@ -223,7 +232,6 @@ impl WalletUi {
                      .font(FontId::proportional(theme.text_sizes.normal))
                      .min_size(vec2(ui.available_width() * 0.7, 20.0)),
                );
-               ui.add_space(8.0);
 
                let wallets = self.wallets.clone();
 
@@ -238,9 +246,7 @@ impl WalletUi {
                            .to_lowercase()
                            .contains(&self.search_query.to_lowercase())
                      {
-                        self.wallet(ctx, theme, icons.clone(), wallet, false, ui);
-
-                        ui.add_space(4.0);
+                        self.wallet(ctx, theme, icons.clone(), wallet, ui);
                      }
                   }
                });
@@ -255,66 +261,53 @@ impl WalletUi {
       theme: &Theme,
       icons: Arc<Icons>,
       wallet: &WalletInfo,
-      is_current: bool,
       ui: &mut Ui,
    ) {
-      let mut frame = theme.frame2;
+      let frame = theme.frame2;
       let tint = theme.image_tint_recommended;
-
-      let visuals = if is_current {
-         None
-      } else {
-         Some(theme.frame2_visuals)
-      };
 
       let button_visuals = theme.button_visuals();
 
-      let res = frame_it(&mut frame, visuals, ui, |ui| {
+      frame.show(ui, |ui| {
          ui.set_width(ui.available_width() * 0.7);
          ui.spacing_mut().button_padding = Vec2::new(8.0, 8.0);
 
          // Wallet info column
          ui.vertical(|ui| {
-            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-               // Wallet name
-               let text = RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal);
-               let label = Label::new(text, None).wrap().interactive(false);
+            ui.horizontal(|ui| {
+               ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+                  // Wallet name
+                  let text = RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal);
+                  let label = Label::new(text, None).interactive(false);
 
-               ui.scope(|ui| {
-                  ui.set_width(ui.available_width() * 0.35);
+                  ui.set_width(ui.available_width() * 0.85);
                   ui.add(label);
                });
 
-               // Export button
-               let enabled = !wallet.is_master();
-               let text = RichText::new("Export").size(theme.text_sizes.small);
-               let export_key = Button::new(text).visuals(button_visuals);
+               // More button
+               ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  let id = format!("{}_more_options", wallet.address);
+                  let more = dots_button(theme, ui);
+                  let enabled = !wallet.is_master();
 
-               if ui.add_enabled(enabled, export_key).clicked() {
-                  let wallet = ctx.get_wallet(wallet.address);
-                  self.export_key_ui.open(wallet);
-               }
+                  Menu::new(id).show_below(&more, |ui| {
+                     if ui.add_enabled(enabled, MenuItem::new("Export").shortcut("⌘ E")).clicked()
+                     {
+                        let wallet = ctx.get_wallet(wallet.address);
+                        self.export_key_ui.open(wallet);
+                     }
 
-               ui.add_space(8.0);
+                     if ui.add(MenuItem::new("Rename").shortcut("⌘ R")).clicked() {
+                        let wallet_opt = ctx.get_wallet(wallet.address);
+                        self.open_rename_wallet(wallet_opt);
+                     }
 
-               // Rename button
-               let text = RichText::new("Rename").size(theme.text_sizes.small);
-               let rename_wallet = Button::new(text).visuals(button_visuals);
-
-               if ui.add(rename_wallet).clicked() {
-                  let wallet_opt = ctx.get_wallet(wallet.address);
-                  self.open_rename_wallet(wallet_opt);
-               }
-
-               ui.add_space(8.0);
-
-               // Delete button
-               let text = RichText::new("Delete").size(theme.text_sizes.small);
-               let delete_wallet = Button::new(text).visuals(button_visuals);
-
-               if ui.add_enabled(enabled, delete_wallet).clicked() {
-                  self.delete_wallet_ui.open(wallet.clone());
-               }
+                     if ui.add_enabled(enabled, MenuItem::new("Delete").shortcut("⌘ D")).clicked()
+                     {
+                        self.delete_wallet_ui.open(wallet.clone());
+                     }
+                  });
+               });
             });
 
             // Address and value
@@ -357,6 +350,7 @@ impl WalletUi {
          });
       });
 
+      /*
       if res.interact(Sense::click()).clicked() {
          let new_selected_wallet = ctx.get_wallet(wallet.address);
          if let Some(new_selected_wallet) = new_selected_wallet {
@@ -369,6 +363,7 @@ impl WalletUi {
             });
          }
       }
+       */
    }
 
    /// Rename wallet UI
@@ -528,7 +523,7 @@ impl WalletUi {
 
                      // Calculate the wallets again
                      SHARED_GUI.write(|gui| {
-                        gui.wallet_ui.open(ctx.clone());
+                        gui.wallet_ui.calc_wallet_value();
                      });
                   });
                }
