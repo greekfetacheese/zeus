@@ -476,13 +476,13 @@ impl TransactionAnalysis {
          let sender_name_opt = ctx.get_address_name(chain, sender);
          let recipient_name_opt = ctx.get_address_name(chain, recipient);
 
-         let sender_str = if let Some(sender_name) = sender_name_opt {
+         let sender_name = if let Some(sender_name) = sender_name_opt {
             sender_name
          } else {
             truncate_address(sender.to_string())
          };
 
-         let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+         let recipient_name = if let Some(recipient_name) = recipient_name_opt {
             recipient_name
          } else {
             truncate_address(recipient.to_string())
@@ -495,9 +495,9 @@ impl TransactionAnalysis {
             real_amount_sent: None,
             real_amount_sent_usd: None,
             sender,
-            sender_str,
+            sender_name,
             recipient,
-            recipient_str,
+            recipient_name,
          };
 
          return DecodedEvent::Transfer(params);

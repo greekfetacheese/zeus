@@ -12,10 +12,13 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::core::{
-   DecodedEvent, TransactionAnalysis, TransferParams, ZeusContext, ZeusCtx, send_transaction,
-};
 use crate::utils::{RT, estimate_tx_cost};
+use crate::{
+   core::{
+      DecodedEvent, TransactionAnalysis, TransferParams, ZeusContext, ZeusCtx, send_transaction,
+   },
+   utils::truncate_address,
+};
 
 use crate::assets::icons::Icons;
 use crate::gui::{
@@ -881,6 +884,23 @@ async fn send_token(
    let real_amount_sent = NumericValue::format_wei(real_amount_sent, token.decimals);
    let real_amount_send_usd = ctx.get_token_value_for_amount(real_amount_sent.f64(), &token);
 
+   let sender_name_opt = ctx.get_address_name(chain.id(), from);
+   let recipient_name_opt = ctx.get_address_name(chain.id(), recipient);
+
+   let sender_name = if let Some(sender_name) = sender_name_opt {
+      sender_name
+   } else {
+      truncate_address(from.to_string())
+   };
+
+   let recipient_name = if let Some(recipient_name) = recipient_name_opt {
+      recipient_name
+   } else {
+      truncate_address(recipient.to_string())
+   };
+
+   transfer_params.sender_name = sender_name;
+   transfer_params.recipient_name = recipient_name;
    transfer_params.amount = amount;
    transfer_params.amount_usd = Some(amount_usd);
    transfer_params.real_amount_sent = Some(real_amount_sent);

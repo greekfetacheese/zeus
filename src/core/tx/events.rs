@@ -303,8 +303,8 @@ impl DecodedEvent {
       let currency: Currency = NativeCurrency::from(1).into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
-      let sender_str = truncate_address(Address::ZERO.to_string());
-      let recipient_str = truncate_address(Address::ZERO.to_string());
+      let sender_name = truncate_address(Address::ZERO.to_string());
+      let recipient_name = truncate_address(Address::ZERO.to_string());
 
       let params = TransferParams {
          currency,
@@ -313,9 +313,9 @@ impl DecodedEvent {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender: Address::ZERO,
-         sender_str,
+         sender_name,
          recipient: Address::ZERO,
-         recipient_str,
+         recipient_name,
       };
 
       Self::Transfer(params)
@@ -325,8 +325,8 @@ impl DecodedEvent {
       let currency: Currency = ERC20Token::weth().into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
-      let sender_str = truncate_address(Address::ZERO.to_string());
-      let recipient_str = truncate_address(Address::ZERO.to_string());
+      let sender_name = truncate_address(Address::ZERO.to_string());
+      let recipient_name = truncate_address(Address::ZERO.to_string());
 
       let params = TransferParams {
          currency,
@@ -335,9 +335,9 @@ impl DecodedEvent {
          real_amount_sent: Some(amount),
          real_amount_sent_usd: Some(amount_usd),
          sender: Address::ZERO,
-         sender_str,
+         sender_name,
          recipient: Address::ZERO,
-         recipient_str,
+         recipient_name,
       };
 
       Self::Transfer(params)
@@ -877,10 +877,10 @@ pub struct TransferParams {
    pub real_amount_sent_usd: Option<NumericValue>,
    pub sender: Address,
    /// The name of the sender if known, otherwise show truncated address
-   pub sender_str: String,
+   pub sender_name: String,
    pub recipient: Address,
    /// The name of the recipient if known, otherwise show truncated address
-   pub recipient_str: String,
+   pub recipient_name: String,
 }
 
 impl TransferParams {
@@ -948,13 +948,13 @@ impl TransferParams {
       let sender_name_opt = ctx.get_address_name(chain, sender);
       let recipient_name_opt = ctx.get_address_name(chain, recipient);
 
-      let sender_str = if let Some(sender_name) = sender_name_opt {
+      let sender_name = if let Some(sender_name) = sender_name_opt {
          sender_name
       } else {
          truncate_address(sender.to_string())
       };
 
-      let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+      let recipient_name = if let Some(recipient_name) = recipient_name_opt {
          recipient_name
       } else {
          truncate_address(recipient.to_string())
@@ -967,9 +967,9 @@ impl TransferParams {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender,
-         sender_str,
+         sender_name,
          recipient,
-         recipient_str,
+         recipient_name,
       })
    }
 
@@ -996,13 +996,13 @@ impl TransferParams {
       let sender_name_opt = ctx.get_address_name(chain, from);
       let recipient_name_opt = ctx.get_address_name(chain, to);
 
-      let sender_str = if let Some(sender_name) = sender_name_opt {
+      let sender_name = if let Some(sender_name) = sender_name_opt {
          sender_name
       } else {
          truncate_address(from.to_string())
       };
 
-      let recipient_str = if let Some(recipient_name) = recipient_name_opt {
+      let recipient_name = if let Some(recipient_name) = recipient_name_opt {
          recipient_name
       } else {
          truncate_address(to.to_string())
@@ -1015,9 +1015,9 @@ impl TransferParams {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender: from,
-         sender_str,
+         sender_name,
          recipient: to,
-         recipient_str,
+         recipient_name,
       })
    }
 

@@ -508,13 +508,13 @@ impl Notification {
          let label = Label::new(text, Some(icon)).wrap().interactive(false);
          ui.add(label);
 
-         let text = RichText::new(&params.sender_str).size(theme.text_sizes.normal);
+         let text = RichText::new(&params.sender_name).size(theme.text_sizes.normal);
          let from_label = Label::new(text, None).interactive(false);
 
          let arrow = icons.arrow_right_white_x24(tint);
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         let text = RichText::new(&params.recipient_str).size(theme.text_sizes.normal);
+         let text = RichText::new(&params.recipient_name).size(theme.text_sizes.normal);
          let to_label = Label::new(text, None).interactive(false);
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);
