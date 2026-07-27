@@ -13,7 +13,7 @@ use std::{
    collections::HashMap,
    path::PathBuf,
    sync::{Arc, RwLock},
-   time::{Duration, SystemTime, UNIX_EPOCH},
+   time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
@@ -237,6 +237,10 @@ impl ZeusCtx {
       if let Some(provider) = old_provider {
          // Best effort to make sure we have the only handle
          // ? Maybe at some point we should wrap the RailgunProvider with an Arc<Mutex>
+
+         let timeout = Duration::from_secs(120);
+         let start = Instant::now();
+
          loop {
             let is_syncing = provider.is_syncing().await;
             let is_verifying = provider.is_verifying().await;
@@ -246,7 +250,16 @@ impl ZeusCtx {
                break;
             }
 
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            let now = Instant::now();
+            if now.duration_since(start) > timeout {
+               self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, false));
+               return Err(anyhow!(
+                  "Railgun Resync aborted: timeout for chain {}",
+                  chain
+               ));
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
          }
 
          tracing::info!(
@@ -338,7 +351,7 @@ impl ZeusCtx {
       }
 
       let mut retries = 0;
-      let max_retries = 10;
+      let max_retries = 20;
       let wait_time = Duration::from_millis(500);
 
       let client = match self.get_archive_client(chain, false).await {
