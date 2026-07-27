@@ -1,4 +1,5 @@
-//! UI that allows the user to send ETH or ERC20 tokens
+//! UI that allows the user to send ETH or ERC20 tokens (public) or private
+//! Railgun (zk → zk) transfers when privacy mode is enabled.
 
 use eframe::egui::{
    Align2, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui, Window, vec2,
@@ -19,7 +20,10 @@ use crate::utils::{RT, estimate_tx_cost};
 use crate::assets::icons::Icons;
 use crate::gui::{
    SHARED_GUI,
-   ui::{ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField},
+   ui::{
+      ContactsUi, RecipientSelectionWindow, TokenSelectionWindow, common::AmountField,
+      dapps::railgun::private_transfer,
+   },
 };
 use crate::utils::simulate::fetch_accounts_info;
 use zeus_theme::Theme;
@@ -29,7 +33,7 @@ use zeus_eth::{
    alloy_primitives::{Address, Bytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::BlockId,
-   currency::{Currency, NativeCurrency},
+   currency::{Currency, ERC20Token, NativeCurrency},
    revm_utils::{ForkFactory, Host, new_evm, simulate},
    types::ChainId,
    utils::NumericValue,
@@ -62,7 +66,7 @@ impl SendCryptoUi {
          recipient: String::new(),
          recipient_name: None,
          search_query: String::new(),
-         size: (500.0, 500.0),
+         size: (500.0, 620.0),
          price_syncing: false,
          syncing_balance: false,
          sending_tx: false,
@@ -89,6 +93,15 @@ impl SendCryptoUi {
       self.currency = currency;
    }
 
+   /// Default token for the active mode / chain (native for public, WETH for private).
+   pub fn default_currency(&mut self, privacy_mode: bool, chain_id: u64) {
+      self.currency = if privacy_mode {
+         Currency::from(ERC20Token::wrapped_native_token(chain_id))
+      } else {
+         Currency::from(NativeCurrency::from(chain_id))
+      };
+   }
+
    pub fn clear_recipient(&mut self) {
       self.recipient_name = None;
       self.recipient = String::new();
@@ -112,6 +125,11 @@ impl SendCryptoUi {
          return;
       }
 
+      let privacy_mode = ctx.privacy_mode;
+      // Private transfer: both tokens and recipients are private (notes + 0zk).
+      let token_privacy_mode = privacy_mode;
+      let recipient_privacy_mode = privacy_mode;
+
       let frame = theme.frame1;
 
       Window::new("send_crypto_ui")
@@ -130,23 +148,28 @@ impl SendCryptoUi {
 
                   let text_edit_visuals = theme.text_edit_visuals();
 
-                  ui.label(RichText::new("Send Crypto").size(theme.text_sizes.heading));
+                  let title = if privacy_mode {
+                     "Private Transfer"
+                  } else {
+                     "Send Crypto"
+                  };
+                  ui.label(RichText::new(title).size(theme.text_sizes.heading));
 
                   let owner = ctx.current_wallet_info().address;
-
+                  let owner_zk = ctx.current_wallet_info().zk_address();
                   let chain = ctx.chain;
                   let inner_frame = theme.frame2;
 
                   // Currency Selection
                   let label = String::from("Amount");
-                  let balance = ctx.get_currency_balance(chain.id(), owner, &self.currency);
+                  let balance = self.balance_for_mode(ctx, owner, privacy_mode);
                   let balance_clone = balance.clone();
-                  let cost = self.cost(ctx);
+                  let cost = self.cost(ctx, privacy_mode);
                   let balance_fn = || balance_clone;
 
                   let max_amount_fn = || {
                      let currency = self.currency.clone();
-                     if currency.is_erc20() {
+                     if privacy_mode || currency.is_erc20() {
                         return balance;
                      } else {
                         if balance.wei() < cost.wei() {
@@ -161,7 +184,6 @@ impl SendCryptoUi {
                   let currency = self.currency.clone();
                   let data_syncing = self.price_syncing || self.syncing_balance;
                   let should_calculate_price = self.should_calculate_price(&currency);
-                  let privacy_mode = false;
 
                   let value = value(ctx, currency, amount, should_calculate_price);
                   let value_fn = || value;
@@ -170,7 +192,7 @@ impl SendCryptoUi {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
                         chain.id(),
-                        privacy_mode,
+                        token_privacy_mode,
                         theme,
                         icons.clone(),
                         Some(label),
@@ -190,10 +212,17 @@ impl SendCryptoUi {
                   if let Some(currency) = token_selection.get_selected_currency() {
                      self.currency = currency.clone();
                      token_selection.reset();
-                     self.sync_balance(owner);
+                     self.sync_balance(owner, privacy_mode);
                   }
 
-                  recipient_selection.show(ctx, theme, icons.clone(), false, contacts_ui, ui);
+                  recipient_selection.show(
+                     ctx,
+                     theme,
+                     icons.clone(),
+                     recipient_privacy_mode,
+                     contacts_ui,
+                     ui,
+                  );
                   let recipient = recipient_selection.get_recipient();
 
                   // Recipient Selection
@@ -203,7 +232,7 @@ impl SendCryptoUi {
                         ui.label(RichText::new("Recipient").size(theme.text_sizes.large));
                         ui.add_space(10.0);
 
-                        if !recipient.is_empty(false) {
+                        if !recipient.is_empty(recipient_privacy_mode) {
                            if let Some(name) = &recipient.name {
                               ui.label(
                                  RichText::new(name)
@@ -218,40 +247,52 @@ impl SendCryptoUi {
                               );
                            }
 
-                           let block_explorer = chain.block_explorer();
-                           let link = format!(
-                              "{}/address/{}",
-                              block_explorer, recipient.evm_address
-                           );
-                           let tint = theme.image_tint_recommended;
-                           let icon = match theme.dark_mode {
-                              true => icons.external_link_white_x18(tint),
-                              false => icons.external_link_dark_x18(tint),
-                           };
+                           if !recipient_privacy_mode && !recipient.evm_address.is_empty() {
+                              let block_explorer = chain.block_explorer();
+                              let link = format!(
+                                 "{}/address/{}",
+                                 block_explorer, recipient.evm_address
+                              );
+                              let tint = theme.image_tint_recommended;
+                              let icon = match theme.dark_mode {
+                                 true => icons.external_link_white_x18(tint),
+                                 false => icons.external_link_dark_x18(tint),
+                              };
 
-                           let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
+                              let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
-                           if res.clicked() {
-                              let url = OpenUrl::new_tab(link);
-                              ui.ctx().open_url(url);
+                              if res.clicked() {
+                                 let url = OpenUrl::new_tab(link);
+                                 ui.ctx().open_url(url);
+                              }
                            }
                         }
                      });
 
                      ui.horizontal(|ui| {
-                        let hint = RichText::new("Search contacts or enter an address")
-                           .size(theme.text_sizes.normal)
-                           .color(theme.colors.text_muted);
+                        let hint = if recipient_privacy_mode {
+                           RichText::new("Search contacts or enter a 0zk address")
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.text_muted)
+                        } else {
+                           RichText::new("Search contacts or enter an address")
+                              .size(theme.text_sizes.normal)
+                              .color(theme.colors.text_muted)
+                        };
+
+                        let address_edit = if recipient_privacy_mode {
+                           &mut recipient_selection.recipient.zk_address
+                        } else {
+                           &mut recipient_selection.recipient.evm_address
+                        };
 
                         let res = ui.add(
-                           SecureTextEdit::singleline(
-                              &mut recipient_selection.recipient.evm_address,
-                           )
-                           .visuals(text_edit_visuals)
-                           .hint_text(hint)
-                           .min_size(vec2(ui.available_width(), 25.0))
-                           .margin(Margin::same(10))
-                           .font(FontId::proportional(theme.text_sizes.normal)),
+                           SecureTextEdit::singleline(address_edit)
+                              .visuals(text_edit_visuals)
+                              .hint_text(hint)
+                              .min_size(vec2(ui.available_width(), 25.0))
+                              .margin(Margin::same(10))
+                              .font(FontId::proportional(theme.text_sizes.normal)),
                         );
                         if res.clicked() {
                            recipient_selection.open();
@@ -259,7 +300,21 @@ impl SendCryptoUi {
                      });
                   });
 
-                  self.send_button(ctx, theme, owner, recipient.evm_address, ui);
+                  let recipient_str = if recipient_privacy_mode {
+                     recipient.zk_address
+                  } else {
+                     recipient.evm_address
+                  };
+
+                  self.send_button(
+                     ctx,
+                     theme,
+                     owner,
+                     owner_zk,
+                     recipient_str,
+                     privacy_mode,
+                     ui,
+                  );
                });
             });
          });
@@ -283,23 +338,33 @@ impl SendCryptoUi {
       ctx: &mut ZeusContext,
       theme: &Theme,
       owner: Address,
+      owner_zk: String,
       recipient: String,
+      privacy_mode: bool,
       ui: &mut Ui,
    ) {
       let button_visuals = theme.button_visuals();
       let sending_tx = self.sending_tx;
-      let recipient_is_sender = self.recipient_is_sender(owner, &recipient);
-      let valid_recipient = self.valid_recipient(&recipient);
+      let recipient_is_sender =
+         self.recipient_is_sender(owner, &owner_zk, &recipient, privacy_mode);
+      let valid_recipient = self.valid_recipient(&recipient, privacy_mode);
       let valid_amount = self.valid_amount();
-      let has_balance = self.sufficient_balance(ctx, owner);
+      let has_balance = self.sufficient_balance(ctx, owner, privacy_mode);
       let has_entered_amount = !self.amount_field.amount.is_empty();
-      let has_entered_recipient = !recipient.is_empty();
+      let has_entered_recipient = !recipient.trim().is_empty();
+      let valid_token = if privacy_mode {
+         self.currency.is_erc20()
+      } else {
+         true
+      };
 
       let valid_inputs = valid_recipient
          && !recipient_is_sender
          && has_balance
          && has_entered_amount
          && valid_amount
+         && valid_token
+         && has_entered_recipient
          && !sending_tx;
 
       let mut button_text = "Send".to_string();
@@ -320,6 +385,10 @@ impl SendCryptoUi {
          button_text = format!("Insufficient {} Balance", self.currency.symbol());
       }
 
+      if privacy_mode && !valid_token {
+         button_text = "Invalid Token".to_string();
+      }
+
       let text = RichText::new(button_text).size(theme.text_sizes.large);
       let send = Button::new(text)
          .min_size(vec2(ui.available_width() * 0.8, 45.0))
@@ -328,45 +397,57 @@ impl SendCryptoUi {
       if ui.add_enabled(valid_inputs, send).clicked() {
          self.sending_tx = true;
 
-         match self.send_transaction(ctx, recipient) {
-            Ok(_) => {}
-            Err(e) => {
-               self.sending_tx = false;
+         if privacy_mode {
+            self.send_private_transfer(ctx, recipient);
+         } else {
+            match self.send_public_transaction(ctx, recipient) {
+               Ok(_) => {}
+               Err(e) => {
+                  self.sending_tx = false;
 
-               RT.spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Error while sending transaction", e.to_string());
+                  RT.spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window("Error while sending transaction", e.to_string());
+                     });
                   });
-               });
+               }
             }
          }
       }
    }
 
-   fn sync_balance(&mut self, owner: Address) {
+   fn sync_balance(&mut self, owner: Address, privacy_mode: bool) {
       self.syncing_balance = true;
       let currency = self.currency.clone();
       let chain = currency.chain_id();
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let balance_manager = ctx.balance_manager();
-         if currency.is_native() {
-            match balance_manager.update_eth_balance(ctx.clone(), chain, vec![owner], false).await {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Failed to update ETH balance: {}", e);
-               }
-            }
+
+         if privacy_mode {
+            ctx.update_private_data(chain, owner).await;
          } else {
-            let token = currency.to_erc20().into_owned();
-            match balance_manager
-               .update_tokens_balance(ctx.clone(), chain, owner, vec![token], false)
-               .await
-            {
-               Ok(_) => {}
-               Err(e) => {
-                  tracing::error!("Failed to update token balance: {}", e);
+            let balance_manager = ctx.balance_manager();
+            if currency.is_native() {
+               match balance_manager
+                  .update_eth_balance(ctx.clone(), chain, vec![owner], false)
+                  .await
+               {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Failed to update ETH balance: {}", e);
+                  }
+               }
+            } else {
+               let token = currency.to_erc20().into_owned();
+               match balance_manager
+                  .update_tokens_balance(ctx.clone(), chain, owner, vec![token], false)
+                  .await
+               {
+                  Ok(_) => {}
+                  Err(e) => {
+                     tracing::error!("Failed to update token balance: {}", e);
+                  }
                }
             }
          }
@@ -376,8 +457,10 @@ impl SendCryptoUi {
       });
    }
 
-   fn cost(&self, ctx: &mut ZeusContext) -> NumericValue {
-      let gas_used = if self.currency.is_native() {
+   fn cost(&self, ctx: &mut ZeusContext, privacy_mode: bool) -> NumericValue {
+      let gas_used = if privacy_mode {
+         500_000
+      } else if self.currency.is_native() {
          ctx.chain.transfer_gas()
       } else {
          ctx.chain.erc20_transfer_gas()
@@ -388,14 +471,31 @@ impl SendCryptoUi {
       cost_in_wei
    }
 
-   fn valid_recipient(&self, recipient: &str) -> bool {
-      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
-      recipient != Address::ZERO
+   fn valid_recipient(&self, recipient: &str, privacy_mode: bool) -> bool {
+      if privacy_mode {
+         // Full 0zk parse is expensive (~15–20ms)
+         // Actual check happens on execution path
+         let r = recipient.trim();
+         r.starts_with("0zk") && r.len() > 20
+      } else {
+         let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
+         recipient != Address::ZERO
+      }
    }
 
-   fn recipient_is_sender(&self, owner: Address, recipient: &str) -> bool {
-      let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
-      recipient == owner
+   fn recipient_is_sender(
+      &self,
+      owner: Address,
+      owner_zk: &str,
+      recipient: &str,
+      privacy_mode: bool,
+   ) -> bool {
+      if privacy_mode {
+         !owner_zk.is_empty() && owner_zk == recipient.trim()
+      } else {
+         let recipient = Address::from_str(recipient).unwrap_or(Address::ZERO);
+         recipient == owner
+      }
    }
 
    fn valid_amount(&self) -> bool {
@@ -403,8 +503,34 @@ impl SendCryptoUi {
       amount > 0.0
    }
 
-   fn sufficient_balance(&self, ctx: &mut ZeusContext, sender: Address) -> bool {
-      let balance = ctx.get_currency_balance(ctx.chain.id(), sender, &self.currency);
+   fn balance_for_mode(
+      &self,
+      ctx: &mut ZeusContext,
+      owner: Address,
+      privacy_mode: bool,
+   ) -> NumericValue {
+      if !privacy_mode {
+         return ctx.get_currency_balance(ctx.chain.id(), owner, &self.currency);
+      }
+
+      let portfolio = ctx.portfolio_db.get(ctx.chain.id(), owner);
+      if let Some(token) = self.currency.erc20_opt() {
+         for (t, balance, _value, _price) in portfolio.private_tokens() {
+            if t.address == token.address {
+               return balance.clone();
+            }
+         }
+      }
+      NumericValue::default()
+   }
+
+   fn sufficient_balance(
+      &self,
+      ctx: &mut ZeusContext,
+      sender: Address,
+      privacy_mode: bool,
+   ) -> bool {
+      let balance = self.balance_for_mode(ctx, sender, privacy_mode);
       let amount = NumericValue::parse_to_wei(
          &self.amount_field.amount,
          self.currency.decimals(),
@@ -412,7 +538,61 @@ impl SendCryptoUi {
       balance.wei() >= amount.wei()
    }
 
-   fn send_transaction(
+   fn send_private_transfer(&mut self, ctx: &mut ZeusContext, recipient: String) {
+      let chain = ctx.chain;
+      let from = ctx.current_wallet_info().address;
+      let currency = self.currency.clone();
+      let amount = NumericValue::parse_to_wei(
+         &self.amount_field.amount,
+         self.currency.decimals(),
+      );
+
+      ctx.railgun_status.set_op_in_progress(chain.id(), true);
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Wait while magic happens");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
+
+         let result = RT.block_on(private_transfer(
+            ctx.clone(),
+            chain,
+            currency,
+            amount,
+            from,
+            recipient,
+         ));
+
+         match result {
+            Ok(_) => {
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  gui.send_crypto.amount_field.reset();
+                  gui.loading_window.reset();
+                  gui.request_repaint();
+               });
+            }
+            Err(e) => {
+               tracing::error!("Error sending private transfer: {:?}", e);
+               SHARED_GUI.write(|gui| {
+                  gui.send_crypto.sending_tx = false;
+                  gui.notification.reset();
+                  gui.loading_window.reset();
+                  gui.msg_window.open("Private Transfer Error", e.to_string());
+                  gui.request_repaint();
+               });
+            }
+         }
+
+         ctx.write(|ctx| {
+            ctx.railgun_status.set_op_in_progress(chain.id(), false);
+         });
+      });
+   }
+
+   fn send_public_transaction(
       &mut self,
       ctx: &mut ZeusContext,
       recipient: String,

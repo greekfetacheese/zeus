@@ -55,6 +55,9 @@ pub enum DecodedEvent {
    /// Railgun Unshield
    Unshield(UnshieldParams),
 
+   /// Railgun private (zk → zk) transfer
+   PrivateTransfer(PrivateTransferParams),
+
    #[default]
    Other,
 }
@@ -371,6 +374,7 @@ impl DecodedEvent {
          Self::TokenApprove(_) => "Token Approval".to_string(),
          Self::Shield(_) => "Shield".to_string(),
          Self::Unshield(_) => "Unshield".to_string(),
+         Self::PrivateTransfer(_) => "Private Transfer".to_string(),
          Self::Other => "Unknown Interaction".to_string(),
       }
    }
@@ -470,6 +474,13 @@ impl DecodedEvent {
       }
    }
 
+   pub fn private_transfer_params(&self) -> &PrivateTransferParams {
+      match self {
+         Self::PrivateTransfer(params) => params,
+         _ => panic!("Action is not a Private Transfer"),
+      }
+   }
+
    pub fn is_bridge(&self) -> bool {
       matches!(self, Self::Bridge(_))
    }
@@ -522,6 +533,10 @@ impl DecodedEvent {
 
    pub fn is_unshield(&self) -> bool {
       matches!(self, Self::Unshield(_))
+   }
+
+   pub fn is_private_transfer(&self) -> bool {
+      matches!(self, Self::PrivateTransfer(_))
    }
 
    pub fn is_other(&self) -> bool {
@@ -1482,6 +1497,20 @@ impl ShieldParams {
 
       Err(anyhow!("Log decoding failed"))
    }
+}
+
+/// Railgun private (zk → zk) transfer, not decoded from a public ERC-20 log
+/// built from the user intent
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrivateTransferParams {
+   pub chain: u64,
+   /// Recipient 0zk address
+   pub recipient: String,
+   pub asset: AssetId,
+   pub erc20: Option<ERC20Token>,
+   pub amount_wei: U256,
+   pub amount: Option<NumericValue>,
+   pub amount_usd: Option<NumericValue>,
 }
 
 /// Decoded unshield Railgun event

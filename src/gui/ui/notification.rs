@@ -37,6 +37,8 @@ pub enum NotificationType {
 
    Unshield(UnshieldParams),
 
+   PrivateTransfer(PrivateTransferParams),
+
    Other(String),
 }
 
@@ -54,6 +56,7 @@ impl NotificationType {
          DecodedEvent::Permit(_params) => Self::Other(String::new()),
          DecodedEvent::Shield(params) => Self::Shield(params),
          DecodedEvent::Unshield(params) => Self::Unshield(params),
+         DecodedEvent::PrivateTransfer(params) => Self::PrivateTransfer(params),
          DecodedEvent::Other => Self::Other("Transaction".to_string()),
       }
    }
@@ -88,6 +91,10 @@ impl NotificationType {
 
    pub fn is_unshield(&self) -> bool {
       matches!(self, NotificationType::Unshield { .. })
+   }
+
+   pub fn is_private_transfer(&self) -> bool {
+      matches!(self, NotificationType::PrivateTransfer { .. })
    }
 
    pub fn is_other(&self) -> bool {
@@ -147,6 +154,13 @@ impl NotificationType {
       match self {
          NotificationType::Unshield(params) => params,
          _ => panic!("NotificationType is not a unshield"),
+      }
+   }
+
+   pub fn private_transfer_params(&self) -> &PrivateTransferParams {
+      match self {
+         NotificationType::PrivateTransfer(params) => params,
+         _ => panic!("NotificationType is not a private transfer"),
       }
    }
 
@@ -273,6 +287,9 @@ impl Notification {
          }
          NotificationType::Unshield(_) => {
             self.show_unshield_notification(theme, icons.clone(), ui);
+         }
+         NotificationType::PrivateTransfer(_) => {
+            self.show_private_transfer_notification(theme, icons.clone(), ui);
          }
 
          NotificationType::Other(_) => {
@@ -622,6 +639,36 @@ impl Notification {
                format!("Broadcast fee {}", bf.abbreviated())
             };
             ui.label(RichText::new(text).size(theme.text_sizes.small));
+         }
+      });
+   }
+
+   fn show_private_transfer_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+      let params = self.notification.private_transfer_params();
+      let tint = theme.image_tint_recommended;
+
+      ui.vertical_centered(|ui| {
+         if let (Some(token), Some(amount)) = (params.erc20.as_ref(), params.amount.as_ref()) {
+            let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+            let text = if let Some(amount_usd) = params.amount_usd.as_ref() {
+               RichText::new(format!(
+                  "{} {} ~ ${}",
+                  amount.abbreviated(),
+                  token.symbol,
+                  amount_usd.abbreviated()
+               ))
+               .size(theme.text_sizes.normal)
+            } else {
+               RichText::new(format!(
+                  "{} {}",
+                  amount.abbreviated(),
+                  token.symbol
+               ))
+               .size(theme.text_sizes.normal)
+            };
+
+            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+            ui.add(label);
          }
       });
    }

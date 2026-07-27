@@ -319,6 +319,7 @@ impl Header {
                SHARED_GUI.write(|gui| {
                   gui.shield_ui.set_mode(new_mode);
                   gui.shield_ui.default_currency(chain.id());
+                  gui.send_crypto.default_currency(privacy_mode, chain.id());
                   gui.token_selection.process_currencies(privacy_mode, chain.id(), owner);
                   gui.wallet_ui.calc_wallet_value();
                   gui.recipient_selection.calc_wallet_value();
@@ -481,6 +482,7 @@ impl Header {
 
                   gui.uniswap.swap_ui.default_currency_in(new_chain.id());
                   gui.uniswap.swap_ui.default_currency_out(new_chain.id());
+                  gui.send_crypto.default_currency(privacy_mode, new_chain.id());
                   gui.shield_ui.default_currency(new_chain.id());
                   gui.wallet_ui.calc_wallet_value();
                   gui.recipient_selection.calc_wallet_value();

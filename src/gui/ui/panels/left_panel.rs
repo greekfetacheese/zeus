@@ -42,7 +42,10 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             .min_size(button_size);
 
          if ui.add(send).clicked() {
+            let privacy_mode = ctx.privacy_mode;
+            let chain_id = ctx.chain.id();
             gui.send_crypto.open();
+            gui.send_crypto.default_currency(privacy_mode, chain_id);
             gui.uniswap.close();
             gui.portofolio.close();
             gui.settings.close();

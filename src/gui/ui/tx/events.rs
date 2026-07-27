@@ -575,6 +575,103 @@ fn unshield_event_ui(
    }
 }
 
+fn private_transfer_event_ui(
+   ctx: &mut ZeusContext,
+   chain: ChainId,
+   theme: &Theme,
+   icons: Arc<Icons>,
+   params: &PrivateTransferParams,
+   ui: &mut Ui,
+) {
+   let size = vec2(ui.available_width(), 30.0);
+   let tint = theme.image_tint_recommended;
+
+   // Amount transferred
+   ui.allocate_ui(size, |ui| {
+      ui.horizontal(|ui| {
+         if let (Some(token), Some(amount), Some(amount_usd)) = (
+            params.erc20.as_ref(),
+            params.amount.as_ref(),
+            params.amount_usd.as_ref(),
+         ) {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               let text = RichText::new("Send").size(theme.text_sizes.large);
+               let label = Label::new(text, None).interactive(false);
+               ui.add(label);
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let icon = icons.token_icon_x24(token.address, token.chain_id, tint);
+               let text = RichText::new(format!(
+                  "{} {}",
+                  amount.abbreviated(),
+                  token.symbol,
+               ))
+               .size(theme.text_sizes.large);
+
+               let label1 = Label::new(text, Some(icon)).interactive(false);
+
+               let text = RichText::new(format!("~ ${}", amount_usd.abbreviated()))
+                  .size(theme.text_sizes.large);
+               let label2 = Label::new(text, None).interactive(false);
+
+               let multi_label = MultiLabel::new(vec![label1, label2]);
+               ui.add(multi_label);
+            });
+         }
+      });
+   });
+
+   // Recipient 0zk
+   ui.horizontal(|ui| {
+      ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+         let text = RichText::new("Recipient").size(theme.text_sizes.large);
+         let label = Label::new(text, None).interactive(false);
+         ui.add(label);
+      });
+
+      ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+         let recipient = &params.recipient;
+         let wallet_opt = ctx.get_wallet_info_by_zk_address(recipient);
+         let contact_opt = ctx.get_contact_by_zk_address(recipient);
+
+         let (text, evm_address_opt) = if let Some(wallet) = wallet_opt {
+            let rich = RichText::new(wallet.name())
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info);
+            (rich, Some(wallet.address.to_string()))
+         } else if let Some(contact) = contact_opt {
+            let rich = RichText::new(contact.name)
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info);
+            (rich, Some(contact.evm_address))
+         } else if recipient.len() > 12 {
+            let truncated = format!(
+               "{}...{}",
+               &recipient[..6],
+               &recipient[recipient.len() - 6..]
+            );
+            let rich =
+               RichText::new(truncated).size(theme.text_sizes.large).color(theme.colors.info);
+            (rich, None)
+         } else {
+            let rich = RichText::new(recipient.clone())
+               .size(theme.text_sizes.large)
+               .color(theme.colors.info);
+            (rich, None)
+         };
+
+         if let Some(evm_address) = evm_address_opt {
+            let explorer = chain.block_explorer();
+            let link = format!("{}/address/{}", explorer, evm_address);
+            ui.hyperlink_to(text, link);
+         } else {
+            ui.label(text);
+         }
+      });
+   });
+}
+
 fn bridge_event_ui(
    ctx: &mut ZeusContext,
    chain: ChainId,
@@ -1054,5 +1151,10 @@ pub fn show_event(
    if event.is_unshield() {
       let params = event.unshield_params();
       unshield_event_ui(ctx, chain, theme, icons.clone(), params, ui);
+   }
+
+   if event.is_private_transfer() {
+      let params = event.private_transfer_params();
+      private_transfer_event_ui(ctx, chain, theme, icons.clone(), params, ui);
    }
 }

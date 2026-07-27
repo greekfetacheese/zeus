@@ -74,11 +74,11 @@ impl Default for BundlerUrl {
 }
 
 impl BundlerUrl {
-   fn new(url: String) -> Self {
+   pub fn new(url: String) -> Self {
       Self { url }
    }
 
-   fn save(&self) -> Result<(), anyhow::Error> {
+   pub fn save(&self) -> Result<(), anyhow::Error> {
       let dir = data_dir()?;
       let file = dir.join(BUNDLER_URL_FILE);
       let data = serde_json::to_string(&self)?;
@@ -87,7 +87,7 @@ impl BundlerUrl {
       Ok(())
    }
 
-   fn load() -> Result<Self, anyhow::Error> {
+   pub fn load() -> Result<Self, anyhow::Error> {
       let dir = data_dir()?;
       let file = dir.join(BUNDLER_URL_FILE);
       let data = std::fs::read_to_string(file)?;
