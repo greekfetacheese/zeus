@@ -1,11 +1,12 @@
 //! Merge Notes window consolidate fragmented private UTXOs via self-transfer.
 
-use eframe::egui::{Align2, Order, RichText, ScrollArea, Spinner, Ui, Window, vec2};
+use eframe::egui::{RichText, ScrollArea, Spinner, Ui, vec2};
+use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
 
 use zeus_eth::{
-   alloy_primitives::U256,
+   alloy_primitives::{Address, U256},
    currency::{Currency, ERC20Token},
    types::ChainId,
    utils::NumericValue,
@@ -23,14 +24,12 @@ use crate::{
    utils::RT,
 };
 
-use zeus_eth::alloy_primitives::Address;
-
 const EXPLAIN: &str = "\
 Railgun stores each shield as a separate private note (like UTXOs). \
 Many small notes make unshields slower and can hit the circuit size limit \
 (Zeus supports up to 5 notes per transaction).\n\n\
 Merge Notes spends several small notes in one private transfer to yourself \
-and creates a single larger note. Nothing leaves privacy this is not an unshield.";
+and creates a single larger note. Nothing leaves from your private balance, this is not an unshield.";
 
 #[derive(Clone)]
 enum MergeState {
@@ -63,7 +62,7 @@ impl MergeNotesWindow {
          owner: Address::ZERO,
          state: MergeState::Idle,
          load_key: 0,
-         size: (440.0, 420.0),
+         size: (440.0, 450.0),
       }
    }
 
@@ -126,17 +125,14 @@ impl MergeNotesWindow {
          return;
       }
 
-      let window_frame = theme.frame1;
-      Window::new("Merge Private Notes")
-         .title_bar(true)
-         .resizable(false)
-         .order(Order::Foreground)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      let mut open = self.open;
+
+      Modal::new("Merge Private Notes", &mut open)
+      .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_max_height(self.size.1);
+            ui.set_height(self.size.1);
+            
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 12.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -188,10 +184,6 @@ impl MergeNotesWindow {
                      self.show_suggestion(ctx, theme, &suggestion, ui);
                   }
                   MergeState::Sending => {
-                     ui.add(Spinner::new().size(28.0));
-                     ui.label(
-                        RichText::new("Submitting merge…").size(theme.text_sizes.normal),
-                     );
                   }
                }
             });
@@ -274,22 +266,33 @@ impl MergeNotesWindow {
          });
       });
 
-      let btn_w = ui.available_width() * 0.75;
-      let btn_size = vec2(btn_w, 40.0);
+      ui.add_space(10.0);
+
+      let button_size = vec2(ui.available_width() * 0.5, 45.0);
+      let ui_size = vec2(ui.available_width(), 45.0);
       let visuals = theme.button_visuals();
 
       let confirm = Button::new(RichText::new("Confirm Merge").size(theme.text_sizes.large))
          .visuals(visuals)
-         .min_size(btn_size);
-      if ui.add(confirm).clicked() {
-         self.start_merge(ctx, amount_for_merge);
-      }
+         .min_size(button_size);
 
-      let cancel =
-         Button::new(RichText::new("Cancel").size(theme.text_sizes.normal)).visuals(visuals);
-      if ui.add(cancel).clicked() {
-         self.close();
-      }
+      let cancel = Button::new(RichText::new("Cancel").size(theme.text_sizes.large))
+         .visuals(visuals)
+         .min_size(button_size);
+
+      ui.allocate_ui(ui_size, |ui| {
+         ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+
+            if ui.add(confirm).clicked() {
+               self.start_merge(ctx, amount_for_merge);
+            }
+
+            if ui.add(cancel).clicked() {
+               self.close();
+            }
+         });
+      });
    }
 
    fn close_button(&mut self, theme: &Theme, ui: &mut Ui) {
@@ -303,10 +306,8 @@ impl MergeNotesWindow {
 
    fn start_merge(&mut self, ctx: &mut ZeusContext, amount: NumericValue) {
       self.state = MergeState::Sending;
-      let chain = match ChainId::new(self.chain_id) {
-         Ok(c) => c,
-         Err(_) => ctx.chain,
-      };
+      self.close();
+      let chain = ctx.chain;
       let currency = self.currency.clone();
       let from = self.owner;
 

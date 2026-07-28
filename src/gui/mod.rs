@@ -152,8 +152,8 @@ impl GUI {
       let across_bridge = ui::dapps::across::AcrossBridge::new(overlay_manager.clone());
       let header = Header::new(overlay_manager.clone());
 
-      let msg_window = ui::MsgWindow::new(overlay_manager.clone());
-      let loading_window = ui::LoadingWindow::new(overlay_manager.clone());
+      let msg_window = ui::MsgWindow::new();
+      let loading_window = ui::LoadingWindow::new();
       let confirm_window = ui::common::ConfirmWindow::new(overlay_manager.clone());
       let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
       let tx_window = TxWindow::new(overlay_manager.clone());

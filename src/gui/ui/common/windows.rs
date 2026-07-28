@@ -10,10 +10,11 @@ use crate::utils::{
    RT,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, Order, RichText, Spinner, Ui, Vec2, Window, vec2};
-use egui::{Align, Layout};
+use eframe::egui::{Align2, Window, RichText, Spinner, Ui, Vec2, vec2};
+use egui::{Align, Layout, Order};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::Button;
 
@@ -35,7 +36,7 @@ impl ConfirmWindow {
          confirm: None,
          msg: String::new(),
          msg2: None,
-         size: (300.0, 100.0),
+         size: (300.0, 250.0),
       }
    }
 
@@ -76,18 +77,15 @@ impl ConfirmWindow {
          return;
       }
 
-      let title = RichText::new(&self.msg).size(theme.text_sizes.large);
-      let window_frame = theme.frame1;
+      let title = self.msg.clone();
+      let mut open = self.open;
 
-      Window::new(title)
-         .resizable(false)
-         .order(Order::Debug)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new(title, &mut open)
+         .backdrop_order(Order::Tooltip)
+         .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(25.0, 20.0);
@@ -149,7 +147,7 @@ impl UpdateWindow {
          update_completed: false,
          auto_restart_failed: false,
          restart_in: 0,
-         size: (400.0, 150.0),
+         size: (400.0, 250.0),
       }
    }
 
@@ -193,7 +191,7 @@ impl UpdateWindow {
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -229,6 +227,17 @@ impl UpdateWindow {
                         let info = self.info.clone();
 
                         RT.spawn(async move {
+                           if info.download_url.is_none() || info.asset_name.is_none() {
+                              SHARED_GUI.write(|gui| {
+                                 gui.loading_window.reset();
+                                 gui.msg_window.open(
+                                    "Update Error".to_string(),
+                                    "Update info is missing".to_string(),
+                                 );
+                              });
+                              return;
+                           }
+
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.open("Download progress: 0%");
                            });
@@ -325,17 +334,15 @@ impl UpdateWindow {
 /// Window to indicate a loading state
 pub struct LoadingWindow {
    open: bool,
-   overlay: OverlayManager,
    pub msg: String,
    pub size: (f32, f32),
    pub anchor: (Align2, Vec2),
 }
 
 impl LoadingWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          msg: String::new(),
          size: (200.0, 100.0),
          anchor: (Align2::CENTER_CENTER, vec2(0.0, 0.0)),
@@ -347,15 +354,11 @@ impl LoadingWindow {
    }
 
    pub fn open(&mut self, msg: impl Into<String>) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
       self.msg = msg.into();
    }
 
    pub fn reset(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
       self.msg = String::new();
       self.size = (200.0, 100.0);
@@ -370,15 +373,11 @@ impl LoadingWindow {
          return;
       }
 
-      let window_frame = theme.frame1;
+      let mut open = self.open;
 
-      Window::new("Loading")
-         .title_bar(false)
-         .order(Order::Debug)
-         .resizable(false)
-         .anchor(self.anchor.0, self.anchor.1)
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new("Loading", &mut open)
+         .backdrop_order(Order::Tooltip)
+         .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -394,35 +393,29 @@ impl LoadingWindow {
 #[derive(Default)]
 pub struct MsgWindow {
    open: bool,
-   overlay: OverlayManager,
    pub title: String,
    pub message: String,
    pub size: (f32, f32),
 }
 
 impl MsgWindow {
-   pub fn new(overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         overlay,
          title: String::new(),
          message: String::new(),
-         size: (300.0, 100.0),
+         size: (300.0, 250.0),
       }
    }
 
    /// Open the window with this title and message
    pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
-      if !self.open {
-         self.overlay.window_opened();
-      }
       self.open = true;
       self.title = title.into();
       self.message = msg.into();
    }
 
    pub fn reset(&mut self) {
-      self.overlay.window_closed();
       self.open = false;
    }
 
@@ -431,19 +424,17 @@ impl MsgWindow {
          return;
       }
 
-      let title = RichText::new(self.title.clone()).size(theme.text_sizes.large);
+      let title = self.title.clone();
       let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
-      let window_frame = theme.frame1;
+      let mut open = self.open;
 
-      Window::new(title)
-         .resizable(false)
-         .order(Order::Debug)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-         .collapsible(false)
-         .frame(window_frame)
+      Modal::new(title, &mut open)
+         .closable(false)
+         .backdrop_order(Order::Tooltip)
+         .content_order(Order::Debug)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;

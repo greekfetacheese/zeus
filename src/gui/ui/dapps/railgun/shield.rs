@@ -228,7 +228,7 @@ impl ShieldUi {
          .title_bar(false)
          .resizable(false)
          .collapsible(false)
-         .anchor(Align2::CENTER_CENTER, vec2(0.0, 30.0))
+         .anchor(Align2::CENTER_CENTER, vec2(0.0, 100.0))
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.vertical_centered(|ui| {
