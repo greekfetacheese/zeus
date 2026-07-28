@@ -4,4 +4,6 @@ pub mod transaction_builder;
 
 pub use proved_transaction::{ProvedOperation, ProvedTx};
 pub use shield_builder::ShieldBuilder;
-pub use transaction_builder::{TransactionBuilder, TransactionBuilderError};
+pub use transaction_builder::{
+   MAX_CIRCUIT_INPUTS, MAX_CIRCUIT_OUTPUTS, TransactionBuilder, TransactionBuilderError,
+};

@@ -40,6 +40,11 @@ use crate::{
    transact::proved_transaction::ProvedOperation,
 };
 
+/// Max inputs/outputs per operation that we have proving artifacts for
+/// Protocol max is 13 but we fail earlier.
+pub const MAX_CIRCUIT_INPUTS: usize = 5;
+pub const MAX_CIRCUIT_OUTPUTS: usize = 5;
+
 /// Basic builder for constructing railgun transactions. Transactions are sets
 /// of shielded operations (transfers and unshield) that are proved together
 /// and can be executed in a single on-chain transaction.
@@ -72,6 +77,25 @@ pub enum TransactionBuilderError {
       asset: AssetId,
       value: u128,
       available: u128,
+   },
+   /// Enough total value exists, but not within `MAX_CIRCUIT_INPUTS` notes on one tree.
+   #[error(
+      "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consolidate private notes first."
+   )]
+   NotesFragmented {
+      asset: AssetId,
+      value: u128,
+      max_inputs: usize,
+      best_with_max: u128,
+      note_count: usize,
+   },
+   #[error(
+      "Too many circuit outputs for asset {asset}: {outputs} > {max_outputs} (Zeus artifact limit)"
+   )]
+   TooManyOutputs {
+      asset: AssetId,
+      outputs: usize,
+      max_outputs: usize,
    },
    #[error("Encryption error: {0}")]
    Encryption(#[from] EncryptError),
@@ -166,6 +190,12 @@ impl TransactionBuilder {
       self
    }
 
+   /// True if any intent spends `asset` (used by the fee loop to decide whether
+   /// the paymaster fee merges into an existing operation or is a separate prove).
+   pub fn spends_asset(&self, asset: AssetId) -> bool {
+      self.intents.iter().any(|intent| intent.asset == asset)
+   }
+
    /// Builds and proves a set of operations for railgun, without packaging into a transaction.
    pub(crate) async fn build<R: Rng>(
       &self,
@@ -182,6 +212,14 @@ impl TransactionBuilder {
          op.adapt_contract = self.adapt_contract;
          op.adapt_params = self.adapt_params;
          op.verify()?;
+         let outputs = op.out_notes().len();
+         if outputs > MAX_CIRCUIT_OUTPUTS {
+            return Err(TransactionBuilderError::TooManyOutputs {
+               asset: op.asset,
+               outputs,
+               max_outputs: MAX_CIRCUIT_OUTPUTS,
+            });
+         }
       }
 
       let proved = prove_operations(prover, utxo_trees, chain_id, &operations, rng).await?;
@@ -249,13 +287,34 @@ fn build_group<R: Rng>(
       })
       .collect();
 
+   // Value spendable under the circuit input cap (sum of the largest N notes).
+   let coverable: BTreeMap<u32, u128> = tree_number
+      .iter()
+      .map(|(tree_number, notes)| (*tree_number, max_selectable_value(notes)))
+      .collect();
+
    let available_total: u128 = balances.values().sum();
 
    // Fit intents to trees.
-   let mut operations = BTreeMap::new();
+   let mut operations: BTreeMap<u32, Operation> = BTreeMap::new();
    for intent in intents {
-      //? Try single tree first (oldest sufficient).
-      let single = balances.iter().find(|&(_, bal)| bal >= &intent.value).map(|(&t, _)| t);
+      // Prefer a single tree that can fund this intent with ≤ MAX_CIRCUIT_INPUTS notes.
+      // Oldest tree first among those with residual balance + coverable value.
+      let single = balances.iter().find_map(|(&tree, &bal)| {
+         if bal < intent.value {
+            return None;
+         }
+         let cov = coverable.get(&tree).copied().unwrap_or(0);
+         // Residual after prior intents on this tree is tracked in `balances`.
+         // Coverable is static (pre-reservation); if prior intents already claimed
+         // value on this tree, the final select_notes on combined out_value enforces
+         // the hard cap. For the first assignment, require coverable >= intent.
+         let already = operations.get(&tree).map(|op| op.out_value()).unwrap_or(0);
+         if cov < already.saturating_add(intent.value) {
+            return None;
+         }
+         Some(tree)
+      });
 
       if let Some(tree) = single {
          *balances.get_mut(&tree).unwrap() -= intent.value;
@@ -268,6 +327,7 @@ fn build_group<R: Rng>(
          asset,
          intent,
          &mut balances,
+         &coverable,
          &mut operations,
          rng,
          available_total,
@@ -281,7 +341,7 @@ fn build_group<R: Rng>(
          continue;
       };
 
-      let selected = select_notes(notes, op.out_value());
+      let selected = select_notes(notes, op.out_value(), &from, asset)?;
       for note in selected {
          op.add_in_note(note.clone());
       }
@@ -297,6 +357,7 @@ fn split_intent<R: Rng>(
    asset: AssetId,
    intent: Intent,
    balances: &mut BTreeMap<u32, u128>,
+   coverable: &BTreeMap<u32, u128>,
    operations: &mut BTreeMap<u32, Operation>,
    rng: &mut R,
    available_total: u128,
@@ -313,7 +374,14 @@ fn split_intent<R: Rng>(
          continue;
       }
 
-      let take = remaining.min(available);
+      let already = operations.get(&tree).map(|op| op.out_value()).unwrap_or(0);
+      let cov = coverable.get(&tree).copied().unwrap_or(0);
+      let room = cov.saturating_sub(already).min(available);
+      if room == 0 {
+         continue;
+      }
+
+      let take = remaining.min(room);
       *balances.get_mut(&tree).unwrap() -= take;
 
       let mut partial = intent.clone();
@@ -324,6 +392,17 @@ fn split_intent<R: Rng>(
    }
 
    if remaining > 0 {
+      // Distinguish true insolvency from circuit-capped fragmentation.
+      if available_total >= intent.value {
+         let best = coverable.values().copied().max().unwrap_or(0);
+         return Err(TransactionBuilderError::NotesFragmented {
+            asset,
+            value: intent.value,
+            max_inputs: MAX_CIRCUIT_INPUTS,
+            best_with_max: best,
+            note_count: 0,
+         });
+      }
       return Err(TransactionBuilderError::InsufficientBalance {
          from,
          asset,
@@ -361,23 +440,60 @@ fn insert_operation<R: Rng>(
    }
 }
 
-/// TODO: Improve selection algorithm to minimize the number of notes used while
-/// avoiding creating many dust notes.
+/// Sum of the largest `MAX_CIRCUIT_INPUTS` notes upper bound spendable in one op.
+fn max_selectable_value(notes: &[&UtxoNote]) -> u128 {
+   let mut values: Vec<u128> = notes.iter().map(|n| n.value()).collect();
+   values.sort_unstable_by(|a, b| b.cmp(a));
+   values.into_iter().take(MAX_CIRCUIT_INPUTS).sum()
+}
+
+/// Select the fewest notes that cover `value`, preferring larger notes, capped at
+/// [`MAX_CIRCUIT_INPUTS`] (artifact limit).
 ///
-/// Probably best is some target # of notes to use, then selecting the smallest
-/// notes that meet the target value.  This way dust notes are gradually consolidated
-/// while avoiding wasting gas.
-fn select_notes<'a>(notes: &'a [&UtxoNote], value: u128) -> Vec<&'a UtxoNote> {
-   let mut selected: Vec<&UtxoNote> = Vec::new();
-   let mut total = 0;
-   for note in notes {
-      selected.push(note);
-      total += note.value();
+/// Largest-first is optimal for minimizing input count (and thus circuit size /
+/// prove time / download size). The maximum value achievable with ≤K notes is
+/// exactly the sum of the K largest, so failure here is definitive for this tree.
+fn select_notes<'a>(
+   notes: &'a [&UtxoNote],
+   value: u128,
+   from: &RailgunAddress,
+   asset: AssetId,
+) -> Result<Vec<&'a UtxoNote>, TransactionBuilderError> {
+   if value == 0 {
+      return Ok(Vec::new());
+   }
+
+   let mut sorted: Vec<&UtxoNote> = notes.to_vec();
+   // Largest first; stable tie-break on leaf_index for determinism.
+   sorted.sort_by(|a, b| b.value().cmp(&a.value()).then_with(|| a.leaf_index.cmp(&b.leaf_index)));
+
+   let mut selected: Vec<&UtxoNote> = Vec::with_capacity(MAX_CIRCUIT_INPUTS.min(sorted.len()));
+   let mut total = 0u128;
+   for note in sorted.iter().take(MAX_CIRCUIT_INPUTS) {
+      selected.push(*note);
+      total = total.saturating_add(note.value());
       if total >= value {
-         break;
+         return Ok(selected);
       }
    }
-   selected
+
+   let available: u128 = notes.iter().map(|n| n.value()).sum();
+   if available < value {
+      return Err(TransactionBuilderError::InsufficientBalance {
+         from: from.clone(),
+         asset,
+         value,
+         available,
+      });
+   }
+
+   Err(TransactionBuilderError::NotesFragmented {
+      asset,
+      value,
+      max_inputs: MAX_CIRCUIT_INPUTS,
+      best_with_max: total,
+      note_count: notes.len(),
+   })
 }
 
 /// Helper to add a change note to an operation if there is excess value.

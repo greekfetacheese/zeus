@@ -416,25 +416,69 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       let mut pinned_max_fee_per_gas: Option<u128> = None;
       let mut pinned_max_priority_fee_per_gas: Option<u128> = None;
 
-      let builder = builder.adapt(railgun_fee_adapter, *sender.address().into_word());
+      let base_builder = builder.adapt(railgun_fee_adapter, *sender.address().into_word());
+      // When the unshield/transfer already spends the fee asset, the fee note is
+      // merged into that operation and every fee bump must re-prove it. Otherwise
+      // the fee is a separate op, prove the base intents once and only re-prove
+      // the fee transfer on later iterations.
+      let fee_merged = base_builder.spends_asset(fee_asset);
+
+      // Snapshot spendable notes once for the whole fee loop (notes don't change
+      // mid-prepare). Avoids repeated indexer/POI scans across prove iterations.
+      let spendable_notes = self.spendable_notes().await;
+
+      // Cached base (non-fee) proofs when fee is a separate asset/op.
+      let mut cached_base_ops: Option<Vec<ProvedOperation>> = None;
 
       debug!("Iteratively building UserOperation to converge on accurate fee estimate");
       // Typical path is 2 proves: seed gas quote → fee=cost*1.08 → accept.
       // Cap at 8 to bound worst-case proving cost.
       for iter in 0..8 {
-         let broadcast_builder = builder.clone().transfer(
-            fee_payer.clone(),
-            paymaster_railgun_address.clone(),
-            fee_asset,
-            fee_value,
-            "fee",
-         );
+         let operations = if fee_merged {
+            let broadcast_builder = base_builder.clone().transfer(
+               fee_payer.clone(),
+               paymaster_railgun_address.clone(),
+               fee_asset,
+               fee_value,
+               "fee",
+            );
+            debug!(
+               "Building merged fee+spend tx with fee value: {} (iter {})",
+               fee_value, iter
+            );
+            self
+               .build_operation_with_notes(broadcast_builder, &spendable_notes, rng)
+               .await?
+         } else {
+            if cached_base_ops.is_none() {
+               debug!("Proving base (non-fee) operations once");
+               cached_base_ops = Some(
+                  self
+                     .build_operation_with_notes(base_builder.clone(), &spendable_notes, rng)
+                     .await?,
+               );
+            }
 
-         debug!(
-            "Building broadcast transaction with fee value: {} (iter {})",
-            fee_value, iter
-         );
-         let operations = self.build_operation(broadcast_builder, rng).await?;
+            let fee_builder = TransactionBuilder::new()
+               .adapt(railgun_fee_adapter, *sender.address().into_word())
+               .transfer(
+                  fee_payer.clone(),
+                  paymaster_railgun_address.clone(),
+                  fee_asset,
+                  fee_value,
+                  "fee",
+               );
+            debug!(
+               "Building separate fee transfer with fee value: {} (iter {})",
+               fee_value, iter
+            );
+            let fee_ops =
+               self.build_operation_with_notes(fee_builder, &spendable_notes, rng).await?;
+
+            let mut ops = cached_base_ops.clone().expect("base ops cached before fee prove");
+            ops.extend(fee_ops);
+            ops
+         };
 
          // Get the fee operation & note so the decrypted commitment data can be sent to the
          // paymaster.
@@ -561,13 +605,10 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       annotated_notes
    }
 
-   async fn build_operation<R: Rng>(
-      &mut self,
-      builder: TransactionBuilder,
-      rng: &mut R,
-   ) -> Result<Vec<ProvedOperation>, RailgunProviderError> {
+   /// Collect currently spendable notes (POI-valid when POI is enabled).
+   async fn spendable_notes(&mut self) -> Vec<UtxoNote> {
       let in_notes = self.all_unspent().await;
-      let spendable_notes: Vec<UtxoNote> = if let Some(_) = self.poi_provider {
+      if self.poi_provider.is_some() {
          in_notes
             .into_iter()
             .filter(|(_, status)| *status == Some(PoiStatus::Valid))
@@ -575,15 +616,31 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
             .collect()
       } else {
          in_notes.into_iter().map(|(note, _)| note).collect()
-      };
+      }
+   }
 
+   async fn build_operation<R: Rng>(
+      &mut self,
+      builder: TransactionBuilder,
+      rng: &mut R,
+   ) -> Result<Vec<ProvedOperation>, RailgunProviderError> {
+      let spendable_notes = self.spendable_notes().await;
+      self.build_operation_with_notes(builder, &spendable_notes, rng).await
+   }
+
+   async fn build_operation_with_notes<R: Rng>(
+      &mut self,
+      builder: TransactionBuilder,
+      spendable_notes: &[UtxoNote],
+      rng: &mut R,
+   ) -> Result<Vec<ProvedOperation>, RailgunProviderError> {
       let utxo_indexer = self.utxo_indexer.read().await;
 
       let operations = builder
          .build(
             &self.prover,
             self.chain.id,
-            &spendable_notes,
+            spendable_notes,
             &utxo_indexer.utxo_trees,
             rng,
          )
