@@ -214,6 +214,16 @@ impl TransactionBuilder {
       self.intents.iter().any(|intent| intent.asset == asset)
    }
 
+   /// Sum of all intent values for `asset` (unshield + transfers).
+   pub fn total_value_for_asset(&self, asset: AssetId) -> u128 {
+      self
+         .intents
+         .iter()
+         .filter(|intent| intent.asset == asset)
+         .map(|intent| intent.value)
+         .sum()
+   }
+
    /// Builds and proves a set of operations for railgun, without packaging into a transaction.
    pub(crate) async fn build<R: Rng>(
       &self,
@@ -322,6 +332,18 @@ fn build_group<R: Rng>(
 
    let available_total: u128 = balances.values().sum();
 
+   // Fail fast when combined intents exceed spendable balance (e.g. full-balance
+   // WETH unshield + paymaster fee on the same asset).
+   let intents_total: u128 = intents.iter().map(|i| i.value).sum();
+   if intents_total > available_total {
+      return Err(TransactionBuilderError::InsufficientBalance {
+         from,
+         asset,
+         value: intents_total,
+         available: available_total,
+      });
+   }
+
    // Fit intents to trees.
    let mut operations: BTreeMap<u32, Operation> = BTreeMap::new();
    for intent in intents {
@@ -355,6 +377,7 @@ fn build_group<R: Rng>(
          intent,
          &mut balances,
          &coverable,
+         &tree_number,
          &mut operations,
          rng,
          available_total,
@@ -391,6 +414,7 @@ fn split_intent<R: Rng>(
    intent: Intent,
    balances: &mut BTreeMap<u32, u128>,
    coverable: &BTreeMap<u32, u128>,
+   tree_number: &BTreeMap<u32, Vec<&UtxoNote>>,
    operations: &mut BTreeMap<u32, Operation>,
    rng: &mut R,
    available_total: u128,
@@ -425,22 +449,28 @@ fn split_intent<R: Rng>(
    }
 
    if remaining > 0 {
-      // Distinguish true insolvency from circuit-capped fragmentation.
-      if available_total >= intent.value {
-         let best = coverable.values().copied().max().unwrap_or(0);
-         return Err(TransactionBuilderError::NotesFragmented {
+      let residual: u128 = balances.values().sum();
+      // True shortfall (including value already reserved by sibling intents like a fee).
+      if residual < remaining {
+         // Value available for this intent = leftover residual + what we already assigned of it.
+         let available_now = residual.saturating_add(intent.value.saturating_sub(remaining));
+         return Err(TransactionBuilderError::InsufficientBalance {
+            from,
             asset,
             value: intent.value,
-            max_inputs: MAX_CIRCUIT_INPUTS,
-            best_with_max: best,
-            note_count: 0,
+            available: available_now.min(available_total),
          });
       }
-      return Err(TransactionBuilderError::InsufficientBalance {
-         from,
+
+      // Enough residual wei exists, but circuit input caps block packing it.
+      let best = coverable.values().copied().max().unwrap_or(0);
+      let note_count: usize = tree_number.values().map(|n| n.len()).sum();
+      return Err(TransactionBuilderError::NotesFragmented {
          asset,
          value: intent.value,
-         available: available_total,
+         max_inputs: MAX_CIRCUIT_INPUTS,
+         best_with_max: best,
+         note_count,
       });
    }
    Ok(())

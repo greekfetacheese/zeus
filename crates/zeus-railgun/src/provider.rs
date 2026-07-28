@@ -104,6 +104,14 @@ pub enum RailgunProviderError {
    PoiProvider(#[from] PoiProviderError),
    #[error("Unable to construct valid note configuration for fee payment")]
    FeeNoteNotFound,
+   #[error(
+      "Not enough private balance for unshield + bundler fee (asset {asset}): need {needed} wei total, have {available} wei. Leave some private WETH for the paymaster fee, or unshield a smaller amount."
+   )]
+   InsufficientForFee {
+      asset: AssetId,
+      needed: u128,
+      available: u128,
+   },
    #[error("Signer Error: {0}")]
    Signer(#[from] alloy_signer::Error),
    #[error("Bundler error: {0}")]
@@ -426,6 +434,9 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       // Snapshot spendable notes once for the whole fee loop (notes don't change
       // mid-prepare). Avoids repeated indexer/POI scans across prove iterations.
       let spendable_notes = self.spendable_notes().await;
+      let fee_asset_balance: u128 =
+         spendable_notes.iter().filter(|n| n.asset == fee_asset).map(|n| n.value()).sum();
+      let base_fee_asset_spend = base_builder.total_value_for_asset(fee_asset);
 
       // Cached base (non-fee) proofs when fee is a separate asset/op.
       let mut cached_base_ops: Option<Vec<ProvedOperation>> = None;
@@ -434,6 +445,15 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       // Typical path is 2 proves: seed gas quote → fee=cost*1.08 → accept.
       // Cap at 8 to bound worst-case proving cost.
       for iter in 0..8 {
+         let needed = base_fee_asset_spend.saturating_add(fee_value);
+         if needed > fee_asset_balance {
+            return Err(RailgunProviderError::InsufficientForFee {
+               asset: fee_asset,
+               needed,
+               available: fee_asset_balance,
+            });
+         }
+
          let operations = if fee_merged {
             let broadcast_builder = base_builder.clone().transfer(
                fee_payer.clone(),

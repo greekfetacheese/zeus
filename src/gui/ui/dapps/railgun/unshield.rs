@@ -706,6 +706,27 @@ async fn unshield_via_paymaster(
       ));
    }
 
+   // When unshielding the same asset used for the paymaster fee (usually WETH),
+   // the fee note is spent from the same private notes as the unshield. Full-balance
+   // unshields leave zero headroom for the fee and fail during UserOp prep.
+   let amount_u128: u128 =
+      amount.try_into().map_err(|_| anyhow!("Amount too large for unshield"))?;
+   if token.address == fee_token.address {
+      let need = amount_u128.saturating_add(INITIAL_FEE_WEI);
+      if need > fee_token_balance {
+         let amount_fmt = NumericValue::format_wei(amount, token.decimals);
+         let max_unshield = fee_token_balance.saturating_sub(INITIAL_FEE_WEI);
+         let max_fmt = NumericValue::format_wei(U256::from(max_unshield), token.decimals);
+         return Err(anyhow!(
+            "Not enough private {} for unshield + bundler fee. Unshielding {} leaves no room for the paymaster fee (private balance {}). Try unshielding at most {} or use self-broadcast.",
+            token.symbol,
+            amount_fmt.abbreviated(),
+            fee_token_balance_fmt.abbreviated(),
+            max_fmt.abbreviated()
+         ));
+      }
+   }
+
    let parsed_url = bundler_url
       .parse()
       .map_err(|e| anyhow!("Invalid bundler URL '{}': {}", bundler_url, e))?;
