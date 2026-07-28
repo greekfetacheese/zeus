@@ -65,6 +65,11 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui,
    );
 
+   if let Some(currency) = gui.shield_ui.take_open_merge_notes() {
+      gui.merge_notes_window.open(ctx, currency);
+   }
+   gui.merge_notes_window.show(ctx, theme, ui);
+
    gui.settings.show(ctx, icons.clone(), theme, ui);
    gui.railgun_settings.show(ctx, theme, icons.clone(), ui);
    gui.connected_dapps.show(ctx, theme, ui);

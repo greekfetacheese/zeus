@@ -428,7 +428,10 @@ impl PortfolioUi {
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          let manager = ctx.pool_manager();
-         match manager.discover_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()]).await {
+         match manager
+            .discover_pools_for_tokens(ctx.clone(), chain_id, vec![token.clone()])
+            .await
+         {
             Ok(_) => {
                tracing::info!("Synced Pools for {}", token.symbol);
             }

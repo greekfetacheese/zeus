@@ -16,8 +16,11 @@ use zeus_eth::{
    utils::NumericValue,
 };
 use zeus_railgun::{
-   RailgunAddress, RailgunSigner, caip::AssetId, rand::SeedableRng, rand_chacha::ChaCha12Rng,
-   transact::TransactionBuilder,
+   RailgunAddress, RailgunSigner,
+   caip::AssetId,
+   rand::SeedableRng,
+   rand_chacha::ChaCha12Rng,
+   transact::{NoteSelectionMode, TransactionBuilder},
 };
 
 use crate::{
@@ -72,10 +75,6 @@ pub async fn private_transfer(
    let seed = wallet.seed()?;
    let railgun_signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
-   if railgun_signer.address().address == recipient.address {
-      return Err(anyhow!("Cannot send to yourself"));
-   }
-
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing private transfer…");
       gui.request_repaint();
@@ -108,6 +107,88 @@ pub async fn private_transfer(
       amount_u128,
       "",
    );
+
+   exec_private_transfer(
+      ctx,
+      chain,
+      railgun_signer,
+      from,
+      token,
+      tx,
+      transfer_params,
+   )
+   .await
+}
+
+/// Private self-transfer that merges small UTXO notes into one larger note.
+///
+/// Uses [`NoteSelectionMode::SmallestFirst`] so the transfer amount from
+/// [`zeus_railgun::transact::suggest_merge`] spends the intended dust pack
+/// even when larger notes exist.
+pub async fn private_merge_notes(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   currency: Currency,
+   amount: NumericValue,
+   from: Address,
+) -> Result<(), anyhow::Error> {
+   if !ctx.railgun_is_supported(chain) {
+      return Err(anyhow!(
+         "Railgun is not supported for the {} network",
+         chain.name()
+      ));
+   }
+
+   if !currency.is_erc20() {
+      return Err(anyhow!(
+         "Merge notes requires an ERC-20 asset (use WETH for native-equivalent)"
+      ));
+   }
+
+   let wallet = ctx.get_current_wallet();
+   if !wallet.can_derive_zk_address() {
+      return Err(anyhow!(
+         "Current wallet cannot derive a Railgun address (imported wallets without seedphrase are not supported)"
+      ));
+   }
+   let seed = wallet.seed()?;
+   let railgun_signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
+   let self_zk = railgun_signer.address().clone();
+
+   SHARED_GUI.write(|gui| {
+      gui.loading_window.open("Preparing note merge…");
+      gui.request_repaint();
+   });
+
+   ctx.sync_railgun(chain.id(), false).await?;
+
+   let token = currency.to_erc20().into_owned();
+   let asset = AssetId::Erc20(token.address);
+   let amount_u128: u128 = amount
+      .wei()
+      .try_into()
+      .map_err(|_| anyhow!("Amount too large for note merge"))?;
+
+   let amount_usd = ctx.get_token_value_for_amount(amount.f64(), &token);
+   let transfer_params = PrivateTransferParams {
+      chain: chain.id(),
+      recipient: self_zk.address.clone(),
+      asset,
+      erc20: Some(token.clone()),
+      amount_wei: amount.wei(),
+      amount: Some(amount.clone()),
+      amount_usd: Some(amount_usd),
+   };
+
+   let tx = TransactionBuilder::new()
+      .with_selection_mode(NoteSelectionMode::SmallestFirst)
+      .transfer(
+         railgun_signer.clone(),
+         self_zk,
+         asset,
+         amount_u128,
+         "merge notes",
+      );
 
    exec_private_transfer(
       ctx,

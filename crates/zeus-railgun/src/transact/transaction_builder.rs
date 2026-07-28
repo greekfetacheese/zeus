@@ -45,6 +45,16 @@ use crate::{
 pub const MAX_CIRCUIT_INPUTS: usize = 5;
 pub const MAX_CIRCUIT_OUTPUTS: usize = 5;
 
+/// How input notes are chosen when covering an intent's value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NoteSelectionMode {
+   /// Prefer larger notes, fewer inputs, smaller circuits (default spend path).
+   #[default]
+   LargestFirst,
+   /// Prefer smaller notes, used for dust merge / consolidate packs.
+   SmallestFirst,
+}
+
 /// Basic builder for constructing railgun transactions. Transactions are sets
 /// of shielded operations (transfers and unshield) that are proved together
 /// and can be executed in a single on-chain transaction.
@@ -58,6 +68,7 @@ pub struct TransactionBuilder {
 
    adapt_contract: Option<Address>,
    adapt_params: Option<[u8; 32]>,
+   selection_mode: NoteSelectionMode,
 }
 
 #[derive(Debug, Error)]
@@ -80,7 +91,7 @@ pub enum TransactionBuilderError {
    },
    /// Enough total value exists, but not within `MAX_CIRCUIT_INPUTS` notes on one tree.
    #[error(
-      "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consolidate private notes first."
+      "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consider merging private notes first."
    )]
    NotesFragmented {
       asset: AssetId,
@@ -90,7 +101,7 @@ pub enum TransactionBuilderError {
       note_count: usize,
    },
    #[error(
-      "Too many circuit outputs for asset {asset}: {outputs} > {max_outputs} (Zeus artifact limit)"
+      "Too many circuit outputs for asset {asset}: {outputs} > {max_outputs} (Zeus artifact limit). Consider merging notes first."
    )]
    TooManyOutputs {
       asset: AssetId,
@@ -132,6 +143,7 @@ impl TransactionBuilder {
          unshields: HashSet::new(),
          adapt_contract: None,
          adapt_params: None,
+         selection_mode: NoteSelectionMode::LargestFirst,
       }
    }
 }
@@ -190,6 +202,12 @@ impl TransactionBuilder {
       self
    }
 
+   /// Controls which notes are spent to cover intent value.
+   pub fn with_selection_mode(mut self, mode: NoteSelectionMode) -> Self {
+      self.selection_mode = mode;
+      self
+   }
+
    /// True if any intent spends `asset` (used by the fee loop to decide whether
    /// the paymaster fee merges into an existing operation or is a separate prove).
    pub fn spends_asset(&self, asset: AssetId) -> bool {
@@ -206,7 +224,7 @@ impl TransactionBuilder {
       rng: &mut R,
    ) -> Result<Vec<ProvedOperation>, TransactionBuilderError> {
       let groups = self.group_intents();
-      let mut operations = build_groups(in_notes, groups, rng)?;
+      let mut operations = build_groups(in_notes, groups, self.selection_mode, rng)?;
 
       for op in &mut operations {
          op.adapt_contract = self.adapt_contract;
@@ -248,11 +266,19 @@ impl TransactionBuilder {
 fn build_groups<R: Rng>(
    in_notes: &[UtxoNote],
    groups: BTreeMap<(RailgunAddress, AssetId), Vec<Intent>>,
+   selection_mode: NoteSelectionMode,
    rng: &mut R,
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    let mut operations = Vec::new();
    for ((from, asset), intents) in groups {
-      let ops = build_group(in_notes, from, asset, intents, rng)?;
+      let ops = build_group(
+         in_notes,
+         from,
+         asset,
+         intents,
+         selection_mode,
+         rng,
+      )?;
       operations.extend(ops);
    }
    Ok(operations)
@@ -264,6 +290,7 @@ fn build_group<R: Rng>(
    from: RailgunAddress,
    asset: AssetId,
    mut intents: Vec<Intent>,
+   selection_mode: NoteSelectionMode,
    rng: &mut R,
 ) -> Result<Vec<Operation>, TransactionBuilderError> {
    // Sort intents smallest to largest. Helps to ensure small intents don't
@@ -341,7 +368,13 @@ fn build_group<R: Rng>(
          continue;
       };
 
-      let selected = select_notes(notes, op.out_value(), &from, asset)?;
+      let selected = select_notes(
+         notes,
+         op.out_value(),
+         &from,
+         asset,
+         selection_mode,
+      )?;
       for note in selected {
          op.add_in_note(note.clone());
       }
@@ -447,25 +480,34 @@ fn max_selectable_value(notes: &[&UtxoNote]) -> u128 {
    values.into_iter().take(MAX_CIRCUIT_INPUTS).sum()
 }
 
-/// Select the fewest notes that cover `value`, preferring larger notes, capped at
-/// [`MAX_CIRCUIT_INPUTS`] (artifact limit).
+/// Select notes that cover `value`, capped at [`MAX_CIRCUIT_INPUTS`].
 ///
-/// Largest-first is optimal for minimizing input count (and thus circuit size /
-/// prove time / download size). The maximum value achievable with ≤K notes is
-/// exactly the sum of the K largest, so failure here is definitive for this tree.
+/// - [`NoteSelectionMode::LargestFirst`]: fewest inputs / smaller circuits (spend path).
+/// - [`NoteSelectionMode::SmallestFirst`]: dust-first packs for consolidate merges.
 fn select_notes<'a>(
    notes: &'a [&UtxoNote],
    value: u128,
    from: &RailgunAddress,
    asset: AssetId,
+   mode: NoteSelectionMode,
 ) -> Result<Vec<&'a UtxoNote>, TransactionBuilderError> {
    if value == 0 {
       return Ok(Vec::new());
    }
 
    let mut sorted: Vec<&UtxoNote> = notes.to_vec();
-   // Largest first; stable tie-break on leaf_index for determinism.
-   sorted.sort_by(|a, b| b.value().cmp(&a.value()).then_with(|| a.leaf_index.cmp(&b.leaf_index)));
+   match mode {
+      NoteSelectionMode::LargestFirst => {
+         sorted.sort_by(|a, b| {
+            b.value().cmp(&a.value()).then_with(|| a.leaf_index.cmp(&b.leaf_index))
+         });
+      }
+      NoteSelectionMode::SmallestFirst => {
+         sorted.sort_by(|a, b| {
+            a.value().cmp(&b.value()).then_with(|| a.leaf_index.cmp(&b.leaf_index))
+         });
+      }
+   }
 
    let mut selected: Vec<&UtxoNote> = Vec::with_capacity(MAX_CIRCUIT_INPUTS.min(sorted.len()));
    let mut total = 0u128;
@@ -487,11 +529,13 @@ fn select_notes<'a>(
       });
    }
 
+   // Feasibility for any mode is still the sum of the K largest notes.
+   let best_with_max = max_selectable_value(notes);
    Err(TransactionBuilderError::NotesFragmented {
       asset,
       value,
       max_inputs: MAX_CIRCUIT_INPUTS,
-      best_with_max: total,
+      best_with_max,
       note_count: notes.len(),
    })
 }

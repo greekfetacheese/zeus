@@ -23,7 +23,7 @@ pub use indexer::{
    utxo_indexer::UtxoIndexer,
 };
 pub use merkle_tree::RootVerifier;
-pub use provider::{BalanceEntry, RailgunProvider};
+pub use provider::{BalanceEntry, NoteEntry, RailgunProvider};
 
 pub use rand;
 /// ChaCha RNGs aligned with this crate's `rand` 0.9 (workspace may pin a different `rand_chacha`).

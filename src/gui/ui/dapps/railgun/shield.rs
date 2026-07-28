@@ -135,6 +135,8 @@ pub struct ShieldUi {
    unwrap_to_eth: bool,
    /// Bundler JSON-RPC URL for paymaster UserOps (ignored when self_broadcast).
    bundler_url: String,
+   /// Set when user clicks Merge Notes; consumed by central panel.
+   open_merge_notes: bool,
 }
 
 impl ShieldUi {
@@ -156,6 +158,7 @@ impl ShieldUi {
          self_broadcast: false,
          unwrap_to_eth: false,
          bundler_url: bundler_url.url,
+         open_merge_notes: false,
       }
    }
 
@@ -193,6 +196,16 @@ impl ShieldUi {
 
    pub fn clear_search_query(&mut self) {
       self.search_query = String::new();
+   }
+
+   /// If the user clicked Merge Notes this frame, return the currency to merge.
+   pub fn take_open_merge_notes(&mut self) -> Option<Currency> {
+      if self.open_merge_notes {
+         self.open_merge_notes = false;
+         Some(self.currency.clone())
+      } else {
+         None
+      }
    }
 
    pub fn show(
@@ -253,16 +266,7 @@ impl ShieldUi {
                   // Currency Selection
                   let label = String::from("Amount");
                   let balance = self.balance_for_mode(ctx, owner);
-                  let cost = self.cost(ctx);
-
-                  let max_amount = if balance.wei() > cost.wei() {
-                     NumericValue::format_wei(
-                        balance.wei() - cost.wei(),
-                        self.currency.decimals(),
-                     )
-                  } else {
-                     NumericValue::default()
-                  };
+                  let max_amount = balance.clone();
 
                   let amount = self.amount_field.amount.clone();
                   let currency = self.currency.clone();
@@ -402,6 +406,25 @@ impl ShieldUi {
                   };
 
                   self.action_button(ctx, theme, owner, recipient_str, ui);
+
+                  if self.mode.is_unshield() {
+                     ui.add_space(6.0);
+                     let merge_text =
+                        RichText::new("Merge Notes").size(theme.text_sizes.normal);
+                     let merge_btn = Button::new(merge_text)
+                        .min_size(vec2(ui.available_width() * 0.8, 36.0))
+                        .visuals(theme.button_visuals());
+                     if ui
+                        .add_enabled(!self.sending_tx && self.currency.is_erc20(), merge_btn)
+                        .on_hover_text(
+                           "Combine small private notes into larger ones so unshields stay efficient.",
+                        )
+                        .clicked()
+                     {
+                        // Handled by caller via `take_open_merge_notes`.
+                        self.open_merge_notes = true;
+                     }
+                  }
                });
             });
          });
@@ -755,19 +778,6 @@ impl ShieldUi {
             gui.shield_ui.syncing_balance = false;
          });
       });
-   }
-
-   fn cost(&self, ctx: &mut ZeusContext) -> NumericValue {
-      // An estimation, the TxConfirmWindow will show a much closer cost
-      let gas_used = if self.mode.is_shield() {
-         750_000
-      } else {
-         500_000
-      };
-
-      let fee = ctx.priority_fee.get(ctx.chain.id()).cloned().unwrap_or_default();
-      let (cost_in_wei, _) = estimate_tx_cost(ctx, ctx.chain.id(), gas_used, fee.wei());
-      cost_in_wei
    }
 
    fn valid_amount(&self) -> bool {

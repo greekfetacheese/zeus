@@ -134,6 +134,7 @@ pub struct GUI {
    pub notification: Notification,
    pub update_window: UpdateWindow,
    pub dev: DevUi,
+   pub merge_notes_window: ui::dapps::railgun::MergeNotesWindow,
 
    /// Last Zeus colour fingerprint we injected into `ctx.data`.
    /// `None` = never injected this session.
@@ -170,6 +171,7 @@ impl GUI {
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new(overlay_manager.clone());
       let shield_ui = ShieldUi::new();
+      let merge_notes_window = ui::dapps::railgun::MergeNotesWindow::new(overlay_manager.clone());
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
 
@@ -206,6 +208,7 @@ impl GUI {
          notification,
          update_window,
          dev: DevUi::new(),
+         merge_notes_window,
          injected_elegance_key: None,
       }
    }

@@ -5,8 +5,7 @@ use crate::core::{ZeusContext, types::Contact};
 use crate::gui::{SHARED_GUI, dots_button};
 use crate::utils::RT;
 use egui::{
-   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Ui,
-   Window, vec2,
+   Align, Align2, FontId, Layout, Margin, OpenUrl, Order, RichText, ScrollArea, Ui, Window, vec2,
 };
 use elegance::{Menu, MenuItem};
 use std::str::FromStr;
