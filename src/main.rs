@@ -17,6 +17,7 @@ use tracing_subscriber::{
 
 pub mod assets;
 pub mod core;
+pub mod embedded;
 pub mod gui;
 pub mod server;
 mod tests;

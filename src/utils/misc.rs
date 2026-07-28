@@ -10,15 +10,15 @@ use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 
 use crate::core::ctx::{railgun_db_file, railgun_dir};
 use zeus_eth::utils::client::RpcClient;
 use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase,
-   RootVerifier, RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer,
+   SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
 };
 
 use anyhow::anyhow;
@@ -64,7 +64,8 @@ pub async fn create_railgun_provider(
    )
    .await?;
 
-   let prover = Groth16Prover::new(Some(railgun_dir));
+   let prover = Groth16Prover::new(Some(railgun_dir))
+      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits());
 
    let railgun_provider = RailgunProvider::new(
       chain_config,

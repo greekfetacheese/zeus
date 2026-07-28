@@ -1,5 +1,5 @@
 use std::{
-   collections::{BTreeSet, VecDeque},
+   collections::{BTreeSet, HashMap, VecDeque},
    io::Cursor,
    path::PathBuf,
    sync::{Arc, Mutex},
@@ -46,6 +46,9 @@ pub fn all_transact_circuit_names() -> Vec<String> {
 /// Result of a bulk prefetch pass.
 #[derive(Debug, Clone, Default)]
 pub struct PrefetchReport {
+   /// Circuits fully available from the binary (`include_bytes!` embeds).
+   /// Prefetch does **not** write these to disk.
+   pub embedded: Vec<String>,
    /// Circuits that already had a full valid on-disk set.
    pub already_cached: Vec<String>,
    /// Circuits that were downloaded (or re-fetched) successfully this run.
@@ -56,7 +59,7 @@ pub struct PrefetchReport {
 
 impl PrefetchReport {
    pub fn ok_count(&self) -> usize {
-      self.already_cached.len() + self.downloaded.len()
+      self.embedded.len() + self.already_cached.len() + self.downloaded.len()
    }
 
    pub fn failed_count(&self) -> usize {
@@ -64,7 +67,53 @@ impl PrefetchReport {
    }
 }
 
-/// Snapshot of which transact circuits are fully present on disk.
+/// Compile-time / binary-backed circuit artifacts.
+///
+/// Host apps (e.g. Zeus) build these with `include_bytes!` and register them on
+/// [`RemoteArtifactLoader`]. Bytes stay in the binary — they are **not** copied
+/// into the disk cache on load.
+#[derive(Debug, Clone, Copy)]
+pub struct EmbeddedCircuit {
+   /// Circuit path as used by the host, e.g. `railgun/01x01`.
+   pub name: &'static str,
+   pub wasm_br: &'static [u8],
+   pub proving_key_br: &'static [u8],
+   pub matrices_br: &'static [u8],
+}
+
+impl EmbeddedCircuit {
+   pub const fn new(
+      name: &'static str,
+      wasm_br: &'static [u8],
+      proving_key_br: &'static [u8],
+      matrices_br: &'static [u8],
+   ) -> Self {
+      Self {
+         name,
+         wasm_br,
+         proving_key_br,
+         matrices_br,
+      }
+   }
+
+   fn file(&self, filename: &str) -> Option<&'static [u8]> {
+      match filename {
+         "wasm.br" => Some(self.wasm_br),
+         "proving_key.bin.br" => Some(self.proving_key_br),
+         "matrices.bin.br" => Some(self.matrices_br),
+         _ => None,
+      }
+   }
+
+   fn is_complete(&self) -> bool {
+      validate_compressed_artifact(self.wasm_br).is_ok()
+         && validate_compressed_artifact(self.proving_key_br).is_ok()
+         && validate_compressed_artifact(self.matrices_br).is_ok()
+   }
+}
+
+/// Snapshot of which transact circuits are usable offline
+/// (binary embeds and/or on-disk cache).
 #[derive(Debug, Clone, Default)]
 pub struct AvailableCircuits {
    /// Circuit names like `railgun/01x02`.
@@ -80,7 +129,7 @@ impl AvailableCircuits {
       self.names.contains(name)
    }
 
-   /// Largest `nullifiers` such that `railgun/{N}x{outputs}` is cached.
+   /// Largest `nullifiers` such that `railgun/{N}x{outputs}` is available.
    /// Returns `0` when none are available.
    pub fn max_inputs_for_outputs(&self, outputs: usize) -> usize {
       (1..=ARTIFACT_MAX_INPUTS)
@@ -89,7 +138,7 @@ impl AvailableCircuits {
          .unwrap_or(0)
    }
 
-   /// Largest `commitments` such that `railgun/{inputs}x{M}` is cached.
+   /// Largest `commitments` such that `railgun/{inputs}x{M}` is available.
    pub fn max_outputs_for_inputs(&self, inputs: usize) -> usize {
       (1..=ARTIFACT_MAX_OUTPUTS)
          .rev()
@@ -116,6 +165,10 @@ pub struct RemoteArtifactLoader {
    /// When set, downloaded .br files are persisted here so we don't re-download.
    /// Recommended structure: {cache_dir}/{circuit_name}/{artifact}.br
    cache_dir: Option<PathBuf>,
+
+   /// Circuits embedded in the host binary. Looked up before disk/network and
+   /// never auto-written to the disk cache.
+   embedded: Arc<HashMap<&'static str, EmbeddedCircuit>>,
 }
 
 struct Cache {
@@ -183,6 +236,7 @@ impl RemoteArtifactLoader {
          client: reqwest::Client::new(),
          cache: Arc::new(Mutex::new(Cache::new(64 * 1024 * 1024))),
          cache_dir,
+         embedded: Arc::new(HashMap::new()),
       }
    }
 
@@ -193,15 +247,51 @@ impl RemoteArtifactLoader {
       }
    }
 
+   /// Register host-binary circuit embeds (`include_bytes!`).
+   ///
+   /// Incomplete entries (tiny / HTML-looking) are skipped with a warning.
+   /// Existing embeds with the same name are replaced.
+   pub fn with_embedded_circuits(
+      mut self,
+      circuits: impl IntoIterator<Item = EmbeddedCircuit>,
+   ) -> Self {
+      let map = Arc::make_mut(&mut self.embedded);
+      for circuit in circuits {
+         if !circuit.is_complete() {
+            warn!(
+               "Skipping incomplete embedded circuit {} (artifact validation failed)",
+               circuit.name
+            );
+            continue;
+         }
+         map.insert(circuit.name, circuit);
+      }
+      self
+   }
+
    pub fn cache_dir(&self) -> Option<&PathBuf> {
       self.cache_dir.as_ref()
    }
 
+   pub fn clear_mem_cache(&self) {
+      let mut cache = self.cache.lock().unwrap();
+      *cache = Cache::new(64 * 1024 * 1024);
+   }
+
+   /// Names of circuits registered from the host binary.
+   pub fn embedded_circuit_names(&self) -> Vec<&'static str> {
+      let mut names: Vec<_> = self.embedded.keys().copied().collect();
+      names.sort_unstable();
+      names
+   }
+
+   pub fn is_circuit_embedded(&self, circuit_name: &str) -> bool {
+      self.embedded.contains_key(circuit_name)
+   }
+
    pub async fn load_wasm(&self, circuit_name: &str) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
       info!("Loading WASM: {}", circuit_name);
-      let url = format!("{}/{}/wasm.br", self.base_url, circuit_name);
-      let disk_path = self.artifact_path(circuit_name, "wasm.br");
-      let compressed = self.fetch(&url, disk_path).await?;
+      let compressed = self.load_compressed(circuit_name, "wasm.br").await?;
       Ok(decompress(&compressed)?)
    }
 
@@ -210,12 +300,7 @@ impl RemoteArtifactLoader {
       circuit_name: &str,
    ) -> Result<ProvingKey<ark_bn254::Bn254>, RemoteArtifactLoaderError> {
       info!("Loading proving key: {}", circuit_name);
-      let url = format!(
-         "{}/{}/proving_key.bin.br",
-         self.base_url, circuit_name
-      );
-      let disk_path = self.artifact_path(circuit_name, "proving_key.bin.br");
-      let compressed = self.fetch(&url, disk_path).await?;
+      let compressed = self.load_compressed(circuit_name, "proving_key.bin.br").await?;
       let bytes = decompress(&compressed)?;
       let pk =
          ProvingKey::<ark_bn254::Bn254>::deserialize_uncompressed_unchecked(Cursor::new(bytes))?;
@@ -227,12 +312,7 @@ impl RemoteArtifactLoader {
       circuit_name: &str,
    ) -> Result<NPIndex<Fr>, RemoteArtifactLoaderError> {
       info!("Loading matrices: {}", circuit_name);
-      let url = format!(
-         "{}/{}/matrices.bin.br",
-         self.base_url, circuit_name
-      );
-      let disk_path = self.artifact_path(circuit_name, "matrices.bin.br");
-      let compressed = self.fetch(&url, disk_path).await?;
+      let compressed = self.load_compressed(circuit_name, "matrices.bin.br").await?;
       let bytes = decompress(&compressed)?;
       let matrices =
          SerializableNpIndex::<Fr>::deserialize_uncompressed_unchecked(Cursor::new(bytes))?;
@@ -257,67 +337,97 @@ impl RemoteArtifactLoader {
       true
    }
 
-   /// Scan the disk cache for complete transact circuits in the supported pack.
+   /// True when the circuit can be loaded without the network
+   /// (binary embed and/or complete disk cache).
+   pub fn is_circuit_available(&self, circuit_name: &str) -> bool {
+      self.is_circuit_embedded(circuit_name) || self.is_circuit_on_disk(circuit_name)
+   }
+
+   /// Offline-available circuits in the supported pack (embeds ∪ disk).
    pub fn available_circuits(&self) -> AvailableCircuits {
       let mut names = BTreeSet::new();
       for name in all_transact_circuit_names() {
-         if self.is_circuit_on_disk(&name) {
+         if self.is_circuit_available(&name) {
             names.insert(name);
          }
+      }
+      // Also surface any embedded names outside the pack scan (defensive).
+      for &name in self.embedded.keys() {
+         names.insert(name.to_string());
       }
       AvailableCircuits { names }
    }
 
-   /// Max nullifiers with a cached `railgun/{N}x{outputs}` circuit. `0` if none.
+   /// Max nullifiers with an available `railgun/{N}x{outputs}` circuit. `0` if none.
    pub fn max_cached_inputs_for_outputs(&self, outputs: usize) -> usize {
       self.available_circuits().max_inputs_for_outputs(outputs)
    }
 
-   /// Ensure every compressed artifact for `circuit_name` is on disk (download if missing).
-   /// Does **not** deserialize proving keys / matrices cheap enough for bulk prefetch.
+   /// Ensure every compressed artifact for `circuit_name` is obtainable.
+   ///
+   /// Embedded circuits are a no-op success (nothing is written to disk).
+   /// Otherwise downloads into the disk cache when configured.
    pub async fn ensure_circuit_cached(
       &self,
       circuit_name: &str,
    ) -> Result<(), RemoteArtifactLoaderError> {
+      if self.is_circuit_embedded(circuit_name) {
+         return Ok(());
+      }
       if self.cache_dir.is_none() {
          return Err(RemoteArtifactLoaderError::NoCacheDir);
       }
       for file in TRANSACT_ARTIFACT_FILES {
-         let url = format!("{}/{}/{}", self.base_url, circuit_name, file);
-         let disk_path = self.artifact_path(circuit_name, file);
-         self.fetch(&url, disk_path).await?;
+         let _ = self.load_compressed(circuit_name, file).await?;
       }
       Ok(())
    }
 
-   /// Iterate all supported transact circuits (`01x01` ..= `05x05`), skip those
-   /// already complete on disk, and download the rest.
+   /// Iterate all supported transact circuits (`01x01` ..= `05x05`).
    ///
-   /// Failures for individual circuits are recorded in the report and do not abort
-   /// the whole pass useful at app startup.
+   /// - Embedded → counted in [`PrefetchReport::embedded`], **not** written to disk
+   /// - Already on disk → [`PrefetchReport::already_cached`]
+   /// - Else download into the disk cache
+   ///
+   /// Failures for individual circuits are recorded and do not abort the pass.
    pub async fn prefetch_all_circuits(&self) -> Result<PrefetchReport, RemoteArtifactLoaderError> {
-      if self.cache_dir.is_none() {
+      if self.cache_dir.is_none() && self.embedded.is_empty() {
          return Err(RemoteArtifactLoaderError::NoCacheDir);
       }
 
       let mut report = PrefetchReport::default();
       let names = all_transact_circuit_names();
-      info!(
-         "Prefetching {} transact circuits into {:?}",
+      debug!(
+         "Prefetching {} transact circuits (cache_dir={:?}, embedded={})",
          names.len(),
-         self.cache_dir
+         self.cache_dir,
+         self.embedded.len()
       );
 
       for name in names {
+         if self.is_circuit_embedded(&name) {
+            debug!("Circuit available from binary embed: {}", name);
+            report.embedded.push(name);
+            continue;
+         }
+
          if self.is_circuit_on_disk(&name) {
-            debug!("Circuit already cached: {}", name);
+            debug!("Circuit already cached on disk: {}", name);
             report.already_cached.push(name);
+            continue;
+         }
+
+         if self.cache_dir.is_none() {
+            report.failed.push((
+               name,
+               "no disk cache directory and circuit is not embedded".into(),
+            ));
             continue;
          }
 
          match self.ensure_circuit_cached(&name).await {
             Ok(()) => {
-               info!("Downloaded circuit artifacts: {}", name);
+               debug!("Downloaded circuit artifacts: {}", name);
                report.downloaded.push(name);
             }
             Err(e) => {
@@ -327,8 +437,9 @@ impl RemoteArtifactLoader {
          }
       }
 
-      info!(
-         "Circuit prefetch done: {} cached, {} downloaded, {} failed",
+      debug!(
+         "Circuit prefetch done: {} embedded, {} disk-cached, {} downloaded, {} failed",
+         report.embedded.len(),
          report.already_cached.len(),
          report.downloaded.len(),
          report.failed.len()
@@ -336,24 +447,36 @@ impl RemoteArtifactLoader {
       Ok(report)
    }
 
-   /// Core fetch logic with disk persistence.
+   /// Load one compressed artifact file for a circuit.
    ///
-   /// Order of preference:
-   /// 1. In-memory cache (fast)
-   /// 2. Disk cache (if configured)
-   /// 3. Remote download (then save to disk if configured)
-   async fn fetch(
+   /// Order: memory → **binary embed** → disk → remote download.
+   /// Embeds are never written to disk.
+   async fn load_compressed(
       &self,
-      url: &str,
-      disk_path: Option<PathBuf>,
+      circuit_name: &str,
+      filename: &str,
    ) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
+      let url = format!("{}/{}/{}", self.base_url, circuit_name, filename);
+      let disk_path = self.artifact_path(circuit_name, filename);
+
       // 1. Memory cache (L1)
-      if let Some(cached) = self.cache.lock().unwrap().get(url) {
+      if let Some(cached) = self.cache.lock().unwrap().get(&url) {
          debug!("Artifact served from memory cache: {}", url);
          return Ok(cached);
       }
 
-      // 2. Disk cache (L2) — if configured
+      // 2. Binary embed available anytime, do not spill to disk.
+      if let Some(data) = self.embedded_bytes(circuit_name, filename) {
+         debug!(
+            "Artifact served from binary embed: {}/{}",
+            circuit_name, filename
+         );
+         let owned = data.to_vec();
+         self.cache.lock().unwrap().insert(url, owned.clone());
+         return Ok(owned);
+      }
+
+      // 3. Disk cache (L2)
       if let Some(ref path) = disk_path {
          if path.exists() {
             debug!(
@@ -362,7 +485,6 @@ impl RemoteArtifactLoader {
             );
             let data = fs::read(path).await?;
             if let Err(reason) = validate_compressed_artifact(&data) {
-               // Stale/corrupt disk entry (e.g. previously cached 404 HTML) — drop it.
                debug!(
                   "Discarding invalid disk cache entry {}: {}",
                   path.display(),
@@ -370,30 +492,29 @@ impl RemoteArtifactLoader {
                );
                let _ = fs::remove_file(path).await;
             } else {
-               self.cache.lock().unwrap().insert(url.to_string(), data.clone());
+               self.cache.lock().unwrap().insert(url.clone(), data.clone());
                return Ok(data);
             }
          }
       }
 
-      // 3. Remote download
+      // 4. Remote download
       debug!("Downloading from remote: {}", url);
-      let response = self.client.get(url).send().await?;
+      let response = self.client.get(&url).send().await?;
       let status = response.status();
       if status.as_u16() == 404 || status.as_u16() == 410 {
          return Err(RemoteArtifactLoaderError::NotFound {
-            url: url.to_string(),
+            url: url.clone(),
             status: status.as_u16(),
          });
       }
       if !status.is_success() {
          return Err(RemoteArtifactLoaderError::InvalidArtifact {
-            url: url.to_string(),
+            url: url.clone(),
             reason: format!("HTTP {status}"),
          });
       }
 
-      // Reject obvious HTML error pages even if the host returned 200.
       if let Some(ct) = response
          .headers()
          .get(reqwest::header::CONTENT_TYPE)
@@ -402,7 +523,7 @@ impl RemoteArtifactLoader {
          let ct = ct.to_ascii_lowercase();
          if ct.contains("text/html") {
             return Err(RemoteArtifactLoaderError::InvalidArtifact {
-               url: url.to_string(),
+               url: url.clone(),
                reason: format!("unexpected Content-Type: {ct}"),
             });
          }
@@ -411,12 +532,11 @@ impl RemoteArtifactLoader {
       let data = response.bytes().await?.to_vec();
       if let Err(reason) = validate_compressed_artifact(&data) {
          return Err(RemoteArtifactLoaderError::InvalidArtifact {
-            url: url.to_string(),
+            url: url.clone(),
             reason,
          });
       }
 
-      // Save to disk if we have a cache dir
       if let Some(ref path) = disk_path {
          if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).await?;
@@ -425,13 +545,14 @@ impl RemoteArtifactLoader {
          debug!("Saved artifact to disk: {}", path.display());
       }
 
-      // Populate memory cache
-      self.cache.lock().unwrap().insert(url.to_string(), data.clone());
-
+      self.cache.lock().unwrap().insert(url, data.clone());
       Ok(data)
    }
 
-   /// Computes the on-disk path for a given artifact.
+   fn embedded_bytes(&self, circuit_name: &str, filename: &str) -> Option<&'static [u8]> {
+      self.embedded.get(circuit_name).and_then(|c| c.file(filename))
+   }
+
    fn artifact_path(&self, circuit_name: &str, filename: &str) -> Option<PathBuf> {
       self.cache_dir.as_ref().map(|dir| dir.join(circuit_name).join(filename))
    }
@@ -499,5 +620,19 @@ mod tests {
       assert_eq!(a.max_inputs_for_outputs(1), 4);
       assert_eq!(a.max_inputs_for_outputs(2), 3);
       assert_eq!(a.max_inputs_for_outputs(5), 0);
+   }
+
+   #[test]
+   fn embedded_counts_as_available_not_on_disk() {
+      // Minimal fake "valid" blobs (> MIN_ARTIFACT_BYTES, not HTML).
+      static BLOB: [u8; 300] = [0xAB; 300];
+      let loader = RemoteArtifactLoader::new("https://example.invalid/artifacts", None)
+         .with_embedded_circuits([EmbeddedCircuit::new("railgun/01x01", &BLOB, &BLOB, &BLOB)]);
+
+      assert!(loader.is_circuit_embedded("railgun/01x01"));
+      assert!(!loader.is_circuit_on_disk("railgun/01x01"));
+      assert!(loader.is_circuit_available("railgun/01x01"));
+      assert!(loader.available_circuits().contains(1, 1));
+      assert_eq!(loader.max_cached_inputs_for_outputs(1), 1);
    }
 }

@@ -130,8 +130,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
       match prefetch_railgun_circuits().await {
          Ok(report) => {
             info!(
-               "Railgun circuit prefetch: {} ready ({} downloaded), {} failed",
+               "Railgun circuit prefetch: {} ready ({} embedded, {} disk, {} downloaded), {} failed",
                report.ok_count(),
+               report.embedded.len(),
+               report.already_cached.len(),
                report.downloaded.len(),
                report.failed_count()
             );
@@ -584,6 +586,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
 /// railgun data directory. Skips circuits already complete on disk.
 async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
    let dir = railgun_dir()?;
-   let prover = Groth16Prover::new(Some(dir));
+   let prover = Groth16Prover::new(Some(dir))
+      .with_embedded_circuits(crate::embedded::railgun::embedded_circuits());
    Ok(prover.prefetch_artifacts().await?)
 }

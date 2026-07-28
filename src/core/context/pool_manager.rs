@@ -909,7 +909,12 @@ impl PoolManager {
       self.checkpoints.get(&key).cloned()
    }
 
-   fn get_last_discover_time(&self, chain: u64, token_a: Address, token_b: Address) -> Option<Instant> {
+   fn get_last_discover_time(
+      &self,
+      chain: u64,
+      token_a: Address,
+      token_b: Address,
+   ) -> Option<Instant> {
       let time1 = self.last_discover.get(&(chain, token_a, token_b)).cloned();
       let time2 = self.last_discover.get(&(chain, token_b, token_a)).cloned();
       time1.or(time2)

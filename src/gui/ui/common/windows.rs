@@ -10,7 +10,7 @@ use crate::utils::{
    RT,
    self_update::{UpdateInfo, restart_app, update_zeus},
 };
-use eframe::egui::{Align2, Window, RichText, Spinner, Ui, Vec2, vec2};
+use eframe::egui::{Align2, RichText, Spinner, Ui, Vec2, Window, vec2};
 use egui::{Align, Layout, Order};
 use std::time::{SystemTime, UNIX_EPOCH};
 

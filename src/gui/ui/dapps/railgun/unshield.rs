@@ -41,7 +41,7 @@ use crate::{
    },
    gui::{SHARED_GUI, ui::NotificationType},
    utils::{
-      RT, TimeStamp, estimate_tx_cost,
+      RT, TimeStamp, estimate_tx_cost, malloc_trim,
       simulate::{
          fetch_accounts_info, fetch_storage_for_railgun, railgun_common_accounts,
          simulate_transaction,
@@ -233,6 +233,9 @@ async fn unshield_self_broadcast(
       let mut rng = ChaCha12Rng::from_os_rng();
       railgun_provider.build(tx, &mut rng).await?
    };
+
+   railgun_provider.prover().artifact_loader().clear_mem_cache();
+   malloc_trim();
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Simulating Transaction…");
@@ -815,6 +818,9 @@ async fn unshield_via_paymaster(
       .sign(&sa_key)
       .await
       .map_err(|e| anyhow!("Failed to sign UserOperation: {}", e))?;
+
+   railgun_provider.prover().artifact_loader().clear_mem_cache();
+   malloc_trim();
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Simulating Transaction…");

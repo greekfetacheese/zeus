@@ -13,8 +13,8 @@ use tracing::debug;
 use crate::circuit::{
    proof::Proof,
    remote_artifact_loader::{
-      ARTIFACT_MAX_INPUTS, AvailableCircuits, PrefetchReport, RemoteArtifactLoader,
-      RemoteArtifactLoaderError,
+      ARTIFACT_MAX_INPUTS, AvailableCircuits, EmbeddedCircuit, PrefetchReport,
+      RemoteArtifactLoader, RemoteArtifactLoaderError,
    },
    witness::{CalculateWitnessError, calculate_witness},
 };
@@ -42,24 +42,34 @@ impl Groth16Prover {
       Groth16Prover { artifact_loader }
    }
 
+   /// Attach host-binary circuit embeds (from the app crate via `include_bytes!`).
+   pub fn with_embedded_circuits(
+      mut self,
+      circuits: impl IntoIterator<Item = EmbeddedCircuit>,
+   ) -> Self {
+      self.artifact_loader = self.artifact_loader.with_embedded_circuits(circuits);
+      self
+   }
+
    pub fn artifact_loader(&self) -> &RemoteArtifactLoader {
       &self.artifact_loader
    }
 
-   /// Scan disk cache for complete transact circuits (`01x01` ..= `05x05`).
+   /// Offline-available circuits (binary embeds ∪ disk cache).
    pub fn available_circuits(&self) -> AvailableCircuits {
       self.artifact_loader.available_circuits()
    }
 
-   /// Max nullifiers with a cached `railgun/{N}x{outputs}` set. `0` if none.
+   /// Max nullifiers with an available `railgun/{N}x{outputs}` set. `0` if none.
    pub fn max_cached_inputs_for_outputs(&self, outputs: usize) -> usize {
       self.artifact_loader.max_cached_inputs_for_outputs(outputs)
    }
 
    /// Max inputs usable for a private merge (`Nx01`). Falls back to
-   /// [`ARTIFACT_MAX_INPUTS`] when nothing is cached yet (prove path can download).
+   /// [`ARTIFACT_MAX_INPUTS`] when nothing is available yet (prove path can download).
    pub fn max_merge_inputs(&self) -> usize {
       let cached = self.max_cached_inputs_for_outputs(1);
+      debug!("max_cached_inputs_for_outputs(1)={}", cached);
       if cached >= 2 {
          cached
       } else {
@@ -67,7 +77,8 @@ impl Groth16Prover {
       }
    }
 
-   /// Download any missing supported transact circuits into the disk cache.
+   /// Prefetch non-embedded circuits into the disk cache.
+   /// Embedded circuits are reported but never written to disk.
    pub async fn prefetch_artifacts(&self) -> Result<PrefetchReport, Groth16ProverError> {
       Ok(self.artifact_loader.prefetch_all_circuits().await?)
    }
