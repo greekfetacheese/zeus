@@ -105,10 +105,7 @@ impl UtxoIndexer {
 
    /// Returns the synced block for the given account
    pub fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
-      self.accounts
-         .iter()
-         .find(|a| a.address() == address)
-         .map(|a| a.synced_block())
+      self.accounts.iter().find(|a| a.address() == address).map(|a| a.synced_block())
    }
 
    /// Global UTXO tree progress only (ignores per-account catch-up).

@@ -1,5 +1,5 @@
 use std::{
-   collections::VecDeque,
+   collections::{BTreeSet, VecDeque},
    io::Cursor,
    path::PathBuf,
    sync::{Arc, Mutex},
@@ -10,13 +10,101 @@ use ark_circom::index::NPIndex;
 use ark_groth16::ProvingKey;
 use ark_serialize::CanonicalDeserialize;
 use tokio::fs;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::crypto::serializable_np_index::SerializableNpIndex;
 
 /// Minimum compressed size we accept for a remote artifact. 404 HTML pages
 /// are typically a few KB of text; real `.br` proving keys are hundreds of KB+.
 const MIN_ARTIFACT_BYTES: usize = 256;
+
+/// Max nullifiers/commitments in the artifact pack Zeus ships against.
+/// Protocol max is 13; larger circuits are simply not published in this pack.
+pub const ARTIFACT_MAX_INPUTS: usize = 5;
+pub const ARTIFACT_MAX_OUTPUTS: usize = 5;
+
+/// Compressed files required for a complete transact circuit on disk.
+const TRANSACT_ARTIFACT_FILES: &[&str] = &["wasm.br", "proving_key.bin.br", "matrices.bin.br"];
+
+/// Format a transact circuit path used by the artifact host.
+/// Example: `railgun/04x01`.
+pub fn transact_circuit_name(nullifiers: usize, commitments: usize) -> String {
+   format!("railgun/{:02}x{:02}", nullifiers, commitments)
+}
+
+/// All transact circuit names in the supported pack (`01x01` ..= `05x05`).
+pub fn all_transact_circuit_names() -> Vec<String> {
+   let mut names = Vec::with_capacity(ARTIFACT_MAX_INPUTS * ARTIFACT_MAX_OUTPUTS);
+   for n in 1..=ARTIFACT_MAX_INPUTS {
+      for m in 1..=ARTIFACT_MAX_OUTPUTS {
+         names.push(transact_circuit_name(n, m));
+      }
+   }
+   names
+}
+
+/// Result of a bulk prefetch pass.
+#[derive(Debug, Clone, Default)]
+pub struct PrefetchReport {
+   /// Circuits that already had a full valid on-disk set.
+   pub already_cached: Vec<String>,
+   /// Circuits that were downloaded (or re-fetched) successfully this run.
+   pub downloaded: Vec<String>,
+   /// Circuits that failed (404 / invalid / IO). Not fatal to the whole run.
+   pub failed: Vec<(String, String)>,
+}
+
+impl PrefetchReport {
+   pub fn ok_count(&self) -> usize {
+      self.already_cached.len() + self.downloaded.len()
+   }
+
+   pub fn failed_count(&self) -> usize {
+      self.failed.len()
+   }
+}
+
+/// Snapshot of which transact circuits are fully present on disk.
+#[derive(Debug, Clone, Default)]
+pub struct AvailableCircuits {
+   /// Circuit names like `railgun/01x02`.
+   pub names: BTreeSet<String>,
+}
+
+impl AvailableCircuits {
+   pub fn contains(&self, nullifiers: usize, commitments: usize) -> bool {
+      self.names.contains(&transact_circuit_name(nullifiers, commitments))
+   }
+
+   pub fn contains_name(&self, name: &str) -> bool {
+      self.names.contains(name)
+   }
+
+   /// Largest `nullifiers` such that `railgun/{N}x{outputs}` is cached.
+   /// Returns `0` when none are available.
+   pub fn max_inputs_for_outputs(&self, outputs: usize) -> usize {
+      (1..=ARTIFACT_MAX_INPUTS)
+         .rev()
+         .find(|&n| self.contains(n, outputs))
+         .unwrap_or(0)
+   }
+
+   /// Largest `commitments` such that `railgun/{inputs}x{M}` is cached.
+   pub fn max_outputs_for_inputs(&self, inputs: usize) -> usize {
+      (1..=ARTIFACT_MAX_OUTPUTS)
+         .rev()
+         .find(|&m| self.contains(inputs, m))
+         .unwrap_or(0)
+   }
+
+   pub fn is_empty(&self) -> bool {
+      self.names.is_empty()
+   }
+
+   pub fn len(&self) -> usize {
+      self.names.len()
+   }
+}
 
 #[derive(Clone)]
 pub struct RemoteArtifactLoader {
@@ -75,6 +163,8 @@ pub enum RemoteArtifactLoaderError {
    DeserializationError(#[from] ark_serialize::SerializationError),
    #[error("Decompression error: {0}")]
    DecompressionError(#[from] std::io::Error),
+   #[error("No on-disk cache directory configured")]
+   NoCacheDir,
 }
 
 impl Default for RemoteArtifactLoader {
@@ -101,6 +191,10 @@ impl RemoteArtifactLoader {
          cache_dir: dir,
          ..self
       }
+   }
+
+   pub fn cache_dir(&self) -> Option<&PathBuf> {
+      self.cache_dir.as_ref()
    }
 
    pub async fn load_wasm(&self, circuit_name: &str) -> Result<Vec<u8>, RemoteArtifactLoaderError> {
@@ -143,6 +237,103 @@ impl RemoteArtifactLoader {
       let matrices =
          SerializableNpIndex::<Fr>::deserialize_uncompressed_unchecked(Cursor::new(bytes))?;
       Ok(matrices.into())
+   }
+
+   /// True when all required compressed files for `circuit_name` exist on disk
+   /// and pass basic validation (size / not-HTML). Does not hit the network.
+   pub fn is_circuit_on_disk(&self, circuit_name: &str) -> bool {
+      for file in TRANSACT_ARTIFACT_FILES {
+         let Some(path) = self.artifact_path(circuit_name, file) else {
+            return false;
+         };
+         if !path.is_file() {
+            return false;
+         }
+         match std::fs::read(&path) {
+            Ok(data) if validate_compressed_artifact(&data).is_ok() => {}
+            _ => return false,
+         }
+      }
+      true
+   }
+
+   /// Scan the disk cache for complete transact circuits in the supported pack.
+   pub fn available_circuits(&self) -> AvailableCircuits {
+      let mut names = BTreeSet::new();
+      for name in all_transact_circuit_names() {
+         if self.is_circuit_on_disk(&name) {
+            names.insert(name);
+         }
+      }
+      AvailableCircuits { names }
+   }
+
+   /// Max nullifiers with a cached `railgun/{N}x{outputs}` circuit. `0` if none.
+   pub fn max_cached_inputs_for_outputs(&self, outputs: usize) -> usize {
+      self.available_circuits().max_inputs_for_outputs(outputs)
+   }
+
+   /// Ensure every compressed artifact for `circuit_name` is on disk (download if missing).
+   /// Does **not** deserialize proving keys / matrices cheap enough for bulk prefetch.
+   pub async fn ensure_circuit_cached(
+      &self,
+      circuit_name: &str,
+   ) -> Result<(), RemoteArtifactLoaderError> {
+      if self.cache_dir.is_none() {
+         return Err(RemoteArtifactLoaderError::NoCacheDir);
+      }
+      for file in TRANSACT_ARTIFACT_FILES {
+         let url = format!("{}/{}/{}", self.base_url, circuit_name, file);
+         let disk_path = self.artifact_path(circuit_name, file);
+         self.fetch(&url, disk_path).await?;
+      }
+      Ok(())
+   }
+
+   /// Iterate all supported transact circuits (`01x01` ..= `05x05`), skip those
+   /// already complete on disk, and download the rest.
+   ///
+   /// Failures for individual circuits are recorded in the report and do not abort
+   /// the whole pass useful at app startup.
+   pub async fn prefetch_all_circuits(&self) -> Result<PrefetchReport, RemoteArtifactLoaderError> {
+      if self.cache_dir.is_none() {
+         return Err(RemoteArtifactLoaderError::NoCacheDir);
+      }
+
+      let mut report = PrefetchReport::default();
+      let names = all_transact_circuit_names();
+      info!(
+         "Prefetching {} transact circuits into {:?}",
+         names.len(),
+         self.cache_dir
+      );
+
+      for name in names {
+         if self.is_circuit_on_disk(&name) {
+            debug!("Circuit already cached: {}", name);
+            report.already_cached.push(name);
+            continue;
+         }
+
+         match self.ensure_circuit_cached(&name).await {
+            Ok(()) => {
+               info!("Downloaded circuit artifacts: {}", name);
+               report.downloaded.push(name);
+            }
+            Err(e) => {
+               warn!("Failed to prefetch {}: {}", name, e);
+               report.failed.push((name, e.to_string()));
+            }
+         }
+      }
+
+      info!(
+         "Circuit prefetch done: {} cached, {} downloaded, {} failed",
+         report.already_cached.len(),
+         report.downloaded.len(),
+         report.failed.len()
+      );
+      Ok(report)
    }
 
    /// Core fetch logic with disk persistence.
@@ -279,4 +470,34 @@ fn decompress(data: &[u8]) -> Result<Vec<u8>, std::io::Error> {
    let mut out = Vec::new();
    brotli::BrotliDecompress(&mut &data[..], &mut out)?;
    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn circuit_name_padding() {
+      assert_eq!(transact_circuit_name(1, 2), "railgun/01x02");
+      assert_eq!(transact_circuit_name(5, 5), "railgun/05x05");
+   }
+
+   #[test]
+   fn all_transact_count() {
+      assert_eq!(
+         all_transact_circuit_names().len(),
+         ARTIFACT_MAX_INPUTS * ARTIFACT_MAX_OUTPUTS
+      );
+   }
+
+   #[test]
+   fn available_max_inputs() {
+      let mut a = AvailableCircuits::default();
+      a.names.insert("railgun/02x01".into());
+      a.names.insert("railgun/04x01".into());
+      a.names.insert("railgun/03x02".into());
+      assert_eq!(a.max_inputs_for_outputs(1), 4);
+      assert_eq!(a.max_inputs_for_outputs(2), 3);
+      assert_eq!(a.max_inputs_for_outputs(5), 0);
+   }
 }

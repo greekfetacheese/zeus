@@ -104,7 +104,10 @@ impl SnapshotLoader {
       let block_number = snapshot.block_number;
       if block_number > 0 {
          if let Err(e) = self.save_meta(chain_id, block_number).await {
-            debug!("Failed to write snapshot meta after fallback load: {}", e);
+            debug!(
+               "Failed to write snapshot meta after fallback load: {}",
+               e
+            );
          }
       }
       Ok(block_number)

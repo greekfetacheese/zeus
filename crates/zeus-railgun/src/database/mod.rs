@@ -1,6 +1,6 @@
-pub mod redb;
 pub mod memory;
 pub mod railgun_db;
+pub mod redb;
 
 pub use railgun_db::RailgunDB;
 pub use redb::RedbDatabase;

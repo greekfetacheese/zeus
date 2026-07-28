@@ -158,6 +158,17 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       self.chain.id
    }
 
+   /// Shared Groth16 prover / artifact loader for this provider.
+   pub fn prover(&self) -> &Groth16Prover {
+      &self.prover
+   }
+
+   /// Max notes per merge pack from circuits cached on disk (`Nx01`).
+   /// Falls back to the full artifact pack size when nothing is cached yet.
+   pub fn max_merge_inputs(&self) -> usize {
+      self.prover.max_merge_inputs()
+   }
+
    /// Returns the chain configuration
    pub fn chain_config(&self) -> ChainConfig {
       self.chain.clone()

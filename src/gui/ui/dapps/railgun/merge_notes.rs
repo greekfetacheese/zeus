@@ -132,7 +132,7 @@ impl MergeNotesWindow {
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
-            
+
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 12.0);
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -371,6 +371,7 @@ async fn load_suggestion(
    ctx.sync_railgun(chain_id, false).await?;
 
    let mut provider = ctx.get_railgun_provider(chain_id, false).await?;
+   let max_inputs = provider.max_merge_inputs();
    let notes = provider.notes(address).await;
 
    let candidates: Vec<MergeCandidate> = notes
@@ -390,5 +391,5 @@ async fn load_suggestion(
       })
       .collect();
 
-   Ok(suggest_merge(asset, &candidates))
+   Ok(suggest_merge(asset, &candidates, max_inputs))
 }

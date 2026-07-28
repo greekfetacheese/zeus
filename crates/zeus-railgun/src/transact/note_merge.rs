@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use crate::caip::AssetId;
+use crate::circuit::remote_artifact_loader::ARTIFACT_MAX_INPUTS;
 use crate::transact::transaction_builder::MAX_CIRCUIT_INPUTS;
 
 /// One unspent note considered for merge planning.
@@ -19,11 +20,13 @@ pub struct MergeNoteRef {
 pub struct MergeSuggestion {
    pub asset: AssetId,
    pub tree_number: u32,
-   /// Notes that will be spent (≤ [`MAX_CIRCUIT_INPUTS`]).
+   /// Notes that will be spent (≤ `max_inputs` used when suggesting).
    pub notes: Vec<MergeNoteRef>,
    /// Exact sum of `notes` — pass this as the transfer amount with
    /// [`super::NoteSelectionMode::SmallestFirst`].
    pub amount: u128,
+   /// Cap used for this suggestion (from available circuits).
+   pub max_inputs: usize,
    /// Note count for this asset on this tree before the merge.
    pub notes_on_tree_before: usize,
    /// Expected note count on this tree after the merge (spent + 1 new).
@@ -58,16 +61,30 @@ pub struct MergeCandidate {
 
 /// Suggest the best **single** merge pack for `asset`.
 ///
+/// `max_inputs` should be the largest `N` for which the `Nx01` circuit is
+/// available (see [`crate::circuit::remote_artifact_loader::AvailableCircuits`]).
+/// Values are clamped to `[2, MAX_CIRCUIT_INPUTS]`.
+///
 /// Strategy (per tree, pick the greediest pack overall):
 /// 1. Only notes with `amount > 0` on the same UTXO tree can share an op.
-/// 2. If a tree has 2..=[`MAX_CIRCUIT_INPUTS`] notes → merge **all** of them.
-/// 3. If a tree has more → pack up to [`MAX_CIRCUIT_INPUTS`] **smallest** notes
+/// 2. If a tree has 2..=`max_inputs` notes → merge **all** of them.
+/// 3. If a tree has more → pack up to `max_inputs` **smallest** notes
 ///    (dust-first) into one `Nx01` transfer.
 /// 4. Prefer the pack that removes the most notes (largest pack size), then the
 ///    most fragmented tree, then lowest tree number.
 ///
-/// Returns `None` when every tree already has ≤1 note for the asset (nothing to merge).
-pub fn suggest_merge(asset: AssetId, candidates: &[MergeCandidate]) -> Option<MergeSuggestion> {
+/// Returns `None` when every tree already has ≤1 note for the asset, or when
+/// `max_inputs < 2`.
+pub fn suggest_merge(
+   asset: AssetId,
+   candidates: &[MergeCandidate],
+   max_inputs: usize,
+) -> Option<MergeSuggestion> {
+   let max_inputs = max_inputs.clamp(0, MAX_CIRCUIT_INPUTS.min(ARTIFACT_MAX_INPUTS));
+   if max_inputs < 2 {
+      return None;
+   }
+
    let asset_notes: Vec<&MergeCandidate> =
       candidates.iter().filter(|n| n.asset == asset && n.amount > 0).collect();
    if asset_notes.len() < 2 {
@@ -92,7 +109,7 @@ pub fn suggest_merge(asset: AssetId, candidates: &[MergeCandidate]) -> Option<Me
       // Smallest first for dust packing.
       notes.sort_by(|a, b| a.amount.cmp(&b.amount).then_with(|| a.leaf_index.cmp(&b.leaf_index)));
 
-      let pack_len = notes.len().min(MAX_CIRCUIT_INPUTS);
+      let pack_len = notes.len().min(max_inputs);
       if pack_len < 2 {
          continue;
       }
@@ -148,12 +165,21 @@ pub fn suggest_merge(asset: AssetId, candidates: &[MergeCandidate]) -> Option<Me
       tree_number,
       notes,
       amount,
+      max_inputs,
       notes_on_tree_before,
       notes_on_tree_after,
       notes_total_before,
       notes_total_after,
       more_merges_available,
    })
+}
+
+/// Convenience: suggest using the full Zeus artifact input cap.
+pub fn suggest_merge_default(
+   asset: AssetId,
+   candidates: &[MergeCandidate],
+) -> Option<MergeSuggestion> {
+   suggest_merge(asset, candidates, MAX_CIRCUIT_INPUTS)
 }
 
 #[cfg(test)]
@@ -184,7 +210,7 @@ mod tests {
          n(100_000_000_000_000, 0, 2),
          n(200_000_000_000_000, 0, 3),
       ];
-      let s = suggest_merge(weth(), &notes).expect("suggestion");
+      let s = suggest_merge(weth(), &notes, 5).expect("suggestion");
       assert_eq!(s.notes.len(), 4);
       assert_eq!(s.amount, 1_000_000_000_000_000);
       assert_eq!(s.circuit_label(), "04x01");
@@ -200,15 +226,35 @@ mod tests {
          notes.push(n(1_000 + i as u128, 0, i));
       }
       notes.push(n(1_000_000_000, 0, 99));
-      let s = suggest_merge(weth(), &notes).expect("suggestion");
-      assert_eq!(s.notes.len(), MAX_CIRCUIT_INPUTS);
+      let s = suggest_merge(weth(), &notes, 5).expect("suggestion");
+      assert_eq!(s.notes.len(), 5);
       assert!(s.notes.iter().all(|n| n.amount < 1_000_000_000));
       assert!(s.more_merges_available);
    }
 
    #[test]
+   fn respects_smaller_available_circuits() {
+      let mut notes = Vec::new();
+      for i in 0..5 {
+         notes.push(n(1_000 + i as u128, 0, i));
+      }
+      // Only 03x01 available → pack 3 smallest.
+      let s = suggest_merge(weth(), &notes, 3).expect("suggestion");
+      assert_eq!(s.notes.len(), 3);
+      assert_eq!(s.max_inputs, 3);
+      assert_eq!(s.circuit_label(), "03x01");
+      assert!(s.more_merges_available);
+   }
+
+   #[test]
+   fn none_when_max_inputs_too_small() {
+      let notes = vec![n(1_000, 0, 0), n(2_000, 0, 1)];
+      assert!(suggest_merge(weth(), &notes, 1).is_none());
+   }
+
+   #[test]
    fn none_when_single_note() {
       let notes = vec![n(1_000, 0, 0)];
-      assert!(suggest_merge(weth(), &notes).is_none());
+      assert!(suggest_merge(weth(), &notes, 5).is_none());
    }
 }

@@ -1,3 +1,4 @@
+use crate::core::ctx::railgun_dir;
 use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim};
 use anyhow::anyhow;
@@ -15,6 +16,7 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };
+use zeus_railgun::{Groth16Prover, PrefetchReport};
 
 const MALLOC_TRIM_INTERVAL: u64 = 300;
 const MEASURE_RPCS_INTERVAL: u64 = 200;
@@ -120,6 +122,25 @@ pub async fn on_startup(ctx: ZeusCtx) {
       }
 
       malloc_trim();
+   });
+
+   // Prefetch all transact circuit artifacts (01x01 ..= 05x05) into the
+   // on-disk cache so first prove / merge does not hit the network cold.
+   RT.spawn(async move {
+      match prefetch_railgun_circuits().await {
+         Ok(report) => {
+            info!(
+               "Railgun circuit prefetch: {} ready ({} downloaded), {} failed",
+               report.ok_count(),
+               report.downloaded.len(),
+               report.failed_count()
+            );
+            for (name, err) in &report.failed {
+               warn!("Circuit prefetch failed for {}: {}", name, err);
+            }
+         }
+         Err(e) => error!("Railgun circuit prefetch error: {:?}", e),
+      }
    });
 
    eth_balance_fut.await;
@@ -557,4 +578,12 @@ pub async fn resync_pools(ctx: ZeusCtx) {
          }
       }
    });
+}
+
+/// Prefetch pack circuits (`railgun/01x01` ..= `05x05`) into the Zeus
+/// railgun data directory. Skips circuits already complete on disk.
+async fn prefetch_railgun_circuits() -> Result<PrefetchReport, anyhow::Error> {
+   let dir = railgun_dir()?;
+   let prover = Groth16Prover::new(Some(dir));
+   Ok(prover.prefetch_artifacts().await?)
 }
