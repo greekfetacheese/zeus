@@ -5,7 +5,8 @@ use eframe::egui::{
    ColorImage, Context, Image, Sense, TextureHandle, epaint::textures::TextureOptions,
 };
 
-use crate::core::context::currencies::{TOKENS, TokenData};
+use crate::embedded::TOKEN_DATA;
+use crate::core::context::currencies::TokenData;
 use image::imageops::FilterType;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -85,7 +86,7 @@ impl Default for TokenIcons {
 impl TokenIcons {
    pub fn new(ctx: &Context) -> Result<Self, anyhow::Error> {
       let (icon_data, _bytes_read): (Vec<TokenData>, usize) =
-         decode_from_slice(TOKENS, standard())?;
+         decode_from_slice(TOKEN_DATA, standard())?;
 
       #[cfg(feature = "dev")]
       tracing::info!("Loaded {} tokens", icon_data.len());

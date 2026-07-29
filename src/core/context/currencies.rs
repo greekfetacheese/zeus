@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 
+use crate::embedded::TOKEN_DATA;
 use crate::core::{context::data_dir, serde_hashmap};
 
 use zeus_eth::{
@@ -12,7 +13,6 @@ use zeus_eth::{
 use bincode_next::{Decode, Encode, config::standard, decode_from_slice};
 
 const FILE_NAME: &str = "tokens.json";
-pub const TOKENS: &[u8] = include_bytes!("../../../token_data.data");
 
 #[derive(Clone, Encode, Decode)]
 pub struct TokenData {
@@ -167,7 +167,7 @@ impl CurrencyDB {
 
 fn load_default_tokens() -> Result<Vec<ERC20Token>, anyhow::Error> {
    let (default_tokens, _bytes_read): (Vec<TokenData>, usize) =
-      decode_from_slice(TOKENS, standard())?;
+      decode_from_slice(TOKEN_DATA, standard())?;
 
    let mut tokens = Vec::new();
 

@@ -10,6 +10,7 @@ use zeus_eth::abi::zeus::ZeusStateViewV2::PoolsState;
 use zeus_eth::alloy_primitives::FixedBytes;
 use zeus_eth::amm::uniswap::UniswapV4Pool;
 
+use crate::embedded::POOL_DATA;
 use crate::core::{ZeusCtx, context::pool_data_dir, serde_hashmap};
 use crate::utils::RT;
 use zeus_eth::{
@@ -31,8 +32,6 @@ use zeus_eth::{
 };
 
 use anyhow::anyhow;
-
-const POOL_MANAGER_DEFAULT: &str = include_str!("../../../pool_data.json");
 
 // Timeout for pool discovery in seconds (10 minutes)
 const POOL_DISCOVERY_TIMEOUT: u64 = 600;
@@ -868,7 +867,7 @@ pub struct PoolManager {
 
 impl Default for PoolManager {
    fn default() -> Self {
-      let manager: PoolManager = serde_json::from_str(POOL_MANAGER_DEFAULT).unwrap();
+      let manager: PoolManager = serde_json::from_str(POOL_DATA).unwrap();
       Self {
          pools: manager.pools,
          last_discover: HashMap::new(),
