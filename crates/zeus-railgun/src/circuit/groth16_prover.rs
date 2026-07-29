@@ -13,8 +13,8 @@ use tracing::debug;
 use crate::circuit::{
    proof::Proof,
    remote_artifact_loader::{
-      ARTIFACT_MAX_INPUTS, AvailableCircuits, EmbeddedCircuit, PrefetchReport,
-      RemoteArtifactLoader, RemoteArtifactLoaderError,
+      AvailableCircuits, EmbeddedCircuit, PrefetchReport, RemoteArtifactLoader,
+      RemoteArtifactLoaderError,
    },
    witness::{CalculateWitnessError, calculate_witness},
 };
@@ -42,7 +42,7 @@ impl Groth16Prover {
       Groth16Prover { artifact_loader }
    }
 
-   /// Attach host-binary circuit embeds (from the app crate via `include_bytes!`).
+   /// Attach host-binary circuit embeds.
    pub fn with_embedded_circuits(
       mut self,
       circuits: impl IntoIterator<Item = EmbeddedCircuit>,
@@ -65,16 +65,12 @@ impl Groth16Prover {
       self.artifact_loader.max_cached_inputs_for_outputs(outputs)
    }
 
-   /// Max inputs usable for a private merge (`Nx01`). Falls back to
-   /// [`ARTIFACT_MAX_INPUTS`] when nothing is available yet (prove path can download).
+   /// Max inputs usable for a private merge (`Nx01`) based on the
+   /// available circuits that currently the prover has.
    pub fn max_merge_inputs(&self) -> usize {
       let cached = self.max_cached_inputs_for_outputs(1);
       debug!("max_cached_inputs_for_outputs(1)={}", cached);
-      if cached >= 2 {
-         cached
-      } else {
-         ARTIFACT_MAX_INPUTS
-      }
+      cached
    }
 
    /// Prefetch non-embedded circuits into the disk cache.

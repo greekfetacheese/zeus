@@ -2,7 +2,8 @@
 mod tests {
    use std::time::Duration;
 
-   use crate::core::{ZeusCtx, railgun_dir};
+   use crate::core::ZeusCtx;
+   use crate::embedded::railgun::embedded_circuits;
    use crate::utils::create_railgun_provider;
    use alloy_eips::BlockId;
    use zeus_eth::revm_utils::simulate::erc20_balance;
@@ -10,7 +11,6 @@ mod tests {
    use zeus_railgun::caip::AssetId;
    use zeus_railgun::*;
 
-   use std::time::Instant;
    use zeus_eth::alloy_primitives::{TxKind, U256};
    use zeus_eth::alloy_provider::Provider;
    use zeus_eth::{currency::ERC20Token, revm_utils::*, types::ChainId, utils::NumericValue};
@@ -22,83 +22,11 @@ mod tests {
       Wallet::new_from_mnemonic("test".into(), seed_phrase.into()).unwrap()
    }
 
-   #[tokio::test]
-   async fn db_compact_mem_usage() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt()
-         .with_env_filter("info,error,debug")
-         .with_test_writer()
-         .init();
-
-      let ctx = ZeusCtx::new();
-      let chain = ChainId::EthereumSepolia;
-      let client = ctx.get_client(chain.id()).await?;
-
-      let railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client, chain.id()).await?;
-
-      let mut times = 0;
-
-      loop {
-         railgun_provider.compact().await?;
-         times += 1;
-         tracing::info!("Compacted DB {} times", times);
-         tokio::time::sleep(Duration::from_secs(1)).await;
-      }
-   }
-
-   #[tokio::test]
-   async fn db_save_mem_usage() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt()
-         .with_env_filter("info,error,debug")
-         .with_test_writer()
-         .init();
-
-      let ctx = ZeusCtx::new();
-      let chain = ChainId::EthereumSepolia;
-      let client = ctx.get_client(chain.id()).await?;
-
-      let railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client, chain.id()).await?;
-
-      let mut times = 0;
-
-      loop {
-         railgun_provider.save(true).await?;
-         times += 1;
-         tracing::info!("Saved DB {} times", times);
-         tokio::time::sleep(Duration::from_secs(1)).await;
-      }
-   }
-
-   #[tokio::test]
-   async fn snapshot_loader_mem_usage() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt()
-         .with_env_filter("info,error,debug")
-         .with_test_writer()
-         .init();
-
-      let chain = ChainId::Ethereum;
-      let snapshot_loader = SnapshotLoader::new(railgun_dir().unwrap());
-
-      let mut times = 0;
-
-      loop {
-         {
-            let _events = snapshot_loader.load(chain.id()).await?;
-         }
-
-         unsafe {
-            if libc::malloc_trim(0) == 1 {
-               tracing::info!("Released free memory");
-            } else {
-               tracing::warn!("Failed to release free memory");
-            }
-         }
-
-         times += 1;
-         tracing::info!("read snapshot {} times", times);
-         tokio::time::sleep(Duration::from_secs(10)).await;
-      }
+   #[test]
+   fn test_max_merge_inputs() {
+      let prover = Groth16Prover::new(None).with_embedded_circuits(embedded_circuits());
+      let max_inputs = prover.max_merge_inputs();
+      assert_eq!(max_inputs, 2);
    }
 
    #[tokio::test]
@@ -158,36 +86,6 @@ mod tests {
       railgun_provider.sync_to(to_block, use_subsquid).await?;
 
       Ok(())
-   }
-
-   #[tokio::test]
-   async fn test_snapshot_loader() {
-      tracing_subscriber::fmt()
-         .with_env_filter("info,error,debug")
-         .with_test_writer()
-         .init();
-
-      let chain = 1;
-      let dir = railgun_dir().unwrap();
-      let loader = SnapshotLoader::new(dir);
-
-      let time = Instant::now();
-      let snapshot = loader.load(chain).await.unwrap();
-      println!(
-         "Snapshot loaded in {}ms",
-         time.elapsed().as_millis()
-      );
-
-      println!(
-         "Events {} | latest block {}",
-         snapshot.events.len(),
-         snapshot.block_number
-      );
-
-      loop {
-         std::thread::sleep(std::time::Duration::from_secs(1));
-         println!("Press ctrl-c to exit");
-      }
    }
 
    #[tokio::test]

@@ -23,10 +23,10 @@ Current hot-set (see `src/embedded/railgun.rs`):
 
 | Circuit | Role |
 |---------|------|
-| `01x01` | Exact single-note unshield / post-merge exit |
+| `01x01` | Self-broadcast single-note unshield |
 | `01x02` | Self-broadcast unshield with change |
 | `01x03` | Private broadcast (+ fee outs) |
-| `02x01`–`05x01` | Merge / consolidate packs |
+| `02x01` | Merge private notes |
 
 To add a circuit: drop the three `.br` files into `embedded/railgun/NNxMM/`
 and append `railgun_circuit!("NNxMM")` in `src/embedded/railgun.rs`.
