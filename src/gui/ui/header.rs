@@ -15,7 +15,7 @@ use crate::gui::{
 };
 use crate::utils::{RT, truncate_address};
 use egui::{
-   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl, Order,
+   Align, Align2, CornerRadius, CursorIcon, FontId, Frame, Label, Layout, Margin, OpenUrl, Order,
    RichText, Spinner, Ui, Window, vec2,
 };
 use std::str::FromStr;
@@ -769,7 +769,8 @@ pub struct QRCodeWindow {
    open: bool,
    overlay: OverlayManager,
    wallet: Option<WalletInfo>,
-   qr_image: QrImage,
+   evm_address_qr: QrImage,
+   zk_address_qr: QrImage,
    size: (f32, f32),
 }
 
@@ -779,7 +780,8 @@ impl QRCodeWindow {
          open: false,
          overlay,
          wallet: None,
-         qr_image: QrImage::empty_with_error("No QR code found".to_string()),
+         evm_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
+         zk_address_qr: QrImage::empty_with_error("No QR code found".to_string()),
          size: (400.0, 400.0),
       }
    }
@@ -789,13 +791,24 @@ impl QRCodeWindow {
    }
 
    pub fn open(&mut self, wallet: WalletInfo) {
-      let data = wallet.address.to_string();
-      let uri = format!("bytes://receive-{}.png", &wallet.address);
+      let wallet_clone = wallet.clone();
 
       RT.spawn_blocking(move || {
-         let qr_image = QrImage::new(&data, uri);
+         let data = wallet.address.to_string();
+         let uri = format!("bytes://receive-{}.png", &wallet.address);
+         let evm_address_qr = QrImage::new(&data, uri);
+
+         let zk_address_qr = if let Some(railgun_address) = &wallet.railgun_address {
+            let data = railgun_address.address.to_string();
+            let uri = format!("bytes://receive-{}.png", &railgun_address.address);
+            QrImage::new(&data, uri)
+         } else {
+            QrImage::empty_with_error("No zkAddress available".to_string())
+         };
+
          SHARED_GUI.write(|gui| {
-            gui.header.qrcode_window.qr_image = qr_image;
+            gui.header.qrcode_window.evm_address_qr = evm_address_qr;
+            gui.header.qrcode_window.zk_address_qr = zk_address_qr;
          });
       });
 
@@ -804,7 +817,7 @@ impl QRCodeWindow {
       }
 
       self.open = true;
-      self.wallet = Some(wallet);
+      self.wallet = Some(wallet_clone);
    }
 
    pub fn close(&mut self) {
@@ -817,10 +830,12 @@ impl QRCodeWindow {
       *self = Self::new(self.overlay.clone());
    }
 
-   pub fn show(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
+
+      let privacy_mode = ctx.privacy_mode;
 
       Window::new("QR Code Window")
          .title_bar(false)
@@ -847,29 +862,45 @@ impl QRCodeWindow {
                   return;
                }
 
-               // Wallet Info
+               // Wallet Name and Address
                if let Some(wallet) = self.wallet.as_ref() {
-                  let text = RichText::new("Wallet Name").size(theme.text_sizes.large);
-                  ui.label(text);
                   ui.label(
-                     RichText::new(wallet.name_with_source().as_str())
-                        .size(theme.text_sizes.normal),
+                     RichText::new(wallet.name_with_source().as_str()).size(theme.text_sizes.large),
                   );
 
-                  let text = RichText::new("Address").size(theme.text_sizes.large);
-                  ui.label(text);
-                  ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
+                  let text = match privacy_mode {
+                     false => "Public Address (EVM)",
+                     true => "Private Address (zk)",
+                  };
+
+                  let rich_text = RichText::new(text).size(theme.text_sizes.large);
+                  ui.label(rich_text);
+
+                  let text = match privacy_mode {
+                     false => wallet.address.to_string(),
+                     true => wallet.zk_address(),
+                  };
+
+                  let label = Label::new(RichText::new(text).size(theme.text_sizes.normal)).wrap();
+                  ui.add(label);
                }
 
                ui.add_space(10.0);
 
-               if let Some(error) = self.qr_image.error() {
-                  ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+               if !privacy_mode {
+                  if let Some(error) = self.evm_address_qr.error() {
+                     ui.label(RichText::new(error.to_string()).size(theme.text_sizes.large));
+                  }
                }
 
                // QR Code
-               let image = self.qr_image.image().fit_to_exact_size(vec2(250.0, 250.0));
-               ui.add(image);
+               if !privacy_mode {
+                  let image = self.evm_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  ui.add(image);
+               } else {
+                  let image = self.zk_address_qr.image().fit_to_exact_size(vec2(250.0, 250.0));
+                  ui.add(image);
+               }
 
                ui.add_space(10.0);
 
@@ -883,7 +914,8 @@ impl QRCodeWindow {
       let button = Button::new(text).visuals(theme.button_visuals());
 
       if ui.add(button).clicked() {
-         self.qr_image.clear(ui.ctx());
+         self.evm_address_qr.clear(ui.ctx());
+         self.zk_address_qr.clear(ui.ctx());
          self.reset();
       }
    }
