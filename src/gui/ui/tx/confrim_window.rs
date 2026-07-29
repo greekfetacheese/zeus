@@ -1,4 +1,7 @@
-use egui::{Align, Align2, Frame, Layout, Margin, Order, RichText, Ui, Window, vec2};
+use egui::{
+   Align, Align2, FontId, Frame, Layout, Margin, Order, RichText, ScrollArea, Ui, Window, vec2,
+};
+use elegance::Modal;
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, Label, SecureTextEdit};
 
@@ -39,6 +42,7 @@ pub struct TxConfirmationWindow {
    adjusted_gas_limit: String,
    tx_cost: NumericValue,
    tx_cost_usd: NumericValue,
+   show_calldata: bool,
    size: (f32, f32),
 }
 
@@ -62,6 +66,7 @@ impl TxConfirmationWindow {
          adjusted_gas_limit: String::new(),
          tx_cost: NumericValue::default(),
          tx_cost_usd: NumericValue::default(),
+         show_calldata: false,
          size: (550.0, 400.0),
       }
    }
@@ -220,6 +225,9 @@ impl TxConfirmationWindow {
                      ui,
                   );
 
+                  let calldata = analysis.call_data.to_string();
+                  Self::show_calldata(&mut self.show_calldata, theme, calldata, ui);
+
                   // Action Name
                   ui.label(RichText::new(main_event.name()).size(theme.text_sizes.heading));
 
@@ -246,14 +254,6 @@ impl TxConfirmationWindow {
                            .size(theme.text_sizes.large)
                            .color(theme.colors.warning),
                      );
-
-                     let text =
-                        RichText::new("Show all decoded events").size(theme.text_sizes.large);
-                     let button = Button::new(text).visuals(theme.button_visuals());
-                     let clicked = ui.add(button).clicked();
-                     if clicked {
-                        self.decoded_events.open();
-                     }
                   }
 
                   // Tx details
@@ -309,18 +309,31 @@ impl TxConfirmationWindow {
                      });
                   }
 
-                  // Give the option to see all the decoded events
-                  if !main_event.is_other() {
-                     let text =
-                        RichText::new("Show all decoded events").size(theme.text_sizes.large);
-                     let button = Button::new(text).visuals(theme.button_visuals());
-                     let clicked = ui.add(button).clicked();
-                     if clicked {
-                        self.decoded_events.open();
-                     }
-                  }
+                  // Decoded Events / Show CallData - Buttons
+                  let ui_size = vec2(ui.available_width() * 0.6, 45.0);
+                  ui.allocate_ui(ui_size, |ui| {
+                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
 
-                  ui.add_space(10.0);
+                        let button_size = vec2(150.0, 30.0);
+
+                        let text = RichText::new("Decoded events").size(theme.text_sizes.large);
+                        let button =
+                           Button::new(text).visuals(theme.button_visuals()).min_size(button_size);
+                        let clicked = ui.add(button).clicked();
+                        if clicked {
+                           self.decoded_events.open();
+                        }
+
+                        let text = RichText::new("Calldata").size(theme.text_sizes.large);
+                        let button =
+                           Button::new(text).visuals(button_visuals).min_size(button_size);
+
+                        if ui.add(button).clicked() {
+                           self.show_calldata = true;
+                        }
+                     });
+                  });
 
                   let sufficient_balance =
                      self.sufficient_balance(ctx, analysis.value_sent().wei(), analysis.sender);
@@ -460,5 +473,37 @@ impl TxConfirmationWindow {
       let balance = ctx.get_eth_balance(self.chain.id(), sender);
       let total_cost = eth_spent + self.tx_cost.wei();
       balance.wei() >= total_cost
+   }
+
+   // TODO: Show the calldata structured for known abis not just as plain text
+   fn show_calldata(open: &mut bool, theme: &Theme, mut calldata: String, ui: &mut Ui) {
+      let heading = RichText::new("Calldata").size(theme.text_sizes.heading);
+
+      let modal_width = 520.0;
+      let edit_height = 260.0;
+
+      Modal::new("Calldata", open)
+         .heading(heading)
+         .max_width(modal_width)
+         .backdrop_order(Order::Tooltip)
+         .content_order(Order::Debug)
+         .show(ui.ctx(), |ui| {
+            ui.set_width(ui.available_width());
+
+            ui.vertical_centered(|ui| {
+               let edit_width = ui.available_width() * 0.9;
+
+               let text_edit = SecureTextEdit::multiline(&mut calldata)
+                  .font(FontId::monospace(theme.text_sizes.normal))
+                  .visuals(theme.text_edit_visuals())
+                  .desired_width(edit_width)
+                  .margin(Margin::same(10));
+
+               ScrollArea::vertical().max_height(edit_height).show(ui, |ui| {
+                  ui.set_min_width(edit_width);
+                  ui.add(text_edit);
+               });
+            });
+         });
    }
 }
