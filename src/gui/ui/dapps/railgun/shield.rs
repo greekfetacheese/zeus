@@ -1,6 +1,6 @@
 use eframe::egui::{
-   Align2, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Margin, OpenUrl, RichText, Ui,
-   Window, vec2,
+   Align, Align2, Checkbox, CollapsingHeader, CursorIcon, FontId, Frame, Layout, Margin, OpenUrl,
+   RichText, Ui, Window, vec2,
 };
 
 use std::{
@@ -245,7 +245,35 @@ impl ShieldUi {
                      RailgunMode::Unshield => "Unshield",
                   };
 
-                  ui.label(RichText::new(title).size(theme.text_sizes.heading));
+                  ui.horizontal(|ui| {
+                  let ui_size = vec2(ui.available_width(), 20.0);
+                  ui.allocate_ui(ui_size, |ui| {
+                     ui.vertical_centered(|ui| {
+                     ui.label(RichText::new(title).size(theme.text_sizes.heading));
+                     });
+                  });
+
+                  ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                  if self.mode.is_unshield() {
+                     ui.add_space(6.0);
+                     let merge_text =
+                        RichText::new("Merge Notes").size(theme.text_sizes.normal);
+                     let merge_btn = Button::new(merge_text)
+                        .min_size(vec2(100.0, 30.0))
+                        .visuals(theme.button_visuals());
+                     if ui
+                        .add_enabled(!self.sending_tx && self.currency.is_erc20(), merge_btn)
+                        .on_hover_text(
+                           "Combine small private notes into larger ones so unshields stay efficient.",
+                        )
+                        .clicked()
+                     {
+                        // Handled by caller via `take_open_merge_notes`.
+                        self.open_merge_notes = true;
+                     }
+                  }
+                  });
+               });
 
                   let owner = ctx.current_wallet_info().address;
                   let chain = ctx.chain;
@@ -280,8 +308,6 @@ impl ShieldUi {
                   // Recipient: 0zk for shield, public 0x for unshield.
                   let recipient_privacy_mode = self.mode.is_shield();
 
-                  // TODO: In Unshield mode if there are no tokens at all it still shows the default currency
-                  // TODO: Change the amount field to accept an Option<Currency> ??
                   inner_frame.show(ui, |ui| {
                      ui.set_width(ui.available_width());
                      self.amount_field.show(
@@ -406,25 +432,6 @@ impl ShieldUi {
                   };
 
                   self.action_button(ctx, theme, owner, recipient_str, ui);
-
-                  if self.mode.is_unshield() {
-                     ui.add_space(6.0);
-                     let merge_text =
-                        RichText::new("Merge Notes").size(theme.text_sizes.normal);
-                     let merge_btn = Button::new(merge_text)
-                        .min_size(vec2(ui.available_width() * 0.8, 36.0))
-                        .visuals(theme.button_visuals());
-                     if ui
-                        .add_enabled(!self.sending_tx && self.currency.is_erc20(), merge_btn)
-                        .on_hover_text(
-                           "Combine small private notes into larger ones so unshields stay efficient.",
-                        )
-                        .clicked()
-                     {
-                        // Handled by caller via `take_open_merge_notes`.
-                        self.open_merge_notes = true;
-                     }
-                  }
                });
             });
          });

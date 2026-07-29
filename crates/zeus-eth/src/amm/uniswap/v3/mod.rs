@@ -9,8 +9,8 @@ use super::{
    state::{TickInfo, V3PoolState},
 };
 
+use super::math::{full_math::mul_div, sqrt_price_math, swap_math, tick_bitmap, tick_math::*};
 use std::cmp::Ordering;
-use super::math::{full_math::mul_div, sqrt_price_math, swap_math, tick_math::*, tick_bitmap};
 
 use anyhow::anyhow;
 

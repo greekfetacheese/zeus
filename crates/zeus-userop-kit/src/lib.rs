@@ -10,13 +10,12 @@ pub mod signed_user_operation;
 pub mod smart_account;
 pub mod user_operation;
 
-
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn sleep(duration: web_time::Duration) {
-    tokio::time::sleep(duration).await;
+   tokio::time::sleep(duration).await;
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn sleep(duration: web_time::Duration) {
-    gloo_timers::future::sleep(duration).await;
+   gloo_timers::future::sleep(duration).await;
 }

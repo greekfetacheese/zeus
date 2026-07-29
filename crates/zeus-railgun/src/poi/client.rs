@@ -139,7 +139,7 @@ impl PoiNodeClient for PoiClient {
    }
 
    /// Returns the POI status for a given list key and blinded commitment.
-   ///  
+   ///
    /// NOTE: Fetches a single status rather than batching many blinded commitments
    /// because I don't know how the POI node handles partial failures in a batch.
    async fn poi_status(

@@ -2,7 +2,7 @@
 
 use eframe::egui::{RichText, ScrollArea, Spinner, Ui, vec2};
 use elegance::Modal;
-use zeus_theme::{OverlayManager, Theme};
+use zeus_theme::Theme;
 use zeus_widgets::Button;
 
 use zeus_eth::{
@@ -42,7 +42,6 @@ enum MergeState {
 
 pub struct MergeNotesWindow {
    open: bool,
-   _overlay: OverlayManager,
    currency: Currency,
    chain_id: u64,
    owner: Address,
@@ -53,10 +52,9 @@ pub struct MergeNotesWindow {
 }
 
 impl MergeNotesWindow {
-   pub fn new(_overlay: OverlayManager) -> Self {
+   pub fn new() -> Self {
       Self {
          open: false,
-         _overlay,
          currency: Currency::from(ERC20Token::wrapped_native_token(1)),
          chain_id: 1,
          owner: Address::ZERO,
@@ -71,10 +69,6 @@ impl MergeNotesWindow {
    }
 
    pub fn open(&mut self, ctx: &mut ZeusContext, currency: Currency) {
-      if !self.open {
-         // self.overlay.window_opened();
-      }
-
       self.open = true;
       self.currency = currency;
       self.chain_id = ctx.chain.id();
@@ -109,9 +103,6 @@ impl MergeNotesWindow {
    }
 
    pub fn close(&mut self) {
-      if self.open {
-         // self.overlay.window_closed();
-      }
       self.open = false;
       self.state = MergeState::Idle;
    }
@@ -131,7 +122,7 @@ impl MergeNotesWindow {
       .closable(false)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_height(self.size.1);
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing = vec2(0.0, 12.0);

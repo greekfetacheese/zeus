@@ -240,7 +240,7 @@ impl AcrossBridge {
                let amount = self.amount_field.amount.parse().unwrap_or(0.0);
                let value = ctx.get_currency_value_for_amount(amount, &self.currency);
                let privacy_mode = false;
-               
+
                let max_amount = if balance.wei() > cost.0.wei() {
                   NumericValue::format_wei(
                      balance.wei() - cost.0.wei(),
@@ -343,7 +343,7 @@ impl AcrossBridge {
                      ui.vertical_centered(|ui| {
                         ui.horizontal(|ui| {
                            let ignore_chains = [BSC, ETH_SEPOLIA];
-                           
+
                            // From Chain
                            self.from_chain.show(ctx, &ignore_chains, theme, icons.clone(), ui);
 

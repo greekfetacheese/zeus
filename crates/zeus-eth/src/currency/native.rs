@@ -1,4 +1,4 @@
-use crate::types::{ChainId, ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM};
+use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

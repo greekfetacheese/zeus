@@ -12,10 +12,10 @@ use crate::amm::uniswap::{
    v3::{calculate_price, calculate_swap, calculate_swap_mut},
 };
 
+use super::super::math::sqrt_price_math::Q96;
 use crate::abi::uniswap::v4::PoolKey;
 use crate::currency::{Currency, ERC20Token, NativeCurrency};
 use crate::utils::{NumericValue, price_feed::get_base_token_price};
-use super::super::math::sqrt_price_math::Q96;
 
 use anyhow::{anyhow, bail};
 use core::cmp::Ordering;

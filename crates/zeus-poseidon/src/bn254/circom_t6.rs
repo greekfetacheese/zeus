@@ -22,25 +22,25 @@ static RC_BIN: &[u8] = include_bytes!("params/rc_t6.bin");
 pub static POSEIDON_CIRCOM_BN_6_PARAMS: OnceLock<Arc<PoseidonParams<Scalar>>> = OnceLock::new();
 
 pub fn get_t6_params() -> Arc<PoseidonParams<Scalar>> {
-    POSEIDON_CIRCOM_BN_6_PARAMS
-        .get_or_init(|| {
-            let mds = MDS_BIN
-                .chunks_exact(32)
-                .map(|c| Scalar::deserialize_compressed(c).unwrap())
-                .collect::<Vec<_>>()
-                .chunks(6)
-                .map(|c| c.to_vec())
-                .collect();
+   POSEIDON_CIRCOM_BN_6_PARAMS
+      .get_or_init(|| {
+         let mds = MDS_BIN
+            .chunks_exact(32)
+            .map(|c| Scalar::deserialize_compressed(c).unwrap())
+            .collect::<Vec<_>>()
+            .chunks(6)
+            .map(|c| c.to_vec())
+            .collect();
 
-            let rc = RC_BIN
-                .chunks_exact(32)
-                .map(|c| Scalar::deserialize_compressed(c).unwrap())
-                .collect::<Vec<_>>()
-                .chunks(6)
-                .map(|c| c.to_vec())
-                .collect();
+         let rc = RC_BIN
+            .chunks_exact(32)
+            .map(|c| Scalar::deserialize_compressed(c).unwrap())
+            .collect::<Vec<_>>()
+            .chunks(6)
+            .map(|c| c.to_vec())
+            .collect();
 
-            Arc::new(PoseidonParams::new(6, 5, 8, 60, mds, rc).unwrap())
-        })
-        .clone()
+         Arc::new(PoseidonParams::new(6, 5, 8, 60, mds, rc).unwrap())
+      })
+      .clone()
 }

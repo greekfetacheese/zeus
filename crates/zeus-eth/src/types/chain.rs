@@ -9,8 +9,7 @@ pub const ARBITRUM: u64 = 42161;
 
 pub const SUPPORTED_CHAINS: [u64; 6] = [ETH, ETH_SEPOLIA, OPTIMISM, BSC, BASE, ARBITRUM];
 
-const ERR_MSG: &str =
-   "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
+const ERR_MSG: &str = "Supported chains are: Ethereum(1), Ethereum Sepolia(11155111), Optimism(10), Binance Smart Chain(56), Base(8453), Arbitrum(42161)";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u64)]

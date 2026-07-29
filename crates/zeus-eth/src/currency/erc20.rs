@@ -3,7 +3,7 @@ use alloy_primitives::{Address, Bytes, U256, address};
 use alloy_rpc_types::BlockId;
 
 use crate::abi;
-use crate::types::{ARBITRUM, BASE, BSC, ETH_SEPOLIA, ChainId, ETH, OPTIMISM};
+use crate::types::{ARBITRUM, BASE, BSC, ChainId, ETH, ETH_SEPOLIA, OPTIMISM};
 use crate::utils::{
    address_book::{dai, usdc, usdt, wbnb, weth},
    batch,

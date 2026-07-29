@@ -10,17 +10,17 @@ use crate::{abis::entry_point::encode_handle_ops, user_operation::UserOperation}
 #[cfg_attr(js, tsify(into_wasm_abi, from_wasm_abi))]
 #[serde(rename_all = "camelCase")]
 pub struct SignedUserOperation {
-    pub user_op: UserOperation,
-    pub entry_point: Address,
+   pub user_op: UserOperation,
+   pub entry_point: Address,
 }
 
 impl SignedUserOperation {
-    /// Encode `EntryPoint.handleOps([this], beneficiary)` calldata.
-    ///
-    /// Use this for local revm simulation of a bundler inclusion path. Empty
-    /// `user_op.call_data` is normal for Railgun paymaster unshields — the real
-    /// work lives in `paymasterAndData`.
-    pub fn encode_handle_ops(&self, beneficiary: Address) -> Bytes {
-        encode_handle_ops(&self.user_op, beneficiary)
-    }
+   /// Encode `EntryPoint.handleOps([this], beneficiary)` calldata.
+   ///
+   /// Use this for local revm simulation of a bundler inclusion path. Empty
+   /// `user_op.call_data` is normal for Railgun paymaster unshields — the real
+   /// work lives in `paymasterAndData`.
+   pub fn encode_handle_ops(&self, beneficiary: Address) -> Bytes {
+      encode_handle_ops(&self.user_op, beneficiary)
+   }
 }

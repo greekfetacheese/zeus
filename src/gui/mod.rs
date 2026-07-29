@@ -171,7 +171,7 @@ impl GUI {
       let fps_metrics = FPSMetrics::new(overlay_manager.clone());
       let uniswap = UniswapUi::new(overlay_manager.clone());
       let shield_ui = ShieldUi::new();
-      let merge_notes_window = ui::dapps::railgun::MergeNotesWindow::new(overlay_manager.clone());
+      let merge_notes_window = ui::dapps::railgun::MergeNotesWindow::new();
       let unlock_vault_ui = UnlockVault::new();
       let recover_wallet_ui = RecoverHDWallet::new();
 

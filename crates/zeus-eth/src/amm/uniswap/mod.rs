@@ -16,9 +16,9 @@ use serde::{Deserialize, Serialize};
 pub use {v2::UniswapV2Pool, v3::UniswapV3Pool, v4::UniswapV4Pool};
 
 pub mod consts;
+pub mod math;
 pub mod state;
 pub mod sync;
-pub mod math;
 pub mod v2;
 pub mod v3;
 pub mod v4;
