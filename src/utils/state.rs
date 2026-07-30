@@ -382,7 +382,6 @@ async fn state_update_interval(ctx: ZeusCtx) {
          }
 
          check_delegated_status(ctx.clone()).await;
-         ctx.save_delegated_wallets();
          ctx.save_portfolio_db();
          ctx.save_price_manager();
          ctx.save_balance_manager();

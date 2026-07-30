@@ -8,16 +8,13 @@ use zeus_eth::{
 
 use crate::core::{
    WalletInfo,
-   context::{
-      DELEGATE_WALLET_CHECK_TIMEOUT, delegated_wallets_dir, disabled_chains_dir, railgun_config_dir,
-   },
+   context::{DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, railgun_config_dir},
 };
 
 use zeus_railgun::indexer::syncer::rpc::{
    DEFAULT_BLOCK_RANGE, DEFAULT_CONCURRENCY, SEPOLIA_BLOCK_RANGE,
 };
 
-use super::serde_hashmap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -310,9 +307,8 @@ impl ConnectedDapps {
 }
 
 /// Holds addresses that are delegated to a smart contract
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DelegatedWallets {
-   #[serde(with = "serde_hashmap")]
    /// Map of (chain, account) to delegated address
    pub map: HashMap<(u64, Address), Address>,
    /// Last time we checked the smart account status
@@ -326,20 +322,6 @@ impl DelegatedWallets {
          map: HashMap::new(),
          last_check: HashMap::new(),
       }
-   }
-
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
-      let dir = delegated_wallets_dir()?;
-      let data = std::fs::read(dir)?;
-      let smart_accounts = serde_json::from_slice(&data)?;
-      Ok(smart_accounts)
-   }
-
-   pub fn save_to_file(&self) -> Result<(), anyhow::Error> {
-      let data = serde_json::to_string(self)?;
-      let dir = delegated_wallets_dir()?;
-      std::fs::write(dir, data)?;
-      Ok(())
    }
 
    pub fn add(&mut self, chain: u64, account: Address, delegated_address: Address) {

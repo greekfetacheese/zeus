@@ -533,8 +533,6 @@ pub async fn delegate_to(
       });
    }
 
-   ctx.save_delegated_wallets();
-
    Ok(())
 }
 

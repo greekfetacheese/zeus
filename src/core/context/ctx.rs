@@ -37,7 +37,6 @@ use zeus_railgun::{RailgunAddress, RailgunProvider, RailgunSigner, SnapshotLoade
 const SERVER_PORT_FILE: &str = "server_port.json";
 const THEME_FILE: &str = "theme.json";
 const POOL_DATA_FILE: &str = "pool_data.json";
-const DELEGATED_WALLETS_FILE: &str = "delegated_wallets.json";
 const DISABLED_CHAINS_FILE: &str = "disabled_chains.json";
 pub const RAILGUN_CONFIG_FILE: &str = "railgun_config.json";
 
@@ -80,11 +79,6 @@ pub fn theme_kind_dir() -> Result<PathBuf, anyhow::Error> {
 
 pub fn server_port_dir() -> Result<PathBuf, anyhow::Error> {
    let dir = data_dir()?.join(SERVER_PORT_FILE);
-   Ok(dir)
-}
-
-pub fn delegated_wallets_dir() -> Result<PathBuf, anyhow::Error> {
-   let dir = data_dir()?.join(DELEGATED_WALLETS_FILE);
    Ok(dir)
 }
 
@@ -778,19 +772,11 @@ impl ZeusCtx {
       db.close();
    }
 
-   /// Persist a rich transaction. Opens the DB briefly when closed; keeps it open if the UI holds it.
+   /// Persist a rich transaction. Opens the DB briefly when closed, keeps it open if the UI holds it.
    pub fn add_transaction(&self, chain: u64, owner: Address, tx: TransactionRich) {
       let db = self.read(|ctx| ctx.tx_db.clone());
       if let Err(e) = db.add_tx(chain, owner, tx) {
          tracing::error!("Error adding transaction to TxDB: {:?}", e);
-      }
-   }
-
-   pub fn save_delegated_wallets(&self) {
-      let wallets = self.read(|ctx| ctx.delegated_wallets.clone());
-      match wallets.save_to_file() {
-         Ok(_) => tracing::trace!("Delegated Wallets saved"),
-         Err(e) => tracing::error!("Error saving delegated wallets: {:?}", e),
       }
    }
 
@@ -1693,13 +1679,7 @@ impl ZeusContext {
          }
       };
 
-      let delegated_wallets = match DelegatedWallets::load_from_file() {
-         Ok(accounts) => accounts,
-         Err(e) => {
-            tracing::error!("Failed to load delegated wallets: {:?}", e);
-            DelegatedWallets::new()
-         }
-      };
+      let delegated_wallets = DelegatedWallets::new();
 
       let disabled_chains = match DisabledChains::load_from_file() {
          Ok(chains) => chains,
