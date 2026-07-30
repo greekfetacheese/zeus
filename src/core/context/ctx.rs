@@ -732,7 +732,7 @@ impl ZeusCtx {
 
    pub fn save_portfolio_db(&self) {
       let db = self.read(|ctx| ctx.portfolio_db.clone());
-      match db.save() {
+      match db.save(self.clone()) {
          Ok(_) => tracing::trace!("PortfolioDB saved"),
          Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
       }
@@ -1663,13 +1663,8 @@ impl ZeusContext {
          }
       };
 
-      let portfolio_db = match PortfolioDB::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load portfolios, {:?}", e);
-            PortfolioDB::default()
-         }
-      };
+      // Loaded after vault unlock in on_startup (needs credentials for address hashing)
+      let portfolio_db = PortfolioDB::default();
 
       // Tx history is loaded on-demand when the history UI opens
       let tx_db = TxDBHandle::new();

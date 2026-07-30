@@ -1,6 +1,10 @@
-use crate::core::{ZeusCtx, context::data_dir, serde_hashmap};
+use crate::core::{
+   ZeusCtx,
+   context::{data_dir, discovered_wallets::HashedAddress},
+   serde_hashmap,
+};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, error};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -24,10 +28,20 @@ pub struct WalletValue {
    pub private: NumericValue,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// In-memory portfolio DB. Owner addresses are plaintext and never written as-is.
+#[derive(Debug, Clone, Default)]
 pub struct PortfolioDB {
-   #[serde(with = "serde_hashmap")]
    pub portfolios: HashMap<(u64, Address), WalletPortfolio>,
+}
+
+/// On-disk portfolio DB. Owner addresses are HMAC-SHA256 hashed
+/// (via [ZeusCtx::hash_addresses]). 
+/// 
+/// Token contract metadata stays plaintext.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HashedPortfolioDB {
+   #[serde(with = "serde_hashmap")]
+   pub portfolios: HashMap<(u64, HashedAddress), HashedWalletPortfolio>,
 }
 
 impl PortfolioDB {
@@ -37,20 +51,70 @@ impl PortfolioDB {
       }
    }
 
-   /// Load from file
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+   /// Load hashed portfolios from disk and resolve owners against known vault wallets.
+   ///
+   /// Must run after the vault is unlocked so [ZeusCtx::hash_addresses] and wallet
+   /// addresses are available.
+   pub fn load_from_file(ctx: ZeusCtx) -> Result<Self, anyhow::Error> {
       let dir = data_dir()?.join(PORTFOLIO_FILE);
       let data = std::fs::read(dir)?;
-      let db = serde_json::from_slice(&data)?;
-      Ok(db)
+      let hashed: HashedPortfolioDB = serde_json::from_slice(&data)?;
+      Ok(Self::from_hashed(ctx, hashed))
    }
 
-   /// Save to file
-   pub fn save(&self) -> Result<(), anyhow::Error> {
-      let db = serde_json::to_string(&self)?;
+   /// Persist a hashed, privacy-preserving copy to disk.
+   pub fn save(&self, ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+      let hashed = self.to_hashed(ctx);
+      let db = serde_json::to_string(&hashed)?;
       let dir = data_dir()?.join(PORTFOLIO_FILE);
       std::fs::write(dir, db)?;
       Ok(())
+   }
+
+   pub fn to_hashed(&self, ctx: ZeusCtx) -> HashedPortfolioDB {
+      let mut owners = HashSet::new();
+      for ((_, owner), portfolio) in &self.portfolios {
+         owners.insert(*owner);
+         owners.insert(portfolio.owner);
+      }
+
+      let owners: Vec<Address> = owners.into_iter().collect();
+      let hashes = ctx.hash_addresses(owners.clone());
+      let addr_to_hash: HashMap<Address, HashedAddress> = owners.into_iter().zip(hashes).collect();
+
+      let portfolios = self
+         .portfolios
+         .iter()
+         .filter_map(|((chain, owner), portfolio)| {
+            let hashed_owner = *addr_to_hash.get(owner)?;
+            let hashed_portfolio = portfolio.to_hashed(&addr_to_hash)?;
+            Some(((*chain, hashed_owner), hashed_portfolio))
+         })
+         .collect();
+
+      HashedPortfolioDB { portfolios }
+   }
+
+   /// Resolve hashed owners back to plaintext using known vault wallet addresses.
+   ///
+   /// Entries whose owner hash does not match any known wallet are dropped.
+   pub fn from_hashed(ctx: ZeusCtx, hashed: HashedPortfolioDB) -> Self {
+      let known: Vec<Address> = ctx.get_all_wallets_info().into_iter().map(|w| w.address).collect();
+      let hashes = ctx.hash_addresses(known.clone());
+      let hash_to_addr: HashMap<HashedAddress, Address> = hashes.into_iter().zip(known).collect();
+
+      let portfolios = hashed
+         .portfolios
+         .into_iter()
+         .filter_map(|((chain, hashed_owner), portfolio)| {
+            let owner = *hash_to_addr.get(&hashed_owner)?;
+            let portfolio = portfolio.from_hashed(owner, &hash_to_addr)?;
+            // Prefer map key chain; keep consistent with owner field
+            Some(((chain, owner), portfolio))
+         })
+         .collect();
+
+      Self { portfolios }
    }
 
    /// Get the wallet portfolio for the given chain and owner
@@ -82,8 +146,8 @@ impl PortfolioDB {
    }
 }
 
-/// Wallet Portfolio
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// In-memory wallet portfolio. Owner is plaintext.
+#[derive(Debug, Clone, Default)]
 pub struct WalletPortfolio {
    /// All the tokens in the wallet
    tokens: Vec<ERC20Token>,
@@ -101,6 +165,18 @@ pub struct WalletPortfolio {
    private_tokens: TokenList,
 }
 
+/// On-disk wallet portfolio with hashed owner.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HashedWalletPortfolio {
+   tokens: Vec<ERC20Token>,
+   chain_id: u64,
+   owner: HashedAddress,
+   public_value: NumericValue,
+   private_value: NumericValue,
+   public_tokens: TokenList,
+   private_tokens: TokenList,
+}
+
 impl WalletPortfolio {
    pub fn new(owner: Address, chain_id: u64) -> Self {
       Self {
@@ -114,6 +190,53 @@ impl WalletPortfolio {
       }
    }
 
+   fn to_hashed(
+      &self,
+      addr_to_hash: &HashMap<Address, HashedAddress>,
+   ) -> Option<HashedWalletPortfolio> {
+      let owner = *addr_to_hash.get(&self.owner)?;
+      Some(HashedWalletPortfolio {
+         tokens: self.tokens.clone(),
+         chain_id: self.chain_id,
+         owner,
+         public_value: self.public_value.clone(),
+         private_value: self.private_value.clone(),
+         public_tokens: self.public_tokens.clone(),
+         private_tokens: self.private_tokens.clone(),
+      })
+   }
+}
+
+impl HashedWalletPortfolio {
+   fn from_hashed(
+      self,
+      owner_from_key: Address,
+      hash_to_addr: &HashMap<HashedAddress, Address>,
+   ) -> Option<WalletPortfolio> {
+      // Prefer map-key owner, fall back to resolving the stored owner hash
+      let owner = hash_to_addr.get(&self.owner).copied().unwrap_or(owner_from_key);
+
+      // If the stored owner hash resolves to a different known wallet than the map key,
+      // drop the entry as inconsistent.
+      if let Some(resolved) = hash_to_addr.get(&self.owner) {
+         if *resolved != owner_from_key {
+            return None;
+         }
+      }
+
+      Some(WalletPortfolio {
+         tokens: self.tokens,
+         chain_id: self.chain_id,
+         owner,
+         public_value: self.public_value,
+         private_value: self.private_value,
+         public_tokens: self.public_tokens,
+         private_tokens: self.private_tokens,
+      })
+   }
+}
+
+impl WalletPortfolio {
    pub fn tokens(&self) -> &Vec<ERC20Token> {
       &self.tokens
    }

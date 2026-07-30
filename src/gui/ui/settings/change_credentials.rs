@@ -228,8 +228,9 @@ impl ChangeCredentialsUi {
                   if let Ok(wallets) = discovered_wallets {
                      update_discovered_wallets(ctx.clone(), wallets);
                   }
-                  // Re-hash balances under the new credentials
+                  // Re-hash balances and portfolios under the new credentials
                   ctx.save_balance_manager();
+                  ctx.save_portfolio_db();
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {

@@ -1,5 +1,5 @@
 use crate::core::ctx::railgun_dir;
-use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
+use crate::core::{PortfolioDB, WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim};
 use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
@@ -85,6 +85,15 @@ pub async fn on_startup(ctx: ZeusCtx) {
    match ctx.balance_manager().reload_from_file(ctx.clone()) {
       Ok(_) => tracing::info!("Balance Manager loaded"),
       Err(e) => tracing::error!("Failed to load balances: {:?}", e),
+   }
+
+   // Load privacy-hashed portfolios
+   match PortfolioDB::load_from_file(ctx.clone()) {
+      Ok(db) => {
+         ctx.write(|ctx| ctx.portfolio_db = db);
+         tracing::info!("PortfolioDB loaded");
+      }
+      Err(e) => tracing::error!("Failed to load portfolios: {:?}", e),
    }
 
    for chain in SUPPORTED_CHAINS {
