@@ -258,7 +258,7 @@ impl ExportKeyUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to decrypt vault", e.to_string());
+                     gui.open_msg_window(format!("Failed to decrypt vault: {}", e.to_string()));
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

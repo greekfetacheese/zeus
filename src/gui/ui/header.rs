@@ -390,7 +390,7 @@ impl Header {
 
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.msg_window.open("Railgun Last Error", error);
+                           gui.msg_window.open(error);
                            gui.request_repaint();
                         });
                      });
@@ -433,7 +433,7 @@ impl Header {
                   if ui.add(MenuItem::new("Settings").shortcut("⌘ S")).clicked() {
                      RT.spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
-                           gui.msg_window.open("Not implement yet", "");
+                           gui.msg_window.open("Not implemented yet");
                            gui.request_repaint();
                         });
                      });
@@ -620,10 +620,8 @@ impl Header {
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.open_msg_window(
-                           "Error while checking smart account status",
-                           e.to_string(),
-                        );
+                        let msg = format!("Error while checking wallet delegation status: {}", e);
+                        gui.open_msg_window(msg);
                         gui.header.syncing = false;
                      });
                   }
@@ -671,10 +669,8 @@ impl Header {
                Ok(address) => address,
                Err(_) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(
-                        "Not a valid Ethereum address",
-                        delegate_to_addr.clone(),
-                     );
+                     let msg = format!("Not a valid Ethereum address: {}", delegate_to_addr);
+                     gui.open_msg_window(msg);
                   });
                   return;
                }
@@ -694,7 +690,8 @@ impl Header {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Error while delegating", e.to_string());
+                     let msg = format!("Error while delegating: {}", e);
+                     gui.open_msg_window(msg);
                      gui.loading_window.reset();
                      gui.header.open_delegate_window();
                      gui.notification.reset();
@@ -753,7 +750,8 @@ impl Header {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Error while undelegating", e.to_string());
+                     let msg = format!("Error while undelegating: {}", e);
+                     gui.open_msg_window(msg);
                      gui.loading_window.reset();
                      gui.header.open_delegate_window();
                      gui.notification.reset();

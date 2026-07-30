@@ -135,7 +135,7 @@ impl ImportWallet {
                   Ok(address) => address,
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.open_msg_window("Failed to import wallet", e.to_string());
+                        gui.open_msg_window(format!("Failed to import wallet: {}", e.to_string()));
                         gui.request_repaint();
                      });
                      return;
@@ -152,7 +152,7 @@ impl ImportWallet {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window("Wallet imported successfully", "");
+                     gui.open_msg_window("Wallet imported successfully");
                      gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
                      gui.wallet_ui.add_wallet_ui.import_wallet.wallet_name.clear();
                      gui.request_repaint();
@@ -161,7 +161,7 @@ impl ImportWallet {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window("Failed to encrypt account", e.to_string());
+                     gui.open_msg_window(format!("Failed to encrypt account: {}", e.to_string()));
                      gui.request_repaint();
                   });
                   return;

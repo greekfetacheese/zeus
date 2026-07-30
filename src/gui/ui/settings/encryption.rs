@@ -201,7 +201,7 @@ impl EncryptionSettings {
                });
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
-                  gui.open_msg_window("Success", "Encryption settings have been updated");
+                  gui.open_msg_window("Encryption settings have been updated");
                   gui.settings.encryption.close();
                   gui.settings.encryption.argon_params = new_params;
                   gui.request_repaint();
@@ -210,7 +210,7 @@ impl EncryptionSettings {
             Err(e) => {
                SHARED_GUI.write(|gui| {
                   gui.loading_window.reset();
-                  gui.open_msg_window("Error", format!("{}", e));
+                  gui.open_msg_window(format!("Error: {}", e));
                   gui.request_repaint();
                });
             }

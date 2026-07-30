@@ -622,7 +622,7 @@ impl DiscoverChildWallets {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to add wallet", e.to_string());
+                              gui.open_msg_window(format!("Failed to add wallet: {}", e.to_string()));
                            });
                            return;
                         }
@@ -668,7 +668,7 @@ impl DiscoverChildWallets {
                                  .set_hd_wallet(hd_wallet);
 
                               gui.loading_window.reset();
-                              gui.open_msg_window("Wallet Added", "");
+                              gui.open_msg_window("Wallet Added");
                            });
                         }
                         Err(e) => {
@@ -689,7 +689,7 @@ impl DiscoverChildWallets {
                                  .set_hd_wallet(hd_wallet);
 
                               gui.loading_window.reset();
-                              gui.open_msg_window("Failed to encrypt vault", e.to_string());
+                              gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
                            });
                            return;
                         }

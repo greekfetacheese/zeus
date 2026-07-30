@@ -134,10 +134,8 @@ impl AddContact {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(
-                                 "Address is not an Ethereum address",
-                                 format!("{}", e),
-                              );
+                              let msg = format!("Address is not an Ethereum address: {}", e);
+                              gui.open_msg_window(msg);
                               gui.request_repaint();
                            });
                            return;
@@ -149,10 +147,8 @@ impl AddContact {
                            Ok(_) => {}
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.open_msg_window(
-                                    "Address is not a valid Railgun address",
-                                    format!("{}", e),
-                                 );
+                                 let msg = format!("Address is not a valid Railgun address: {}", e);
+                                 gui.open_msg_window(msg);
                                  gui.request_repaint();
                               });
                               return;
@@ -172,7 +168,10 @@ impl AddContact {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to add contact", e.to_string());
+                              gui.open_msg_window(format!(
+                                 "Failed to add contact: {}",
+                                 e.to_string()
+                              ));
                               gui.request_repaint();
                            });
                            return;
@@ -188,7 +187,7 @@ impl AddContact {
                                  "Changes didn't take effect, encountered error: {}",
                                  e
                               );
-                              gui.open_msg_window("Error while saving account data", error);
+                              gui.open_msg_window(error);
                               gui.request_repaint();
                            });
                            ctx.remove_contact(&new_contact.evm_address);
@@ -293,7 +292,7 @@ impl DeleteContact {
                                  "Changes didn't take effect, encountered error: {}",
                                  e
                               );
-                              gui.open_msg_window("Error while saving account data", error);
+                              gui.open_msg_window(error);
                               gui.request_repaint();
                            });
                            let _res = ctx.add_contact(contact_to_delete);
@@ -426,10 +425,8 @@ impl EditContact {
                         Ok(address) => address,
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(
-                                 "Address is not an Ethereum address",
-                                 format!("{}", e),
-                              );
+                              let msg = format!("Address is not an Ethereum address: {}", e);
+                              gui.open_msg_window(msg);
                               gui.request_repaint();
                            });
                            return;
@@ -441,10 +438,8 @@ impl EditContact {
                            Ok(_) => {}
                            Err(e) => {
                               SHARED_GUI.write(|gui| {
-                                 gui.open_msg_window(
-                                    "Address is not a valid Railgun address",
-                                    format!("{}", e),
-                                 );
+                                 let msg = format!("Address is not a valid Railgun address: {}", e);
+                                 gui.open_msg_window(msg);
                                  gui.request_repaint();
                               });
                               return;
@@ -477,7 +472,7 @@ impl EditContact {
                                  "Changes didn't take effect, encountered error: {}",
                                  e
                               );
-                              gui.open_msg_window("Error while saving account data", error);
+                              gui.open_msg_window(error);
                               gui.request_repaint();
                            });
 

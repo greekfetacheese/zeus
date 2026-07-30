@@ -1155,7 +1155,8 @@ async fn eth_sign_typed_data_v4(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            gui.msg_window.open("Error Signing Message", e.to_string());
+            let msg = format!("Error Signing Message: {}", e);
+            gui.msg_window.open(msg);
             gui.request_repaint();
          });
          error!("Error signing message: {:?}", e);
@@ -1238,7 +1239,8 @@ async fn personal_sign(
       Err(e) => {
          SHARED_GUI.write(|gui| {
             gui.loading_window.reset();
-            gui.msg_window.open("Error Signing Message", e.to_string());
+            let msg = format!("Error Signing Message: {}", e);
+            gui.msg_window.open(msg);
             gui.request_repaint();
          });
          error!("Error signing personal message: {:?}", e);
@@ -1506,7 +1508,8 @@ async fn eth_send_transaction(
             ctx.write(|ctx| {
                gui.tx_confirmation_window.reset(ctx);
             });
-            gui.msg_window.open("Error Sending Transaction", e.to_string());
+            let msg = format!("Error Sending Transaction: {}", e);
+            gui.msg_window.open(msg);
             gui.request_repaint();
          });
          error!("Error sending tx: {:?}", e);

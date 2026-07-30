@@ -593,7 +593,10 @@ fn validate_rpc(chain: u64, url: String) {
          Err(e) => {
             tracing::error!("Error getting client using {} {}", rpc.url, e);
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Failed to connect to RPC", e.to_string());
+               gui.open_msg_window(format!(
+                  "Failed to connect to RPC: {}",
+                  e.to_string()
+               ));
                gui.settings.network.refreshing = false;
             });
             return;
@@ -605,7 +608,10 @@ fn validate_rpc(chain: u64, url: String) {
          Err(e) => {
             tracing::error!("Error getting chain using {} {}", rpc.url, e);
             SHARED_GUI.write(|gui| {
-               gui.open_msg_window("Failed to get chain ID", e.to_string());
+               gui.open_msg_window(format!(
+                  "Failed to get chain ID: {}",
+                  e.to_string()
+               ));
                gui.settings.network.refreshing = false;
             });
             return;
@@ -619,10 +625,10 @@ fn validate_rpc(chain: u64, url: String) {
             rpc_chain
          );
          SHARED_GUI.write(|gui| {
-            gui.open_msg_window(
-               "Chain Mismatch",
-               format!("RPC {} is for chain {}", rpc.url, rpc_chain),
-            );
+            gui.open_msg_window(format!(
+               "Chain Mismatch, RPC {} is for chain {}",
+               rpc.url, rpc_chain
+            ));
             gui.settings.network.refreshing = false;
          });
          return;
@@ -638,7 +644,7 @@ fn validate_rpc(chain: u64, url: String) {
       });
 
       SHARED_GUI.write(|gui| {
-         gui.open_msg_window("Success!", "RPC added successfully");
+         gui.open_msg_window("RPC added successfully");
          gui.settings.network.url_to_add.clear();
          gui.settings.network.close_add_rpc();
          gui.settings.network.refreshing = false;

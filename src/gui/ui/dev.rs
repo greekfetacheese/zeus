@@ -169,11 +169,12 @@ impl UiTesting {
 
             let button =
                Button::new(RichText::new("Msg Window").size(text_size)).min_size(button_size);
+            let error = "Private notes are too fragmented for asset {asset}: need {value}, but at most {best_with_max} can be spent with {max_inputs} input notes ({note_count} notes available). Consider merging private notes first.";
 
             if ui.add(button).clicked() {
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.msg_window.open("Error", "Error message goes here");
+                     gui.msg_window.open(error);
                   });
                });
             }

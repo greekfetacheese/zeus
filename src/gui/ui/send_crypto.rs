@@ -410,7 +410,8 @@ impl SendCryptoUi {
 
                   RT.spawn_blocking(move || {
                      SHARED_GUI.write(|gui| {
-                        gui.open_msg_window("Error while sending transaction", e.to_string());
+                        let msg = format!("Error while sending transaction: {}", e);
+                        gui.open_msg_window(msg);
                      });
                   });
                }
@@ -583,7 +584,8 @@ impl SendCryptoUi {
                   gui.send_crypto.sending_tx = false;
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open("Private Transfer Error", e.to_string());
+                  let msg = format!("Private Transfer Error: {}", e);
+                  gui.msg_window.open(msg);
                   gui.request_repaint();
                });
             }
@@ -639,7 +641,8 @@ impl SendCryptoUi {
                      gui.send_crypto.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", e.to_string());
+                     let msg = format!("Transaction Error: {}", e);
+                     gui.msg_window.open(msg);
                   });
                }
             }
@@ -666,7 +669,8 @@ impl SendCryptoUi {
                      gui.send_crypto.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", e.to_string());
+                     let msg = format!("Transaction Error: {}", e);
+                     gui.msg_window.open(msg);
                   });
                }
             }

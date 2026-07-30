@@ -1253,7 +1253,7 @@ impl SwapUi {
                      gui.uniswap.swap_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", e.to_string());
+                     gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                      gui.request_repaint();
                   });
                }
@@ -1284,7 +1284,7 @@ impl SwapUi {
                      gui.uniswap.swap_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", e.to_string());
+                     gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                      gui.request_repaint();
                   });
                }
@@ -1341,7 +1341,7 @@ impl SwapUi {
                   ctx.write(|ctx| {
                      gui.tx_confirmation_window.reset(ctx);
                   });
-                  gui.msg_window.open("Transaction Error", e.to_string());
+                  gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                   gui.request_repaint();
                });
             }

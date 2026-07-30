@@ -125,7 +125,7 @@ impl ChangeCredentialsUi {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to decrypt vault", e.to_string());
+                              gui.open_msg_window(e.to_string());
                               gui.loading_window.reset();
                               gui.request_repaint();
                            });
@@ -200,7 +200,7 @@ impl ChangeCredentialsUi {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials are not valid", e.to_string());
+                     gui.open_msg_window(e.to_string());
                      gui.request_repaint();
                   });
                   return;
@@ -221,7 +221,7 @@ impl ChangeCredentialsUi {
                   SHARED_GUI.write(|gui| {
                      gui.settings.change_credentials_ui.reset();
                      gui.loading_window.reset();
-                     gui.open_msg_window("Credentials have been updated", "");
+                     gui.open_msg_window("Credentials have been updated");
                      gui.request_repaint();
                   });
                   ctx.set_vault(new_vault);
@@ -232,7 +232,7 @@ impl ChangeCredentialsUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window("Failed to update credentials", format!("{}", e));
+                     gui.open_msg_window(format!("Failed to update credentials: {}", e));
                      gui.request_repaint();
                   });
                   return;

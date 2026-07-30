@@ -331,7 +331,8 @@ impl TokenSelectionWindow {
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        gui.open_msg_window("Failed to fetch token", e.to_string());
+                        let msg = format!("Failed to fetch token: {}", e);
+                        gui.open_msg_window(msg);
                         gui.loading_window.reset();
                      });
                      return;

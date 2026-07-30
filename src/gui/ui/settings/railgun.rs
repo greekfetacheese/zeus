@@ -183,13 +183,13 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig) {
       match res {
          Ok(_) => {
             SHARED_GUI.write(|gui| {
-               gui.msg_window.open("Railgun Config Saved", "");
+               gui.msg_window.open("Railgun Config Saved");
                gui.request_repaint();
             });
          }
          Err(e) => {
             SHARED_GUI.write(|gui| {
-               gui.msg_window.open("Failed to save Railgun Config", e.to_string());
+               gui.msg_window.open(e.to_string());
                gui.request_repaint();
             });
          }

@@ -106,7 +106,7 @@ impl ThemeSettings {
                         Err(e) => {
                            tracing::error!("Error saving theme: {:?}", e);
                            SHARED_GUI.write(|gui| {
-                              gui.msg_window.open("Failed to save theme", e.to_string());
+                              gui.msg_window.open(e.to_string());
                            });
                            return;
                         }
@@ -121,7 +121,7 @@ impl ThemeSettings {
                         Err(e) => {
                            tracing::error!("Error saving theme: {:?}", e);
                            SHARED_GUI.write(|gui| {
-                              gui.msg_window.open("Failed to save theme", e.to_string());
+                              gui.msg_window.open(e.to_string());
                            });
                         }
                      }

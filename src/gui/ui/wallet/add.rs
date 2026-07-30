@@ -199,7 +199,7 @@ impl AddWalletUi {
                Ok(_) => {}
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to generate wallet", e.to_string());
+                     gui.open_msg_window(format!("Failed to generate wallet: {}", e.to_string()));
                   });
                   return;
                }
@@ -215,13 +215,13 @@ impl AddWalletUi {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
                      gui.wallet_ui.add_wallet_ui.wallet_name.clear();
-                     gui.open_msg_window("Wallet generated successfully", "");
+                     gui.open_msg_window("Wallet generated successfully");
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window("Failed to encrypt vault", e.to_string());
+                     gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
                   });
                   return;
                }

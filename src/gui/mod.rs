@@ -233,8 +233,8 @@ impl GUI {
       ui::panels::central_panel::show(self, ctx, ui);
    }
 
-   pub fn open_msg_window(&mut self, title: impl Into<String>, msg: impl Into<String>) {
-      self.msg_window.open(title, msg);
+   pub fn open_msg_window(&mut self, msg: impl Into<String>) {
+      self.msg_window.open(msg);
    }
 
    pub fn request_repaint(&self) {

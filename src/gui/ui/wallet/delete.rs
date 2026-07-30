@@ -138,7 +138,7 @@ impl DeleteWalletUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Failed to decrypt vault", e.to_string());
+                     gui.open_msg_window(format!("Failed to decrypt vault: {}", e.to_string()));
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });
@@ -243,14 +243,14 @@ impl DeleteWalletUi {
                      gui.loading_window.reset();
                      gui.wallet_ui.delete_wallet_ui.wallet_to_delete = None;
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = false;
-                     gui.open_msg_window("Wallet Deleted", "");
+                     gui.open_msg_window("Wallet Deleted");
                      gui.request_repaint();
                   });
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window("Failed to encrypt vault", e.to_string());
+                     gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
                      gui.request_repaint();
                   });
                   return;

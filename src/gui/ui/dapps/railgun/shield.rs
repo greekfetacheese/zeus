@@ -667,7 +667,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Transaction Error", e.to_string());
+                     gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                      gui.request_repaint();
                   });
                }
@@ -718,7 +718,7 @@ impl ShieldUi {
                      gui.shield_ui.sending_tx = false;
                      gui.notification.reset();
                      gui.loading_window.reset();
-                     gui.msg_window.open("Unshield Error", e.to_string());
+                     gui.msg_window.open(format!("Unshield Error: {}", e.to_string()));
                      gui.request_repaint();
                   });
                }

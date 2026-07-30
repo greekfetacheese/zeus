@@ -231,7 +231,6 @@ impl UpdateWindow {
                               SHARED_GUI.write(|gui| {
                                  gui.loading_window.reset();
                                  gui.msg_window.open(
-                                    "Update Error".to_string(),
                                     "Update info is missing".to_string(),
                                  );
                               });
@@ -262,7 +261,6 @@ impl UpdateWindow {
                                  SHARED_GUI.write(|gui| {
                                     gui.loading_window.reset();
                                     gui.msg_window.open(
-                                       "Update Error".to_string(),
                                        format!("Failed to update: {:?}", e),
                                     );
                                  });
@@ -393,7 +391,6 @@ impl LoadingWindow {
 #[derive(Default)]
 pub struct MsgWindow {
    open: bool,
-   pub title: String,
    pub message: String,
    pub size: (f32, f32),
 }
@@ -402,16 +399,14 @@ impl MsgWindow {
    pub fn new() -> Self {
       Self {
          open: false,
-         title: String::new(),
          message: String::new(),
-         size: (300.0, 250.0),
+         size: (300.0, 300.0),
       }
    }
 
    /// Open the window with this title and message
-   pub fn open(&mut self, title: impl Into<String>, msg: impl Into<String>) {
+   pub fn open(&mut self, msg: impl Into<String>) {
       self.open = true;
-      self.title = title.into();
       self.message = msg.into();
    }
 
@@ -424,11 +419,10 @@ impl MsgWindow {
          return;
       }
 
-      let title = self.title.clone();
       let msg = RichText::new(&self.message).size(theme.text_sizes.normal);
       let mut open = self.open;
 
-      Modal::new(title, &mut open)
+      Modal::new("msg_window", &mut open)
          .closable(false)
          .backdrop_order(Order::Tooltip)
          .content_order(Order::Debug)

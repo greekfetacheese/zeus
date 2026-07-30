@@ -112,7 +112,7 @@ impl UnlockVault {
             Ok(data) => data,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window("Failed to unlock vault", e.to_string());
+                  gui.open_msg_window(format!("Failed to unlock vault: {}", e.to_string()));
                   gui.loading_window.reset();
                });
                return;
@@ -123,10 +123,8 @@ impl UnlockVault {
             Ok(info) => info,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(
-                     "Error while reading encrypted info, corrupted vault?",
-                     e.to_string(),
-                  );
+                  let msg = format!("Error while reading encrypted info, corrupted vault?: {}", e.to_string());
+                  gui.open_msg_window(msg);
                   gui.loading_window.reset();
                });
                return;
@@ -161,7 +159,7 @@ impl UnlockVault {
             }
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window("Failed to load vault", e.to_string());
+                  gui.open_msg_window(format!("Failed to load vault: {}", e.to_string()));
                   gui.loading_window.reset();
                });
             }
@@ -350,7 +348,7 @@ impl RecoverHDWallet {
                      }
                      Err(e) => {
                         SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Credentials Error", e.to_string());
+                           gui.open_msg_window(format!("Credentials Error: {}", e.to_string()));
                         });
                      }
                   });
@@ -428,7 +426,7 @@ impl RecoverHDWallet {
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.reset();
-                              gui.open_msg_window("Failed to recover wallet", e.to_string());
+                              gui.open_msg_window(format!("Failed to recover wallet: {}", e.to_string()));
                            });
                            return;
                         }
@@ -464,7 +462,7 @@ impl RecoverHDWallet {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window("Failed to create vault", e.to_string());
+                              gui.open_msg_window(format!("Failed to create vault: {}", e.to_string()));
                               gui.loading_window.reset();
                            });
                            return;

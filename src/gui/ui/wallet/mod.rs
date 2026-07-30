@@ -430,13 +430,10 @@ impl WalletUi {
 
                      if old_vault.wallet_name_exists(&new_wallet_name) {
                         SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(
-                              "Error",
-                              format!(
-                                 "Wallet with name {} already exists",
-                                 &new_wallet_name
-                              ),
-                           );
+                           gui.open_msg_window(format!(
+                              "Wallet with name {} already exists",
+                              &new_wallet_name
+                           ));
                            gui.request_repaint();
                         });
                         return;
@@ -444,7 +441,7 @@ impl WalletUi {
 
                      if new_wallet_name.is_empty() {
                         SHARED_GUI.write(|gui| {
-                           gui.open_msg_window("Error", "Wallet name cannot be empty");
+                           gui.open_msg_window("Wallet name cannot be empty");
                            gui.request_repaint();
                         });
                         return;
@@ -454,13 +451,10 @@ impl WalletUi {
 
                      if new_wallet_name.chars().count() > max_chars {
                         SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(
-                              "Error",
-                              format!(
-                                 "Wallet name cannot be longer than {} characters",
-                                 max_chars
-                              ),
-                           );
+                           gui.open_msg_window(format!(
+                              "Wallet name cannot be longer than {} characters",
+                              max_chars
+                           ));
                            gui.request_repaint();
                         });
                         return;
@@ -501,17 +495,17 @@ impl WalletUi {
                               gui.wallet_ui.close_rename_wallet();
 
                               gui.loading_window.reset();
-                              gui.open_msg_window("Success", "");
+                              gui.open_msg_window("Success");
                               gui.request_repaint();
                            });
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.reset();
-                              gui.open_msg_window(
-                                 "Failed to encrypt vault, changes reverted",
-                                 e.to_string(),
-                              );
+                              gui.open_msg_window(format!(
+                                 "Failed to encrypt vault, changes reverted: {}",
+                                 e.to_string()
+                              ));
                               gui.request_repaint();
                            });
                            return;

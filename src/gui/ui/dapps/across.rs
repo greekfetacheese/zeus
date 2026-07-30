@@ -458,7 +458,10 @@ impl AcrossBridge {
                self.sending_tx = false;
                RT.spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Error while sending transaction", e.to_string());
+                     gui.open_msg_window(format!(
+                        "Error while sending transaction: {}",
+                        e.to_string()
+                     ));
                      gui.request_repaint();
                   });
                });
@@ -858,7 +861,7 @@ impl AcrossBridge {
                   gui.across_bridge.amount_field.reset();
                   gui.notification.reset();
                   gui.loading_window.reset();
-                  gui.msg_window.open("Transaction Error", e.to_string());
+                  gui.msg_window.open(format!("Transaction Error: {}", e.to_string()));
                   gui.request_repaint();
                });
             }
