@@ -5,7 +5,7 @@
 //! - Derive a child wallet from the master wallet
 
 use crate::assets::Icons;
-use crate::core::{DiscoveredWallets, ZeusContext};
+use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Frame, Margin, Order, RichText, Ui, Window, vec2};
@@ -124,63 +124,6 @@ impl AddWalletUi {
       if derive_clicked {
          open = false;
          self.discover_child_wallets_ui.open();
-         self.discover_child_wallets_ui.loading = true;
-
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let vault = ctx.get_vault();
-            let master = ctx.master_wallet_address();
-
-            let mut discovered_wallets = match DiscoveredWallets::load_from_file() {
-               Ok(wallets) => wallets,
-               Err(e) => {
-                  tracing::error!("Error loading discovered wallets: {:?}", e);
-                  let mut discovered_wallets = DiscoveredWallets::new();
-                  discovered_wallets.master_wallet_address = Some(master);
-                  discovered_wallets
-               }
-            };
-
-            // If wallets are empty, set master wallet address
-            if discovered_wallets.wallets.is_empty() {
-               discovered_wallets.master_wallet_address = Some(master);
-            }
-
-            // If master address is different, reset
-            if let Some(master_wallet_address) = discovered_wallets.master_wallet_address {
-               if master_wallet_address != master {
-                  discovered_wallets = DiscoveredWallets::new();
-                  discovered_wallets.master_wallet_address = Some(master);
-                  tracing::warn!("Discovered wallets master address is different, resetting");
-               }
-            }
-
-            if discovered_wallets.is_corrupted() {
-               discovered_wallets = DiscoveredWallets::new();
-               discovered_wallets.master_wallet_address = Some(master);
-               tracing::warn!("Discovered wallets index is corrupted, resetting");
-            }
-
-            discovered_wallets.rediscover_wallets(vault.get_hd_wallet());
-
-            SHARED_GUI.write(|gui| {
-               gui.wallet_ui
-                  .add_wallet_ui
-                  .discover_child_wallets_ui
-                  .set_hd_wallet(vault.get_hd_wallet());
-               gui.wallet_ui
-                  .add_wallet_ui
-                  .discover_child_wallets_ui
-                  .set_discovery_wallet(vault.get_hd_wallet());
-               gui.wallet_ui
-                  .add_wallet_ui
-                  .discover_child_wallets_ui
-                  .set_discovered_wallets(discovered_wallets);
-               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page = 0;
-               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.open();
-               gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.loading = false;
-            });
-         });
       }
 
       if import_from_pk_clicked {

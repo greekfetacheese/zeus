@@ -24,9 +24,12 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
 ///
-/// We only store the wallets that were discovered (No private keys)
+/// In-memory [DiscoveredWallets] hold plaintext addresses for the UI.
+/// On disk we only persist [crate::core::context::discovered_wallets::HashedDiscoveredWallets]
+/// (SHA-256 hashed addresses) so the file does not leak wallet addresses.
 ///
-/// `Safety`: If the json file is maliciously modified in any way we reset [DiscoveredWallets]
+/// `Safety`: Master address hash is verified on load; children are re-derived from the HD
+/// master. If the json is missing, corrupt, or bound to another master we reset.
 pub struct DiscoverChildWallets {
    open: bool,
    overlay: OverlayManager,
@@ -72,6 +75,40 @@ impl DiscoverChildWallets {
          self.overlay.window_opened();
          self.open = true;
       }
+
+      self.loading = true;
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let vault = ctx.get_vault();
+         let master = ctx.master_wallet_address();
+         let hd_wallet = vault.get_hd_wallet();
+
+         // Load hashed on-disk data, verify master hash, re-derive children in memory
+         let mut discovered_wallets =
+            match DiscoveredWallets::load_from_file(ctx.clone()) {
+               Ok(wallets) => wallets,
+               Err(e) => {
+                  tracing::error!("Error loading discovered wallets: {:?}", e);
+                  let mut discovered_wallets = DiscoveredWallets::new();
+                  discovered_wallets.master_wallet_address = Some(master);
+                  discovered_wallets
+               }
+            };
+
+         if discovered_wallets.master_wallet_address.is_none() {
+            discovered_wallets.master_wallet_address = Some(master);
+         }
+
+         SHARED_GUI.write(|gui| {
+            let ui = &mut gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui;
+            ui.set_hd_wallet(hd_wallet.clone());
+            ui.set_discovery_wallet(hd_wallet);
+            ui.set_discovered_wallets(discovered_wallets);
+            ui.current_page = 0;
+            ui.loading = false;
+         });
+      });
    }
 
    pub fn close(&mut self) {
@@ -301,7 +338,8 @@ impl DiscoverChildWallets {
       if was_open && !self.open {
          let wallets = self.discovered_wallets.clone();
          RT.spawn_blocking(move || {
-            match wallets.save() {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+            match wallets.save(ctx) {
                Ok(_) => {
                   tracing::info!("Discovered wallets saved");
                }

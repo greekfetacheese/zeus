@@ -8,7 +8,7 @@ use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, create_railgun_provider};
 use anyhow::anyhow;
-use ncrypt_me::Argon2;
+use ncrypt_me::{Argon2, zeroize::Zeroize};
 use std::{
    collections::HashMap,
    path::PathBuf,
@@ -18,8 +18,10 @@ use std::{
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
 
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
 use zeus_eth::{
-   alloy_primitives::{Address, Bytes, FixedBytes, U256},
+   alloy_primitives::{Address, B256, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Transaction, TransactionReceipt, TransactionRequest},
    amm::uniswap::{
@@ -133,6 +135,28 @@ impl ZeusCtx {
    /// Exclusive mutable access to the context
    pub fn write<R>(&self, writer: impl FnOnce(&mut ZeusContext) -> R) -> R {
       writer(&mut self.0.write().unwrap())
+   }
+
+   /// Hash the given addresses with SHA-256 so it can be stored without leaking the plaintext address
+   pub fn hash_addresses(&self, addresses: Vec<Address>) -> Vec<B256> {
+      let credentials = self.read(|ctx| ctx.vault.credentials().clone());
+      let mut username = credentials.username.unlock_str(|s| s.to_string());
+
+      let seed: [u8; 32] = Sha256::digest(username.as_bytes()).into();
+      username.zeroize();
+
+      let mut hashes = Vec::new();
+
+      for addr in addresses {
+         let mut mac = Hmac::<Sha256>::new_from_slice(&seed).expect("key length is ok");
+
+         mac.update(addr.as_slice());
+         let result = mac.finalize().into_bytes();
+         let hashed = B256::from_slice(&result);
+         hashes.push(hashed);
+      }
+
+      hashes
    }
 
    pub fn pool_manager(&self) -> PoolManagerHandle {

@@ -2,6 +2,7 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
+use crate::core::{DiscoveredWallets, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Ui, Window, vec2};
@@ -213,6 +214,8 @@ impl ChangeCredentialsUi {
                gui.request_repaint();
             });
 
+            let discovered_wallets = DiscoveredWallets::load_from_file(ctx.clone());
+
             match ctx.encrypt_and_save_vault(Some(new_vault.clone()), None) {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
@@ -222,6 +225,9 @@ impl ChangeCredentialsUi {
                      gui.request_repaint();
                   });
                   ctx.set_vault(new_vault);
+                  if let Ok(wallets) = discovered_wallets {
+                     update_discovered_wallets(ctx, wallets);
+                  }
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
@@ -240,4 +246,12 @@ impl ChangeCredentialsUi {
          self.reset();
       }
    }
+}
+
+fn update_discovered_wallets(ctx: ZeusCtx, wallets: DiscoveredWallets) {
+   RT.spawn_blocking(move || {
+      if let Err(e) = wallets.save(ctx) {
+         tracing::error!("Error saving discovered wallets: {:?}", e);
+      }
+   });
 }

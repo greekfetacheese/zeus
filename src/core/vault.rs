@@ -52,6 +52,10 @@ impl Vault {
       Self::MAX_CHARS
    }
 
+   pub fn credentials(&self) -> &Credentials {
+      &self.credentials
+   }
+
    /// Return all the wallets in the vault in this order:
    ///
    /// - The master wallet
