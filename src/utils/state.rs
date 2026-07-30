@@ -81,6 +81,12 @@ pub async fn on_startup(ctx: ZeusCtx) {
       ctx.on_startup_syncing = true;
    });
 
+   // Load privacy-hashed balances now that credentials + wallet cache are available
+   match ctx.balance_manager().reload_from_file(ctx.clone()) {
+      Ok(_) => tracing::info!("Balance Manager loaded"),
+      Err(e) => tracing::error!("Failed to load balances: {:?}", e),
+   }
+
    for chain in SUPPORTED_CHAINS {
       if ctx.is_chain_disabled(chain) {
          continue;

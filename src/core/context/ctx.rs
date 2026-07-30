@@ -714,7 +714,7 @@ impl ZeusCtx {
 
    pub fn save_balance_manager(&self) {
       let manager = self.balance_manager();
-      match manager.save() {
+      match manager.save(self.clone()) {
          Ok(_) => {
             tracing::trace!("Balance Manager saved");
          }
@@ -1652,13 +1652,8 @@ impl ZeusContext {
          }
       };
 
-      let balance_manager = match BalanceManagerHandle::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load balances, {:?}", e);
-            BalanceManagerHandle::default()
-         }
-      };
+      // Loaded after vault unlock in on_startup (needs credentials for address hashing)
+      let balance_manager = BalanceManagerHandle::default();
 
       let currency_db = match CurrencyDB::load_from_file() {
          Ok(db) => db,

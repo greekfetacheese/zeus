@@ -1,6 +1,10 @@
-use crate::core::{ZeusCtx, context::data_dir, serde_hashmap};
+use crate::core::{
+   ZeusCtx,
+   context::{data_dir, discovered_wallets::HashedAddress},
+   serde_hashmap,
+};
 use crate::utils::RT;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use tokio::{sync::Semaphore, time::sleep};
@@ -39,15 +43,31 @@ impl BalanceManagerHandle {
       writer(&mut self.0.write().unwrap())
    }
 
-   pub fn load_from_file() -> Result<Self, anyhow::Error> {
+   /// Load hashed balances from disk and resolve owner hashes against known vault wallets.
+   ///
+   /// Must run after the vault is unlocked so [ZeusCtx::hash_addresses] and wallet
+   /// addresses are available.
+   pub fn load_from_file(ctx: ZeusCtx) -> Result<Self, anyhow::Error> {
       let dir = data_dir()?.join(BALANCE_DATA_FILE);
       let data = std::fs::read(dir)?;
-      let manager = serde_json::from_slice(&data)?;
-      Ok(Self(Arc::new(RwLock::new(manager))))
+      let hashed: HashedBalanceManager = serde_json::from_slice(&data)?;
+      let manager = BalanceManager::from_hashed(ctx, hashed);
+      Ok(Self::new(manager))
    }
 
-   pub fn save(&self) -> Result<(), anyhow::Error> {
-      let db = self.read(|db| serde_json::to_string(db))?;
+   /// Replace this handle's in-memory state from the hashed on-disk file.
+   pub fn reload_from_file(&self, ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+      let loaded = Self::load_from_file(ctx)?;
+      let manager = loaded.read(|m| m.clone());
+      self.write(|inner| *inner = manager);
+      Ok(())
+   }
+
+   /// Persist a hashed, privacy-preserving copy to disk.
+   pub fn save(&self, ctx: ZeusCtx) -> Result<(), anyhow::Error> {
+      let manager = self.read(|db| db.clone());
+      let hashed = manager.to_hashed(ctx);
+      let db = serde_json::to_string(&hashed)?;
       let dir = data_dir()?.join(BALANCE_DATA_FILE);
       std::fs::write(dir, db)?;
       Ok(())
@@ -473,15 +493,33 @@ fn default_batch_size() -> usize {
    10
 }
 
-#[derive(Serialize, Deserialize)]
+/// In-memory balance cache. Contains plaintext owner addresses and is never
+/// written to disk as-is.
+#[derive(Clone)]
 pub struct BalanceManager {
    /// Eth Balances (or any native currency for evm compatable chains)
-   #[serde(with = "serde_hashmap")]
    pub eth_balances: HashMap<(u64, Address), NumericValue>,
 
-   /// Token Balances
-   #[serde(with = "serde_hashmap")]
+   /// Token Balances key: (chain, owner, token)
    pub token_balances: HashMap<(u64, Address, Address), NumericValue>,
+
+   pub concurrency: usize,
+   pub max_retries: usize,
+   pub retry_delay: u64,
+   pub batch_size: usize,
+}
+
+/// On-disk form of balances. Owner addresses are HMAC-SHA256 hashed
+/// (via [ZeusCtx::hash_addresses]). Token contract addresses stay plaintext since
+/// they are public contracts, not wallet identifiers.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct HashedBalanceManager {
+   #[serde(with = "serde_hashmap")]
+   pub eth_balances: HashMap<(u64, HashedAddress), NumericValue>,
+
+   /// key: (chain, hashed_owner, token)
+   #[serde(with = "serde_hashmap")]
+   pub token_balances: HashMap<(u64, HashedAddress, Address), NumericValue>,
 
    #[serde(default = "default_concurrency")]
    pub concurrency: usize,
@@ -505,6 +543,85 @@ impl Default for BalanceManager {
          max_retries: default_max_retries(),
          retry_delay: default_retry_delay(),
          batch_size: default_batch_size(),
+      }
+   }
+}
+
+impl BalanceManager {
+   pub fn to_hashed(&self, ctx: ZeusCtx) -> HashedBalanceManager {
+      let mut owners = HashSet::new();
+      for (_, owner) in self.eth_balances.keys() {
+         owners.insert(*owner);
+      }
+      for (_, owner, _) in self.token_balances.keys() {
+         owners.insert(*owner);
+      }
+
+      let owners: Vec<Address> = owners.into_iter().collect();
+      let hashes = ctx.hash_addresses(owners.clone());
+      let addr_to_hash: HashMap<Address, HashedAddress> = owners.into_iter().zip(hashes).collect();
+
+      let eth_balances = self
+         .eth_balances
+         .iter()
+         .filter_map(|((chain, owner), balance)| {
+            let hashed = *addr_to_hash.get(owner)?;
+            Some(((*chain, hashed), balance.clone()))
+         })
+         .collect();
+
+      let token_balances = self
+         .token_balances
+         .iter()
+         .filter_map(|((chain, owner, token), balance)| {
+            let hashed = *addr_to_hash.get(owner)?;
+            Some(((*chain, hashed, *token), balance.clone()))
+         })
+         .collect();
+
+      HashedBalanceManager {
+         eth_balances,
+         token_balances,
+         concurrency: self.concurrency,
+         max_retries: self.max_retries,
+         retry_delay: self.retry_delay,
+         batch_size: self.batch_size,
+      }
+   }
+
+   /// Resolve hashed owners back to plaintext using known vault wallet addresses.
+   ///
+   /// Entries whose owner hash does not match any known wallet are dropped.
+   pub fn from_hashed(ctx: ZeusCtx, hashed: HashedBalanceManager) -> Self {
+      let known: Vec<Address> = ctx.get_all_wallets_info().into_iter().map(|w| w.address).collect();
+      let hashes = ctx.hash_addresses(known.clone());
+      let hash_to_addr: HashMap<HashedAddress, Address> = hashes.into_iter().zip(known).collect();
+
+      let eth_balances = hashed
+         .eth_balances
+         .into_iter()
+         .filter_map(|((chain, hashed_owner), balance)| {
+            let owner = *hash_to_addr.get(&hashed_owner)?;
+            Some(((chain, owner), balance))
+         })
+         .collect();
+
+      let token_balances = hashed
+         .token_balances
+         .into_iter()
+         .filter_map(|((chain, hashed_owner, token), balance)| {
+            let owner = *hash_to_addr.get(&hashed_owner)?;
+            Some(((chain, owner, token), balance))
+         })
+         .collect();
+
+      Self {
+         eth_balances,
+         token_balances,
+         concurrency: hashed.concurrency,
+         max_retries: hashed.max_retries,
+         retry_delay: hashed.retry_delay,
+         batch_size: hashed.batch_size,
       }
    }
 }
