@@ -541,8 +541,7 @@ async fn unshield_self_broadcast(
    let ctx_clone = ctx.clone();
    let tx = tx_rich.clone();
    RT.spawn_blocking(move || {
-      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
-      ctx_clone.save_tx_db();
+      ctx_clone.add_transaction(chain.id(), from, tx);
    });
 
    RT.spawn(async move {
@@ -1171,8 +1170,7 @@ async fn unshield_via_paymaster(
    let ctx_clone = ctx.clone();
    let tx = tx_rich.clone();
    RT.spawn_blocking(move || {
-      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
-      ctx_clone.save_tx_db();
+      ctx_clone.add_transaction(chain.id(), from, tx);
    });
 
    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();

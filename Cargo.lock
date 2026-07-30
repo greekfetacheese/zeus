@@ -12240,6 +12240,7 @@ dependencies = [
  "ncrypt-me",
  "rand 0.8.6",
  "rayon",
+ "redb",
  "reqwest 0.12.23",
  "secure-types",
  "self_update",

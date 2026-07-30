@@ -31,7 +31,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.send_crypto.close();
             gui.settings.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
@@ -50,7 +50,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.portofolio.close();
             gui.settings.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             // This is shared, so reset it to avoid any issues
@@ -79,7 +79,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.send_crypto.close();
             gui.settings.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             // This is shared, so reset it to avoid any issues
@@ -96,7 +96,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.send_crypto.close();
             gui.settings.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
@@ -113,7 +113,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.send_crypto.close();
             gui.settings.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
             gui.dev.close();
@@ -130,7 +130,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.uniswap.close();
             gui.send_crypto.close();
             gui.settings.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
@@ -165,7 +165,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.uniswap.close();
             gui.send_crypto.close();
             gui.wallet_ui.close();
-            gui.tx_history.close();
+            gui.tx_history.close(ctx);
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
@@ -204,7 +204,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                   gui.uniswap.close();
                   gui.send_crypto.close();
                   gui.wallet_ui.close();
-                  gui.tx_history.close();
+                  gui.tx_history.close(ctx);
                   gui.across_bridge.close();
                   gui.settings.close();
                   gui.shield_ui.close();

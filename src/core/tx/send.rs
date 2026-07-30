@@ -431,8 +431,7 @@ pub async fn send_transaction(
    let ctx_clone = ctx.clone();
    let tx = tx_rich.clone();
    RT.spawn_blocking(move || {
-      ctx_clone.write(|ctx| ctx.tx_db.add_tx(chain.id(), from, tx));
-      ctx_clone.save_tx_db();
+      ctx_clone.add_transaction(chain.id(), from, tx);
    });
 
    if !receipt.status() {

@@ -1,9 +1,9 @@
 use super::{
    BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
-   price_manager::PriceManagerHandle, tx::TransactionsDB,
+   price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
-use crate::core::WalletValue;
+use crate::core::{TransactionRich, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, create_railgun_provider};
@@ -740,11 +740,25 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_tx_db(&self) {
+   /// Open the transactions DB and load it into memory (for history UI).
+   pub fn open_tx_db(&self) {
       let db = self.read(|ctx| ctx.tx_db.clone());
-      match db.save() {
-         Ok(_) => tracing::trace!("TxDB saved"),
-         Err(e) => tracing::error!("Error saving TxDB: {:?}", e),
+      if let Err(e) = db.open_and_load() {
+         tracing::error!("Error opening TxDB: {:?}", e);
+      }
+   }
+
+   /// Close the transactions DB and drop the in-memory cache.
+   pub fn close_tx_db(&self) {
+      let db = self.read(|ctx| ctx.tx_db.clone());
+      db.close();
+   }
+
+   /// Persist a rich transaction. Opens the DB briefly when closed; keeps it open if the UI holds it.
+   pub fn add_transaction(&self, chain: u64, owner: Address, tx: TransactionRich) {
+      let db = self.read(|ctx| ctx.tx_db.clone());
+      if let Err(e) = db.add_tx(chain, owner, tx) {
+         tracing::error!("Error adding transaction to TxDB: {:?}", e);
       }
    }
 
@@ -1528,7 +1542,7 @@ pub struct ZeusContext {
    pub portfolio_db: PortfolioDB,
 
    /// Tx history
-   pub tx_db: TransactionsDB,
+   pub tx_db: TxDBHandle,
 
    /// Pool manager used for the Uniswap UI
    /// and price manager
@@ -1638,13 +1652,8 @@ impl ZeusContext {
          }
       };
 
-      let tx_db = match TransactionsDB::load_from_file() {
-         Ok(db) => db,
-         Err(e) => {
-            tracing::error!("Failed to load transactions, {:?}", e);
-            TransactionsDB::default()
-         }
-      };
+      // Tx history is loaded on-demand when the history UI opens
+      let tx_db = TxDBHandle::new();
 
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 

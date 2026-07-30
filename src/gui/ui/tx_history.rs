@@ -12,20 +12,49 @@ const DEFAULT_TXS_PER_PAGE: usize = 20;
 
 pub struct TxHistory {
    open: bool,
+   /// True while the redb is being opened/loaded off the UI thread
+   loading: bool,
+   /// True once `open_tx_db` finished for this session
+   db_ready: bool,
    pub current_page: usize,
    pub txs_per_page: usize,
    selected_wallet: Option<WalletInfo>,
    selected_chain: Option<ChainId>,
+   /// Filtered list for the current filters (avoids cloning every frame)
+   cached_txs: Vec<TransactionRich>,
+   /// Fingerprint of the last cache build so we rebuild only when needed
+   cache_key: CacheKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct CacheKey {
+   wallet: Option<Address>,
+   chain: Option<u64>,
+}
+
+impl CacheKey {
+   /// Sentinel that never matches a real filter selection.
+   /// Used to force a rebuild after the DB finishes loading.
+   fn invalid() -> Self {
+      Self {
+         wallet: None,
+         chain: Some(u64::MAX),
+      }
+   }
 }
 
 impl TxHistory {
    pub fn new() -> Self {
       Self {
          open: false,
+         loading: false,
+         db_ready: false,
          current_page: 0,
          txs_per_page: DEFAULT_TXS_PER_PAGE,
          selected_wallet: None,
          selected_chain: None,
+         cached_txs: Vec::new(),
+         cache_key: CacheKey::default(),
       }
    }
 
@@ -33,12 +62,58 @@ impl TxHistory {
       self.open
    }
 
+   /// Mark the view open and start loading the tx DB off the UI thread.
    pub fn open(&mut self) {
+      if self.open {
+         return;
+      }
       self.open = true;
+      self.loading = true;
+      self.db_ready = false;
+      self.cached_txs.clear();
+      self.cache_key = CacheKey::default();
+      self.current_page = 0;
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         // Bail if the user already navigated away
+         let still_open = SHARED_GUI.read(|gui| gui.tx_history.is_open());
+         if !still_open {
+            return;
+         }
+         ctx.open_tx_db();
+         SHARED_GUI.write(|gui| {
+            if gui.tx_history.is_open() {
+               gui.tx_history.on_db_ready();
+            } else {
+               // Closed while loading, drop anything we just opened
+               gui.ctx.close_tx_db();
+            }
+            gui.request_repaint();
+         });
+      });
    }
 
-   pub fn close(&mut self) {
+   /// Close the view, drop the UI cache, and unload the tx DB from memory.
+   pub fn close(&mut self, ctx: &mut ZeusContext) {
+      if !self.open && !self.db_ready && self.cached_txs.is_empty() {
+         return;
+      }
       self.open = false;
+      self.loading = false;
+      self.db_ready = false;
+      self.cached_txs = Vec::new();
+      self.cache_key = CacheKey::default();
+      ctx.tx_db.close();
+   }
+
+   fn on_db_ready(&mut self) {
+      self.loading = false;
+      self.db_ready = true;
+      self.cached_txs.clear();
+      // Must NOT leave cache_key equal to the current filters (Default == All/All),
+      // or rebuild_cache early-returns and never fills the list on first open.
+      self.cache_key = CacheKey::invalid();
    }
 
    fn wallet_name_or_address(&self, ctx: &mut ZeusContext, address: Address) -> String {
@@ -50,10 +125,82 @@ impl TxHistory {
       }
    }
 
+   fn current_cache_key(&self) -> CacheKey {
+      CacheKey {
+         wallet: self.selected_wallet.as_ref().map(|w| w.address),
+         chain: self.selected_chain.map(|c| c.id()),
+      }
+   }
+
+   fn rebuild_cache(&mut self) {
+      if !self.db_ready {
+         self.cached_txs.clear();
+         return;
+      }
+
+      let key = self.current_cache_key();
+      // Already built (or a build is in-flight) for this filter set
+      if key == self.cache_key {
+         return;
+      }
+
+      // Claim the key *before* spawning so we don't queue a rebuild every frame
+      // while the worker is still running.
+      self.cache_key = key.clone();
+
+      let selected_wallet = self.selected_wallet.clone();
+      let selected_chain = self.selected_chain;
+
+      RT.spawn_blocking(move || {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let tx_db = ctx.read(|ctx| ctx.tx_db.clone());
+         let tx_count = tx_db.txs_count();
+
+         let mut txs = Vec::with_capacity(tx_count);
+         let wallets = ctx.get_all_wallets_info();
+
+         for wallet in wallets {
+            if let Some(selected) = &selected_wallet {
+               if selected.address != wallet.address {
+                  continue;
+               }
+            }
+
+            let chains_to_check: Vec<ChainId> = if let Some(chain) = selected_chain {
+               vec![chain]
+            } else {
+               ChainId::supported_chains()
+            };
+
+            for chain in chains_to_check {
+               if ctx.is_chain_disabled(chain.id()) {
+                  continue;
+               }
+
+               if let Some(wallet_txs) = tx_db.get_txs(chain.id(), wallet.address) {
+                  txs.extend(wallet_txs.iter().cloned());
+               }
+            }
+         }
+
+         txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+         SHARED_GUI.write(|gui| {
+            // Drop stale results if the user changed filters while we were building
+            if gui.tx_history.cache_key == key {
+               gui.tx_history.cached_txs = txs;
+            }
+            gui.request_repaint();
+         });
+      });
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.open {
          return;
       }
+
+      self.rebuild_cache();
 
       Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
          ui.set_width(ui.available_width());
@@ -185,43 +332,19 @@ impl TxHistory {
                   }
                });
 
-            /*
             #[cfg(feature = "dev")]
-            if ui.add(Button::new("Add Dummy Tx")).clicked() {
-               let wallet = ctx.current_wallet();
-               ctx.write(|ctx| {
-                  let chain = ctx.chain.clone();
-                  ctx.tx_db.add_tx(
-                     chain.id(),
-                     wallet.address,
-                     TxSummary::dummy_swap2(wallet.address),
-                  );
-               });
-            }
-            */
-
-            /*
-            #[cfg(feature = "dev")]
-            if ui.add(Button::new("Add 50 Dummy Txs")).clicked() {
-               let wallet = ctx.current_wallet();
-               ctx.write(|ctx| {
-                  let chain = ctx.chain.clone();
-                  for _ in 0..50 {
-                     ctx.tx_db.add_tx(
-                        chain.id(),
-                        wallet.address,
-                        TxSummary::dummy_swap2(wallet.address),
-                     );
-                  }
-               });
-            }
-            */
-
-            #[cfg(feature = "dev")]
-            if ui.add(Button::new("Save TxDB")).clicked() {
+            if ui.add(Button::new("Reload TxDB")).clicked() {
+               self.loading = true;
+               self.db_ready = false;
+               self.cached_txs.clear();
                RT.spawn_blocking(move || {
                   let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                  ctx.save_tx_db();
+                  ctx.close_tx_db();
+                  ctx.open_tx_db();
+                  SHARED_GUI.write(|gui| {
+                     gui.tx_history.on_db_ready();
+                     gui.request_repaint();
+                  });
                });
             }
          });
@@ -230,38 +353,21 @@ impl TxHistory {
          ui.separator();
          ui.add_space(10.0);
 
-         // --- Transaction Data Fetching and Filtering ---
-         let filtered_txs: Vec<TransactionRich> = {
-            let mut txs = Vec::new();
-            let wallets = ctx.get_all_wallets_info();
+         if self.loading {
+            ui.vertical_centered(|ui| {
+               ui.label(
+                  RichText::new("Loading transactions…")
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.text),
+               );
+            });
+            return;
+         }
 
-            for (_, wallet) in wallets {
-               if self.selected_wallet.is_some() && self.selected_wallet != Some(wallet.clone()) {
-                  continue;
-               }
+         // Rebuild after filter widgets may have changed selection
+         self.rebuild_cache();
 
-               let chains_to_check: Vec<ChainId> = if let Some(chain) = self.selected_chain {
-                  vec![chain]
-               } else {
-                  ChainId::supported_chains()
-               };
-
-               for chain in chains_to_check {
-                  if ctx.is_chain_disabled(chain.id()) {
-                     continue;
-                  }
-
-                  if let Some(wallet_txs) = ctx.tx_db.get_txs(chain.id(), wallet.address) {
-                     txs.extend(wallet_txs.iter().cloned());
-                  }
-               }
-            }
-            // Sort all collected transactions by timestamp (newest first)
-            txs.sort_unstable_by(|a, b| b.timestamp.cmp(&a.timestamp));
-            txs
-         };
-
-         if filtered_txs.is_empty() {
+         if self.cached_txs.is_empty() {
             ui.vertical_centered(|ui| {
                ui.label(
                   RichText::new("No transactions match your filters.")
@@ -272,7 +378,7 @@ impl TxHistory {
             return;
          }
 
-         let total_txs = filtered_txs.len();
+         let total_txs = self.cached_txs.len();
          let total_pages = (total_txs as f64 / self.txs_per_page as f64).ceil() as usize;
          // Ensure current page is valid
          self.current_page = self.current_page.min(total_pages.saturating_sub(1));
@@ -325,7 +431,7 @@ impl TxHistory {
                let start = self.current_page * self.txs_per_page;
                let end = start.saturating_add(self.txs_per_page).min(total_txs);
                let txs_on_page = if start < end {
-                  &filtered_txs[start..end]
+                  &self.cached_txs[start..end]
                } else {
                   &[]
                };
@@ -373,8 +479,6 @@ impl TxHistory {
                               .color(theme.colors.text),
                         );
                         ui.end_row();
-
-                        // let bg_color = theme.frame2.fill;
 
                         for tx in txs_on_page {
                            // Wallet Name Column
