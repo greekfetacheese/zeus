@@ -103,6 +103,10 @@ impl UtxoIndexer {
       min_synced
    }
 
+   pub fn accounts_count(&self) -> usize {
+      self.accounts.len()
+   }
+
    /// Returns the synced block for the given account
    pub fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
       self.accounts.iter().find(|a| a.address() == address).map(|a| a.synced_block())

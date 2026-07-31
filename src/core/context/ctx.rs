@@ -306,6 +306,12 @@ impl ZeusCtx {
          }
       };
 
+      let accounts_count = provider.accounts_count().await;
+      if accounts_count == 0 {
+         tracing::info!("No Railgun registered accounts yet, skipping sync");
+         return Ok(());
+      }
+
       match provider.sync().await {
          Ok(()) => self.write(|ctx| {
             ctx.railgun_status.set_synced(chain, true);
@@ -333,15 +339,22 @@ impl ZeusCtx {
       chain: u64,
       ignore_resync: bool,
    ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+      if self.is_chain_disabled(chain) {
+         return Err(anyhow!("Chain {} is disabled", chain));
+      }
+
+      if !self.railgun_is_supported(chain.into()) {
+         return Err(anyhow!(
+            "Railgun is not supported for the {} network",
+            chain
+         ));
+      }
+
       if !ignore_resync {
          let is_resyncing = self.read(|ctx| ctx.railgun_status.resync_in_progress(chain));
          if is_resyncing {
             return Err(anyhow!("Railgun resyncing in progress"));
          }
-      }
-
-      if self.is_chain_disabled(chain) {
-         return Err(anyhow!("Chain {} is disabled", chain));
       }
 
       let mut retries = 0;

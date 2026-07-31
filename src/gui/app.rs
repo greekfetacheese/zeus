@@ -150,6 +150,26 @@ impl ZeusApp {
             zeus_ctx.save_pool_manager();
             zeus_ctx.save_currency_db();
             zeus_ctx.save_price_manager();
+
+            for chain in SUPPORTED_CHAINS {
+               let provider_res = zeus_ctx.get_railgun_provider(chain, false).await;
+               if let Ok(provider) = provider_res {
+                  match provider.compact().await {
+                     Ok(compacted) => match compacted {
+                        true => tracing::info!("Compacted Railgun DB for chain {}", chain),
+                        false => tracing::info!(
+                           "Railgun DB for chain {} does not need compact",
+                           chain
+                        ),
+                     },
+                     Err(e) => tracing::error!(
+                        "Error compacting Railgun DB for chain {}: {:?}",
+                        chain,
+                        e
+                     ),
+                  }
+               }
+            }
          }
 
          SHARED_GUI.write(|gui| {

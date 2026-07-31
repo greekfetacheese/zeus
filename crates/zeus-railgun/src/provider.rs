@@ -205,6 +205,11 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       self.utxo_indexer.read().await.min_account_synced_block()
    }
 
+   /// Returns the number of registered accounts
+   pub async fn accounts_count(&self) -> usize {
+      self.utxo_indexer.read().await.accounts_count()
+   }
+
    /// Last synced block for the given account
    pub async fn account_synced_block(&self, address: &RailgunAddress) -> Option<u64> {
       self.utxo_indexer.read().await.account_synced_block(address)
