@@ -3,17 +3,78 @@ use crate::core::context::{
    BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle, data_dir,
 };
 use anyhow::anyhow;
+use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
 use ncrypt_me::{
    Argon2, Credentials, EncryptedInfo, decrypt::decrypt_data_unsecured, encrypt::encrypt_data_ref,
 };
 use secure_types::{SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
 use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
 
 pub const VAULT_FILE: &str = "vault.data";
+
+/// Plaintext vault payload encoding (first byte of decrypted data).
+///
+/// - `0` raw JSON
+/// - `1` brotli-compressed JSON
+///
+/// New saves always write version `1`. Load also accepts a legacy unversioned
+/// blob that starts with `{` (raw JSON from before this envelope existed).
+const VAULT_PAYLOAD_RAW_JSON: u8 = 0;
+const VAULT_PAYLOAD_BROTLI: u8 = 1;
+
+/// Mid-range quality: good ratio on JSON without max-level CPU cost on save.
+const VAULT_BROTLI_QUALITY: i32 = 5;
+
+fn brotli_compress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   let mut params = BrotliEncoderParams::default();
+   params.quality = VAULT_BROTLI_QUALITY;
+   let mut out = Vec::new();
+   BrotliCompress(&mut Cursor::new(input), &mut out, &params)
+      .map_err(|e| anyhow!("brotli compress vault: {e}"))?;
+   Ok(out)
+}
+
+fn brotli_decompress(input: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   let mut out = Vec::new();
+   BrotliDecompress(&mut &input[..], &mut out)
+      .map_err(|e| anyhow!("brotli decompress vault: {e}"))?;
+   Ok(out)
+}
+
+/// Build the encrypted plaintext: `[version][payload]`.
+fn encode_vault_payload(json: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   let compressed = brotli_compress(json)?;
+   let mut out = Vec::with_capacity(1 + compressed.len());
+   out.push(VAULT_PAYLOAD_BROTLI);
+   out.extend_from_slice(&compressed);
+   Ok(out)
+}
+
+/// Decode decrypted bytes into vault JSON bytes.
+fn decode_vault_payload(data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
+   if data.is_empty() {
+      return Err(anyhow!("vault payload is empty"));
+   }
+
+   // Legacy: unversioned raw JSON (created after vault-in-JSON, before envelope)
+   if data[0] == b'{' {
+      return Ok(data.to_vec());
+   }
+
+   let version = data[0];
+   let payload = &data[1..];
+
+   match version {
+      VAULT_PAYLOAD_RAW_JSON => Ok(payload.to_vec()),
+      VAULT_PAYLOAD_BROTLI => brotli_decompress(payload),
+      other => Err(anyhow!("unknown vault payload version: {other}")),
+   }
+}
 
 /// User Vault
 #[derive(Clone, Serialize, Deserialize)]
@@ -340,13 +401,25 @@ impl Vault {
          }
       }
 
-      let mut vault_data = serde_json::to_vec(self)?;
+      let mut json = serde_json::to_vec(self)?;
+      let mut vault_data = match encode_vault_payload(&json) {
+         Ok(data) => data,
+         Err(e) => {
+            json.zeroize();
+            return Err(e);
+         }
+      };
+
+      json.zeroize();
 
       let encrypted_info = match self.encrypted_info() {
          Ok(info) => info,
          Err(e) => {
             vault_data.zeroize();
-            return Err(anyhow!("EncryptedInfo is missing, corrupted vault?: {:?}", e));
+            return Err(anyhow!(
+               "EncryptedInfo is missing, corrupted vault?: {:?}",
+               e
+            ));
          }
       };
 
@@ -397,15 +470,25 @@ impl Vault {
 
    /// Load the vault from the decrypted data
    pub fn load(&mut self, mut decrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
-      let vault: Vault = match serde_json::from_slice(&decrypted_data) {
-         Ok(vault) => vault,
+      let mut json = match decode_vault_payload(&decrypted_data) {
+         Ok(json) => json,
          Err(e) => {
             decrypted_data.zeroize();
-            return Err(anyhow!("Failed to parse vault data: {:?}", e));
+            return Err(e);
          }
       };
 
       decrypted_data.zeroize();
+
+      let vault: Vault = match serde_json::from_slice(&json) {
+         Ok(vault) => vault,
+         Err(e) => {
+            json.zeroize();
+            return Err(anyhow!("Failed to parse vault data: {:?}", e));
+         }
+      };
+
+      json.zeroize();
 
       self.hd_wallet = vault.hd_wallet;
       self.imported_wallets = vault.imported_wallets;
@@ -455,17 +538,25 @@ mod tests {
    use super::*;
    use ncrypt_me::Credentials;
    use secure_types::SecureString;
+   use zeus_wallet::SecureHDWallet;
 
-   #[test]
-   fn vault_json_roundtrip() {
+   fn sample_vault() -> Vault {
       let mut vault = Vault::default();
       vault.set_credentials(Credentials::new(
          SecureString::from("user"),
          SecureString::from("pass"),
          SecureString::from("pass"),
       ));
-      vault.recover_hd_wallet("Master".into()).unwrap();
 
+      let hd_wallet = SecureHDWallet::random();
+      vault.set_hd_wallet(hd_wallet);
+
+      vault
+   }
+
+   #[test]
+   fn vault_json_roundtrip() {
+      let vault = sample_vault();
       let json = serde_json::to_vec(&vault).expect("serialize vault");
       let loaded: Vault = serde_json::from_slice(&json).expect("deserialize vault");
 
@@ -474,5 +565,50 @@ mod tests {
          vault.master_wallet_address()
       );
       assert_eq!(loaded.contacts.len(), vault.contacts.len());
+   }
+
+   #[test]
+   fn vault_payload_brotli_roundtrip() {
+      let vault = sample_vault();
+      let json = serde_json::to_vec(&vault).unwrap();
+      let encoded = encode_vault_payload(&json).unwrap();
+      assert_eq!(encoded[0], VAULT_PAYLOAD_BROTLI);
+
+      let decoded = decode_vault_payload(&encoded).unwrap();
+      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      assert_eq!(
+         loaded.master_wallet_address(),
+         vault.master_wallet_address()
+      );
+   }
+
+   #[test]
+   fn vault_payload_raw_json_version() {
+      let vault = sample_vault();
+      let json = serde_json::to_vec(&vault).unwrap();
+      let mut encoded = Vec::with_capacity(1 + json.len());
+      encoded.push(VAULT_PAYLOAD_RAW_JSON);
+      encoded.extend_from_slice(&json);
+
+      let decoded = decode_vault_payload(&encoded).unwrap();
+      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      assert_eq!(
+         loaded.master_wallet_address(),
+         vault.master_wallet_address()
+      );
+   }
+
+   #[test]
+   fn vault_payload_legacy_unversioned_json() {
+      let vault = sample_vault();
+      let json = serde_json::to_vec(&vault).unwrap();
+      assert_eq!(json[0], b'{');
+
+      let decoded = decode_vault_payload(&json).unwrap();
+      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      assert_eq!(
+         loaded.master_wallet_address(),
+         vault.master_wallet_address()
+      );
    }
 }

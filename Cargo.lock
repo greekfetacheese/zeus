@@ -12225,6 +12225,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "bincode-next",
+ "brotli",
  "chrono",
  "eframe",
  "egui",
