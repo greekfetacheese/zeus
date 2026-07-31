@@ -3,8 +3,10 @@ use crate::core::context::{
    BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle, data_dir,
 };
 use anyhow::anyhow;
-use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
-use secure_types::{SecureBytes, SecureString};
+use ncrypt_me::{
+   Argon2, Credentials, EncryptedInfo, decrypt::decrypt_data_unsecured, encrypt::encrypt_data_ref,
+};
+use secure_types::{SecureString, Zeroize};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
@@ -338,24 +340,39 @@ impl Vault {
          }
       }
 
-      let vault_data = serde_json::to_vec(self)?;
-      let secure_vault_data = SecureBytes::from_vec(vault_data)?;
+      let mut vault_data = serde_json::to_vec(self)?;
+
+      let encrypted_info = match self.encrypted_info() {
+         Ok(info) => info,
+         Err(e) => {
+            vault_data.zeroize();
+            return Err(anyhow!("EncryptedInfo is missing, corrupted vault?: {:?}", e));
+         }
+      };
 
       let argon_params = match new_params {
          Some(params) => params,
-         None => self.encrypted_info()?.argon2,
+         None => encrypted_info.argon2,
       };
 
-      let encrypted_data = encrypt_data(
+      let encrypted_data = match encrypt_data_ref(
          argon_params,
-         secure_vault_data,
+         &vault_data,
          self.credentials.clone(),
-      )?;
+      ) {
+         Ok(data) => data,
+         Err(e) => {
+            vault_data.zeroize();
+            return Err(anyhow!("Failed to encrypt vault data: {:?}", e));
+         }
+      };
+
+      vault_data.zeroize();
 
       Ok(encrypted_data)
    }
 
-   /// Save the encrypted account data to the given directory
+   /// Save the encrypted Vault data to the given directory
    pub fn save(&self, dir: Option<PathBuf>, encrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
       let dir = match dir {
          Some(dir) => dir,
@@ -365,22 +382,31 @@ impl Vault {
       Ok(())
    }
 
-   /// Decrypt this account and return the decrypted data
-   pub fn decrypt(&self, dir: Option<PathBuf>) -> Result<SecureBytes, anyhow::Error> {
+   /// Decrypt this Vault and return the decrypted data
+   pub fn decrypt(&self, dir: Option<PathBuf>) -> Result<Vec<u8>, anyhow::Error> {
       let dir = match dir {
          Some(dir) => dir,
          None => Vault::dir()?,
       };
 
       let encrypted_data = std::fs::read(dir)?;
-      let decrypted_data = decrypt_data(encrypted_data, self.credentials.clone())?;
+      let decrypted_data = decrypt_data_unsecured(encrypted_data, self.credentials.clone())?;
 
       Ok(decrypted_data)
    }
 
    /// Load the vault from the decrypted data
-   pub fn load(&mut self, decrypted_data: SecureBytes) -> Result<(), anyhow::Error> {
-      let vault: Vault = decrypted_data.unlock_slice(|slice| serde_json::from_slice(slice))?;
+   pub fn load(&mut self, mut decrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
+      let vault: Vault = match serde_json::from_slice(&decrypted_data) {
+         Ok(vault) => vault,
+         Err(e) => {
+            decrypted_data.zeroize();
+            return Err(anyhow!("Failed to parse vault data: {:?}", e));
+         }
+      };
+
+      decrypted_data.zeroize();
+
       self.hd_wallet = vault.hd_wallet;
       self.imported_wallets = vault.imported_wallets;
       self.contacts = vault.contacts;

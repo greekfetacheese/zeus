@@ -4,7 +4,7 @@ use crate::core::ZeusContext;
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Order, RichText, Ui, Window, vec2};
-use ncrypt_me::Credentials;
+use ncrypt_me::{Credentials, zeroize::Zeroize};
 use tracing::{error, info};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::{CredentialsForm, QrImage};
@@ -242,7 +242,8 @@ impl ExportKeyUi {
 
             // Verify the credentials by just decrypting the vault
             match vault.decrypt(None) {
-               Ok(_) => {
+               Ok(mut data) => {
+                  data.zeroize();
                   SHARED_GUI.write(|gui| {
                      // Allow the user to export the key
                      gui.wallet_ui.export_key_ui.show_key = true;
@@ -258,7 +259,10 @@ impl ExportKeyUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!("Failed to decrypt vault: {}", e.to_string()));
+                     gui.open_msg_window(format!(
+                        "Failed to decrypt vault: {}",
+                        e.to_string()
+                     ));
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

@@ -6,7 +6,7 @@ use crate::core::{M_COST, Vault, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, FontId, Margin, RichText, Ui, Window, vec2};
-use ncrypt_me::{Argon2, Credentials};
+use ncrypt_me::{Argon2, Credentials, zeroize::Zeroize};
 use std::time::Instant;
 use zeus_theme::Theme;
 use zeus_ui_components::CredentialsForm;
@@ -108,11 +108,14 @@ impl UnlockVault {
          });
 
          // Decrypt the vault
-         let data = match vault.decrypt(None) {
+         let mut data = match vault.decrypt(None) {
             Ok(data) => data,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(format!("Failed to unlock vault: {}", e.to_string()));
+                  gui.open_msg_window(format!(
+                     "Failed to unlock vault: {}",
+                     e.to_string()
+                  ));
                   gui.loading_window.reset();
                });
                return;
@@ -123,10 +126,14 @@ impl UnlockVault {
             Ok(info) => info,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  let msg = format!("Error while reading encrypted info, corrupted vault?: {}", e.to_string());
+                  let msg = format!(
+                     "Error while reading encrypted info, corrupted vault?: {}",
+                     e.to_string()
+                  );
                   gui.open_msg_window(msg);
                   gui.loading_window.reset();
                });
+               data.zeroize();
                return;
             }
          };
@@ -426,7 +433,10 @@ impl RecoverHDWallet {
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
                               gui.loading_window.reset();
-                              gui.open_msg_window(format!("Failed to recover wallet: {}", e.to_string()));
+                              gui.open_msg_window(format!(
+                                 "Failed to recover wallet: {}",
+                                 e.to_string()
+                              ));
                            });
                            return;
                         }
@@ -462,7 +472,10 @@ impl RecoverHDWallet {
                         }
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
-                              gui.open_msg_window(format!("Failed to create vault: {}", e.to_string()));
+                              gui.open_msg_window(format!(
+                                 "Failed to create vault: {}",
+                                 e.to_string()
+                              ));
                               gui.loading_window.reset();
                            });
                            return;

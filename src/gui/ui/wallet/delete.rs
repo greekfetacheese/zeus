@@ -4,7 +4,7 @@ use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use eframe::egui::{Align2, Id, Order, RichText, Ui, Window, vec2};
-use ncrypt_me::Credentials;
+use ncrypt_me::{Credentials, zeroize::Zeroize};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
 use zeus_widgets::Button;
@@ -122,7 +122,8 @@ impl DeleteWalletUi {
 
             // Verify the credentials by just decrypting the vault
             match vault.decrypt(None) {
-               Ok(_) => {
+               Ok(mut data) => {
+                  data.zeroize();
                   SHARED_GUI.write(|gui| {
                      // Mark the credentials as verified
                      gui.wallet_ui.delete_wallet_ui.verified_credentials = true;
@@ -138,7 +139,10 @@ impl DeleteWalletUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!("Failed to decrypt vault: {}", e.to_string()));
+                     gui.open_msg_window(format!(
+                        "Failed to decrypt vault: {}",
+                        e.to_string()
+                     ));
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });
@@ -250,7 +254,10 @@ impl DeleteWalletUi {
                Err(e) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();
-                     gui.open_msg_window(format!("Failed to encrypt vault: {}", e.to_string()));
+                     gui.open_msg_window(format!(
+                        "Failed to encrypt vault: {}",
+                        e.to_string()
+                     ));
                      gui.request_repaint();
                   });
                   return;

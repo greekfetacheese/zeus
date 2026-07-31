@@ -5,7 +5,7 @@
 use crate::gui::SHARED_GUI;
 use crate::utils::RT;
 use egui::{Align2, Order, RichText, Ui, Window, vec2};
-use ncrypt_me::Credentials;
+use ncrypt_me::{Credentials, zeroize::Zeroize};
 use zeus_theme::{OverlayManager, Theme};
 use zeus_ui_components::CredentialsForm;
 use zeus_widgets::Button;
@@ -112,7 +112,8 @@ impl ChangeCredentialsUi {
 
                      // Verify the credentials by just decrypting the vault
                      match vault.decrypt(None) {
-                        Ok(_) => {
+                        Ok(mut data) => {
+                           data.zeroize();
                            SHARED_GUI.write(|gui| {
                               // Allow the user to change the credentials
                               gui.settings.change_credentials_ui.verified_credentials = true;
