@@ -1,8 +1,11 @@
 use super::{types::Contact, wallet::*};
-use crate::core::context::data_dir;
+use crate::core::context::{
+   BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle, data_dir,
+};
 use anyhow::anyhow;
 use ncrypt_me::{Argon2, Credentials, EncryptedInfo, decrypt_data, encrypt_data};
 use secure_types::{SecureBytes, SecureString};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use zeus_eth::alloy_primitives::Address;
 use zeus_railgun::RailgunAddress;
@@ -11,7 +14,7 @@ use zeus_wallet::{SecureHDWallet, Wallet, derive_seed};
 pub const VAULT_FILE: &str = "vault.data";
 
 /// User Vault
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Vault {
    /// Credentials used to decrypt the vault
    ///
@@ -31,6 +34,22 @@ pub struct Vault {
 
    #[serde(default)]
    pub contacts: Vec<Contact>,
+
+   /// Public balances (persisted with the vault; saved on vault encrypt)
+   #[serde(default)]
+   pub balance_manager: BalanceManagerHandle,
+
+   /// Portfolio values / token lists per wallet
+   #[serde(default)]
+   pub portfolio_db: PortfolioDB,
+
+   /// Transaction history
+   #[serde(default)]
+   pub tx_db: TxDBHandle,
+
+   /// HD child discovery state
+   #[serde(default)]
+   pub discovered_wallets: DiscoveredWallets,
 }
 
 impl Default for Vault {
@@ -41,6 +60,10 @@ impl Default for Vault {
          hd_wallet,
          imported_wallets: Vec::new(),
          contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: TxDBHandle::new(),
+         discovered_wallets: DiscoveredWallets::new(),
       }
    }
 }
@@ -107,6 +130,14 @@ impl Vault {
 
    pub fn set_imported_wallets(&mut self, imported_wallets: Vec<Wallet>) {
       self.imported_wallets = imported_wallets;
+   }
+
+   /// Copy balance / portfolio / tx / discovery state from another vault.
+   pub fn persisted_state_from(&mut self, other: &Vault) {
+      self.balance_manager = other.balance_manager.clone();
+      self.tx_db = other.tx_db.clone();
+      self.portfolio_db = other.portfolio_db.clone();
+      self.discovered_wallets = other.discovered_wallets.clone();
    }
 
    pub fn wallet_name_exists(&self, name: &str) -> bool {
@@ -353,6 +384,10 @@ impl Vault {
       self.hd_wallet = vault.hd_wallet;
       self.imported_wallets = vault.imported_wallets;
       self.contacts = vault.contacts;
+      self.balance_manager = vault.balance_manager;
+      self.portfolio_db = vault.portfolio_db;
+      self.tx_db = vault.tx_db;
+      self.discovered_wallets = vault.discovered_wallets;
       Ok(())
    }
 
@@ -386,5 +421,32 @@ impl Vault {
    pub fn exists() -> Result<bool, anyhow::Error> {
       let dir = data_dir()?.join(VAULT_FILE);
       Ok(dir.exists())
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+   use ncrypt_me::Credentials;
+   use secure_types::SecureString;
+
+   #[test]
+   fn vault_json_roundtrip() {
+      let mut vault = Vault::default();
+      vault.set_credentials(Credentials::new(
+         SecureString::from("user"),
+         SecureString::from("pass"),
+         SecureString::from("pass"),
+      ));
+      vault.recover_hd_wallet("Master".into()).unwrap();
+
+      let json = serde_json::to_vec(&vault).expect("serialize vault");
+      let loaded: Vault = serde_json::from_slice(&json).expect("deserialize vault");
+
+      assert_eq!(
+         loaded.master_wallet_address(),
+         vault.master_wallet_address()
+      );
+      assert_eq!(loaded.contacts.len(), vault.contacts.len());
    }
 }

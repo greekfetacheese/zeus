@@ -63,7 +63,7 @@ impl PortfolioUi {
       let wallet_info = ctx.current_wallet_info();
       let privacy_mode = ctx.privacy_mode;
       let owner = wallet_info.address;
-      let portfolio = ctx.portfolio_db.get(chain_id, owner);
+      let portfolio = ctx.vault.portfolio_db.get(chain_id, owner);
 
       let portfolio_value = match privacy_mode {
          false => portfolio.public_value(),
@@ -383,7 +383,6 @@ impl PortfolioUi {
 
          let ctx_clone = ctx.clone();
          RT.spawn_blocking(move || {
-            ctx_clone.save_balance_manager();
             ctx_clone.save_pool_manager();
             ctx_clone.save_price_manager();
          });
@@ -408,9 +407,9 @@ impl PortfolioUi {
 
       let chain_id = ctx.chain.id();
 
-      let mut portfolio = ctx.portfolio_db.get(chain_id, owner);
+      let mut portfolio = ctx.vault.portfolio_db.get(chain_id, owner);
       portfolio.add_token(currency.to_erc20().into_owned());
-      ctx.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+      ctx.vault.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
 
       let token = currency.to_erc20().into_owned();
 
@@ -475,7 +474,6 @@ impl PortfolioUi {
          });
 
          RT.spawn_blocking(move || {
-            ctx.save_portfolio_db();
          });
       });
    }
@@ -500,9 +498,9 @@ impl PortfolioUi {
             self.show_spinner = true;
             let chain = ctx.chain.id();
 
-            let mut portfolio = ctx.portfolio_db.get(chain, owner);
+            let mut portfolio = ctx.vault.portfolio_db.get(chain, owner);
             portfolio.remove_token(token);
-            ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+            ctx.vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
 
             RT.spawn(async move {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());

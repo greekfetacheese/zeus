@@ -49,8 +49,6 @@ alloy-eips = "=2.0.5"
 alloy-sol-types = { version = "=1.6.0", features = ["json"] }
 
 # Crypto
-hmac = "0.12.1"
-sha2 = "0.10.9"
 rand = "=0.8"
 generic-array = { version = "=1.2.0", features = ["zeroize"] }
 minisign-verify = "0.2.4"

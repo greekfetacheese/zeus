@@ -715,9 +715,6 @@ impl AcrossBridge {
                tracing::error!("Failed to update ETH balance: {}", e);
             }
          }
-
-         ctx_clone.save_balance_manager();
-
          SHARED_GUI.write(|gui| {
             gui.across_bridge.balance_syncing = false;
          });
@@ -1014,9 +1011,6 @@ async fn across_bridge(
 
          ctx.update_public_data(dest_chain.id(), recipient);
       }
-
-      ctx.save_balance_manager();
-      ctx.save_portfolio_db();
    });
 
    Ok(())

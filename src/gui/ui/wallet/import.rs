@@ -210,8 +210,6 @@ impl ImportWallet {
                   // Portfolio is created and saved here
                   ctx.update_public_data(chain, new_wallet_address);
                }
-               ctx.save_balance_manager();
-               ctx.save_portfolio_db();
             });
          });
       }

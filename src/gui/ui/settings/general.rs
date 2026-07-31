@@ -24,7 +24,7 @@ pub struct GeneralSettings {
 impl GeneralSettings {
    pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
       let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.balance_manager.clone();
+      let balance_manager = ctx.vault.balance_manager.clone();
       Self {
          open: false,
          overlay,
@@ -57,7 +57,7 @@ impl GeneralSettings {
 
    fn reset_settings(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.balance_manager.clone();
+      let balance_manager = ctx.vault.balance_manager.clone();
       pool_manager.reset_default_settings();
       balance_manager.reset_default_settings();
 
@@ -72,7 +72,6 @@ impl GeneralSettings {
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
          ctx.save_pool_manager();
-         ctx.save_balance_manager();
       });
    }
 
@@ -203,16 +202,13 @@ impl GeneralSettings {
    }
 
    fn save_settings(&self, ctx: &mut ZeusContext) {
-      let save_balance_manager =
-         if self.concurrency_for_syncing_balances != ctx.balance_manager.concurrency() {
-            ctx.balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
-            true
-         } else if self.batch_size_for_syncing_balances != ctx.balance_manager.batch_size() {
-            ctx.balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
-            true
-         } else {
-            false
-         };
+      // Balance settings live in the vault and are written on vault save / shutdown.
+      if self.concurrency_for_syncing_balances != ctx.vault.balance_manager.concurrency() {
+         ctx.vault.balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
+      }
+      if self.batch_size_for_syncing_balances != ctx.vault.balance_manager.batch_size() {
+         ctx.vault.balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
+      }
 
       let save_pool_manager =
          if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
@@ -240,15 +236,11 @@ impl GeneralSettings {
             false
          };
 
-      RT.spawn_blocking(move || {
-         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         if save_balance_manager {
-            ctx.save_balance_manager();
-         }
-
-         if save_pool_manager {
+      if save_pool_manager {
+         RT.spawn_blocking(move || {
+            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
             let _res = ctx.save_pool_manager();
-         }
-      });
+         });
+      }
    }
 }

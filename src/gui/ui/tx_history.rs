@@ -12,9 +12,9 @@ const DEFAULT_TXS_PER_PAGE: usize = 20;
 
 pub struct TxHistory {
    open: bool,
-   /// True while the redb is being opened/loaded off the UI thread
+   /// Reserved for a future loading state
    loading: bool,
-   /// True once `open_tx_db` finished for this session
+   /// True once the history view is ready to read the vault tx cache
    db_ready: bool,
    pub current_page: usize,
    pub txs_per_page: usize,
@@ -62,40 +62,21 @@ impl TxHistory {
       self.open
    }
 
-   /// Mark the view open and start loading the tx DB off the UI thread.
+   /// Mark the view open. Tx history is already in the vault (loaded on unlock).
    pub fn open(&mut self) {
       if self.open {
          return;
       }
       self.open = true;
-      self.loading = true;
-      self.db_ready = false;
+      self.loading = false;
+      self.db_ready = true;
       self.cached_txs.clear();
-      self.cache_key = CacheKey::default();
+      self.cache_key = CacheKey::invalid();
       self.current_page = 0;
-
-      RT.spawn_blocking(move || {
-         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         // Bail if the user already navigated away
-         let still_open = SHARED_GUI.read(|gui| gui.tx_history.is_open());
-         if !still_open {
-            return;
-         }
-         ctx.open_tx_db();
-         SHARED_GUI.write(|gui| {
-            if gui.tx_history.is_open() {
-               gui.tx_history.on_db_ready();
-            } else {
-               // Closed while loading, drop anything we just opened
-               gui.ctx.close_tx_db();
-            }
-            gui.request_repaint();
-         });
-      });
    }
 
-   /// Close the view, drop the UI cache, and unload the tx DB from memory.
-   pub fn close(&mut self, ctx: &mut ZeusContext) {
+   /// Close the view and drop the UI cache.
+   pub fn close(&mut self, _ctx: &mut ZeusContext) {
       if !self.open && !self.db_ready && self.cached_txs.is_empty() {
          return;
       }
@@ -104,16 +85,6 @@ impl TxHistory {
       self.db_ready = false;
       self.cached_txs = Vec::new();
       self.cache_key = CacheKey::default();
-      ctx.tx_db.close();
-   }
-
-   fn on_db_ready(&mut self) {
-      self.loading = false;
-      self.db_ready = true;
-      self.cached_txs.clear();
-      // Must NOT leave cache_key equal to the current filters (Default == All/All),
-      // or rebuild_cache early-returns and never fills the list on first open.
-      self.cache_key = CacheKey::invalid();
    }
 
    fn wallet_name_or_address(&self, ctx: &mut ZeusContext, address: Address) -> String {
@@ -153,7 +124,7 @@ impl TxHistory {
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let tx_db = ctx.read(|ctx| ctx.tx_db.clone());
+         let tx_db = ctx.read(|ctx| ctx.vault.tx_db.clone());
          let tx_count = tx_db.txs_count();
 
          let mut txs = Vec::with_capacity(tx_count);
@@ -334,18 +305,8 @@ impl TxHistory {
 
             #[cfg(feature = "dev")]
             if ui.add(Button::new("Reload TxDB")).clicked() {
-               self.loading = true;
-               self.db_ready = false;
                self.cached_txs.clear();
-               RT.spawn_blocking(move || {
-                  let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-                  ctx.close_tx_db();
-                  ctx.open_tx_db();
-                  SHARED_GUI.write(|gui| {
-                     gui.tx_history.on_db_ready();
-                     gui.request_repaint();
-                  });
-               });
+               self.cache_key = CacheKey::invalid();
             }
          });
 

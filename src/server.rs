@@ -1642,9 +1642,6 @@ async fn eth_send_transaction(
          if transact_to_exists {
             ctx.update_public_data(chain.id(), transact_to);
          }
-
-         ctx.save_balance_manager();
-         ctx.save_portfolio_db();
       }
    });
 

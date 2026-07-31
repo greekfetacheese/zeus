@@ -11,7 +11,7 @@ pub mod tx;
 pub use balance_manager::BalanceManagerHandle;
 pub use discovered_wallets::DiscoveredWallets;
 pub use portfolio::{PortfolioDB, WalletPortfolio, WalletValue};
-pub use tx::TransactionsDB;
+pub use tx::TxDBHandle;
 
 pub use client::ZeusClient;
 pub use ctx::*;

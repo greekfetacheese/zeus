@@ -1241,7 +1241,6 @@ async fn post_unshield_sync(
    }
 
    ctx.update_public_data(chain_id, from);
-   ctx.save_balance_manager();
 }
 
 async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, anyhow::Error> {

@@ -1495,10 +1495,8 @@ pub async fn collect_fees_position_v3(
          portfolio.add_token(token1);
       }
 
-      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.write(|ctx| ctx.vault.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);
-      ctx_clone.save_balance_manager();
-      ctx_clone.save_portfolio_db();
    });
 
    Ok(())
@@ -1750,10 +1748,8 @@ pub async fn decrease_liquidity_position_v3(
       portfolio.add_token(token0);
       portfolio.add_token(token1);
 
-      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.write(|ctx| ctx.vault.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);
-      ctx_clone.save_balance_manager();
-      ctx_clone.save_portfolio_db();
    });
 
    Ok(())
@@ -2156,10 +2152,8 @@ pub async fn increase_liquidity_position_v3(
       portfolio.add_token(token0);
       portfolio.add_token(token1);
 
-      ctx_clone.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.write(|ctx| ctx.vault.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
       ctx_clone.calculate_portfolio_value(chain.id(), from);
-      ctx_clone.save_balance_manager();
-      ctx_clone.save_portfolio_db();
    });
 
    Ok(())

@@ -1,5 +1,5 @@
 use super::{
-   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, PortfolioDB, WalletPortfolio, ZeusClient,
+   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, WalletPortfolio, ZeusClient,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
@@ -8,7 +8,7 @@ use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::{RT, create_railgun_provider};
 use anyhow::anyhow;
-use ncrypt_me::{Argon2, zeroize::Zeroize};
+use ncrypt_me::Argon2;
 use std::{
    collections::HashMap,
    path::PathBuf,
@@ -18,10 +18,8 @@ use std::{
 use zeus_theme::ThemeKind;
 use zeus_wallet::Wallet;
 
-use hmac::{Hmac, Mac};
-use sha2::{Digest, Sha256};
 use zeus_eth::{
-   alloy_primitives::{Address, B256, Bytes, FixedBytes, U256},
+   alloy_primitives::{Address, Bytes, FixedBytes, U256},
    alloy_provider::Provider,
    alloy_rpc_types::{BlockId, Transaction, TransactionReceipt, TransactionRequest},
    amm::uniswap::{
@@ -131,28 +129,6 @@ impl ZeusCtx {
       writer(&mut self.0.write().unwrap())
    }
 
-   /// Hash the given addresses with SHA-256 so it can be stored without leaking the plaintext address
-   pub fn hash_addresses(&self, addresses: Vec<Address>) -> Vec<B256> {
-      let credentials = self.read(|ctx| ctx.vault.credentials().clone());
-      let mut username = credentials.username.unlock_str(|s| s.to_string());
-
-      let seed: [u8; 32] = Sha256::digest(username.as_bytes()).into();
-      username.zeroize();
-
-      let mut hashes = Vec::new();
-
-      for addr in addresses {
-         let mut mac = Hmac::<Sha256>::new_from_slice(&seed).expect("key length is ok");
-
-         mac.update(addr.as_slice());
-         let result = mac.finalize().into_bytes();
-         let hashed = B256::from_slice(&result);
-         hashes.push(hashed);
-      }
-
-      hashes
-   }
-
    pub fn pool_manager(&self) -> PoolManagerHandle {
       self.read(|ctx| ctx.pool_manager.clone())
    }
@@ -162,7 +138,7 @@ impl ZeusCtx {
    }
 
    pub fn balance_manager(&self) -> BalanceManagerHandle {
-      self.read(|ctx| ctx.balance_manager.clone())
+      self.read(|ctx| ctx.vault.balance_manager.clone())
    }
 
    /// If pool_data.json has been deleted, we need to re-sync the pools
@@ -458,10 +434,14 @@ impl ZeusCtx {
 
       self.write(|ctx| ctx.save_vault_in_progress = true);
 
-      let vault = if new_vault.is_some() {
-         new_vault.unwrap()
-      } else {
-         self.get_vault()
+      // Always encrypt the live balance/portfolio/tx/discovery state.
+      // Wallet/contact mutations pass `new_vault` with those fields possibly stale.
+      let vault = match new_vault {
+         Some(mut vault) => {
+            self.read(|ctx| vault.persisted_state_from(&ctx.vault));
+            vault
+         }
+         None => self.get_vault(),
       };
 
       let res = vault.encrypt(new_params);
@@ -517,7 +497,9 @@ impl ZeusCtx {
    }
 
    pub fn set_vault(&self, new_vault: Vault) {
-      self.0.write().unwrap().vault = new_vault;
+      self.write(|ctx| {
+         ctx.vault = new_vault;
+      });
    }
 
    pub fn get_vault(&self) -> Vault {
@@ -706,29 +688,11 @@ impl ZeusCtx {
       self.read(|ctx| ctx.is_chain_disabled(chain))
    }
 
-   pub fn save_balance_manager(&self) {
-      let manager = self.balance_manager();
-      match manager.save(self.clone()) {
-         Ok(_) => {
-            tracing::trace!("Balance Manager saved");
-         }
-         Err(e) => tracing::error!("Error saving Balance Manager: {:?}", e),
-      }
-   }
-
    pub fn save_currency_db(&self) {
       let db = self.read(|ctx| ctx.currency_db.clone());
       match db.save() {
          Ok(_) => tracing::trace!("CurrencyDB saved"),
          Err(e) => tracing::error!("Error saving CurrencyDB: {:?}", e),
-      }
-   }
-
-   pub fn save_portfolio_db(&self) {
-      let db = self.read(|ctx| ctx.portfolio_db.clone());
-      match db.save(self.clone()) {
-         Ok(_) => tracing::trace!("PortfolioDB saved"),
-         Err(e) => tracing::error!("Error saving PortfolioDB: {:?}", e),
       }
    }
 
@@ -758,26 +722,16 @@ impl ZeusCtx {
       }
    }
 
-   /// Open the transactions DB and load it into memory (for history UI).
-   pub fn open_tx_db(&self) {
-      let db = self.read(|ctx| ctx.tx_db.clone());
-      if let Err(e) = db.open_and_load() {
-         tracing::error!("Error opening TxDB: {:?}", e);
-      }
-   }
-
-   /// Close the transactions DB and drop the in-memory cache.
-   pub fn close_tx_db(&self) {
-      let db = self.read(|ctx| ctx.tx_db.clone());
-      db.close();
-   }
-
-   /// Persist a rich transaction. Opens the DB briefly when closed, keeps it open if the UI holds it.
+   /// Append a rich transaction (persisted with the vault on save/shutdown).
    pub fn add_transaction(&self, chain: u64, owner: Address, tx: TransactionRich) {
-      let db = self.read(|ctx| ctx.tx_db.clone());
+      let db = self.tx_db();
       if let Err(e) = db.add_tx(chain, owner, tx) {
          tracing::error!("Error adding transaction to TxDB: {:?}", e);
       }
+   }
+
+   pub fn tx_db(&self) -> TxDBHandle {
+      self.read(|ctx| ctx.vault.tx_db.clone())
    }
 
    pub fn save_disabled_chains(&self) {
@@ -813,11 +767,11 @@ impl ZeusCtx {
    }
 
    pub fn get_portfolio(&self, chain: u64, owner: Address) -> WalletPortfolio {
-      self.read(|ctx| ctx.portfolio_db.get(chain, owner))
+      self.read(|ctx| ctx.vault.portfolio_db.get(chain, owner))
    }
 
    pub fn has_portfolio(&self, chain: u64, owner: Address) -> bool {
-      self.read(|ctx| ctx.portfolio_db.portfolios.contains_key(&(chain, owner)))
+      self.read(|ctx| ctx.vault.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
    /// Get the total value for the given owner across all of its wallets and chains
@@ -828,7 +782,7 @@ impl ZeusCtx {
    /// Get all tokens from all portfolios
    pub fn get_all_tokens_from_portfolios(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let portfolios = self.read(|ctx| ctx.portfolio_db.get_all(chain));
+      let portfolios = self.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
          let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
@@ -847,7 +801,7 @@ impl ZeusCtx {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_public_data(self.clone());
       self.write(|ctx| {
-         ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+         ctx.vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -861,7 +815,7 @@ impl ZeusCtx {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_private_data(self.clone()).await;
       self.write(|ctx| {
-         ctx.portfolio_db.insert_portfolio(chain, owner, portfolio);
+         ctx.vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -1548,12 +1502,6 @@ pub struct ZeusContext {
    /// Holds all ERC20 tokens
    pub currency_db: CurrencyDB,
 
-   /// Holds all portfolios
-   pub portfolio_db: PortfolioDB,
-
-   /// Tx history
-   pub tx_db: TxDBHandle,
-
    /// Pool manager used for the Uniswap UI
    /// and price manager
    pub pool_manager: PoolManagerHandle,
@@ -1562,9 +1510,6 @@ pub struct ZeusContext {
    /// based purely on the on-chain pool data
    /// no 3rd party APIs
    pub price_manager: PriceManagerHandle,
-
-   /// Fetch and stores ETH and ERC20 balances
-   pub balance_manager: BalanceManagerHandle,
 
    /// State flags for the UI that showup on the top right corner
    pub data_syncing: bool,
@@ -1638,9 +1583,6 @@ impl ZeusContext {
          }
       };
 
-      // Loaded after vault unlock in on_startup (needs credentials for address hashing)
-      let balance_manager = BalanceManagerHandle::default();
-
       let currency_db = match CurrencyDB::load_from_file() {
          Ok(db) => db,
          Err(e) => {
@@ -1648,12 +1590,6 @@ impl ZeusContext {
             CurrencyDB::default()
          }
       };
-
-      // Loaded after vault unlock in on_startup (needs credentials for address hashing)
-      let portfolio_db = PortfolioDB::default();
-
-      // Tx history is loaded on-demand when the history UI opens
-      let tx_db = TxDBHandle::new();
 
       let vault_exists = Vault::exists().is_ok_and(|p| p);
 
@@ -1714,11 +1650,8 @@ impl ZeusContext {
          vault_unlocked: false,
          address_names,
          currency_db,
-         portfolio_db,
-         tx_db,
          pool_manager,
          price_manager,
-         balance_manager,
          data_syncing: false,
          dex_syncing: false,
          on_startup_syncing: false,
@@ -1763,11 +1696,11 @@ impl ZeusContext {
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.balance_manager.get_eth_balance(chain, owner)
+      self.vault.balance_manager.get_eth_balance(chain, owner)
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
-      self.balance_manager.get_token_balance(chain, owner, token)
+      self.vault.balance_manager.get_token_balance(chain, owner, token)
    }
 
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
@@ -1941,7 +1874,7 @@ impl ZeusContext {
             continue;
          }
 
-         let portfolio = self.portfolio_db.get(chain.id(), owner);
+         let portfolio = self.vault.portfolio_db.get(chain.id(), owner);
          total_public += portfolio.public_value().f64();
          total_private += portfolio.private_value().f64();
       }

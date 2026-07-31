@@ -24,12 +24,8 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 
 /// A UI for discovering and derive child wallets from a master wallet (BIP32 HD)
 ///
-/// In-memory [DiscoveredWallets] hold plaintext addresses for the UI.
-/// On disk we only persist [crate::core::context::discovered_wallets::HashedDiscoveredWallets]
-/// (SHA-256 hashed addresses) so the file does not leak wallet addresses.
-///
-/// `Safety`: Master address hash is verified on load; children are re-derived from the HD
-/// master. If the json is missing, corrupt, or bound to another master we reset.
+/// Discovery state ([DiscoveredWallets]) is kept in the encrypted vault and
+/// updated in memory, it is written when the vault is saved (shutdown / vault ops).
 pub struct DiscoverChildWallets {
    open: bool,
    overlay: OverlayManager,
@@ -84,20 +80,20 @@ impl DiscoverChildWallets {
          let master = ctx.master_wallet_address();
          let hd_wallet = vault.get_hd_wallet();
 
-         // Load hashed on-disk data, verify master hash, re-derive children in memory
-         let mut discovered_wallets =
-            match DiscoveredWallets::load_from_file(ctx.clone()) {
-               Ok(wallets) => wallets,
-               Err(e) => {
-                  tracing::error!("Error loading discovered wallets: {:?}", e);
-                  let mut discovered_wallets = DiscoveredWallets::new();
-                  discovered_wallets.master_wallet_address = Some(master);
-                  discovered_wallets
-               }
-            };
+         let mut discovered_wallets = vault.discovered_wallets.clone();
 
          if discovered_wallets.master_wallet_address.is_none() {
             discovered_wallets.master_wallet_address = Some(master);
+         } else if discovered_wallets.master_wallet_address != Some(master) {
+            tracing::warn!("Discovered wallets master address mismatch, resetting");
+            discovered_wallets = DiscoveredWallets::new();
+            discovered_wallets.master_wallet_address = Some(master);
+         } else if discovered_wallets.is_corrupted() {
+            tracing::warn!("Discovered wallets index is corrupted, resetting");
+            discovered_wallets = DiscoveredWallets::new();
+            discovered_wallets.master_wallet_address = Some(master);
+         } else {
+            discovered_wallets.rediscover_wallets(hd_wallet.clone());
          }
 
          SHARED_GUI.write(|gui| {
@@ -339,14 +335,8 @@ impl DiscoverChildWallets {
          let wallets = self.discovered_wallets.clone();
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            match wallets.save(ctx) {
-               Ok(_) => {
-                  tracing::info!("Discovered wallets saved");
-               }
-               Err(e) => {
-                  tracing::error!("Error saving discovered wallets: {:?}", e);
-               }
-            }
+            ctx.write(|z| z.vault.discovered_wallets = wallets);
+            tracing::info!("Discovered wallets updated in vault");
 
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.add_wallet_ui.open();
@@ -639,7 +629,7 @@ impl DiscoverChildWallets {
                         balance_manager.insert_eth_balance(chain, address, balance, &eth);
 
                         ctx.write(|ctx| {
-                           ctx.portfolio_db.insert_portfolio(
+                           ctx.vault.portfolio_db.insert_portfolio(
                               chain,
                               address,
                               WalletPortfolio::new(address, chain),

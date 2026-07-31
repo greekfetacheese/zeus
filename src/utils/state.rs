@@ -1,5 +1,5 @@
 use crate::core::ctx::railgun_dir;
-use crate::core::{PortfolioDB, WalletPortfolio, ZeusCtx, types::BaseFee};
+use crate::core::{WalletPortfolio, ZeusCtx, types::BaseFee};
 use crate::utils::{RT, malloc_trim};
 use anyhow::anyhow;
 use tracing::{debug, error, info, warn};
@@ -81,21 +81,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
       ctx.on_startup_syncing = true;
    });
 
-   // Load privacy-hashed balances now that credentials + wallet cache are available
-   match ctx.balance_manager().reload_from_file(ctx.clone()) {
-      Ok(_) => tracing::info!("Balance Manager loaded"),
-      Err(e) => tracing::error!("Failed to load balances: {:?}", e),
-   }
-
-   // Load privacy-hashed portfolios
-   match PortfolioDB::load_from_file(ctx.clone()) {
-      Ok(db) => {
-         ctx.write(|ctx| ctx.portfolio_db = db);
-         tracing::info!("PortfolioDB loaded");
-      }
-      Err(e) => tracing::error!("Failed to load portfolios: {:?}", e),
-   }
-
    for chain in SUPPORTED_CHAINS {
       if ctx.is_chain_disabled(chain) {
          continue;
@@ -172,7 +157,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
 
          let ctx_clone = ctx_clone.clone();
-         let portfolios = ctx_clone.read(|ctx| ctx.portfolio_db.get_all(chain));
+         let portfolios = ctx_clone.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
             ctx_clone.update_public_data(chain, portfolio.owner());
          }
@@ -213,7 +198,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 
    RT.spawn_blocking(move || {
-      ctx.save_portfolio_db();
       ctx.save_pool_manager();
       ctx.save_price_manager();
    });
@@ -240,7 +224,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          if !balance.is_zero() && !has_portfolio {
             let portfolio = WalletPortfolio::new(wallet.address, chain);
             ctx.write(|ctx| {
-               ctx.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
+               ctx.vault.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
             });
          }
       }
@@ -251,7 +235,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          continue;
       }
 
-      let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+      let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
       for portfolio in &portfolios {
          ctx.update_public_data(chain, portfolio.owner());
       }
@@ -375,17 +359,14 @@ async fn state_update_interval(ctx: ZeusCtx) {
                continue;
             }
 
-            let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+            let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
                ctx.update_public_data(chain, portfolio.owner());
             }
          }
 
          check_delegated_status(ctx.clone()).await;
-         ctx.save_portfolio_db();
          ctx.save_price_manager();
-         ctx.save_balance_manager();
-
          wallet_state_passed = Instant::now();
       }
 
@@ -588,7 +569,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             continue;
          }
 
-         let portfolios = ctx.read(|ctx| ctx.portfolio_db.get_all(chain));
+         let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
             ctx.update_public_data(chain, portfolio.owner());
          }

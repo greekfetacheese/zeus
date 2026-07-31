@@ -598,6 +598,4 @@ async fn post_private_transfer_sync(ctx: ZeusCtx, chain: ChainId) {
    ctx.write(|ctx| {
       ctx.railgun_status.set_op_in_progress(chain.id(), false);
    });
-
-   ctx.save_portfolio_db();
 }

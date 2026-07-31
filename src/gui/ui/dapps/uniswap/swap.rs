@@ -1649,7 +1649,6 @@ pub async fn wrap_eth(
       }
 
       ctx.update_public_data(chain.id(), from);
-      ctx.save_balance_manager();
    });
 
    Ok(())
@@ -1825,7 +1824,6 @@ pub async fn unwrap_weth(
       }
 
       ctx.update_public_data(chain.id(), from);
-      ctx.save_balance_manager();
    });
 
    Ok(())
@@ -2316,12 +2314,10 @@ async fn swap_via_ur(
 
       if currency_out.is_erc20() {
          portfolio.add_token(currency_out.to_erc20().into_owned());
-         ctx.write(|ctx| ctx.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio));
+         ctx.write(|ctx| ctx.vault.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio));
       }
 
       ctx.update_public_data(chain.id(), signer_address);
-      ctx.save_balance_manager();
-      ctx.save_portfolio_db();
    });
 
    Ok(())

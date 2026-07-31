@@ -517,7 +517,7 @@ impl SendCryptoUi {
          return ctx.get_currency_balance(ctx.chain.id(), owner, &self.currency);
       }
 
-      let portfolio = ctx.portfolio_db.get(ctx.chain.id(), owner);
+      let portfolio = ctx.vault.portfolio_db.get(ctx.chain.id(), owner);
       if let Some(token) = self.currency.erc20_opt() {
          for (t, balance, _value, _price) in portfolio.private_tokens() {
             if t.address == token.address {
@@ -987,8 +987,5 @@ async fn update_balances(
    }
 
    ctx.update_public_data(chain, sender);
-   ctx.save_balance_manager();
-   ctx.save_portfolio_db();
-
    Ok(())
 }

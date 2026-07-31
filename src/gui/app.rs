@@ -2,7 +2,7 @@ use egui::*;
 use zeus_eth::types::SUPPORTED_CHAINS;
 
 use crate::assets::{INTER_BOLD_18, icons::Icons};
-use crate::core::{ZeusContext, ZeusCtx};
+use crate::core::ZeusCtx;
 use crate::gui::SHARED_GUI;
 use crate::server::run_server;
 use crate::utils::{
@@ -15,6 +15,7 @@ use eframe::{
    egui::{self, Frame},
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeus_theme::{OverlayManager, window::*};
 
@@ -22,6 +23,10 @@ pub struct ZeusApp {
    pub style_has_been_set: bool,
    pub overlay: OverlayManager,
    pub ctx: ZeusCtx,
+   /// Once true, the next close request is allowed to proceed (after delayed cleanup).
+   allow_close: Arc<AtomicBool>,
+   /// Prevents spawning multiple shutdown tasks while cleanup is in flight.
+   shutdown_started: bool,
 }
 
 impl ZeusApp {
@@ -97,13 +102,64 @@ impl ZeusApp {
          style_has_been_set: false,
          overlay: theme.overlay_manager,
          ctx,
+         allow_close: Arc::new(AtomicBool::new(false)),
+         shutdown_started: false,
       }
    }
 
-   fn on_shutdown(&mut self, ctx: &egui::Context, zeus_ctx: &mut ZeusContext) {
-      if ctx.input(|i| i.viewport().close_requested()) {
-         zeus_ctx.vault.erase();
+   fn on_shutdown(&mut self, ctx: &egui::Context) {
+      if !ctx.input(|i| i.viewport().close_requested()) {
+         return;
       }
+
+      // Final close after cleanup finished, do not cancel.
+      if self.allow_close.load(Ordering::SeqCst) {
+         return;
+      }
+
+      ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+
+      if self.shutdown_started {
+         return;
+      }
+      self.shutdown_started = true;
+
+      let allow_close = self.allow_close.clone();
+      let egui_ctx = ctx.clone();
+      RT.spawn(async move {
+         let zeus_ctx = SHARED_GUI.write(|gui| {
+            gui.loading_window.open("Saving vault...");
+            gui.request_repaint();
+            gui.ctx.clone()
+         });
+
+         let unlocked = zeus_ctx.read(|z| z.vault_unlocked);
+         if unlocked {
+            let save_res = RT
+               .spawn_blocking({
+                  let zeus_ctx = zeus_ctx.clone();
+                  move || zeus_ctx.encrypt_and_save_vault(None, None)
+               })
+               .await;
+            match save_res {
+               Ok(Ok(())) => tracing::info!("Vault saved on shutdown"),
+               Ok(Err(e)) => tracing::error!("Failed to save vault on shutdown: {:?}", e),
+               Err(e) => tracing::error!("Vault save task failed: {:?}", e),
+            }
+         }
+
+         SHARED_GUI.write(|gui| {
+            gui.ctx.write(|z| z.vault.erase());
+            gui.loading_window.reset();
+            gui.request_repaint();
+         });
+
+         // Allow the next close_requested through, then re-request close.
+         allow_close.store(true, Ordering::SeqCst);
+         egui_ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+         egui_ctx.request_repaint();
+         tracing::info!("Shutdown command sent");
+      });
    }
 }
 
@@ -120,7 +176,7 @@ impl eframe::App for ZeusApp {
          let zeus_ctx = gui.ctx.clone();
 
          zeus_ctx.write(|ctx| {
-            self.on_shutdown(ui.ctx(), ctx);
+            self.on_shutdown(ui.ctx());
 
             // This is needed for Windows
             if !self.style_has_been_set {

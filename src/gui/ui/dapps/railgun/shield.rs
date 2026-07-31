@@ -798,7 +798,7 @@ impl ShieldUi {
       }
 
       // Private note balances from portfolio cache
-      let portfolio = ctx.portfolio_db.get(ctx.chain.id(), owner);
+      let portfolio = ctx.vault.portfolio_db.get(ctx.chain.id(), owner);
       if let Some(token) = self.currency.erc20_opt() {
          for (t, balance, _value, _price) in portfolio.private_tokens() {
             if t.address == token.address {
@@ -1293,8 +1293,6 @@ async fn shield(
       ctx.write(|ctx| {
          ctx.railgun_status.set_op_in_progress(chain.id(), false);
       });
-
-      ctx.save_balance_manager();
    });
 
    if !receipt.status() {
