@@ -64,12 +64,22 @@ impl TxidMerkleTree {
       }
    }
 
+   pub fn from_leaves(number: u32, leaves: Vec<U256>) -> Self {
+      TxidMerkleTree {
+         inner: RailgunMerkleTree::from_leaves(number, leaves),
+      }
+   }
+
    pub fn root(&self) -> MerkleRoot {
       self.inner.root()
    }
 
    pub fn leaves_len(&self) -> usize {
       self.inner.leaves_len()
+   }
+
+   pub fn leaves(&self) -> &[U256] {
+      self.inner.leaves()
    }
 
    pub fn state(&self) -> RailgunMerkleTreeState {

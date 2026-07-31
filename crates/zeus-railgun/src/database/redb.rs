@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-use redb::{Database as RedbInner, ReadableDatabase, TableDefinition};
+use redb::{Database as RedbInner, Durability, ReadableDatabase, TableDefinition};
 use tokio::task;
 
-use crate::database::{Database, DatabaseError};
+use crate::database::{Database, DatabaseError, WriteBatch, WriteDurability};
 
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 
@@ -51,6 +51,13 @@ impl RedbDatabase {
       .await
       .map_err(|e| DatabaseError::StorageError(e.to_string()))?
    }
+
+   fn map_durability(d: WriteDurability) -> Durability {
+      match d {
+         WriteDurability::Immediate => Durability::Immediate,
+         WriteDurability::None => Durability::None,
+      }
+   }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -80,42 +87,49 @@ impl Database for RedbDatabase {
    }
 
    async fn set(&self, key: &[u8], value: &[u8]) -> Result<(), DatabaseError> {
-      let inner = self.inner.clone();
-      let key = key.to_vec();
-      let value = value.to_vec();
-
-      task::spawn_blocking(move || -> Result<(), DatabaseError> {
-         let guard = inner.write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-
-         let tx = guard.begin_write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-         {
-            let mut table =
-               tx.open_table(TABLE).map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-            table
-               .insert(key.as_slice(), value.as_slice())
-               .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-         }
-         tx.commit().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-         Ok(())
-      })
-      .await
-      .map_err(|e| DatabaseError::StorageError(e.to_string()))?
+      let mut batch = WriteBatch::new();
+      batch.put(key.to_vec(), value.to_vec());
+      self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
    async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
+      let mut batch = WriteBatch::new();
+      batch.delete(key.to_vec());
+      self.apply_batch(batch, WriteDurability::Immediate).await
+   }
+
+   async fn apply_batch(
+      &self,
+      batch: WriteBatch,
+      durability: WriteDurability,
+   ) -> Result<(), DatabaseError> {
+      if batch.is_empty() {
+         return Ok(());
+      }
+
       let inner = self.inner.clone();
-      let key = key.to_vec();
+      let durability = Self::map_durability(durability);
 
       task::spawn_blocking(move || -> Result<(), DatabaseError> {
          let guard = inner.write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
 
-         let tx = guard.begin_write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let mut tx =
+            guard.begin_write().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         tx.set_durability(durability)
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          {
             let mut table =
                tx.open_table(TABLE).map_err(|e| DatabaseError::StorageError(e.to_string()))?;
-            table
-               .remove(key.as_slice())
-               .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+            for (key, value) in &batch.puts {
+               table
+                  .insert(key.as_slice(), value.as_slice())
+                  .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+            }
+            for key in &batch.deletes {
+               table
+                  .remove(key.as_slice())
+                  .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+            }
          }
          tx.commit().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          Ok(())

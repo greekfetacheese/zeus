@@ -1,5 +1,5 @@
 use std::{
-   collections::{BTreeMap, HashMap},
+   collections::{BTreeMap, BTreeSet, HashMap},
    sync::Arc,
    u64,
 };
@@ -14,7 +14,13 @@ use tracing::debug;
 use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
-   database::{Database, DatabaseError, RailgunDB},
+   database::{
+      Database, DatabaseError, RailgunDB, WriteBatch, WriteDurability,
+      railgun_db::{
+         all_chunk_indices, dirty_chunks_for_range, push_utxo_tree_save, put_account,
+         put_utxo_indexer,
+      },
+   },
    indexer::{
       indexed_account::IndexedAccount,
       syncer::{self, SyncEvent, SyncerError, UtxoSyncer},
@@ -29,6 +35,11 @@ pub struct UtxoIndexer {
    synced_block: u64,
    pub utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
    accounts: Vec<IndexedAccount>,
+
+   /// Tree number → dirty leaf-chunk indices since last successful save.
+   dirty_chunks: HashMap<u32, BTreeSet<u32>>,
+   /// Trees loaded from legacy monolithic blobs, next save migrates fully to chunks.
+   legacy_trees: BTreeSet<u32>,
 
    db: Arc<dyn Database>,
    pub rpc_syncer: Arc<dyn UtxoSyncer>,
@@ -68,21 +79,31 @@ impl UtxoIndexer {
       let state = db.get_utxo_indexer().await?;
 
       let mut utxo_trees = BTreeMap::new();
+      let mut legacy_trees = BTreeSet::new();
       for number in state.trees.clone() {
-         let tree_state = db.get_utxo_tree(number).await?;
-         if let Some(tree_state) = tree_state {
-            utxo_trees.insert(number, UtxoMerkleTree::from_state(tree_state));
+         if let Some((leaves, from_legacy)) = db.get_utxo_tree_leaves(number).await? {
+            if from_legacy {
+               legacy_trees.insert(number);
+            }
+            utxo_trees.insert(
+               number,
+               UtxoMerkleTree::from_leaves(number, leaves),
+            );
          }
       }
 
       debug!(
-         "Loaded UTXO indexer state: synced_block={}, trees={:?}",
-         state.synced_block, state.trees
+         "Loaded UTXO indexer state: synced_block={}, trees={:?}, legacy_migrate={}",
+         state.synced_block,
+         state.trees,
+         legacy_trees.len()
       );
       Ok(UtxoIndexer {
          synced_block: state.synced_block,
          utxo_trees,
          accounts: vec![],
+         dirty_chunks: HashMap::new(),
+         legacy_trees,
          db,
          rpc_syncer,
          subsquid_syncer,
@@ -155,6 +176,14 @@ impl UtxoIndexer {
       }
 
       vec![]
+   }
+
+   fn mark_tree_range_dirty(&mut self, tree_number: u32, start: usize, end: usize) {
+      let chunks = dirty_chunks_for_range(start, end);
+      if chunks.is_empty() {
+         return;
+      }
+      self.dirty_chunks.entry(tree_number).or_default().extend(chunks);
    }
 
    /// Syncs the indexer to a specific block. If the indexer is already synced past that block,
@@ -250,14 +279,22 @@ impl UtxoIndexer {
             leaves.sort_by_key(|(idx, _)| *idx);
             // Exact leaf indices — dense packing from min index corrupts gapped/legacy ranges
             // and also corrupts a re-scan that is not the full leaf set.
-            let tree = self
-               .utxo_trees
-               .entry(tree_number)
-               .or_insert_with(|| UtxoMerkleTree::new(tree_number));
-            for (leaf_index, hash) in leaves {
-               tree.insert_leaves(&[hash], leaf_index as usize);
+            let mut dirty_ranges = Vec::new();
+            {
+               let tree = self
+                  .utxo_trees
+                  .entry(tree_number)
+                  .or_insert_with(|| UtxoMerkleTree::new(tree_number));
+               for (leaf_index, hash) in leaves {
+                  let start = leaf_index as usize;
+                  tree.insert_leaves(&[hash], start);
+                  dirty_ranges.push((start, start + 1));
+               }
+               tree.shrink_to_fit();
             }
-            tree.shrink_to_fit();
+            for (start, end) in dirty_ranges {
+               self.mark_tree_range_dirty(tree_number, start, end);
+            }
          }
       } else {
          debug!("No new tree leaves (account catch-up and/or empty delta)");
@@ -275,6 +312,7 @@ impl UtxoIndexer {
       // Verify only when trees changed. Account-only catch-up must not risk failing
       // on an unrelated tree state, and root history is immutable once written.
       if trees_mutated {
+         self.warn_if_trees_not_sequentially_full();
          debug!("Verifying UTXO trees");
          self.verify(None).await?;
       }
@@ -380,14 +418,22 @@ impl UtxoIndexer {
 
       for (tree_number, mut leaves) in tree_leaves {
          leaves.sort_by_key(|(idx, _)| *idx);
-         let tree = self
-            .utxo_trees
-            .entry(tree_number)
-            .or_insert_with(|| UtxoMerkleTree::new(tree_number));
-         for (leaf_index, hash) in leaves {
-            tree.insert_leaves(&[hash], leaf_index as usize);
+         let mut dirty_ranges = Vec::new();
+         {
+            let tree = self
+               .utxo_trees
+               .entry(tree_number)
+               .or_insert_with(|| UtxoMerkleTree::new(tree_number));
+            for (leaf_index, hash) in leaves {
+               let start = leaf_index as usize;
+               tree.insert_leaves(&[hash], start);
+               dirty_ranges.push((start, start + 1));
+            }
+            tree.shrink_to_fit();
          }
-         tree.shrink_to_fit();
+         for (start, end) in dirty_ranges {
+            self.mark_tree_range_dirty(tree_number, start, end);
+         }
       }
 
       Ok(())
@@ -500,6 +546,59 @@ impl UtxoIndexer {
       }
    }
 
+   /// On-chain trees usually fill sequentially, but a short intermediate tree is
+   /// not proof of corruption (tree 1 ending at 65535 has been observed with a
+   /// valid rootHistory). Detect real holes: zero-padded gaps inside level-0.
+   fn warn_if_trees_not_sequentially_full(&self) {
+      use crate::merkle_tree::{MerkleConfig, RailgunMerkleConfig, TOTAL_LEAVES};
+
+      let zero = RailgunMerkleConfig::zero();
+      for (n, tree) in &self.utxo_trees {
+         let leaves = tree.leaves();
+         if leaves.is_empty() {
+            continue;
+         }
+         // Sparse insert pads with zero between min and max index — a middle zero
+         // with non-zeros after it means a missing commitment.
+         let mut saw_nonzero_after_gap = false;
+         let mut in_gap = false;
+         for (i, leaf) in leaves.iter().enumerate() {
+            if *leaf == zero {
+               if i + 1 < leaves.len() {
+                  in_gap = true;
+               }
+            } else if in_gap {
+               saw_nonzero_after_gap = true;
+               break;
+            }
+         }
+         if saw_nonzero_after_gap {
+            tracing::warn!(
+               "UTXO tree {} has internal zero gaps in leaves (len={}); \
+                event history is likely missing commitments — root verify may fail.",
+               n,
+               leaves.len()
+            );
+         }
+      }
+
+      let max_tree = match self.utxo_trees.keys().next_back().copied() {
+         Some(n) => n,
+         None => return,
+      };
+      for n in 0..max_tree {
+         let len = self.utxo_trees.get(&n).map(|t| t.leaves_len()).unwrap_or(0);
+         if len > 0 && len < TOTAL_LEAVES as usize {
+            tracing::debug!(
+               "UTXO tree {} has {} leaves (TOTAL_LEAVES={}); higher tree present",
+               n,
+               len,
+               TOTAL_LEAVES
+            );
+         }
+      }
+   }
+
    pub async fn verify(&self, block_id: Option<BlockId>) -> Result<(), UtxoIndexerError> {
       // TODO: Make this a batch call
       for tree in self.utxo_trees.values() {
@@ -531,24 +630,76 @@ impl UtxoIndexer {
    /// Saves the current state of the indexer to the database.
    ///
    /// - Always writes the lightweight indexer watermark.
-   /// - Full merkle tree blobs are only rewritten when `trees_mutated`.
+   /// - Only dirty trees are touched; for each, only dirty leaf chunks (+ meta).
    /// - Account state is only rewritten when the account is dirty.
-   pub async fn save(&mut self, trees_mutated: bool) -> Result<(), DatabaseError> {
+   /// - Everything goes through one redb write transaction.
+   /// - Watermark-only saves use non-durable commits (safe to re-sync).
+   /// - Tree/account saves use immediate durability.
+   pub async fn save(&mut self, _trees_mutated: bool) -> Result<(), DatabaseError> {
+      let mut batch = WriteBatch::new();
+
       let state = UtxoIndexerState {
          synced_block: self.synced_block,
          trees: self.utxo_trees.keys().cloned().collect(),
       };
-      self.db.set_utxo_indexer(&state).await?;
+      put_utxo_indexer(&mut batch, &state)?;
 
-      if trees_mutated {
-         for (tree_number, tree) in self.utxo_trees.iter() {
-            self.db.set_utxo_tree(*tree_number, tree.state()).await?;
+      let mut has_critical = false;
+
+      // Only rewrite dirty trees. Legacy trees migrate to chunked format the first
+      // time they become dirty (not every tree on the first post-upgrade save).
+      let trees_to_write: Vec<u32> = self.dirty_chunks.keys().copied().collect();
+      let mut migrated = Vec::new();
+
+      for tree_number in trees_to_write {
+         let Some(tree) = self.utxo_trees.get(&tree_number) else {
+            continue;
+         };
+         has_critical = true;
+         let migrate = self.legacy_trees.contains(&tree_number);
+         let dirty = if migrate {
+            all_chunk_indices(tree.leaves_len())
+         } else {
+            self.dirty_chunks.get(&tree_number).cloned().unwrap_or_default()
+         };
+         if dirty.is_empty() && !migrate {
+            continue;
+         }
+         push_utxo_tree_save(
+            &mut batch,
+            tree_number,
+            tree.leaves(),
+            tree.root().into(),
+            &dirty,
+            migrate,
+         )?;
+         if migrate {
+            migrated.push(tree_number);
+         }
+      }
+      for tree_number in migrated {
+         self.legacy_trees.remove(&tree_number);
+      }
+
+      for account in self.accounts.iter() {
+         if account.is_dirty() {
+            has_critical = true;
+            put_account(&mut batch, account.address(), &account.state())?;
          }
       }
 
+      let durability = if has_critical {
+         WriteDurability::Immediate
+      } else {
+         // Pure watermark bump, can be reconstructed by re-sync after crash.
+         WriteDurability::None
+      };
+
+      self.db.apply_batch(batch, durability).await?;
+
+      self.dirty_chunks.clear();
       for account in self.accounts.iter_mut() {
          if account.is_dirty() {
-            self.db.set_account(&account.address(), &account.state()).await?;
             account.clear_dirty();
          }
       }

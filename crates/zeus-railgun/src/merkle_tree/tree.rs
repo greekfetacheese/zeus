@@ -73,6 +73,15 @@ impl<C: MerkleConfig> MerkleTree<C> {
       tree
    }
 
+   /// Rebuild internal levels from leaf hashes only (disk loads / migration).
+   pub fn from_leaves(tree_number: u32, leaves: Vec<U256>) -> Self {
+      let mut tree = MerkleTree::<C>::new(tree_number);
+      if !leaves.is_empty() {
+         tree.insert_leaves(&leaves, 0);
+      }
+      tree
+   }
+
    pub fn number(&self) -> u32 {
       self.number
    }
@@ -89,6 +98,11 @@ impl<C: MerkleConfig> MerkleTree<C> {
    /// Returns the current number of leaves in the sparse tree
    pub fn leaves_len(&self) -> usize {
       self.tree[0].len()
+   }
+
+   /// Leaf hashes only (level 0). Sufficient to rebuild the full tree.
+   pub fn leaves(&self) -> &[U256] {
+      &self.tree[0]
    }
 
    pub fn state(&self) -> MerkleTreeState<C> {
@@ -295,6 +309,17 @@ mod tests {
       let rebuilt_tree = RailgunMerkleTree::from_state(state);
 
       assert_eq!(tree.root(), rebuilt_tree.root());
+   }
+
+   #[test]
+   fn test_from_leaves_matches_insert() {
+      let mut tree = RailgunMerkleTree::new(0);
+      let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
+      tree.insert_leaves(&leaves, 0);
+
+      let rebuilt = RailgunMerkleTree::from_leaves(0, leaves.clone());
+      assert_eq!(tree.root(), rebuilt.root());
+      assert_eq!(tree.leaves(), rebuilt.leaves());
    }
 
    #[test]

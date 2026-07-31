@@ -28,6 +28,12 @@ impl UtxoMerkleTree {
       }
    }
 
+   pub fn from_leaves(number: u32, leaves: Vec<U256>) -> Self {
+      UtxoMerkleTree {
+         inner: MerkleTree::from_leaves(number, leaves),
+      }
+   }
+
    pub fn number(&self) -> u32 {
       self.inner.number()
    }
@@ -38,6 +44,10 @@ impl UtxoMerkleTree {
 
    pub fn leaves_len(&self) -> usize {
       self.inner.leaves_len()
+   }
+
+   pub fn leaves(&self) -> &[U256] {
+      self.inner.leaves()
    }
 
    pub fn state(&self) -> RailgunMerkleTreeState {

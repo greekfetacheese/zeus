@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use futures::lock::Mutex;
 
-use crate::database::{Database, DatabaseError};
+use crate::database::{Database, DatabaseError, WriteBatch, WriteDurability};
 
 /// Basic in-memory KV database implementation.
 #[derive(Default)]
@@ -35,6 +35,21 @@ impl Database for MemoryDatabase {
    async fn delete(&self, key: &[u8]) -> Result<(), DatabaseError> {
       let mut store = self.store.lock().await;
       store.remove(key);
+      Ok(())
+   }
+
+   async fn apply_batch(
+      &self,
+      batch: WriteBatch,
+      _durability: WriteDurability,
+   ) -> Result<(), DatabaseError> {
+      let mut store = self.store.lock().await;
+      for (k, v) in batch.puts {
+         store.insert(k, v);
+      }
+      for k in batch.deletes {
+         store.remove(&k);
+      }
       Ok(())
    }
 }

@@ -188,6 +188,7 @@ impl UtxoSyncer for SubsquidSyncer {
          let updated = EventsSnapshot {
             events: full_events,
             block_number: to_block,
+            coverage_start: 0,
          };
          if let Err(e) = loader.save(self.chain_id, updated).await {
             error!("Failed to save event snapshot: {}", e);
@@ -254,17 +255,11 @@ impl SubsquidSyncer {
          to_block.saturating_sub(events_block)
       );
 
+      // Empty blob: do NOT tip-bootstrap a gappy snapshot.
       if events_block == 0 || snapshot.events.is_empty() {
-         let updated = EventsSnapshot {
-            events: tip_events.to_vec(),
-            block_number: to_block,
-         };
-         loader.save(self.chain_id, updated).await?;
-         info!(
-            "Events snapshot bootstrapped from tip range {}-{} ({} events)",
-            tip_from,
-            to_block,
-            tip_events.len()
+         debug!(
+            "Skipping tip snapshot bootstrap with empty blob (avoid gappy coverage {}-{})",
+            tip_from, to_block
          );
          return Ok(());
       }
