@@ -23,7 +23,7 @@ pub struct GeneralSettings {
 impl GeneralSettings {
    pub fn new(ctx: &mut ZeusContext, overlay: OverlayManager) -> Self {
       let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.vault.balance_manager.clone();
+      let balance_manager = ctx.read_vault(|vault| vault.balance_manager.clone());
       Self {
          open: false,
          overlay,
@@ -56,7 +56,7 @@ impl GeneralSettings {
 
    fn reset_settings(&mut self, ctx: &mut ZeusContext) {
       let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.vault.balance_manager.clone();
+      let balance_manager = ctx.read_vault(|vault| vault.balance_manager.clone());
       pool_manager.reset_default_settings();
       balance_manager.reset_default_settings();
 
@@ -197,11 +197,12 @@ impl GeneralSettings {
 
    fn save_settings(&self, ctx: &mut ZeusContext) {
       // Balance settings live in the vault and are written on vault save / shutdown.
-      if self.concurrency_for_syncing_balances != ctx.vault.balance_manager.concurrency() {
-         ctx.vault.balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
+      let balance_manager = ctx.read_vault(|vault| vault.balance_manager.clone());
+      if self.concurrency_for_syncing_balances != balance_manager.concurrency() {
+         balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
       }
-      if self.batch_size_for_syncing_balances != ctx.vault.balance_manager.batch_size() {
-         ctx.vault.balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
+      if self.batch_size_for_syncing_balances != balance_manager.batch_size() {
+         balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
       }
 
       let _save_pool_manager =

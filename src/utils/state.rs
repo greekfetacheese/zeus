@@ -153,7 +153,7 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
 
          let ctx_clone = ctx_clone.clone();
-         let portfolios = ctx_clone.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+         let portfolios = ctx_clone.read_vault(|vault| vault.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
             ctx_clone.update_public_data(chain, portfolio.owner());
          }
@@ -214,8 +214,8 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          let balance = ctx.get_eth_balance(chain, wallet.address);
          if !balance.is_zero() && !has_portfolio {
             let portfolio = WalletPortfolio::new(wallet.address, chain);
-            ctx.write(|ctx| {
-               ctx.vault.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
+            ctx.write_vault(|vault| {
+               vault.portfolio_db.insert_portfolio(chain, wallet.address, portfolio);
             });
          }
       }
@@ -226,7 +226,7 @@ fn insert_missing_portfolios(ctx: ZeusCtx) {
          continue;
       }
 
-      let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+      let portfolios = ctx.read_vault(|vault| vault.portfolio_db.get_all(chain));
       for portfolio in &portfolios {
          ctx.update_public_data(chain, portfolio.owner());
       }
@@ -350,7 +350,7 @@ async fn state_update_interval(ctx: ZeusCtx) {
                continue;
             }
 
-            let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+            let portfolios = ctx.read_vault(|vault| vault.portfolio_db.get_all(chain));
             for portfolio in &portfolios {
                ctx.update_public_data(chain, portfolio.owner());
             }
@@ -560,7 +560,7 @@ pub async fn resync_pools(ctx: ZeusCtx) {
             continue;
          }
 
-         let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+         let portfolios = ctx.read_vault(|vault| vault.portfolio_db.get_all(chain));
          for portfolio in &portfolios {
             ctx.update_public_data(chain, portfolio.owner());
          }

@@ -565,7 +565,7 @@ impl ContactsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
-            let contacts = &ctx.vault.contacts;
+            let contacts = ctx.read_vault(|vault| vault.contacts.clone());
 
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();
@@ -607,7 +607,7 @@ impl ContactsUi {
                ScrollArea::vertical().max_height(self.size.1).show(ui, |ui| {
                   ui.set_width(self.size.0);
 
-                  for contact in contacts {
+                  for contact in &contacts {
                      let valid = valid_contact_search(contact, &self.search_query);
 
                      if !valid {

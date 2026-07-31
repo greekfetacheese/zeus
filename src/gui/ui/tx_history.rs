@@ -124,7 +124,7 @@ impl TxHistory {
 
       RT.spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         let tx_db = ctx.read(|ctx| ctx.vault.tx_db.clone());
+         let tx_db = ctx.tx_db();
          let tx_count = tx_db.txs_count();
 
          let mut txs = Vec::with_capacity(tx_count);

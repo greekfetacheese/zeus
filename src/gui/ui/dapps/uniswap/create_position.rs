@@ -1442,7 +1442,9 @@ pub async fn mint_new_liquidity_position_v3(
       portfolio.add_token(token0);
       portfolio.add_token(token1);
 
-      ctx_clone.write(|ctx| ctx.vault.portfolio_db.insert_portfolio(chain.id(), from, portfolio));
+      ctx_clone.write_vault(|vault| {
+         vault.portfolio_db.insert_portfolio(chain.id(), from, portfolio)
+      });
       ctx_clone.calculate_portfolio_value(chain.id(), from);
    });
 

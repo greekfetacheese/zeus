@@ -367,7 +367,7 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let contacts = &ctx.vault.contacts;
+      let contacts = ctx.read_vault(|vault| vault.contacts.clone());
       let are_valid_contacts = contacts
          .iter()
          .any(|c| valid_contact_search(c, privacy_mode, &self.search_query));
@@ -391,7 +391,7 @@ impl RecipientSelectionWindow {
       close_window: &mut bool,
       ui: &mut Ui,
    ) {
-      let contacts = &ctx.vault.contacts;
+      let contacts = ctx.read_vault(|vault| vault.contacts.clone());
 
       ui.spacing_mut().item_spacing = vec2(0.0, 15.0);
       ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -399,7 +399,7 @@ impl RecipientSelectionWindow {
       let mut frame = theme.frame2;
       let visuals = theme.frame2_visuals;
 
-      for contact in contacts {
+      for contact in &contacts {
          let valid_search = valid_contact_search(contact, privacy_mode, &self.search_query);
 
          let address = match privacy_mode {

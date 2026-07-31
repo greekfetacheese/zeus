@@ -335,7 +335,7 @@ impl DiscoverChildWallets {
          let wallets = self.discovered_wallets.clone();
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            ctx.write(|z| z.vault.discovered_wallets = wallets);
+            ctx.write_vault(|vault| vault.discovered_wallets = wallets);
             tracing::info!("Discovered wallets updated in vault");
 
             SHARED_GUI.write(|gui| {
@@ -628,8 +628,8 @@ impl DiscoverChildWallets {
                         let balance_manager = ctx.balance_manager();
                         balance_manager.insert_eth_balance(chain, address, balance, &eth);
 
-                        ctx.write(|ctx| {
-                           ctx.vault.portfolio_db.insert_portfolio(
+                        ctx.write_vault(|vault| {
+                           vault.portfolio_db.insert_portfolio(
                               chain,
                               address,
                               WalletPortfolio::new(address, chain),

@@ -68,22 +68,25 @@ impl WalletSelect {
          .show_ui(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 14.0;
 
-            for wallet in ctx.vault_ref().all_wallets() {
-               let is_selected = wallet.address() == self.wallet.address();
-               let text = RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
+            ctx.read_vault(|vault| {
+               for wallet in vault.all_wallets() {
+                  let is_selected = wallet.address() == self.wallet.address();
+                  let text =
+                     RichText::new(wallet.name_with_id_short()).size(theme.text_sizes.normal);
 
-               let wallet_label = Label::new(text, None)
-                  .fill_width(true)
-                  .expand(expansion)
-                  .selected(is_selected)
-                  .visuals(label_visuals)
-                  .sense(Sense::click());
+                  let wallet_label = Label::new(text, None)
+                     .fill_width(true)
+                     .expand(expansion)
+                     .selected(is_selected)
+                     .visuals(label_visuals)
+                     .sense(Sense::click());
 
-               if ui.add(wallet_label).clicked() {
-                  self.wallet = wallet.clone();
-                  clicked = true;
+                  if ui.add(wallet_label).clicked() {
+                     self.wallet = wallet.clone();
+                     clicked = true;
+                  }
                }
-            }
+            });
          });
 
       clicked

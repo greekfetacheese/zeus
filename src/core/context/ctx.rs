@@ -138,7 +138,18 @@ impl ZeusCtx {
    }
 
    pub fn balance_manager(&self) -> BalanceManagerHandle {
-      self.read(|ctx| ctx.vault.balance_manager.clone())
+      self.read_vault(|vault| vault.balance_manager.clone())
+   }
+
+   /// Cheap clone of the vault handle (`Arc<RwLock<Vault>>`).
+   pub fn vault_handle(&self) -> Arc<RwLock<Vault>> {
+      self.read(|ctx| Arc::clone(&ctx.vault))
+   }
+
+   /// Shared access to the vault without cloning its contents.
+   pub fn read_vault<R>(&self, reader: impl FnOnce(&Vault) -> R) -> R {
+      let vault = self.vault_handle();
+      reader(&vault.read().unwrap())
    }
 
    /// If pool_data.json has been deleted, we need to re-sync the pools
@@ -176,7 +187,7 @@ impl ZeusCtx {
       &self,
       ignore_resync: bool,
    ) -> Result<(), anyhow::Error> {
-      let wallets = self.read(|ctx| ctx.vault.clone_all_wallets());
+      let wallets = self.read_vault(|vault| vault.clone_all_wallets());
 
       for wallet in wallets {
          if let Ok(seed) = wallet.seed() {
@@ -449,12 +460,13 @@ impl ZeusCtx {
 
       // Always encrypt the live balance/portfolio/tx/discovery state.
       // Wallet/contact mutations pass `new_vault` with those fields possibly stale.
+      // Snapshot under a short vault lock encrypt (Argon2) must not hold it.
       let vault = match new_vault {
          Some(mut vault) => {
-            self.read(|ctx| vault.persisted_state_from(&ctx.vault));
+            self.read_vault(|live| vault.persisted_state_from(live));
             vault
          }
-         None => self.get_vault(),
+         None => self.clone_vault(),
       };
 
       let res = vault.encrypt(new_params);
@@ -504,29 +516,38 @@ impl ZeusCtx {
       });
    }
 
-   /// Mutable access to the vault
+   /// Mutable access to the vault (does not hold the ZeusContext lock).
    pub fn write_vault<R>(&self, writer: impl FnOnce(&mut Vault) -> R) -> R {
-      writer(&mut self.0.write().unwrap().vault)
+      let vault = self.vault_handle();
+      writer(&mut vault.write().unwrap())
    }
 
+   /// Replace vault contents in-place (same `Arc`).
    pub fn set_vault(&self, new_vault: Vault) {
-      self.write(|ctx| {
-         ctx.vault = new_vault;
+      self.write_vault(|vault| {
+         *vault = new_vault;
       });
    }
 
+   /// Deep-clone vault contents. Prefer [`Self::read_vault`] / [`Self::write_vault`]
+   /// for ordinary access; use this only for offline mutate → encrypt snapshots.
+   pub fn clone_vault(&self) -> Vault {
+      self.read_vault(|vault| vault.clone())
+   }
+
+   /// Alias for [`Self::clone_vault`] (legacy name used at wallet mutation sites).
    pub fn get_vault(&self) -> Vault {
-      self.read(|ctx| ctx.vault.clone())
+      self.clone_vault()
    }
 
    pub fn master_wallet_address(&self) -> Address {
-      self.read(|ctx| ctx.vault.master_wallet_address())
+      self.read_vault(|vault| vault.master_wallet_address())
    }
 
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
-      self.read(|ctx| {
-         for wallet in ctx.vault_ref().all_wallets() {
+      self.read_vault(|vault| {
+         for wallet in vault.all_wallets() {
             if wallet.address() == address {
                return Some(wallet.clone());
             }
@@ -555,7 +576,7 @@ impl ZeusCtx {
    }
 
    pub fn wallet_exists(&self, address: Address) -> bool {
-      self.read(|ctx| ctx.vault.wallet_address_exists(address))
+      self.read_vault(|vault| vault.wallet_address_exists(address))
    }
 
    /// Build the wallet info cache for all the wallets currently
@@ -564,7 +585,7 @@ impl ZeusCtx {
    /// This should be called at the startup and whenever a wallet is added or removed.
    pub fn build_wallet_info_cache(&self) {
       let mut cache = HashMap::new();
-      let wallets = self.read(|ctx| ctx.vault.clone_all_wallets());
+      let wallets = self.read_vault(|vault| vault.clone_all_wallets());
       for wallet in wallets {
          let info = WalletInfo::from_wallet(&wallet, true);
          cache.insert(wallet.address(), info);
@@ -593,12 +614,12 @@ impl ZeusCtx {
    }
 
    pub fn contacts(&self) -> Vec<Contact> {
-      self.read(|ctx| ctx.vault.contacts.clone())
+      self.read_vault(|vault| vault.contacts.clone())
    }
 
    pub fn remove_contact(&self, evm_address: &str) {
-      self.write(|ctx| {
-         ctx.vault.contacts.retain(|c| c.evm_address != evm_address);
+      self.write_vault(|vault| {
+         vault.contacts.retain(|c| c.evm_address != evm_address);
       });
    }
 
@@ -622,8 +643,8 @@ impl ZeusCtx {
          ));
       }
 
-      self.write(|ctx| {
-         ctx.vault.contacts.push(contact);
+      self.write_vault(|vault| {
+         vault.contacts.push(contact);
       });
       Ok(())
    }
@@ -635,8 +656,8 @@ impl ZeusCtx {
 
    pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
       let zk_address = zk_address.to_lowercase();
-      self.read(|ctx| {
-         ctx.vault
+      self.read_vault(|vault| {
+         vault
             .contacts
             .iter()
             .find(|c| c.zk_address.to_lowercase() == zk_address)
@@ -744,7 +765,7 @@ impl ZeusCtx {
    }
 
    pub fn tx_db(&self) -> TxDBHandle {
-      self.read(|ctx| ctx.vault.tx_db.clone())
+      self.read_vault(|vault| vault.tx_db.clone())
    }
 
    pub fn save_disabled_chains(&self) {
@@ -780,11 +801,11 @@ impl ZeusCtx {
    }
 
    pub fn get_portfolio(&self, chain: u64, owner: Address) -> WalletPortfolio {
-      self.read(|ctx| ctx.vault.portfolio_db.get(chain, owner))
+      self.read_vault(|vault| vault.portfolio_db.get(chain, owner))
    }
 
    pub fn has_portfolio(&self, chain: u64, owner: Address) -> bool {
-      self.read(|ctx| ctx.vault.portfolio_db.portfolios.contains_key(&(chain, owner)))
+      self.read_vault(|vault| vault.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
    /// Get the total value for the given owner across all of its wallets and chains
@@ -795,7 +816,7 @@ impl ZeusCtx {
    /// Get all tokens from all portfolios
    pub fn get_all_tokens_from_portfolios(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let portfolios = self.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+      let portfolios = self.read_vault(|vault| vault.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
          let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
@@ -813,8 +834,8 @@ impl ZeusCtx {
    pub fn update_public_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_public_data(self.clone());
-      self.write(|ctx| {
-         ctx.vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      self.write_vault(|vault| {
+         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -827,8 +848,8 @@ impl ZeusCtx {
    pub async fn update_private_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_private_data(self.clone()).await;
-      self.write(|ctx| {
-         ctx.vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      self.write_vault(|vault| {
+         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -1474,7 +1495,7 @@ pub struct ZeusContext {
    pub wallet_info_cache: HashMap<Address, WalletInfo>,
 
    /// Loaded Vault
-   pub vault: Vault,
+   pub vault: Arc<RwLock<Vault>>,
 
    /// The Argon2 params used for the current vault
    pub argon_params: Argon2,
@@ -1635,7 +1656,7 @@ impl ZeusContext {
          railgun_provider: HashMap::new(),
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          wallet_info_cache: HashMap::new(),
-         vault: Vault::default(),
+         vault: Arc::new(RwLock::new(Vault::default())),
          argon_params: Argon2::balanced(),
          save_vault_in_progress: false,
          vault_exists,
@@ -1683,16 +1704,27 @@ impl ZeusContext {
       &self.railgun_status
    }
 
-   pub fn vault_ref(&self) -> &Vault {
-      &self.vault
+   /// Shared access to the vault without cloning its contents.
+   pub fn read_vault<R>(&self, reader: impl FnOnce(&Vault) -> R) -> R {
+      reader(&self.vault.read().unwrap())
+   }
+
+   /// Mutable access to the vault.
+   pub fn write_vault<R>(&self, writer: impl FnOnce(&mut Vault) -> R) -> R {
+      writer(&mut self.vault.write().unwrap())
+   }
+
+   /// Cheap clone of the vault handle.
+   pub fn vault_handle(&self) -> Arc<RwLock<Vault>> {
+      Arc::clone(&self.vault)
    }
 
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.vault.balance_manager.get_eth_balance(chain, owner)
+      self.read_vault(|vault| vault.balance_manager.get_eth_balance(chain, owner))
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
-      self.vault.balance_manager.get_token_balance(chain, owner, token)
+      self.read_vault(|vault| vault.balance_manager.get_token_balance(chain, owner, token))
    }
 
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
@@ -1797,12 +1829,14 @@ impl ZeusContext {
 
    /// Get the wallet with the given address
    pub fn get_wallet(&self, address: Address) -> Option<Wallet> {
-      for wallet in self.vault_ref().all_wallets() {
-         if wallet.address() == address {
-            return Some(wallet.clone());
+      self.read_vault(|vault| {
+         for wallet in vault.all_wallets() {
+            if wallet.address() == address {
+               return Some(wallet.clone());
+            }
          }
-      }
-      None
+         None
+      })
    }
 
    pub fn get_all_wallets_info(&self) -> &HashMap<Address, WalletInfo> {
@@ -1817,27 +1851,31 @@ impl ZeusContext {
    /// Get a contact by it's zk address
    pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
       let zk_address = zk_address.to_lowercase();
-      self
-         .vault
-         .contacts
-         .iter()
-         .find(|c| c.zk_address.to_lowercase() == zk_address)
-         .cloned()
+      self.read_vault(|vault| {
+         vault
+            .contacts
+            .iter()
+            .find(|c| c.zk_address.to_lowercase() == zk_address)
+            .cloned()
+      })
    }
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
       let evm_address = evm_address.to_lowercase();
-      self
-         .vault
-         .contacts
-         .iter()
-         .find(|c| c.evm_address.to_lowercase() == evm_address)
-         .cloned()
+      self.read_vault(|vault| {
+         vault
+            .contacts
+            .iter()
+            .find(|c| c.evm_address.to_lowercase() == evm_address)
+            .cloned()
+      })
    }
 
    pub fn remove_contact(&mut self, evm_address: &str) {
-      self.vault.contacts.retain(|c| c.evm_address != evm_address);
+      self.write_vault(|vault| {
+         vault.contacts.retain(|c| c.evm_address != evm_address);
+      });
    }
 
    pub fn connected_dapps(&self) -> Vec<String> {
@@ -1866,7 +1904,7 @@ impl ZeusContext {
             continue;
          }
 
-         let portfolio = self.vault.portfolio_db.get(chain.id(), owner);
+         let portfolio = self.read_vault(|vault| vault.portfolio_db.get(chain.id(), owner));
          total_public += portfolio.public_value().f64();
          total_private += portfolio.private_value().f64();
       }

@@ -173,7 +173,7 @@ impl ZeusApp {
          }
 
          SHARED_GUI.write(|gui| {
-            gui.ctx.write(|z| z.vault.erase());
+            gui.ctx.write_vault(|vault| vault.erase());
             gui.loading_window.reset();
             gui.request_repaint();
          });

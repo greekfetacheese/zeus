@@ -160,7 +160,7 @@ impl BalanceManagerHandle {
             continue;
          }
 
-         let portfolios = ctx.read(|ctx| ctx.vault.portfolio_db.get_all(chain));
+         let portfolios = ctx.read_vault(|vault| vault.portfolio_db.get_all(chain));
          let manager = self.clone();
          let ctx = ctx.clone();
 

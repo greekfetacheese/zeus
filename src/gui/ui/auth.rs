@@ -79,7 +79,7 @@ impl UnlockVault {
                   let confirm_password = self.credentials_form.confirm_password();
 
                   let credentials = Credentials::new(username, password, confirm_password);
-                  let mut vault = ctx.vault.clone();
+                  let mut vault = Vault::default();
                   vault.set_credentials(credentials);
                   self.unlock_vault(vault);
                }
@@ -91,7 +91,7 @@ impl UnlockVault {
                      SecureString::from("dev"),
                      SecureString::from("dev"),
                   );
-                  let mut vault = ctx.vault.clone();
+                  let mut vault = Vault::default();
                   vault.set_credentials(credentials);
                   self.unlock_vault(vault);
                }
@@ -364,7 +364,7 @@ impl RecoverHDWallet {
          });
    }
 
-   fn recover_hd_wallet(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   fn recover_hd_wallet(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_recover_wallet {
          return;
       }
@@ -404,7 +404,7 @@ impl RecoverHDWallet {
 
                if ui.add_enabled(!self.recover_button_clicked, recover_button).clicked() {
                   self.recover_button_clicked = true;
-                  let mut vault = ctx.vault.clone();
+                  let mut vault = Vault::default();
                   let name = self.wallet_name.clone();
 
                   let username = self.credentials_form.username();
@@ -559,7 +559,7 @@ impl RecoverHDWallet {
          ui.vertical_centered(|ui| {
 
          if ui.add(ok_button).clicked() {
-            let current_wallet = ctx.vault.get_master_wallet();
+            let current_wallet = ctx.read_vault(|vault| vault.get_master_wallet());
             RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.write(|gui| {
                gui.recover_wallet_ui.show_tips = false;
