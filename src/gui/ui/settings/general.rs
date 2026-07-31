@@ -1,7 +1,6 @@
 //! UI that allows the user to change the general settings.
 
-use crate::utils::RT;
-use crate::{core::ZeusContext, gui::SHARED_GUI};
+use crate::core::ZeusContext;
 use egui::{Align2, Order, RichText, ScrollArea, Slider, Ui, Window, vec2};
 use std::collections::HashSet;
 use zeus_eth::types::ChainId;
@@ -68,11 +67,6 @@ impl GeneralSettings {
       self.batch_size_for_updating_pools_state = pool_manager.batch_size_for_updating_pools_state();
       self.batch_size_for_discovering_pools = pool_manager.batch_size_for_discovering_pools();
       self.ignore_chains = pool_manager.ignore_chains();
-
-      RT.spawn_blocking(move || {
-         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-         ctx.save_pool_manager();
-      });
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -210,7 +204,7 @@ impl GeneralSettings {
          ctx.vault.balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
       }
 
-      let save_pool_manager =
+      let _save_pool_manager =
          if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
             ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
             true
@@ -235,12 +229,5 @@ impl GeneralSettings {
          } else {
             false
          };
-
-      if save_pool_manager {
-         RT.spawn_blocking(move || {
-            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            let _res = ctx.save_pool_manager();
-         });
-      }
    }
 }

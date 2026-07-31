@@ -1,5 +1,5 @@
 use crate::core::{ZeusCtx, types::Dapp};
-use crate::utils::{TimeStamp, truncate_address};
+use crate::utils::TimeStamp;
 use alloy_sol_types::SolEvent;
 use anyhow::anyhow;
 use std::str::FromStr;
@@ -133,8 +133,6 @@ impl DecodedEvent {
          recipient: dst,
          eth_wrapped: eth_wrapped.clone(),
          eth_wrapped_usd: Some(eth_wrapped_usd.clone()),
-         weth_received: eth_wrapped,
-         weth_received_usd: Some(eth_wrapped_usd),
       })
    }
 
@@ -303,8 +301,6 @@ impl DecodedEvent {
       let currency: Currency = NativeCurrency::from(1).into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
-      let sender_name = truncate_address(Address::ZERO.to_string());
-      let recipient_name = truncate_address(Address::ZERO.to_string());
 
       let params = TransferParams {
          currency,
@@ -313,9 +309,7 @@ impl DecodedEvent {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender: Address::ZERO,
-         sender_name,
          recipient: Address::ZERO,
-         recipient_name,
       };
 
       Self::Transfer(params)
@@ -325,8 +319,6 @@ impl DecodedEvent {
       let currency: Currency = ERC20Token::weth().into();
       let amount = NumericValue::parse_to_wei("1", 18);
       let amount_usd = NumericValue::value(amount.f64(), 1600.0);
-      let sender_name = truncate_address(Address::ZERO.to_string());
-      let recipient_name = truncate_address(Address::ZERO.to_string());
 
       let params = TransferParams {
          currency,
@@ -335,9 +327,7 @@ impl DecodedEvent {
          real_amount_sent: Some(amount),
          real_amount_sent_usd: Some(amount_usd),
          sender: Address::ZERO,
-         sender_name,
          recipient: Address::ZERO,
-         recipient_name,
       };
 
       Self::Transfer(params)
@@ -876,11 +866,7 @@ pub struct TransferParams {
    pub real_amount_sent: Option<NumericValue>,
    pub real_amount_sent_usd: Option<NumericValue>,
    pub sender: Address,
-   /// The name of the sender if known, otherwise show truncated address
-   pub sender_name: String,
    pub recipient: Address,
-   /// The name of the recipient if known, otherwise show truncated address
-   pub recipient_name: String,
 }
 
 impl TransferParams {
@@ -945,21 +931,6 @@ impl TransferParams {
       let sender = transfer_log.from;
       let recipient = transfer_log.to;
 
-      let sender_name_opt = ctx.get_address_name(chain, sender);
-      let recipient_name_opt = ctx.get_address_name(chain, recipient);
-
-      let sender_name = if let Some(sender_name) = sender_name_opt {
-         sender_name
-      } else {
-         truncate_address(sender.to_string())
-      };
-
-      let recipient_name = if let Some(recipient_name) = recipient_name_opt {
-         recipient_name
-      } else {
-         truncate_address(recipient.to_string())
-      };
-
       Ok(Self {
          currency,
          amount,
@@ -967,9 +938,7 @@ impl TransferParams {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender,
-         sender_name,
          recipient,
-         recipient_name,
       })
    }
 
@@ -993,21 +962,6 @@ impl TransferParams {
       let amount = NumericValue::format_wei(value, native.decimals());
       let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &native);
 
-      let sender_name_opt = ctx.get_address_name(chain, from);
-      let recipient_name_opt = ctx.get_address_name(chain, to);
-
-      let sender_name = if let Some(sender_name) = sender_name_opt {
-         sender_name
-      } else {
-         truncate_address(from.to_string())
-      };
-
-      let recipient_name = if let Some(recipient_name) = recipient_name_opt {
-         recipient_name
-      } else {
-         truncate_address(to.to_string())
-      };
-
       Ok(Self {
          currency: native,
          amount,
@@ -1015,9 +969,7 @@ impl TransferParams {
          real_amount_sent: None,
          real_amount_sent_usd: None,
          sender: from,
-         sender_name,
          recipient: to,
-         recipient_name,
       })
    }
 
@@ -1081,8 +1033,6 @@ pub struct WrapETHParams {
    pub recipient: Address,
    pub eth_wrapped: NumericValue,
    pub eth_wrapped_usd: Option<NumericValue>,
-   pub weth_received: NumericValue,
-   pub weth_received_usd: Option<NumericValue>,
 }
 
 impl WrapETHParams {
@@ -1097,16 +1047,12 @@ impl WrapETHParams {
       let currency = Currency::from(NativeCurrency::from(chain));
       let eth_wrapped = NumericValue::format_wei(decoded.wad, currency.decimals());
       let eth_wrapped_usd = ctx.get_currency_value_for_amount(eth_wrapped.f64(), &currency);
-      let weth_received = NumericValue::format_wei(decoded.wad, currency.decimals());
-      let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &currency);
 
       Ok(Self {
          chain,
          recipient: decoded.dst,
          eth_wrapped,
          eth_wrapped_usd: Some(eth_wrapped_usd),
-         weth_received,
-         weth_received_usd: Some(weth_received_usd),
       })
    }
 }

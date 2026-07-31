@@ -1,5 +1,4 @@
 use crate::core::{ZeusContext, ZeusCtx, types::Dapp};
-use crate::utils::truncate_address;
 use alloy_eips::eip7702::SignedAuthorization;
 use serde::{Deserialize, Serialize};
 use zeus_eth::{
@@ -473,21 +472,6 @@ impl TransactionAnalysis {
          let sender = self.sender;
          let recipient = self.interact_to;
 
-         let sender_name_opt = ctx.get_address_name(chain, sender);
-         let recipient_name_opt = ctx.get_address_name(chain, recipient);
-
-         let sender_name = if let Some(sender_name) = sender_name_opt {
-            sender_name
-         } else {
-            truncate_address(sender.to_string())
-         };
-
-         let recipient_name = if let Some(recipient_name) = recipient_name_opt {
-            recipient_name
-         } else {
-            truncate_address(recipient.to_string())
-         };
-
          let params = TransferParams {
             currency: native,
             amount,
@@ -495,9 +479,7 @@ impl TransactionAnalysis {
             real_amount_sent: None,
             real_amount_sent_usd: None,
             sender,
-            sender_name,
             recipient,
-            recipient_name,
          };
 
          return DecodedEvent::Transfer(params);

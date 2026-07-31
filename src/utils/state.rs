@@ -66,10 +66,6 @@ pub async fn test_and_measure_rpcs(ctx: ZeusCtx) {
 
    client.sort_by_fastest();
 
-   RT.spawn_blocking(move || {
-      ctx.save_zeus_client();
-   });
-
    info!(
       "RPC checks took {} secs",
       time.elapsed().as_secs_f32()
@@ -195,11 +191,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
    let ctx_clone = ctx.clone();
    RT.spawn(async move {
       state_update_interval(ctx_clone).await;
-   });
-
-   RT.spawn_blocking(move || {
-      ctx.save_pool_manager();
-      ctx.save_price_manager();
    });
 
    RT.spawn(async move {

@@ -381,12 +381,6 @@ impl PortfolioUi {
          ctx.update_public_data(chain, owner);
          ctx.update_private_data(chain, owner).await;
 
-         let ctx_clone = ctx.clone();
-         RT.spawn_blocking(move || {
-            ctx_clone.save_pool_manager();
-            ctx_clone.save_price_manager();
-         });
-
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;
          });

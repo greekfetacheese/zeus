@@ -157,12 +157,11 @@ pub fn address(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let address_short = truncate_address(address.to_string());
          let address_name = ctx.get_address_name(chain.id(), address);
          let address_name = if let Some(address_name_str) = address_name {
             address_name_str
          } else {
-            address_short
+            truncate_address(address.to_string())
          };
 
          let explorer = chain.block_explorer();

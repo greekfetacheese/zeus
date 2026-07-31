@@ -1,9 +1,9 @@
 //! Notification window that shows up when a tx is beign processed and when its done
 
 use crate::assets::Icons;
-use crate::core::{DecodedEvent, TransactionRich, tx::events::*};
+use crate::core::{DecodedEvent, TransactionRich, ZeusContext, tx::events::*};
 use crate::gui::{SHARED_GUI, ui::GREEN_CHECK};
-use crate::utils::RT;
+use crate::utils::{RT, truncate_address};
 use egui::{Align2, ProgressBar, RichText, Spinner, Ui, Window, vec2};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, Label, MultiLabel};
@@ -235,7 +235,7 @@ impl Notification {
       *self = Self::new();
    }
 
-   pub fn show(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   pub fn show(&mut self, ctx: &ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
@@ -255,14 +255,14 @@ impl Notification {
             ui.set_max_height(self.size.1);
 
             if self.with_progress_bar {
-               self.show_with_progress_bar(theme, icons.clone(), ui);
+               self.show_with_progress_bar(ctx, theme, icons.clone(), ui);
             } else {
-               self.show_with_spinner(theme, icons, ui);
+               self.show_with_spinner(ctx, theme, icons, ui);
             }
          });
    }
 
-   fn show_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_notification(&self, ctx: &ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       match &self.notification {
          NotificationType::Bridge(_) => {
             self.show_bridge_nofitication(theme, icons.clone(), ui);
@@ -271,7 +271,7 @@ impl Notification {
             self.show_swap_notification(theme, icons.clone(), ui);
          }
          NotificationType::Transfer(_) => {
-            self.show_transfer_notification(theme, icons, ui);
+            self.show_transfer_notification(ctx, theme, icons, ui);
          }
          NotificationType::TokenApproval(_) => {
             self.show_token_approval_notification(theme, icons, ui);
@@ -298,7 +298,13 @@ impl Notification {
       }
    }
 
-   fn show_with_progress_bar(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_with_progress_bar(
+      &mut self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let bar_width = self.size.0 / 2.0;
       let bar_color = theme.colors.text;
 
@@ -321,7 +327,7 @@ impl Notification {
       ui.vertical_centered(|ui| {
          let text = format!("{}{}", &self.title, GREEN_CHECK);
          ui.label(RichText::new(text).size(theme.text_sizes.large));
-         self.show_notification(theme, icons, ui);
+         self.show_notification(ctx, theme, icons, ui);
 
          let text = RichText::new("Transaction Details").size(theme.text_sizes.normal);
          let button = Button::new(text).visuals(theme.button_visuals());
@@ -345,12 +351,18 @@ impl Notification {
       });
    }
 
-   fn show_with_spinner(&mut self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_with_spinner(
+      &mut self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let spinner_color = theme.colors.text;
 
       ui.vertical_centered(|ui| {
          ui.label(RichText::new(&self.title).size(theme.text_sizes.large));
-         self.show_notification(theme, icons, ui);
+         self.show_notification(ctx, theme, icons, ui);
 
          ui.add(Spinner::new().color(spinner_color).size(20.0));
       });
@@ -440,7 +452,7 @@ impl Notification {
          let native: Currency = NativeCurrency::from(params.chain).into();
          let weth: Currency = ERC20Token::wrapped_native_token(params.chain).into();
          let eth_wrapped = params.eth_wrapped.abbreviated();
-         let weth_received = params.weth_received.abbreviated();
+         let weth_received = eth_wrapped.clone();
 
          let text = format!("{} {}", eth_wrapped, native.symbol());
          let text_amount = RichText::new(text).size(theme.text_sizes.large);
@@ -489,11 +501,18 @@ impl Notification {
       });
    }
 
-   fn show_transfer_notification(&self, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
+   fn show_transfer_notification(
+      &self,
+      ctx: &ZeusContext,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      ui: &mut Ui,
+   ) {
       let params = self.notification.transfer_params();
       let tint = theme.image_tint_recommended;
 
       ui.vertical_centered(|ui| {
+         let chain = params.currency.chain_id();
          let currency = &params.currency;
          let amount = if let Some(amount) = &params.real_amount_sent {
             amount.abbreviated()
@@ -508,13 +527,27 @@ impl Notification {
          let label = Label::new(text, Some(icon)).wrap().interactive(false);
          ui.add(label);
 
-         let text = RichText::new(&params.sender_name).size(theme.text_sizes.normal);
+         let address_name = ctx.get_address_name(chain, params.sender);
+         let address_name = if let Some(address_name_str) = address_name {
+            address_name_str
+         } else {
+            truncate_address(params.sender.to_string())
+         };
+
+         let text = RichText::new(address_name).size(theme.text_sizes.normal);
          let from_label = Label::new(text, None).interactive(false);
 
          let arrow = icons.arrow_right_white_x24(tint);
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         let text = RichText::new(&params.recipient_name).size(theme.text_sizes.normal);
+         let address_name = ctx.get_address_name(chain, params.recipient);
+         let address_name = if let Some(address_name_str) = address_name {
+            address_name_str
+         } else {
+            truncate_address(params.recipient.to_string())
+         };
+
+         let text = RichText::new(address_name).size(theme.text_sizes.normal);
          let to_label = Label::new(text, None).interactive(false);
 
          let multi_label = MultiLabel::new(vec![from_label, arrow_label, to_label]);

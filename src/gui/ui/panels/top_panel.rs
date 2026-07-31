@@ -72,7 +72,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          });
       }
 
-      gui.notification.show(&gui.theme, icons, ui);
+      gui.notification.show(ctx, &gui.theme, icons, ui);
 
       let is_railgun_syncing = ctx.is_railgun_provider_syncing(chain.id());
 

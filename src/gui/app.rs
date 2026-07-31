@@ -146,6 +146,10 @@ impl ZeusApp {
                Ok(Err(e)) => tracing::error!("Failed to save vault on shutdown: {:?}", e),
                Err(e) => tracing::error!("Vault save task failed: {:?}", e),
             }
+
+            zeus_ctx.save_pool_manager();
+            zeus_ctx.save_currency_db();
+            zeus_ctx.save_price_manager();
          }
 
          SHARED_GUI.write(|gui| {

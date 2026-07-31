@@ -890,7 +890,7 @@ fn wrap_eth_event_ui(
    ui.horizontal(|ui| {
       let text = RichText::new(format!(
          "+ {} {}",
-         params.weth_received.abbreviated(),
+         params.eth_wrapped.abbreviated(),
          weth.symbol()
       ))
       .size(theme.text_sizes.large)
@@ -901,7 +901,7 @@ fn wrap_eth_event_ui(
       });
 
       // USD Value
-      let weth_received_usd = params.weth_received_usd.clone().unwrap_or_default();
+      let weth_received_usd = params.eth_wrapped_usd.clone().unwrap_or_default();
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let text = RichText::new(format!("~ ${}", weth_received_usd.abbreviated()))
             .size(theme.text_sizes.large);

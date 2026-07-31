@@ -6,7 +6,7 @@ use super::{
 use crate::core::{TransactionRich, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
-use crate::utils::{RT, create_railgun_provider};
+use crate::utils::create_railgun_provider;
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
 use std::{
@@ -921,12 +921,6 @@ impl ZeusCtx {
             ctx.currency_db.insert_currency(chain, pool.currency1().clone());
          });
 
-         let ctx = self.clone();
-         RT.spawn_blocking(move || {
-            ctx.save_currency_db();
-            ctx.save_pool_manager();
-         });
-
          return Ok(pool);
       };
    }
@@ -955,12 +949,6 @@ impl ZeusCtx {
             ctx.pool_manager.add_pool(pool.clone());
             ctx.currency_db.insert_currency(chain, pool.currency0().clone());
             ctx.currency_db.insert_currency(chain, pool.currency1().clone());
-         });
-
-         let ctx = self.clone();
-         RT.spawn_blocking(move || {
-            ctx.save_currency_db();
-            ctx.save_pool_manager();
          });
 
          return Ok(pool);
@@ -1020,11 +1008,6 @@ impl ZeusCtx {
                   let pool_manager = self.pool_manager();
                   pool_manager.add_pool(pool.clone());
 
-                  let ctx = self.clone();
-                  RT.spawn_blocking(move || {
-                     ctx.save_pool_manager();
-                  });
-
                   found_pool = Some(pool.into());
                   break_outer = true;
                   break;
@@ -1066,12 +1049,8 @@ impl ZeusCtx {
                ERC20Token::new(client, address, chain).await
             })
             .await?;
-         self.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
 
-         let ctx = self.clone();
-         RT.spawn_blocking(move || {
-            ctx.save_currency_db();
-         });
+         self.write(|ctx| ctx.currency_db.insert_currency(chain, Currency::from(token.clone())));
 
          return Ok(token);
       };

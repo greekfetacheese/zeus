@@ -888,8 +888,6 @@ impl SwapUi {
                let settings = &gui.uniswap.settings;
                gui.uniswap.swap_ui.get_quote(ctx.clone(), settings);
             });
-
-            ctx.save_pool_manager();
          });
       });
    }
@@ -1583,8 +1581,6 @@ pub async fn wrap_eth(
    let eth_balance_before = eth_balance_before_fut.await?;
    let weth_usd = ctx.get_currency_value_for_amount(amount.f64(), &wrapped);
 
-   let weth_received_usd = ctx.get_currency_value_for_amount(weth_received.f64(), &wrapped);
-
    let contract_interact = Some(true);
    let auth_list = Vec::new();
 
@@ -1593,8 +1589,6 @@ pub async fn wrap_eth(
       recipient: from,
       eth_wrapped: amount,
       eth_wrapped_usd: Some(weth_usd),
-      weth_received,
-      weth_received_usd: Some(weth_received_usd),
    };
 
    let mut tx_analysis = TransactionAnalysis::new(

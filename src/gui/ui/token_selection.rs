@@ -463,9 +463,6 @@ async fn get_erc20_token(
       RT.spawn_blocking(move || {
          ctx_clone.update_public_data(chain, owner);
          ctx_clone.write(|ctx| ctx.data_syncing = false);
-         ctx_clone.save_currency_db();
-         ctx_clone.save_pool_manager();
-         ctx_clone.save_price_manager();
       });
    });
 
