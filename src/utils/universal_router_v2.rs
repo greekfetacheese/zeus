@@ -246,7 +246,7 @@ pub async fn encode_swap(
          router_weth_balance += swap.amount_out.wei();
       }
 
-      #[cfg(feature = "dev")]
+      #[cfg(feature = "debug")]
       {
          tracing::info!("|=== Swap Step ===|");
          tracing::info!(
@@ -359,7 +359,7 @@ pub async fn encode_swap(
          amountMin: amount_to_sweep,
       };
 
-      #[cfg(feature = "dev")]
+      #[cfg(feature = "debug")]
       tracing::info!("Sweep Params: {:?}", sweep_params);
 
       let data = sweep_params.abi_encode_params().into();

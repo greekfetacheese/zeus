@@ -80,10 +80,16 @@ mod tests {
       }
 
       let latest_block = client.get_block_number().await?;
-      let to_block = latest_block;
+      let to_block = latest_block - 1_000_000;
       let use_subsquid = false;
 
       railgun_provider.sync_to(to_block, use_subsquid).await?;
+
+      for _ in 0..100 {
+         let to_block = railgun_provider.global_synced_block().await + 10_000;
+
+         railgun_provider.sync_to(to_block, use_subsquid).await?;
+      }
 
       Ok(())
    }

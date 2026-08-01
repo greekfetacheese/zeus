@@ -236,6 +236,16 @@ impl ZeusCtx {
          return Ok(());
       }
 
+      let attempts = self.read(|ctx| ctx.railgun_resync_attempts.get(&chain).cloned()).unwrap_or(0);
+
+      // 0 = First attempt
+      // 1 = Second attempt that deletes the events snapshot
+      // syncing completely from scratch
+      // After that if still fails we stop trying
+      if attempts >= 2 {
+         return Ok(());
+      }
+
       self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, true));
       let old_provider = self.write(|ctx| ctx.railgun_provider.remove(&chain));
 
@@ -282,8 +292,13 @@ impl ZeusCtx {
          let snapshot_loader = SnapshotLoader::new(railgun_dir.clone());
          let filename = snapshot_loader.meta_filename(chain);
          let meta_path = railgun_dir.join(filename);
+         let snapshot_path = snapshot_loader.filename(chain);
 
          tokio::fs::remove_file(&meta_path).await?;
+
+         if attempts > 0 {
+            tokio::fs::remove_file(&snapshot_path).await?;
+         }
 
          let db_file = railgun_db_file(chain)?;
          tokio::fs::remove_file(&db_file).await?;
@@ -294,6 +309,24 @@ impl ZeusCtx {
          Ok(())
       }
       .await;
+
+      let success = res.is_ok();
+
+      if success {
+         self.write(|ctx| ctx.railgun_resync_attempts.remove(&chain));
+      } else {
+         let new_attempts = attempts + 1;
+         self.write(|ctx| {
+            ctx.railgun_resync_attempts.insert(chain, new_attempts);
+         });
+      }
+
+      if !success && attempts > 1 {
+         tracing::error!(
+            "Railgun resync failed after {} attempts, even with complete resync",
+            attempts
+         );
+      }
 
       self.write(|ctx| ctx.railgun_status.set_resync_in_progress(chain, false));
 
@@ -410,22 +443,18 @@ impl ZeusCtx {
                   indexer.utxo_verifier.set_provider(client.clone().erased()).await;
                }
             }
-
-            tracing::debug!(
-               "Got Railgun provider for chain {} from cache",
-               chain
-            );
             return Ok(provider);
          }
 
          let provider = match create_railgun_provider(client, chain).await {
             Ok(provider) => provider,
             Err(e) => {
-               tracing::error!(
-                  "Failed to create Railgun provider for chain {}: {:?}",
-                  chain,
-                  e
-               );
+               let error_str = e.to_string();
+               if !error_str.contains("Database already open") {
+                  self.write(|ctx| {
+                     ctx.railgun_status.set_sync_error(chain, error_str);
+                  });
+               }
                retries += 1;
                tokio::time::sleep(wait_time).await;
                continue;
@@ -1484,6 +1513,9 @@ pub struct ZeusContext {
    /// True if the privacy mode is enabled (Railgun)
    pub privacy_mode: bool,
 
+   /// Railgun resync attempts
+   pub railgun_resync_attempts: HashMap<u64, u8>,
+
    /// Railgun provider mapped by chain
    pub railgun_provider: HashMap<u64, RailgunProvider<RpcClient>>,
 
@@ -1653,6 +1685,7 @@ impl ZeusContext {
          client,
          chain: ChainId::new(1).unwrap(),
          privacy_mode: false,
+         railgun_resync_attempts: HashMap::new(),
          railgun_provider: HashMap::new(),
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          wallet_info_cache: HashMap::new(),

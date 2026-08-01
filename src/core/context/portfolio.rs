@@ -271,6 +271,7 @@ async fn process_private_tokens(
    let wallet = ctx.get_wallet(owner);
 
    if wallet.is_none() {
+      #[cfg(feature = "debug")]
       error!("Wallet not found for address {}", owner);
       return Ok(token_list);
    }
@@ -280,7 +281,7 @@ async fn process_private_tokens(
    if !wallet.can_derive_zk_address() {
       debug!(
          "Wallet {} cannot derive a zkAddress",
-         wallet.address()
+         wallet.name_with_id()
       );
       return Ok(token_list);
    }
@@ -291,6 +292,7 @@ async fn process_private_tokens(
 
    let private_balances = provider.balance(railgun_address).await;
 
+   #[cfg(feature = "debug")]
    debug!(
       "Found {} private balances",
       private_balances.len()

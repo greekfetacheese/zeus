@@ -115,11 +115,10 @@ fn check_railgun(chain: u64) {
 
       let railgun_provider = match ctx.get_railgun_provider(chain, false).await {
          Ok(provider) => provider,
-         Err(e) => {
+         Err(_e) => {
             ctx.write(|ctx| {
                ctx.railgun_status.set_op_in_progress(chain, false);
             });
-            tracing::error!("Error getting Railgun provider: {:?}", e);
             return;
          }
       };
@@ -129,6 +128,10 @@ fn check_railgun(chain: u64) {
       ctx.write(|ctx| {
          ctx.railgun_status.set_op_in_progress(chain, false);
          ctx.railgun_status.set_sync_in_progress(chain, is_syncing);
+      });
+
+      SHARED_GUI.write(|gui| {
+         gui.request_repaint();
       });
    });
 }
