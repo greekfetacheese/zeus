@@ -109,9 +109,14 @@ fn check_railgun(chain: u64) {
          return;
       }
 
-      ctx.write(|ctx| {
+      let can_check = ctx.write(|ctx| {
          ctx.railgun_status.set_op_in_progress(chain, true);
+         ctx.railgun_status.ui_can_check
       });
+
+      if !can_check {
+         return;
+      }
 
       let railgun_provider = match ctx.get_railgun_provider(chain, false).await {
          Ok(provider) => provider,

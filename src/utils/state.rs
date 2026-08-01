@@ -117,6 +117,10 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
       }
 
+      ctx_clone.write(|ctx| {
+         ctx.railgun_status.ui_can_check = true;
+      });
+
       malloc_trim();
    });
 
@@ -404,6 +408,11 @@ async fn state_update_interval(ctx: ZeusCtx) {
                      Err(e) => error!("Error syncing Railgun: {:?}", e),
                   }
                } else {
+                  match ctx_clone.register_all_railgun_signers(false).await {
+                     Ok(_) => {}
+                     Err(e) => error!("Error registering Railgun signers: {:?}", e),
+                  }
+
                   match ctx_clone.sync_railgun(chain, false).await {
                      Ok(_) => {}
                      Err(e) => error!("Error syncing Railgun: {:?}", e),
