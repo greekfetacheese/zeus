@@ -83,21 +83,36 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 
 ## Features
 
-- **Connect to dapps:** Still WIP, some dapps work well, some don't.
-- **Wallet Management:** Import, export and create new wallets under the same master wallet.
-- **Crypto Transactions:** Send ETH and ERC-20 tokens.
-- **Cross-Chain Bridging:** Bridge ETH between the supported chains using [Across](https://across.to/) (**BNB is not supported**).
-- **Basic Portfolio Tracking:** Monitor your assets with a simple interface.
-- **Swap Tokens:** Swap tokens on the Uniswap protocol (through the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments)).
-- **Transaction Simulations:** Zeus run local EVM simulations using [revm](https://github.com/bluealloy/revm) to verify transactions before you submit them, what you see on the screen is what you will get.
-- **MEV Protect:** For transactions that are vulnerable to MEV by default Zeus uses mev-protect rpc endpoints (ETH mainnet only).
+| Feature | Details |
+|--------|---------|
+| **Wallet management** | Create HD wallets under one master, import/export wallets |
+| **Send** | ETH and ERC-20 transfers |
+| **Swaps** | Uniswap via the [Universal Router](https://docs.uniswap.org/contracts/v4/deployments) |
+| **Cross-chain bridge** | Bridge ETH across supported chains with [Across](https://across.to/) (**BNB not supported**) |
+| **Portfolio** | Simple public + private balance tracking |
+| **Tx simulation** | Local EVM sims with [revm](https://github.com/bluealloy/revm) before you confirm what you see is what you get |
+| **MEV protect** | MEV-vulnerable txs prefer mev-protect RPCs (**Ethereum mainnet only**) |
+| **Dapp connect** | Via the [wallet-connector](https://github.com/greekfetacheese/zeus/tree/main/wallet-connector) extension, still WIP some dapps work, some don't |
 
- Zeus has been designed to work with what the Ethereum RPC API provides, it does not rely on any kind of 3rd-party service to work, you simply give it an rpc endpoint and its ready to go.
+### Railgun
 
- Because of that it does not automatically index data like token approvals, balances etc..
+Railgun is integrated in Zeus. Private balances shown in the UI are **ERC-20 only**.
 
- By default it uses free public rpc endpoints obtained from [Chainlist.org](https://chainlist.org/).
- You can of course bring your own endpoints and disable the default ones
+| Operation | Assets | Notes |
+|-----------|--------|--------|
+| **Shield** | ERC-20 | Move public funds into the private pool |
+| **Unshield** | ERC-20 | Default: private broadcaster (paymaster). Optional **self-broadcast** for emergency withdrawals (breaks anonymity). Optional unwrap WETH → ETH to fund new empty wallets |
+| **Private transfer** | ERC-20 only | Send privately to a `0zk` address |
+| **Merge notes** | ERC-20 only | Consolidate UTXO notes for an asset |
+
+### RPC / data model
+
+Zeus is built around the Ethereum RPC API. It does not depend on a third-party indexer or hosted backend, give it an RPC endpoint and it is ready to go.
+
+Because of that it does **not** auto-index chain data (historical approvals, every token balance, etc.). It tracks what it has fetched and what you do in-app.
+
+By default it uses free public RPCs from [Chainlist.org](https://chainlist.org/).
+When you start Zeus for the first time **no RPC calls are made**, you can either enable any of the default RPCs or bring your own.
 
 ---
 

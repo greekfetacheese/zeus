@@ -146,6 +146,13 @@ impl SendCryptoUi {
                   ui.spacing_mut().item_spacing = vec2(0.0, 10.0);
                   ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
+                  if privacy_mode && !ctx.railgun_is_supported(ctx.chain) {
+                     let text = RichText::new("Railgun is not supported for the selected chain")
+                        .size(theme.text_sizes.very_large);
+                     ui.label(text);
+                     return;
+                  }
+
                   let text_edit_visuals = theme.text_edit_visuals();
 
                   let title = if privacy_mode {
