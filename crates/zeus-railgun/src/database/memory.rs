@@ -2,19 +2,26 @@ use std::collections::HashMap;
 
 use futures::lock::Mutex;
 
-use crate::database::{Database, DatabaseError, WriteBatch, WriteDurability};
+use crate::database::{Database, DatabaseError, RailgunDbKey, WriteBatch, WriteDurability};
 
 /// Basic in-memory KV database implementation.
-#[derive(Default)]
 pub struct MemoryDatabase {
    store: Mutex<HashMap<Vec<u8>, Vec<u8>>>,
+   crypto_key: RailgunDbKey,
 }
 
 impl MemoryDatabase {
-   pub fn new() -> Self {
+   pub fn new(crypto_key: RailgunDbKey) -> Self {
       Self {
          store: Mutex::new(HashMap::new()),
+         crypto_key,
       }
+   }
+}
+
+impl Default for MemoryDatabase {
+   fn default() -> Self {
+      Self::new(RailgunDbKey::generate().expect("generate test db key"))
    }
 }
 
@@ -51,5 +58,9 @@ impl Database for MemoryDatabase {
          store.remove(&k);
       }
       Ok(())
+   }
+
+   fn crypto_key(&self) -> Option<&RailgunDbKey> {
+      Some(&self.crypto_key)
    }
 }

@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
    account::address::RailgunAddress,
-   database::{Database, DatabaseError, WriteBatch, WriteDurability},
+   database::{
+      Database, DatabaseError, RailgunDbKey, WriteBatch, WriteDurability,
+      crypto::ENCRYPTED_ENVELOPE_VERSION,
+   },
    indexer::{
       indexed_account::IndexedAccountState, txid_indexer::TxidIndexerState,
       utxo_indexer::UtxoIndexerState,
@@ -23,6 +26,10 @@ pub const TREE_LEAF_CHUNK: u32 = 1024;
 
 /// Envelope version for chunked leaf tree storage (meta + chunks).
 const TREE_CHUNK_FORMAT: u32 = 3;
+
+fn require_crypto_key(db: &(impl Database + ?Sized)) -> Result<&RailgunDbKey, DatabaseError> {
+   db.crypto_key().ok_or(DatabaseError::MissingCryptoKey)
+}
 
 /// Database trait extension with Railgun-specific methods for storing and retrieving typed state.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
@@ -47,12 +54,13 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       &self,
       addr: &RailgunAddress,
    ) -> Result<IndexedAccountState, DatabaseError> {
-      let key = account_key(addr);
-      let Some(bytes) = self.get(&key).await? else {
+      let storage_key = account_key(addr);
+      let Some(bytes) = self.get(&storage_key).await? else {
          return Ok(Default::default());
       };
 
-      deserialize_versioned(&bytes)
+      let crypto = require_crypto_key(self)?;
+      deserialize_versioned_sensitive(&bytes, crypto, &storage_key)
    }
 
    async fn set_account(
@@ -61,7 +69,8 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       state: &IndexedAccountState,
    ) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      put_envelope(&mut batch, &account_key(addr), 2, state)?;
+      let crypto = require_crypto_key(self)?;
+      put_account(&mut batch, addr, state, crypto)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
@@ -163,17 +172,19 @@ pub trait RailgunDB: Database + crate::MaybeSend {
    }
 
    async fn get_poi_provider(&self) -> Result<PoiProviderState, DatabaseError> {
-      let key = poi_provider_key();
-      let Some(bytes) = self.get(&key).await? else {
+      let storage_key = poi_provider_key();
+      let Some(bytes) = self.get(&storage_key).await? else {
          return Ok(Default::default());
       };
 
-      deserialize_versioned(&bytes)
+      let crypto = require_crypto_key(self)?;
+      deserialize_versioned_sensitive(&bytes, crypto, &storage_key)
    }
 
    async fn set_poi_provider(&self, state: &PoiProviderState) -> Result<(), DatabaseError> {
       let mut batch = WriteBatch::new();
-      put_envelope(&mut batch, &poi_provider_key(), 2, state)?;
+      let crypto = require_crypto_key(self)?;
+      put_poi_provider(&mut batch, state, crypto)?;
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
@@ -253,12 +264,25 @@ pub fn put_envelope<S: Serialize>(
    Ok(())
 }
 
+fn put_envelope_encrypted<S: Serialize>(
+   batch: &mut WriteBatch,
+   key: &[u8],
+   data: &S,
+   crypto: &RailgunDbKey,
+) -> Result<(), DatabaseError> {
+   let bytes = serialize_envelope_encrypted(data, crypto, key)?;
+   batch.put(key.to_vec(), bytes);
+   Ok(())
+}
+
 pub fn put_account(
    batch: &mut WriteBatch,
    addr: &RailgunAddress,
    state: &IndexedAccountState,
+   crypto: &RailgunDbKey,
 ) -> Result<(), DatabaseError> {
-   put_envelope(batch, &account_key(addr), 2, state)
+   let key = account_key(addr);
+   put_envelope_encrypted(batch, &key, state, crypto)
 }
 
 pub fn put_utxo_indexer(
@@ -278,8 +302,10 @@ pub fn put_txid_indexer(
 pub fn put_poi_provider(
    batch: &mut WriteBatch,
    state: &PoiProviderState,
+   crypto: &RailgunDbKey,
 ) -> Result<(), DatabaseError> {
-   put_envelope(batch, &poi_provider_key(), 2, state)
+   let key = poi_provider_key();
+   put_envelope_encrypted(batch, &key, state, crypto)
 }
 
 /// Push meta + selected leaf chunks for a UTXO tree into `batch`.
@@ -437,8 +463,9 @@ pub fn all_chunk_indices(leaf_count: usize) -> BTreeSet<u32> {
 }
 
 // v1: legacy JSON (for reading old DBs)
-// v2: bincode (compact binary, used for all new writes)
+// v2: bincode (compact binary, used for public / non-sensitive writes)
 // v3: chunked tree meta/chunks (same bincode envelope)
+// v4: bincode payload sealed with RailgunDbKey (accounts, POI)
 
 #[derive(Serialize, Deserialize)]
 struct JsonEnvelope {
@@ -454,8 +481,8 @@ struct BincodeEnvelope {
 
 fn serialize_envelope<T: Serialize>(version: u32, data: &T) -> Result<Vec<u8>, DatabaseError> {
    match version {
-      // v2 and above use bincode for the payload
-      v if v >= 2 => {
+      // v2 and above (below encrypted) use bincode for the payload (plaintext)
+      v if v >= 2 && v < ENCRYPTED_ENVELOPE_VERSION => {
          let payload = encode_to_vec(data, bincode_next::config::standard())
             .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
          let env = BincodeEnvelope { v, data: payload };
@@ -474,12 +501,33 @@ fn serialize_envelope<T: Serialize>(version: u32, data: &T) -> Result<Vec<u8>, D
    }
 }
 
-/// Deserialize small states (indexers, accounts, poi) and tree meta/chunks
+fn serialize_envelope_encrypted<T: Serialize>(
+   data: &T,
+   crypto: &RailgunDbKey,
+   aad: &[u8],
+) -> Result<Vec<u8>, DatabaseError> {
+   let payload = encode_to_vec(data, bincode_next::config::standard())
+      .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+   let sealed = crypto.seal(&payload, aad)?;
+   let env = BincodeEnvelope {
+      v: ENCRYPTED_ENVELOPE_VERSION,
+      data: sealed,
+   };
+   encode_to_vec(&env, bincode_next::config::standard())
+      .map_err(|e| DatabaseError::StorageError(e.to_string()))
+}
+
+/// Deserialize public / non-sensitive states (indexers, tree meta/chunks)
 fn deserialize_versioned<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T, DatabaseError> {
    // Try bincode v2+ first
    if let Ok((env, _)) =
       decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
    {
+      if env.v >= ENCRYPTED_ENVELOPE_VERSION {
+         return Err(DatabaseError::StorageError(
+            "encrypted envelope requires crypto key path".into(),
+         ));
+      }
       if env.v >= 2 {
          let (val, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
             .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
@@ -488,6 +536,36 @@ fn deserialize_versioned<T: for<'de> Deserialize<'de>>(bytes: &[u8]) -> Result<T
    }
 
    // Fallback to legacy JSON v1
+   let env: JsonEnvelope = serde_json::from_slice(bytes)?;
+   match env.v {
+      1 => serde_json::from_value(env.data).map_err(Into::into),
+      v => Err(DatabaseError::UnsupportedVersion(v)),
+   }
+}
+
+/// Deserialize sensitive states (accounts, POI): supports plaintext v1/v2 migration + v4 sealed.
+fn deserialize_versioned_sensitive<T: for<'de> Deserialize<'de>>(
+   bytes: &[u8],
+   crypto: &RailgunDbKey,
+   aad: &[u8],
+) -> Result<T, DatabaseError> {
+   if let Ok((env, _)) =
+      decode_from_slice::<BincodeEnvelope, _>(bytes, bincode_next::config::standard())
+   {
+      if env.v >= ENCRYPTED_ENVELOPE_VERSION {
+         let plain = crypto.open(&env.data, aad)?;
+         let (val, _) = decode_from_slice::<_, _>(&plain, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         return Ok(val);
+      }
+      if env.v >= 2 {
+         // Legacy plaintext bincode — accepted for one-shot migration on next write.
+         let (val, _) = decode_from_slice::<_, _>(&env.data, bincode_next::config::standard())
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         return Ok(val);
+      }
+   }
+
    let env: JsonEnvelope = serde_json::from_slice(bytes)?;
    match env.v {
       1 => serde_json::from_value(env.data).map_err(Into::into),
@@ -548,9 +626,13 @@ mod tests {
    use crate::database::memory::MemoryDatabase;
    use crate::merkle_tree::RailgunMerkleTree;
 
+   fn test_db() -> MemoryDatabase {
+      MemoryDatabase::new(RailgunDbKey::generate().unwrap())
+   }
+
    #[tokio::test]
    async fn chunked_roundtrip_and_incremental() {
-      let db = MemoryDatabase::new();
+      let db = test_db();
       let mut tree = RailgunMerkleTree::new(0);
       let leaves: Vec<U256> = (0..1500u64).map(U256::from).collect();
       tree.insert_leaves(&leaves, 0);
@@ -602,7 +684,7 @@ mod tests {
 
    #[tokio::test]
    async fn legacy_blob_load_and_migrate() {
-      let db = MemoryDatabase::new();
+      let db = test_db();
       let mut tree = RailgunMerkleTree::new(2);
       let leaves: Vec<U256> = (0..50u64).map(U256::from).collect();
       tree.insert_leaves(&leaves, 0);
@@ -637,8 +719,47 @@ mod tests {
    }
 
    #[tokio::test]
+   async fn account_encrypted_roundtrip_and_plaintext_migrate() {
+      use crate::account::address::RailgunAddress;
+      use crate::indexer::indexed_account::IndexedAccountState;
+
+      let crypto = RailgunDbKey::generate().unwrap();
+      let db = MemoryDatabase::new(crypto.clone());
+
+      let legacy_state = IndexedAccountState {
+         notes: vec![],
+         synced_block: 42,
+      };
+      let seed: [u8; 64] = rand::random();
+      let sec = secure_types::SecureArray::from_slice(&seed).unwrap();
+      let addr = RailgunAddress::new(&sec, 0, None).unwrap();
+
+      let mut batch = WriteBatch::new();
+      put_envelope(&mut batch, &account_key(&addr), 2, &legacy_state).unwrap();
+      db.apply_batch(batch, WriteDurability::Immediate).await.unwrap();
+
+      let loaded = db.get_account(&addr).await.unwrap();
+      assert_eq!(loaded.synced_block, 42);
+
+      // Rewrite encrypted
+      db.set_account(&addr, &loaded).await.unwrap();
+      let raw = db.get(&account_key(&addr)).await.unwrap().unwrap();
+      let (env, _) =
+         decode_from_slice::<BincodeEnvelope, _>(&raw, bincode_next::config::standard()).unwrap();
+      assert_eq!(env.v, ENCRYPTED_ENVELOPE_VERSION);
+
+      let loaded2 = db.get_account(&addr).await.unwrap();
+      assert_eq!(loaded2.synced_block, 42);
+
+      // Wrong key cannot open
+      let db_bad = MemoryDatabase::new(RailgunDbKey::generate().unwrap());
+      db_bad.set(&account_key(&addr), &raw).await.unwrap();
+      assert!(db_bad.get_account(&addr).await.is_err());
+   }
+
+   #[tokio::test]
    async fn large_tree_save_load_and_continue() {
-      let db = MemoryDatabase::new();
+      let db = test_db();
       let n1 = 65123usize;
       let leaves1: Vec<U256> = (0..n1 as u64).map(|i| U256::from(i * 17 + 3)).collect();
       let mut tree = RailgunMerkleTree::new(2);

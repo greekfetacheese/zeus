@@ -381,7 +381,7 @@ impl RpcSyncer {
          };
 
          let slice_to = to_block.min(events_block);
-         
+
          if slice_from <= slice_to {
             events.extend(
                full_events

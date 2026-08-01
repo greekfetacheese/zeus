@@ -15,7 +15,7 @@ use crate::{
    abi::{legacy::RailgunLegacy, railgun::RailgunSmartWallet},
    account::{address::RailgunAddress, signer::RailgunSigner},
    database::{
-      Database, DatabaseError, RailgunDB, WriteBatch, WriteDurability,
+      Database, DatabaseError, RailgunDB, RailgunDbKey, WriteBatch, WriteDurability,
       railgun_db::{
          all_chunk_indices, dirty_chunks_for_range, push_utxo_tree_save, put_account,
          put_utxo_indexer,
@@ -42,6 +42,8 @@ pub struct UtxoIndexer {
    legacy_trees: BTreeSet<u32>,
 
    db: Arc<dyn Database>,
+   /// AEAD key for sealing account note state in the DB.
+   db_key: RailgunDbKey,
    pub rpc_syncer: Arc<dyn UtxoSyncer>,
    subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
    pub utxo_verifier: Arc<dyn MerkleTreeVerifier>,
@@ -76,6 +78,7 @@ impl UtxoIndexer {
       subsquid_syncer: Option<Arc<dyn UtxoSyncer>>,
       utxo_verifier: Arc<dyn MerkleTreeVerifier>,
    ) -> Result<Self, UtxoIndexerError> {
+      let db_key = db.crypto_key().cloned().ok_or(DatabaseError::MissingCryptoKey)?;
       let state = db.get_utxo_indexer().await?;
 
       let mut utxo_trees = BTreeMap::new();
@@ -105,6 +108,7 @@ impl UtxoIndexer {
          dirty_chunks: HashMap::new(),
          legacy_trees,
          db,
+         db_key,
          rpc_syncer,
          subsquid_syncer,
          utxo_verifier,
@@ -684,7 +688,12 @@ impl UtxoIndexer {
       for account in self.accounts.iter() {
          if account.is_dirty() {
             has_critical = true;
-            put_account(&mut batch, account.address(), &account.state())?;
+            put_account(
+               &mut batch,
+               account.address(),
+               &account.state(),
+               &self.db_key,
+            )?;
          }
       }
 

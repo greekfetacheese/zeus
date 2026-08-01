@@ -21,7 +21,7 @@ pub use circuit::remote_artifact_loader::{
    ARTIFACT_MAX_INPUTS, ARTIFACT_MAX_OUTPUTS, AvailableCircuits, EmbeddedCircuit, PrefetchReport,
    RemoteArtifactLoader, all_transact_circuit_names, transact_circuit_name,
 };
-pub use database::RedbDatabase;
+pub use database::{RailgunDbKey, RedbDatabase};
 pub use indexer::{
    syncer::{RpcSyncer, UtxoSyncer, snapshot::SnapshotLoader, subsquid::syncer::SubsquidSyncer},
    utxo_indexer::UtxoIndexer,

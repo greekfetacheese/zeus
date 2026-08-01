@@ -113,6 +113,13 @@ pub struct Vault {
    /// HD child discovery state
    #[serde(default)]
    pub discovered_wallets: DiscoveredWallets,
+
+   /// AEAD key for sensitive Railgun DB values (UTXO notes, POI pending).
+   ///
+   /// Stored only inside the encrypted vault. Generated on first retrieval
+   /// of the railgun provider from ZeusCtx.
+   #[serde(default)]
+   railgun_db_key: Option<zeus_railgun::RailgunDbKey>,
 }
 
 impl Default for Vault {
@@ -127,6 +134,7 @@ impl Default for Vault {
          portfolio_db: PortfolioDB::default(),
          tx_db: TxDBHandle::new(),
          discovered_wallets: DiscoveredWallets::new(),
+         railgun_db_key: None,
       }
    }
 }
@@ -169,6 +177,10 @@ impl Vault {
       for wallet in self.imported_wallets.iter_mut() {
          wallet.key.erase();
       }
+
+      if let Some(ref mut key) = self.railgun_db_key {
+         key.erase();
+      }
    }
 
    pub fn master_wallet_address(&self) -> Address {
@@ -195,12 +207,33 @@ impl Vault {
       self.imported_wallets = imported_wallets;
    }
 
-   /// Copy balance / portfolio / tx / discovery state from another vault.
+   /// Copy balance / portfolio / tx / discovery / railgun-db-key state from another vault.
    pub fn persisted_state_from(&mut self, other: &Vault) {
       self.balance_manager = other.balance_manager.clone();
       self.tx_db = other.tx_db.clone();
       self.portfolio_db = other.portfolio_db.clone();
       self.discovered_wallets = other.discovered_wallets.clone();
+      self.railgun_db_key = other.railgun_db_key.clone();
+   }
+
+   /// Ensure a Railgun DB crypto key exists.
+   ///
+   /// Returns `true` if a new key was generated (caller should re-save the vault).
+   pub fn ensure_railgun_db_key(&mut self) -> Result<bool, anyhow::Error> {
+      if self.railgun_db_key.is_some() {
+         return Ok(false);
+      }
+      let key = zeus_railgun::RailgunDbKey::generate()
+         .map_err(|e| anyhow!("Failed to generate railgun db key: {e}"))?;
+      self.railgun_db_key = Some(key);
+      Ok(true)
+   }
+
+   /// Clone the Railgun DB key (for provider construction while unlocked).
+   pub fn railgun_db_key(&self) -> Result<zeus_railgun::RailgunDbKey, anyhow::Error> {
+      self.railgun_db_key.clone().ok_or_else(|| {
+         anyhow!("Railgun DB key missing — unlock vault / ensure_railgun_db_key first")
+      })
    }
 
    pub fn wallet_name_exists(&self, name: &str) -> bool {
@@ -497,6 +530,7 @@ impl Vault {
       self.portfolio_db = vault.portfolio_db;
       self.tx_db = vault.tx_db;
       self.discovered_wallets = vault.discovered_wallets;
+      self.railgun_db_key = vault.railgun_db_key;
       Ok(())
    }
 

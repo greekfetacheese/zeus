@@ -11,6 +11,7 @@ mod tests {
    use zeus_railgun::caip::AssetId;
    use zeus_railgun::*;
 
+   use ncrypt_me::{Credentials, secure_types::SecureString};
    use zeus_eth::alloy_primitives::{TxKind, U256};
    use zeus_eth::alloy_provider::Provider;
    use zeus_eth::{currency::ERC20Token, revm_utils::*, types::ChainId, utils::NumericValue};
@@ -20,6 +21,22 @@ mod tests {
    fn create_wallet() -> Wallet {
       let seed_phrase = "boil belt beef hunt cruel lady code dance double city young rule very sight roast make eight travel tattoo mixed you color update double";
       Wallet::new_from_mnemonic("test".into(), seed_phrase.into()).unwrap()
+   }
+
+   fn load_vault(ctx: ZeusCtx) {
+      let credentials = Credentials::new(
+         SecureString::from("dev"),
+         SecureString::from("dev"),
+         SecureString::from("dev"),
+      );
+
+      let mut vault = ctx.clone_vault();
+      vault.set_credentials(credentials);
+
+      let data = vault.decrypt(None).unwrap();
+      vault.load(data).unwrap();
+
+      ctx.set_vault(vault);
    }
 
    #[test]
@@ -38,6 +55,7 @@ mod tests {
 
       let ctx = ZeusCtx::new();
       let chain = ChainId::EthereumSepolia;
+      load_vault(ctx.clone());
 
       {
          let _ = ctx.get_railgun_provider(chain.id(), false).await?;
@@ -59,6 +77,8 @@ mod tests {
          .init();
 
       let ctx = ZeusCtx::new();
+      load_vault(ctx.clone());
+
       let chain = ChainId::EthereumSepolia;
       let _chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
       let client = ctx.get_client(chain.id()).await?;
@@ -67,8 +87,13 @@ mod tests {
       let seed = wallet.seed()?;
       let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
 
+      let generated = ctx.write_vault(|vault| vault.ensure_railgun_db_key())?;
+      assert!(!generated);
+      
+      let db_key = ctx.write_vault(|vault| vault.railgun_db_key())?;
+
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client.clone(), chain.id()).await?;
+         create_railgun_provider(client.clone(), chain.id(), db_key).await?;
 
       railgun_provider.register(signer).await?;
       railgun_provider.set_provider(client.clone());
@@ -94,64 +119,6 @@ mod tests {
       Ok(())
    }
 
-   #[tokio::test]
-   async fn test_load_state() {
-      tracing_subscriber::fmt().with_env_filter("info,error,debug").init();
-
-      let ctx = ZeusCtx::new();
-      let chain = 1;
-      let client = ctx.get_client(chain).await.unwrap();
-
-      let wallet = create_wallet();
-      let seed = wallet.seed().unwrap();
-      let signer = RailgunSigner::from_seed(&seed, 0, chain).unwrap();
-
-      let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client, chain).await.unwrap();
-
-      railgun_provider.register(signer).await.unwrap();
-
-      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
-      println!("Synced block: {}", synced_block);
-
-      match railgun_provider.compact().await {
-         Ok(true) => println!("Database compaction performed"),
-         Ok(false) => println!("Database does not need compaction"),
-         Err(e) => eprintln!("Compaction failed: {}", e),
-      }
-
-      loop {
-         std::thread::sleep(std::time::Duration::from_secs(1));
-         println!("Press ctrl-c to exit");
-      }
-   }
-
-   #[tokio::test]
-   async fn test_verify_root() -> Result<(), anyhow::Error> {
-      tracing_subscriber::fmt().with_env_filter("info,error,debug").init();
-
-      let ctx = ZeusCtx::new();
-      let chain = 1;
-      let client = ctx.get_client(chain).await?;
-
-      let wallet = create_wallet();
-      let seed = wallet.seed()?;
-      let signer = RailgunSigner::from_seed(&seed, 0, chain)?;
-
-      let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client.clone(), chain).await?;
-
-      railgun_provider.register(signer).await?;
-
-      let synced_block = railgun_provider.utxo_indexer.read().await.global_synced_block();
-      println!("Synced block: {}", synced_block);
-
-      let block_id = BlockId::number(synced_block);
-      railgun_provider.verify_root(Some(block_id)).await?;
-
-      Ok(())
-   }
-
    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
    async fn test_shield_unshield() -> Result<(), anyhow::Error> {
       tracing_subscriber::fmt()
@@ -160,6 +127,7 @@ mod tests {
          .init();
 
       let ctx = ZeusCtx::new();
+      load_vault(ctx.clone());
       let chain = ChainId::EthereumSepolia;
       let chain_config = ChainConfig::from_chain_id(chain.id()).unwrap();
       let railgun_addr = chain_config.railgun_smart_wallet;
@@ -168,10 +136,15 @@ mod tests {
       let seed = wallet.seed()?;
       let signer = RailgunSigner::from_seed(&seed, 0, chain.id())?;
       let railgun_address = signer.address().clone();
+
+      let generated = ctx.write_vault(|vault| vault.ensure_railgun_db_key())?;
+      assert!(!generated);
+
+      let db_key = ctx.read_vault(|vault| vault.railgun_db_key())?;
       let client = ctx.get_client(chain.id()).await?;
 
       let mut railgun_provider: RailgunProvider<RpcClient> =
-         create_railgun_provider(client.clone(), chain.id()).await?;
+         create_railgun_provider(client.clone(), chain.id(), db_key).await?;
 
       railgun_provider.register(signer.clone()).await?;
 

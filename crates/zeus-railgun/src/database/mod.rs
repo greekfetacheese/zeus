@@ -1,7 +1,9 @@
+pub mod crypto;
 pub mod memory;
 pub mod railgun_db;
 pub mod redb;
 
+pub use crypto::{ENCRYPTED_ENVELOPE_VERSION, RailgunDbKey};
 pub use railgun_db::RailgunDB;
 pub use redb::RedbDatabase;
 
@@ -74,6 +76,14 @@ pub trait Database: crate::MaybeSend {
    async fn compact(&self) -> Result<bool, DatabaseError> {
       Ok(false)
    }
+
+   /// Key used to AEAD-seal sensitive envelopes (accounts, POI).
+   ///
+   /// Required for account/POI read-write. Public tree/index watermarks do not
+   /// need it.
+   fn crypto_key(&self) -> Option<&crypto::RailgunDbKey> {
+      None
+   }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -84,4 +94,10 @@ pub enum DatabaseError {
    UnsupportedVersion(u32),
    #[error("Storage error: {0}")]
    StorageError(String),
+   #[error("Encryption error: {0}")]
+   EncryptionError(String),
+   #[error("Decryption error: {0}")]
+   DecryptionError(String),
+   #[error("Missing Railgun DB crypto key")]
+   MissingCryptoKey,
 }

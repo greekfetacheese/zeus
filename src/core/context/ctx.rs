@@ -419,6 +419,18 @@ impl ZeusCtx {
          }
       };
 
+      // Ensure vault has a Railgun DB key (legacy vaults get one on first use).
+      let (db_key, key_was_generated) = self.write_vault(|vault| {
+         let generated = vault.ensure_railgun_db_key()?;
+         Ok::<_, anyhow::Error>((vault.railgun_db_key()?, generated))
+      })?;
+      if key_was_generated {
+         // Save the vault to persist the key.
+         if let Err(e) = self.encrypt_and_save_vault(None, None) {
+            return Err(anyhow!("Failed to save vault: {e}"));
+         }
+      }
+
       loop {
          if retries >= max_retries {
             return Err(anyhow!(
@@ -446,7 +458,7 @@ impl ZeusCtx {
             return Ok(provider);
          }
 
-         let provider = match create_railgun_provider(client, chain).await {
+         let provider = match create_railgun_provider(client, chain, db_key.clone()).await {
             Ok(provider) => provider,
             Err(e) => {
                let error_str = e.to_string();

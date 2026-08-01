@@ -4,7 +4,7 @@ use std::sync::{Arc, RwLock};
 use redb::{Database as RedbInner, Durability, ReadableDatabase, TableDefinition};
 use tokio::task;
 
-use crate::database::{Database, DatabaseError, WriteBatch, WriteDurability};
+use crate::database::{Database, DatabaseError, RailgunDbKey, WriteBatch, WriteDurability};
 
 const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 
@@ -14,10 +14,11 @@ const TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("railgun_kv");
 /// fast, and has good durability guarantees.
 pub struct RedbDatabase {
    inner: Arc<RwLock<RedbInner>>,
+   crypto_key: RailgunDbKey,
 }
 
 impl RedbDatabase {
-   pub fn new(path: impl AsRef<Path>) -> Result<Self, redb::Error> {
+   pub fn new(path: impl AsRef<Path>, crypto_key: RailgunDbKey) -> Result<Self, redb::Error> {
       let inner = if path.as_ref().exists() {
          RedbInner::open(path.as_ref())?
       } else {
@@ -33,6 +34,7 @@ impl RedbDatabase {
 
       Ok(Self {
          inner: Arc::new(RwLock::new(inner)),
+         crypto_key,
       })
    }
 
@@ -140,5 +142,9 @@ impl Database for RedbDatabase {
 
    async fn compact(&self) -> Result<bool, DatabaseError> {
       RedbDatabase::compact(self).await
+   }
+
+   fn crypto_key(&self) -> Option<&RailgunDbKey> {
+      Some(&self.crypto_key)
    }
 }

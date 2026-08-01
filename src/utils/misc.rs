@@ -17,8 +17,8 @@ use tokio::runtime::Runtime;
 use crate::core::ctx::{railgun_db_file, railgun_dir};
 use zeus_eth::utils::client::RpcClient;
 use zeus_railgun::{
-   ChainConfig, Groth16Prover, RailgunProvider, RedbDatabase, RootVerifier, RpcSyncer,
-   SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
+   ChainConfig, Groth16Prover, RailgunDbKey, RailgunProvider, RedbDatabase, RootVerifier,
+   RpcSyncer, SnapshotLoader, SubsquidSyncer, UtxoIndexer, UtxoSyncer,
 };
 
 use anyhow::anyhow;
@@ -30,6 +30,7 @@ lazy_static! {
 pub async fn create_railgun_provider(
    client: RpcClient,
    chain: u64,
+   db_key: RailgunDbKey,
 ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
    let db_file = railgun_db_file(chain)?;
    let railgun_dir = railgun_dir()?;
@@ -55,7 +56,7 @@ pub async fn create_railgun_provider(
          .with_snapshot_loader(snapshot_loader),
    ));
 
-   let db = RedbDatabase::new(db_file)?;
+   let db = RedbDatabase::new(db_file, db_key)?;
    let utxo_indexer = UtxoIndexer::new(
       Arc::new(db),
       Arc::new(rpc_syncer),
