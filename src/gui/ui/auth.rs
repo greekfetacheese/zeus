@@ -452,6 +452,12 @@ impl RecoverHDWallet {
                         gui.loading_window.open("Encrypting Vault...");
                      });
 
+                     if let Err(e) = vault.ensure_railgun_db_key() {
+                        // ? Should not happen, at some point need to make
+                        // ? small PopUps in the UI to notify the user.
+                        tracing::error!("Failed to generate Railgun DB key: {e}");
+                     }
+
                      // Encrypt the vault
                      match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
                         Ok(_) => {
