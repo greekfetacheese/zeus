@@ -12217,7 +12217,7 @@ dependencies = [
 
 [[package]]
 name = "zeus"
-version = "0.8.20"
+version = "0.9.0"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -12281,7 +12281,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-eth"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-contract",
  "alloy-dyn-abi",
