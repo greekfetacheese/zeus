@@ -12381,7 +12381,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-ui-components"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "eframe",
  "egui",
