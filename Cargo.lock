@@ -12398,7 +12398,7 @@ dependencies = [
 
 [[package]]
 name = "zeus-wallet"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "alloy-network",
  "alloy-primitives",
