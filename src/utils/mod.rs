@@ -9,6 +9,7 @@ pub use misc::*;
 
 #[track_caller]
 pub fn malloc_trim() {
+   #[cfg(target_os = "linux")]
    unsafe {
       if libc::malloc_trim(0) == 1 {
          tracing::info!("Released free memory");
