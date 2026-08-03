@@ -190,6 +190,20 @@ impl<P: Provider<Ethereum> + Clone> RailgunProvider<P> {
       Ok(())
    }
 
+   /// Drop account state for any registered/persisted account that is not in `keep_signers`.
+   ///
+   /// Compares signers against the provider's account set (memory + DB),
+   /// deletes orphans, and persists the DB immediately. Returns how many account
+   /// DB keys were removed.
+   pub async fn cleanup_orphaned_accounts(
+      &self,
+      keep_signers: &[RailgunSigner],
+   ) -> Result<usize, RailgunProviderError> {
+      let keep: Vec<RailgunAddress> = keep_signers.iter().map(|s| s.address().clone()).collect();
+      let removed = self.utxo_indexer.write().await.retain_accounts(&keep).await?;
+      Ok(removed)
+   }
+
    /// Returns true if the [UtxoIndexer] is syncing
    pub async fn is_syncing(&self) -> bool {
       *self.is_syncing.read().await

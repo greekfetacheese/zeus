@@ -60,6 +60,11 @@ impl Database for MemoryDatabase {
       Ok(())
    }
 
+   async fn keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+      let store = self.store.lock().await;
+      Ok(store.keys().filter(|k| k.starts_with(prefix)).cloned().collect())
+   }
+
    fn crypto_key(&self) -> Option<&RailgunDbKey> {
       Some(&self.crypto_key)
    }

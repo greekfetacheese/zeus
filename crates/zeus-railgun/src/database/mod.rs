@@ -73,6 +73,13 @@ pub trait Database: crate::MaybeSend {
       Ok(())
    }
 
+   /// Return all keys that start with `prefix`.
+   ///
+   /// Default is empty — backends that support iteration should override.
+   async fn keys_with_prefix(&self, _prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+      Ok(Vec::new())
+   }
+
    async fn compact(&self) -> Result<bool, DatabaseError> {
       Ok(false)
    }

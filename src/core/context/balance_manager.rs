@@ -1,7 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
 use crate::utils::RT;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use tokio::{sync::Semaphore, time::sleep};
@@ -462,6 +462,27 @@ impl BalanceManagerHandle {
       self.write(|manager| {
          manager.token_balances.insert((chain, owner, token.address), balance);
       });
+   }
+
+   /// Drop balance entries whose owner is not in `wallets`.
+   ///
+   /// Returns `(eth_removed, token_removed)`.
+   pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> (usize, usize) {
+      self.write(|manager| {
+         let eth_before = manager.eth_balances.len();
+         manager.eth_balances.retain(|(_chain, owner), _| wallets.contains(owner));
+         manager.eth_balances.shrink_to_fit();
+         let eth_removed = eth_before.saturating_sub(manager.eth_balances.len());
+
+         let token_before = manager.token_balances.len();
+         manager
+            .token_balances
+            .retain(|(_chain, owner, _token), _| wallets.contains(owner));
+         manager.token_balances.shrink_to_fit();
+         let token_removed = token_before - manager.token_balances.len();
+
+         (eth_removed, token_removed)
+      })
    }
 }
 

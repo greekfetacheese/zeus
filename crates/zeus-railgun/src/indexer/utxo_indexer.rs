@@ -17,7 +17,7 @@ use crate::{
    database::{
       Database, DatabaseError, RailgunDB, RailgunDbKey, WriteBatch, WriteDurability,
       railgun_db::{
-         all_chunk_indices, dirty_chunks_for_range, push_utxo_tree_save, put_account,
+         account_key, all_chunk_indices, dirty_chunks_for_range, push_utxo_tree_save, put_account,
          put_utxo_indexer,
       },
    },
@@ -168,6 +168,38 @@ impl UtxoIndexer {
    /// Lists all registered accounts
    pub fn registered(&self) -> Vec<RailgunAddress> {
       self.accounts.iter().map(|a| a.address().clone()).collect()
+   }
+
+   /// Keep only accounts whose addresses are in `keep`.
+   ///
+   /// - Drops matching entries from the in-memory registered set
+   /// - Deletes orphan account blobs from the DB (including ones never loaded this session)
+   ///
+   /// Returns how many DB account keys were removed.
+   pub async fn retain_accounts(
+      &mut self,
+      keep: &[RailgunAddress],
+   ) -> Result<usize, UtxoIndexerError> {
+      let keep_keys: std::collections::HashSet<Vec<u8>> = keep.iter().map(account_key).collect();
+
+      // Drop from memory first so we never re-save an orphan after this.
+      self.accounts.retain(|a| keep_keys.contains(&account_key(a.address())));
+
+      let stored = self.db.list_account_keys().await?;
+      let mut batch = WriteBatch::new();
+      let mut removed = 0usize;
+      for key in stored {
+         if !keep_keys.contains(&key) {
+            batch.delete(key);
+            removed += 1;
+         }
+      }
+
+      if removed > 0 {
+         self.db.apply_batch(batch, WriteDurability::Immediate).await?;
+      }
+
+      Ok(removed)
    }
 
    /// Lists all unspent notes for a given address. Returns an empty list if the address is not

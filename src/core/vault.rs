@@ -98,7 +98,7 @@ pub struct Vault {
    #[serde(default)]
    pub contacts: Vec<Contact>,
 
-   /// Public balances (persisted with the vault; saved on vault encrypt)
+   /// Public balances
    #[serde(default)]
    pub balance_manager: BalanceManagerHandle,
 
@@ -116,8 +116,7 @@ pub struct Vault {
 
    /// AEAD key for sensitive Railgun DB values (UTXO notes, POI pending).
    ///
-   /// Stored only inside the encrypted vault. Generated on first retrieval
-   /// of the railgun provider from ZeusCtx.
+   /// Generated the first time Zeus starts.
    #[serde(default)]
    railgun_db_key: Option<zeus_railgun::RailgunDbKey>,
 }

@@ -1,7 +1,7 @@
 use crate::core::ZeusCtx;
 use crate::core::serde_hashmap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, error};
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -63,6 +63,14 @@ impl PortfolioDB {
    pub fn get_tokens(&self, chain_id: u64, owner: Address) -> Vec<ERC20Token> {
       let portfolio = self.get(chain_id, owner);
       portfolio.tokens.clone()
+   }
+
+   /// Drop portfolios whose owner is not in `wallets`. Returns how many entries were removed.
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
+      let before = self.portfolios.len();
+      self.portfolios.retain(|(_chain, owner), _| wallets.contains(owner));
+      self.portfolios.shrink_to_fit();
+      before.saturating_sub(self.portfolios.len())
    }
 }
 

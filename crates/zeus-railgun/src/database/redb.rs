@@ -140,6 +140,34 @@ impl Database for RedbDatabase {
       .map_err(|e| DatabaseError::StorageError(e.to_string()))?
    }
 
+   async fn keys_with_prefix(&self, prefix: &[u8]) -> Result<Vec<Vec<u8>>, DatabaseError> {
+      let inner = self.inner.clone();
+      let prefix = prefix.to_vec();
+
+      task::spawn_blocking(move || -> Result<Vec<Vec<u8>>, DatabaseError> {
+         let guard = inner.read().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let tx = guard.begin_read().map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         let table: redb::ReadOnlyTable<&[u8], &[u8]> =
+            tx.open_table(TABLE).map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+
+         let mut keys = Vec::new();
+         let range = table
+            .range(prefix.as_slice()..)
+            .map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+         for item in range {
+            let (k, _) = item.map_err(|e| DatabaseError::StorageError(e.to_string()))?;
+            let key = k.value();
+            if !key.starts_with(prefix.as_slice()) {
+               break;
+            }
+            keys.push(key.to_vec());
+         }
+         Ok(keys)
+      })
+      .await
+      .map_err(|e| DatabaseError::StorageError(e.to_string()))?
+   }
+
    async fn compact(&self) -> Result<bool, DatabaseError> {
       RedbDatabase::compact(self).await
    }

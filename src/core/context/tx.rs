@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 use alloy_consensus::TxType;
@@ -84,6 +84,11 @@ impl TxDBHandle {
       per_page: usize,
    ) -> Option<Vec<TransactionRich>> {
       self.read(|db| db.get_txs_paged(chain, owner, page, per_page))
+   }
+
+   /// Drop tx histories whose owner is not in `wallets`. Returns how many entries were removed.
+   pub fn retain_wallets(&self, wallets: &HashSet<Address>) -> usize {
+      self.write(|db| db.retain_wallets(wallets))
    }
 }
 
@@ -242,5 +247,13 @@ impl TransactionsDB {
             txs[start..end].to_vec()
          }
       })
+   }
+
+   /// Drop tx histories whose owner is not in `wallets`. Returns how many entries were removed.
+   pub fn retain_wallets(&mut self, wallets: &HashSet<Address>) -> usize {
+      let before = self.txs.len();
+      self.txs.retain(|(_chain, owner), _| wallets.contains(owner));
+      self.txs.shrink_to_fit();
+      before.saturating_sub(self.txs.len())
    }
 }

@@ -16,7 +16,7 @@ use zeus_eth::{
    types::{ChainId, SUPPORTED_CHAINS},
    utils::{NumericValue, block::calculate_next_block_base_fee},
 };
-use zeus_railgun::{Groth16Prover, PrefetchReport};
+use zeus_railgun::{Groth16Prover, PrefetchReport, RailgunSigner};
 
 const MALLOC_TRIM_INTERVAL: u64 = 300;
 const MEASURE_RPCS_INTERVAL: u64 = 200;
@@ -76,6 +76,8 @@ pub async fn on_startup(ctx: ZeusCtx) {
    ctx.write(|ctx| {
       ctx.on_startup_syncing = true;
    });
+
+   cleanup_orphaned_wallet_data(ctx.clone());
 
    for chain in SUPPORTED_CHAINS {
       if ctx.is_chain_disabled(chain) {
@@ -195,6 +197,99 @@ pub async fn on_startup(ctx: ZeusCtx) {
 
    RT.spawn(async move {
       malloc_trim_interval().await;
+   });
+}
+
+/// Remove BalanceManager / PortfolioDB / TxDB entries for addresses that are
+/// no longer present as wallets in the vault.
+pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
+   let wallets: HashSet<_> = ctx.get_all_wallets_info().into_iter().map(|w| w.address).collect();
+
+   let (eth_removed, token_removed, portfolio_removed, tx_removed) = ctx.write_vault(|vault| {
+      let (eth_removed, token_removed) = vault.balance_manager.retain_wallets(&wallets);
+      let portfolio_removed = vault.portfolio_db.retain_wallets(&wallets);
+      let tx_removed = vault.tx_db.retain_wallets(&wallets);
+      (
+         eth_removed,
+         token_removed,
+         portfolio_removed,
+         tx_removed,
+      )
+   });
+
+   let total = eth_removed + token_removed + portfolio_removed + tx_removed;
+   if total > 0 {
+      info!(
+         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories",
+         eth_removed, token_removed, portfolio_removed, tx_removed
+      );
+   } else {
+      debug!("No orphaned wallet data to clean");
+   }
+
+   RT.spawn(async move {
+      let wallets = ctx.read_vault(|vault| vault.clone_all_wallets());
+      let mut keep_signers = Vec::new();
+
+      for wallet in wallets {
+         if let Ok(seed) = wallet.seed() {
+            let signer = RailgunSigner::from_seed(&seed, 0, 1).expect("invalid seed");
+            keep_signers.push(signer);
+         }
+      }
+
+      let timeout = Duration::from_secs(120);
+      let start = Instant::now();
+
+      for chain in ChainId::supported_chains() {
+         if !ctx.railgun_is_supported(chain) {
+            continue;
+         }
+
+         loop {
+            if Instant::now().duration_since(start) > timeout {
+               error!(
+                  "Timed out waiting for Railgun provider on chain {}",
+                  chain.id()
+               );
+               break;
+            }
+
+            let ready = ctx.read(|ctx| ctx.railgun_provider.get(&chain.id()).is_some());
+
+            if !ready {
+               tokio::time::sleep(Duration::from_millis(500)).await;
+               continue;
+            }
+
+            let provider = match ctx.get_railgun_provider(chain.id(), false).await {
+               Ok(provider) => provider,
+               Err(e) => {
+                  error!("Error getting Railgun provider: {:?}", e);
+                  tokio::time::sleep(Duration::from_millis(500)).await;
+                  continue;
+               }
+            };
+
+            match provider.cleanup_orphaned_accounts(&keep_signers).await {
+               Ok(removed) => {
+                  info!(
+                     "Cleaned {} orphaned Railgun account(s) on chain {}",
+                     removed,
+                     chain.id()
+                  );
+               }
+               Err(e) => {
+                  error!(
+                     "Error cleaning orphaned Railgun accounts: {:?}",
+                     e
+                  );
+               }
+            }
+
+            break;
+         }
+      }
    });
 }
 

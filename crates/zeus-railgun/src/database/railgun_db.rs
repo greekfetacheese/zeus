@@ -74,6 +74,18 @@ pub trait RailgunDB: Database + crate::MaybeSend {
       self.apply_batch(batch, WriteDurability::Immediate).await
    }
 
+   /// Delete sealed account state for `addr` from the DB.
+   async fn delete_account(&self, addr: &RailgunAddress) -> Result<(), DatabaseError> {
+      let mut batch = WriteBatch::new();
+      batch.delete(account_key(addr));
+      self.apply_batch(batch, WriteDurability::Immediate).await
+   }
+
+   /// Storage keys for all persisted account blobs (`account:…`).
+   async fn list_account_keys(&self) -> Result<Vec<Vec<u8>>, DatabaseError> {
+      self.keys_with_prefix(b"account:").await
+   }
+
    /// Load UTXO tree leaves. Supports legacy full-level blobs and chunked leaf format.
    ///
    /// Returns `(leaves, loaded_from_legacy_blob)`.
@@ -600,7 +612,7 @@ fn utxo_indexer_key() -> Vec<u8> {
    b"utxo_indexer".to_vec()
 }
 
-fn account_key(addr: &RailgunAddress) -> Vec<u8> {
+pub fn account_key(addr: &RailgunAddress) -> Vec<u8> {
    format!("account:{:?}", addr).into_bytes()
 }
 

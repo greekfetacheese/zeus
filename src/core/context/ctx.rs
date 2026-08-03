@@ -183,6 +183,7 @@ impl ZeusCtx {
    /// Register all the available `RailgunSigners` from the vault's wallets
    ///
    /// This should be called at the startup and whenever a wallet is added.
+   /// Also drops Railgun DB account state for wallets that no longer exist.
    pub async fn register_all_railgun_signers(
       &self,
       ignore_resync: bool,
@@ -195,6 +196,7 @@ impl ZeusCtx {
             self.register_railgun_signer(signer, ignore_resync).await?;
          }
       }
+
       Ok(())
    }
 
