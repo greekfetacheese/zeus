@@ -11,6 +11,9 @@ use zeus_ui_components::{CredentialsForm, QrImage};
 use zeus_wallet::Wallet;
 use zeus_widgets::Button;
 
+const MASTER_WALLET_WARNING: &str = "This is your master wallet, if this key gets exposed any child wallet you generated with this key will be compromised\n
+You don't have to export this key unless something broke in Zeus and you cannot move your funds to other wallets";
+
 pub struct ExportKeyUi {
    open: bool,
    overlay: OverlayManager,
@@ -20,6 +23,7 @@ pub struct ExportKeyUi {
    private_key_qr: QrImage,
    show_key: bool,
    show_key_qrcode: bool,
+   show_warning: bool,
    size: (f32, f32),
 }
 
@@ -37,12 +41,17 @@ impl ExportKeyUi {
          private_key_qr: QrImage::empty_with_error("No QR code found".to_string()),
          show_key: false,
          show_key_qrcode: false,
+         show_warning: false,
          size: (550.0, 350.0),
       }
    }
 
    pub fn open(&mut self, wallet: Option<Wallet>) {
       if let Some(wallet) = &wallet {
+         if wallet.is_master() {
+            self.show_warning = true;
+         }
+
          let key_hex = wallet.key_string();
          let uri = format!(
             "bytes://key-{}.png",
@@ -81,23 +90,63 @@ impl ExportKeyUi {
       self.show_key(ctx, theme, ui);
    }
 
+   fn show_warning(&mut self, theme: &Theme, ui: &mut Ui) {
+      if !self.show_warning {
+         return;
+      }
+
+      let warning = "WARNING!";
+      let warning_text = RichText::new(warning)
+         .size(theme.text_sizes.very_large)
+         .color(theme.colors.warning);
+      ui.label(warning_text);
+
+      let warning_text = RichText::new(MASTER_WALLET_WARNING)
+         .size(theme.text_sizes.large)
+         .color(theme.colors.warning);
+      ui.label(warning_text);
+
+      let button_text = "I understand the risks";
+      let text = RichText::new(button_text).size(theme.text_sizes.normal);
+      let button = Button::new(text).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         self.show_warning = false;
+      }
+
+      let button_text = "Changed my mind";
+      let text = RichText::new(button_text).size(theme.text_sizes.normal);
+      let button = Button::new(text).visuals(theme.button_visuals());
+
+      if ui.add(button).clicked() {
+         let erased = self.private_key_qr.clear(ui.ctx());
+         self.reset();
+
+         if erased {
+            info!("PK QR Image data zeroized");
+         } else {
+            error!("PK QR Image data zeroize failed");
+         }
+      }
+   }
+
    fn show_key(&mut self, _ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
       if !self.show_key || !self.verified_credentials {
          return;
       }
 
-      let title = RichText::new("Success").size(theme.text_sizes.heading);
       let window_frame = theme.frame1;
 
-      Window::new(title)
+      Window::new("")
+         .title_bar(false)
          .order(Order::Foreground)
          .resizable(false)
          .collapsible(false)
          .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
-            ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+            ui.set_max_width(self.size.0);
+            ui.set_max_height(self.size.1);
 
             let button_visuals = theme.button_visuals();
             let button_size = vec2(100.0, 20.0);
@@ -106,7 +155,11 @@ impl ExportKeyUi {
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(10.0);
+
+               self.show_warning(theme, ui);
+               if self.show_warning {
+                  return;
+               }
 
                if let Some(wallet) = self.wallet_to_export.as_ref() {
                   let warning_text = "Make sure to save this key in a safe place!";
@@ -259,10 +312,7 @@ impl ExportKeyUi {
                }
                Err(e) => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window(format!(
-                        "Failed to decrypt vault: {}",
-                        e.to_string()
-                     ));
+                     gui.open_msg_window(e.to_string());
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });

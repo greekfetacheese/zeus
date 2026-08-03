@@ -291,8 +291,7 @@ impl WalletUi {
                   let enabled = !wallet.is_master();
 
                   Menu::new(id).show_below(&more, |ui| {
-                     if ui.add_enabled(enabled, MenuItem::new("Export").shortcut("⌘ E")).clicked()
-                     {
+                     if ui.add(MenuItem::new("Export").shortcut("⌘ E")).clicked() {
                         let wallet = ctx.get_wallet(wallet.address);
                         self.export_key_ui.open(wallet);
                      }
