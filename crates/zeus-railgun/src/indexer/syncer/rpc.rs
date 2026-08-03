@@ -32,7 +32,7 @@ use crate::{
 /// block range.
 ///
 /// So its impossible to find out the block_range limit for each provider
-pub const DEFAULT_BLOCK_RANGE: u64 = 5_000;
+pub const DEFAULT_BLOCK_RANGE: u64 = 3_000;
 pub const SEPOLIA_BLOCK_RANGE: u64 = 30_000;
 
 pub const DEFAULT_CONCURRENCY: usize = 2;

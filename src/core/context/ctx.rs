@@ -475,6 +475,7 @@ impl ZeusCtx {
 
          self.write(|ctx| {
             ctx.railgun_provider.insert(chain, provider.clone());
+            ctx.railgun_status.ui_can_check.insert(chain, true);
          });
 
          return Ok(provider);

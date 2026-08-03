@@ -32,6 +32,8 @@ pub async fn create_railgun_provider(
    chain: u64,
    db_key: RailgunDbKey,
 ) -> Result<RailgunProvider<RpcClient>, anyhow::Error> {
+   let time = std::time::Instant::now();
+
    let db_file = railgun_db_file(chain)?;
    let railgun_dir = railgun_dir()?;
 
@@ -76,6 +78,8 @@ pub async fn create_railgun_provider(
       None,
    )
    .await?;
+
+   tracing::info!("Railgun provider created for chain {} in {}ms", chain, time.elapsed().as_millis());
 
    Ok(railgun_provider)
 }

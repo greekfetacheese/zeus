@@ -111,7 +111,7 @@ fn check_railgun(chain: u64) {
 
       let can_check = ctx.write(|ctx| {
          ctx.railgun_status.set_op_in_progress(chain, true);
-         ctx.railgun_status.ui_can_check
+         ctx.railgun_status.ui_can_check.get(&chain).cloned().unwrap_or(false)
       });
 
       if !can_check {

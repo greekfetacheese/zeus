@@ -357,7 +357,7 @@ pub struct RailgunStatus {
    pub railgun_synced: HashMap<u64, bool>,
    pub railgun_synced_block: HashMap<u64, u64>,
    pub railgun_sync_error: HashMap<u64, String>,
-   pub ui_can_check: bool,
+   pub ui_can_check: HashMap<u64, bool>,
 }
 
 impl RailgunStatus {
@@ -369,7 +369,7 @@ impl RailgunStatus {
          railgun_synced: HashMap::new(),
          railgun_synced_block: HashMap::new(),
          railgun_sync_error: HashMap::new(),
-         ui_can_check: false,
+         ui_can_check: HashMap::new(),
       }
    }
 
@@ -387,7 +387,7 @@ impl RailgunStatus {
          railgun_synced,
          railgun_synced_block,
          railgun_sync_error: HashMap::new(),
-         ui_can_check: true,
+         ui_can_check: HashMap::new(),
       }
    }
 

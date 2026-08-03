@@ -117,10 +117,6 @@ pub async fn on_startup(ctx: ZeusCtx) {
          }
       }
 
-      ctx_clone.write(|ctx| {
-         ctx.railgun_status.ui_can_check = true;
-      });
-
       malloc_trim();
    });
 
