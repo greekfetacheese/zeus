@@ -154,6 +154,7 @@ impl RecipientSelectionWindow {
 
    pub fn close(&mut self) {
       self.overlay.window_closed();
+      self.search_query.clear();
       self.open = false;
    }
 

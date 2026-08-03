@@ -185,16 +185,15 @@ impl DeleteWalletUi {
          .frame(window_frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(300.0);
-            ui.set_height(200.0);
+            ui.set_max_height(250.0);
 
             let button_visuals = theme.button_visuals();
 
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = 20.0;
                ui.spacing_mut().button_padding = vec2(10.0, 8.0);
-               ui.add_space(20.0);
 
-               ui.label(RichText::new(wallet.name_with_source()).size(theme.text_sizes.normal));
+               ui.label(RichText::new(wallet.name_with_source()).size(theme.text_sizes.large));
                ui.label(RichText::new(wallet.address.to_string()).size(theme.text_sizes.normal));
 
                // TODO: Maybe adjust for privacy mode
@@ -206,7 +205,7 @@ impl DeleteWalletUi {
                );
 
                let text = RichText::new("Yes").size(theme.text_sizes.normal);
-               let button = Button::new(text).visuals(button_visuals);
+               let button = Button::new(text).visuals(button_visuals).min_size(vec2(100.0, 35.0));
 
                if ui.add(button).clicked() {
                   clicked = true;

@@ -112,10 +112,7 @@ impl UnlockVault {
             Ok(data) => data,
             Err(e) => {
                SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(format!(
-                     "Failed to unlock vault: {}",
-                     e.to_string()
-                  ));
+                  gui.open_msg_window(e.to_string());
                   gui.loading_window.reset();
                });
                return;
@@ -355,7 +352,7 @@ impl RecoverHDWallet {
                      }
                      Err(e) => {
                         SHARED_GUI.write(|gui| {
-                           gui.open_msg_window(format!("Credentials Error: {}", e.to_string()));
+                           gui.open_msg_window(e.to_string());
                         });
                      }
                   });

@@ -334,13 +334,6 @@ impl Header {
       let chain = ctx.chain;
       let railgun_is_supported = ctx.railgun_is_supported(chain);
 
-      if !railgun_is_supported {
-         let text =
-            RichText::new("Railgun is not supported on this chain").size(theme.text_sizes.normal);
-         ui.label(text);
-         return;
-      }
-
       ui.spacing_mut().item_spacing.y = 0.0;
 
       let frame = theme.frame2;
@@ -352,10 +345,14 @@ impl Header {
 
          ui.horizontal(|ui| {
             let railgun_synced = ctx.railgun_status().synced(chain.id());
-            let sync_state = match railgun_synced {
+            let mut sync_state = match railgun_synced {
                true => IndicatorState::On,
-               false => IndicatorState::Off,
+               false => IndicatorState::Connecting,
             };
+
+            if !railgun_is_supported {
+               sync_state = IndicatorState::Off;
+            }
 
             ui.add(Indicator::new(sync_state));
 
@@ -620,7 +617,10 @@ impl Header {
                   }
                   Err(e) => {
                      SHARED_GUI.write(|gui| {
-                        let msg = format!("Error while checking wallet delegation status: {}", e);
+                        let msg = format!(
+                           "Error while checking wallet delegation status: {}",
+                           e
+                        );
                         gui.open_msg_window(msg);
                         gui.header.syncing = false;
                      });
@@ -669,7 +669,10 @@ impl Header {
                Ok(address) => address,
                Err(_) => {
                   SHARED_GUI.write(|gui| {
-                     let msg = format!("Not a valid Ethereum address: {}", delegate_to_addr);
+                     let msg = format!(
+                        "Not a valid Ethereum address: {}",
+                        delegate_to_addr
+                     );
                      gui.open_msg_window(msg);
                   });
                   return;
