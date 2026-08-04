@@ -560,36 +560,32 @@ impl Notification {
       let tint = theme.image_tint_recommended;
 
       ui.vertical_centered(|ui| {
-         let token_details =
-            params.token.iter().zip(params.amount.iter()).zip(params.amount_usd.iter());
+         let is_unlimited = params.amount.wei() == U256::MAX;
+         let amount = if is_unlimited {
+            "Unlimited".to_string()
+         } else {
+            params.amount.abbreviated()
+         };
 
-         for ((token, amount), amount_usd) in token_details {
-            let is_unlimited = amount.wei() == U256::MAX;
-            let amount = if is_unlimited {
-               "Unlimited".to_string()
-            } else {
-               amount.abbreviated()
-            };
+         let show_usd_value = !is_unlimited && params.amount_usd.is_some();
 
-            let show_usd_value = !is_unlimited && amount_usd.is_some();
-
-            let icon = icons.currency_icon_x32(&Currency::from(token.clone()), tint);
-            let text = if show_usd_value {
-               let amount_usd = amount_usd.as_ref().unwrap();
-               RichText::new(format!(
-                  "{} {} ~ ${}",
-                  amount,
-                  token.symbol,
-                  amount_usd.abbreviated()
-               ))
+         let icon = icons.currency_icon_x32(&Currency::from(params.token.clone()), tint);
+         let text = if show_usd_value {
+            let amount_usd = params.amount_usd.as_ref().unwrap();
+            RichText::new(format!(
+               "{} {} ~ ${}",
+               amount,
+               params.token.symbol,
+               amount_usd.abbreviated()
+            ))
+            .size(theme.text_sizes.normal)
+         } else {
+            RichText::new(format!("{} {}", amount, params.token.symbol))
                .size(theme.text_sizes.normal)
-            } else {
-               RichText::new(format!("{} {}", amount, token.symbol)).size(theme.text_sizes.normal)
-            };
+         };
 
-            let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
-            ui.add(label);
-         }
+         let label = Label::new(text, Some(icon)).image_on_left().interactive(false);
+         ui.add(label);
       });
    }
 

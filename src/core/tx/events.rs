@@ -105,9 +105,9 @@ impl DecodedEvent {
    }
 
    pub fn dummy_token_approve() -> Self {
-      let token = vec![ERC20Token::weth()];
-      let amount = vec![NumericValue::parse_to_wei("1000000000", 18)];
-      let amount_usd = vec![Some(NumericValue::value(amount[0].f64(), 1600.0))];
+      let token = ERC20Token::weth();
+      let amount = NumericValue::parse_to_wei("1000000000", 18);
+      let amount_usd = Some(NumericValue::value(amount.f64(), 1600.0));
 
       let owner = Address::ZERO;
       let spender = Address::ZERO;
@@ -982,13 +982,88 @@ impl TransferParams {
    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TokenApproveParams {
-   pub token: Vec<ERC20Token>,
-   pub amount: Vec<NumericValue>,
-   pub amount_usd: Vec<Option<NumericValue>>,
+   pub token: ERC20Token,
+   pub amount: NumericValue,
+   pub amount_usd: Option<NumericValue>,
    pub owner: Address,
    pub spender: Address,
+}
+
+/// Untagged helper used to accept both the current flat format and the legacy
+/// `Vec`-based format when deserializing `TokenApproveParams`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TokenApproveParamsSerde {
+   New {
+      token: ERC20Token,
+      amount: NumericValue,
+      amount_usd: Option<NumericValue>,
+      owner: Address,
+      spender: Address,
+   },
+   Old {
+      token: Vec<ERC20Token>,
+      amount: Vec<NumericValue>,
+      amount_usd: Vec<Option<NumericValue>>,
+      owner: Address,
+      spender: Address,
+   },
+}
+
+impl<'de> Deserialize<'de> for TokenApproveParams {
+   fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+   where
+      D: serde::Deserializer<'de>,
+   {
+      use serde::de::Error;
+
+      match TokenApproveParamsSerde::deserialize(deserializer)? {
+         TokenApproveParamsSerde::New {
+            token,
+            amount,
+            amount_usd,
+            owner,
+            spender,
+         } => Ok(Self {
+            token,
+            amount,
+            amount_usd,
+            owner,
+            spender,
+         }),
+         // Migrate from the legacy format by taking the first approved token.
+         TokenApproveParamsSerde::Old {
+            token,
+            amount,
+            amount_usd,
+            owner,
+            spender,
+         } => {
+            let token = token
+               .into_iter()
+               .next()
+               .ok_or_else(|| D::Error::custom("token list is empty"))?;
+            let amount = amount
+               .into_iter()
+               .next()
+               .ok_or_else(|| D::Error::custom("amount list is empty"))?;
+            let amount_usd = amount_usd
+               .into_iter()
+               .next()
+               .ok_or_else(|| D::Error::custom("amount_usd list is empty"))?;
+
+            Ok(Self {
+               token,
+               amount,
+               amount_usd,
+               owner,
+               spender,
+            })
+         }
+      }
+   }
 }
 
 impl TokenApproveParams {
@@ -1016,9 +1091,9 @@ impl TokenApproveParams {
       let spender = decoded.spender;
 
       let params = TokenApproveParams {
-         token: vec![token],
-         amount: vec![amount],
-         amount_usd: vec![Some(amount_usd)],
+         token: token,
+         amount: amount,
+         amount_usd: Some(amount_usd),
          owner,
          spender,
       };

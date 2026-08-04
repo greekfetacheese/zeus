@@ -1881,9 +1881,9 @@ async fn handle_approve(
       let contract_interact = Some(true);
 
       let params = TokenApproveParams {
-         token: vec![token.clone()],
-         amount: vec![amount],
-         amount_usd: vec![None],
+         token: token.clone(),
+         amount: amount,
+         amount_usd: None,
          owner: signer_address,
          spender: permit2,
       };
@@ -2309,8 +2309,8 @@ async fn swap_via_ur(
       if currency_out.is_erc20() {
          portfolio.add_token(currency_out.to_erc20().into_owned());
          ctx.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio)
-      });
+            vault.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio)
+         });
       }
 
       ctx.update_public_data(chain.id(), signer_address);

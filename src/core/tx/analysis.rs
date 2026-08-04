@@ -691,7 +691,7 @@ impl TransactionAnalysis {
 impl TransactionAnalysis {
    pub fn dummy_token_approval() -> Self {
       let main_event = DecodedEvent::dummy_token_approve();
-      let token = main_event.token_approval_params().token[0].clone();
+      let token = main_event.token_approval_params().token.clone();
       Self {
          chain: 1,
          sender: vitalik(),

@@ -156,26 +156,30 @@ impl ZeusApp {
                gui.request_repaint();
             });
 
-            for chain in SUPPORTED_CHAINS {
-               let provider_res = zeus_ctx.get_railgun_provider(chain, false).await;
-               if let Ok(provider) = provider_res {
-                  if provider.is_syncing().await {
-                     continue;
-                  }
+            let dev_build = cfg!(feature = "dev");
 
-                  match provider.compact().await {
-                     Ok(compacted) => match compacted {
-                        true => tracing::info!("Compacted Railgun DB for chain {}", chain),
-                        false => tracing::info!(
-                           "Railgun DB for chain {} does not need compact",
-                           chain
+            if !dev_build {
+               for chain in SUPPORTED_CHAINS {
+                  let provider_res = zeus_ctx.get_railgun_provider(chain, false).await;
+                  if let Ok(provider) = provider_res {
+                     if provider.is_syncing().await {
+                        continue;
+                     }
+
+                     match provider.compact().await {
+                        Ok(compacted) => match compacted {
+                           true => tracing::info!("Compacted Railgun DB for chain {}", chain),
+                           false => tracing::info!(
+                              "Railgun DB for chain {} does not need compact",
+                              chain
+                           ),
+                        },
+                        Err(e) => tracing::error!(
+                           "Error compacting Railgun DB for chain {}: {:?}",
+                           chain,
+                           e
                         ),
-                     },
-                     Err(e) => tracing::error!(
-                        "Error compacting Railgun DB for chain {}: {:?}",
-                        chain,
-                        e
-                     ),
+                     }
                   }
                }
             }
