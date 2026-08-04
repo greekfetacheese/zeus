@@ -222,18 +222,25 @@ fn permit2_single_approval(
          });
       });
 
-      // Approval expire
-      ui.horizontal(|ui| {
-         ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.label(RichText::new("Approval expire").size(theme.text_sizes.large));
-         });
+      let is_revoke = details.amount.is_zero();
 
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let expire = details.expiration.to_relative();
-            let text = RichText::new(expire).size(theme.text_sizes.large);
-            ui.label(text);
+      // Approval expire
+
+      // Only show the expiration if its an actual approval
+      // Usually on revokes we pass a timestamp of 0 which will show the "Invalid timestamp"
+      if !is_revoke {
+         ui.horizontal(|ui| {
+            ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
+               ui.label(RichText::new("Approval expire").size(theme.text_sizes.large));
+            });
+
+            ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+               let expire = details.expiration.to_relative();
+               let text = RichText::new(expire).size(theme.text_sizes.large);
+               ui.label(text);
+            });
          });
-      });
+      }
 
       // Permit2 Contract
       contract_interact(ctx, chain_id, details.permit2_contract, theme, ui);

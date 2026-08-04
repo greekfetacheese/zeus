@@ -81,6 +81,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    // This allows to show the network settings independently from the settings ui
    gui.settings.network.show(ctx, theme, icons.clone(), ui);
 
+   gui.approvals.show(ctx, theme, icons.clone(), ui);
+
    #[cfg(feature = "dev")]
    gui.dev.show(ctx, theme, icons, ui);
 

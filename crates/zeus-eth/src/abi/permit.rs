@@ -64,7 +64,11 @@ sol! {
         view
         returns (uint160 amount, uint48 expiration, uint48 nonce);
 
+        function permit(address owner, PermitSingle memory permitSingle, bytes calldata signature) external;
+
         function permit(address owner, PermitBatch memory permitBatch, bytes calldata signature) external;
+
+        function approve(address token, address spender, uint160 amount, uint48 expiration) external;
 
         event Permit(address indexed owner, address indexed token, address indexed spender, uint160 amount, uint48 expiration, uint48 nonce);
     }
@@ -126,10 +130,64 @@ pub fn encode_permit2_permit_ur_input(
 
 pub fn encode_permit_batch_call(owner: Address, permit_batch: Permit2::PermitBatch, signature: Signature) -> Bytes {
    let sig_bytes = Bytes::from(signature.as_bytes());
-   let encoded = Permit2::permitCall {
+   // Overload: (owner, PermitBatch, signature)
+   let encoded = Permit2::permit_1Call {
       owner,
       permitBatch: permit_batch,
       signature: sig_bytes,
+   };
+   encoded.abi_encode().into()
+}
+
+/// Encode `Permit2.permit(owner, PermitSingle, signature)` calldata.
+pub fn encode_permit_single_call(
+   owner: Address,
+   token: Address,
+   amount: U256,
+   expiration: U256,
+   nonce: U48,
+   spender: Address,
+   sig_deadline: U256,
+   signature: Signature,
+) -> Bytes {
+   let amount = U160::from(amount);
+   let expiration = U48::from(expiration);
+
+   let permit_details = Permit2::PermitDetails {
+      token,
+      amount,
+      expiration,
+      nonce,
+   };
+
+   let permit_single = Permit2::PermitSingle {
+      details: permit_details,
+      spender,
+      sigDeadline: sig_deadline,
+   };
+
+   let sig_bytes = Bytes::from(signature.as_bytes());
+   // Overload: (owner, PermitSingle, signature)
+   let encoded = Permit2::permit_0Call {
+      owner,
+      permitSingle: permit_single,
+      signature: sig_bytes,
+   };
+   encoded.abi_encode().into()
+}
+
+/// Encode `Permit2.approve(token, spender, amount, expiration)` calldata.
+pub fn encode_permit2_approve(
+   token: Address,
+   spender: Address,
+   amount: U256,
+   expiration: U256,
+) -> Bytes {
+   let encoded = Permit2::approveCall {
+      token,
+      spender,
+      amount: U160::from(amount),
+      expiration: U48::from(expiration),
    };
    encoded.abi_encode().into()
 }

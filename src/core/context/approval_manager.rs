@@ -95,6 +95,16 @@ impl ApprovalManagerHandle {
       self.read(|db| db.get_active_permits(chain, owner))
    }
 
+   /// All ERC20 approvals with a non-zero allowance.
+   pub fn get_all_active_token_approvals(&self) -> Vec<(u64, TokenApproveParams)> {
+      self.read(|db| db.get_all_active_token_approvals())
+   }
+
+   /// All Permit2 allowances that still have a non-zero amount and have not expired.
+   pub fn get_all_active_permits(&self) -> Vec<PermitParams> {
+      self.read(|db| db.get_all_active_permits())
+   }
+
    /// Drop approval entries whose owner is not in `wallets`.
    ///
    /// Returns `(token_approvals_removed, permits_removed)`.
@@ -235,6 +245,30 @@ impl ApprovalManager {
             }
             Some(v.clone())
          })
+         .collect()
+   }
+
+   pub fn get_all_active_token_approvals(&self) -> Vec<(u64, TokenApproveParams)> {
+      self
+         .token_approvals
+         .iter()
+         .filter_map(|((chain, _, _, _), v)| {
+            if is_zero_amount(&v.amount) {
+               None
+            } else {
+               Some((*chain, v.clone()))
+            }
+         })
+         .collect()
+   }
+
+   pub fn get_all_active_permits(&self) -> Vec<PermitParams> {
+      let now = TimeStamp::now_as_secs();
+      self
+         .permits
+         .values()
+         .filter(|v| !is_zero_amount(&v.amount) && !permit_expired(&v.expiration, now))
+         .cloned()
          .collect()
    }
 

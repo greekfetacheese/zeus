@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use zeus_theme::{OverlayManager, Theme, ThemeEditor, ThemeKind};
 
 pub use crate::gui::ui::{
-   ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
+   ApprovalsUi, ConfirmWindow, Header, LoadingWindow, MsgWindow, Notification, PortfolioUi,
    RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, TokenSelectionWindow,
    TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
@@ -111,6 +111,7 @@ pub struct GUI {
    pub shield_ui: ShieldUi,
    pub uniswap: UniswapUi,
    pub across_bridge: AcrossBridge,
+   pub approvals: ApprovalsUi,
    pub header: Header,
    pub token_selection: TokenSelectionWindow,
    pub recipient_selection: RecipientSelectionWindow,
@@ -158,6 +159,7 @@ impl GUI {
       let tx_confirmation_window = TxConfirmationWindow::new(overlay_manager.clone());
       let tx_window = TxWindow::new(overlay_manager.clone());
       let wallet_ui = ui::WalletUi::new(overlay_manager.clone());
+      let approvals = ApprovalsUi::new(overlay_manager.clone());
 
       let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, overlay_manager.clone()));
       let railgun_settings =
@@ -186,6 +188,7 @@ impl GUI {
          token_selection,
          recipient_selection,
          wallet_ui,
+         approvals,
          shield_ui,
          uniswap,
          across_bridge,

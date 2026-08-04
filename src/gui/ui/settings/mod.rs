@@ -44,7 +44,7 @@ impl SettingsUi {
          theme: ThemeSettings::new(overlay.clone()),
          contacts_ui: ContactsUi::new(overlay.clone()),
          change_credentials_ui: ChangeCredentialsUi::new(overlay.clone()),
-         size: (550.0, 350.0),
+         size: (550.0, 520.0),
       }
    }
 
@@ -74,7 +74,7 @@ impl SettingsUi {
       self.main_ui(ctx, theme, ui);
       self.encryption.show(theme, ui);
       self.change_credentials_ui.show(theme, ui);
-      self.contacts_ui.show(ctx, theme, icons, ui);
+      self.contacts_ui.show(ctx, theme, icons.clone(), ui);
       self.general.show(ctx, theme, ui);
       self.theme.show(theme, ui);
    }

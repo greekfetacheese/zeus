@@ -14,7 +14,9 @@ pub mod token_selection;
 pub mod tx;
 pub mod tx_history;
 pub mod wallet;
+pub mod approvals;
 
+pub use approvals::ApprovalsUi;
 pub use auth::{RecoverHDWallet, UnlockVault};
 pub use common::*;
 pub use dapps::{across::AcrossBridge, uniswap::swap::SwapUi};

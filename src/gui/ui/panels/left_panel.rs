@@ -35,6 +35,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let is_open = gui.send_crypto.is_open();
@@ -56,6 +57,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let is_open = gui.shield_ui.is_open();
@@ -84,6 +86,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.dev.close();
             // This is shared, so reset it to avoid any issues
             gui.recipient_selection.reset();
+            gui.approvals.close();
          }
 
          let is_open = gui.uniswap.is_open();
@@ -100,6 +103,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let is_open = gui.across_bridge.is_open();
@@ -118,6 +122,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.recipient_selection.reset();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let is_open = gui.wallet_ui.is_open();
@@ -134,6 +139,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let is_open = gui.tx_history.is_open();
@@ -153,6 +159,27 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
+         }
+
+         let is_open = gui.approvals.is_open();
+         let approvals = Button::selectable(
+            is_open,
+            RichText::new("Token Approvals").size(text_size),
+         )
+         .min_size(button_size);
+
+         if ui.add(approvals).clicked() {
+            gui.approvals.open();
+            gui.portofolio.close();
+            gui.uniswap.close();
+            gui.send_crypto.close();
+            gui.settings.close();
+            gui.wallet_ui.close();
+            gui.tx_history.close(ctx);
+            gui.across_bridge.close();
+            gui.dev.close();
+            gui.shield_ui.close();
          }
 
          let is_open = gui.settings.is_open();
@@ -169,6 +196,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
             gui.across_bridge.close();
             gui.dev.close();
             gui.shield_ui.close();
+            gui.approvals.close();
          }
 
          let connected_dapps = Button::selectable(
@@ -208,6 +236,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
                   gui.across_bridge.close();
                   gui.settings.close();
                   gui.shield_ui.close();
+                  gui.approvals.close();
                }
             }
          }
