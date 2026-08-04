@@ -200,28 +200,49 @@ pub async fn on_startup(ctx: ZeusCtx) {
    });
 }
 
-/// Remove BalanceManager / PortfolioDB / TxDB entries for addresses that are
-/// no longer present as wallets in the vault.
+/// Remove BalanceManager / PortfolioDB / TxDB / ApprovalManager entries for
+/// addresses that are no longer present as wallets in the vault.
 pub fn cleanup_orphaned_wallet_data(ctx: ZeusCtx) {
    let wallets: HashSet<_> = ctx.get_all_wallets_info().into_iter().map(|w| w.address).collect();
 
-   let (eth_removed, token_removed, portfolio_removed, tx_removed) = ctx.write_vault(|vault| {
+   let (
+      eth_removed,
+      token_removed,
+      portfolio_removed,
+      tx_removed,
+      approval_token_removed,
+      approval_permit_removed,
+   ) = ctx.write_vault(|vault| {
       let (eth_removed, token_removed) = vault.balance_manager.retain_wallets(&wallets);
       let portfolio_removed = vault.portfolio_db.retain_wallets(&wallets);
       let tx_removed = vault.tx_db.retain_wallets(&wallets);
+      let (approval_token_removed, approval_permit_removed) =
+         vault.approval_manager.retain_wallets(&wallets);
       (
          eth_removed,
          token_removed,
          portfolio_removed,
          tx_removed,
+         approval_token_removed,
+         approval_permit_removed,
       )
    });
 
-   let total = eth_removed + token_removed + portfolio_removed + tx_removed;
+   let total = eth_removed
+      + token_removed
+      + portfolio_removed
+      + tx_removed
+      + approval_token_removed
+      + approval_permit_removed;
    if total > 0 {
       info!(
-         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories",
-         eth_removed, token_removed, portfolio_removed, tx_removed
+         "Cleaned orphaned wallet data: {} eth balances, {} token balances, {} portfolios, {} tx histories, {} token approvals, {} permits",
+         eth_removed,
+         token_removed,
+         portfolio_removed,
+         tx_removed,
+         approval_token_removed,
+         approval_permit_removed
       );
    } else {
       debug!("No orphaned wallet data to clean");

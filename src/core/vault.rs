@@ -1,6 +1,7 @@
 use super::{types::Contact, wallet::*};
 use crate::core::context::{
-   BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle, data_dir,
+   ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
+   data_dir,
 };
 use anyhow::anyhow;
 use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
@@ -110,6 +111,10 @@ pub struct Vault {
    #[serde(default)]
    pub tx_db: TxDBHandle,
 
+   /// ERC20 / Permit2 approvals observed from Zeus-sent txs
+   #[serde(default)]
+   pub approval_manager: ApprovalManagerHandle,
+
    /// HD child discovery state
    #[serde(default)]
    pub discovered_wallets: DiscoveredWallets,
@@ -132,6 +137,7 @@ impl Default for Vault {
          balance_manager: BalanceManagerHandle::default(),
          portfolio_db: PortfolioDB::default(),
          tx_db: TxDBHandle::new(),
+         approval_manager: ApprovalManagerHandle::new(),
          discovered_wallets: DiscoveredWallets::new(),
          railgun_db_key: None,
       }
@@ -206,10 +212,11 @@ impl Vault {
       self.imported_wallets = imported_wallets;
    }
 
-   /// Copy balance / portfolio / tx / discovery / railgun-db-key state from another vault.
+   /// Copy balance / portfolio / tx / approval / discovery / railgun-db-key state from another vault.
    pub fn persisted_state_from(&mut self, other: &Vault) {
       self.balance_manager = other.balance_manager.clone();
       self.tx_db = other.tx_db.clone();
+      self.approval_manager = other.approval_manager.clone();
       self.portfolio_db = other.portfolio_db.clone();
       self.discovered_wallets = other.discovered_wallets.clone();
       self.railgun_db_key = other.railgun_db_key.clone();
@@ -528,6 +535,7 @@ impl Vault {
       self.balance_manager = vault.balance_manager;
       self.portfolio_db = vault.portfolio_db;
       self.tx_db = vault.tx_db;
+      self.approval_manager = vault.approval_manager;
       self.discovered_wallets = vault.discovered_wallets;
       self.railgun_db_key = vault.railgun_db_key;
       Ok(())

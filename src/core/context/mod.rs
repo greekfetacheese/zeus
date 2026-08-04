@@ -1,3 +1,4 @@
+pub mod approval_manager;
 pub mod balance_manager;
 pub mod client;
 pub mod ctx;
@@ -8,6 +9,7 @@ pub mod portfolio;
 pub mod price_manager;
 pub mod tx;
 
+pub use approval_manager::ApprovalManagerHandle;
 pub use balance_manager::BalanceManagerHandle;
 pub use discovered_wallets::DiscoveredWallets;
 pub use portfolio::{PortfolioDB, WalletPortfolio, WalletValue};

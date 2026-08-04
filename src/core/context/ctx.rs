@@ -1,6 +1,6 @@
 use super::{
-   BalanceManagerHandle, CurrencyDB, PoolManagerHandle, WalletPortfolio, ZeusClient,
-   price_manager::PriceManagerHandle, tx::TxDBHandle,
+   ApprovalManagerHandle, BalanceManagerHandle, CurrencyDB, PoolManagerHandle, WalletPortfolio,
+   ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
 use crate::core::{TransactionRich, WalletValue};
@@ -800,8 +800,11 @@ impl ZeusCtx {
       }
    }
 
-   /// Append a rich transaction (persisted with the vault on save/shutdown).
+   /// Append a rich transaction.
+   ///
+   /// Also feeds ERC20 / Permit2 approvals into the approval manager.
    pub fn add_transaction(&self, chain: u64, owner: Address, tx: TransactionRich) {
+      self.approval_manager().add_from_tx(&tx);
       let db = self.tx_db();
       if let Err(e) = db.add_tx(chain, owner, tx) {
          tracing::error!("Error adding transaction to TxDB: {:?}", e);
@@ -810,6 +813,10 @@ impl ZeusCtx {
 
    pub fn tx_db(&self) -> TxDBHandle {
       self.read_vault(|vault| vault.tx_db.clone())
+   }
+
+   pub fn approval_manager(&self) -> ApprovalManagerHandle {
+      self.read_vault(|vault| vault.approval_manager.clone())
    }
 
    pub fn save_disabled_chains(&self) {
