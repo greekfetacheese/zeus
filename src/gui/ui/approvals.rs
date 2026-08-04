@@ -5,8 +5,9 @@ use crate::core::{
    PermitParams, TokenApproveParams, WalletInfo, ZeusContext, send_transaction, signature,
 };
 use crate::gui::SHARED_GUI;
-use crate::utils::{RT, truncate_address};
-use egui::{Align, Frame, Grid, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use crate::utils::{RT, TimeStamp, truncate_address};
+use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
+use elegance::{Badge, BadgeTone};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeus_eth::{
@@ -23,6 +24,19 @@ use zeus_widgets::{Button, ComboBox, Label};
 enum ApprovalKind {
    Erc20(TokenApproveParams),
    Permit2(PermitParams),
+}
+
+impl ApprovalKind {
+   pub fn is_permit2(&self) -> bool {
+      matches!(self, Self::Permit2(_))
+   }
+
+   pub fn expiration(&self) -> TimeStamp {
+      match self {
+         Self::Permit2(params) => params.expiration,
+         _ => TimeStamp::default(),
+      }
+   }
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +85,7 @@ impl ApprovalsUi {
          selected_chain: None,
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
-         size: (980.0, 620.0),
+         size: (1000.0, 620.0),
       }
    }
 
@@ -261,16 +275,49 @@ impl ApprovalsUi {
       }
    }
 
-   /// Fixed-size grid cell with vertically centered content so icon, text,
-   /// and button columns share the same baseline on striped rows.
-   fn grid_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
+   /// Fixed-size cell. Content is vertically centered so icon / text / button
+   /// columns share one baseline across every row (including Permit2 expire).
+   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
       ui.allocate_ui_with_layout(
          vec2(width, height),
          Layout::left_to_right(Align::Center),
          |ui| {
-            ui.set_min_width(width);
-            ui.set_max_width(width);
+            ui.set_min_size(vec2(width, height));
+            ui.set_max_size(vec2(width, height));
             add_contents(ui);
+         },
+      );
+   }
+
+   fn amount_cell(
+      ui: &mut Ui,
+      width: f32,
+      height: f32,
+      amount: &NumericValue,
+      expire: Option<String>,
+      theme: &Theme,
+   ) {
+      ui.allocate_ui_with_layout(
+         vec2(width, height),
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            ui.set_min_size(vec2(width, height));
+            ui.set_max_size(vec2(width, height));
+            ui.spacing_mut().item_spacing.x = 5.0;
+            ui.set_width(width);
+
+            ui.label(
+               RichText::new(Self::amount_label(amount))
+                  .size(theme.text_sizes.normal)
+                  .color(theme.colors.text),
+            );
+
+            if let Some(text) = expire {
+               let expire_text = RichText::new(text).size(theme.text_sizes.normal);
+               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               ui.add(info_tip).on_hover_text(expire_text);
+            }
          },
       );
    }
@@ -282,7 +329,9 @@ impl ApprovalsUi {
 
       self.rebuild_cache();
 
-      Frame::new().inner_margin(Margin::same(10)).show(ui, |ui| {
+      let frame = Frame::new().inner_margin(10).outer_margin(Margin::symmetric(10, 0));
+
+      frame.show(ui, |ui| {
          ui.set_width(self.size.0);
          ui.set_height(self.size.1);
          ui.spacing_mut().item_spacing = vec2(10.0, 12.0);
@@ -447,136 +496,159 @@ impl ApprovalsUi {
             .show(ui, |ui| {
                ui.set_width(ui.available_width());
 
-               // Fixed cell height so icon / text / button rows share one baseline.
-               // Icon is 32px; leave a little padding for the revoke button.
-               let row_height = 40.0;
+               // Fixed content height for every column
+               let row_height = 48.0;
+               let col_spacing = 20.0;
                let column_widths = [
                   ui.available_width() * 0.18, // Asset
                   ui.available_width() * 0.10, // Chain
                   ui.available_width() * 0.14, // Wallet
                   ui.available_width() * 0.18, // Spender
-                  ui.available_width() * 0.12, // Amount
+                  ui.available_width() * 0.14, // Amount (+ expire)
                   ui.available_width() * 0.10, // Type
                   ui.available_width() * 0.12, // Revoke
                ];
+               let row_width: f32 = column_widths.iter().sum::<f32>()
+                  + col_spacing * (column_widths.len() as f32 - 1.0);
 
+               // --- Header (same widths as body cells; not inside a frame) ---
                ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
-
-                  Grid::new("approvals_grid")
-                     .spacing([20.0, 14.0])
-                     .num_columns(7)
-                     .min_col_width(0.0)
-                     .striped(true)
-                     .show(ui, |ui| {
-                        // Headers use the same fixed widths as body cells so
-                        // columns stay locked under their titles.
-                        for (i, header) in
-                           ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
-                              .into_iter()
-                              .enumerate()
-                        {
-                           Self::grid_cell(ui, column_widths[i], row_height, |ui| {
-                              if !header.is_empty() {
-                                 ui.label(
-                                    RichText::new(header)
-                                       .strong()
-                                       .size(theme.text_sizes.large)
-                                       .color(theme.colors.text),
-                                 );
-                              }
-                           });
-                        }
-                        ui.end_row();
-
-                        // Clone rows so revoke handlers can take owned data without
-                        // holding a borrow on self.cached_rows across &mut self use.
-                        let rows = self.cached_rows.clone();
-
-                        for row in rows {
-                           // Asset
-                           Self::grid_cell(ui, column_widths[0], row_height, |ui| {
-                              let icon = icons.currency_icon_x32(&row.token, tint);
-                              ui.add(icon);
-                              let text = RichText::new(row.token.symbol())
-                                 .size(theme.text_sizes.normal)
-                                 .color(theme.colors.text);
-                              let label = Label::new(text, None)
-                                 .wrap()
-                                 .visuals(label_visuals)
-                                 .interactive(false);
-                              ui.scope(|ui| {
-                                 ui.set_max_width(column_widths[0] - 40.0);
-                                 ui.add(label).on_hover_text(row.token.name());
-                              });
-                           });
-
-                           // Chain
-                           Self::grid_cell(ui, column_widths[1], row_height, |ui| {
-                              let chain: ChainId = row.chain.into();
-                              ui.label(
-                                 RichText::new(chain.name())
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Wallet
-                           Self::grid_cell(ui, column_widths[2], row_height, |ui| {
-                              let name = self.wallet_name(ctx, row.owner);
-                              ui.label(
-                                 RichText::new(name)
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              )
-                              .on_hover_text(row.owner.to_string());
-                           });
-
-                           // Spender
-                           Self::grid_cell(ui, column_widths[3], row_height, |ui| {
-                              let name = self.spender_label(ctx, row.chain, row.spender);
-                              ui.label(
-                                 RichText::new(name)
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              )
-                              .on_hover_text(row.spender.to_string());
-                           });
-
-                           // Amount
-                           Self::grid_cell(ui, column_widths[4], row_height, |ui| {
-                              ui.label(
-                                 RichText::new(Self::amount_label(&row.amount))
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Type
-                           Self::grid_cell(ui, column_widths[5], row_height, |ui| {
-                              let kind = match &row.kind {
-                                 ApprovalKind::Erc20(_) => "ERC-20",
-                                 ApprovalKind::Permit2(_) => "Permit2",
-                              };
-                              ui.label(
-                                 RichText::new(kind)
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Revoke
-                           Self::grid_cell(ui, column_widths[6], row_height, |ui| {
-                              let text = RichText::new("Revoke").size(theme.text_sizes.normal);
-                              let button = Button::new(text).visuals(button_visuals);
-                              if ui.add(button).clicked() {
-                                 self.revoke(row);
-                              }
-                           });
-
-                           ui.end_row();
+                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                  ui.spacing_mut().item_spacing.x = col_spacing;
+                  for (i, header) in ["Asset", "Chain", "Wallet", "Spender", "Amount", "Type", ""]
+                     .into_iter()
+                     .enumerate()
+                  {
+                     // Shorter header row — no need for full body height.
+                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        if !header.is_empty() {
+                           ui.label(
+                              RichText::new(header)
+                                 .strong()
+                                 .size(theme.text_sizes.large)
+                                 .color(theme.colors.text),
+                           );
                         }
                      });
+                  }
+               });
+
+               ui.add_space(8.0);
+
+               // --- Body: one frame2 card per approval ---
+               // Do NOT put Frame inside a Grid cell — Frame becomes a single
+               // cell and every column collapses into the first one.
+               let rows = self.cached_rows.clone();
+               let row_frame = theme.frame2.outer_margin(0);
+
+               ui.vertical_centered(|ui| {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+
+                  for row in rows {
+                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                        row_frame.show(ui, |ui| {
+                           ui.set_width(row_width);
+                           ui.spacing_mut().item_spacing.x = col_spacing;
+
+                           ui.horizontal(|ui| {
+                              // Asset
+                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                 let icon = icons.currency_icon_x32(&row.token, tint);
+                                 ui.add(icon);
+                                 let text = RichText::new(row.token.symbol())
+                                    .size(theme.text_sizes.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, None)
+                                    .wrap()
+                                    .visuals(label_visuals)
+                                    .interactive(false);
+                                 ui.scope(|ui| {
+                                    ui.set_max_width(column_widths[0] - 40.0);
+                                    ui.add(label).on_hover_text(row.token.name());
+                                 });
+                              });
+
+                              // Chain
+                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                 let chain: ChainId = row.chain.into();
+                                 ui.label(
+                                    RichText::new(chain.name())
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Wallet
+                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                 let name = self.wallet_name(ctx, row.owner);
+                                 ui.label(
+                                    RichText::new(name)
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 )
+                                 .on_hover_text(row.owner.to_string());
+                              });
+
+                              // Spender
+                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                 let name = self.spender_label(ctx, row.chain, row.spender);
+
+                                 let chain = ChainId::from(row.chain);
+                                 let explorer = chain.block_explorer();
+                                 let link =
+                                    format!("{}/address/{}", explorer, row.spender.to_string());
+                                 ui.hyperlink_to(
+                                    RichText::new(name)
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.info),
+                                    link,
+                                 );
+                              });
+
+                              // Amount
+                              let expire = if row.kind.is_permit2() {
+                                 Some(format!(
+                                    "Expires {}",
+                                    row.kind.expiration().to_relative()
+                                 ))
+                              } else {
+                                 None
+                              };
+
+                              Self::amount_cell(
+                                 ui,
+                                 column_widths[4],
+                                 row_height,
+                                 &row.amount,
+                                 expire,
+                                 theme,
+                              );
+
+                              // Type
+                              Self::row_cell(ui, column_widths[5], row_height, |ui| {
+                                 let kind = match &row.kind {
+                                    ApprovalKind::Erc20(_) => "ERC-20",
+                                    ApprovalKind::Permit2(_) => "Permit2",
+                                 };
+                                 ui.label(
+                                    RichText::new(kind)
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Revoke
+                              Self::row_cell(ui, column_widths[6], row_height, |ui| {
+                                 let text = RichText::new("Revoke").size(theme.text_sizes.normal);
+                                 let button = Button::new(text).visuals(button_visuals);
+                                 if ui.add(button).clicked() {
+                                    self.revoke(row);
+                                 }
+                              });
+                           });
+                        });
+                     });
+                  }
                });
             });
       });

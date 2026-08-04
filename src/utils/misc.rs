@@ -235,37 +235,37 @@ fn timestamp_to_relative_time(timestamp: &TimeStamp) -> String {
 
    if let Some(elapsed) = elapsed_opt {
       if elapsed < 60 {
-         return format!("{} seconds ago", elapsed);
+         return format!("{} second(s) ago", elapsed);
       } else if elapsed < 3600 {
-         return format!("{} minutes ago", elapsed / 60);
+         return format!("{} minute(s) ago", elapsed / 60);
       } else if elapsed < 86400 {
-         return format!("{} hours ago", elapsed / 3600);
+         return format!("{} hour(s) ago", elapsed / 3600);
       } else if elapsed < 604800 {
-         return format!("{} days ago", elapsed / 86400);
+         return format!("{} day(s) ago", elapsed / 86400);
       } else if elapsed < 2419200 {
-         return format!("{} weeks ago", elapsed / 604800);
+         return format!("{} week(s) ago", elapsed / 604800);
       } else if elapsed < 29030400 {
-         return format!("{} months ago", elapsed / 2419200);
+         return format!("{} month(s) ago", elapsed / 2419200);
       } else if elapsed < 31536000 {
-         return format!("{} years ago", elapsed / 29030400);
+         return format!("{} year(s) ago", elapsed / 29030400);
       }
    }
 
    if let Some(future_time) = future_time_opt {
       if future_time < 60 {
-         return format!("in {} seconds", future_time);
+         return format!("in {} second(s)", future_time);
       } else if future_time < 3600 {
-         return format!("in {} minutes", future_time / 60);
+         return format!("in {} minute(s)", future_time / 60);
       } else if future_time < 86400 {
-         return format!("in {} hours", future_time / 3600);
+         return format!("in {} hour(s)", future_time / 3600);
       } else if future_time < 604800 {
-         return format!("in {} days", future_time / 86400);
+         return format!("in {} day(s)", future_time / 86400);
       } else if future_time < 2419200 {
-         return format!("in {} weeks", future_time / 604800);
+         return format!("in {} week(s)", future_time / 604800);
       } else if future_time < 29030400 {
-         return format!("in {} months", future_time / 2419200);
+         return format!("in {} month(s)", future_time / 2419200);
       } else if future_time < 31536000 {
-         return format!("in {} years", future_time / 29030400);
+         return format!("in {} year(s)", future_time / 29030400);
       }
    }
 
