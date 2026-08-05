@@ -8,6 +8,7 @@ use crate::gui::SHARED_GUI;
 use crate::utils::{RT, TimeStamp, truncate_address};
 use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Spinner, Ui, vec2};
 use elegance::{Badge, BadgeTone};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use zeus_eth::{
@@ -64,6 +65,9 @@ impl CacheKey {
    }
 }
 
+/// `(chain, owner, token, spender)`.
+type PermitInfoMap = HashMap<(u64, Address, Address, Address), signature::Permit2Info>;
+
 pub struct ApprovalsUi {
    open: bool,
    loading: bool,
@@ -72,6 +76,7 @@ pub struct ApprovalsUi {
    selected_chain: Option<ChainId>,
    cached_rows: Vec<ApprovalRow>,
    cache_key: CacheKey,
+   cached_permit_info: PermitInfoMap,
    size: (f32, f32),
 }
 
@@ -85,6 +90,7 @@ impl ApprovalsUi {
          selected_chain: None,
          cached_rows: Vec::new(),
          cache_key: CacheKey::default(),
+         cached_permit_info: HashMap::new(),
          size: (1000.0, 620.0),
       }
    }
@@ -98,7 +104,6 @@ impl ApprovalsUi {
          return;
       }
 
-      // self.overlay.window_opened();
       self.open = true;
       self.cached_rows.clear();
       self.cache_key = CacheKey::invalid();
@@ -109,12 +114,12 @@ impl ApprovalsUi {
          return;
       }
 
-      // self.overlay.window_closed();
       self.open = false;
       self.selected_wallet = None;
       self.selected_chain = None;
       self.cached_rows = Vec::new();
       self.cache_key = CacheKey::default();
+      self.cached_permit_info = HashMap::new();
    }
 
    fn current_cache_key(&self) -> CacheKey {
@@ -141,6 +146,7 @@ impl ApprovalsUi {
 
       let selected_wallet = self.selected_wallet.clone();
       let selected_chain = self.selected_chain;
+      let mut permit_info_cache = self.cached_permit_info.clone();
 
       RT.spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -195,17 +201,40 @@ impl ApprovalsUi {
             // We actually need to call the permit info here to check if the amount
             // has been already spent
 
-            let permit_info = signature::Permit2Info::new(
-               ctx.clone(),
+            let key = (
                params.chain,
-               &params.token.to_erc20(),
-               params.amount.wei(),
                params.owner,
+               params.token.address(),
                params.spender,
-            )
-            .await;
+            );
 
-            if let Ok(info) = permit_info {
+            // Check cache first, if empty fetch from rpc
+            let info_opt = permit_info_cache.get(&key).cloned();
+
+            // TODO: Update the StateView contract so we can do batch calls here
+
+            let permit_info = if let Some(info) = info_opt {
+               Some(info)
+            } else {
+               let info_res = signature::Permit2Info::new(
+                  ctx.clone(),
+                  params.chain,
+                  &params.token.to_erc20(),
+                  params.amount.wei(),
+                  params.owner,
+                  params.spender,
+               )
+               .await;
+
+               if let Ok(info) = info_res {
+                  permit_info_cache.insert(key, info.clone());
+                  Some(info)
+               } else {
+                  None
+               }
+            };
+
+            if let Some(info) = permit_info {
                // If it doesnt need a new signature it means the permit is still valid
                if !info.needs_new_signature {
                   rows.push(ApprovalRow {
@@ -243,6 +272,7 @@ impl ApprovalsUi {
                gui.approvals.cached_rows = rows;
             }
             gui.approvals.loading = false;
+            gui.approvals.cached_permit_info = permit_info_cache;
             gui.request_repaint();
          });
       });
@@ -348,7 +378,7 @@ impl ApprovalsUi {
             let wallets = ctx.get_all_wallets_info();
             let selected_wallet_name =
                self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name_with_source()
+                  wallet.name_with_id_short()
                });
 
             let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
@@ -449,9 +479,6 @@ impl ApprovalsUi {
          });
 
          ui.separator();
-
-         // Rebuild after filter widgets may have changed selection
-         self.rebuild_cache();
 
          if self.loading {
             ui.vertical_centered(|ui| {

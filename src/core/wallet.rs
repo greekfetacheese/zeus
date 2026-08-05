@@ -76,6 +76,18 @@ impl WalletInfo {
       format!("{} {}", self.name, id)
    }
 
+   pub fn name_with_id_short(&self) -> String {
+      let id = if self.is_master() {
+         "(M)"
+      } else if self.is_child() {
+         "(C)"
+      } else {
+         "(I)"
+      };
+
+      format!("{} {}", self.name, id)
+   }
+
    pub fn evm_address_truncated(&self) -> String {
       format!(
          "{}...{}",
