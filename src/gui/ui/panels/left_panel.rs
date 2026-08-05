@@ -165,7 +165,7 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          let is_open = gui.approvals.is_open();
          let approvals = Button::selectable(
             is_open,
-            RichText::new("Token Approvals").size(text_size),
+            RichText::new("Approvals").size(text_size),
          )
          .min_size(button_size);
 

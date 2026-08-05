@@ -7,15 +7,14 @@ use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::TokenSelectionWindow};
 use crate::utils::RT;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, Frame, Grid, Layout, Margin, RichText, ScrollArea, Spinner, Ui,
-   Vec2, vec2,
+   Align, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, ScrollArea, Spinner, Ui, Vec2,
+   vec2,
 };
 use std::sync::Arc;
 
 use zeus_eth::{
    alloy_primitives::Address,
    currency::{Currency, ERC20Token},
-   utils::NumericValue,
 };
 use zeus_theme::{ButtonVisuals, Theme};
 use zeus_widgets::{Button, Label};
@@ -45,6 +44,20 @@ impl PortfolioUi {
 
    pub fn close(&mut self) {
       self.open = false;
+   }
+
+   /// Fixed-size cell with vertically centered content so every column
+   /// shares one baseline across framed rows.
+   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
+      ui.allocate_ui_with_layout(
+         vec2(width, height),
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            ui.set_min_size(vec2(width, height));
+            ui.set_max_size(vec2(width, height));
+            add_contents(ui);
+         },
+      );
    }
 
    pub fn show(
@@ -132,84 +145,187 @@ impl PortfolioUi {
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
                ui.set_width(ui.available_width());
 
+               let row_height = 40.0;
+               let col_spacing = 20.0;
                let column_widths = [
-                  ui.available_width() * 0.2, // Asset
-                  ui.available_width() * 0.2, // Price
-                  ui.available_width() * 0.2, // Balance
-                  ui.available_width() * 0.2, // Value
-                  ui.available_width() * 0.1, // Remove button
+                  ui.available_width() * 0.22, // Asset
+                  ui.available_width() * 0.18, // Price
+                  ui.available_width() * 0.18, // Balance
+                  ui.available_width() * 0.18, // Value
+                  ui.available_width() * 0.10, // Remove
                ];
+               let row_width: f32 = column_widths.iter().sum::<f32>()
+                  + col_spacing * (column_widths.len() as f32 - 1.0);
 
-               // Center the grid within the available space
+               let label_visuals = theme.label_visuals();
+               let button_visuals = theme.button_visuals();
+               let tint = theme.image_tint_recommended;
+               let row_frame = theme.frame2.outer_margin(Margin::ZERO);
+
+               // --- Header (same widths as body cells; not inside a frame) ---
                ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
-
-                  Grid::new("currency_grid")
-                     .num_columns(5)
-                     .spacing([20.0, 30.0])
-                     .striped(true)
-                     .show(ui, |ui| {
-                        // Header
-                        ui.label(RichText::new("Asset").size(theme.text_sizes.large));
-
-                        ui.label(RichText::new("Price").size(theme.text_sizes.large));
-
-                        ui.label(RichText::new("Balance").size(theme.text_sizes.large));
-
-                        ui.label(RichText::new("Value").size(theme.text_sizes.large));
-
-                        ui.end_row();
-
-                        if !privacy_mode {
-                           let native_currency = Currency::native(chain_id);
-
-                           // Show the native currency first
-                           self.native(
-                              theme,
-                              icons.clone(),
-                              &native_currency,
-                              ui,
-                              column_widths[0],
+                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                  ui.spacing_mut().item_spacing.x = col_spacing;
+                  for (i, header) in
+                     ["Asset", "Price", "Balance", "Value", ""].into_iter().enumerate()
+                  {
+                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        if !header.is_empty() {
+                           ui.label(
+                              RichText::new(header)
+                                 .strong()
+                                 .size(theme.text_sizes.large)
+                                 .color(theme.colors.text),
                            );
-
-                           self.price_balance_value_native(
-                              ctx,
-                              theme,
-                              chain_id,
-                              owner,
-                              &native_currency,
-                              privacy_mode,
-                              ui,
-                              column_widths[0],
-                           );
-
-                           ui.end_row();
-                        }
-
-                        let token_list = if privacy_mode {
-                           portfolio.private_tokens()
-                        } else {
-                           portfolio.public_tokens()
-                        };
-
-                        // Show the rest of the tokens
-                        for (token, balance, value, price) in token_list {
-                           self.token(theme, icons.clone(), token, ui, column_widths[0]);
-
-                           self.price_balance_value_token(
-                              theme,
-                              balance,
-                              value,
-                              price,
-                              ui,
-                              column_widths[0],
-                           );
-
-                           self.remove_token(ctx, theme, owner, token, ui, column_widths[4]);
-
-                           ui.end_row();
                         }
                      });
+                  }
+               });
+
+               ui.add_space(8.0);
+
+               // --- Body: one frame2 card per asset ---
+               ui.vertical_centered(|ui| {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+
+                  // Native currency first (public mode only)
+                  if !privacy_mode {
+                     let native_currency = Currency::native(chain_id);
+                     let price = ctx.get_currency_price(&native_currency);
+                     let balance = ctx.get_currency_balance(chain_id, owner, &native_currency);
+                     let value =
+                        ctx.get_currency_value_for_owner(chain_id, owner, &native_currency);
+
+                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                        row_frame.show(ui, |ui| {
+                           ui.set_width(row_width);
+                           ui.spacing_mut().item_spacing.x = col_spacing;
+
+                           ui.horizontal(|ui| {
+                              // Asset
+                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                 let icon = icons.currency_icon_x32(&native_currency, tint);
+                                 let text = RichText::new(native_currency.symbol())
+                                    .size(theme.text_sizes.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, Some(icon))
+                                    .image_on_left()
+                                    .wrap()
+                                    .visuals(label_visuals)
+                                    .interactive(false);
+                                 ui.scope(|ui| {
+                                    ui.set_max_width(column_widths[0] - 40.0);
+                                    ui.add(label).on_hover_text(native_currency.name());
+                                 });
+                              });
+
+                              // Price
+                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(format!("${}", price.formatted()))
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Balance
+                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(balance.abbreviated())
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Value
+                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(format!("${}", value.abbreviated()))
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // No remove for native
+                              Self::row_cell(ui, column_widths[4], row_height, |_ui| {});
+                           });
+                        });
+                     });
+                  }
+
+                  let token_list = if privacy_mode {
+                     portfolio.private_tokens()
+                  } else {
+                     portfolio.public_tokens()
+                  };
+
+                  for (token, balance, value, price) in token_list {
+                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                        row_frame.show(ui, |ui| {
+                           ui.set_width(row_width);
+                           ui.spacing_mut().item_spacing.x = col_spacing;
+
+                           ui.horizontal(|ui| {
+                              // Asset
+                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                 let icon =
+                                    icons.token_icon_x32(token.address, token.chain_id, tint);
+                                 let text = RichText::new(&*token.symbol)
+                                    .size(theme.text_sizes.normal)
+                                    .color(theme.colors.text);
+                                 let label = Label::new(text, Some(icon))
+                                    .image_on_left()
+                                    .wrap()
+                                    .visuals(label_visuals)
+                                    .interactive(false);
+                                 ui.scope(|ui| {
+                                    ui.set_max_width(column_widths[0] - 40.0);
+                                    ui.add(label).on_hover_text(&*token.name);
+                                 });
+                              });
+
+                              // Price
+                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(format!("${}", price.formatted()))
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Balance
+                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(balance.abbreviated())
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Value
+                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(format!("${}", value.formatted()))
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Remove
+                              Self::row_cell(ui, column_widths[4], row_height, |ui| {
+                                 let button =
+                                    Button::new(RichText::new("X").size(theme.text_sizes.small))
+                                       .visuals(button_visuals)
+                                       .small();
+
+                                 if ui.add(button).clicked() {
+                                    self.remove_token(ctx, owner, token);
+                                 }
+                              });
+                           });
+                        });
+                     });
+                  }
                });
 
                let currency = token_selection.get_selected_currency().cloned();
@@ -221,112 +337,6 @@ impl PortfolioUi {
                }
             });
          });
-      });
-   }
-
-   fn native(
-      &self,
-      theme: &Theme,
-      icons: Arc<Icons>,
-      currency: &Currency,
-      ui: &mut Ui,
-      width: f32,
-   ) {
-      let visuals = theme.label_visuals();
-      let tint = theme.image_tint_recommended;
-      let icon = icons.currency_icon_x32(currency, tint);
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.add(icon);
-         let text = RichText::new(currency.symbol()).size(theme.text_sizes.normal);
-         let label = Label::new(text, None).wrap().visuals(visuals).interactive(false);
-         ui.scope(|ui| {
-            ui.set_max_width(100.0);
-            ui.add(label).on_hover_text(currency.name());
-         });
-      });
-   }
-
-   fn token(&self, theme: &Theme, icons: Arc<Icons>, token: &ERC20Token, ui: &mut Ui, width: f32) {
-      let visuals = theme.label_visuals();
-      let tint = theme.image_tint_recommended;
-      let icon = icons.token_icon_x32(token.address, token.chain_id, tint);
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.add(icon);
-         let text = RichText::new(&*token.symbol).size(theme.text_sizes.normal);
-         let label = Label::new(text, None).wrap().visuals(visuals).interactive(false);
-         ui.scope(|ui| {
-            ui.set_max_width(100.0);
-            ui.add(label).on_hover_text(&*token.name);
-         });
-      });
-   }
-
-   fn price_balance_value_native(
-      &self,
-      ctx: &mut ZeusContext,
-      theme: &Theme,
-      chain: u64,
-      owner: Address,
-      currency: &Currency,
-      is_privacy_mode: bool,
-      ui: &mut Ui,
-      width: f32,
-   ) {
-      let price = ctx.get_currency_price(currency);
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(format!("${}", price.formatted())).size(theme.text_sizes.normal));
-      });
-
-      let balance = if is_privacy_mode {
-         NumericValue::from_f64(0.0)
-      } else {
-         ctx.get_currency_balance(chain, owner, currency)
-      };
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(balance.abbreviated()).size(theme.text_sizes.normal));
-      });
-
-      let value = match is_privacy_mode {
-         false => ctx.get_currency_value_for_owner(chain, owner, currency),
-         true => NumericValue::from_f64(0.0),
-      };
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(format!("${}", value.abbreviated())).size(theme.text_sizes.normal));
-      });
-   }
-
-   fn price_balance_value_token(
-      &self,
-      theme: &Theme,
-      balance: &NumericValue,
-      value: &NumericValue,
-      price: &NumericValue,
-      ui: &mut Ui,
-      width: f32,
-   ) {
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(format!("${}", price.formatted())).size(theme.text_sizes.normal));
-      });
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(balance.abbreviated()).size(theme.text_sizes.normal));
-      });
-
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         ui.label(RichText::new(format!("${}", value.formatted())).size(theme.text_sizes.normal));
       });
    }
 
@@ -468,48 +478,27 @@ impl PortfolioUi {
          SHARED_GUI.write(|gui| {
             gui.portofolio.show_spinner = false;
          });
-
-         RT.spawn_blocking(move || {
-         });
       });
    }
 
-   fn remove_token(
-      &mut self,
-      ctx: &mut ZeusContext,
-      theme: &Theme,
-      owner: Address,
-      token: &ERC20Token,
-      ui: &mut Ui,
-      width: f32,
-   ) {
-      let visuals = theme.button_visuals();
-      ui.horizontal(|ui| {
-         ui.set_width(width);
-         let button = Button::new(RichText::new("X").size(theme.text_sizes.small))
-            .visuals(visuals)
-            .small();
+   fn remove_token(&mut self, ctx: &mut ZeusContext, owner: Address, token: &ERC20Token) {
+      self.show_spinner = true;
+      let chain = ctx.chain.id();
 
-         if ui.add(button).clicked() {
-            self.show_spinner = true;
-            let chain = ctx.chain.id();
+      let mut portfolio = ctx.read_vault(|vault| vault.portfolio_db.get(chain, owner));
+      portfolio.remove_token(token);
+      ctx.write_vault(|vault| {
+         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      });
 
-            let mut portfolio = ctx.read_vault(|vault| vault.portfolio_db.get(chain, owner));
-            portfolio.remove_token(token);
-            ctx.write_vault(|vault| {
-               vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
-            });
+      RT.spawn(async move {
+         let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         ctx.update_public_data(chain, owner);
+         ctx.update_private_data(chain, owner).await;
 
-            RT.spawn(async move {
-               let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-               ctx.update_public_data(chain, owner);
-               ctx.update_private_data(chain, owner).await;
-
-               SHARED_GUI.write(|gui| {
-                  gui.portofolio.show_spinner = false;
-               });
-            });
-         }
+         SHARED_GUI.write(|gui| {
+            gui.portofolio.show_spinner = false;
+         });
       });
    }
 }
