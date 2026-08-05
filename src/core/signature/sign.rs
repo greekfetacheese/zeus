@@ -34,11 +34,6 @@ pub async fn sign_message(
       });
 
       if signed.is_some() {
-         SHARED_GUI.write(|gui| {
-            ctx.write(|ctx| {
-               gui.sign_msg_window.close(ctx);
-            });
-         });
          break;
       }
    }

@@ -2169,9 +2169,7 @@ async fn swap_via_ur(
             None,
          )
          .await?;
-         // increment the overlay counter to stay at 1
          SHARED_GUI.write(|gui| {
-            gui.overlay_manager.window_opened();
             gui.request_repaint();
          });
       }
