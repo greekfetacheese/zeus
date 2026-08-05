@@ -137,11 +137,54 @@ impl UnlockVault {
 
          // Load the vault
          match vault.load(data) {
-            Ok(_) => {
+            Ok(legacy_wallet_state) => {
+               // Ensure AEAD key for wallet_state.data (migrated vaults get one here).
+               let key_generated = match vault.ensure_wallet_state_key() {
+                  Ok(g) => g,
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window(format!("Failed to init wallet state key: {e}"));
+                        gui.loading_window.reset();
+                     });
+                     return;
+                  }
+               };
+
+               let key = match vault.wallet_state_key() {
+                  Ok(k) => k,
+                  Err(e) => {
+                     SHARED_GUI.write(|gui| {
+                        gui.open_msg_window(format!("Wallet state key missing: {e}"));
+                        gui.loading_window.reset();
+                     });
+                     return;
+                  }
+               };
+
+               let (wallet_state, migrated) =
+                  match crate::core::WalletState::load_or_migrate(&key, legacy_wallet_state) {
+                     Ok(v) => v,
+                     Err(e) => {
+                        SHARED_GUI.write(|gui| {
+                           gui.open_msg_window(format!("Failed to load wallet state: {e}"));
+                           gui.loading_window.reset();
+                        });
+                        return;
+                     }
+                  };
+
                let master_wallet = vault.get_master_wallet();
 
                ctx.set_vault(vault);
+               ctx.set_wallet_state(wallet_state);
                ctx.build_wallet_info_cache();
+
+               // Persist key
+               if key_generated || migrated {
+                  if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
+                     tracing::error!("Failed to save vault after wallet state migration: {e}");
+                  }
+               }
 
                SHARED_GUI.write(|gui| {
                   gui.unlock_vault_ui.credentials_form.erase();
@@ -454,6 +497,9 @@ impl RecoverHDWallet {
                         // ? small PopUps in the UI to notify the user.
                         tracing::error!("Failed to generate Railgun DB key: {e}");
                      }
+                     if let Err(e) = vault.ensure_wallet_state_key() {
+                        tracing::error!("Failed to generate WalletState key: {e}");
+                     }
 
                      // Encrypt the vault
                      match ctx.encrypt_and_save_vault(Some(vault.clone()), params.clone()) {
@@ -471,6 +517,10 @@ impl RecoverHDWallet {
                            });
 
                            ctx.set_vault(vault);
+                           // Fresh wallet state (empty), ensure sealed file exists.
+                           if let Err(e) = ctx.save_wallet_state() {
+                              tracing::error!("Failed to save initial wallet state: {e}");
+                           }
                            ctx.build_wallet_info_cache();
                         }
                         Err(e) => {

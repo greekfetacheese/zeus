@@ -80,7 +80,7 @@ impl DiscoverChildWallets {
          let master = ctx.master_wallet_address();
          let hd_wallet = vault.get_hd_wallet();
 
-         let mut discovered_wallets = vault.discovered_wallets.clone();
+         let mut discovered_wallets = ctx.read_wallet_state(|ws| ws.discovered_wallets.clone());
 
          if discovered_wallets.master_wallet_address.is_none() {
             discovered_wallets.master_wallet_address = Some(master);
@@ -335,8 +335,13 @@ impl DiscoverChildWallets {
          let wallets = self.discovered_wallets.clone();
          RT.spawn_blocking(move || {
             let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
-            ctx.write_vault(|vault| vault.discovered_wallets = wallets);
-            tracing::info!("Discovered wallets updated in vault");
+            ctx.write_wallet_state(|ws| ws.discovered_wallets = wallets);
+            
+            if let Err(e) = ctx.save_wallet_state() {
+               tracing::error!("Failed to save discovered wallets: {e}");
+            }
+
+            tracing::info!("Discovered wallets updated");
 
             SHARED_GUI.write(|gui| {
                gui.wallet_ui.add_wallet_ui.open();
@@ -628,8 +633,8 @@ impl DiscoverChildWallets {
                         let balance_manager = ctx.balance_manager();
                         balance_manager.insert_eth_balance(chain, address, balance, &eth);
 
-                        ctx.write_vault(|vault| {
-                           vault.portfolio_db.insert_portfolio(
+                        ctx.write_wallet_state(|ws| {
+                           ws.portfolio_db.insert_portfolio(
                               chain,
                               address,
                               WalletPortfolio::new(address, chain),

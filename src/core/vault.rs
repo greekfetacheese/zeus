@@ -3,6 +3,7 @@ use crate::core::context::{
    ApprovalManagerHandle, BalanceManagerHandle, DiscoveredWallets, PortfolioDB, TxDBHandle,
    data_dir,
 };
+use crate::core::wallet_state::{WalletStateInner, WalletStateKey};
 use anyhow::anyhow;
 use brotli::{BrotliCompress, BrotliDecompress, enc::BrotliEncoderParams};
 use ncrypt_me::{
@@ -77,14 +78,68 @@ fn decode_vault_payload(data: &[u8]) -> Result<Vec<u8>, anyhow::Error> {
    }
 }
 
-/// User Vault
-#[derive(Clone, Serialize, Deserialize)]
+/// Legacy Vault
+#[derive(Serialize, Deserialize)]
+struct VaultData {
+   hd_wallet: SecureHDWallet,
+   imported_wallets: Vec<Wallet>,
+
+   /// AEAD key for sensitive Railgun DB values (UTXO notes, POI pending).
+   #[serde(default)]
+   railgun_db_key: Option<zeus_railgun::RailgunDbKey>,
+
+   /// AEAD key for [`crate::core::WalletState`]
+   #[serde(default)]
+   wallet_state_key: Option<WalletStateKey>,
+
+   // Legacy fields (pre wallet_state.data split). Accepted on load only.
+   #[serde(default, skip_serializing)]
+   contacts: Vec<Contact>,
+   #[serde(default, skip_serializing)]
+   balance_manager: BalanceManagerHandle,
+   #[serde(default, skip_serializing)]
+   portfolio_db: PortfolioDB,
+   #[serde(default, skip_serializing)]
+   tx_db: Option<TxDBHandle>,
+   #[serde(default, skip_serializing)]
+   approval_manager: Option<ApprovalManagerHandle>,
+   #[serde(default, skip_serializing)]
+   discovered_wallets: Option<DiscoveredWallets>,
+}
+
+impl VaultData {
+   fn take_legacy_wallet_state(&mut self) -> Option<WalletStateInner> {
+      let has_legacy = !self.contacts.is_empty()
+         || self.tx_db.is_some()
+         || self.approval_manager.is_some()
+         || self.discovered_wallets.is_some()
+         || self.wallet_state_key.is_none();
+
+      if !has_legacy {
+         return None;
+      }
+
+      Some(WalletStateInner {
+         contacts: std::mem::take(&mut self.contacts),
+         balance_manager: std::mem::take(&mut self.balance_manager),
+         portfolio_db: std::mem::take(&mut self.portfolio_db),
+         tx_db: self.tx_db.take().unwrap_or_else(TxDBHandle::new),
+         approval_manager: self.approval_manager.take().unwrap_or_else(ApprovalManagerHandle::new),
+         discovered_wallets: self.discovered_wallets.take().unwrap_or_else(DiscoveredWallets::new),
+      })
+   }
+}
+
+/// User Vault — credentials, HD/imported keys, and AEAD keys for side stores.
+///
+/// Frequently updated app state (contacts, balances, portfolios, txs, approvals,
+/// HD discovery) lives in [`crate::core::WalletState`]
+#[derive(Clone)]
 pub struct Vault {
    /// Credentials used to decrypt the vault
    ///
    /// By default, the vault is encrypted with the same credentials
    /// we used to derive the HD wallet, this can be changed later through the GUI
-   #[serde(skip)]
    credentials: Credentials,
 
    /// The HD Wallet which is deterministically derived from the credentials
@@ -96,34 +151,15 @@ pub struct Vault {
    /// if we lose any backup of the vault, they are lost forever
    imported_wallets: Vec<Wallet>,
 
-   #[serde(default)]
-   pub contacts: Vec<Contact>,
-
-   /// Public balances
-   #[serde(default)]
-   pub balance_manager: BalanceManagerHandle,
-
-   /// Portfolio values / token lists per wallet
-   #[serde(default)]
-   pub portfolio_db: PortfolioDB,
-
-   /// Transaction history
-   #[serde(default)]
-   pub tx_db: TxDBHandle,
-
-   /// ERC20 / Permit2 approvals observed from Zeus-sent txs
-   #[serde(default)]
-   pub approval_manager: ApprovalManagerHandle,
-
-   /// HD child discovery state
-   #[serde(default)]
-   pub discovered_wallets: DiscoveredWallets,
-
    /// AEAD key for sensitive Railgun DB values (UTXO notes, POI pending).
    ///
    /// Generated the first time Zeus starts.
-   #[serde(default)]
    railgun_db_key: Option<zeus_railgun::RailgunDbKey>,
+
+   /// AEAD key for [`crate::core::WalletState`].
+   ///
+   /// Generated the first time Zeus unlocks/creates a vault after the split.
+   wallet_state_key: Option<WalletStateKey>,
 }
 
 impl Default for Vault {
@@ -133,13 +169,8 @@ impl Default for Vault {
          credentials: Credentials::default(),
          hd_wallet,
          imported_wallets: Vec::new(),
-         contacts: Vec::new(),
-         balance_manager: BalanceManagerHandle::default(),
-         portfolio_db: PortfolioDB::default(),
-         tx_db: TxDBHandle::new(),
-         approval_manager: ApprovalManagerHandle::new(),
-         discovered_wallets: DiscoveredWallets::new(),
          railgun_db_key: None,
+         wallet_state_key: None,
       }
    }
 }
@@ -186,6 +217,9 @@ impl Vault {
       if let Some(ref mut key) = self.railgun_db_key {
          key.erase();
       }
+      if let Some(ref mut key) = self.wallet_state_key {
+         key.erase();
+      }
    }
 
    pub fn master_wallet_address(&self) -> Address {
@@ -212,14 +246,10 @@ impl Vault {
       self.imported_wallets = imported_wallets;
    }
 
-   /// Copy balance / portfolio / tx / approval / discovery / railgun-db-key state from another vault.
+   /// Copy AEAD keys from another vault (wallet mutations clone without keys).
    pub fn persisted_state_from(&mut self, other: &Vault) {
-      self.balance_manager = other.balance_manager.clone();
-      self.tx_db = other.tx_db.clone();
-      self.approval_manager = other.approval_manager.clone();
-      self.portfolio_db = other.portfolio_db.clone();
-      self.discovered_wallets = other.discovered_wallets.clone();
       self.railgun_db_key = other.railgun_db_key.clone();
+      self.wallet_state_key = other.wallet_state_key.clone();
    }
 
    /// Ensure a Railgun DB crypto key exists.
@@ -239,6 +269,26 @@ impl Vault {
    pub fn railgun_db_key(&self) -> Result<zeus_railgun::RailgunDbKey, anyhow::Error> {
       self.railgun_db_key.clone().ok_or_else(|| {
          anyhow!("Railgun DB key missing — unlock vault / ensure_railgun_db_key first")
+      })
+   }
+
+   /// Ensure a WalletState AEAD key exists.
+   ///
+   /// Returns `true` if a new key was generated (caller should re-save the vault).
+   pub fn ensure_wallet_state_key(&mut self) -> Result<bool, anyhow::Error> {
+      if self.wallet_state_key.is_some() {
+         return Ok(false);
+      }
+      let key = WalletStateKey::generate()
+         .map_err(|e| anyhow!("Failed to generate wallet state key: {e}"))?;
+      self.wallet_state_key = Some(key);
+      Ok(true)
+   }
+
+   /// Clone the WalletState AEAD key.
+   pub fn wallet_state_key(&self) -> Result<WalletStateKey, anyhow::Error> {
+      self.wallet_state_key.clone().ok_or_else(|| {
+         anyhow!("Wallet state key missing / unlock vault / ensure_wallet_state_key first")
       })
    }
 
@@ -440,7 +490,20 @@ impl Vault {
          }
       }
 
-      let mut json = serde_json::to_vec(self)?;
+      let data = VaultData {
+         hd_wallet: self.hd_wallet.clone(),
+         imported_wallets: self.imported_wallets.clone(),
+         railgun_db_key: self.railgun_db_key.clone(),
+         wallet_state_key: self.wallet_state_key.clone(),
+         contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: None,
+         approval_manager: None,
+         discovered_wallets: None,
+      };
+
+      let mut json = serde_json::to_vec(&data)?;
       let mut vault_data = match encode_vault_payload(&json) {
          Ok(data) => data,
          Err(e) => {
@@ -451,20 +514,21 @@ impl Vault {
 
       json.zeroize();
 
-      let encrypted_info = match self.encrypted_info() {
-         Ok(info) => info,
-         Err(e) => {
-            vault_data.zeroize();
-            return Err(anyhow!(
-               "EncryptedInfo is missing, corrupted vault?: {:?}",
-               e
-            ));
-         }
-      };
-
       let argon_params = match new_params {
          Some(params) => params,
-         None => encrypted_info.argon2,
+         None => {
+            let encrypted_info = match self.encrypted_info() {
+               Ok(info) => info,
+               Err(e) => {
+                  vault_data.zeroize();
+                  return Err(anyhow!(
+                     "EncryptedInfo is missing, corrupted vault?: {:?}",
+                     e
+                  ));
+               }
+            };
+            encrypted_info.argon2
+         }
       };
 
       let encrypted_data = match encrypt_data_ref(
@@ -507,8 +571,15 @@ impl Vault {
       Ok(decrypted_data)
    }
 
-   /// Load the vault from the decrypted data
-   pub fn load(&mut self, mut decrypted_data: Vec<u8>) -> Result<(), anyhow::Error> {
+   /// Load the vault from the decrypted data.
+   ///
+   /// Returns legacy wallet-state payload when the vault JSON still embeds
+   /// contacts/balances/… (pre-split). Caller should feed this into
+   /// [`crate::core::WalletState::load_or_migrate`].
+   pub fn load(
+      &mut self,
+      mut decrypted_data: Vec<u8>,
+   ) -> Result<Option<WalletStateInner>, anyhow::Error> {
       let mut json = match decode_vault_payload(&decrypted_data) {
          Ok(json) => json,
          Err(e) => {
@@ -519,7 +590,7 @@ impl Vault {
 
       decrypted_data.zeroize();
 
-      let vault: Vault = match serde_json::from_slice(&json) {
+      let mut data: VaultData = match serde_json::from_slice(&json) {
          Ok(vault) => vault,
          Err(e) => {
             json.zeroize();
@@ -529,16 +600,20 @@ impl Vault {
 
       json.zeroize();
 
-      self.hd_wallet = vault.hd_wallet;
-      self.imported_wallets = vault.imported_wallets;
-      self.contacts = vault.contacts;
-      self.balance_manager = vault.balance_manager;
-      self.portfolio_db = vault.portfolio_db;
-      self.tx_db = vault.tx_db;
-      self.approval_manager = vault.approval_manager;
-      self.discovered_wallets = vault.discovered_wallets;
-      self.railgun_db_key = vault.railgun_db_key;
-      Ok(())
+      // Prefer sealed wallet_state.data when present; only surface legacy embed
+      // when the side file does not exist yet (migration path).
+      let legacy = if crate::core::WalletState::exists().unwrap_or(false) {
+         None
+      } else {
+         data.take_legacy_wallet_state()
+      };
+
+      self.hd_wallet = data.hd_wallet;
+      self.imported_wallets = data.imported_wallets;
+      self.railgun_db_key = data.railgun_db_key;
+      self.wallet_state_key = data.wallet_state_key;
+
+      Ok(legacy)
    }
 
    /// Remove the wallet with the given address
@@ -598,27 +673,50 @@ mod tests {
    #[test]
    fn vault_json_roundtrip() {
       let vault = sample_vault();
-      let json = serde_json::to_vec(&vault).expect("serialize vault");
-      let loaded: Vault = serde_json::from_slice(&json).expect("deserialize vault");
+      let data = VaultData {
+         hd_wallet: vault.hd_wallet.clone(),
+         imported_wallets: vault.imported_wallets.clone(),
+         railgun_db_key: None,
+         wallet_state_key: None,
+         contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: None,
+         approval_manager: None,
+         discovered_wallets: None,
+      };
+      let json = serde_json::to_vec(&data).expect("serialize vault");
+      let loaded: VaultData = serde_json::from_slice(&json).expect("deserialize vault");
 
       assert_eq!(
-         loaded.master_wallet_address(),
+         loaded.hd_wallet.master_wallet.address(),
          vault.master_wallet_address()
       );
-      assert_eq!(loaded.contacts.len(), vault.contacts.len());
    }
 
    #[test]
    fn vault_payload_brotli_roundtrip() {
       let vault = sample_vault();
-      let json = serde_json::to_vec(&vault).unwrap();
+      let data = VaultData {
+         hd_wallet: vault.hd_wallet.clone(),
+         imported_wallets: vault.imported_wallets.clone(),
+         railgun_db_key: None,
+         wallet_state_key: None,
+         contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: None,
+         approval_manager: None,
+         discovered_wallets: None,
+      };
+      let json = serde_json::to_vec(&data).unwrap();
       let encoded = encode_vault_payload(&json).unwrap();
       assert_eq!(encoded[0], VAULT_PAYLOAD_BROTLI);
 
       let decoded = decode_vault_payload(&encoded).unwrap();
-      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
       assert_eq!(
-         loaded.master_wallet_address(),
+         loaded.hd_wallet.master_wallet.address(),
          vault.master_wallet_address()
       );
    }
@@ -626,15 +724,27 @@ mod tests {
    #[test]
    fn vault_payload_raw_json_version() {
       let vault = sample_vault();
-      let json = serde_json::to_vec(&vault).unwrap();
+      let data = VaultData {
+         hd_wallet: vault.hd_wallet.clone(),
+         imported_wallets: vault.imported_wallets.clone(),
+         railgun_db_key: None,
+         wallet_state_key: None,
+         contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: None,
+         approval_manager: None,
+         discovered_wallets: None,
+      };
+      let json = serde_json::to_vec(&data).unwrap();
       let mut encoded = Vec::with_capacity(1 + json.len());
       encoded.push(VAULT_PAYLOAD_RAW_JSON);
       encoded.extend_from_slice(&json);
 
       let decoded = decode_vault_payload(&encoded).unwrap();
-      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
       assert_eq!(
-         loaded.master_wallet_address(),
+         loaded.hd_wallet.master_wallet.address(),
          vault.master_wallet_address()
       );
    }
@@ -642,14 +752,78 @@ mod tests {
    #[test]
    fn vault_payload_legacy_unversioned_json() {
       let vault = sample_vault();
-      let json = serde_json::to_vec(&vault).unwrap();
+      let data = VaultData {
+         hd_wallet: vault.hd_wallet.clone(),
+         imported_wallets: vault.imported_wallets.clone(),
+         railgun_db_key: None,
+         wallet_state_key: None,
+         contacts: Vec::new(),
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: None,
+         approval_manager: None,
+         discovered_wallets: None,
+      };
+      let json = serde_json::to_vec(&data).unwrap();
       assert_eq!(json[0], b'{');
 
       let decoded = decode_vault_payload(&json).unwrap();
-      let loaded: Vault = serde_json::from_slice(&decoded).unwrap();
+      let loaded: VaultData = serde_json::from_slice(&decoded).unwrap();
       assert_eq!(
-         loaded.master_wallet_address(),
+         loaded.hd_wallet.master_wallet.address(),
          vault.master_wallet_address()
       );
+   }
+
+   #[test]
+   fn vault_load_migrates_legacy_embedded_state() {
+      let vault = sample_vault();
+      let mut data = VaultData {
+         hd_wallet: vault.hd_wallet.clone(),
+         imported_wallets: Vec::new(),
+         railgun_db_key: None,
+         wallet_state_key: None,
+         contacts: vec![Contact::new("bob".into(), "0xbb".into(), String::new())],
+         balance_manager: BalanceManagerHandle::default(),
+         portfolio_db: PortfolioDB::default(),
+         tx_db: Some(TxDBHandle::new()),
+         approval_manager: Some(ApprovalManagerHandle::new()),
+         discovered_wallets: Some(DiscoveredWallets::new()),
+      };
+      // Simulate decrypt → load path without wallet_state.data on disk.
+      let json = serde_json::to_vec(&{
+         // Force-include legacy fields by serializing a helper that does not skip them.
+         #[derive(Serialize)]
+         struct Legacy {
+            hd_wallet: SecureHDWallet,
+            imported_wallets: Vec<Wallet>,
+            contacts: Vec<Contact>,
+            balance_manager: BalanceManagerHandle,
+            portfolio_db: PortfolioDB,
+            tx_db: TxDBHandle,
+            approval_manager: ApprovalManagerHandle,
+            discovered_wallets: DiscoveredWallets,
+         }
+         Legacy {
+            hd_wallet: data.hd_wallet.clone(),
+            imported_wallets: data.imported_wallets.clone(),
+            contacts: data.contacts.clone(),
+            balance_manager: data.balance_manager.clone(),
+            portfolio_db: data.portfolio_db.clone(),
+            tx_db: data.tx_db.clone().unwrap(),
+            approval_manager: data.approval_manager.clone().unwrap(),
+            discovered_wallets: data.discovered_wallets.clone().unwrap(),
+         }
+      })
+      .unwrap();
+
+      let _payload = encode_vault_payload(&json).unwrap();
+      // load() checks WalletState::exists() against real data_dir — may or may not
+      // exist in unit tests. Exercise take_legacy directly here.
+      let legacy = data.take_legacy_wallet_state().expect("legacy");
+      assert_eq!(legacy.contacts.len(), 1);
+      assert_eq!(legacy.contacts[0].name, "bob");
+
+      let _ = vault;
    }
 }

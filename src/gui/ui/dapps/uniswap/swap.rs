@@ -2308,8 +2308,8 @@ async fn swap_via_ur(
 
       if currency_out.is_erc20() {
          portfolio.add_token(currency_out.to_erc20().into_owned());
-         ctx.write_vault(|vault| {
-            vault.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio)
+         ctx.write_wallet_state(|ws| {
+            ws.portfolio_db.insert_portfolio(chain.id(), signer_address, portfolio)
          });
       }
 

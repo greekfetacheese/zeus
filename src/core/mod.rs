@@ -4,12 +4,14 @@ pub mod tx;
 pub mod types;
 pub mod vault;
 pub mod wallet;
+pub mod wallet_state;
 
 pub use context::*;
 pub use signature::{msg::SignMsgType, sign::sign_message};
 pub use tx::{analysis::*, events::*, rich::*, send::*};
 pub use vault::*;
 pub use wallet::*;
+pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};
 
 mod serde_hashmap {
    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};

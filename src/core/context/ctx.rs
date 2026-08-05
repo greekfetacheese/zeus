@@ -3,7 +3,7 @@ use super::{
    ZeusClient, price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
 
-use crate::core::{TransactionRich, WalletValue};
+use crate::core::{TransactionRich, WalletState, WalletValue};
 use crate::core::{Vault, WalletInfo, client::Rpc, types::*};
 use crate::server::SERVER_PORT;
 use crate::utils::create_railgun_provider;
@@ -138,7 +138,7 @@ impl ZeusCtx {
    }
 
    pub fn balance_manager(&self) -> BalanceManagerHandle {
-      self.read_vault(|vault| vault.balance_manager.clone())
+      self.read_wallet_state(|ws| ws.balance_manager.clone())
    }
 
    /// Cheap clone of the vault handle (`Arc<RwLock<Vault>>`).
@@ -146,10 +146,40 @@ impl ZeusCtx {
       self.read(|ctx| Arc::clone(&ctx.vault))
    }
 
+   /// Cheap clone of the wallet-state handle.
+   pub fn wallet_state(&self) -> WalletState {
+      self.read(|ctx| ctx.wallet_state.clone())
+   }
+
    /// Shared access to the vault without cloning its contents.
    pub fn read_vault<R>(&self, reader: impl FnOnce(&Vault) -> R) -> R {
       let vault = self.vault_handle();
       reader(&vault.read().unwrap())
+   }
+
+   /// Shared access to wallet app state (contacts, balances, portfolios, txs, …).
+   pub fn read_wallet_state<R>(
+      &self,
+      reader: impl FnOnce(&crate::core::WalletStateInner) -> R,
+   ) -> R {
+      self.wallet_state().read(reader)
+   }
+
+   /// Mutable access to wallet app state (does not hold the ZeusContext lock).
+   pub fn write_wallet_state<R>(
+      &self,
+      writer: impl FnOnce(&mut crate::core::WalletStateInner) -> R,
+   ) -> R {
+      self.wallet_state().write(writer)
+   }
+
+   /// Replace wallet-state contents in-place (same `Arc`).
+   pub fn set_wallet_state(&self, state: WalletState) {
+      self.write(|ctx| {
+         // Keep the same outer handle so clones stay valid, copy inner into live Arc.
+         let live = ctx.wallet_state.clone();
+         live.set(state.clone_inner());
+      });
    }
 
    /// If pool_data.json has been deleted, we need to re-sync the pools
@@ -484,7 +514,7 @@ impl ZeusCtx {
       }
    }
 
-   /// Encrypt and save the vault
+   /// Encrypt and save the vault (Argon2 — wallets + AEAD keys only).
    ///
    /// If `new_vault` is None, the current vault will be encrypted
    ///
@@ -502,9 +532,8 @@ impl ZeusCtx {
 
       self.write(|ctx| ctx.save_vault_in_progress = true);
 
-      // Always encrypt the live balance/portfolio/tx/discovery state.
-      // Wallet/contact mutations pass `new_vault` with those fields possibly stale.
-      // Snapshot under a short vault lock encrypt (Argon2) must not hold it.
+      // Wallet mutations pass `new_vault` that may lack AEAD keys — merge from live.
+      // Snapshot under a short vault lock; Argon2 encrypt must not hold it.
       let vault = match new_vault {
          Some(mut vault) => {
             self.read_vault(|live| vault.persisted_state_from(live));
@@ -532,12 +561,43 @@ impl ZeusCtx {
       Ok(())
    }
 
+   pub fn save_wallet_state(&self) -> Result<(), anyhow::Error> {
+      if self.save_wallet_state_in_progress() {
+         return Err(anyhow!(
+            "Saving wallet state in progress, try again later"
+         ));
+      }
+
+      self.write(|ctx| {
+         ctx.save_wallet_state_in_progress = true;
+      });
+
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let state = self.wallet_state();
+
+      let res = state.encrypt_and_save(&key);
+
+      self.write(|ctx| {
+         ctx.save_wallet_state_in_progress = false;
+      });
+
+      res
+   }
+
    pub fn set_save_vault_in_progress(&self, save_vault_in_progress: bool) {
       self.write(|ctx| ctx.save_vault_in_progress = save_vault_in_progress);
    }
 
    pub fn save_vault_in_progress(&self) -> bool {
       self.read(|ctx| ctx.save_vault_in_progress)
+   }
+
+   pub fn set_save_wallet_state_in_progress(&self, in_progress: bool) {
+      self.write(|ctx| ctx.save_wallet_state_in_progress = in_progress);
+   }
+
+   pub fn save_wallet_state_in_progress(&self) -> bool {
+      self.read(|ctx| ctx.save_wallet_state_in_progress)
    }
 
    pub fn tx_confirm_window_open(&self) -> bool {
@@ -658,12 +718,12 @@ impl ZeusCtx {
    }
 
    pub fn contacts(&self) -> Vec<Contact> {
-      self.read_vault(|vault| vault.contacts.clone())
+      self.read_wallet_state(|ws| ws.contacts.clone())
    }
 
    pub fn remove_contact(&self, evm_address: &str) {
-      self.write_vault(|vault| {
-         vault.contacts.retain(|c| c.evm_address != evm_address);
+      self.write_wallet_state(|ws| {
+         ws.contacts.retain(|c| c.evm_address != evm_address);
       });
    }
 
@@ -687,8 +747,8 @@ impl ZeusCtx {
          ));
       }
 
-      self.write_vault(|vault| {
-         vault.contacts.push(contact);
+      self.write_wallet_state(|ws| {
+         ws.contacts.push(contact);
       });
       Ok(())
    }
@@ -700,12 +760,8 @@ impl ZeusCtx {
 
    pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
       let zk_address = zk_address.to_lowercase();
-      self.read_vault(|vault| {
-         vault
-            .contacts
-            .iter()
-            .find(|c| c.zk_address.to_lowercase() == zk_address)
-            .cloned()
+      self.read_wallet_state(|ws| {
+         ws.contacts.iter().find(|c| c.zk_address.to_lowercase() == zk_address).cloned()
       })
    }
 
@@ -809,14 +865,19 @@ impl ZeusCtx {
       if let Err(e) = db.add_tx(chain, owner, tx) {
          tracing::error!("Error adding transaction to TxDB: {:?}", e);
       }
+
+      match self.save_wallet_state() {
+         Ok(_) => {}
+         Err(e) => tracing::error!("Error saving WalletState: {:?}", e),
+      }
    }
 
    pub fn tx_db(&self) -> TxDBHandle {
-      self.read_vault(|vault| vault.tx_db.clone())
+      self.read_wallet_state(|ws| ws.tx_db.clone())
    }
 
    pub fn approval_manager(&self) -> ApprovalManagerHandle {
-      self.read_vault(|vault| vault.approval_manager.clone())
+      self.read_wallet_state(|ws| ws.approval_manager.clone())
    }
 
    pub fn save_disabled_chains(&self) {
@@ -852,11 +913,11 @@ impl ZeusCtx {
    }
 
    pub fn get_portfolio(&self, chain: u64, owner: Address) -> WalletPortfolio {
-      self.read_vault(|vault| vault.portfolio_db.get(chain, owner))
+      self.read_wallet_state(|ws| ws.portfolio_db.get(chain, owner))
    }
 
    pub fn has_portfolio(&self, chain: u64, owner: Address) -> bool {
-      self.read_vault(|vault| vault.portfolio_db.portfolios.contains_key(&(chain, owner)))
+      self.read_wallet_state(|ws| ws.portfolio_db.portfolios.contains_key(&(chain, owner)))
    }
 
    /// Get the total value for the given owner across all of its wallets and chains
@@ -867,7 +928,7 @@ impl ZeusCtx {
    /// Get all tokens from all portfolios
    pub fn get_all_tokens_from_portfolios(&self, chain: u64) -> Vec<ERC20Token> {
       let mut tokens = Vec::new();
-      let portfolios = self.read_vault(|vault| vault.portfolio_db.get_all(chain));
+      let portfolios = self.read_wallet_state(|ws| ws.portfolio_db.get_all(chain));
 
       for portfolio in portfolios {
          let erc_tokens = portfolio.tokens().iter().map(|token| token.clone()).collect::<Vec<_>>();
@@ -885,8 +946,8 @@ impl ZeusCtx {
    pub fn update_public_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_public_data(self.clone());
-      self.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      self.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -899,8 +960,8 @@ impl ZeusCtx {
    pub async fn update_private_data(&self, chain: u64, owner: Address) {
       let mut portfolio = self.get_portfolio(chain, owner);
       portfolio.update_private_data(self.clone()).await;
-      self.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      self.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
    }
 
@@ -1551,6 +1612,11 @@ pub struct ZeusContext {
    /// Loaded Vault
    pub vault: Arc<RwLock<Vault>>,
 
+   /// Frequently updated wallet app state (contacts, balances, portfolios, txs, …).
+   ///
+   /// Sealed separately in `wallet_state.data` with [`Vault`]'s `wallet_state_key`.
+   pub wallet_state: WalletState,
+
    /// The Argon2 params used for the current vault
    pub argon_params: Argon2,
 
@@ -1583,6 +1649,7 @@ pub struct ZeusContext {
    pub dex_syncing: bool,
    pub on_startup_syncing: bool,
    pub save_vault_in_progress: bool,
+   pub save_wallet_state_in_progress: bool,
 
    /// Cached base fees for each chain
    pub base_fee: HashMap<u64, BaseFee>,
@@ -1712,8 +1779,10 @@ impl ZeusContext {
          current_wallet: Wallet::new_rng("I should not be here".to_string()),
          wallet_info_cache: HashMap::new(),
          vault: Arc::new(RwLock::new(Vault::default())),
+         wallet_state: WalletState::default(),
          argon_params: Argon2::balanced(),
          save_vault_in_progress: false,
+         save_wallet_state_in_progress: false,
          vault_exists,
          vault_unlocked: false,
          address_names,
@@ -1774,12 +1843,30 @@ impl ZeusContext {
       Arc::clone(&self.vault)
    }
 
+   /// Shared access to wallet app state.
+   pub fn read_wallet_state<R>(
+      &self,
+      reader: impl FnOnce(&crate::core::WalletStateInner) -> R,
+   ) -> R {
+      self.wallet_state.read(reader)
+   }
+
+   /// Mutable access to wallet app state.
+   pub fn write_wallet_state<R>(
+      &self,
+      writer: impl FnOnce(&mut crate::core::WalletStateInner) -> R,
+   ) -> R {
+      self.wallet_state.write(writer)
+   }
+
    pub fn get_eth_balance(&self, chain: u64, owner: Address) -> NumericValue {
-      self.read_vault(|vault| vault.balance_manager.get_eth_balance(chain, owner))
+      self.wallet_state.read(|ws| ws.balance_manager.get_eth_balance(chain, owner))
    }
 
    pub fn get_token_balance(&self, chain: u64, owner: Address, token: Address) -> NumericValue {
-      self.read_vault(|vault| vault.balance_manager.get_token_balance(chain, owner, token))
+      self
+         .wallet_state
+         .read(|ws| ws.balance_manager.get_token_balance(chain, owner, token))
    }
 
    pub fn get_base_fee(&self, chain: u64) -> Option<BaseFee> {
@@ -1906,21 +1993,16 @@ impl ZeusContext {
    /// Get a contact by it's zk address
    pub fn get_contact_by_zk_address(&self, zk_address: &str) -> Option<Contact> {
       let zk_address = zk_address.to_lowercase();
-      self.read_vault(|vault| {
-         vault
-            .contacts
-            .iter()
-            .find(|c| c.zk_address.to_lowercase() == zk_address)
-            .cloned()
-      })
+      self
+         .wallet_state
+         .read(|ws| ws.contacts.iter().find(|c| c.zk_address.to_lowercase() == zk_address).cloned())
    }
 
    /// Get a contact by it's address
    pub fn get_contact_by_address(&self, evm_address: &str) -> Option<Contact> {
       let evm_address = evm_address.to_lowercase();
-      self.read_vault(|vault| {
-         vault
-            .contacts
+      self.wallet_state.read(|ws| {
+         ws.contacts
             .iter()
             .find(|c| c.evm_address.to_lowercase() == evm_address)
             .cloned()
@@ -1928,8 +2010,8 @@ impl ZeusContext {
    }
 
    pub fn remove_contact(&mut self, evm_address: &str) {
-      self.write_vault(|vault| {
-         vault.contacts.retain(|c| c.evm_address != evm_address);
+      self.wallet_state.write(|ws| {
+         ws.contacts.retain(|c| c.evm_address != evm_address);
       });
    }
 
@@ -1959,7 +2041,7 @@ impl ZeusContext {
             continue;
          }
 
-         let portfolio = self.read_vault(|vault| vault.portfolio_db.get(chain.id(), owner));
+         let portfolio = self.wallet_state.read(|ws| ws.portfolio_db.get(chain.id(), owner));
          total_public += portfolio.public_value().f64();
          total_private += portfolio.private_value().f64();
       }

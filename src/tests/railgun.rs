@@ -34,9 +34,13 @@ mod tests {
       vault.set_credentials(credentials);
 
       let data = vault.decrypt(None).unwrap();
-      vault.load(data).unwrap();
+      let legacy = vault.load(data).unwrap();
+      let _ = vault.ensure_wallet_state_key();
+      let key = vault.wallet_state_key().unwrap();
+      let (ws, _) = crate::core::WalletState::load_or_migrate(&key, legacy).unwrap();
 
       ctx.set_vault(vault);
+      ctx.set_wallet_state(ws);
    }
 
    #[test]

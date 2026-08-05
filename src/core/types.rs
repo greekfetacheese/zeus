@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use zeus_eth::{
+   types::ETH_SEPOLIA,
    alloy_primitives::{Address, Bytes},
    types::{ChainId, SUPPORTED_CHAINS},
    utils::NumericValue,
@@ -192,9 +193,17 @@ impl BaseFee {
 }
 
 /// A set of chains that are disabled
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisabledChains {
    pub chains: HashSet<u64>,
+}
+
+impl Default for DisabledChains {
+   fn default() -> Self {
+      let mut chains = HashSet::new();
+      chains.insert(ETH_SEPOLIA);
+      Self { chains }
+   }
 }
 
 impl DisabledChains {

@@ -10,6 +10,7 @@ const DATA_SYNCING_MSG: &str = "Zeus is still syncing important data";
 const DEX_SYNCING_MSG: &str = "Zeus is still syncing DEX data";
 const ON_STARTUP_SYNC_MSG: &str = "Zeus is syncing your wallets state";
 const VAULT_SAVE_IN_PROGRESS_MSG: &str = "Saving vault in progress, do not close Zeus yet!";
+const WALLET_STATE_SAVE_IN_PROGRESS_MSG: &str = "Saving state in progress, do not close Zeus yet!";
 const RAILGUN_SYNCING_MSG: &str = "Railgun state sync in progress, do not close Zeus yet!";
 
 const AVAILABLE_RPCS_CHECK_THRESHOLD: u128 = 100;
@@ -86,6 +87,8 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          Some(ON_STARTUP_SYNC_MSG)
       } else if ctx.save_vault_in_progress {
          Some(VAULT_SAVE_IN_PROGRESS_MSG)
+      } else if ctx.save_wallet_state_in_progress {
+         Some(WALLET_STATE_SAVE_IN_PROGRESS_MSG)
       } else {
          None
       };

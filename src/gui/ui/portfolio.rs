@@ -76,7 +76,7 @@ impl PortfolioUi {
       let wallet_info = ctx.current_wallet_info();
       let privacy_mode = ctx.privacy_mode;
       let owner = wallet_info.address;
-      let portfolio = ctx.read_vault(|vault| vault.portfolio_db.get(chain_id, owner));
+      let portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
 
       let portfolio_value = match privacy_mode {
          false => portfolio.public_value(),
@@ -411,10 +411,10 @@ impl PortfolioUi {
 
       let chain_id = ctx.chain.id();
 
-      let mut portfolio = ctx.read_vault(|vault| vault.portfolio_db.get(chain_id, owner));
+      let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain_id, owner));
       portfolio.add_token(currency.to_erc20().into_owned());
-      ctx.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
+      ctx.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain_id, owner, portfolio);
       });
 
       let token = currency.to_erc20().into_owned();
@@ -485,10 +485,10 @@ impl PortfolioUi {
       self.show_spinner = true;
       let chain = ctx.chain.id();
 
-      let mut portfolio = ctx.read_vault(|vault| vault.portfolio_db.get(chain, owner));
+      let mut portfolio = ctx.read_wallet_state(|ws| ws.portfolio_db.get(chain, owner));
       portfolio.remove_token(token);
-      ctx.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain, owner, portfolio);
+      ctx.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain, owner, portfolio);
       });
 
       RT.spawn(async move {

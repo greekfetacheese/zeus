@@ -179,7 +179,7 @@ impl AddContact {
                      }
 
                      // On failure the contact is removed
-                     match ctx.encrypt_and_save_vault(None, None) {
+                     match ctx.save_wallet_state() {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -284,7 +284,7 @@ impl DeleteContact {
                   RT.spawn_blocking(move || {
                      let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                      // On failure the contact is added again
-                     match ctx.encrypt_and_save_vault(None, None) {
+                     match ctx.save_wallet_state() {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -453,8 +453,8 @@ impl EditContact {
                         gui.settings.contacts_ui.edit_contact.close();
                      });
 
-                     ctx.write_vault(|vault| {
-                        let new_contact = vault
+                     ctx.write_wallet_state(|ws| {
+                        let new_contact = ws
                            .contacts
                            .iter_mut()
                            .find(|c| c.evm_address == old_contact.evm_address);
@@ -464,7 +464,7 @@ impl EditContact {
                      });
 
                      // On failure the contact changes are reverted
-                     match ctx.encrypt_and_save_vault(None, None) {
+                     match ctx.save_wallet_state() {
                         Ok(_) => {}
                         Err(e) => {
                            SHARED_GUI.write(|gui| {
@@ -476,8 +476,8 @@ impl EditContact {
                               gui.request_repaint();
                            });
 
-                           ctx.write_vault(|vault| {
-                              let new_contact = vault
+                           ctx.write_wallet_state(|ws| {
+                              let new_contact = ws
                                  .contacts
                                  .iter_mut()
                                  .find(|c| c.evm_address == edited_contact.evm_address);
@@ -565,7 +565,7 @@ impl ContactsUi {
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
-            let contacts = ctx.read_vault(|vault| vault.contacts.clone());
+            let contacts = ctx.read_wallet_state(|ws| ws.contacts.clone());
 
             let text_edit_visuals = theme.text_edit_visuals();
             let button_visuals = theme.button_visuals();

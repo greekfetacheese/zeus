@@ -413,8 +413,8 @@ async fn get_erc20_token(
    if !balance.is_zero() {
       let mut portfolio = ctx.get_portfolio(chain, owner);
       portfolio.add_token(token.clone());
-      ctx.write_vault(|vault| {
-         vault.portfolio_db.insert_portfolio(chain, owner, portfolio)
+      ctx.write_wallet_state(|ws| {
+         ws.portfolio_db.insert_portfolio(chain, owner, portfolio)
       });
    }
 

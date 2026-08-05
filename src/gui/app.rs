@@ -135,21 +135,22 @@ impl ZeusApp {
 
          let unlocked = zeus_ctx.read(|z| z.vault_unlocked);
          if unlocked {
-            let save_res = RT
-               .spawn_blocking({
-                  let zeus_ctx = zeus_ctx.clone();
-                  move || zeus_ctx.encrypt_and_save_vault(None, None)
+            let ctx = zeus_ctx.clone();
+            let _ = RT
+               .spawn_blocking(move || {
+                  if let Err(e) = ctx.encrypt_and_save_vault(None, None) {
+                     tracing::error!("Failed to save vault: {:?}", e);
+                  }
+
+                  if let Err(e) = ctx.save_wallet_state() {
+                     tracing::error!("Failed to save wallet state: {:?}", e);
+                  }
+
+                  ctx.save_pool_manager();
+                  ctx.save_currency_db();
+                  ctx.save_price_manager();
                })
                .await;
-            match save_res {
-               Ok(Ok(())) => tracing::info!("Vault saved on shutdown"),
-               Ok(Err(e)) => tracing::error!("Failed to save vault on shutdown: {:?}", e),
-               Err(e) => tracing::error!("Vault save task failed: {:?}", e),
-            }
-
-            zeus_ctx.save_pool_manager();
-            zeus_ctx.save_currency_db();
-            zeus_ctx.save_price_manager();
 
             SHARED_GUI.write(|gui| {
                gui.loading_window.open("Compacting Railgun DB...");
