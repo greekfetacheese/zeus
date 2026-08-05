@@ -3,12 +3,16 @@
 use crate::core::{TransactionRich, WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::utils::{RT, truncate_address};
-use egui::{Align, Frame, Grid, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
+use egui::{Align, Frame, Layout, Margin, RichText, ScrollArea, Sense, Ui, vec2};
+use elegance::{Badge, BadgeTone};
 use zeus_eth::{alloy_primitives::Address, types::ChainId};
 use zeus_theme::Theme;
 use zeus_widgets::{Button, ComboBox, Label};
 
-const DEFAULT_TXS_PER_PAGE: usize = 20;
+const DEFAULT_TXS_PER_PAGE: usize = 10;
+
+const ZEUS_TIP: &str = "Zeus only shows transactions that have been been made in-app.\n
+It cannot track transactions made from other wallets.";
 
 pub struct TxHistory {
    open: bool,
@@ -85,6 +89,8 @@ impl TxHistory {
       self.db_ready = false;
       self.cached_txs = Vec::new();
       self.cache_key = CacheKey::default();
+      self.selected_chain = None;
+      self.selected_wallet = None;
    }
 
    fn wallet_name_or_address(&self, ctx: &mut ZeusContext, address: Address) -> String {
@@ -94,6 +100,20 @@ impl TxHistory {
       } else {
          truncate_address(address.to_string())
       }
+   }
+
+   /// Fixed-size cell with vertically centered content so every column
+   /// shares one baseline across framed rows.
+   fn row_cell(ui: &mut Ui, width: f32, height: f32, add_contents: impl FnOnce(&mut Ui)) {
+      ui.allocate_ui_with_layout(
+         vec2(width, height),
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            ui.set_min_size(vec2(width, height));
+            ui.set_max_size(vec2(width, height));
+            add_contents(ui);
+         },
+      );
    }
 
    fn current_cache_key(&self) -> CacheKey {
@@ -179,16 +199,6 @@ impl TxHistory {
          ui.spacing_mut().item_spacing = vec2(10.0, 15.0);
          ui.spacing_mut().button_padding = vec2(10.0, 8.0);
 
-         ui.vertical_centered_justified(|ui| {
-            ui.label(
-               RichText::new("Transaction History")
-                  .size(theme.text_sizes.heading)
-                  .color(theme.colors.text),
-            );
-         });
-
-         ui.add_space(10.0);
-
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
             ui.spacing_mut().item_spacing.x = 20.0;
             ui.spacing_mut().button_padding = vec2(10.0, 8.0);
@@ -201,7 +211,7 @@ impl TxHistory {
             let wallets = ctx.get_all_wallets_info();
             let selected_wallet_name =
                self.selected_wallet.clone().map_or("All Wallets".to_string(), |wallet| {
-                  wallet.name_with_source()
+                  wallet.name_with_id_short()
                });
 
             let text = RichText::new(selected_wallet_name).size(theme.text_sizes.normal);
@@ -302,17 +312,9 @@ impl TxHistory {
                      }
                   }
                });
-
-            #[cfg(feature = "dev")]
-            if ui.add(Button::new("Reload TxDB")).clicked() {
-               self.cached_txs.clear();
-               self.cache_key = CacheKey::invalid();
-            }
          });
 
-         ui.add_space(10.0);
          ui.separator();
-         ui.add_space(10.0);
 
          if self.loading {
             ui.vertical_centered(|ui| {
@@ -325,16 +327,20 @@ impl TxHistory {
             return;
          }
 
-         // Rebuild after filter widgets may have changed selection
-         self.rebuild_cache();
-
          if self.cached_txs.is_empty() {
-            ui.vertical_centered(|ui| {
+            ui.horizontal(|ui| {
+               ui.add_space(400.0);
+               ui.spacing_mut().item_spacing.x = 5.0;
+
                ui.label(
-                  RichText::new("No transactions match your filters.")
+                  RichText::new("No transactions match your filters")
                      .size(theme.text_sizes.large)
                      .color(theme.colors.text),
                );
+
+               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               ui.add(info_tip).on_hover_text(ZEUS_TIP);
             });
             return;
          }
@@ -346,46 +352,58 @@ impl TxHistory {
 
          let button_visuals = theme.button_visuals();
 
-         // --- Pagination Controls ---
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            // Next Page Button
-            let next_enabled = (self.current_page + 1) < total_pages;
-            let text = RichText::new("Next").size(theme.text_sizes.normal);
-            let next_button = Button::new(text).visuals(button_visuals);
-            if ui.add_enabled(next_enabled, next_button).clicked() {
-               self.current_page += 1;
-            }
+         // Count centered above the list
+         ui.horizontal(|ui| {
+            // Pagination centered and vertically aligned with the buttons
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = 12.0;
+               ui.spacing_mut().button_padding = vec2(4.0, 6.0);
 
-            // Page Number Display
-            ui.label(format!(
-               "Page {} of {}",
-               self.current_page + 1,
-               total_pages.max(1)
-            ));
+               let prev_enabled = self.current_page > 0;
+               let text = RichText::new("Previous").size(theme.text_sizes.small);
+               let prev_button = Button::new(text).visuals(button_visuals);
+               if ui.add_enabled(prev_enabled, prev_button).clicked() {
+                  self.current_page -= 1;
+               }
 
-            // Previous Page Button
-            let prev_enabled = self.current_page > 0;
-            let text = RichText::new("Previous").size(theme.text_sizes.normal);
-            let prev_button = Button::new(text).visuals(button_visuals);
-            if ui.add_enabled(prev_enabled, prev_button).clicked() {
-               self.current_page -= 1;
-            }
-         });
-         ui.add_space(5.0);
+               ui.label(
+                  RichText::new(format!(
+                     "Page {} of {}",
+                     self.current_page + 1,
+                     total_pages.max(1)
+                  ))
+                  .size(theme.text_sizes.small)
+                  .color(theme.colors.text),
+               );
 
-         ui.vertical_centered(|ui| {
+               let next_enabled = (self.current_page + 1) < total_pages;
+               let text = RichText::new("Next").size(theme.text_sizes.small);
+               let next_button = Button::new(text).visuals(button_visuals);
+               if ui.add_enabled(next_enabled, next_button).clicked() {
+                  self.current_page += 1;
+               }
+            });
+
+            ui.add_space(200.0);
+            ui.spacing_mut().item_spacing.x = 5.0;
+
             ui.label(
                RichText::new(format!("{} transactions found", total_txs))
-                  .size(theme.text_sizes.normal)
+                  .size(theme.text_sizes.large)
                   .color(theme.colors.text),
             );
+
+            let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+            let info_tip = Badge::new(q_mark, BadgeTone::Info);
+            ui.add(info_tip).on_hover_text(ZEUS_TIP);
          });
-         ui.add_space(20.0);
+
+         ui.add_space(10.0);
 
          ScrollArea::vertical()
             .id_salt("tx_history_scroll_area")
             .auto_shrink([false; 2])
-            .max_height(ui.available_height() * 0.8)
+            .max_height(ui.available_height() * 0.85)
             .show(ui, |ui| {
                ui.set_width(ui.available_width());
 
@@ -397,101 +415,99 @@ impl TxHistory {
                   &[]
                };
 
+               // Fixed content height for every column so icon-less rows
+               // and the Details button share one baseline.
+               let row_height = 40.0;
+               let col_spacing = 20.0;
                let column_widths = [
-                  ui.available_width() * 0.2,
-                  ui.available_width() * 0.2,
-                  ui.available_width() * 0.2,
-                  ui.available_width() * 0.2,
+                  ui.available_width() * 0.22, // Wallet
+                  ui.available_width() * 0.28, // Action
+                  ui.available_width() * 0.22, // Age
+                  ui.available_width() * 0.16, // Details
                ];
 
+               let row_width: f32 = column_widths.iter().sum::<f32>()
+                  + col_spacing * (column_widths.len() as f32 - 1.0);
+
+               // --- Header (same widths as body cells; not inside a frame) ---
                ui.horizontal(|ui| {
-                  ui.add_space((ui.available_width() - column_widths.iter().sum::<f32>()) / 2.0);
-
-                  Grid::new("tx_history_grid")
-                     .spacing([20.0, 10.0])
-                     .num_columns(4)
-                     .striped(true)
-                     .show(ui, |ui| {
-                        ui.label(
-                           RichText::new("Wallet")
-                              .strong()
-                              .size(theme.text_sizes.large)
-                              .color(theme.colors.text),
-                        );
-
-                        ui.label(
-                           RichText::new("Action")
-                              .strong()
-                              .size(theme.text_sizes.large)
-                              .color(theme.colors.text),
-                        );
-
-                        ui.label(
-                           RichText::new("Age")
-                              .strong()
-                              .size(theme.text_sizes.large)
-                              .color(theme.colors.text),
-                        );
-
-                        ui.label(
-                           RichText::new("Details")
-                              .strong()
-                              .size(theme.text_sizes.large)
-                              .color(theme.colors.text),
-                        );
-                        ui.end_row();
-
-                        for tx in txs_on_page {
-                           // Wallet Name Column
-                           // TODO: Tweak this its very bad
-                           let name = self.wallet_name_or_address(ctx, tx.sender());
-                           ui.horizontal(|ui| {
-                              ui.set_width(column_widths[0]);
-                              ui.label(
-                                 RichText::new(name)
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Action Name Column
-                           ui.horizontal(|ui| {
-                              ui.set_width(column_widths[1]);
-                              ui.label(
-                                 RichText::new(tx.main_event.name())
-                                    .size(theme.text_sizes.normal)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Age Column
-                           ui.horizontal(|ui| {
-                              ui.set_width(column_widths[2]);
-                              ui.label(
-                                 RichText::new(tx.timestamp.to_relative())
-                                    .size(theme.text_sizes.small)
-                                    .color(theme.colors.text),
-                              );
-                           });
-
-                           // Details Button Column
-                           let text = RichText::new("Details").size(theme.text_sizes.normal);
-                           let details_button = Button::new(text).visuals(button_visuals);
-                           ui.horizontal(|ui| {
-                              ui.set_width(column_widths[3]);
-                              if ui.add(details_button).clicked() {
-                                 let tx_clone = tx.clone();
-                                 RT.spawn_blocking(move || {
-                                    SHARED_GUI.write(|gui| {
-                                       gui.tx_window.open(Some(tx_clone));
-                                    });
-                                 });
-                              }
-                           });
-
-                           ui.end_row();
+                  ui.add_space((ui.available_width() - row_width).max(0.0) / 2.0);
+                  ui.spacing_mut().item_spacing.x = col_spacing;
+                  for (i, header) in ["Wallet", "Action", "Age", ""].into_iter().enumerate() {
+                     Self::row_cell(ui, column_widths[i], 28.0, |ui| {
+                        if !header.is_empty() {
+                           ui.label(
+                              RichText::new(header)
+                                 .strong()
+                                 .size(theme.text_sizes.large)
+                                 .color(theme.colors.text),
+                           );
                         }
                      });
+                  }
+               });
+
+               ui.add_space(8.0);
+
+               // --- Body: one frame2 card per tx ---
+               let row_frame = theme.frame2.outer_margin(Margin::ZERO);
+
+               ui.vertical_centered(|ui| {
+                  ui.spacing_mut().item_spacing.y = 10.0;
+
+                  for tx in txs_on_page {
+                     ui.allocate_ui(vec2(row_width, row_height + 16.0), |ui| {
+                        row_frame.show(ui, |ui| {
+                           ui.set_width(row_width);
+                           ui.spacing_mut().item_spacing.x = col_spacing;
+
+                           ui.horizontal(|ui| {
+                              // Wallet
+                              Self::row_cell(ui, column_widths[0], row_height, |ui| {
+                                 let name = self.wallet_name_or_address(ctx, tx.sender());
+                                 ui.label(
+                                    RichText::new(name)
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 )
+                                 .on_hover_text(tx.sender().to_string());
+                              });
+
+                              // Action
+                              Self::row_cell(ui, column_widths[1], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(tx.main_event.name())
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Age
+                              Self::row_cell(ui, column_widths[2], row_height, |ui| {
+                                 ui.label(
+                                    RichText::new(tx.timestamp.to_relative())
+                                       .size(theme.text_sizes.normal)
+                                       .color(theme.colors.text),
+                                 );
+                              });
+
+                              // Details
+                              Self::row_cell(ui, column_widths[3], row_height, |ui| {
+                                 let text = RichText::new("Details").size(theme.text_sizes.normal);
+                                 let details_button = Button::new(text).visuals(button_visuals);
+                                 if ui.add(details_button).clicked() {
+                                    let tx_clone = tx.clone();
+                                    RT.spawn_blocking(move || {
+                                       SHARED_GUI.write(|gui| {
+                                          gui.tx_window.open(Some(tx_clone));
+                                       });
+                                    });
+                                 }
+                              });
+                           });
+                        });
+                     });
+                  }
                });
             });
       });

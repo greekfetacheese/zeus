@@ -21,6 +21,9 @@ use zeus_eth::{
 use zeus_theme::{OverlayManager, Theme};
 use zeus_widgets::{Button, ComboBox, Label};
 
+const ZEUS_TIP: &str = "Zeus only shows approvals that have been been made in-app.\n
+It cannot track approvals made from other wallets.";
+
 #[derive(Debug, Clone)]
 enum ApprovalKind {
    Erc20(TokenApproveParams),
@@ -488,26 +491,42 @@ impl ApprovalsUi {
          }
 
          if self.cached_rows.is_empty() {
-            ui.vertical_centered(|ui| {
-               ui.add_space(40.0);
+            ui.horizontal(|ui| {
+               ui.add_space(300.0);
+               ui.spacing_mut().item_spacing.x = 5.0;
+
                ui.label(
-                  RichText::new("No active approvals match your filters.")
+                  RichText::new("No active approvals match your filters")
                      .size(theme.text_sizes.large)
                      .color(theme.colors.text),
                );
+
+               let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+               let info_tip = Badge::new(q_mark, BadgeTone::Info);
+               ui.add(info_tip).on_hover_text(ZEUS_TIP);
             });
             return;
          }
 
+         let size = vec2(200.0, 30.0);
          ui.vertical_centered(|ui| {
-            ui.label(
-               RichText::new(format!(
-                  "{} active approval(s)",
-                  self.cached_rows.len()
-               ))
-               .size(theme.text_sizes.large)
-               .color(theme.colors.text),
-            );
+            ui.allocate_ui(size, |ui| {
+               ui.horizontal(|ui| {
+                  ui.spacing_mut().item_spacing.x = 5.0;
+                  ui.label(
+                     RichText::new(format!(
+                        "{} active approval(s)",
+                        self.cached_rows.len()
+                     ))
+                     .size(theme.text_sizes.large)
+                     .color(theme.colors.text),
+                  );
+
+                  let q_mark = RichText::new("?").size(theme.text_sizes.normal);
+                  let info_tip = Badge::new(q_mark, BadgeTone::Info);
+                  ui.add(info_tip).on_hover_text(ZEUS_TIP);
+               });
+            });
          });
 
          ui.add_space(10.0);
