@@ -1,9 +1,12 @@
+//! ABI for the Permit2 contract
+//! https://github.com/Uniswap/permit2
+
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{
    Address, Bytes, LogData, Signature, U256,
    aliases::{U48, U160},
 };
-use alloy_sol_types::{SolCall, SolEvent, SolValue, sol};
+use alloy_sol_types::{SolCall, SolEvent, sol};
 
 sol! {
 
@@ -91,54 +94,6 @@ where
    Ok(allowance)
 }
 
-pub fn encode_permit_batch_ur_input(permit_batch: Permit2::PermitBatch, signature: Signature) -> Bytes {
-   (permit_batch, Bytes::from(signature.as_bytes()))
-      .abi_encode_params()
-      .into()
-}
-
-pub fn encode_permit2_permit_ur_input(
-   token: Address,
-   amount: U256,
-   expiration: U256,
-   nonce: U48,
-   spender: Address,
-   sig_deadline: U256,
-   signature: Signature,
-) -> Bytes {
-   let amount = U160::from(amount);
-   let expiration = U48::from(expiration);
-
-   let permit_details = Permit2::PermitDetails {
-      token,
-      amount,
-      expiration,
-      nonce,
-   };
-
-   let permit_single = Permit2::PermitSingle {
-      details: permit_details,
-      spender,
-      sigDeadline: sig_deadline,
-   };
-
-   let sig_bytes = Bytes::from(signature.as_bytes());
-   let encoded_args = (permit_single, sig_bytes).abi_encode_params();
-
-   encoded_args.into()
-}
-
-pub fn encode_permit_batch_call(owner: Address, permit_batch: Permit2::PermitBatch, signature: Signature) -> Bytes {
-   let sig_bytes = Bytes::from(signature.as_bytes());
-   // Overload: (owner, PermitBatch, signature)
-   let encoded = Permit2::permit_1Call {
-      owner,
-      permitBatch: permit_batch,
-      signature: sig_bytes,
-   };
-   encoded.abi_encode().into()
-}
-
 /// Encode `Permit2.permit(owner, PermitSingle, signature)` calldata.
 pub fn encode_permit_single_call(
    owner: Address,
@@ -174,53 +129,6 @@ pub fn encode_permit_single_call(
       signature: sig_bytes,
    };
    encoded.abi_encode().into()
-}
-
-/// Encode `Permit2.approve(token, spender, amount, expiration)` calldata.
-pub fn encode_permit2_approve(
-   token: Address,
-   spender: Address,
-   amount: U256,
-   expiration: U256,
-) -> Bytes {
-   let encoded = Permit2::approveCall {
-      token,
-      spender,
-      amount: U160::from(amount),
-      expiration: U48::from(expiration),
-   };
-   encoded.abi_encode().into()
-}
-
-pub fn encode_permit2_permit_single(
-   token: Address,
-   amount: U256,
-   expiration: U256,
-   nonce: U48,
-   spender: Address,
-   sig_deadline: U256,
-   signature: Signature,
-) -> Bytes {
-   let amount = U160::from(amount);
-   let expiration = U48::from(expiration);
-
-   let permit_details = Permit2::PermitDetails {
-      token,
-      amount,
-      expiration,
-      nonce,
-   };
-
-   let permit_single = Permit2::PermitSingle {
-      details: permit_details,
-      spender,
-      sigDeadline: sig_deadline,
-   };
-
-   let sig_bytes = Bytes::from(signature.as_bytes());
-   let encoded_args = (permit_single, sig_bytes).abi_encode();
-
-   encoded_args.into()
 }
 
 pub fn decode_permit_log(log: &LogData) -> Result<Permit2::Permit, anyhow::Error> {

@@ -1,3 +1,6 @@
+//! ABI for the Across protocol
+//! https://github.com/across-protocol/contracts
+
 use V3SpokePoolInterface::{V3SpokePoolInterfaceCalls, depositV3Call};
 use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_sol_types::{SolCall, SolEvent, SolInterface, sol};

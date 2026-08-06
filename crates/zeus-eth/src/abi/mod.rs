@@ -1,5 +1,4 @@
 pub mod erc20;
-pub mod misc;
 pub mod permit;
 pub mod protocols;
 pub mod weth9;

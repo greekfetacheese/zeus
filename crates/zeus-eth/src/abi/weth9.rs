@@ -1,3 +1,5 @@
+//! ABI for the WETH9 contract
+
 use alloy_primitives::{Bytes, LogData, U256};
 use alloy_sol_types::{SolCall, SolEvent, sol};
 

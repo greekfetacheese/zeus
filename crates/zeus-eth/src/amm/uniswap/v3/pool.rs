@@ -12,7 +12,8 @@ use crate::amm::uniswap::{
 
 use crate::abi::uniswap::{v3, v4::PoolKey};
 use crate::currency::{Currency, ERC20Token};
-use crate::utils::{NumericValue, price_feed::get_base_token_price};
+use crate::utils::{price_feed::get_base_token_price};
+use crate::NumericValue;
 
 use anyhow::bail;
 use core::cmp::Ordering;

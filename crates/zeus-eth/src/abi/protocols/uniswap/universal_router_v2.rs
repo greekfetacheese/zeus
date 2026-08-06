@@ -1,3 +1,6 @@
+//! ABI for the Uniswap Router V2
+//! https://docs.uniswap.org/contracts/universal-router/technical-reference
+
 use alloy_primitives::{
    Address, Bytes, Signature, U256,
    aliases::{U24, U48, U160},
@@ -7,7 +10,6 @@ use alloy_sol_types::{SolCall, SolValue, sol};
 use super::v4::actions::*;
 use crate::abi::permit::Permit2;
 
-// https://docs.uniswap.org/contracts/universal-router/technical-reference
 sol! {
     type Currency is address;
 

@@ -17,3 +17,7 @@ pub use alloy_signer_local;
 pub use alloy_sol_types;
 pub use alloy_transport;
 pub use revm;
+
+pub use crate::currency::{Currency, ERC20Token, NativeCurrency};
+pub use crate::types::{ChainId, SUPPORTED_CHAINS};
+pub use crate::utils::{numeric_value::NumericValue, client::*};

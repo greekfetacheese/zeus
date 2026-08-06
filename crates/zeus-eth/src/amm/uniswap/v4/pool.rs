@@ -15,7 +15,8 @@ use crate::amm::uniswap::{
 use super::super::math::sqrt_price_math::Q96;
 use crate::abi::uniswap::v4::PoolKey;
 use crate::currency::{Currency, ERC20Token, NativeCurrency};
-use crate::utils::{NumericValue, price_feed::get_base_token_price};
+use crate::utils::{price_feed::get_base_token_price};
+use crate::NumericValue;
 
 use anyhow::{anyhow, bail};
 use core::cmp::Ordering;

@@ -1,3 +1,6 @@
+//! ABI for the Uniswap V3 NFT Position Manager
+//! https://developers.uniswap.org/docs/protocols/v3/overview
+
 use alloy_contract::private::{Network, Provider};
 use alloy_primitives::{Address, Bytes, LogData, U256, Uint};
 use alloy_sol_types::{SolCall, SolEvent, sol};

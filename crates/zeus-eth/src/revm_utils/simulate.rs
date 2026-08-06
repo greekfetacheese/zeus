@@ -10,47 +10,6 @@ use crate::abi::{
    uniswap::nft_position::{INonfungiblePositionManager, encode_decrease_liquidity},
 };
 
-/// Simulate a swap using [abi::misc::SwapRouter]
-///
-/// Returns the amount of token we received
-pub fn swap<DB>(
-   evm: &mut Evm2<DB>,
-   params: abi::misc::SwapRouter::Params,
-   caller: Address,
-   contract: Address,
-   commit: bool,
-) -> Result<U256, anyhow::Error>
-where
-   DB: Database + DatabaseCommit,
-{
-   let data = abi::misc::encode_swap(params);
-
-   evm.tx.chain_id = Some(evm.cfg.chain_id);
-   evm.tx.caller = caller;
-   evm.tx.data = data.into();
-   evm.tx.value = U256::ZERO;
-   evm.tx.kind = TxKind::Call(contract);
-
-   let res = if commit {
-      evm.transact_commit(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-   } else {
-      evm.transact(evm.tx.clone())
-         .map_err(|e| anyhow!("{:?}", e))?
-         .result
-   };
-
-   let output = res.output().ok_or(anyhow!("Output not found"))?;
-
-   if !res.is_success() {
-      let err = revert_msg(output);
-      return Err(anyhow!("Call Reverted: {}", err));
-   }
-
-   let amount = abi::misc::decode_swap(output)?;
-   Ok(amount)
-}
-
 /// Simulate the balance of function of the ERC20 contract
 pub fn erc20_balance<DB>(evm: &mut Evm2<DB>, token: Address, owner: Address) -> Result<U256, anyhow::Error>
 where

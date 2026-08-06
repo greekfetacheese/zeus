@@ -1,3 +1,5 @@
+//! ABI for the ERC20 interface
+
 use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types::BlockId;
 use alloy_sol_types::{SolCall, SolEvent, sol};
